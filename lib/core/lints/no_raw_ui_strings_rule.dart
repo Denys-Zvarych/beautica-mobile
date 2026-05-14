@@ -28,6 +28,14 @@
 // `kRawUiStringTargets` inside the checker. See the checker file for the
 // full list.
 
+// ignore_for_file: deprecated_member_use
+// The `ErrorSeverity`, `ErrorReporter`, and `name2` symbols are deprecated
+// in analyzer 8.x in favour of `DiagnosticSeverity`, `DiagnosticReporter`,
+// and `name`. However, `custom_lint_core` 0.8.1 still uses the deprecated
+// aliases in its `DartLintRule.run` override contract, so we cannot swap them
+// unilaterally here without breaking the override signature. Track
+// custom_lint_core for a compatible upgrade path.
+
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/error/error.dart' show ErrorSeverity;
 import 'package:analyzer/error/listener.dart';
@@ -61,7 +69,7 @@ class NoRawUiStringsRule extends DartLintRule {
     if (isRawUiStringFileAllowListed(resolver.path)) return;
 
     context.registry.addInstanceCreationExpression((node) {
-      final String typeName = node.constructorName.type.name2.lexeme;
+      final String typeName = node.constructorName.type.name.lexeme;
       final Set<String>? args = kRawUiStringTargets[typeName];
       if (args == null) return;
 
@@ -91,7 +99,7 @@ class NoRawUiStringsRule extends DartLintRule {
   /// descend into its first positional argument.
   void _checkExpression(Expression expr, ErrorReporter reporter) {
     if (expr is InstanceCreationExpression) {
-      final String inner = expr.constructorName.type.name2.lexeme;
+      final String inner = expr.constructorName.type.name.lexeme;
       if (inner == 'Text') {
         final NodeList<Expression> args = expr.argumentList.arguments;
         if (args.isNotEmpty && args.first is! NamedExpression) {

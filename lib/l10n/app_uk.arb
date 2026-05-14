@@ -17,5 +17,33 @@
         "example": "3"
       }
     }
+  },
+  "errNetwork": "Немає з'єднання з мережею. Перевірте інтернет і спробуйте ще раз.",
+  "@errNetwork": {
+    "description": "Error message shown when a network request fails due to no connectivity."
+  },
+  "errNotFound": "Запис не знайдено.",
+  "@errNotFound": {
+    "description": "Error message shown when a 404 response is received."
+  },
+  "errUnauthorized": "Сесія завершилась. Увійдіть знову.",
+  "@errUnauthorized": {
+    "description": "Error message shown when the user's session has expired (401)."
+  },
+  "errValidation": "Перевірте введені дані та спробуйте знову.",
+  "@errValidation": {
+    "description": "Error message shown when the server returns validation errors (422)."
+  },
+  "errServer": "Помилка сервера. Спробуйте пізніше.",
+  "@errServer": {
+    "description": "Error message shown when a 5xx server error occurs."
+  },
+  "errUnknown": "Щось пішло не так. Спробуйте ще раз.",
+  "@errUnknown": {
+    "description": "Fallback error message for unexpected failures."
+  },
+  "retryLabel": "Спробувати знову",
+  "@retryLabel": {
+    "description": "Label for the retry button shown in error states."
   }
 }

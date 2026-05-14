@@ -89,6 +89,53 @@ void main() {
         <String>['Open menu'],
       );
     });
+
+    // Phase 1.5 — Backlog A: new targets added to kRawUiStringTargets.
+    test('8. FloatingActionButton(tooltip: \'Add item\') — Phase 1.5', () {
+      expect(
+        _findings("FloatingActionButton(tooltip: 'Add item', onPressed: null)"),
+        <String>['Add item'],
+      );
+    });
+
+    test('9. IconButton(tooltip: \'Close\') — Phase 1.5', () {
+      expect(
+        _findings(
+          "IconButton(tooltip: 'Close', onPressed: null, icon: SizedBox())",
+        ),
+        <String>['Close'],
+      );
+    });
+
+    test(
+      '10. ListTile(title: Text(\'Name\')) — descends through Text — Phase 1.5',
+      () {
+        expect(_findings("ListTile(title: Text('Name'))"), <String>['Name']);
+      },
+    );
+
+    test(
+      '11. ListTile(subtitle: Text(\'Sub\')) — descends through Text — Phase 1.5',
+      () {
+        expect(_findings("ListTile(subtitle: Text('Sub'))"), <String>['Sub']);
+      },
+    );
+
+    test(
+      '12. Chip(label: Text(\'Category\')) — descends through Text — Phase 1.5',
+      () {
+        expect(_findings("Chip(label: Text('Category'))"), <String>[
+          'Category',
+        ]);
+      },
+    );
+
+    test(
+      '13. Badge(label: Text(\'3\')) — descends through Text — Phase 1.5',
+      () {
+        expect(_findings("Badge(label: Text('3'))"), <String>['3']);
+      },
+    );
   });
 
   group('no_raw_ui_strings — PASS cases', () {

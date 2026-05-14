@@ -37,6 +37,14 @@ const Map<String, Set<String>> kRawUiStringTargets = {
   'Semantics': {'label'},
   'SnackBar': {'content'},
   'AlertDialog': {'title', 'content'},
+  // Phase 1.5 additions — Backlog A
+  'FloatingActionButton': {'tooltip'},
+  'IconButton': {'tooltip'},
+  // `label` and `title`/`subtitle` are checked via the `_checkExpression`
+  // descent path: if the value is `Text(<literal>)`, the inner literal fires.
+  'Chip': {'label'},
+  'ListTile': {'title', 'subtitle'},
+  'Badge': {'label'},
 };
 
 /// Returns `true` when [path] should be exempt from the rule entirely.
@@ -87,7 +95,7 @@ class _RawUiStringVisitor extends RecursiveAstVisitor<void> {
 
   @override
   void visitInstanceCreationExpression(InstanceCreationExpression node) {
-    final String typeName = node.constructorName.type.name2.lexeme;
+    final String typeName = node.constructorName.type.name.lexeme;
     _inspect(typeName, node.argumentList);
     super.visitInstanceCreationExpression(node);
   }
@@ -126,7 +134,7 @@ class _RawUiStringVisitor extends RecursiveAstVisitor<void> {
   /// its first positional argument.
   void _checkExpression(Expression expr) {
     if (expr is InstanceCreationExpression) {
-      final String inner = expr.constructorName.type.name2.lexeme;
+      final String inner = expr.constructorName.type.name.lexeme;
       if (inner == 'Text') {
         _descendIntoTextFirstArg(expr.argumentList);
       }

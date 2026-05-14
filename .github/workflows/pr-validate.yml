@@ -46,6 +46,12 @@ jobs:
       - name: Analyze
         run: flutter analyze --fatal-infos --fatal-warnings
 
+      # Phase 1.5 — custom lint error gate.
+      # `no_raw_ui_strings` is promoted to ERROR severity; this step fails
+      # the build if any widget carries a raw string literal in a flagged arg.
+      - name: Custom lint (no_raw_ui_strings error gate)
+        run: dart run custom_lint
+
       # Phase 1.2 spacing scale gate — every padding literal must reference
       # `AppSpacing.*` from `lib/core/theme/app_spacing.dart`. The check
       # itself lives in `scripts/forbid_magic_padding.sh` so regex churn
