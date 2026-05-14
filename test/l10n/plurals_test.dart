@@ -44,4 +44,31 @@ void main() {
     // `many` — 5..20 → "записів".
     expect(l10n.calendarBookingsForDay(5), '5 записів');
   });
+
+  testWidgets('English plural picks =0/=1/other', (WidgetTester tester) async {
+    // EN locale is the simpler `=0 / =1 / other` set; we lock the delegate
+    // behaviour here so EN never silently degrades to using the UA `few`
+    // form (which doesn't exist for English in CLDR but a misconfigured
+    // delegate fallback could still produce surprising output).
+    late AppLocalizations l10n;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        locale: const Locale('en'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Builder(
+          builder: (ctx) {
+            l10n = AppLocalizations.of(ctx);
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    expect(l10n.calendarBookingsForDay(0), 'No bookings');
+    expect(l10n.calendarBookingsForDay(1), '1 booking');
+    expect(l10n.calendarBookingsForDay(3), '3 bookings');
+    expect(l10n.calendarBookingsForDay(7), '7 bookings');
+  });
 }

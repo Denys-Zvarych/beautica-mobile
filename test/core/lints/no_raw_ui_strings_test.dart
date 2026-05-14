@@ -173,5 +173,34 @@ Widget build(BuildContext context) {
         isEmpty,
       );
     });
+
+    test('debug scratch files (_debug_*.dart) are exempt', () {
+      // The checker's filename-prefix allow-list (`_debug_*`) lets dev
+      // scratch widgets carry raw English literals without tripping the
+      // lint — they never ship to production. This test fires the rule
+      // against a normally-flagged `Text('debug message')` literal, but
+      // routes it through a `_debug_panel.dart` path so the allow-list
+      // short-circuits to an empty result set.
+      expect(
+        _findings(
+          "Text('debug message')",
+          path: '/proj/lib/dev/_debug_panel.dart',
+        ),
+        isEmpty,
+      );
+    });
+
+    test('generated OpenAPI client codegen (lib/api/**.g.dart) is exempt', () {
+      // Belt-and-braces: this path hits BOTH the `lib/api/**` allow-list
+      // entry AND the `*.g.dart` filename allow-list entry. Either alone
+      // would suppress the finding; the test asserts that the
+      // intersection still resolves cleanly (no double-handling, no
+      // accidental fall-through to the `isEmpty` branch via the wrong
+      // code path).
+      expect(
+        _findings("Text('Hello')", path: '/proj/lib/api/openapi_client.g.dart'),
+        isEmpty,
+      );
+    });
   });
 }

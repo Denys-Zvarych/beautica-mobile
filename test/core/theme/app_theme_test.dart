@@ -31,6 +31,8 @@ void main() {
 
     expect(scheme.brightness, Brightness.light);
     expect(scheme.secondary, BrandColors.bliss);
+    expect(scheme.secondaryContainer, BrandColors.sunshine);
+    expect(scheme.tertiary, BrandColors.sand);
     expect(scheme.error, BrandColors.cherry);
   });
 
@@ -53,6 +55,11 @@ void main() {
 
     expect(scheme.brightness, Brightness.dark);
     expect(scheme.secondary, BrandColors.bliss);
+    // Dark theme intentionally lets the seed derive `secondaryContainer`
+    // (sunshine is too pale to read against a dark surface) — assert the
+    // override was NOT applied so the omission stays load-bearing.
+    expect(scheme.secondaryContainer, isNot(BrandColors.sunshine));
+    expect(scheme.tertiary, BrandColors.sand);
     expect(scheme.error, BrandColors.cherry);
   });
 }
