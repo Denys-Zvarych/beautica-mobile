@@ -1,0 +1,87 @@
+name: beautica_mobile
+description: "Beautica — beauty services booking platform (Flutter app)"
+# The following line prevents the package from being accidentally published to
+# pub.dev using `flutter pub publish`. This is preferred for private packages.
+publish_to: 'none'
+
+# Version: 1.0.0+1 — bumped via Phase 11.6 release discipline.
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+# Runtime dependencies — locked stack per ARCHITECTURE-mobile.md § 2.
+# Codegen-generated files (.g.dart / .freezed.dart) and lib/api/** land in
+# Phase 1+ / Phase 3.1 — Phase 0 only wires the deps so future phases compile.
+dependencies:
+  flutter:
+    sdk: flutter
+
+  flutter_localizations:
+    sdk: flutter
+
+  # State management — Riverpod 2.x with riverpod_generator codegen.
+  flutter_riverpod: ^2.5.1
+  riverpod_annotation: ^2.3.5
+
+  # Routing — go_router, integrates with Riverpod via refreshListenable.
+  go_router: ^14.6.2
+
+  # HTTP — Dio + interceptor chain wired in Phase 2.x.
+  dio: ^5.7.0
+
+  # Secure storage — Android Keystore-backed; refresh-token home.
+  flutter_secure_storage: ^9.2.2
+
+  # Push notifications — Firebase init lands in Phase 8.1; deps reserved here.
+  firebase_core: ^3.6.0
+  firebase_messaging: ^15.1.3
+
+  # Design system — Manrope via google_fonts (full Cyrillic glyph set).
+  google_fonts: ^6.2.1
+
+  # Responsive layout — Material 3 canonical breakpoints.
+  flutter_adaptive_scaffold: ^0.3.1
+
+  # Models / serialization — freezed + json_serializable codegen.
+  freezed_annotation: ^2.4.4
+  json_annotation: ^4.9.0
+
+  # Localization — intl 0.19 keeps lockstep with flutter_localizations on
+  # Flutter 3.41; flutter_intl tooling can bump it later.
+  intl: any
+
+  # OpenAPI client codegen annotation — deferred to Phase 3.1; pinning it
+  # here together with riverpod_lint 2.6.x produces an irreconcilable
+  # analyzer version conflict (annotations pull openapi_generator's analyzer
+  # <7.0.0 constraint, riverpod_lint requires analyzer ^7).
+
+  # Logging — dart:developer log() is the official channel; no extra package.
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # Codegen runners.
+  build_runner: ^2.4.13
+  riverpod_generator: ^2.4.3
+  freezed: ^2.5.7
+  json_serializable: ^6.8.0
+  # openapi_generator deferred to Phase 3.1 — version conflict with
+  # riverpod_lint's required analyzer ^7. Re-add when the OpenAPI client lands.
+
+  # Testing — mocktail (no codegen), golden_toolkit for snapshot tests.
+  mocktail: ^1.0.4
+  network_image_mock: ^2.1.1
+  golden_toolkit: ^0.15.0
+
+  # Lints — flutter_lints + riverpod_lint via custom_lint.
+  flutter_lints: ^6.0.0
+  custom_lint: ^0.7.3
+  riverpod_lint: ^2.6.4
+
+# Flutter section — enables Material icons + l10n codegen (`flutter gen-l10n`).
+flutter:
+  uses-material-design: true
+  generate: true

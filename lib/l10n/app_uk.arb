@@ -1,0 +1,7 @@
+{
+  "@@locale": "uk",
+  "appTitle": "Beautica",
+  "@appTitle": {
+    "description": "Application name shown in the OS task switcher and on the splash screen."
+  }
+}

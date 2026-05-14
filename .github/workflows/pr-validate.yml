@@ -1,0 +1,59 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, dev]
+
+jobs:
+  validate:
+    name: Analyze & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      # Phase 3.1 wires the OpenAPI client generation gate:
+      #   - name: Verify OpenAPI client is up to date
+      #     run: ./scripts/regenerate_api.sh --check
+
+      - name: Format check
+        run: dart format --output=none --set-exit-if-changed lib/ test/
+
+      - name: Analyze
+        run: flutter analyze --fatal-infos --fatal-warnings
+
+      - name: Test
+        run: flutter test --coverage --reporter=expanded
+
+      - name: Build APK (debug)
+        env:
+          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app/api/v1
+        run: |
+          flutter build apk --debug \
+            --dart-define=BEAUTICA_BASE_URL="$BEAUTICA_BASE_URL"
+
+      - name: Upload coverage
+        if: success()
+        uses: codecov/codecov-action@v4
+        with:
+          file: coverage/lcov.info
+          fail_ci_if_error: false
