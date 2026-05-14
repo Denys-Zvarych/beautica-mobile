@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 
-import 'core/theme/brand_colors.dart';
+import 'core/theme/app_theme.dart';
 
 /// Beautica mobile entry point.
 ///
-/// Phase 0 stub — wires [ProviderScope] (Riverpod root) and a Material 3
-/// theme seeded by [BrandColors.seed] so the project compiles end-to-end.
-/// The router (`go_router`), localization delegates, and feature screens
-/// land in Phase 1.4 / 1.3 — until then [BeauticaApp] renders the default
-/// `flutter create` counter so the widget smoke test stays meaningful as a
-/// proof-of-life signal for the build pipeline.
+/// Phase 1.1 — wires [ProviderScope] (Riverpod root) and the Material 3
+/// theme factories ([lightTheme], [darkTheme]) seeded from the brand
+/// palette. The router (`go_router`), localization delegates, and feature
+/// screens land in Phase 1.4 / 1.3 — until then [BeauticaApp] renders the
+/// default `flutter create` counter so the widget smoke test stays
+/// meaningful as a proof-of-life signal for the build pipeline.
 void main() {
   runApp(const ProviderScope(child: BeauticaApp()));
 }
@@ -21,24 +20,12 @@ class BeauticaApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ColorScheme lightScheme =
-        ColorScheme.fromSeed(seedColor: BrandColors.seed).copyWith(
-          secondary: BrandColors.bliss,
-          secondaryContainer: BrandColors.sunshine,
-          tertiary: BrandColors.sand,
-          error: BrandColors.cherry,
-        );
-
     return MaterialApp(
       title: 'Beautica',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: lightScheme,
-        textTheme: GoogleFonts.manropeTextTheme(
-          ThemeData(brightness: Brightness.light).textTheme,
-        ),
-      ),
+      theme: lightTheme(),
+      darkTheme: darkTheme(),
+      themeMode: ThemeMode.system,
       home: const _BootstrapHome(),
     );
   }
