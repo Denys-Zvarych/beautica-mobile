@@ -21,30 +21,32 @@ dependencies:
     sdk: flutter
 
   # State management — Riverpod 2.x with riverpod_generator codegen.
-  flutter_riverpod: ^2.5.1
-  riverpod_annotation: ^2.3.5
+  flutter_riverpod: ^3.1.0
+  riverpod_annotation: ^4.0.0
 
   # Routing — go_router, integrates with Riverpod via refreshListenable.
-  go_router: ^14.6.2
+  go_router: ^17.2.3
 
   # HTTP — Dio + interceptor chain wired in Phase 2.x.
   dio: ^5.7.0
 
   # Secure storage — Android Keystore-backed; refresh-token home.
-  flutter_secure_storage: ^9.2.2
+  flutter_secure_storage: ^10.2.0
 
   # Push notifications — Firebase init lands in Phase 8.1; deps reserved here.
-  firebase_core: ^3.6.0
-  firebase_messaging: ^15.1.3
+  firebase_core: ^4.9.0
+  firebase_messaging: ^16.2.2
 
   # Design system — Manrope via google_fonts (full Cyrillic glyph set).
-  google_fonts: ^6.2.1
+  google_fonts: ^8.1.0
 
   # Responsive layout — Material 3 canonical breakpoints.
   flutter_adaptive_scaffold: ^0.3.1
 
   # Models / serialization — freezed + json_serializable codegen.
-  freezed_annotation: ^2.4.4
+  # Upgraded to ^3.0.0 in Phase 1.4 to align with custom_lint ^0.8.x which
+  # requires freezed_annotation ^3; the ^2.x constraint broke build_runner.
+  freezed_annotation: ^3.0.0
   json_annotation: ^4.9.0
 
   # Localization — intl 0.19 keeps lockstep with flutter_localizations on
@@ -65,8 +67,9 @@ dev_dependencies:
 
   # Codegen runners.
   build_runner: ^2.4.13
-  riverpod_generator: ^2.4.3
-  freezed: ^2.5.7
+  riverpod_generator: ^4.0.0+1
+  # Upgraded to ^3.0.0 alongside freezed_annotation ^3 (Phase 1.4).
+  freezed: ^3.0.0
   json_serializable: ^6.8.0
   # openapi_generator deferred to Phase 3.1 — version conflict with
   # riverpod_lint's required analyzer ^7. Re-add when the OpenAPI client lands.
@@ -77,12 +80,14 @@ dev_dependencies:
   golden_toolkit: ^0.15.0
 
   # Lints — flutter_lints + riverpod_lint via custom_lint.
-  # custom_lint_builder is the plugin-author SDK; pinned to the same 0.7.3
-  # minor as custom_lint to avoid analyzer-plugin version drift.
+  # Upgraded custom_lint stack to ^0.8.1 in Phase 1.4 to resolve the
+  # analyzer_plugin 0.12.0 vs analyzer 7.6.0 incompatibility that prevented
+  # build_runner from compiling the build script. Both custom_lint and
+  # custom_lint_builder must be pinned to the same minor version.
   flutter_lints: ^6.0.0
-  custom_lint: ^0.7.3
-  custom_lint_builder: ^0.7.3
-  riverpod_lint: ^2.6.4
+  custom_lint: ^0.8.1
+  custom_lint_builder: ^0.8.1
+  riverpod_lint: ^3.1.0
 
 # Flutter section — enables Material icons + l10n codegen (`flutter gen-l10n`).
 flutter:

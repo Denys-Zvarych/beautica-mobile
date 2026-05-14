@@ -31,6 +31,11 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
+      # Phase 1.4+ — *.g.dart files are gitignored; codegen must run on every
+      # fresh checkout before analyze/test can succeed.
+      - name: Codegen (build_runner)
+        run: dart run build_runner build --delete-conflicting-outputs
+
       # Phase 3.1 wires the OpenAPI client generation gate:
       #   - name: Verify OpenAPI client is up to date
       #     run: ./scripts/regenerate_api.sh --check
@@ -50,6 +55,15 @@ jobs:
       - name: Forbid magic padding numbers
         shell: bash
         run: ./scripts/forbid_magic_padding.sh
+
+      # Phase 1.4 — enforce go_router-only navigation in feature code.
+      # Direct Navigator calls bypass the route table and are a mobile-qa HIGH
+      # finding. lib/features/ is currently empty so this always passes, but the
+      # gate is wired now so future feature code is gated from the first commit.
+      - name: Forbid direct Navigator usage in features
+        run: |
+          ! grep -rE 'Navigator\.(push|pop|of)\b' lib/features/ 2>/dev/null || \
+          { echo 'Direct Navigator usage found in lib/features/ — use context.go(RouteNames.x) instead'; exit 1; }
 
       - name: Test
         run: flutter test --coverage --reporter=expanded
