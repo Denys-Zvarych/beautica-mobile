@@ -3,5 +3,19 @@
   "appTitle": "Beautica",
   "@appTitle": {
     "description": "Application name shown in the OS task switcher and on the splash screen."
+  },
+  "loadingLabel": "Завантаження…",
+  "@loadingLabel": {
+    "description": "Generic 'Loading…' label shown next to a CircularProgressIndicator while async data resolves."
+  },
+  "calendarBookingsForDay": "{count, plural, =0{Немає записів} =1{1 запис} few{{count} записи} many{{count} записів} other{{count} записів}}",
+  "@calendarBookingsForDay": {
+    "description": "Summary count of bookings shown on a calendar day cell or day header.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
   }
 }

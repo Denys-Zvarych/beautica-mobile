@@ -50,3 +50,12 @@ linter:
     unawaited_futures: true
     use_super_parameters: true
     sort_pub_dependencies: false
+
+# Phase 1.3 — register the in-house `no_raw_ui_strings` lint with the
+# `custom_lint` plugin (defined in `lib/beautica_mobile.dart`). Severity
+# starts at WARNING and is promoted to ERROR in Phase 1.5 once the l10n
+# key set has settled. See docs/mobile-phases/phase-1.3-localization-setup.md
+# § Step 8 ("Phase boundary — staged ramp") for the promotion details.
+custom_lint:
+  rules:
+    - no_raw_ui_strings

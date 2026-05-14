@@ -77,8 +77,11 @@ dev_dependencies:
   golden_toolkit: ^0.15.0
 
   # Lints — flutter_lints + riverpod_lint via custom_lint.
+  # custom_lint_builder is the plugin-author SDK; pinned to the same 0.7.3
+  # minor as custom_lint to avoid analyzer-plugin version drift.
   flutter_lints: ^6.0.0
   custom_lint: ^0.7.3
+  custom_lint_builder: ^0.7.3
   riverpod_lint: ^2.6.4
 
 # Flutter section — enables Material icons + l10n codegen (`flutter gen-l10n`).

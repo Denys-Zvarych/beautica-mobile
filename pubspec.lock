@@ -218,7 +218,7 @@ packages:
     source: hosted
     version: "0.7.3"
   custom_lint_builder:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: custom_lint_builder
       sha256: e4235b9d8cef59afe621eba086d245205c8a0a6c70cd470be7cb17494d6df32d

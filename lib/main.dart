@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'core/theme/app_theme.dart';
+import 'l10n/app_localizations.dart';
 
 /// Beautica mobile entry point.
 ///
@@ -28,11 +29,22 @@ class BeauticaApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Beautica',
+      // `MaterialApp.title` is evaluated at app-construction time, BEFORE the
+      // `Localizations` widget is in scope, so `AppLocalizations.of(context)`
+      // cannot be read there. `onGenerateTitle` is the canonical Flutter hook
+      // for localized titles — it runs with a context that has the delegates
+      // already attached.
+      onGenerateTitle: (ctx) => AppLocalizations.of(ctx).appTitle,
       debugShowCheckedModeBanner: false,
       theme: lightTheme(),
       darkTheme: darkTheme(),
       themeMode: ThemeMode.system,
+      // Localization wiring (Phase 1.3). The router swap in Phase 1.4 will
+      // carry these three params across to `MaterialApp.router` unchanged.
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      // Forced UA until LocaleNotifier ships (post-MVP).
+      locale: const Locale('uk', 'UA'),
       home: const _BootstrapHome(),
     );
   }
