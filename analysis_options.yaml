@@ -9,6 +9,15 @@
 # Generated code (`lib/api/**`, `*.g.dart`, `*.freezed.dart`) is excluded
 # from analysis — they live under `pubspec.yaml`'s codegen umbrella and are
 # regenerated, never hand-edited.
+#
+# Phase 1.2 — spacing scale enforcement (CI-side grep gate):
+#   `EdgeInsets.(all|symmetric|fromLTRB)(<numeric literal>)` is forbidden
+#   anywhere under `lib/` outside the `AppSpacing.*` tokens. The check runs
+#   as the "Forbid magic padding numbers" step in
+#   `.github/workflows/pr-validate.yml`. The Dart analyzer has no first-
+#   class lint for this today; once `custom_lint` is wired in Phase 3+ we
+#   can promote the rule to an analyzer-level check. Numeric padding in
+#   `lib/features/**` is an automatic `mobile-qa` HIGH finding.
 
 include: package:flutter_lints/flutter.yaml
 

@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'core/theme/app_theme.dart';
 
@@ -7,11 +9,16 @@ import 'core/theme/app_theme.dart';
 ///
 /// Phase 1.1 — wires [ProviderScope] (Riverpod root) and the Material 3
 /// theme factories ([lightTheme], [darkTheme]) seeded from the brand
-/// palette. The router (`go_router`), localization delegates, and feature
-/// screens land in Phase 1.4 / 1.3 — until then [BeauticaApp] renders the
-/// default `flutter create` counter so the widget smoke test stays
-/// meaningful as a proof-of-life signal for the build pipeline.
+/// palette. Phase 1.2 adds the Manrope type scale (see `app_theme.dart`)
+/// and pins [GoogleFonts.config.allowRuntimeFetching] to debug-only —
+/// release builds must rely on the cached/bundled font (Phase 11 will
+/// move Manrope into `assets/fonts/` for fully offline release builds).
+/// The router (`go_router`), localization delegates, and feature screens
+/// land in Phase 1.4 / 1.3 — until then [BeauticaApp] renders the default
+/// `flutter create` counter so the widget smoke test stays meaningful as a
+/// proof-of-life signal for the build pipeline.
 void main() {
+  GoogleFonts.config.allowRuntimeFetching = kDebugMode;
   runApp(const ProviderScope(child: BeauticaApp()));
 }
 

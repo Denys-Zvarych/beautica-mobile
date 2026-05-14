@@ -41,6 +41,17 @@ jobs:
       - name: Analyze
         run: flutter analyze --fatal-infos --fatal-warnings
 
+      # Phase 1.2 spacing scale gate — every padding literal must reference
+      # `AppSpacing.*` from `lib/core/theme/app_spacing.dart`. Outer `!`
+      # inverts the exit code: the step passes when the inner grep returns
+      # no offenders, fails the moment a raw numeric `EdgeInsets(...)`
+      # shows up under `lib/`. Uses only static literal strings (no
+      # untrusted GitHub-event inputs) — safe from workflow injection.
+      # Documented in `analysis_options.yaml`.
+      - name: Forbid magic padding numbers
+        run: |
+          bash -c '! grep -rEn "EdgeInsets\.(all|symmetric|fromLTRB)\(\s*[0-9]" lib/ | grep -v "AppSpacing\."'
+
       - name: Test
         run: flutter test --coverage --reporter=expanded
 
