@@ -18,12 +18,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/auth/auth_notifier.dart';
-
-/// Paths that must never receive an `Authorization` header.
-///
-/// These are matched against [RequestOptions.path], which contains only the
-/// path segment (no host), as set by [BaseOptions.baseUrl].
-const _authEndpoints = {'/auth/login', '/auth/register', '/auth/refresh'};
+import 'auth_paths.dart';
 
 /// Riverpod-aware Dio interceptor that injects the Bearer access token.
 ///
@@ -43,7 +38,7 @@ final class AuthInterceptor extends Interceptor {
     // state — both are treated as unauthenticated (no token attached).
     final state = _ref.read(authProvider).value;
 
-    if (state is Authenticated && !_authEndpoints.contains(options.path)) {
+    if (state is Authenticated && !kAuthPaths.contains(options.path)) {
       options.headers['Authorization'] = 'Bearer ${state.accessToken}';
       if (kDebugMode) {
         log(

@@ -78,8 +78,10 @@ jobs:
       # `2>/dev/null` suppresses "no such file" noise when the dir doesn't exist.
       - name: Forbid SharedPreferences in features (MS1)
         run: |
-          if grep -rE "SharedPreferences|shared_preferences" lib/features/ 2>/dev/null; then
+          MATCHES=$(grep -rE "SharedPreferences|shared_preferences" lib/features/ 2>/dev/null | grep -v "^\s*//") || true
+          if [ -n "$MATCHES" ]; then
             echo "SharedPreferences found in lib/features/ — use SecureStorage instead"
+            echo "$MATCHES"
             exit 1
           fi
 

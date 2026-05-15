@@ -16,12 +16,11 @@ import 'dart:developer';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+import 'auth_paths.dart';
+
 /// [RequestOptions.extra] key under which this interceptor stores its
 /// [Stopwatch] instance for response-time measurement.
 const _kStopwatchKey = '_beautica_log_stopwatch';
-
-/// Endpoints whose request bodies must be fully suppressed in log output.
-const _sensitiveEndpoints = {'/auth/login', '/auth/register', '/auth/refresh'};
 
 /// Debug-only Dio interceptor that logs HTTP traffic to `dart:developer`.
 ///
@@ -48,7 +47,7 @@ final class LoggingInterceptor extends Interceptor {
     }
 
     // Redact body for sensitive endpoints.
-    final dynamic body = _sensitiveEndpoints.contains(options.path)
+    final dynamic body = kAuthPaths.contains(options.path)
         ? '[REDACTED]'
         : options.data;
 

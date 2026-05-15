@@ -10,7 +10,14 @@
     default, so the emulator development flow is unaffected.
 -->
 <network-security-config>
-    <!-- Production: HTTPS only, no cleartext -->
+    <!-- Block cleartext globally for all domains not explicitly configured -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Production: HTTPS only, pinned to ISRG Root X1 -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">beautica-backend-production.up.railway.app</domain>
         <trust-anchors>
