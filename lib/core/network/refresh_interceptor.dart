@@ -125,7 +125,9 @@ final class RefreshInterceptor extends Interceptor {
       // Update the in-memory access token so AuthInterceptor sends the new one.
       _ref.read(authProvider.notifier).setAccessToken(newAccessToken);
 
-      log('Token refreshed silently', name: 'auth.refresh', level: 800);
+      if (kDebugMode) {
+        log('Token refreshed silently', name: 'auth.refresh', level: 800);
+      }
       c.complete(newAccessToken);
     }).onError((e, st) {
       if (kDebugMode) {

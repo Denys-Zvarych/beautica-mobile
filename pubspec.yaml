@@ -62,6 +62,9 @@ dependencies:
   # task-switcher screenshots and screen recording (MS-4).
   screen_protector: ^1.5.1
 
+  # SVG rendering — used for the logo asset on auth screens.
+  flutter_svg: ^2.0.16
+
   # Logging — dart:developer log() is the official channel; no extra package.
   cupertino_icons: ^1.0.8
 
@@ -97,3 +100,5 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   generate: true
+  assets:
+    - assets/images/

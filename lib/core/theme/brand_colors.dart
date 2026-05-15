@@ -27,4 +27,8 @@ abstract final class BrandColors {
 
   /// Material 3 seed color for `ColorScheme.fromSeed`.
   static const Color seed = midnight;
+
+  /// Dark input field background — slightly lighter than [midnight] to give
+  /// form fields a subtle lifted appearance on the gradient auth screens.
+  static const Color darkSurface = Color(0xFF0A2540);
 }
