@@ -275,6 +275,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        // ── Top spacer: pushes the logo upward relative to
+                        // the form body so it appears higher on screen.
+                        const SizedBox(height: AppSpacing.xl),
+
                         // ── Logo — no stagger wrapper; Hero handles its own
                         // flight transition. Wrapping with SlideTransition
                         // conflicts with the Hero overlay positioning.
@@ -283,12 +287,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             tag: 'beautica-logo',
                             child: SvgPicture.asset(
                               'assets/images/logo.svg',
-                              width: 100,
+                              width: 120,
                               semanticsLabel: 'Beautica',
                             ),
                           ),
                         ),
-                        const SizedBox(height: AppSpacing.lg),
+                        const SizedBox(height: AppSpacing.md),
 
                         // ── Stagger 0: Screen title ───────────────────────
                         _staggered(

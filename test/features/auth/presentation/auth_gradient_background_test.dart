@@ -47,9 +47,7 @@ void main() {
     testWidgets('1. renders without error', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: Stack(children: [AuthGradientBackground()]),
-          ),
+          home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
         ),
       );
       // No exception thrown — rendering succeeded.
@@ -64,9 +62,7 @@ void main() {
     ) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: Stack(children: [AuthGradientBackground()]),
-          ),
+          home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
         ),
       );
 
@@ -78,23 +74,23 @@ void main() {
     // -------------------------------------------------------------------------
     // Test 3 — gradient direction is topCenter → bottomCenter
     // -------------------------------------------------------------------------
-    testWidgets('3. gradient runs from Alignment.topCenter to Alignment.bottomCenter', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: Stack(children: [AuthGradientBackground()]),
+    testWidgets(
+      '3. gradient runs from Alignment.topCenter to Alignment.bottomCenter',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
           ),
-        ),
-      );
+        );
 
-      final gradient = (_findDecoratedBox(tester).decoration as BoxDecoration)
-          .gradient! as LinearGradient;
+        final gradient =
+            (_findDecoratedBox(tester).decoration as BoxDecoration).gradient!
+                as LinearGradient;
 
-      expect(gradient.begin, equals(Alignment.topCenter));
-      expect(gradient.end, equals(Alignment.bottomCenter));
-    });
+        expect(gradient.begin, equals(Alignment.topCenter));
+        expect(gradient.end, equals(Alignment.bottomCenter));
+      },
+    );
 
     // -------------------------------------------------------------------------
     // Test 4 — first gradient stop is BrandColors.midnight (#0D3B66)
@@ -104,14 +100,13 @@ void main() {
     ) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: Stack(children: [AuthGradientBackground()]),
-          ),
+          home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
         ),
       );
 
-      final gradient = (_findDecoratedBox(tester).decoration as BoxDecoration)
-          .gradient! as LinearGradient;
+      final gradient =
+          (_findDecoratedBox(tester).decoration as BoxDecoration).gradient!
+              as LinearGradient;
 
       expect(gradient.colors.first, equals(BrandColors.midnight));
     });
@@ -124,34 +119,38 @@ void main() {
     ) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: Stack(children: [AuthGradientBackground()]),
-          ),
+          home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
         ),
       );
 
-      final gradient = (_findDecoratedBox(tester).decoration as BoxDecoration)
-          .gradient! as LinearGradient;
+      final gradient =
+          (_findDecoratedBox(tester).decoration as BoxDecoration).gradient!
+              as LinearGradient;
 
       expect(gradient.colors.last, equals(const Color(0xFF061E35)));
     });
 
     // -------------------------------------------------------------------------
-    // Test 6 — exactly two gradient stops are defined
+    // Test 6 — five gradient stops are defined (dithered to reduce banding)
     // -------------------------------------------------------------------------
-    testWidgets('6. gradient has exactly two colour stops', (tester) async {
+    testWidgets('6. gradient has five colour stops for banding reduction', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: Stack(children: [AuthGradientBackground()]),
-          ),
+          home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
         ),
       );
 
-      final gradient = (_findDecoratedBox(tester).decoration as BoxDecoration)
-          .gradient! as LinearGradient;
+      final gradient =
+          (_findDecoratedBox(tester).decoration as BoxDecoration).gradient!
+              as LinearGradient;
 
-      expect(gradient.colors, hasLength(2));
+      // The gradient was upgraded from 2 stops to 5 intermediate stops to
+      // reduce visible colour banding on physical devices (8-bit GPU quantisation).
+      expect(gradient.colors, hasLength(5));
+      // Explicit stops list must be provided and also have 5 entries.
+      expect(gradient.stops, hasLength(5));
     });
 
     // -------------------------------------------------------------------------
@@ -162,9 +161,7 @@ void main() {
     ) async {
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(
-            body: Stack(children: [AuthGradientBackground()]),
-          ),
+          home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
         ),
       );
 
@@ -172,8 +169,7 @@ void main() {
       final sizedBoxes = tester
           .widgetList<SizedBox>(find.byType(SizedBox))
           .where(
-            (sb) =>
-                sb.width == double.infinity && sb.height == double.infinity,
+            (sb) => sb.width == double.infinity && sb.height == double.infinity,
           )
           .toList();
 

@@ -9,6 +9,7 @@
 
 import '../domain/auth_tokens.dart';
 import '../domain/user.dart';
+import '../domain/user_role.dart';
 
 /// Contract for all authentication and session-related API interactions.
 ///
@@ -32,7 +33,13 @@ abstract interface class AuthRepository {
     required String password,
   });
 
-  /// Registers a new account with the INDEPENDENT_MASTER role.
+  /// Registers a new account with the given [role].
+  ///
+  /// The backend determines which roles are eligible for self-registration and
+  /// returns a 400 for invite-only roles (e.g. [UserRole.salonAdmin],
+  /// [UserRole.salonMaster]). The client does not enforce this guard — the
+  /// error surfaces via the existing [ValidationFailure] / [ServerFailure]
+  /// snackbar flow.
   ///
   /// Returns a tuple of the newly-created [User] and the issued [AuthTokens]
   /// on success — the user is logged in immediately after registration.
@@ -46,6 +53,7 @@ abstract interface class AuthRepository {
     required String password,
     required String firstName,
     required String lastName,
+    UserRole role = UserRole.independentMaster,
   });
 
   /// Exchanges a valid [refreshToken] for a fresh token pair.

@@ -30,6 +30,7 @@ import '../../../core/errors/failures.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
+import '../domain/user_role.dart';
 
 part 'auth_notifier.g.dart';
 
@@ -121,7 +122,11 @@ class AuthNotifier extends _$AuthNotifier {
     });
   }
 
-  /// Registers a new INDEPENDENT_MASTER account and logs in immediately.
+  /// Registers a new account with the given [role] and logs in immediately.
+  ///
+  /// [role] defaults to [UserRole.independentMaster] for backwards compatibility.
+  /// The backend validates eligibility — non-self-registerable roles surface as
+  /// a [Failure] that the calling screen displays via snackbar.
   ///
   /// On success, state becomes [AsyncData<Authenticated>]. On failure (e.g.
   /// [ValidationFailure] for duplicate email), state becomes [AsyncError].
@@ -130,6 +135,7 @@ class AuthNotifier extends _$AuthNotifier {
     required String password,
     required String firstName,
     required String lastName,
+    UserRole role = UserRole.independentMaster,
   }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
@@ -140,6 +146,7 @@ class AuthNotifier extends _$AuthNotifier {
             password: password,
             firstName: firstName,
             lastName: lastName,
+            role: role,
           );
       await ref
           .read(secureStorageProvider)

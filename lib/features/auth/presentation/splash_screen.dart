@@ -96,9 +96,12 @@ class _SplashScreenState extends State<SplashScreen>
       body: Stack(
         children: [
           const AuthGradientBackground(),
-          Center(
+          // Align at (0, -0.4) shifts the logo into the upper-middle zone —
+          // roughly 38% from the top — rather than dead centre.
+          Align(
+            alignment: const Alignment(0.0, -0.4),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 AnimatedBuilder(
                   animation: _logoCtrl,
@@ -111,7 +114,7 @@ class _SplashScreenState extends State<SplashScreen>
                   ),
                   child: SvgPicture.asset(
                     'assets/images/logo.svg',
-                    width: 180,
+                    width: 200,
                     semanticsLabel: 'Beautica',
                   ),
                 ),

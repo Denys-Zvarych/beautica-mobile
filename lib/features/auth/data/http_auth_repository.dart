@@ -24,6 +24,7 @@ import 'package:flutter/foundation.dart';
 
 import '../domain/auth_tokens.dart';
 import '../domain/user.dart';
+import '../domain/user_role.dart';
 import 'auth_repository.dart';
 
 /// HTTP implementation of [AuthRepository].
@@ -77,22 +78,29 @@ final class HttpAuthRepository implements AuthRepository {
     required String password,
     required String firstName,
     required String lastName,
+    UserRole role = UserRole.independentMaster,
   }) async {
+    // Route to the role-specific backend endpoint. Currently only
+    // /auth/register/independent-master is wired; other roles will result in
+    // a 404 or 400 from the backend until the backend ships those endpoints.
+    // The error surfaces via the existing snackbar flow — no client-side guard.
+    final endpoint = _registerEndpoint(role);
     try {
       final response = await _dio.post<Map<String, dynamic>>(
-        '/auth/register/independent-master',
+        endpoint,
         data: {
           'email': email,
           'password': password,
           'firstName': firstName,
           'lastName': lastName,
+          'role': role.toWire,
         },
       );
       return _parseUserAndTokens(response.data!);
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
-          'registerIndependentMaster failed: ${e.type} ${e.response?.statusCode}',
+          'registerIndependentMaster failed (role=${role.toWire}): ${e.type} ${e.response?.statusCode}',
           name: 'auth.repository',
           level: 900,
           stackTrace: st,
@@ -101,6 +109,18 @@ final class HttpAuthRepository implements AuthRepository {
       throw _mapDioException(e);
     }
   }
+
+  /// Maps a [UserRole] to its backend registration endpoint path.
+  ///
+  /// Only [UserRole.independentMaster] has a live backend endpoint in Phase 2.
+  /// The other paths are included so the client can send the request and let
+  /// the backend return a 400/404 — the UI surfaces this via the snackbar.
+  static String _registerEndpoint(UserRole role) => switch (role) {
+    UserRole.independentMaster => '/auth/register/independent-master',
+    UserRole.salonOwner => '/auth/register/salon-owner',
+    UserRole.client => '/auth/register/client',
+    _ => '/auth/register/independent-master',
+  };
 
   @override
   Future<AuthTokens> refresh(String refreshToken) async {

@@ -10,7 +10,9 @@
 //     3. 400 DioException (error = ValidationFailure with fieldErrors) → re-throws
 //     4. raw DioException (error = null) → throws UnknownFailure
 //   Group 2 — registerIndependentMaster
-//     5. success → returns (User, AuthTokens)
+//     5. success (independentMaster) → hits /auth/register/independent-master
+//     11. success (salonOwner) → hits /auth/register/salon-owner
+//     12. success (client) → hits /auth/register/client
 //   Group 3 — refresh
 //     6. success → returns AuthTokens with new token pair
 //   Group 4 — me
@@ -415,6 +417,87 @@ void main() {
             ),
           ),
         );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 8 — _registerEndpoint routing (new role paths from Phase 2.6 redesign)
+  // -------------------------------------------------------------------------
+
+  group('registerIndependentMaster — role-based endpoint routing', () {
+    test(
+      '11. role=salonOwner → POST to /auth/register/salon-owner',
+      () async {
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register/salon-owner',
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer(
+          (_) async => Response(
+            requestOptions: _fakeOptions('/auth/register/salon-owner'),
+            statusCode: 201,
+            data: _loginEnvelope(role: 'SALON_OWNER'),
+          ),
+        );
+
+        final (user, tokens) = await repository.registerIndependentMaster(
+          email: 'owner@beautica.test',
+          password: 'P@ssw0rd!',
+          firstName: 'Марія',
+          lastName: 'Ковальчук',
+          role: UserRole.salonOwner,
+        );
+
+        expect(user.role, UserRole.salonOwner);
+        expect(tokens.accessToken, 'access.jwt.token');
+
+        // Verify the exact endpoint was called — if the routing were wrong and
+        // /auth/register/independent-master was used instead, mocktail would
+        // throw MissingStubError on the unstubbed path, failing the test.
+        verify(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register/salon-owner',
+            data: any(named: 'data'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      '12. role=client → POST to /auth/register/client',
+      () async {
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register/client',
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer(
+          (_) async => Response(
+            requestOptions: _fakeOptions('/auth/register/client'),
+            statusCode: 201,
+            data: _loginEnvelope(role: 'CLIENT'),
+          ),
+        );
+
+        final (user, tokens) = await repository.registerIndependentMaster(
+          email: 'client@beautica.test',
+          password: 'P@ssw0rd!',
+          firstName: 'Катерина',
+          lastName: 'Мороз',
+          role: UserRole.client,
+        );
+
+        expect(user.role, UserRole.client);
+        expect(tokens.refreshToken, 'refresh.jwt.token');
+
+        verify(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register/client',
+            data: any(named: 'data'),
+          ),
+        ).called(1);
       },
     );
   });

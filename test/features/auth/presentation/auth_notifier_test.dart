@@ -32,6 +32,13 @@ import '../../../helpers/fakes/fake_secure_storage.dart';
 class MockAuthRepository extends Mock implements AuthRepository {}
 
 void main() {
+  setUpAll(() {
+    // Required by mocktail when `any(named: 'role')` is used for a UserRole
+    // parameter. Registers a fallback so mocktail can construct the matcher
+    // without a TypeError in sound null-safe Dart.
+    registerFallbackValue(UserRole.independentMaster);
+  });
+
   const testUser = User(
     id: 'u1',
     email: 'test@example.com',
@@ -232,6 +239,7 @@ void main() {
             password: 'pass123',
             firstName: 'Іван',
             lastName: 'Коваль',
+            role: UserRole.independentMaster,
           ),
         ).thenAnswer((_) async => (testUser, testTokens));
 
@@ -283,6 +291,7 @@ void main() {
             password: any(named: 'password'),
             firstName: any(named: 'firstName'),
             lastName: any(named: 'lastName'),
+            role: any(named: 'role'),
           ),
         ).thenThrow(failure);
 

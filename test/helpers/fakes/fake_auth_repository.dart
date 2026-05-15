@@ -40,7 +40,13 @@ final class FakeAuthRepository implements AuthRepository {
 
   final List<({String email, String password})> loginCalls = [];
   final List<
-    ({String email, String password, String firstName, String lastName})
+    ({
+      String email,
+      String password,
+      String firstName,
+      String lastName,
+      UserRole role,
+    })
   >
   registerCalls = [];
   int logoutCallCount = 0;
@@ -80,12 +86,14 @@ final class FakeAuthRepository implements AuthRepository {
     required String password,
     required String firstName,
     required String lastName,
+    UserRole role = UserRole.independentMaster,
   }) async {
     registerCalls.add((
       email: email,
       password: password,
       firstName: firstName,
       lastName: lastName,
+      role: role,
     ));
     final result = registerResult;
     if (result is Failure) throw result;

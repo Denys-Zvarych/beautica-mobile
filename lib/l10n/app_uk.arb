@@ -157,5 +157,33 @@
   "settingsTitle": "Налаштування",
   "@settingsTitle": {
     "description": "Title of the settings screen."
+  },
+  "intentPickerTitle": "Як ви плануєте використовувати Beautica?",
+  "@intentPickerTitle": {
+    "description": "Heading on the intent picker step of the register screen."
+  },
+  "intentIndependentTitle": "Веду клієнтів самостійно",
+  "@intentIndependentTitle": {
+    "description": "Primary label for the independent master intent card."
+  },
+  "intentIndependentSubtitle": "Незалежний майстер",
+  "@intentIndependentSubtitle": {
+    "description": "Secondary label for the independent master intent card."
+  },
+  "intentSalonTitle": "Відкриваю або маю салон",
+  "@intentSalonTitle": {
+    "description": "Primary label for the salon owner intent card."
+  },
+  "intentSalonSubtitle": "Власник салону",
+  "@intentSalonSubtitle": {
+    "description": "Secondary label for the salon owner intent card."
+  },
+  "intentClientTitle": "Шукаю процедури",
+  "@intentClientTitle": {
+    "description": "Primary label for the client intent card."
+  },
+  "intentClientSubtitle": "Клієнт",
+  "@intentClientSubtitle": {
+    "description": "Secondary label for the client intent card."
   }
 }

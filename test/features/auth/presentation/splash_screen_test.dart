@@ -29,12 +29,8 @@ import 'package:flutter_test/flutter_test.dart';
 // Wraps the widget under test in the minimal tree that SplashScreen requires:
 // a MaterialApp (for Scaffold / MediaQuery / Theme) with no router needed.
 Widget _buildApp({bool disableAnimations = false}) => MediaQuery(
-  data: const MediaQueryData().copyWith(
-    disableAnimations: disableAnimations,
-  ),
-  child: const MaterialApp(
-    home: SplashScreen(),
-  ),
+  data: const MediaQueryData().copyWith(disableAnimations: disableAnimations),
+  child: const MaterialApp(home: SplashScreen()),
 );
 
 void main() {
@@ -70,28 +66,29 @@ void main() {
     // has not yet completed. The AnimatedOpacity wrapping the spinner sets
     // opacity: 0.0, but the widget is still in the tree.
     // -------------------------------------------------------------------------
-    testWidgets('3. CircularProgressIndicator is present but initially invisible', (
-      tester,
-    ) async {
-      await tester.pumpWidget(_buildApp());
-      // Pump one frame to trigger the initState post-frame callback (which
-      // calls _logoCtrl.forward()). The animation has NOT completed yet.
-      await tester.pump();
+    testWidgets(
+      '3. CircularProgressIndicator is present but initially invisible',
+      (tester) async {
+        await tester.pumpWidget(_buildApp());
+        // Pump one frame to trigger the initState post-frame callback (which
+        // calls _logoCtrl.forward()). The animation has NOT completed yet.
+        await tester.pump();
 
-      // The spinner widget must be in the tree (it is always rendered; only
-      // its opacity changes).
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        // The spinner widget must be in the tree (it is always rendered; only
+        // its opacity changes).
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
-      // The AnimatedOpacity wrapping the spinner must be at opacity 0.0 —
-      // _showSpinner is still false at this point.
-      final animatedOpacity = tester.widget<AnimatedOpacity>(
-        find.ancestor(
-          of: find.byType(CircularProgressIndicator),
-          matching: find.byType(AnimatedOpacity),
-        ),
-      );
-      expect(animatedOpacity.opacity, equals(0.0));
-    });
+        // The AnimatedOpacity wrapping the spinner must be at opacity 0.0 —
+        // _showSpinner is still false at this point.
+        final animatedOpacity = tester.widget<AnimatedOpacity>(
+          find.ancestor(
+            of: find.byType(CircularProgressIndicator),
+            matching: find.byType(AnimatedOpacity),
+          ),
+        );
+        expect(animatedOpacity.opacity, equals(0.0));
+      },
+    );
 
     // -------------------------------------------------------------------------
     // Test 4 — After animation completes, spinner becomes visible
@@ -181,7 +178,9 @@ void main() {
     // "A Timer is still pending" error at test teardown. Pumping the widget,
     // then disposing (via pumpWidget empty tree), must not throw.
     // -------------------------------------------------------------------------
-    testWidgets('7. AnimationController disposes without error', (tester) async {
+    testWidgets('7. AnimationController disposes without error', (
+      tester,
+    ) async {
       await tester.pumpWidget(_buildApp());
       await tester.pump();
 
