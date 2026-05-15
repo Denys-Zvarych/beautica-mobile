@@ -189,5 +189,65 @@
   "registerBusinessNameLabel": "Назва салону",
   "@registerBusinessNameLabel": {
     "description": "Label for the business/salon name input field, shown only when registering as a Salon Owner."
+  },
+  "registerAddressLabel": "Адреса салону",
+  "@registerAddressLabel": {
+    "description": "Label for the salon address input field on the salon owner registration step 2."
+  },
+  "registerPhoneLabel": "Номер телефону",
+  "@registerPhoneLabel": {
+    "description": "Label for the phone number input field on the salon owner registration step 2."
+  },
+  "registerSalonStep1Title": "Основна інформація",
+  "@registerSalonStep1Title": {
+    "description": "Title for step 1 of the salon owner multi-step registration."
+  },
+  "registerSalonStep2Title": "Деталі салону",
+  "@registerSalonStep2Title": {
+    "description": "Title for step 2 of the salon owner multi-step registration."
+  },
+  "registerNextStep": "Далі",
+  "@registerNextStep": {
+    "description": "Label for the Next button in multi-step registration."
+  },
+  "registerBackStep": "Назад",
+  "@registerBackStep": {
+    "description": "Label for the Back button in multi-step registration."
+  },
+  "passwordStrengthWeak": "Слабкий",
+  "@passwordStrengthWeak": {
+    "description": "Password strength label: weak."
+  },
+  "passwordStrengthMedium": "Середній",
+  "@passwordStrengthMedium": {
+    "description": "Password strength label: medium."
+  },
+  "passwordStrengthStrong": "Сильний",
+  "@passwordStrengthStrong": {
+    "description": "Password strength label: strong."
+  },
+  "errAddressRequired": "Введіть адресу салону",
+  "@errAddressRequired": {
+    "description": "Validation error when the salon address field is empty."
+  },
+  "errAddressTooLong": "Адреса не може перевищувати 255 символів",
+  "@errAddressTooLong": {
+    "description": "Validation error when the salon address field exceeds 255 characters."
+  },
+  "errPhoneTooLong": "Номер телефону занадто довгий",
+  "@errPhoneTooLong": {
+    "description": "Validation error when the phone number field exceeds 20 characters."
+  },
+  "errPhoneInvalidFormat": "Невірний формат номера телефону",
+  "@errPhoneInvalidFormat": {
+    "description": "Validation error when the phone number field contains invalid characters."
+  },
+  "showPasswordSemanticLabel": "Показати пароль",
+  "@showPasswordSemanticLabel": {
+    "description": "Accessibility semantic label for the show-password icon button (eye icon in password field)."
+  },
+  "hidePasswordSemanticLabel": "Приховати пароль",
+  "@hidePasswordSemanticLabel": {
+    "description": "Accessibility semantic label for the hide-password icon button (eye-off icon in password field)."
   }
 }

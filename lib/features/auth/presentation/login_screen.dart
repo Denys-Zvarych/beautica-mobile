@@ -282,12 +282,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                         // ── Logo — no stagger wrapper; Hero handles its own
                         // flight transition. Wrapping with SlideTransition
                         // conflicts with the Hero overlay positioning.
+                        // Change 1: logo width increased from 120 → 160.
                         Center(
                           child: Hero(
                             tag: 'beautica-logo',
                             child: SvgPicture.asset(
                               'assets/images/logo.svg',
-                              width: 120,
+                              width: 160,
                               semanticsLabel: 'Beautica',
                             ),
                           ),
@@ -350,8 +351,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                           : Icons.visibility_off_outlined,
                                       color: Colors.white,
                                       semanticLabel: _obscurePassword
-                                          ? 'Показати пароль'
-                                          : 'Приховати пароль',
+                                          ? l10n.showPasswordSemanticLabel
+                                          : l10n.hidePasswordSemanticLabel,
                                     ),
                                     onPressed: () => setState(
                                       () =>

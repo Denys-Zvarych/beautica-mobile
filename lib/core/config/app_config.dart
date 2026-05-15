@@ -35,7 +35,7 @@ abstract final class AppConfig {
   /// also use HTTPS because they are production-equivalent builds used for
   /// performance profiling against real infrastructure.
   static void assertSecureUrl() {
-    if (!kDebugMode && !baseUrl.startsWith('https://')) {
+    if ((kReleaseMode || kProfileMode) && !baseUrl.startsWith('https://')) {
       throw StateError(
         'BEAUTICA_BASE_URL must start with https:// in release builds. '
         'Provide --dart-define=BEAUTICA_BASE_URL=https://... when building for release.',

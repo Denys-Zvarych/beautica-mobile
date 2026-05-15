@@ -80,15 +80,24 @@ final class HttpAuthRepository implements AuthRepository {
     required String lastName,
     UserRole role = UserRole.independentMaster,
     String? businessName,
+    String? address,
+    String? phone,
   }) async {
     // Backend contract:
     //   INDEPENDENT_MASTER → POST /auth/register/independent-master
     //     Body: { email, password, firstName, lastName, phoneNumber? }
     //     Note: no `role` field; backend derives it from the path.
     //
-    //   CLIENT / SALON_OWNER → POST /auth/register
-    //     Body: { email, password, role, firstName, lastName, businessName? }
+    //   CLIENT → POST /auth/register
+    //     Body: { email, password, role, firstName, lastName }
+    //
+    //   SALON_OWNER → POST /auth/register
+    //     Body: { email, password, role, firstName, lastName, businessName?,
+    //             address?, phoneNumber? }
     //     Note: `businessName` is REQUIRED when role == SALON_OWNER.
+    //     Note: firstName/lastName are sent as empty strings for salon owners
+    //           because the backend schema still requires the fields; the
+    //           meaningful identity for a salon owner is businessName + address.
     try {
       final Response<Map<String, dynamic>> response;
 
@@ -107,6 +116,9 @@ final class HttpAuthRepository implements AuthRepository {
           'email': email,
           'password': password,
           'role': role.toWire,
+          // For salon owners firstName/lastName come from the notifier as empty
+          // strings (the UI no longer collects them); include them so the
+          // backend schema remains satisfied.
           'firstName': firstName,
           'lastName': lastName,
         };
@@ -114,6 +126,13 @@ final class HttpAuthRepository implements AuthRepository {
         // Backend enforces its presence for SALON_OWNER with a 400.
         if (businessName != null && businessName.trim().isNotEmpty) {
           body['businessName'] = businessName.trim();
+        }
+        // Optional salon details — included only when provided.
+        if (address != null && address.trim().isNotEmpty) {
+          body['address'] = address.trim();
+        }
+        if (phone != null && phone.trim().isNotEmpty) {
+          body['phoneNumber'] = phone.trim();
         }
         response = await _dio.post<Map<String, dynamic>>(
           '/auth/register',

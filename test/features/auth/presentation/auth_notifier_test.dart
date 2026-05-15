@@ -515,14 +515,16 @@ void main() {
           ),
         ).thenAnswer((_) async => (testUser, testTokens));
 
-        await container.read(authProvider.notifier).register(
-          email: 'owner@example.com',
-          password: 'pass123',
-          firstName: 'Олена',
-          lastName: 'Бойко',
-          role: UserRole.salonOwner,
-          businessName: 'Краса Студія',
-        );
+        await container
+            .read(authProvider.notifier)
+            .register(
+              email: 'owner@example.com',
+              password: 'pass123',
+              firstName: 'Олена',
+              lastName: 'Бойко',
+              role: UserRole.salonOwner,
+              businessName: 'Краса Студія',
+            );
 
         final value = container.read(authProvider);
         // Strict stub: if businessName were dropped the stub would not match and
@@ -565,17 +567,74 @@ void main() {
           ),
         ).thenAnswer((_) async => (testUser, testTokens));
 
-        await container.read(authProvider.notifier).register(
-          email: 'master@example.com',
-          password: 'pass123',
-          firstName: 'Іван',
-          lastName: 'Коваль',
-          // role and businessName use defaults (independentMaster, null)
-        );
+        await container
+            .read(authProvider.notifier)
+            .register(
+              email: 'master@example.com',
+              password: 'pass123',
+              firstName: 'Іван',
+              lastName: 'Коваль',
+              // role and businessName use defaults (independentMaster, null)
+            );
 
         final value = container.read(authProvider);
         expect(value, isA<AsyncData<AuthSession>>());
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Test 16 — register with address and phone forwards both to repository
+    // -----------------------------------------------------------------------
+    test('register with address and phone forwards both to repository', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      // Strict stub — all named params are exact matches, including address
+      // and phone. If the notifier drops either field the stub will not match
+      // and mocktail will throw MissingStubError, failing this test.
+      // That is the intended regression guard.
+      when(
+        () => repo.registerIndependentMaster(
+          email: 'owner@example.com',
+          password: 'pass123',
+          firstName: 'Олена',
+          lastName: 'Бойко',
+          role: UserRole.salonOwner,
+          businessName: 'Краса Студія',
+          address: 'вул. Хрещатик, 1',
+          phone: '+380501234567',
+        ),
+      ).thenAnswer((_) async => (testUser, testTokens));
+
+      await container
+          .read(authProvider.notifier)
+          .register(
+            email: 'owner@example.com',
+            password: 'pass123',
+            firstName: 'Олена',
+            lastName: 'Бойко',
+            role: UserRole.salonOwner,
+            businessName: 'Краса Студія',
+            address: 'вул. Хрещатик, 1',
+            phone: '+380501234567',
+          );
+
+      final value = container.read(authProvider);
+      // If either address or phone was silently dropped by the notifier the
+      // strict stub above would not have matched and we would never reach here.
+      expect(value, isA<AsyncData<AuthSession>>());
+      expect(
+        value.value,
+        equals(
+          AuthSession.authenticated(
+            user: testUser,
+            accessToken: testTokens.accessToken,
+          ),
+        ),
+      );
+    });
   });
 }

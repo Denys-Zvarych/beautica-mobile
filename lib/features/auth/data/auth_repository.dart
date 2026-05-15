@@ -55,6 +55,8 @@ abstract interface class AuthRepository {
     required String lastName,
     UserRole role = UserRole.independentMaster,
     String? businessName,
+    String? address,
+    String? phone,
   });
 
   /// Exchanges a valid [refreshToken] for a fresh token pair.

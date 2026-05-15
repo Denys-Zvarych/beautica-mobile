@@ -259,24 +259,29 @@ void main() {
           ),
         ),
       );
-      // pumpAndSettle would hang — the provider never completes.
+      // pumpAndSettle would hang — the _LoadingAuthNotifier never completes.
+      // Use pump() to settle the frame without waiting on the unresolved future.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      // In AsyncLoading we can't reach Step 2 via intent tap, but the submit
-      // button is visible from the start because the notifier is loading (the
-      // auth state is AsyncLoading). The submit button renders immediately when
-      // the loading auth notifier is in use and a pump is done.
-      // Verify the button is present and disabled.
-      final submitButtons = tester.widgetList<ElevatedButton>(
+      // Tap the independent master intent card to reach Step 2. The tap uses a
+      // direct UI interaction rather than pumpAndSettle so the Completer-backed
+      // provider never blocks the test (M6 pattern).
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      await tester.tap(find.text(l10n.intentIndependentTitle).first);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // The submit button must now be in the tree. Assert that onPressed is null
+      // because isLoading == true disables it.
+      final submitButton = tester.widget<ElevatedButton>(
         find.byKey(const Key('btn-submit-register')),
       );
-      // If loading notifier shows the button, assert it is disabled.
-      if (submitButtons.isNotEmpty) {
-        expect(submitButtons.first.onPressed, isNull);
-      }
-      // If the button is not present (still on Step 1), the test passes because
-      // the form is unreachable during initial loading.
+      expect(
+        submitButton.onPressed,
+        isNull,
+        reason: 'Submit button must be disabled while authProvider is loading',
+      );
     });
 
     // -----------------------------------------------------------------------
@@ -444,18 +449,13 @@ void main() {
         await tester.tap(find.text(l10n.intentSalonTitle).first);
         await tester.pumpAndSettle();
 
-        // Step 2 should now be visible.
-        expect(find.byKey(const Key('field-firstName')), findsOneWidget);
+        // Salon Step 1: businessName + email + password are visible; no
+        // firstName/lastName fields in the salon owner path.
+        expect(find.byKey(const Key('field-businessName')), findsOneWidget);
+        expect(find.byKey(const Key('field-email')), findsOneWidget);
+        expect(find.byKey(const Key('field-password')), findsOneWidget);
 
-        // Fill the form with valid values.
-        await tester.enterText(
-          find.byKey(const Key('field-firstName')),
-          'Олена',
-        );
-        await tester.enterText(
-          find.byKey(const Key('field-lastName')),
-          'Бойко',
-        );
+        // Fill Step 1 fields.
         await tester.enterText(
           find.byKey(const Key('field-businessName')),
           'Краса Студія',
@@ -468,19 +468,257 @@ void main() {
           find.byKey(const Key('field-password')),
           'StrongPass2',
         );
-        await tester.ensureVisible(
-          find.byKey(const Key('btn-submit-register')),
+
+        // Advance to salon Step 2 via the Next button.
+        await tester.ensureVisible(find.byKey(const Key('btn-salon-next')));
+        await tester.tap(find.byKey(const Key('btn-salon-next')));
+        await tester.pumpAndSettle();
+
+        // Salon Step 2: address + phone fields.
+        expect(find.byKey(const Key('field-address')), findsOneWidget);
+
+        // Fill Step 2 fields.
+        await tester.enterText(
+          find.byKey(const Key('field-address')),
+          'вул. Хрещатик, 1',
         );
-        await tester.tap(find.byKey(const Key('btn-submit-register')));
+        await tester.enterText(
+          find.byKey(const Key('field-phone')),
+          '+380501234567',
+        );
+
+        await tester.ensureVisible(
+          find.byKey(const Key('btn-salon-submit-register')),
+        );
+        await tester.tap(find.byKey(const Key('btn-salon-submit-register')));
         await tester.pumpAndSettle();
 
         // Exactly one register call with role=salonOwner.
         expect(repo.registerCalls, hasLength(1));
         expect(repo.registerCalls.first.role, equals(UserRole.salonOwner));
         expect(repo.registerCalls.first.email, equals('olena@beautica.test'));
+        expect(repo.registerCalls.first.businessName, equals('Краса Студія'));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 18 — phone >20 chars shows errPhoneTooLong
+    // -----------------------------------------------------------------------
+    testWidgets('18. phone number longer than 20 chars shows errPhoneTooLong', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        _buildApp(router: router, repo: repo, storage: storage),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+
+      // Navigate to salon owner flow.
+      await tester.tap(find.text(l10n.intentSalonTitle).first);
+      await tester.pumpAndSettle();
+
+      // Fill salon Step 1 with valid data.
+      await tester.enterText(
+        find.byKey(const Key('field-businessName')),
+        'Краса Студія',
+      );
+      await tester.enterText(
+        find.byKey(const Key('field-email')),
+        'olena@beautica.test',
+      );
+      await tester.enterText(
+        find.byKey(const Key('field-password')),
+        'StrongPass2',
+      );
+
+      // Advance to Step 2.
+      await tester.ensureVisible(find.byKey(const Key('btn-salon-next')));
+      await tester.tap(find.byKey(const Key('btn-salon-next')));
+      await tester.pumpAndSettle();
+
+      // Enter a phone number with more than 20 characters.
+      await tester.enterText(
+        find.byKey(const Key('field-phone')),
+        '+380501234567890123456', // 22 chars — exceeds the 20-char limit
+      );
+      // Fill the required address field so the only validation error is for phone.
+      await tester.enterText(
+        find.byKey(const Key('field-address')),
+        'вул. Хрещатик, 1',
+      );
+
+      await tester.ensureVisible(
+        find.byKey(const Key('btn-salon-submit-register')),
+      );
+      await tester.tap(find.byKey(const Key('btn-salon-submit-register')));
+      // Use pump() rather than pumpAndSettle() to avoid hanging on async state.
+      await tester.pump();
+
+      expect(find.text(l10n.errPhoneTooLong), findsOneWidget);
+
+      // The repo must NOT have been called — local validation must block submission.
+      expect(repo.registerCalls, isEmpty);
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 19 — phone with invalid chars shows errPhoneInvalidFormat
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '19. phone number with invalid characters shows errPhoneInvalidFormat',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+
+        // Navigate to salon owner flow.
+        await tester.tap(find.text(l10n.intentSalonTitle).first);
+        await tester.pumpAndSettle();
+
+        // Fill salon Step 1 with valid data.
+        await tester.enterText(
+          find.byKey(const Key('field-businessName')),
+          'Краса Студія',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-email')),
+          'olena@beautica.test',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-password')),
+          'StrongPass2',
+        );
+
+        // Advance to Step 2.
+        await tester.ensureVisible(find.byKey(const Key('btn-salon-next')));
+        await tester.tap(find.byKey(const Key('btn-salon-next')));
+        await tester.pumpAndSettle();
+
+        // Enter a phone number that contains invalid characters (letters).
+        await tester.enterText(
+          find.byKey(const Key('field-phone')),
+          'notaphone', // letters are not matched by _rePhone
+        );
+        // Fill the required address field so the only validation error is for phone.
+        await tester.enterText(
+          find.byKey(const Key('field-address')),
+          'вул. Хрещатик, 1',
+        );
+
+        await tester.ensureVisible(
+          find.byKey(const Key('btn-salon-submit-register')),
+        );
+        await tester.tap(find.byKey(const Key('btn-salon-submit-register')));
+        // Use pump() rather than pumpAndSettle() to avoid hanging on async state.
+        await tester.pump();
+
+        expect(find.text(l10n.errPhoneInvalidFormat), findsOneWidget);
+
+        // The repo must NOT have been called — local validation must block submission.
+        expect(repo.registerCalls, isEmpty);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 20 — btn-salon-back returns to Step 1 with businessName preserved
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '20. btn-salon-back returns to Step 1 with previously typed businessName preserved',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+
+        // Navigate to salon owner flow.
+        await tester.tap(find.text(l10n.intentSalonTitle).first);
+        await tester.pumpAndSettle();
+
+        // Fill Step 1: type a business name that must survive the round-trip.
+        await tester.enterText(
+          find.byKey(const Key('field-businessName')),
+          'Краса Студія',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-email')),
+          'olena@beautica.test',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-password')),
+          'StrongPass2',
+        );
+
+        // Advance to salon Step 2 via the Next button.
+        await tester.ensureVisible(find.byKey(const Key('btn-salon-next')));
+        await tester.tap(find.byKey(const Key('btn-salon-next')));
+        await tester.pumpAndSettle();
+
+        // Step 2 is now visible — go back.
+        await tester.ensureVisible(find.byKey(const Key('btn-salon-back')));
+        await tester.tap(find.byKey(const Key('btn-salon-back')));
+        await tester.pumpAndSettle();
+
+        // We are back on Step 1. The businessName controller must still hold the
+        // previously entered value because _retreatSalonStep() only changes
+        // _salonStep back to 0 — it never clears the controllers.
+        final businessNameField = tester.widget<TextFormField>(
+          find.byKey(const Key('field-businessName')),
+        );
         expect(
-          repo.registerCalls.first.businessName,
+          businessNameField.controller?.text,
           equals('Краса Студія'),
+          reason:
+              'Going back to Step 1 must not clear the businessName '
+              'TextEditingController — user should not re-type it',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 17 — on initial mount no intent card carries a selected indicator
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '17. on initial mount no intent card has a selected visual indicator (Icons.check_circle absent)',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
+
+        // The _IntentCard widget renders Icons.check_circle only when isSelected
+        // is true. _selectedRole starts as null so no card is pre-highlighted.
+        // No Icons.check_circle should be present anywhere in the widget tree.
+        expect(
+          find.byIcon(Icons.check_circle),
+          findsNothing,
+          reason:
+              '_selectedRole starts null → no intent card is pre-selected → '
+              'Icons.check_circle must not appear in the tree',
         );
       },
     );
@@ -592,16 +830,9 @@ void main() {
         await tester.tap(find.text(l10n.intentSalonTitle).first);
         await tester.pumpAndSettle();
 
-        // Fill all fields except businessName.
-        await tester.enterText(
-          find.byKey(const Key('field-firstName')),
-          'Олена',
-        );
-        await tester.enterText(
-          find.byKey(const Key('field-lastName')),
-          'Бойко',
-        );
-        // Intentionally leave field-businessName blank.
+        // Salon Step 1: fill email + password but intentionally leave
+        // field-businessName blank. firstName/lastName are not collected
+        // in the salon owner path.
         await tester.enterText(
           find.byKey(const Key('field-email')),
           'olena@beautica.test',
@@ -611,17 +842,16 @@ void main() {
           'StrongPass2',
         );
 
-        await tester.ensureVisible(
-          find.byKey(const Key('btn-submit-register')),
-        );
-        await tester.tap(find.byKey(const Key('btn-submit-register')));
+        // Tap the Next button — Step 1 validates businessName before advancing.
+        await tester.ensureVisible(find.byKey(const Key('btn-salon-next')));
+        await tester.tap(find.byKey(const Key('btn-salon-next')));
         await tester.pump();
 
-        // errNameRequired is the validator message for blank businessName
-        // (the same validator function used for firstName/lastName).
+        // errNameRequired is the validator message for blank businessName.
         expect(find.text(l10n.errNameRequired), findsOneWidget);
 
-        // The register repository must NOT have been called.
+        // The register repository must NOT have been called — Step 2 was never
+        // reached so no submit was possible.
         expect(repo.registerCalls, isEmpty);
       },
     );
@@ -679,14 +909,8 @@ void main() {
         await tester.tap(find.text(l10n.intentSalonTitle).first);
         await tester.pumpAndSettle();
 
-        await tester.enterText(
-          find.byKey(const Key('field-firstName')),
-          'Олена',
-        );
-        await tester.enterText(
-          find.byKey(const Key('field-lastName')),
-          'Бойко',
-        );
+        // Salon Step 1: fill businessName + email + password.
+        // firstName/lastName are not collected in the salon owner path.
         await tester.enterText(
           find.byKey(const Key('field-businessName')),
           'Краса Студія',
@@ -700,10 +924,21 @@ void main() {
           'StrongPass2',
         );
 
-        await tester.ensureVisible(
-          find.byKey(const Key('btn-submit-register')),
+        // Advance to salon Step 2 via the Next button.
+        await tester.ensureVisible(find.byKey(const Key('btn-salon-next')));
+        await tester.tap(find.byKey(const Key('btn-salon-next')));
+        await tester.pumpAndSettle();
+
+        // Salon Step 2: fill the required address field (phone is optional).
+        await tester.enterText(
+          find.byKey(const Key('field-address')),
+          'вул. Хрещатик, 1',
         );
-        await tester.tap(find.byKey(const Key('btn-submit-register')));
+
+        await tester.ensureVisible(
+          find.byKey(const Key('btn-salon-submit-register')),
+        );
+        await tester.tap(find.byKey(const Key('btn-salon-submit-register')));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
         await tester.pumpAndSettle();

@@ -137,6 +137,8 @@ class AuthNotifier extends _$AuthNotifier {
     required String lastName,
     UserRole role = UserRole.independentMaster,
     String? businessName,
+    String? address,
+    String? phone,
   }) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
@@ -149,6 +151,8 @@ class AuthNotifier extends _$AuthNotifier {
             lastName: lastName,
             role: role,
             businessName: businessName,
+            address: address,
+            phone: phone,
           );
       await ref
           .read(secureStorageProvider)

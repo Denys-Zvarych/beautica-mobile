@@ -60,5 +60,37 @@ void main() {
     test('baseUrl is not null or empty', () {
       expect(AppConfig.baseUrl, isNotEmpty);
     });
+
+    // -----------------------------------------------------------------------
+    // Test 4 — AppConfig.baseUrl is NOT https in the default debug build
+    //
+    // This test documents the profile-mode guard invariant:
+    //   • The compile-time default (used in emulator dev) points to the local
+    //     ADB bridge (http://10.0.2.2:8080) which is HTTP, not HTTPS.
+    //   • assertSecureUrl() is guarded by `!kDebugMode`, so it is a no-op in
+    //     tests and debug builds.
+    //   • In a release build, if someone accidentally leaves the HTTP URL,
+    //     assertSecureUrl() would throw at startup — this test documents that
+    //     the HTTP default is intentional for the debug target only.
+    // -----------------------------------------------------------------------
+    test(
+      'baseUrl is NOT https in debug/test builds (http emulator default is intentional)',
+      () {
+        // The test-only _isSecureUrl helper mirrors the production URL check
+        // without the kDebugMode gate. We assert the result is false to
+        // document that the default URL is HTTP and would trigger the release
+        // guard if kDebugMode were false.
+        expect(
+          _isSecureUrl(AppConfig.baseUrl),
+          isFalse,
+          reason:
+              'AppConfig.baseUrl defaults to an HTTP emulator address in '
+              'debug/test builds. assertSecureUrl() is a no-op here '
+              '(kDebugMode == true). In a release build, this URL must be '
+              'replaced with the HTTPS Railway endpoint or assertSecureUrl() '
+              'will throw at startup.',
+        );
+      },
+    );
   });
 }

@@ -430,77 +430,81 @@ void main() {
   // -------------------------------------------------------------------------
 
   group('registerIndependentMaster — role-based endpoint routing', () {
-    test('11. role=salonOwner → POST to /auth/register with role=SALON_OWNER in body',
-        () async {
-      when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/register',
-          data: any(named: 'data'),
-        ),
-      ).thenAnswer(
-        (_) async => Response(
-          requestOptions: _fakeOptions('/auth/register'),
-          statusCode: 201,
-          data: _loginEnvelope(role: 'SALON_OWNER'),
-        ),
-      );
+    test(
+      '11. role=salonOwner → POST to /auth/register with role=SALON_OWNER in body',
+      () async {
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register',
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer(
+          (_) async => Response(
+            requestOptions: _fakeOptions('/auth/register'),
+            statusCode: 201,
+            data: _loginEnvelope(role: 'SALON_OWNER'),
+          ),
+        );
 
-      final (user, tokens) = await repository.registerIndependentMaster(
-        email: 'owner@beautica.test',
-        password: 'P@ssw0rd!',
-        firstName: 'Марія',
-        lastName: 'Ковальчук',
-        role: UserRole.salonOwner,
-        businessName: 'Краса Студія',
-      );
+        final (user, tokens) = await repository.registerIndependentMaster(
+          email: 'owner@beautica.test',
+          password: 'P@ssw0rd!',
+          firstName: 'Марія',
+          lastName: 'Ковальчук',
+          role: UserRole.salonOwner,
+          businessName: 'Краса Студія',
+        );
 
-      expect(user.role, UserRole.salonOwner);
-      expect(tokens.accessToken, 'access.jwt.token');
+        expect(user.role, UserRole.salonOwner);
+        expect(tokens.accessToken, 'access.jwt.token');
 
-      // Verify the exact unified endpoint was hit — if the routing were wrong
-      // and /auth/register/independent-master were used instead, mocktail would
-      // throw MissingStubError on the unstubbed path, failing the test.
-      verify(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/register',
-          data: any(named: 'data'),
-        ),
-      ).called(1);
-    });
+        // Verify the exact unified endpoint was hit — if the routing were wrong
+        // and /auth/register/independent-master were used instead, mocktail would
+        // throw MissingStubError on the unstubbed path, failing the test.
+        verify(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register',
+            data: any(named: 'data'),
+          ),
+        ).called(1);
+      },
+    );
 
-    test('12. role=client → POST to /auth/register with role=CLIENT in body',
-        () async {
-      when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/register',
-          data: any(named: 'data'),
-        ),
-      ).thenAnswer(
-        (_) async => Response(
-          requestOptions: _fakeOptions('/auth/register'),
-          statusCode: 201,
-          data: _loginEnvelope(role: 'CLIENT'),
-        ),
-      );
+    test(
+      '12. role=client → POST to /auth/register with role=CLIENT in body',
+      () async {
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register',
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer(
+          (_) async => Response(
+            requestOptions: _fakeOptions('/auth/register'),
+            statusCode: 201,
+            data: _loginEnvelope(role: 'CLIENT'),
+          ),
+        );
 
-      final (user, tokens) = await repository.registerIndependentMaster(
-        email: 'client@beautica.test',
-        password: 'P@ssw0rd!',
-        firstName: 'Катерина',
-        lastName: 'Мороз',
-        role: UserRole.client,
-      );
+        final (user, tokens) = await repository.registerIndependentMaster(
+          email: 'client@beautica.test',
+          password: 'P@ssw0rd!',
+          firstName: 'Катерина',
+          lastName: 'Мороз',
+          role: UserRole.client,
+        );
 
-      expect(user.role, UserRole.client);
-      expect(tokens.refreshToken, 'refresh.jwt.token');
+        expect(user.role, UserRole.client);
+        expect(tokens.refreshToken, 'refresh.jwt.token');
 
-      verify(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/register',
-          data: any(named: 'data'),
-        ),
-      ).called(1);
-    });
+        verify(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register',
+            data: any(named: 'data'),
+          ),
+        ).called(1);
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
