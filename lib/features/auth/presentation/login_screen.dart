@@ -21,7 +21,7 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_windowmanager/flutter_windowmanager.dart';
+import 'package:screen_protector/screen_protector.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/failures.dart';
@@ -54,14 +54,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.initState();
     // Protect credentials from task-switcher screenshots and screen recording.
     if (!kDebugMode) {
-      FlutterWindowManager.addFlags(FlutterWindowManager.FLAG_SECURE);
+      ScreenProtector.preventScreenshotOn();
     }
   }
 
   @override
   void dispose() {
     if (!kDebugMode) {
-      FlutterWindowManager.clearFlags(FlutterWindowManager.FLAG_SECURE);
+      ScreenProtector.preventScreenshotOff();
     }
     _emailController.dispose();
     _passwordController.dispose();

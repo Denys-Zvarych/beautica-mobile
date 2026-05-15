@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -18,10 +20,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
-    }
-
     defaultConfig {
         applicationId = "com.beautica.beautica_mobile"
         minSdk = 26
@@ -38,13 +36,19 @@ android {
             // R8 shrinking and obfuscation enabled for release builds.
             // ProGuard rules in proguard-rules.pro protect flutter_secure_storage
             // and firebase_messaging reflection paths (Phase 2.1).
-            minifyEnabled = true
-            shrinkResources = true
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
