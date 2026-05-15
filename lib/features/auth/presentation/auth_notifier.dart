@@ -61,7 +61,13 @@ class AuthNotifier extends _$AuthNotifier {
 
     try {
       final repo = ref.read(authRepositoryProvider);
-      final tokens = await repo.refresh(rt);
+      final tokens = await repo
+          .refresh(rt)
+          .timeout(
+            const Duration(seconds: 20),
+            onTimeout: () =>
+                throw const NetworkFailure(cause: 'refresh timed out'),
+          );
       // Persist the rotated refresh token before loading the profile.
       await storage.writeRefreshToken(tokens.refreshToken);
       final user = await repo.me();
