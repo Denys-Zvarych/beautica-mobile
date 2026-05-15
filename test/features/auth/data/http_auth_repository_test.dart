@@ -25,6 +25,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/fakes/fake_secure_storage.dart';
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -110,7 +112,9 @@ void main() {
 
   setUp(() {
     mockDio = MockDio();
-    repository = HttpAuthRepository(mockDio);
+    // Phase 2.8: HttpAuthRepository now requires SecureStorage for logout().
+    // FakeSecureStorage is used here — no platform channels needed.
+    repository = HttpAuthRepository(mockDio, FakeSecureStorage());
 
     // Default fallback for Options — mocktail needs this registered.
     registerFallbackValue(Options());

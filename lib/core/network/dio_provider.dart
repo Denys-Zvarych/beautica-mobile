@@ -1,17 +1,18 @@
 // Phase 2.2 — Dio singleton provider.
+// Phase 2.7 — RefreshInterceptor added after ErrorMapperInterceptor.
 //
 // This is the single [Dio] instance used for all authenticated API calls.
 // Do NOT call `Dio()` anywhere in lib/features/ — always use
 // `ref.watch(dioProvider)` or `ref.read(dioProvider)`.
 //
 // Interceptor order (matters!):
-//   1. AuthInterceptor   — attaches Bearer token to outgoing requests.
-//   2. LoggingInterceptor — logs traffic; debug builds only.
-//   3. ErrorMapperInterceptor — converts DioException → typed Failure.
-//   4. RefreshInterceptor — handles 401 retry (Phase 2.7, placeholder comment).
+//   1. AuthInterceptor         — attaches Bearer token to outgoing requests.
+//   2. LoggingInterceptor      — logs traffic; debug builds only.
+//   3. ErrorMapperInterceptor  — converts DioException → typed Failure.
+//   4. RefreshInterceptor      — handles 401 retry with silent token refresh.
 //
-// A separate `refreshDioProvider` with NO auth interceptor will be added in
-// Phase 2.7 for the token-refresh flow, to avoid circular requests.
+// A separate [refreshDioProvider] with NO interceptors is used by
+// [RefreshInterceptor] for POST /auth/refresh to avoid circular requests.
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -21,6 +22,7 @@ import '../config/app_config.dart';
 import 'auth_interceptor.dart';
 import 'error_mapper_interceptor.dart';
 import 'logging_interceptor.dart';
+import 'refresh_interceptor.dart';
 
 part 'dio_provider.g.dart';
 
@@ -50,7 +52,7 @@ Dio dio(Ref ref) {
     AuthInterceptor(ref),
     if (kDebugMode) LoggingInterceptor(),
     ErrorMapperInterceptor(),
-    // RefreshInterceptor — Phase 2.7
+    RefreshInterceptor(ref, d),
   ]);
 
   return d;

@@ -30,15 +30,17 @@ abstract final class AppConfig {
   /// APK built without the `--dart-define=BEAUTICA_BASE_URL=https://...` flag
   /// fails loudly at first use rather than silently shipping cleartext traffic.
   ///
-  /// Debug and profile builds are exempt — the emulator default (`http://10.0.2.2`)
-  /// is intentionally cleartext for local development.
+  /// Debug builds are exempt — the emulator default (`http://10.0.2.2`)
+  /// is intentionally cleartext for local development. Profile builds must
+  /// also use HTTPS because they are production-equivalent builds used for
+  /// performance profiling against real infrastructure.
   static void assertSecureUrl() {
     // `assert` is a no-op in release; the if-guard below handles release mode.
     assert(
       true,
       '',
     ); // assertions disabled in release — this line is intentional
-    if (!kDebugMode && !kProfileMode && !baseUrl.startsWith('https://')) {
+    if (!kDebugMode && !baseUrl.startsWith('https://')) {
       throw StateError(
         'BEAUTICA_BASE_URL must start with https:// in release builds. '
         'Provide --dart-define=BEAUTICA_BASE_URL=https://... when building for release.',

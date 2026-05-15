@@ -1,16 +1,18 @@
 // Phase 1.4 — smoke test for the go_router routing skeleton.
+// Phase 2.9 — Updated: authRedirect now takes (AsyncValue<AuthSession>, state).
+//             Test router uses redirect: (_, __) => null so auth logic is not
+//             exercised here — that is covered by auth_redirect_test.dart.
 //
 // Creates a [GoRouter] directly (not via the Riverpod provider) to keep the
-// test simple and dependency-free. Validates that:
+// test dependency-free. Validates that:
 //   1. The router resolves the initial location to the splash placeholder.
 //   2. `router.go(RouteNames.login)` switches the view to the login placeholder.
-//   3. The auth redirect stub is non-blocking (returns null for every location).
+//   3. The redirect is a no-op for this test (null always) — routing skeleton.
 //
 // Note: `test/` is excluded from the `no_raw_ui_strings` custom lint rule —
 // raw string literals in test find expressions are acceptable here.
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
-import 'package:beautica_mobile/routing/auth_redirect.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,23 +25,29 @@ void main() {
     setUp(() {
       router = GoRouter(
         initialLocation: RouteNames.splash,
-        redirect: (ctx, state) => authRedirect(state),
+        // Auth redirect logic is tested in auth_redirect_test.dart.
+        // This test exercises the routing skeleton only — no redirects.
+        redirect: (context, state) => null,
         routes: [
           GoRoute(
             path: RouteNames.splash,
-            builder: (_, s) => const _Placeholder('splash'),
+            builder: (context, s) => const _Placeholder('splash'),
           ),
           GoRoute(
             path: RouteNames.login,
-            builder: (_, s) => const _Placeholder('login'),
+            builder: (context, s) => const _Placeholder('login'),
           ),
           GoRoute(
             path: RouteNames.register,
-            builder: (_, s) => const _Placeholder('register'),
+            builder: (context, s) => const _Placeholder('register'),
           ),
           GoRoute(
             path: RouteNames.home,
-            builder: (_, s) => const _Placeholder('home'),
+            builder: (context, s) => const _Placeholder('home'),
+          ),
+          GoRoute(
+            path: RouteNames.settings,
+            builder: (context, s) => const _Placeholder('settings'),
           ),
         ],
       );
@@ -64,7 +72,7 @@ void main() {
       expect(find.text('login'), findsOneWidget);
     });
 
-    testWidgets('authRedirect returns null — does not redirect', (
+    testWidgets('all routes resolve without unexpected redirects', (
       tester,
     ) async {
       await tester.pumpWidget(_TestApp(router: router));
@@ -76,11 +84,12 @@ void main() {
         RouteNames.register,
         RouteNames.home,
         RouteNames.splash,
+        RouteNames.settings,
       ]) {
         router.go(path);
         await tester.pumpAndSettle();
         // The placeholder label is the last segment of the path (e.g. 'login').
-        final label = path == '/' ? 'home' : path.substring(1);
+        final label = path == RouteNames.home ? 'home' : path.substring(1);
         expect(find.text(label), findsOneWidget);
       }
     });

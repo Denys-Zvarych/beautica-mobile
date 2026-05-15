@@ -1,11 +1,54 @@
+// Phase 2.9 — Auth redirect guard (real implementation).
+//
+// Pure function: takes the current [AsyncValue<AuthSession>] and the
+// [GoRouterState], returns either a redirect path or null to stay on the
+// current location.
+//
+// Rules:
+//   isLoading → park on /splash; redirect all other locations to /splash.
+//   Unauthenticated + not on an auth route → redirect to /login.
+//   Authenticated + on an auth route (login/register/splash) → redirect to /.
+//   Otherwise → null (stay).
+//
+// Auth routes = /login, /register, /splash. They are accessible without
+// authentication; all other routes require an authenticated session.
+//
+// Testable without a widget tree: the function is pure and has no side effects.
+// See test/routing/auth_redirect_test.dart.
+
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-/// Auth redirect callback wired into [GoRouter.redirect].
+import 'route_names.dart';
+
+/// Pure guard function wired into [GoRouter.redirect].
 ///
-/// Phase 1.4 — stub that allows every location unconditionally.
-/// Phase 2.9 promotes this to read `authNotifierProvider` and redirect
-/// unauthenticated users to [RouteNames.login].
-String? authRedirect(GoRouterState state) {
-  // Phase 2.9 promotes this to a real guard reading authNotifierProvider.
+/// Returns the redirect target path, or null to allow navigation to proceed.
+///
+/// [session] is the current value of [authProvider].
+/// [state] is the [GoRouterState] provided by [GoRouter].
+String? authRedirect(AsyncValue<AuthSession> session, GoRouterState state) {
+  final location = state.matchedLocation;
+
+  // While the session is resolving (cold-start), park on the splash screen.
+  if (session.isLoading) {
+    return location == RouteNames.splash ? null : RouteNames.splash;
+  }
+
+  final isAuthenticated = session.value is Authenticated;
+
+  final isAtAuthRoute =
+      location == RouteNames.login ||
+      location == RouteNames.register ||
+      location == RouteNames.splash;
+
+  // Unauthenticated user trying to reach a protected route → send to login.
+  if (!isAuthenticated && !isAtAuthRoute) return RouteNames.login;
+
+  // Authenticated user sitting on an auth-only route → send to home.
+  if (isAuthenticated && isAtAuthRoute) return RouteNames.home;
+
+  // No redirect needed.
   return null;
 }

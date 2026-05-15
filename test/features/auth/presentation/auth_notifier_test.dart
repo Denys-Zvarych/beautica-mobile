@@ -198,6 +198,7 @@ void main() {
         () => repo.refresh('stored-refresh'),
       ).thenAnswer((_) async => testTokens);
       when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
 
       final container = makeContainer(repo: repo, storage: storage);
       // Wait for the cold-start to complete (Authenticated).

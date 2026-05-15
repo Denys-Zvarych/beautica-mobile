@@ -1,44 +1,70 @@
+// Phase 1.4 — go_router scaffold.
+// Phase 2.5 — LoginScreen wired.
+// Phase 2.6 — RegisterScreen wired.
+// Phase 2.8 — SettingsScreen + RouteNames.settings wired.
+// Phase 2.9 — AuthRefreshNotifier + real authRedirect(session, state) guard.
+//
+// [appRouterProvider] is kept alive because [GoRouter] must survive tab
+// switches and is shared across the entire widget tree via
+// [MaterialApp.router].
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../features/auth/presentation/auth_notifier.dart';
+import '../features/auth/presentation/login_screen.dart';
+import '../features/auth/presentation/register_screen.dart';
+import '../features/auth/presentation/splash_screen.dart';
+import '../features/settings/presentation/settings_screen.dart';
 import 'auth_redirect.dart';
+import 'auth_refresh_notifier.dart';
 import 'route_names.dart';
 
 part 'app_router.g.dart';
 
 /// Riverpod-managed [GoRouter] instance.
 ///
-/// Phase 1.4 — placeholder routes for every top-level path. Real screens
-/// land in Phase 2.5 (auth) and Phase 2.6 (master home).  [GoRouter] is
-/// `keepAlive: true` because it must survive tab switches and is shared
-/// across the entire widget tree via [MaterialApp.router].
+/// Wired with [AuthRefreshNotifier] so that any change in the auth session
+/// triggers a re-evaluation of the redirect callback. This means users are
+/// automatically routed to the correct screen after login, logout, or
+/// cold-start session resolution — without any screen-level navigation code.
 @Riverpod(keepAlive: true)
-GoRouter appRouter(Ref ref) => GoRouter(
-  initialLocation: RouteNames.splash,
-  redirect: (ctx, state) => authRedirect(state),
-  routes: [
-    GoRoute(
-      path: RouteNames.splash,
-      builder: (_, s) => const _Placeholder('splash'),
-    ),
-    GoRoute(
-      path: RouteNames.login,
-      builder: (_, s) => const _Placeholder('login'),
-    ),
-    GoRoute(
-      path: RouteNames.register,
-      builder: (_, s) => const _Placeholder('register'),
-    ),
-    GoRoute(
-      path: RouteNames.home,
-      builder: (_, s) => const _Placeholder('home'),
-    ),
-  ],
-);
+GoRouter appRouter(Ref ref) {
+  final refresh = AuthRefreshNotifier(ref);
+  ref.onDispose(refresh.dispose);
 
-/// Throwaway scaffold used by every route until Phase 2.x replaces it with
-/// a real screen.  The [label] is a variable, not a raw string literal, so
+  return GoRouter(
+    initialLocation: RouteNames.splash,
+    refreshListenable: refresh,
+    redirect: (ctx, state) => authRedirect(ref.read(authProvider), state),
+    routes: [
+      GoRoute(
+        path: RouteNames.splash,
+        builder: (context, state) => const SplashScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.login,
+        builder: (context, state) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.register,
+        builder: (context, state) => const RegisterScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.home,
+        builder: (context, state) => const _Placeholder('home'),
+      ),
+      GoRoute(
+        path: RouteNames.settings,
+        builder: (context, state) => const SettingsScreen(),
+      ),
+    ],
+  );
+}
+
+/// Throwaway scaffold used by the home route until Phase 3+ replaces it with
+/// a real screen. The [label] is a variable, not a raw string literal, so
 /// the `no_raw_ui_strings` custom lint rule is satisfied.
 class _Placeholder extends StatelessWidget {
   const _Placeholder(this.label);

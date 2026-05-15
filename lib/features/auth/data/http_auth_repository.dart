@@ -1,10 +1,11 @@
 // TODO(phase-3.2): replace hand-written DTOs with imports from lib/api/ (generated AuthApi).
 //
 // Phase 2.3 — HttpAuthRepository.
+// Phase 2.8 — Added SecureStorage injection + logout() implementation.
 //
 // Concrete implementation of [AuthRepository] backed by the Beautica backend
 // REST API. Uses the singleton [dioProvider] Dio instance which carries the
-// full interceptor chain (Auth → Log → ErrorMapper).
+// full interceptor chain (Auth → Log → ErrorMapper → Refresh).
 //
 // Backend response envelope for all endpoints:
 //   { "success": bool, "data": T, "message": String }
@@ -17,6 +18,7 @@ import 'dart:async';
 import 'dart:developer';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/storage/secure_storage.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -28,9 +30,13 @@ import 'auth_repository.dart';
 ///
 /// Inject via [authRepositoryProvider] — never construct directly.
 final class HttpAuthRepository implements AuthRepository {
-  HttpAuthRepository(this._dio);
+  HttpAuthRepository(this._dio, this._storage);
 
   final Dio _dio;
+
+  /// Used exclusively by [logout] to read the current refresh token so it can
+  /// be revoked on the backend. Never used for access tokens.
+  final SecureStorage _storage;
 
   /// Guards against concurrent refresh races: if a refresh call is already
   /// in-flight, subsequent callers await the same [Completer] instead of
@@ -150,6 +156,26 @@ final class HttpAuthRepository implements AuthRepository {
         );
       }
       throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<void> logout() async {
+    final rt = await _storage.readRefreshToken();
+    if (rt == null) return; // nothing to revoke
+
+    try {
+      await _dio.post<void>('/auth/logout', data: {'refreshToken': rt});
+    } on DioException catch (e) {
+      // Best-effort: 4xx / network errors are intentionally swallowed.
+      // The caller wipes local storage unconditionally after this returns.
+      if (kDebugMode) {
+        log(
+          'logout server call failed (tolerated): ${e.type} ${e.response?.statusCode}',
+          name: 'auth.repository',
+          level: 900,
+        );
+      }
     }
   }
 

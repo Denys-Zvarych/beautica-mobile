@@ -45,5 +45,117 @@
   "retryLabel": "Спробувати знову",
   "@retryLabel": {
     "description": "Label for the retry button shown in error states."
+  },
+  "loginTitle": "Вхід",
+  "@loginTitle": {
+    "description": "Title of the login screen."
+  },
+  "loginEmailLabel": "Електронна пошта",
+  "@loginEmailLabel": {
+    "description": "Label for the email input field on the login screen."
+  },
+  "loginPasswordLabel": "Пароль",
+  "@loginPasswordLabel": {
+    "description": "Label for the password input field on the login screen."
+  },
+  "loginSubmit": "Увійти",
+  "@loginSubmit": {
+    "description": "Label for the submit button on the login screen."
+  },
+  "loginNoAccount": "Немає акаунту?",
+  "@loginNoAccount": {
+    "description": "Prompt text shown before the create account link."
+  },
+  "loginCreateAccount": "Створити акаунт",
+  "@loginCreateAccount": {
+    "description": "Link label to navigate to the register screen."
+  },
+  "errEmailRequired": "Введіть email",
+  "@errEmailRequired": {
+    "description": "Validation error when the email field is empty."
+  },
+  "errEmailInvalid": "Невірний формат email",
+  "@errEmailInvalid": {
+    "description": "Validation error when the email field has an invalid format."
+  },
+  "errEmailTooLong": "Email не може перевищувати 255 символів",
+  "@errEmailTooLong": {
+    "description": "Validation error when the email field exceeds 255 characters."
+  },
+  "errPasswordRequired": "Введіть пароль",
+  "@errPasswordRequired": {
+    "description": "Validation error when the password field is empty."
+  },
+  "errPasswordLength": "Пароль повинен бути від 1 до 128 символів",
+  "@errPasswordLength": {
+    "description": "Validation error when the password field length is out of range."
+  },
+  "registerTitle": "Реєстрація",
+  "@registerTitle": {
+    "description": "Title of the register screen."
+  },
+  "registerSubmit": "Зареєструватися",
+  "@registerSubmit": {
+    "description": "Label for the submit button on the register screen."
+  },
+  "registerHaveAccount": "Вже є акаунт?",
+  "@registerHaveAccount": {
+    "description": "Prompt text shown before the sign in link on the register screen."
+  },
+  "registerSignIn": "Увійти",
+  "@registerSignIn": {
+    "description": "Link label to navigate back to the login screen from register."
+  },
+  "firstNameLabel": "Ім'я",
+  "@firstNameLabel": {
+    "description": "Label for the first name input field."
+  },
+  "lastNameLabel": "Прізвище",
+  "@lastNameLabel": {
+    "description": "Label for the last name input field."
+  },
+  "roleLabel": "Роль",
+  "@roleLabel": {
+    "description": "Label for the role selector."
+  },
+  "roleComingSoon": "Незабаром",
+  "@roleComingSoon": {
+    "description": "Tooltip shown on disabled role options."
+  },
+  "errNameRequired": "Це поле обов'язкове",
+  "@errNameRequired": {
+    "description": "Validation error when a required name field is empty."
+  },
+  "errNameTooLong": "Не може перевищувати 100 символів",
+  "@errNameTooLong": {
+    "description": "Validation error when a name field exceeds 100 characters."
+  },
+  "roleClient": "Клієнт",
+  "@roleClient": {
+    "description": "Label for the Client role."
+  },
+  "roleSalonOwner": "Власник салону",
+  "@roleSalonOwner": {
+    "description": "Label for the Salon Owner role."
+  },
+  "roleSalonAdmin": "Адміністратор",
+  "@roleSalonAdmin": {
+    "description": "Label for the Salon Admin role."
+  },
+  "roleSalonMaster": "Майстер салону",
+  "@roleSalonMaster": {
+    "description": "Label for the Salon Master role."
+  },
+  "roleIndependentMaster": "Незалежний майстер",
+  "@roleIndependentMaster": {
+    "description": "Label for the Independent Master role."
+  },
+  "logout": "Вийти",
+  "@logout": {
+    "description": "Label for the logout action."
+  },
+  "settingsTitle": "Налаштування",
+  "@settingsTitle": {
+    "description": "Title of the settings screen."
   }
 }

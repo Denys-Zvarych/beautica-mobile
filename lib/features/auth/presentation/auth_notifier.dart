@@ -23,6 +23,7 @@
 
 import 'dart:developer';
 
+import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
@@ -48,11 +49,13 @@ class AuthNotifier extends _$AuthNotifier {
     final rt = await storage.readRefreshToken();
 
     if (rt == null) {
-      log(
-        'Cold start: no refresh token — unauthenticated',
-        name: 'auth',
-        level: 800,
-      );
+      if (kDebugMode) {
+        log(
+          'Cold start: no refresh token — unauthenticated',
+          name: 'auth',
+          level: 800,
+        );
+      }
       return const AuthSession.unauthenticated();
     }
 
@@ -62,22 +65,26 @@ class AuthNotifier extends _$AuthNotifier {
       // Persist the rotated refresh token before loading the profile.
       await storage.writeRefreshToken(tokens.refreshToken);
       final user = await repo.me();
-      log(
-        'Cold start: session restored for ${user.email}',
-        name: 'auth',
-        level: 800,
-      );
+      if (kDebugMode) {
+        log(
+          'Cold start: session restored for user ${user.id}',
+          name: 'auth',
+          level: 800,
+        );
+      }
       return AuthSession.authenticated(
         user: user,
         accessToken: tokens.accessToken,
       );
     } on Failure catch (f) {
-      log(
-        'Cold start refresh failed — clearing storage and going unauthenticated',
-        name: 'auth',
-        level: 1000,
-        error: '${f.runtimeType}: ${f.cause}',
-      );
+      if (kDebugMode) {
+        log(
+          'Cold start refresh failed — clearing storage and going unauthenticated',
+          name: 'auth',
+          level: 1000,
+          error: '${f.runtimeType}: ${f.cause}',
+        );
+      }
       await storage.deleteAll();
       return const AuthSession.unauthenticated();
     }
@@ -97,7 +104,9 @@ class AuthNotifier extends _$AuthNotifier {
       await ref
           .read(secureStorageProvider)
           .writeRefreshToken(tokens.refreshToken);
-      log('Login success: ${user.email}', name: 'auth', level: 800);
+      if (kDebugMode) {
+        log('Login success: user ${user.id}', name: 'auth', level: 800);
+      }
       return AuthSession.authenticated(
         user: user,
         accessToken: tokens.accessToken,
@@ -128,7 +137,9 @@ class AuthNotifier extends _$AuthNotifier {
       await ref
           .read(secureStorageProvider)
           .writeRefreshToken(tokens.refreshToken);
-      log('Registration success: ${user.email}', name: 'auth', level: 800);
+      if (kDebugMode) {
+        log('Registration success: user ${user.id}', name: 'auth', level: 800);
+      }
       return AuthSession.authenticated(
         user: user,
         accessToken: tokens.accessToken,
@@ -136,13 +147,42 @@ class AuthNotifier extends _$AuthNotifier {
     });
   }
 
+  /// Updates the in-memory access token without re-fetching the user profile.
+  ///
+  /// Called by [RefreshInterceptor] after a silent token refresh so that
+  /// subsequent requests carry the new access token without requiring a full
+  /// session reload. Only has effect when the current state is [Authenticated].
+  void setAccessToken(String token) {
+    final s = state.value;
+    if (s is Authenticated) {
+      state = AsyncData(
+        AuthSession.authenticated(user: s.user, accessToken: token),
+      );
+    }
+  }
+
   /// Clears the session and wipes all tokens from secure storage.
   ///
-  /// Sets state to [AsyncData<Unauthenticated>] synchronously after the storage
-  /// wipe. The router guard (Phase 2.9) will redirect to the login screen.
+  /// Makes a best-effort server-side revocation call via the repository before
+  /// wiping local state. Any [Failure] from the server call is tolerated — the
+  /// local wipe always proceeds. Sets state to [AsyncData<Unauthenticated>]
+  /// so the router guard (Phase 2.9) redirects to the login screen.
   Future<void> logout() async {
+    try {
+      await ref.read(authRepositoryProvider).logout();
+    } on Failure catch (f) {
+      if (kDebugMode) {
+        log(
+          'Logout server call failed (tolerated): ${f.runtimeType}',
+          name: 'auth',
+          level: 900,
+        );
+      }
+    }
     await ref.read(secureStorageProvider).deleteAll();
-    log('Logout: session cleared', name: 'auth', level: 800);
+    if (kDebugMode) {
+      log('Logout: session cleared', name: 'auth', level: 800);
+    }
     state = const AsyncData(AuthSession.unauthenticated());
   }
 }

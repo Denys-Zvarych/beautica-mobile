@@ -65,4 +65,15 @@ abstract interface class AuthRepository {
   /// - [NetworkFailure] — connectivity issues.
   /// - [UnknownFailure] — any other unexpected error.
   Future<User> me();
+
+  /// Best-effort server-side token revocation.
+  ///
+  /// Sends the current refresh token to `POST /auth/logout` so the backend
+  /// can invalidate it. 4xx and network errors are swallowed — the local
+  /// token wipe always proceeds regardless of the server response.
+  ///
+  /// Callers (i.e. [AuthNotifier.logout]) must NOT depend on this completing
+  /// successfully; they should wipe local storage unconditionally after the
+  /// call returns or throws.
+  Future<void> logout();
 }

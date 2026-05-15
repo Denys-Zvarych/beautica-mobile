@@ -7,6 +7,7 @@
 /// path segment (no host), as set by [BaseOptions.baseUrl].
 const Set<String> kAuthPaths = {
   '/auth/login',
+  '/auth/logout',
   '/auth/register',
   '/auth/register/independent-master',
   '/auth/refresh',

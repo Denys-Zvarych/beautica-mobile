@@ -58,6 +58,10 @@ dependencies:
   # analyzer version conflict (annotations pull openapi_generator's analyzer
   # <7.0.0 constraint, riverpod_lint requires analyzer ^7).
 
+  # Screen security — FLAG_SECURE on login/register screens prevents
+  # task-switcher screenshots and screen recording (MS-4).
+  flutter_windowmanager: ^0.2.0
+
   # Logging — dart:developer log() is the official channel; no extra package.
   cupertino_icons: ^1.0.8
 

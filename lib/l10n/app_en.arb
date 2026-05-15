@@ -45,5 +45,117 @@
   "retryLabel": "Try again",
   "@retryLabel": {
     "description": "Label for the retry button shown in error states."
+  },
+  "loginTitle": "Sign In",
+  "@loginTitle": {
+    "description": "Title of the login screen."
+  },
+  "loginEmailLabel": "Email address",
+  "@loginEmailLabel": {
+    "description": "Label for the email input field on the login screen."
+  },
+  "loginPasswordLabel": "Password",
+  "@loginPasswordLabel": {
+    "description": "Label for the password input field on the login screen."
+  },
+  "loginSubmit": "Sign In",
+  "@loginSubmit": {
+    "description": "Label for the submit button on the login screen."
+  },
+  "loginNoAccount": "Don't have an account?",
+  "@loginNoAccount": {
+    "description": "Prompt text shown before the create account link."
+  },
+  "loginCreateAccount": "Create account",
+  "@loginCreateAccount": {
+    "description": "Link label to navigate to the register screen."
+  },
+  "errEmailRequired": "Email is required",
+  "@errEmailRequired": {
+    "description": "Validation error when the email field is empty."
+  },
+  "errEmailInvalid": "Invalid email format",
+  "@errEmailInvalid": {
+    "description": "Validation error when the email field has an invalid format."
+  },
+  "errEmailTooLong": "Email must not exceed 255 characters",
+  "@errEmailTooLong": {
+    "description": "Validation error when the email field exceeds 255 characters."
+  },
+  "errPasswordRequired": "Password is required",
+  "@errPasswordRequired": {
+    "description": "Validation error when the password field is empty."
+  },
+  "errPasswordLength": "Password must be between 1 and 128 characters",
+  "@errPasswordLength": {
+    "description": "Validation error when the password field length is out of range."
+  },
+  "registerTitle": "Register",
+  "@registerTitle": {
+    "description": "Title of the register screen."
+  },
+  "registerSubmit": "Create Account",
+  "@registerSubmit": {
+    "description": "Label for the submit button on the register screen."
+  },
+  "registerHaveAccount": "Already have an account?",
+  "@registerHaveAccount": {
+    "description": "Prompt text shown before the sign in link on the register screen."
+  },
+  "registerSignIn": "Sign In",
+  "@registerSignIn": {
+    "description": "Link label to navigate back to the login screen from register."
+  },
+  "firstNameLabel": "First name",
+  "@firstNameLabel": {
+    "description": "Label for the first name input field."
+  },
+  "lastNameLabel": "Last name",
+  "@lastNameLabel": {
+    "description": "Label for the last name input field."
+  },
+  "roleLabel": "Role",
+  "@roleLabel": {
+    "description": "Label for the role selector."
+  },
+  "roleComingSoon": "Coming soon",
+  "@roleComingSoon": {
+    "description": "Tooltip shown on disabled role options."
+  },
+  "errNameRequired": "This field is required",
+  "@errNameRequired": {
+    "description": "Validation error when a required name field is empty."
+  },
+  "errNameTooLong": "Must not exceed 100 characters",
+  "@errNameTooLong": {
+    "description": "Validation error when a name field exceeds 100 characters."
+  },
+  "roleClient": "Client",
+  "@roleClient": {
+    "description": "Label for the Client role."
+  },
+  "roleSalonOwner": "Salon Owner",
+  "@roleSalonOwner": {
+    "description": "Label for the Salon Owner role."
+  },
+  "roleSalonAdmin": "Administrator",
+  "@roleSalonAdmin": {
+    "description": "Label for the Salon Admin role."
+  },
+  "roleSalonMaster": "Salon Master",
+  "@roleSalonMaster": {
+    "description": "Label for the Salon Master role."
+  },
+  "roleIndependentMaster": "Independent Master",
+  "@roleIndependentMaster": {
+    "description": "Label for the Independent Master role."
+  },
+  "logout": "Log Out",
+  "@logout": {
+    "description": "Label for the logout action."
+  },
+  "settingsTitle": "Settings",
+  "@settingsTitle": {
+    "description": "Title of the settings screen."
   }
 }
