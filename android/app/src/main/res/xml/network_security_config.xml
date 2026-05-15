@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Network security configuration for Beautica Mobile.
+
+    Production domain: HTTPS-only, cleartext blocked.
+    Trust anchors: ISRG Root X1 (Let's Encrypt) — stable until 2035.
+    Rotate to ISRG Root X2 before ISRG Root X1 retires.
+
+    Debug builds: Android allows cleartext to 10.0.2.2 (AVD loopback) by
+    default, so the emulator development flow is unaffected.
+-->
+<network-security-config>
+    <!-- Production: HTTPS only, no cleartext -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">beautica-backend-production.up.railway.app</domain>
+        <trust-anchors>
+            <!-- ISRG Root X1 — stable Let's Encrypt root; rotate to X2 when X1 retires (2035) -->
+            <certificates src="@raw/isrg_root_x1" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>
