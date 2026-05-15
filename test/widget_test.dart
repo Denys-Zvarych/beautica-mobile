@@ -1,26 +1,27 @@
-// Phase 0 — proof-of-life widget smoke test.
+// Phase 1.4 — top-level smoke test: BeauticaApp boots without crashing.
 //
-// Verifies the bootstrap counter renders, starts at 0, and increments to 1
-// when the floating action button is tapped. Phase 1+ replaces this fixture
-// with feature-level widget tests under `test/widget/`.
+// The Phase 0 counter scaffold (_BootstrapHome) was removed when
+// MaterialApp.router + go_router landed in Phase 1.4.  This test verifies
+// the ProviderScope + MaterialApp.router initialises cleanly and routes to
+// the /splash placeholder as the initial location.
+//
+// A more focused router test lives at test/routing/app_router_test.dart.
+// Feature-level widget tests land in test/widget/ as features are built.
 
 import 'package:beautica_mobile/main.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('Bootstrap counter increments on FAB tap', (
+  testWidgets('BeauticaApp boots and renders splash placeholder', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(const BeauticaApp());
+    await tester.pumpWidget(const ProviderScope(child: BeauticaApp()));
+    // Allow the router to settle — go_router performs async redirect evaluation
+    // on the first frame.
+    await tester.pumpAndSettle();
 
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // The initial route is /splash — _Placeholder renders a Text with 'splash'.
+    expect(find.text('splash'), findsOneWidget);
   });
 }

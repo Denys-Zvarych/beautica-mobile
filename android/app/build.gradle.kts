@@ -35,6 +35,12 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // MS8 — ProGuard keep-rules wired for Phase 11 (minifyEnabled stays false until then).
+            // Rules protect flutter_secure_storage and firebase_messaging reflection paths.
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }

@@ -3,5 +3,47 @@
   "appTitle": "Beautica",
   "@appTitle": {
     "description": "Application name shown in the OS task switcher and on the splash screen."
+  },
+  "loadingLabel": "Loading…",
+  "@loadingLabel": {
+    "description": "Generic 'Loading…' label shown next to a CircularProgressIndicator while async data resolves."
+  },
+  "calendarBookingsForDay": "{count, plural, =0{No bookings} =1{1 booking} other{{count} bookings}}",
+  "@calendarBookingsForDay": {
+    "description": "Summary count of bookings shown on a calendar day cell or day header.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "errNetwork": "No network connection. Check your internet and try again.",
+  "@errNetwork": {
+    "description": "Error message shown when a network request fails due to no connectivity."
+  },
+  "errNotFound": "The item was not found.",
+  "@errNotFound": {
+    "description": "Error message shown when a 404 response is received."
+  },
+  "errUnauthorized": "Your session has expired. Please sign in again.",
+  "@errUnauthorized": {
+    "description": "Error message shown when the user's session has expired (401)."
+  },
+  "errValidation": "Please check your input and try again.",
+  "@errValidation": {
+    "description": "Error message shown when the server returns validation errors (422)."
+  },
+  "errServer": "Server error. Please try again later.",
+  "@errServer": {
+    "description": "Error message shown when a 5xx server error occurs."
+  },
+  "errUnknown": "Something went wrong. Please try again.",
+  "@errUnknown": {
+    "description": "Fallback error message for unexpected failures."
+  },
+  "retryLabel": "Try again",
+  "@retryLabel": {
+    "description": "Label for the retry button shown in error states."
   }
 }

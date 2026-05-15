@@ -9,6 +9,15 @@
 # Generated code (`lib/api/**`, `*.g.dart`, `*.freezed.dart`) is excluded
 # from analysis — they live under `pubspec.yaml`'s codegen umbrella and are
 # regenerated, never hand-edited.
+#
+# Phase 1.2 — spacing scale enforcement (CI-side grep gate):
+#   `EdgeInsets.(all|symmetric|fromLTRB)(<numeric literal>)` is forbidden
+#   anywhere under `lib/` outside the `AppSpacing.*` tokens. The check runs
+#   as the "Forbid magic padding numbers" step in
+#   `.github/workflows/pr-validate.yml`. The Dart analyzer has no first-
+#   class lint for this today; once `custom_lint` is wired in Phase 3+ we
+#   can promote the rule to an analyzer-level check. Numeric padding in
+#   `lib/features/**` is an automatic `mobile-qa` HIGH finding.
 
 include: package:flutter_lints/flutter.yaml
 
@@ -41,3 +50,12 @@ linter:
     unawaited_futures: true
     use_super_parameters: true
     sort_pub_dependencies: false
+
+# Phase 1.5 — `no_raw_ui_strings` promoted from WARNING to ERROR.
+# The l10n key set has settled and all widget targets are covered; any raw
+# string literal in a flagged widget arg now fails `dart run custom_lint`
+# in CI (see `.github/workflows/pr-validate.yml` "Custom lint" step).
+# Severity was WARNING from Phase 1.3 until this promotion.
+custom_lint:
+  rules:
+    - no_raw_ui_strings: error
