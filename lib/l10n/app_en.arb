@@ -198,6 +198,14 @@
   "@registerPhoneLabel": {
     "description": "Label for the phone number input field on the salon owner registration step 2."
   },
+  "registerStep1Title": "Account Details",
+  "@registerStep1Title": {
+    "description": "Title for step 1 of the universal multi-step registration (email + password)."
+  },
+  "registerStep2Title": "Personal Details",
+  "@registerStep2Title": {
+    "description": "Title for step 2 of the universal multi-step registration for non-salon roles (name + phone)."
+  },
   "registerSalonStep1Title": "Basic information",
   "@registerSalonStep1Title": {
     "description": "Title for step 1 of the salon owner multi-step registration."
@@ -241,6 +249,10 @@
   "errPhoneInvalidFormat": "Invalid phone number format",
   "@errPhoneInvalidFormat": {
     "description": "Validation error when the phone number field contains invalid characters."
+  },
+  "errPhoneRequired": "Enter phone number",
+  "@errPhoneRequired": {
+    "description": "Validation error when the phone number field is empty."
   },
   "showPasswordSemanticLabel": "Show password",
   "@showPasswordSemanticLabel": {

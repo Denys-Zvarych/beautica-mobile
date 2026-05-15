@@ -1,11 +1,12 @@
 // Phase 2.6 — Register screen.
-// Updated: logo size increased, salon multi-step flow, initial state bug fix,
-//          real-time password strength indicator.
+// Updated: universal 2-step flow for all roles, Ukrainian phone mask,
+//          email autovalidation, phone required for all roles,
+//          businessName moved to step 2 for salon owners.
 //
 // ConsumerStatefulWidget: owns TextEditingControllers, FormKeys, intent state,
 // selected role, animation controllers, _obscurePassword toggle, _buttonPressed
-// press state, a map of server-side field errors, and (for salon owners) a
-// salon registration step index.
+// press state, a map of server-side field errors, and a universal registration
+// step index (_registrationStep) shared across all roles.
 //
 // Layout: full-screen gradient (Midnight → deep navy), no AppBar, SafeArea
 // wrapping a scrollable form centred in a max-width 400 column.
@@ -15,30 +16,23 @@
 //     Three large intent cards animate in via _intentCtrl (500 ms stagger).
 //     No form fields are shown. _intentSelected == false.
 //
-//   Step 1 — Form (all non-salon roles) OR Salon step 1:
+//   Step 1 (all roles) — Credentials:
 //     The selected card collapses to a small badge pill.
 //     Form fields stagger in via _entranceCtrl (600 ms, 5 items).
 //     Tapping the badge resets to Step 0.
-//     For SALON_OWNER: shows email + password + business name.
-//     For INDEPENDENT_MASTER / CLIENT: shows firstName, lastName, email, password.
+//     Shows: email + password + strength indicator.
+//     CTA: "Далі" button (btn-next-step).
 //
-//   Step 2 — Salon details (SALON_OWNER only):
-//     Shown after the user taps "Next" on salon step 1 with valid fields.
-//     Collects address + phone number. A two-segment progress bar is shown.
-//     A "Back" button returns to Step 1 without losing step-1 data.
-//
-// Bug fix (change 3):
-//   _intentSelected starts as false; the form fields are controlled by
-//   _intentSelected, not by a separate "was tapped" flag. Previously the
-//   intent card had role == independentMaster pre-highlighted but
-//   _intentSelected was false — so tapping the already-highlighted card
-//   set _intentSelected = true and revealed the fields. This was confusing.
-//   Resolution: the intent picker now shows NO pre-selection highlight
-//   (_selectedRole is nullable and starts null) so the initial highlighted
-//   state is never mismatched with the form visibility state.
+//   Step 2 (all roles) — Details:
+//     Shown after the user taps "Далі" with valid step-1 fields.
+//     For INDEPENDENT_MASTER / CLIENT: firstName + lastName + phone.
+//     For SALON_OWNER: businessName + address + phone.
+//     A two-segment progress bar is shown for ALL roles.
+//     CTA: "Зареєструватися" (btn-submit-register).
+//     A "Back" button (btn-back-step) returns to Step 1 without losing data.
 //
 // Submit flow:
-//   1. Validate form locally, including server-error injection.
+//   1. Validate step-2 form locally, including server-error injection.
 //   2. Call authProvider.notifier.register() with the selected role.
 //   3. On success → navigate to home.
 //   4. On ValidationFailure → extract fieldErrors, set _serverErrors, re-validate.
@@ -50,6 +44,7 @@ import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
@@ -72,8 +67,14 @@ import 'auth_notifier.dart';
 // Phone validation regex — module-level so it is compiled once.
 // ---------------------------------------------------------------------------
 
-/// Matches valid phone characters: digits, +, spaces, hyphens, parentheses.
-final RegExp _rePhone = RegExp(r'^[+\d\s\-()]+$');
+/// Matches a fully-formatted Ukrainian phone number:
+///   +380 XX XXX XX XX  (digits only after the fixed +380 prefix).
+///
+/// The raw value stored in the controller will always start with '+380 '
+/// because [_UkrainianPhoneFormatter] prefixes it automatically.
+/// After trimming whitespace the expected pattern is ^+380\d{10}$ —
+/// this regex validates the _formatted_ string (spaces included).
+final RegExp _reUkrainianPhone = RegExp(r'^\+380\s\d{2}\s\d{3}\s\d{2}\s\d{2}$');
 
 // ---------------------------------------------------------------------------
 // Intent option data class
@@ -131,9 +132,10 @@ String _intentSubtitle(_IntentOption option, AppLocalizations l10n) =>
 ///
 /// Step 0 presents three intent cards so the user can identify their role
 /// before seeing any form fields (progressive disclosure). Step 1 collapses
-/// the selected card to a badge pill and reveals the registration form.
-/// For SALON_OWNER there is an additional Step 2 for salon-specific details
-/// (address, phone), guided by a two-segment progress indicator.
+/// the selected card to a badge pill and reveals the credentials form
+/// (email + password). Step 2 collects role-specific details (name/phone
+/// for IM/Client; businessName/address/phone for Salon Owner), guided by a
+/// two-segment progress indicator shown for ALL roles.
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
@@ -144,7 +146,7 @@ class RegisterScreen extends ConsumerStatefulWidget {
 class _RegisterScreenState extends ConsumerState<RegisterScreen>
     with TickerProviderStateMixin {
   // ---------------------------------------------------------------------------
-  // Intent state — BUG FIX (change 3):
+  // Intent state:
   //   _selectedRole starts as null so no card is highlighted before the user
   //   taps. This removes the mismatch between the visual pre-selection and the
   //   hidden form fields that caused the "tap twice" bug.
@@ -161,16 +163,16 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   );
 
   // ---------------------------------------------------------------------------
-  // Salon multi-step state (change 2)
+  // Universal multi-step state (Change 6)
   // ---------------------------------------------------------------------------
 
-  /// 0 = salon step 1 (email + password + business name)
-  /// 1 = salon step 2 (address + phone)
-  int _salonStep = 0;
+  /// 0 = step 1 (email + password) — all roles.
+  /// 1 = step 2 (details) — all roles.
+  int _registrationStep = 0;
 
-  // Separate form keys per salon step so validation is scoped correctly.
-  final _formKey = GlobalKey<FormState>();
-  final _salonStep2FormKey = GlobalKey<FormState>();
+  // Separate form keys per step so validation is scoped correctly.
+  final _step1FormKey = GlobalKey<FormState>();
+  final _step2FormKey = GlobalKey<FormState>();
 
   // ---------------------------------------------------------------------------
   // Form controllers
@@ -195,10 +197,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
 
   late final AnimationController _entranceCtrl;
 
-  // Cached per-item animations (5 staggered items: title=0, name/business=1,
-  // email=2, password=3, CTA=4). Initialized in initState() after
-  // _entranceCtrl is created so they are never recreated on build(). The logo
-  // is outside the stagger — Hero handles its own flight transition.
+  // Cached per-item animations (5 staggered items). Initialized in initState()
+  // after _entranceCtrl is created so they are never recreated on build(). The
+  // logo is outside the stagger — Hero handles its own flight transition.
   late final List<Animation<double>> _opacities;
   late final List<Animation<Offset>> _slides;
 
@@ -345,7 +346,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     setState(() {
       _selectedRole = option.role;
       _intentSelected = true;
-      _salonStep = 0;
+      _registrationStep = 0;
     });
     if (MediaQuery.of(context).disableAnimations) {
       _entranceCtrl.value = 1.0;
@@ -364,7 +365,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   void _resetToIntentPicker() {
     setState(() {
       _intentSelected = false;
-      _salonStep = 0;
+      _registrationStep = 0;
     });
     _entranceCtrl.reset();
     if (MediaQuery.of(context).disableAnimations) {
@@ -375,14 +376,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // Salon multi-step navigation (change 2)
+  // Universal multi-step navigation (Change 6)
   // ---------------------------------------------------------------------------
 
-  void _advanceSalonStep() {
-    // Validate only the current salon step form before advancing.
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-    setState(() => _salonStep = 1);
-    // Re-run the entrance animation so salon step 2 fields animate in.
+  /// Validates step-1 form before advancing to step 2 for all roles.
+  void _advanceStep() {
+    if (!(_step1FormKey.currentState?.validate() ?? false)) return;
+    setState(() => _registrationStep = 1);
+    // Re-run the entrance animation so step 2 fields animate in.
     _entranceCtrl.reset();
     if (MediaQuery.of(context).disableAnimations) {
       _entranceCtrl.value = 1.0;
@@ -391,8 +392,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     }
   }
 
-  void _retreatSalonStep() {
-    setState(() => _salonStep = 0);
+  void _retreatStep() {
+    setState(() => _registrationStep = 0);
     _entranceCtrl.reset();
     if (MediaQuery.of(context).disableAnimations) {
       _entranceCtrl.value = 1.0;
@@ -412,36 +413,24 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     final role = _selectedRole;
     if (role == null) return;
 
-    // For salon owner on step 2, validate the step-2 form key.
-    final formValid = role == UserRole.salonOwner && _salonStep == 1
-        ? (_salonStep2FormKey.currentState?.validate() ?? false)
-        : (_formKey.currentState?.validate() ?? false);
+    // Submit always validates the step-2 form (step 2 is always the submit step
+    // for all roles in the universal 2-step flow).
+    if (!(_step2FormKey.currentState?.validate() ?? false)) return;
 
-    if (!formValid) return;
+    final isSalon = role == UserRole.salonOwner;
 
     await ref
         .read(authProvider.notifier)
         .register(
           email: _emailController.text.trim(),
           password: _passwordController.text,
-          // For salon owners firstName/lastName are not collected — send empty
-          // strings so the backend field constraints are satisfied.
-          firstName: role == UserRole.salonOwner
-              ? ''
-              : _firstNameController.text.trim(),
-          lastName: role == UserRole.salonOwner
-              ? ''
-              : _lastNameController.text.trim(),
+          firstName: isSalon ? '' : _firstNameController.text.trim(),
+          lastName: isSalon ? '' : _lastNameController.text.trim(),
           role: role,
-          businessName: role == UserRole.salonOwner
-              ? _businessNameController.text.trim()
-              : null,
-          address: role == UserRole.salonOwner
-              ? _addressController.text.trim()
-              : null,
-          phone: role == UserRole.salonOwner
-              ? _phoneController.text.trim()
-              : null,
+          businessName: isSalon ? _businessNameController.text.trim() : null,
+          address: isSalon ? _addressController.text.trim() : null,
+          // Phone is required for all roles (Change 7).
+          phone: _phoneController.text.trim(),
         );
 
     if (!mounted) return;
@@ -464,7 +453,24 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
       error: (e, _) {
         if (e is ValidationFailure && e.fieldErrors.isNotEmpty) {
           // Surface field-level errors inline via errorText on each field.
-          setState(() => _serverErrors = e.fieldErrors);
+          // If a step-1 field (email, password) has an error, retreat to step 1
+          // so the error is visible next to the relevant field.
+          final hasStep1Error =
+              e.fieldErrors.containsKey('email') ||
+              e.fieldErrors.containsKey('password');
+          setState(() {
+            _serverErrors = e.fieldErrors;
+            if (hasStep1Error) _registrationStep = 0;
+          });
+          if (hasStep1Error) {
+            // Re-trigger entrance animation for step 1 fields.
+            _entranceCtrl.reset();
+            if (MediaQuery.of(context).disableAnimations) {
+              _entranceCtrl.value = 1.0;
+            } else {
+              _entranceCtrl.forward();
+            }
+          }
         } else {
           final l10n = AppLocalizations.of(context);
           final message = e is Failure
@@ -527,8 +533,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     String label, {
     String? errorText,
     Widget? suffixIcon,
+    String? hintText,
   }) => InputDecoration(
     labelText: label,
+    hintText: hintText,
     errorText: errorText,
     suffixIcon: suffixIcon,
     filled: true,
@@ -536,6 +544,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
     floatingLabelStyle: const TextStyle(color: BrandColors.bliss),
     errorStyle: const TextStyle(color: BrandColors.cherry),
+    hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.35)),
     contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
     border: _kBorderDefault,
     enabledBorder: _kBorderDefault,
@@ -584,28 +593,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   // Static animation helpers — allocated once, never recreated on rebuild
   // ---------------------------------------------------------------------------
 
-  /// Offset tween for the salon step AnimatedSwitcher slide transition.
-  /// Promoted to static final so it is not re-allocated on every animation tick.
-  static final _kSalonSlide = Tween<Offset>(
-    begin: const Offset(0.08, 0),
-    end: Offset.zero,
-  );
-
-  /// Transition builder for the salon step AnimatedSwitcher.
-  /// Extracted to a static method so the closure is not recreated each frame.
-  static Widget _salonStepTransition(
-    Widget child,
-    Animation<double> animation,
-  ) {
-    return FadeTransition(
-      opacity: animation,
-      child: SlideTransition(
-        position: _kSalonSlide.animate(
-          CurvedAnimation(parent: animation, curve: Curves.easeOut),
-        ),
-        child: child,
-      ),
-    );
+  /// Transition builder for the step AnimatedSwitcher.
+  ///
+  /// Crossfade only — eliminates per-frame [CurvedAnimation] allocations that
+  /// the slide variant incurred (PERF MEDIUM-1).
+  static Widget _stepTransition(Widget child, Animation<double> animation) {
+    return FadeTransition(opacity: animation, child: child);
   }
 
   // ---------------------------------------------------------------------------
@@ -620,7 +613,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
         const SizedBox(height: AppSpacing.xl),
 
         // ── Logo — Hero tag shared with login for flight continuity.
-        // Change 1: logo width increased from 120 → 160 for visual prominence.
         Center(
           child: Hero(
             tag: 'beautica-logo',
@@ -648,9 +640,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
         const SizedBox(height: AppSpacing.lg),
 
         // ── Intent cards (3 items, staggered) ─────────────────────────────
-        // Bug fix (change 3): isSelected is now _selectedRole == role.
-        // _selectedRole starts null so no card is pre-highlighted, eliminating
-        // the mismatch between visual state and form visibility.
         _intentStaggered(
           0,
           _IntentCard(
@@ -709,7 +698,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // Step 1+ — Form view (delegates to salon or standard path)
+  // Step 1+ — Universal form view (all roles) — Change 6
   // ---------------------------------------------------------------------------
 
   Widget _buildFormView(
@@ -720,156 +709,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     final role = _selectedRole;
     if (role == null) return const SizedBox.shrink();
 
-    return role == UserRole.salonOwner
-        ? _buildSalonFormView(context, l10n, isLoading)
-        : _buildStandardFormView(context, l10n, isLoading, role);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Standard single-step form (INDEPENDENT_MASTER, CLIENT)
-  // ---------------------------------------------------------------------------
-
-  Widget _buildStandardFormView(
-    BuildContext context,
-    AppLocalizations l10n,
-    bool isLoading,
-    UserRole role,
-  ) {
-    return Form(
-      key: _formKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: AppSpacing.xl),
-
-          // ── Logo — Change 1: increased from 120 → 160.
-          Center(
-            child: Hero(
-              tag: 'beautica-logo',
-              child: SvgPicture.asset(
-                'assets/images/logo.svg',
-                width: 160,
-                semanticsLabel: 'Beautica',
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-
-          // ── Selected intent badge — tapping resets to Step 0.
-          Center(
-            child: _SelectedBadge(
-              option: _selectedOption,
-              l10n: l10n,
-              onTap: _resetToIntentPicker,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-
-          // ── Stagger 0: Screen title ────────────────────────────────────
-          _staggered(
-            0,
-            Text(
-              l10n.registerTitle,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-
-          // ── Stagger 1: First name + Last name row ──────────────────────
-          // Kept for INDEPENDENT_MASTER and CLIENT per spec.
-          _staggered(
-            1,
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    key: const Key('field-firstName'),
-                    controller: _firstNameController,
-                    textInputAction: TextInputAction.next,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: _fieldDecor(
-                      l10n.firstNameLabel,
-                      errorText: _serverErrors['firstName'],
-                    ),
-                    validator: (v) => validateName(v, l10n),
-                    enabled: !isLoading,
-                    autocorrect: false,
-                    enableIMEPersonalizedLearning: false,
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: TextFormField(
-                    key: const Key('field-lastName'),
-                    controller: _lastNameController,
-                    textInputAction: TextInputAction.next,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: _fieldDecor(
-                      l10n.lastNameLabel,
-                      errorText: _serverErrors['lastName'],
-                    ),
-                    validator: (v) => validateName(v, l10n),
-                    enabled: !isLoading,
-                    autocorrect: false,
-                    enableIMEPersonalizedLearning: false,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-
-          // ── Stagger 2: Email field ─────────────────────────────────────
-          _staggered(
-            2,
-            TextFormField(
-              key: const Key('field-email'),
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.next,
-              style: const TextStyle(color: Colors.white),
-              decoration: _fieldDecor(
-                l10n.loginEmailLabel,
-                errorText: _serverErrors['email'],
-              ),
-              validator: (v) => validateEmail(v, l10n),
-              enabled: !isLoading,
-              autocorrect: false,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-
-          // ── Stagger 3: Password field + strength indicator ─────────────
-          _staggered(3, _buildPasswordField(l10n, isLoading)),
-          const SizedBox(height: AppSpacing.lg),
-
-          // ── Stagger 4: CTA + login link ────────────────────────────────
-          _staggered(4, _buildCta(l10n, isLoading)),
-        ],
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Salon multi-step form (SALON_OWNER) — Change 2
-  // ---------------------------------------------------------------------------
-
-  Widget _buildSalonFormView(
-    BuildContext context,
-    AppLocalizations l10n,
-    bool isLoading,
-  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: AppSpacing.xl),
 
-        // ── Logo — Change 1: increased from 120 → 160.
+        // ── Logo
         Center(
           child: Hero(
             tag: 'beautica-logo',
@@ -882,156 +727,89 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
         ),
         const SizedBox(height: AppSpacing.md),
 
-        // ── Selected intent badge — tapping resets to Step 0.
+        // ── Selected intent badge — tapping resets to Step 0 (step 1 only).
         Center(
           child: _SelectedBadge(
             option: _selectedOption,
             l10n: l10n,
-            onTap: _salonStep == 0 ? _resetToIntentPicker : null,
+            onTap: _registrationStep == 0 ? _resetToIntentPicker : null,
           ),
         ),
         const SizedBox(height: AppSpacing.md),
 
-        // ── Two-segment step progress bar ──────────────────────────────────
-        _SalonStepIndicator(currentStep: _salonStep),
+        // ── Two-segment step progress bar — shown for ALL roles.
+        _StepIndicator(currentStep: _registrationStep),
         const SizedBox(height: AppSpacing.md),
 
         // ── Step-specific form content ─────────────────────────────────────
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 300),
-          transitionBuilder: _salonStepTransition,
-          child: _salonStep == 0
-              ? _buildSalonStep1(context, l10n, isLoading)
-              : _buildSalonStep2(context, l10n, isLoading),
+          transitionBuilder: _stepTransition,
+          child: _registrationStep == 0
+              ? _buildStep1(context, l10n, isLoading)
+              : _buildStep2(context, l10n, isLoading, role),
         ),
       ],
     );
   }
 
-  /// Salon registration — Step 1: email + password + business name.
-  Widget _buildSalonStep1(
+  // ---------------------------------------------------------------------------
+  // Step 1 — Credentials (email + password), all roles — Change 6
+  // ---------------------------------------------------------------------------
+
+  /// Instantiates [_Step1Form], which owns the [Form] widget and its
+  /// validation boundary.
+  ///
+  /// Extracting the Form into its own [StatefulWidget] confines
+  /// [AutovalidateMode.onUserInteraction] rebuilds to the [_Step1Form]
+  /// subtree rather than the root [_RegisterScreenState] (PERF MEDIUM-2).
+  ///
+  /// [_step1FormKey] is passed through so [_advanceStep] can call
+  /// `_step1FormKey.currentState?.validate()` exactly as before.
+  Widget _buildStep1(
     BuildContext context,
     AppLocalizations l10n,
     bool isLoading,
   ) {
-    return Form(
-      key: _formKey,
-      child: Column(
-        key: const ValueKey('salon-step-1'),
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Step title
-          _staggered(
-            0,
-            Text(
-              l10n.registerSalonStep1Title,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-
-          // Business name
-          _staggered(
-            1,
-            TextFormField(
-              key: const Key('field-businessName'),
-              controller: _businessNameController,
-              textInputAction: TextInputAction.next,
-              style: const TextStyle(color: Colors.white),
-              decoration: _fieldDecor(
-                l10n.registerBusinessNameLabel,
-                errorText: _serverErrors['businessName'],
-              ),
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) {
-                  return l10n.errNameRequired;
-                }
-                return null;
-              },
-              enabled: !isLoading,
-              autocorrect: false,
-              enableIMEPersonalizedLearning: false,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-
-          // Email
-          _staggered(
-            2,
-            TextFormField(
-              key: const Key('field-email'),
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.next,
-              style: const TextStyle(color: Colors.white),
-              decoration: _fieldDecor(
-                l10n.loginEmailLabel,
-                errorText: _serverErrors['email'],
-              ),
-              validator: (v) => validateEmail(v, l10n),
-              enabled: !isLoading,
-              autocorrect: false,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-
-          // Password + strength indicator
-          _staggered(3, _buildPasswordField(l10n, isLoading)),
-          const SizedBox(height: AppSpacing.lg),
-
-          // Next button
-          _staggered(
-            4,
-            ElevatedButton(
-              key: const Key('btn-salon-next'),
-              onPressed: isLoading ? null : _advanceSalonStep,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: BrandColors.bliss,
-                foregroundColor: BrandColors.midnight,
-                disabledBackgroundColor: BrandColors.bliss.withValues(
-                  alpha: 0.5,
-                ),
-                minimumSize: const Size(double.infinity, 56),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppSpacing.md),
-                ),
-                textStyle: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              child: Text(l10n.registerNextStep),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          _buildLoginLink(l10n, isLoading),
-        ],
-      ),
+    return _Step1Form(
+      step1FormKey: _step1FormKey,
+      emailController: _emailController,
+      passwordController: _passwordController,
+      serverErrors: _serverErrors,
+      isLoading: isLoading,
+      opacities: _opacities,
+      slides: _slides,
+      fieldDecor: _fieldDecor,
+      onNext: _advanceStep,
+      onNavigateToLogin: () =>
+          context.canPop() ? context.pop() : context.go(RouteNames.login),
+      l10n: l10n,
     );
   }
 
-  /// Salon registration — Step 2: address + phone.
-  Widget _buildSalonStep2(
+  // ---------------------------------------------------------------------------
+  // Step 2 — Role-specific details, all roles — Change 6
+  // ---------------------------------------------------------------------------
+
+  Widget _buildStep2(
     BuildContext context,
     AppLocalizations l10n,
     bool isLoading,
+    UserRole role,
   ) {
+    final isSalon = role == UserRole.salonOwner;
+
     return Form(
-      key: _salonStep2FormKey,
+      key: _step2FormKey,
       child: Column(
-        key: const ValueKey('salon-step-2'),
+        key: const ValueKey('registration-step-2'),
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Step title
+          // Step title — salon uses existing salon step 2 title; others use new key
           _staggered(
             0,
             Text(
-              l10n.registerSalonStep2Title,
+              isSalon ? l10n.registerSalonStep2Title : l10n.registerStep2Title,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                 color: Colors.white,
@@ -1041,60 +819,137 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
           ),
           const SizedBox(height: AppSpacing.md),
 
-          // Address
-          _staggered(
-            1,
-            TextFormField(
-              key: const Key('field-address'),
-              controller: _addressController,
-              textInputAction: TextInputAction.next,
-              style: const TextStyle(color: Colors.white),
-              decoration: _fieldDecor(
-                l10n.registerAddressLabel,
-                errorText: _serverErrors['address'],
+          if (isSalon) ...[
+            // ── SALON_OWNER: businessName (Change 2: moved from step 1)
+            _staggered(
+              1,
+              TextFormField(
+                key: const Key('field-businessName'),
+                controller: _businessNameController,
+                textInputAction: TextInputAction.next,
+                style: const TextStyle(color: Colors.white),
+                decoration: _fieldDecor(
+                  l10n.registerBusinessNameLabel,
+                  errorText: _serverErrors['businessName'],
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) {
+                    return l10n.errNameRequired;
+                  }
+                  return null;
+                },
+                enabled: !isLoading,
+                autocorrect: false,
+                enableIMEPersonalizedLearning: false,
               ),
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) {
-                  return l10n.errAddressRequired;
-                }
-                if (v.length > 255) return l10n.errAddressTooLong;
-                return null;
-              },
-              enabled: !isLoading,
-              autocorrect: false,
             ),
-          ),
-          const SizedBox(height: AppSpacing.md),
+            const SizedBox(height: AppSpacing.md),
 
-          // Phone (optional)
+            // ── SALON_OWNER: address
+            _staggered(
+              2,
+              TextFormField(
+                key: const Key('field-address'),
+                controller: _addressController,
+                textInputAction: TextInputAction.next,
+                style: const TextStyle(color: Colors.white),
+                decoration: _fieldDecor(
+                  l10n.registerAddressLabel,
+                  errorText: _serverErrors['address'],
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) {
+                    return l10n.errAddressRequired;
+                  }
+                  if (v.length > 255) return l10n.errAddressTooLong;
+                  return null;
+                },
+                enabled: !isLoading,
+                autocorrect: false,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ] else ...[
+            // ── IM / CLIENT: firstName + lastName row
+            _staggered(
+              1,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      key: const Key('field-firstName'),
+                      controller: _firstNameController,
+                      textInputAction: TextInputAction.next,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: _fieldDecor(
+                        l10n.firstNameLabel,
+                        errorText: _serverErrors['firstName'],
+                      ),
+                      validator: (v) => validateName(v, l10n),
+                      enabled: !isLoading,
+                      autocorrect: false,
+                      enableIMEPersonalizedLearning: false,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: TextFormField(
+                      key: const Key('field-lastName'),
+                      controller: _lastNameController,
+                      textInputAction: TextInputAction.next,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: _fieldDecor(
+                        l10n.lastNameLabel,
+                        errorText: _serverErrors['lastName'],
+                      ),
+                      validator: (v) => validateName(v, l10n),
+                      enabled: !isLoading,
+                      autocorrect: false,
+                      enableIMEPersonalizedLearning: false,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+          ],
+
+          // ── Phone field — required for ALL roles (Change 7)
           _staggered(
-            2,
+            3,
             TextFormField(
               key: const Key('field-phone'),
               controller: _phoneController,
               keyboardType: TextInputType.phone,
               textInputAction: TextInputAction.done,
               style: const TextStyle(color: Colors.white),
+              inputFormatters: const [_UkrainianPhoneFormatter()],
               decoration: _fieldDecor(
                 l10n.registerPhoneLabel,
+                hintText: '+380 XX XXX XX XX',
                 errorText: _serverErrors['phoneNumber'],
               ),
-              // Phone is optional but validated for format/length when present.
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return null;
-                if (v.length > 20) return l10n.errPhoneTooLong;
-                if (!_rePhone.hasMatch(v)) return l10n.errPhoneInvalidFormat;
+                final trimmed = v?.trim() ?? '';
+                if (trimmed.isEmpty || trimmed == '+380') {
+                  return l10n.errPhoneRequired;
+                }
+                if (!_reUkrainianPhone.hasMatch(trimmed)) {
+                  return l10n.errPhoneInvalidFormat;
+                }
                 return null;
               },
               enabled: !isLoading,
               autocorrect: false,
+              enableIMEPersonalizedLearning: false,
               onFieldSubmitted: (_) => isLoading ? null : _submit(),
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
 
           // Submit + Back buttons
-          _staggered(4, _buildSalonStep2Buttons(l10n, isLoading)),
+          _staggered(4, _buildStep2Buttons(l10n, isLoading)),
         ],
       ),
     );
@@ -1104,25 +959,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   // Shared sub-builders
   // ---------------------------------------------------------------------------
 
-  /// Password field with the strength indicator below it (change 4).
-  ///
-  /// Delegates to [_PasswordFieldWithStrength], which owns its own
-  /// [TextEditingController] listener and [setState] calls so that password
-  /// keystrokes never rebuild the parent [_RegisterScreenState] widget tree.
-  /// The parent retains [_passwordController] for form submission access.
-  Widget _buildPasswordField(AppLocalizations l10n, bool isLoading) {
-    return _PasswordFieldWithStrength(
-      controller: _passwordController,
-      serverError: _serverErrors['password'],
-      isLoading: isLoading,
-      fieldDecor: _fieldDecor,
-      onSubmit: isLoading ? null : _submit,
-      l10n: l10n,
-    );
-  }
-
-  /// Primary CTA button + sign-in link for single-step forms.
-  Widget _buildCta(AppLocalizations l10n, bool isLoading) {
+  /// Back + Submit buttons for step 2 (all roles).
+  Widget _buildStep2Buttons(AppLocalizations l10n, bool isLoading) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1166,64 +1004,16 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
-        _buildLoginLink(l10n, isLoading),
-      ],
-    );
-  }
-
-  /// Back + Submit row for salon step 2.
-  Widget _buildSalonStep2Buttons(AppLocalizations l10n, bool isLoading) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        GestureDetector(
-          onTapDown: (_) => setState(() => _buttonPressed = true),
-          onTapUp: (_) => setState(() => _buttonPressed = false),
-          onTapCancel: () => setState(() => _buttonPressed = false),
-          child: AnimatedScale(
-            scale: _buttonPressed ? 0.97 : 1.0,
-            duration: const Duration(milliseconds: 100),
-            child: ElevatedButton(
-              key: const Key('btn-salon-submit-register'),
-              onPressed: isLoading ? null : _submit,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: BrandColors.bliss,
-                foregroundColor: BrandColors.midnight,
-                disabledBackgroundColor: BrandColors.bliss.withValues(
-                  alpha: 0.5,
-                ),
-                minimumSize: const Size(double.infinity, 56),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppSpacing.md),
-                ),
-                textStyle: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              child: isLoading
-                  ? const SizedBox(
-                      height: AppSpacing.md,
-                      width: AppSpacing.md,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: BrandColors.midnight,
-                      ),
-                    )
-                  : Text(l10n.registerSubmit),
-            ),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.sm),
         TextButton(
-          key: const Key('btn-salon-back'),
-          onPressed: isLoading ? null : _retreatSalonStep,
+          key: const Key('btn-back-step'),
+          onPressed: isLoading ? null : _retreatStep,
           style: TextButton.styleFrom(
             foregroundColor: Colors.white.withValues(alpha: 0.7),
           ),
           child: Text(l10n.registerBackStep),
         ),
+        const SizedBox(height: AppSpacing.xs),
+        _buildLoginLink(l10n, isLoading),
       ],
     );
   }
@@ -1254,15 +1044,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
 }
 
 // ---------------------------------------------------------------------------
-// _SalonStepIndicator — two-segment progress bar (change 2)
+// _StepIndicator — two-segment progress bar (all roles — Change 6)
 // ---------------------------------------------------------------------------
 
-/// Two-segment progress bar for the salon owner multi-step registration.
+/// Two-segment progress bar for the universal multi-step registration flow.
 ///
-/// Segment 0 = Step 1 (basic info), segment 1 = Step 2 (salon details).
+/// Segment 0 = Step 1 (credentials), segment 1 = Step 2 (details).
 /// Both segments get the bliss colour once reached.
-class _SalonStepIndicator extends StatelessWidget {
-  const _SalonStepIndicator({required this.currentStep});
+class _StepIndicator extends StatelessWidget {
+  const _StepIndicator({required this.currentStep});
 
   final int currentStep;
 
@@ -1303,6 +1093,256 @@ class _SalonStepIndicator extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _Step1Form — PERF MEDIUM-2 isolation boundary
+// ---------------------------------------------------------------------------
+
+/// Step-1 credential form extracted into its own [StatefulWidget].
+///
+/// Owning the [Form] widget here confines [AutovalidateMode.onUserInteraction]
+/// rebuilds to this small subtree. Email keystrokes previously propagated to
+/// the root [_RegisterScreenState], rebuilding the entire 1 500+ line screen.
+///
+/// [step1FormKey] is passed in so [_RegisterScreenState._advanceStep] can call
+/// `_step1FormKey.currentState?.validate()` without change.
+class _Step1Form extends StatefulWidget {
+  const _Step1Form({
+    required this.step1FormKey,
+    required this.emailController,
+    required this.passwordController,
+    required this.serverErrors,
+    required this.isLoading,
+    required this.opacities,
+    required this.slides,
+    required this.fieldDecor,
+    required this.onNext,
+    required this.onNavigateToLogin,
+    required this.l10n,
+  });
+
+  final GlobalKey<FormState> step1FormKey;
+  final TextEditingController emailController;
+  final TextEditingController passwordController;
+  final Map<String, String> serverErrors;
+  final bool isLoading;
+
+  /// Stagger opacity animations from the parent — index 0–4 maps to items.
+  final List<Animation<double>> opacities;
+
+  /// Stagger slide animations from the parent — index 0–4 maps to items.
+  final List<Animation<Offset>> slides;
+
+  /// Parent's `_fieldDecor` helper — keeps border styles consistent.
+  final InputDecoration Function(
+    String label, {
+    String? errorText,
+    Widget? suffixIcon,
+    String? hintText,
+  })
+  fieldDecor;
+
+  /// Called when the user taps "Далі" with a valid form.
+  final VoidCallback onNext;
+
+  /// Called when the user taps the "sign in" link.
+  final VoidCallback onNavigateToLogin;
+
+  final AppLocalizations l10n;
+
+  @override
+  State<_Step1Form> createState() => _Step1FormState();
+}
+
+class _Step1FormState extends State<_Step1Form> {
+  Widget _staggered(int index, Widget child) => FadeTransition(
+    opacity: widget.opacities[index],
+    child: SlideTransition(position: widget.slides[index], child: child),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = widget.l10n;
+    return Form(
+      key: widget.step1FormKey,
+      child: Column(
+        key: const ValueKey('registration-step-1'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Step title
+          _staggered(
+            0,
+            Text(
+              l10n.registerStep1Title,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+
+          // Email — autovalidate on interaction.
+          // setState from onUserInteraction rebuilds only this widget,
+          // not the root _RegisterScreenState (PERF MEDIUM-2).
+          _staggered(
+            2,
+            TextFormField(
+              key: const Key('field-email'),
+              controller: widget.emailController,
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+              style: const TextStyle(color: Colors.white),
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              decoration: widget.fieldDecor(
+                l10n.loginEmailLabel,
+                errorText: widget.serverErrors['email'],
+              ),
+              validator: (v) => validateEmail(v, l10n),
+              enabled: !widget.isLoading,
+              autocorrect: false,
+              enableIMEPersonalizedLearning: false,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+
+          // Password + strength indicator
+          _staggered(
+            3,
+            _PasswordFieldWithStrength(
+              controller: widget.passwordController,
+              serverError: widget.serverErrors['password'],
+              isLoading: widget.isLoading,
+              fieldDecor: widget.fieldDecor,
+              onSubmit: widget.isLoading ? null : widget.onNext,
+              l10n: l10n,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+
+          // Next button
+          _staggered(
+            4,
+            ElevatedButton(
+              key: const Key('btn-next-step'),
+              onPressed: widget.isLoading ? null : widget.onNext,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: BrandColors.bliss,
+                foregroundColor: BrandColors.midnight,
+                disabledBackgroundColor: BrandColors.bliss.withValues(
+                  alpha: 0.5,
+                ),
+                minimumSize: const Size(double.infinity, 56),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppSpacing.md),
+                ),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 16,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              child: Text(l10n.registerNextStep),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+
+          // "Already have account?" link
+          Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                l10n.registerHaveAccount,
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+              ),
+              TextButton(
+                key: const Key('btn-go-to-login'),
+                onPressed: widget.isLoading ? null : widget.onNavigateToLogin,
+                style: TextButton.styleFrom(foregroundColor: BrandColors.bliss),
+                child: Text(l10n.registerSignIn),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _UkrainianPhoneFormatter — Change 3
+// ---------------------------------------------------------------------------
+
+/// [TextInputFormatter] that enforces a Ukrainian phone number mask.
+///
+/// Always prefixes with '+380 ' (non-deletable). Accepts only digits after
+/// the prefix. Max 13 raw digits total (3 from '380' + 10 more).
+///
+/// Output format: +380 D1D2 D3D4D5 D6D7 D8D9D10
+///   Groups (after 380): 2 digits, 3 digits, 2 digits, 2 digits.
+///   Example: +380 67 123 45 67
+///
+/// The formatter is declared `const` — it holds no mutable state.
+class _UkrainianPhoneFormatter extends TextInputFormatter {
+  const _UkrainianPhoneFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    // Extract only the digit characters from whatever the user typed.
+    final rawDigits = newValue.text.replaceAll(RegExp(r'\D'), '');
+
+    // Normalise: ensure the string starts with '380'.
+    //
+    // Rules applied in order:
+    //   1. Already starts with '380'  → keep as-is.
+    //   2. Starts with '38'           → prepend '3' (unlikely but safe).
+    //   3. Starts with '3'            → prepend '38'.
+    //   4. Starts with '0'            → strip leading '0', then prepend '380'
+    //      (Ukrainian national format: '067…' → subscriber '67…').
+    //   5. Otherwise                  → prepend '380' directly.
+    final String digits;
+    if (rawDigits.startsWith('380')) {
+      digits = rawDigits;
+    } else if (rawDigits.startsWith('38')) {
+      digits = '3$rawDigits';
+    } else if (rawDigits.startsWith('3')) {
+      digits = '38$rawDigits';
+    } else if (rawDigits.startsWith('0')) {
+      // National format: strip leading '0', then prepend country code.
+      digits = '380${rawDigits.substring(1)}';
+    } else {
+      digits = '380$rawDigits';
+    }
+
+    // Clamp to 13 digits total (380 + 10 subscriber digits).
+    final clamped = digits.length > 13 ? digits.substring(0, 13) : digits;
+
+    // Build the formatted string progressively.
+    final sb = StringBuffer('+');
+    for (var i = 0; i < clamped.length; i++) {
+      // Insert spaces at the group boundaries:
+      //   Position 3 → start of 2-digit operator code (after '380')
+      //   Position 5 → start of 3-digit block
+      //   Position 8 → start of 2-digit block
+      //   Position 10 → start of final 2-digit block
+      if (i == 3 || i == 5 || i == 8 || i == 10) sb.write(' ');
+      sb.write(clamped[i]);
+    }
+
+    final formatted = sb.toString();
+
+    // Place the cursor at the end of the formatted string.
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
 }
@@ -1397,7 +1437,7 @@ class _IntentCard extends StatelessWidget {
 ///
 /// Displayed at the top of the form view so the user always knows which role
 /// they are registering for, and can change it without losing the form screen.
-/// [onTap] is nullable — passing null disables the tap (used on salon step 2
+/// [onTap] is nullable — passing null disables the tap (used on step 2
 /// to prevent accidentally resetting all entered data).
 class _SelectedBadge extends StatelessWidget {
   const _SelectedBadge({
@@ -1460,7 +1500,7 @@ class _SelectedBadge extends StatelessWidget {
 ///
 /// Owns its own [State] so that keystrokes on the password field call
 /// `setState` only on this small subtree — never on the root
-/// [_RegisterScreenState] (which contains the entire 1400-line register form).
+/// [_RegisterScreenState] (which contains the entire register form).
 ///
 /// The parent continues to own the [TextEditingController] so it can read the
 /// password value at form submission time. This widget subscribes to the
@@ -1486,6 +1526,7 @@ class _PasswordFieldWithStrength extends StatefulWidget {
     String label, {
     String? errorText,
     Widget? suffixIcon,
+    String? hintText,
   })
   fieldDecor;
 

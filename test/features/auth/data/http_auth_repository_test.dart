@@ -703,4 +703,137 @@ void main() {
       },
     );
   });
+
+  // -------------------------------------------------------------------------
+  // Group 10 — registerIndependentMaster — phone body contract
+  //
+  // The backend enforces that phoneNumber is trimmed before sending and must be
+  // absent from the body when the caller passes null (rather than sent as null
+  // or an empty string, which could cause a backend schema error).
+  //
+  // These tests capture the exact request body so that a refactor that
+  // accidentally includes/excludes phoneNumber is caught immediately.
+  // -------------------------------------------------------------------------
+
+  group('registerIndependentMaster — phone body contract', () {
+    test('IM with phone: body includes phoneNumber trimmed', () async {
+      Map<String, dynamic>? capturedBody;
+
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/register/independent-master',
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        capturedBody =
+            invocation.namedArguments[const Symbol('data')]
+                as Map<String, dynamic>;
+        return Response(
+          requestOptions: _fakeOptions('/auth/register/independent-master'),
+          statusCode: 201,
+          data: _loginEnvelope(),
+        );
+      });
+
+      await repository.registerIndependentMaster(
+        email: 'master@beautica.test',
+        password: 'P@ssw0rd!',
+        firstName: 'Іванна',
+        lastName: 'Коваль',
+        // Leading and trailing whitespace must be stripped before sending.
+        phone: '  +380 67 123 45 67  ',
+      );
+
+      expect(capturedBody, isNotNull);
+      expect(
+        capturedBody!['phoneNumber'],
+        equals('+380 67 123 45 67'),
+        reason:
+            'phone is trimmed before inclusion; whitespace must be '
+            'stripped from the request body',
+      );
+      // role and businessName must be absent — IM path derives role from URL.
+      expect(capturedBody!.containsKey('role'), isFalse);
+      expect(capturedBody!.containsKey('businessName'), isFalse);
+    });
+
+    test('IM with null phone: body excludes phoneNumber key', () async {
+      Map<String, dynamic>? capturedBody;
+
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/register/independent-master',
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        capturedBody =
+            invocation.namedArguments[const Symbol('data')]
+                as Map<String, dynamic>;
+        return Response(
+          requestOptions: _fakeOptions('/auth/register/independent-master'),
+          statusCode: 201,
+          data: _loginEnvelope(),
+        );
+      });
+
+      await repository.registerIndependentMaster(
+        email: 'master@beautica.test',
+        password: 'P@ssw0rd!',
+        firstName: 'Іванна',
+        lastName: 'Коваль',
+        // phone is intentionally omitted (defaults to null).
+      );
+
+      expect(capturedBody, isNotNull);
+      // A null phone must not appear in the body at all — sending
+      // "phoneNumber": null would fail backend schema validation.
+      expect(
+        capturedBody!.containsKey('phoneNumber'),
+        isFalse,
+        reason:
+            'null phone must not insert a phoneNumber key into the '
+            'request body',
+      );
+    });
+
+    test('salonOwner with phone: body includes phoneNumber', () async {
+      Map<String, dynamic>? capturedBody;
+
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/register',
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        capturedBody =
+            invocation.namedArguments[const Symbol('data')]
+                as Map<String, dynamic>;
+        return Response(
+          requestOptions: _fakeOptions('/auth/register'),
+          statusCode: 201,
+          data: _loginEnvelope(role: 'SALON_OWNER'),
+        );
+      });
+
+      await repository.registerIndependentMaster(
+        email: 'owner@beautica.test',
+        password: 'P@ssw0rd!',
+        firstName: 'Марія',
+        lastName: 'Ковальчук',
+        role: UserRole.salonOwner,
+        businessName: 'Краса',
+        phone: '+380 50 123 45 67',
+      );
+
+      expect(capturedBody, isNotNull);
+      expect(
+        capturedBody!['phoneNumber'],
+        equals('+380 50 123 45 67'),
+        reason:
+            'salonOwner phone must be included as phoneNumber in the '
+            'body, matching the backend contract',
+      );
+      expect(capturedBody!['role'], equals('SALON_OWNER'));
+    });
+  });
 }

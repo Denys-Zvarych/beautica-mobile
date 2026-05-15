@@ -17,6 +17,8 @@
 //   6. DioExceptionType.connectionError → NetworkFailure
 //   7. DioExceptionType.receiveTimeout → NetworkFailure
 //   8. HTTP 409 (unknown status) → UnknownFailure
+//   9. HTTP 422 with field errors → ValidationFailure (SECURITY M3)
+//  10. Field error value > 200 chars → truncated to 200 (SECURITY M1)
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
@@ -183,6 +185,90 @@ void main() {
         _typeError(DioExceptionType.receiveTimeout),
       );
       expect(rejected.error, isA<NetworkFailure>());
+    });
+  });
+
+  group('ErrorMapperInterceptor — HTTP 422 (Spring @Validated)', () {
+    test(
+      'HTTP 422 with field errors map → ValidationFailure (SECURITY M3)',
+      () {
+        final rejected = _captureRejected(
+          _httpError(
+            422,
+            body: {
+              'errors': {'email': 'already in use'},
+            },
+          ),
+        );
+
+        expect(rejected.error, isA<ValidationFailure>());
+        final failure = rejected.error as ValidationFailure;
+        expect(failure.fieldErrors['email'], 'already in use');
+      },
+    );
+
+    test(
+      'HTTP 422 with missing errors key → ValidationFailure with empty map',
+      () {
+        final rejected = _captureRejected(
+          _httpError(422, body: {'message': 'Unprocessable'}),
+        );
+
+        expect(rejected.error, isA<ValidationFailure>());
+        final failure = rejected.error as ValidationFailure;
+        expect(failure.fieldErrors, isEmpty);
+      },
+    );
+  });
+
+  group('ErrorMapperInterceptor — field error length cap (SECURITY M1)', () {
+    test('field error value of 250 chars is truncated to 200 chars', () {
+      final longValue = 'x' * 250;
+      final rejected = _captureRejected(
+        _httpError(
+          400,
+          body: {
+            'errors': {'email': longValue},
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<ValidationFailure>());
+      final failure = rejected.error as ValidationFailure;
+      expect(failure.fieldErrors['email']?.length, 200);
+    });
+
+    test('field error value of exactly 200 chars is kept as-is', () {
+      final exactValue = 'a' * 200;
+      final rejected = _captureRejected(
+        _httpError(
+          400,
+          body: {
+            'errors': {'name': exactValue},
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<ValidationFailure>());
+      final failure = rejected.error as ValidationFailure;
+      expect(failure.fieldErrors['name'], exactValue);
+      expect(failure.fieldErrors['name']?.length, 200);
+    });
+
+    test('field error value under 200 chars is kept as-is', () {
+      const shortValue = 'must not be blank';
+      final rejected = _captureRejected(
+        _httpError(
+          400,
+          body: {
+            'errors': {'phone': shortValue},
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<ValidationFailure>());
+      final failure = rejected.error as ValidationFailure;
+      expect(failure.fieldErrors['phone'], shortValue);
     });
   });
 

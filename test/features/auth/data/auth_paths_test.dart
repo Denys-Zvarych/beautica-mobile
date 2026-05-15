@@ -42,9 +42,12 @@ void main() {
       expect(kAuthPaths, contains('/auth/refresh'));
     });
 
-    test('4. contains /auth/register (CLIENT + SALON_OWNER unified endpoint)', () {
-      expect(kAuthPaths, contains('/auth/register'));
-    });
+    test(
+      '4. contains /auth/register (CLIENT + SALON_OWNER unified endpoint)',
+      () {
+        expect(kAuthPaths, contains('/auth/register'));
+      },
+    );
 
     test('5. contains /auth/register/independent-master', () {
       expect(kAuthPaths, contains('/auth/register/independent-master'));

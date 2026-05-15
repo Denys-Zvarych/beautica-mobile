@@ -102,14 +102,22 @@ final class HttpAuthRepository implements AuthRepository {
       final Response<Map<String, dynamic>> response;
 
       if (role == UserRole.independentMaster) {
+        // Phone is now required for all roles (Change 7).
+        // Use a local trimmed variable to avoid calling .trim() twice
+        // (backlog pattern 5).
+        final trimmedPhone = phone?.trim();
+        final imBody = <String, dynamic>{
+          'email': email,
+          'password': password,
+          'firstName': firstName,
+          'lastName': lastName,
+        };
+        if (trimmedPhone != null && trimmedPhone.isNotEmpty) {
+          imBody['phoneNumber'] = trimmedPhone;
+        }
         response = await _dio.post<Map<String, dynamic>>(
           '/auth/register/independent-master',
-          data: {
-            'email': email,
-            'password': password,
-            'firstName': firstName,
-            'lastName': lastName,
-          },
+          data: imBody,
         );
       } else {
         final body = <String, dynamic>{
@@ -124,15 +132,21 @@ final class HttpAuthRepository implements AuthRepository {
         };
         // Include businessName only when it is non-null and non-blank.
         // Backend enforces its presence for SALON_OWNER with a 400.
-        if (businessName != null && businessName.trim().isNotEmpty) {
-          body['businessName'] = businessName.trim();
+        // Use a local trimmed variable to avoid calling .trim() twice
+        // (backlog pattern 5).
+        final trimmedBusiness = businessName?.trim();
+        if (trimmedBusiness != null && trimmedBusiness.isNotEmpty) {
+          body['businessName'] = trimmedBusiness;
         }
         // Optional salon details — included only when provided.
-        if (address != null && address.trim().isNotEmpty) {
-          body['address'] = address.trim();
+        final trimmedAddress = address?.trim();
+        if (trimmedAddress != null && trimmedAddress.isNotEmpty) {
+          body['address'] = trimmedAddress;
         }
-        if (phone != null && phone.trim().isNotEmpty) {
-          body['phoneNumber'] = phone.trim();
+        // Phone is now included for all roles (Change 7), including CLIENT.
+        final trimmedPhone = phone?.trim();
+        if (trimmedPhone != null && trimmedPhone.isNotEmpty) {
+          body['phoneNumber'] = trimmedPhone;
         }
         response = await _dio.post<Map<String, dynamic>>(
           '/auth/register',

@@ -76,7 +76,7 @@ final class ErrorMapperInterceptor extends Interceptor {
     if (statusCode != null) {
       if (statusCode == 401) return UnauthorizedFailure(cause: err);
       if (statusCode == 404) return NotFoundFailure(cause: err);
-      if (statusCode == 400) {
+      if (statusCode == 400 || statusCode == 422) {
         return ValidationFailure(
           fieldErrors: _extractFieldErrors(err),
           cause: err,
@@ -99,6 +99,9 @@ final class ErrorMapperInterceptor extends Interceptor {
   /// Only the `"errors"` key at the top level is consulted. Any other shape
   /// returns an empty map — callers must handle the empty-map case gracefully.
   ///
+  /// Each value is truncated to 200 characters before storage to prevent
+  /// unbounded server strings reaching UI labels (SECURITY M1).
+  ///
   /// Returns an empty map if:
   ///   - the response body is absent or not a JSON object
   ///   - the body does not contain an `"errors"` key
@@ -110,15 +113,17 @@ final class ErrorMapperInterceptor extends Interceptor {
       if (data is Map<String, dynamic>) {
         final errors = data['errors'];
         if (errors is Map) {
-          return errors.map(
-            (key, value) => MapEntry(key.toString(), value.toString()),
-          );
+          return errors.map((key, value) {
+            final raw = value.toString();
+            final capped = raw.length > 200 ? raw.substring(0, 200) : raw;
+            return MapEntry(key.toString(), capped);
+          });
         }
       }
     } catch (e) {
       if (kDebugMode) {
         log(
-          'Failed to parse field errors from 400 response: $e',
+          'Failed to parse field errors from response: $e',
           name: 'network.error',
           level: 900,
         );
