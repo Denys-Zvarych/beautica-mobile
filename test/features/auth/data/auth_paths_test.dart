@@ -7,18 +7,19 @@
 // endpoint. A stale entry causes protected endpoints to lose their token.
 //
 // These tests lock the exact set of paths so that any addition or removal to
-// _registerEndpoint in HttpAuthRepository or to kAuthPaths itself is caught
-// immediately.
+// kAuthPaths itself is caught immediately.
+//
+// Backend registration contract (Phase 2.x):
+//   INDEPENDENT_MASTER → POST /auth/register/independent-master  (path-specific)
+//   CLIENT + SALON_OWNER → POST /auth/register  (unified, role discriminator in body)
 //
 // Covered scenarios:
 //   1. kAuthPaths contains /auth/login.
 //   2. kAuthPaths contains /auth/logout.
 //   3. kAuthPaths contains /auth/refresh.
-//   4. kAuthPaths contains /auth/register (legacy base path).
+//   4. kAuthPaths contains /auth/register (CLIENT + SALON_OWNER unified endpoint).
 //   5. kAuthPaths contains /auth/register/independent-master.
-//   6. kAuthPaths contains /auth/register/salon-owner (added in Phase 2.6).
-//   7. kAuthPaths contains /auth/register/client (added in Phase 2.6).
-//   8. kAuthPaths has exactly 7 entries — no undocumented extras.
+//   6. kAuthPaths has exactly 5 entries — no undocumented extras.
 
 import 'package:beautica_mobile/core/network/auth_paths.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,7 +27,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('kAuthPaths', () {
     // -----------------------------------------------------------------------
-    // Tests 1–7: required entries
+    // Tests 1–5: required entries
     // -----------------------------------------------------------------------
 
     test('1. contains /auth/login', () {
@@ -41,7 +42,7 @@ void main() {
       expect(kAuthPaths, contains('/auth/refresh'));
     });
 
-    test('4. contains /auth/register (legacy base path)', () {
+    test('4. contains /auth/register (CLIENT + SALON_OWNER unified endpoint)', () {
       expect(kAuthPaths, contains('/auth/register'));
     });
 
@@ -49,22 +50,14 @@ void main() {
       expect(kAuthPaths, contains('/auth/register/independent-master'));
     });
 
-    test('6. contains /auth/register/salon-owner (Phase 2.6)', () {
-      expect(kAuthPaths, contains('/auth/register/salon-owner'));
-    });
-
-    test('7. contains /auth/register/client (Phase 2.6)', () {
-      expect(kAuthPaths, contains('/auth/register/client'));
-    });
-
     // -----------------------------------------------------------------------
-    // Test 8: exact cardinality — catches undocumented additions
+    // Test 6: exact cardinality — catches undocumented additions/removals
     // -----------------------------------------------------------------------
 
-    test('8. has exactly 7 entries — no undocumented paths', () {
+    test('6. has exactly 5 entries — no undocumented paths', () {
       expect(
         kAuthPaths.length,
-        equals(7),
+        equals(5),
         reason:
             'A path was added to or removed from kAuthPaths without a '
             'corresponding test update. Update this test and confirm the '

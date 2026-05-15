@@ -185,5 +185,9 @@
   "intentClientSubtitle": "Клієнт",
   "@intentClientSubtitle": {
     "description": "Secondary label for the client intent card."
+  },
+  "registerBusinessNameLabel": "Назва салону",
+  "@registerBusinessNameLabel": {
+    "description": "Label for the business/salon name input field, shown only when registering as a Salon Owner."
   }
 }

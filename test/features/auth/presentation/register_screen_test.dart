@@ -457,6 +457,10 @@ void main() {
           'Бойко',
         );
         await tester.enterText(
+          find.byKey(const Key('field-businessName')),
+          'Краса Студія',
+        );
+        await tester.enterText(
           find.byKey(const Key('field-email')),
           'olena@beautica.test',
         );
@@ -473,9 +477,10 @@ void main() {
         // Exactly one register call with role=salonOwner.
         expect(repo.registerCalls, hasLength(1));
         expect(repo.registerCalls.first.role, equals(UserRole.salonOwner));
+        expect(repo.registerCalls.first.email, equals('olena@beautica.test'));
         expect(
-          repo.registerCalls.first.email,
-          equals('olena@beautica.test'),
+          repo.registerCalls.first.businessName,
+          equals('Краса Студія'),
         );
       },
     );
@@ -510,6 +515,201 @@ void main() {
 
         // Should navigate to the login stub screen.
         expect(find.text('login'), findsOneWidget);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 12 — businessName field is absent for independentMaster
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '12. field-businessName is NOT rendered when independentMaster intent is selected',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
+
+        // Select independentMaster (default, index 0).
+        await _selectIntent(tester);
+
+        // The AnimatedSize wraps SizedBox.shrink() for non-salonOwner roles —
+        // field-businessName must not be findable.
+        expect(find.byKey(const Key('field-businessName')), findsNothing);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 13 — businessName field appears for salonOwner
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '13. field-businessName IS rendered when salonOwner intent is selected',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+
+        // Tap the salonOwner card (index 1).
+        await tester.tap(find.text(l10n.intentSalonTitle).first);
+        await tester.pumpAndSettle();
+
+        // AnimatedSize must have expanded — field-businessName is present.
+        expect(find.byKey(const Key('field-businessName')), findsOneWidget);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 14 — blank businessName blocks submission for salonOwner
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '14. empty businessName shows validation error and blocks register call for salonOwner',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+
+        // Tap salonOwner intent card.
+        await tester.tap(find.text(l10n.intentSalonTitle).first);
+        await tester.pumpAndSettle();
+
+        // Fill all fields except businessName.
+        await tester.enterText(
+          find.byKey(const Key('field-firstName')),
+          'Олена',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-lastName')),
+          'Бойко',
+        );
+        // Intentionally leave field-businessName blank.
+        await tester.enterText(
+          find.byKey(const Key('field-email')),
+          'olena@beautica.test',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-password')),
+          'StrongPass2',
+        );
+
+        await tester.ensureVisible(
+          find.byKey(const Key('btn-submit-register')),
+        );
+        await tester.tap(find.byKey(const Key('btn-submit-register')));
+        await tester.pump();
+
+        // errNameRequired is the validator message for blank businessName
+        // (the same validator function used for firstName/lastName).
+        expect(find.text(l10n.errNameRequired), findsOneWidget);
+
+        // The register repository must NOT have been called.
+        expect(repo.registerCalls, isEmpty);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 15 — salonOwner registers without businessName passing null to repo
+    //           (client-side guard: businessName is only sent when salonOwner)
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '15. independentMaster submit passes null businessName to repo, not empty string',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
+
+        // Select independentMaster.
+        await _selectIntent(tester);
+        await _fillValidForm(tester);
+        await tester.tap(find.byKey(const Key('btn-submit-register')));
+        await tester.pumpAndSettle();
+
+        expect(repo.registerCalls, hasLength(1));
+        // businessName must be null, not an empty string — the repository
+        // must not send an empty businessName key in the request body.
+        expect(repo.registerCalls.first.businessName, isNull);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 16 — non-ValidationFailure on salonOwner shows snackbar, not inline
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '16. NetworkFailure during salonOwner register shows error SnackBar',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        repo.registerResult = const NetworkFailure();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+
+        // Tap salonOwner intent card.
+        await tester.tap(find.text(l10n.intentSalonTitle).first);
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const Key('field-firstName')),
+          'Олена',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-lastName')),
+          'Бойко',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-businessName')),
+          'Краса Студія',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-email')),
+          'olena@beautica.test',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-password')),
+          'StrongPass2',
+        );
+
+        await tester.ensureVisible(
+          find.byKey(const Key('btn-submit-register')),
+        );
+        await tester.tap(find.byKey(const Key('btn-submit-register')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pumpAndSettle();
+
+        // NetworkFailure is not a ValidationFailure → must surface as a SnackBar.
+        expect(find.byType(SnackBar), findsOneWidget);
       },
     );
   });

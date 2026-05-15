@@ -46,6 +46,7 @@ final class FakeAuthRepository implements AuthRepository {
       String firstName,
       String lastName,
       UserRole role,
+      String? businessName,
     })
   >
   registerCalls = [];
@@ -87,6 +88,7 @@ final class FakeAuthRepository implements AuthRepository {
     required String firstName,
     required String lastName,
     UserRole role = UserRole.independentMaster,
+    String? businessName,
   }) async {
     registerCalls.add((
       email: email,
@@ -94,6 +96,7 @@ final class FakeAuthRepository implements AuthRepository {
       firstName: firstName,
       lastName: lastName,
       role: role,
+      businessName: businessName,
     ));
     final result = registerResult;
     if (result is Failure) throw result;

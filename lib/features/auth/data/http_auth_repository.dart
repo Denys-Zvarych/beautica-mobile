@@ -79,28 +79,53 @@ final class HttpAuthRepository implements AuthRepository {
     required String firstName,
     required String lastName,
     UserRole role = UserRole.independentMaster,
+    String? businessName,
   }) async {
-    // Route to the role-specific backend endpoint. Currently only
-    // /auth/register/independent-master is wired; other roles will result in
-    // a 404 or 400 from the backend until the backend ships those endpoints.
-    // The error surfaces via the existing snackbar flow — no client-side guard.
-    final endpoint = _registerEndpoint(role);
+    // Backend contract:
+    //   INDEPENDENT_MASTER → POST /auth/register/independent-master
+    //     Body: { email, password, firstName, lastName, phoneNumber? }
+    //     Note: no `role` field; backend derives it from the path.
+    //
+    //   CLIENT / SALON_OWNER → POST /auth/register
+    //     Body: { email, password, role, firstName, lastName, businessName? }
+    //     Note: `businessName` is REQUIRED when role == SALON_OWNER.
     try {
-      final response = await _dio.post<Map<String, dynamic>>(
-        endpoint,
-        data: {
+      final Response<Map<String, dynamic>> response;
+
+      if (role == UserRole.independentMaster) {
+        response = await _dio.post<Map<String, dynamic>>(
+          '/auth/register/independent-master',
+          data: {
+            'email': email,
+            'password': password,
+            'firstName': firstName,
+            'lastName': lastName,
+          },
+        );
+      } else {
+        final body = <String, dynamic>{
           'email': email,
           'password': password,
+          'role': role.toWire,
           'firstName': firstName,
           'lastName': lastName,
-          'role': role.toWire,
-        },
-      );
+        };
+        // Include businessName only when it is non-null and non-blank.
+        // Backend enforces its presence for SALON_OWNER with a 400.
+        if (businessName != null && businessName.trim().isNotEmpty) {
+          body['businessName'] = businessName.trim();
+        }
+        response = await _dio.post<Map<String, dynamic>>(
+          '/auth/register',
+          data: body,
+        );
+      }
+
       return _parseUserAndTokens(response.data!);
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
-          'registerIndependentMaster failed (role=${role.toWire}): ${e.type} ${e.response?.statusCode}',
+          'register failed (role=${role.toWire}): ${e.type} ${e.response?.statusCode}',
           name: 'auth.repository',
           level: 900,
           stackTrace: st,
@@ -109,18 +134,6 @@ final class HttpAuthRepository implements AuthRepository {
       throw _mapDioException(e);
     }
   }
-
-  /// Maps a [UserRole] to its backend registration endpoint path.
-  ///
-  /// Only [UserRole.independentMaster] has a live backend endpoint in Phase 2.
-  /// The other paths are included so the client can send the request and let
-  /// the backend return a 400/404 — the UI surfaces this via the snackbar.
-  static String _registerEndpoint(UserRole role) => switch (role) {
-    UserRole.independentMaster => '/auth/register/independent-master',
-    UserRole.salonOwner => '/auth/register/salon-owner',
-    UserRole.client => '/auth/register/client',
-    _ => '/auth/register/independent-master',
-  };
 
   @override
   Future<AuthTokens> refresh(String refreshToken) async {

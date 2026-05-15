@@ -10,7 +10,5 @@ const Set<String> kAuthPaths = {
   '/auth/logout',
   '/auth/register',
   '/auth/register/independent-master',
-  '/auth/register/salon-owner',
-  '/auth/register/client',
   '/auth/refresh',
 };

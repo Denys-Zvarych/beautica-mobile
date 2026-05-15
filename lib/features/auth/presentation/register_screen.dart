@@ -131,6 +131,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   final _formKey = GlobalKey<FormState>();
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
+  final _businessNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
@@ -277,6 +278,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     _intentCtrl.dispose();
     _firstNameController.dispose();
     _lastNameController.dispose();
+    _businessNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     if (!kDebugMode) {
@@ -336,6 +338,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
           firstName: _firstNameController.text.trim(),
           lastName: _lastNameController.text.trim(),
           role: _selectedRole,
+          businessName: _selectedRole == UserRole.salonOwner
+              ? _businessNameController.text.trim()
+              : null,
         );
 
     if (!mounted) return;
@@ -634,6 +639,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
                     ),
                     validator: (v) => validateName(v, l10n),
                     enabled: !isLoading,
+                    autocorrect: false,
+                    enableIMEPersonalizedLearning: false,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
@@ -649,12 +656,48 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
                     ),
                     validator: (v) => validateName(v, l10n),
                     enabled: !isLoading,
+                    autocorrect: false,
+                    enableIMEPersonalizedLearning: false,
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: AppSpacing.md),
+
+          // ── Business name field — visible only for SALON_OWNER ────────
+          // Uses AnimatedSize so it smoothly collapses to zero height when
+          // the role is not salonOwner. Placed inside stagger slot 1 (name
+          // row) so no slot indices need to shift.
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            child: _selectedRole == UserRole.salonOwner
+                ? Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                    child: TextFormField(
+                      key: const Key('field-businessName'),
+                      controller: _businessNameController,
+                      textInputAction: TextInputAction.next,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: _fieldDecor(
+                        l10n.registerBusinessNameLabel,
+                        errorText: _serverErrors['businessName'],
+                      ),
+                      validator: (v) {
+                        if (_selectedRole != UserRole.salonOwner) return null;
+                        if (v == null || v.trim().isEmpty) {
+                          return l10n.errNameRequired;
+                        }
+                        return null;
+                      },
+                      enabled: !isLoading,
+                      autocorrect: false,
+                      enableIMEPersonalizedLearning: false,
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
 
           // ── Stagger 2: Email field ─────────────────────────────────────
           _staggered(

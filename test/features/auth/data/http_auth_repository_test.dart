@@ -422,82 +422,280 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // Group 8 — _registerEndpoint routing (new role paths from Phase 2.6 redesign)
+  // Group 8 — unified /auth/register routing for salonOwner + client roles
+  //
+  // Backend contract (Phase 2.x):
+  //   CLIENT + SALON_OWNER → POST /auth/register  (role discriminator in body)
+  //   INDEPENDENT_MASTER   → POST /auth/register/independent-master  (no role)
   // -------------------------------------------------------------------------
 
   group('registerIndependentMaster — role-based endpoint routing', () {
+    test('11. role=salonOwner → POST to /auth/register with role=SALON_OWNER in body',
+        () async {
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/register',
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => Response(
+          requestOptions: _fakeOptions('/auth/register'),
+          statusCode: 201,
+          data: _loginEnvelope(role: 'SALON_OWNER'),
+        ),
+      );
+
+      final (user, tokens) = await repository.registerIndependentMaster(
+        email: 'owner@beautica.test',
+        password: 'P@ssw0rd!',
+        firstName: 'Марія',
+        lastName: 'Ковальчук',
+        role: UserRole.salonOwner,
+        businessName: 'Краса Студія',
+      );
+
+      expect(user.role, UserRole.salonOwner);
+      expect(tokens.accessToken, 'access.jwt.token');
+
+      // Verify the exact unified endpoint was hit — if the routing were wrong
+      // and /auth/register/independent-master were used instead, mocktail would
+      // throw MissingStubError on the unstubbed path, failing the test.
+      verify(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/register',
+          data: any(named: 'data'),
+        ),
+      ).called(1);
+    });
+
+    test('12. role=client → POST to /auth/register with role=CLIENT in body',
+        () async {
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/register',
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => Response(
+          requestOptions: _fakeOptions('/auth/register'),
+          statusCode: 201,
+          data: _loginEnvelope(role: 'CLIENT'),
+        ),
+      );
+
+      final (user, tokens) = await repository.registerIndependentMaster(
+        email: 'client@beautica.test',
+        password: 'P@ssw0rd!',
+        firstName: 'Катерина',
+        lastName: 'Мороз',
+        role: UserRole.client,
+      );
+
+      expect(user.role, UserRole.client);
+      expect(tokens.refreshToken, 'refresh.jwt.token');
+
+      verify(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/register',
+          data: any(named: 'data'),
+        ),
+      ).called(1);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 9 — businessName body contract
+  //
+  // The backend enforces that businessName is REQUIRED for SALON_OWNER and
+  // must be absent for INDEPENDENT_MASTER (which uses a separate path).
+  // These tests capture the exact request body by intercepting the Dio call
+  // so that a refactor silently dropping businessName from the body is caught.
+  // -------------------------------------------------------------------------
+
+  group('registerIndependentMaster — businessName body contract', () {
     test(
-      '11. role=salonOwner → POST to /auth/register/salon-owner',
+      '13. salonOwner with businessName → body includes businessName trimmed',
       () async {
+        Map<String, dynamic>? capturedBody;
+
         when(
           () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register/salon-owner',
+            '/auth/register',
             data: any(named: 'data'),
           ),
-        ).thenAnswer(
-          (_) async => Response(
-            requestOptions: _fakeOptions('/auth/register/salon-owner'),
+        ).thenAnswer((invocation) async {
+          capturedBody =
+              invocation.namedArguments[const Symbol('data')]
+                  as Map<String, dynamic>;
+          return Response(
+            requestOptions: _fakeOptions('/auth/register'),
             statusCode: 201,
             data: _loginEnvelope(role: 'SALON_OWNER'),
-          ),
-        );
+          );
+        });
 
-        final (user, tokens) = await repository.registerIndependentMaster(
+        await repository.registerIndependentMaster(
           email: 'owner@beautica.test',
           password: 'P@ssw0rd!',
           firstName: 'Марія',
           lastName: 'Ковальчук',
           role: UserRole.salonOwner,
+          businessName: '  Краса Студія  ', // whitespace — must be trimmed
         );
 
-        expect(user.role, UserRole.salonOwner);
-        expect(tokens.accessToken, 'access.jwt.token');
-
-        // Verify the exact endpoint was called — if the routing were wrong and
-        // /auth/register/independent-master was used instead, mocktail would
-        // throw MissingStubError on the unstubbed path, failing the test.
-        verify(
+        expect(capturedBody, isNotNull);
+        expect(capturedBody!['businessName'], equals('Краса Студія'));
+        expect(capturedBody!['role'], equals('SALON_OWNER'));
+        // independentMaster path must NOT be used
+        verifyNever(
           () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register/salon-owner',
+            '/auth/register/independent-master',
             data: any(named: 'data'),
           ),
-        ).called(1);
+        );
       },
     );
 
     test(
-      '12. role=client → POST to /auth/register/client',
+      '14. salonOwner with null businessName → body does NOT include businessName key',
       () async {
+        Map<String, dynamic>? capturedBody;
+
         when(
           () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register/client',
+            '/auth/register',
             data: any(named: 'data'),
           ),
-        ).thenAnswer(
-          (_) async => Response(
-            requestOptions: _fakeOptions('/auth/register/client'),
+        ).thenAnswer((invocation) async {
+          capturedBody =
+              invocation.namedArguments[const Symbol('data')]
+                  as Map<String, dynamic>;
+          return Response(
+            requestOptions: _fakeOptions('/auth/register'),
             statusCode: 201,
-            data: _loginEnvelope(role: 'CLIENT'),
-          ),
-        );
+            data: _loginEnvelope(role: 'SALON_OWNER'),
+          );
+        });
 
-        final (user, tokens) = await repository.registerIndependentMaster(
-          email: 'client@beautica.test',
+        await repository.registerIndependentMaster(
+          email: 'owner@beautica.test',
           password: 'P@ssw0rd!',
-          firstName: 'Катерина',
-          lastName: 'Мороз',
-          role: UserRole.client,
+          firstName: 'Марія',
+          lastName: 'Ковальчук',
+          role: UserRole.salonOwner,
+          // businessName intentionally omitted — backend returns 400 for this,
+          // but this test verifies the client contract: key is absent, not null.
         );
 
-        expect(user.role, UserRole.client);
-        expect(tokens.refreshToken, 'refresh.jwt.token');
+        expect(capturedBody, isNotNull);
+        expect(capturedBody!.containsKey('businessName'), isFalse);
+      },
+    );
 
-        verify(
+    test(
+      '15. salonOwner with blank businessName → body does NOT include businessName key',
+      () async {
+        Map<String, dynamic>? capturedBody;
+
+        when(
           () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register/client',
+            '/auth/register',
             data: any(named: 'data'),
           ),
-        ).called(1);
+        ).thenAnswer((invocation) async {
+          capturedBody =
+              invocation.namedArguments[const Symbol('data')]
+                  as Map<String, dynamic>;
+          return Response(
+            requestOptions: _fakeOptions('/auth/register'),
+            statusCode: 201,
+            data: _loginEnvelope(role: 'SALON_OWNER'),
+          );
+        });
+
+        await repository.registerIndependentMaster(
+          email: 'owner@beautica.test',
+          password: 'P@ssw0rd!',
+          firstName: 'Марія',
+          lastName: 'Ковальчук',
+          role: UserRole.salonOwner,
+          businessName: '   ', // all whitespace — must be treated as absent
+        );
+
+        expect(capturedBody, isNotNull);
+        expect(capturedBody!.containsKey('businessName'), isFalse);
+      },
+    );
+
+    test(
+      '16. independentMaster → POST to /auth/register/independent-master; body has no role or businessName keys',
+      () async {
+        Map<String, dynamic>? capturedBody;
+
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register/independent-master',
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((invocation) async {
+          capturedBody =
+              invocation.namedArguments[const Symbol('data')]
+                  as Map<String, dynamic>;
+          return Response(
+            requestOptions: _fakeOptions('/auth/register/independent-master'),
+            statusCode: 201,
+            data: _loginEnvelope(),
+          );
+        });
+
+        await repository.registerIndependentMaster(
+          email: 'master@beautica.test',
+          password: 'P@ssw0rd!',
+          firstName: 'Іванна',
+          lastName: 'Коваль',
+          // role defaults to independentMaster; businessName omitted
+        );
+
+        expect(capturedBody, isNotNull);
+        // Backend derives the role from the path — do NOT send a role field.
+        expect(capturedBody!.containsKey('role'), isFalse);
+        expect(capturedBody!.containsKey('businessName'), isFalse);
+        // Required fields must be present.
+        expect(capturedBody!['email'], equals('master@beautica.test'));
+        expect(capturedBody!['firstName'], equals('Іванна'));
+        expect(capturedBody!['lastName'], equals('Коваль'));
+      },
+    );
+
+    test(
+      '17. salonOwner ValidationFailure (blank businessName on server) → re-throws ValidationFailure',
+      () async {
+        const failure = ValidationFailure(
+          fieldErrors: {'businessName': 'must not be blank'},
+        );
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register',
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(_dioWithFailure(failure));
+
+        await expectLater(
+          () => repository.registerIndependentMaster(
+            email: 'owner@beautica.test',
+            password: 'P@ssw0rd!',
+            firstName: 'Марія',
+            lastName: 'Ковальчук',
+            role: UserRole.salonOwner,
+          ),
+          throwsA(
+            isA<ValidationFailure>().having(
+              (f) => f.fieldErrors,
+              'fieldErrors',
+              {'businessName': 'must not be blank'},
+            ),
+          ),
+        );
       },
     );
   });

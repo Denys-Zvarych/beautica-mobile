@@ -491,5 +491,91 @@ void main() {
       final value = container.read(authProvider);
       expect(value.value, equals(const AuthSession.unauthenticated()));
     });
+
+    // -----------------------------------------------------------------------
+    // Test 14 — register passes businessName through to the repository
+    // -----------------------------------------------------------------------
+    test(
+      'register with businessName → businessName forwarded to repository',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        when(
+          () => repo.registerIndependentMaster(
+            email: 'owner@example.com',
+            password: 'pass123',
+            firstName: 'Олена',
+            lastName: 'Бойко',
+            role: UserRole.salonOwner,
+            businessName: 'Краса Студія',
+          ),
+        ).thenAnswer((_) async => (testUser, testTokens));
+
+        await container.read(authProvider.notifier).register(
+          email: 'owner@example.com',
+          password: 'pass123',
+          firstName: 'Олена',
+          lastName: 'Бойко',
+          role: UserRole.salonOwner,
+          businessName: 'Краса Студія',
+        );
+
+        final value = container.read(authProvider);
+        // Strict stub: if businessName were dropped the stub would not match and
+        // the call would throw MissingStubError, failing this test.
+        expect(value, isA<AsyncData<AuthSession>>());
+        expect(
+          value.value,
+          equals(
+            AuthSession.authenticated(
+              user: testUser,
+              accessToken: testTokens.accessToken,
+            ),
+          ),
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 15 — register with null businessName (independentMaster default)
+    //           passes null through, not an empty string
+    // -----------------------------------------------------------------------
+    test(
+      'register without businessName → null forwarded to repository, not empty string',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        // Strict stub: businessName is absent from named args (defaults to null).
+        // If the notifier passed '' instead of null, this stub would not match.
+        when(
+          () => repo.registerIndependentMaster(
+            email: 'master@example.com',
+            password: 'pass123',
+            firstName: 'Іван',
+            lastName: 'Коваль',
+            role: UserRole.independentMaster,
+          ),
+        ).thenAnswer((_) async => (testUser, testTokens));
+
+        await container.read(authProvider.notifier).register(
+          email: 'master@example.com',
+          password: 'pass123',
+          firstName: 'Іван',
+          lastName: 'Коваль',
+          // role and businessName use defaults (independentMaster, null)
+        );
+
+        final value = container.read(authProvider);
+        expect(value, isA<AsyncData<AuthSession>>());
+      },
+    );
   });
 }
