@@ -17,6 +17,8 @@
 //   3. Loading user at /splash → stays on /splash (null).
 //   4. Loading user at / → redirected to /splash.
 //   5. Anonymous user at /login → stays on /login (null).
+//   6. Settled anonymous user at /splash → redirected to /login.
+//   7. Authenticated user at /splash → redirected to /.
 
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -35,21 +37,43 @@ import 'package:flutter_test/flutter_test.dart';
 /// Mirrors the redirect logic of [authRedirect] but takes a [location] string
 /// directly, making it trivially testable without a GoRouterState.
 ///
-/// Mirrors the redirect logic of authRedirect. If a new route is added
-/// requiring special handling, update both this helper and authRedirect
-/// to keep them in sync — divergence is silent.
+/// Keep this helper in sync with [authRedirect] in lib/routing/auth_redirect.dart.
+/// If a new route is added requiring special handling, update both this helper
+/// and authRedirect — divergence is silent and will cause guard failures in
+/// production without failing the test suite.
+///
+/// Current production rules (Phase 2.9):
+///   isLoading → park on /splash; redirect all other locations to /splash.
+///   Unauthenticated + not on an auth route → redirect to /login.
+///   Unauthenticated on /splash (session settled) → redirect to /login.
+///   Authenticated + on an auth route (login/register/splash) → redirect to /.
+///   Otherwise → null (stay).
+///
+/// Auth routes = /login, /register. /splash is NOT an auth route — it is only
+/// valid while session.isLoading is true. Once the session settles, any
+/// unauthenticated user still on /splash must be forwarded to /login.
 String? _locationRedirect(AsyncValue<AuthSession> session, String location) {
   if (session.isLoading) {
     return location == RouteNames.splash ? null : RouteNames.splash;
   }
-  final isAuthenticated = session.value is Authenticated;
-  final isAtAuthRoute =
-      location == RouteNames.login ||
-      location == RouteNames.register ||
-      location == RouteNames.splash;
 
-  if (!isAuthenticated && !isAtAuthRoute) return RouteNames.login;
-  if (isAuthenticated && isAtAuthRoute) return RouteNames.home;
+  final isAuthenticated = session.value is Authenticated;
+
+  // Routes where an unauthenticated user may remain once session has settled.
+  // /splash is NOT included — it is only valid while session.isLoading is true.
+  final isAtAuthRoute =
+      location == RouteNames.login || location == RouteNames.register;
+
+  final isAtSplash = location == RouteNames.splash;
+
+  // Settled unauthenticated user anywhere (including /splash) → /login.
+  if (!isAuthenticated && (!isAtAuthRoute || isAtSplash)) {
+    return RouteNames.login;
+  }
+
+  // Authenticated user sitting on an auth-only route or splash → send to home.
+  if (isAuthenticated && (isAtAuthRoute || isAtSplash)) return RouteNames.home;
+
   return null;
 }
 
@@ -131,6 +155,15 @@ void main() {
       expect(
         _locationRedirect(_unauthenticatedSession, RouteNames.register),
         isNull,
+      );
+    });
+
+    // /splash is only valid while session.isLoading. Once the session settles
+    // and the user is unauthenticated, the guard must forward them to /login.
+    test('settled anonymous user at /splash is redirected to /login', () {
+      expect(
+        _locationRedirect(_unauthenticatedSession, RouteNames.splash),
+        equals(RouteNames.login),
       );
     });
 

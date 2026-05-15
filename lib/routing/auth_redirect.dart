@@ -7,11 +7,13 @@
 // Rules:
 //   isLoading → park on /splash; redirect all other locations to /splash.
 //   Unauthenticated + not on an auth route → redirect to /login.
+//   Unauthenticated on /splash (session settled) → redirect to /login.
 //   Authenticated + on an auth route (login/register/splash) → redirect to /.
 //   Otherwise → null (stay).
 //
-// Auth routes = /login, /register, /splash. They are accessible without
-// authentication; all other routes require an authenticated session.
+// Auth routes = /login, /register. /splash is NOT an auth route — it is only
+// valid while session.isLoading is true. Once the session settles, any
+// unauthenticated user still on /splash must be forwarded to /login.
 //
 // Testable without a widget tree: the function is pure and has no side effects.
 // See test/routing/auth_redirect_test.dart.
@@ -38,16 +40,20 @@ String? authRedirect(AsyncValue<AuthSession> session, GoRouterState state) {
 
   final isAuthenticated = session.value is Authenticated;
 
+  // Routes where an unauthenticated user may remain once session has settled.
+  // /splash is NOT included — it is only valid while session.isLoading is true.
   final isAtAuthRoute =
-      location == RouteNames.login ||
-      location == RouteNames.register ||
-      location == RouteNames.splash;
+      location == RouteNames.login || location == RouteNames.register;
 
-  // Unauthenticated user trying to reach a protected route → send to login.
-  if (!isAuthenticated && !isAtAuthRoute) return RouteNames.login;
+  final isAtSplash = location == RouteNames.splash;
 
-  // Authenticated user sitting on an auth-only route → send to home.
-  if (isAuthenticated && isAtAuthRoute) return RouteNames.home;
+  // Settled unauthenticated user anywhere (including /splash) → /login.
+  if (!isAuthenticated && (!isAtAuthRoute || isAtSplash)) {
+    return RouteNames.login;
+  }
+
+  // Authenticated user sitting on an auth-only route or splash → send to home.
+  if (isAuthenticated && (isAtAuthRoute || isAtSplash)) return RouteNames.home;
 
   // No redirect needed.
   return null;
