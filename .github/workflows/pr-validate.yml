@@ -71,6 +71,18 @@ jobs:
           ! grep -rE 'Navigator\.(push|pop|of)\b' lib/features/ 2>/dev/null || \
           { echo 'Direct Navigator usage found in lib/features/ — use context.go(RouteNames.x) instead'; exit 1; }
 
+      # MS1 — SharedPreferences must never be used for tokens or PII in feature
+      # code. flutter_secure_storage is the only approved secure store.
+      # lib/features/ is currently empty so this always passes; the gate becomes
+      # live as soon as Phase 2.2 creates the auth feature directory.
+      # `2>/dev/null` suppresses "no such file" noise when the dir doesn't exist.
+      - name: Forbid SharedPreferences in features (MS1)
+        run: |
+          if grep -rE "SharedPreferences|shared_preferences" lib/features/ 2>/dev/null; then
+            echo "SharedPreferences found in lib/features/ — use SecureStorage instead"
+            exit 1
+          fi
+
       - name: Test
         run: flutter test --coverage --reporter=expanded
 

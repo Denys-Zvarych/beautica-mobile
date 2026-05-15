@@ -19,6 +19,10 @@
 #   can promote the rule to an analyzer-level check. Numeric padding in
 #   `lib/features/**` is an automatic `mobile-qa` HIGH finding.
 
+# SECURITY: SharedPreferences is forbidden for auth tokens.
+# Enforced by CI grep: grep -rE "SharedPreferences|shared_preferences" lib/features/auth/ must return 0 matches.
+# See: mobile-security invariant, Phase 2.1.
+
 include: package:flutter_lints/flutter.yaml
 
 analyzer:

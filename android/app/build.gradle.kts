@@ -35,6 +35,11 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // TODO(release-gate): Enable R8 before any Play Store submission.
+            // minifyEnabled = true
+            // shrinkResources = true
+            // proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // ProGuard rules are already configured in proguard-rules.pro (Phase 2.1).
             // MS8 — ProGuard keep-rules wired for Phase 11 (minifyEnabled stays false until then).
             // Rules protect flutter_secure_storage and firebase_messaging reflection paths.
             proguardFiles(
