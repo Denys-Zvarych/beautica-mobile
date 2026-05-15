@@ -81,7 +81,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final authState = ref.read(authProvider);
     authState.when(
       data: (_) {
-        log('Login screen: navigating to home', name: 'auth.login', level: 800);
+        if (kDebugMode) {
+          log(
+            'Login screen: navigating to home',
+            name: 'auth.login',
+            level: 800,
+          );
+        }
         context.go(RouteNames.home);
       },
       loading: () {

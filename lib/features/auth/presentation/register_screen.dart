@@ -109,11 +109,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     final authState = ref.read(authProvider);
     authState.when(
       data: (_) {
-        log(
-          'Register screen: navigating to home',
-          name: 'auth.register',
-          level: 800,
-        );
+        if (kDebugMode) {
+          log(
+            'Register screen: navigating to home',
+            name: 'auth.register',
+            level: 800,
+          );
+        }
         context.go(RouteNames.home);
       },
       loading: () {

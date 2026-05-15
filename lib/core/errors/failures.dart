@@ -73,7 +73,11 @@ final class UnauthorizedFailure extends Failure {
 final class ValidationFailure extends Failure {
   const ValidationFailure({required this.fieldErrors, super.cause});
 
-  /// Field-level error messages keyed by field name / JSON path.
+  /// Server-supplied field error messages keyed by field name / JSON path.
+  ///
+  /// Never display raw values from this map directly in UI labels without
+  /// sanitizing or truncating them — server strings are untrusted input.
+  /// Use [userMessage] for a safe localized summary.
   final Map<String, String> fieldErrors;
 
   @override

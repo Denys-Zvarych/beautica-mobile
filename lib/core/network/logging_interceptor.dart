@@ -98,7 +98,7 @@ final class LoggingInterceptor extends Interceptor {
       '(${elapsed}ms) ${err.type} ${err.response?.statusCode ?? ""}',
       name: 'http',
       level: 900, // WARNING
-      error: err,
+      error: '${err.type} ${err.response?.statusCode}',
     );
 
     handler.next(err);

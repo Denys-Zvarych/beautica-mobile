@@ -89,6 +89,7 @@ void main() {
         router.go(path);
         await tester.pumpAndSettle();
         // The placeholder label is the last segment of the path (e.g. 'login').
+        // RouteNames.home == '/' — label derivation assumes this; update if the constant changes.
         final label = path == RouteNames.home ? 'home' : path.substring(1);
         expect(find.text(label), findsOneWidget);
       }

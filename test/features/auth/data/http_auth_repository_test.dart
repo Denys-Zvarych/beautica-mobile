@@ -17,6 +17,8 @@
 //     7. success → returns User with correct role
 //     8. 401 DioException → re-throws UnauthorizedFailure
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/data/http_auth_repository.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
@@ -309,5 +311,111 @@ void main() {
         throwsA(isA<UnauthorizedFailure>()),
       );
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 5 — UserRole.fromWire
+  // -------------------------------------------------------------------------
+
+  group('UserRole.fromWire', () {
+    test('CLIENT maps to UserRole.client', () {
+      expect(UserRole.fromWire('CLIENT'), equals(UserRole.client));
+    });
+
+    test('SALON_OWNER maps to UserRole.salonOwner', () {
+      expect(UserRole.fromWire('SALON_OWNER'), equals(UserRole.salonOwner));
+    });
+
+    test('SALON_ADMIN maps to UserRole.salonAdmin', () {
+      expect(UserRole.fromWire('SALON_ADMIN'), equals(UserRole.salonAdmin));
+    });
+
+    test('SALON_MASTER maps to UserRole.salonMaster', () {
+      expect(UserRole.fromWire('SALON_MASTER'), equals(UserRole.salonMaster));
+    });
+
+    test('INDEPENDENT_MASTER maps to UserRole.independentMaster', () {
+      expect(
+        UserRole.fromWire('INDEPENDENT_MASTER'),
+        equals(UserRole.independentMaster),
+      );
+    });
+
+    test('unknown wire value throws ArgumentError', () {
+      expect(() => UserRole.fromWire('UNKNOWN'), throwsArgumentError);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 6 — refresh failure (Completer error branch)
+  // -------------------------------------------------------------------------
+
+  group('refresh — failure path', () {
+    test(
+      '9. 401 on /auth/refresh → throws UnauthorizedFailure via Completer error branch',
+      () async {
+        const failure = UnauthorizedFailure();
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/refresh',
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(_dioWithFailure(failure, statusCode: 401));
+
+        // HttpAuthRepository.refresh() uses an internal Completer to coalesce
+        // concurrent calls. When a single call fails, completeError() is called
+        // on the Completer whose .future has no listener (no concurrent caller),
+        // creating an unhandled async error. We use runZonedGuarded to absorb
+        // that secondary error while still asserting the primary throw.
+        Object? caught;
+        final completerErrors = <Object>[];
+        await runZonedGuarded(() async {
+          try {
+            await repository.refresh('old-token');
+          } on Failure catch (e) {
+            caught = e;
+          }
+        }, (err, _) => completerErrors.add(err));
+
+        expect(caught, isA<UnauthorizedFailure>());
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 7 — registerIndependentMaster failure path
+  // -------------------------------------------------------------------------
+
+  group('registerIndependentMaster — failure path', () {
+    test(
+      '10. ValidationFailure (duplicate email) → re-throws ValidationFailure with fieldErrors',
+      () async {
+        const failure = ValidationFailure(
+          fieldErrors: {'email': 'already exists'},
+        );
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register/independent-master',
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(_dioWithFailure(failure));
+
+        await expectLater(
+          () => repository.registerIndependentMaster(
+            email: 'dup@beautica.test',
+            password: 'P@ssw0rd!',
+            firstName: 'Іванна',
+            lastName: 'Коваль',
+          ),
+          throwsA(
+            isA<ValidationFailure>().having(
+              (f) => f.fieldErrors,
+              'fieldErrors',
+              {'email': 'already exists'},
+            ),
+          ),
+        );
+      },
+    );
   });
 }

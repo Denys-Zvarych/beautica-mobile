@@ -213,5 +213,274 @@ void main() {
       // All tokens must be wiped from storage.
       expect(await storage.readRefreshToken(), isNull);
     });
+
+    // -----------------------------------------------------------------------
+    // Test 6 — register success
+    // -----------------------------------------------------------------------
+    test(
+      'register success → Authenticated, refresh token persisted, access token in state',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage(); // empty — no pre-existing session
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        when(
+          () => repo.registerIndependentMaster(
+            email: 'new@example.com',
+            password: 'pass123',
+            firstName: 'Іван',
+            lastName: 'Коваль',
+          ),
+        ).thenAnswer((_) async => (testUser, testTokens));
+
+        await container
+            .read(authProvider.notifier)
+            .register(
+              email: 'new@example.com',
+              password: 'pass123',
+              firstName: 'Іван',
+              lastName: 'Коваль',
+            );
+
+        final value = container.read(authProvider);
+        expect(value, isA<AsyncData<AuthSession>>());
+        expect(
+          value.value,
+          equals(
+            AuthSession.authenticated(
+              user: testUser,
+              accessToken: testTokens.accessToken,
+            ),
+          ),
+        );
+
+        // Only the refresh token is persisted.
+        expect(
+          await storage.readRefreshToken(),
+          equals(testTokens.refreshToken),
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 7 — register ValidationFailure
+    // -----------------------------------------------------------------------
+    test(
+      'register ValidationFailure → AsyncError with ValidationFailure',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        const failure = ValidationFailure(fieldErrors: {'email': 'taken'});
+        when(
+          () => repo.registerIndependentMaster(
+            email: any(named: 'email'),
+            password: any(named: 'password'),
+            firstName: any(named: 'firstName'),
+            lastName: any(named: 'lastName'),
+          ),
+        ).thenThrow(failure);
+
+        await container
+            .read(authProvider.notifier)
+            .register(
+              email: 'dup@example.com',
+              password: 'pass123',
+              firstName: 'Test',
+              lastName: 'User',
+            );
+
+        final value = container.read(authProvider);
+        expect(value, isA<AsyncError<AuthSession>>());
+        expect(value.error, isA<ValidationFailure>());
+        expect(
+          (value.error as ValidationFailure).fieldErrors,
+          equals({'email': 'taken'}),
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 8 — login UnauthorizedFailure
+    // -----------------------------------------------------------------------
+    test(
+      'login UnauthorizedFailure → AsyncError with UnauthorizedFailure',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        when(
+          () => repo.login(
+            email: any(named: 'email'),
+            password: any(named: 'password'),
+          ),
+        ).thenThrow(const UnauthorizedFailure());
+
+        await container
+            .read(authProvider.notifier)
+            .login('bad@example.com', 'wrongpass');
+
+        final value = container.read(authProvider);
+        expect(value, isA<AsyncError<AuthSession>>());
+        expect(value.error, isA<UnauthorizedFailure>());
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 9 — login NetworkFailure
+    // -----------------------------------------------------------------------
+    test('login NetworkFailure → AsyncError with NetworkFailure', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      when(
+        () => repo.login(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+        ),
+      ).thenThrow(const NetworkFailure());
+
+      await container
+          .read(authProvider.notifier)
+          .login('test@example.com', 'pass123');
+
+      final value = container.read(authProvider);
+      expect(value, isA<AsyncError<AuthSession>>());
+      expect(value.error, isA<NetworkFailure>());
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 10 — cold-start raw exception (non-Failure)
+    // -----------------------------------------------------------------------
+    test(
+      'cold start: raw Exception (non-Failure) from repo.refresh → AsyncError',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+
+        // Throw a raw exception that is NOT a Failure subclass.
+        // build() catches only `on Failure` — raw exceptions propagate and
+        // Riverpod's AsyncNotifier machinery sets state = AsyncError<Exception>.
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenThrow(Exception('format error'));
+
+        final container = makeContainer(repo: repo, storage: storage);
+
+        // Trigger build by reading — do NOT await .future because the raw
+        // exception may cause it to never resolve in certain Riverpod versions.
+        // Instead, listen to state transitions via a subscription and wait for
+        // the state to settle away from AsyncLoading.
+        container.read(authProvider); // trigger build
+
+        // Poll until state is no longer AsyncLoading (max 2 seconds).
+        for (var i = 0; i < 40; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          final v = container.read(authProvider);
+          if (!v.isLoading) break;
+        }
+
+        final value = container.read(authProvider);
+        // In Riverpod 3.x, an uncaught exception in AsyncNotifier.build() causes
+        // the provider to enter retry mode: the state becomes AsyncLoading with
+        // a non-null .error (i.e. the exception is captured and available).
+        // We assert the error is exposed regardless of whether the state is
+        // AsyncError or AsyncLoading(retrying: true) — both indicate the raw
+        // exception was not silently swallowed.
+        expect(value.error, isA<Exception>());
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 11 — logout from Unauthenticated (idempotency)
+    // -----------------------------------------------------------------------
+    test(
+      'logout from Unauthenticated initial state → no crash, state stays Unauthenticated',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage(); // empty — no stored token
+
+        when(() => repo.logout()).thenAnswer((_) async {});
+
+        final container = makeContainer(repo: repo, storage: storage);
+        // Cold start with no token → Unauthenticated.
+        await container.read(authProvider.future);
+
+        // logout() from Unauthenticated must not throw.
+        await expectLater(
+          () => container.read(authProvider.notifier).logout(),
+          returnsNormally,
+        );
+
+        final value = container.read(authProvider);
+        expect(value.value, equals(const AuthSession.unauthenticated()));
+
+        // Storage was already empty — deleteAll() on an empty store must not throw.
+        expect(await storage.readRefreshToken(), isNull);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 12 — setAccessToken updates in-memory access token when Authenticated
+    // -----------------------------------------------------------------------
+    test(
+      'setAccessToken updates in-memory access token when Authenticated',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => rotatedTokens);
+        when(() => repo.me()).thenAnswer((_) async => testUser);
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        // State is now Authenticated with rotatedTokens.accessToken.
+        container.read(authProvider.notifier).setAccessToken('brand-new-token');
+
+        final value = container.read(authProvider);
+        final session = value.value;
+        expect(session, isA<Authenticated>());
+        expect(
+          (session as Authenticated).accessToken,
+          equals('brand-new-token'),
+        );
+        // User must be unchanged.
+        expect(session.user, equals(testUser));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 13 — setAccessToken is a no-op when Unauthenticated
+    // -----------------------------------------------------------------------
+    test('setAccessToken is a no-op when Unauthenticated', () async {
+      final repo = MockAuthRepository();
+      final storage =
+          FakeSecureStorage(); // no stored token → cold start → Unauthenticated
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      // Must not throw and must not change state.
+      container.read(authProvider.notifier).setAccessToken('irrelevant-token');
+
+      final value = container.read(authProvider);
+      expect(value.value, equals(const AuthSession.unauthenticated()));
+    });
   });
 }

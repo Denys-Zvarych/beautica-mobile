@@ -144,6 +144,8 @@ void main() {
     final interceptor = RefreshInterceptor(ref, mainDio);
 
     await interceptor.onError(make401(_opts('/protected')), handler);
+    // M6: _runRefresh() spawns an async hop via Future(() async {...}); the delay
+    // waits for the Completer to resolve before assertions run.
     await Future<void>.delayed(const Duration(milliseconds: 200));
 
     // Exactly one refresh call.
@@ -241,6 +243,8 @@ void main() {
       final interceptor = RefreshInterceptor(ref, mainDio);
 
       await interceptor.onError(make401(_opts('/protected')), handler);
+      // M6: _runRefresh() spawns an async hop via Future(() async {...}); the delay
+      // waits for the Completer to resolve before assertions run.
       await Future<void>.delayed(const Duration(milliseconds: 200));
 
       // logout() must have been called on the auth notifier.
@@ -304,6 +308,8 @@ void main() {
       ),
     );
 
+    // M6: _runRefresh() spawns an async hop via Future(() async {...}); the delay
+    // waits for the Completer to resolve before assertions run.
     await Future<void>.delayed(const Duration(milliseconds: 300));
 
     verify(
@@ -313,4 +319,43 @@ void main() {
       ),
     ).called(1);
   });
+
+  // -------------------------------------------------------------------------
+  // Test 5 — null refresh token path
+  // -------------------------------------------------------------------------
+  test(
+    'null refresh token → UnauthorizedFailure thrown; logout called; handler.next called',
+    () async {
+      // Storage is empty — no refresh token written.
+      final storage = FakeSecureStorage();
+      final repo = FakeAuthRepository();
+      final refreshDio = MockDio();
+      final mainDio = MockDio();
+
+      final container = makeContainer(
+        storage: storage,
+        repo: repo,
+        refreshDio: refreshDio,
+      );
+      final ref = container.read(testRefProvider);
+      await container.read(authProvider.future);
+
+      final handler = MockInterceptorHandler();
+      final interceptor = RefreshInterceptor(ref, mainDio);
+
+      await interceptor.onError(make401(_opts('/protected')), handler);
+      // M6: _runRefresh() spawns an async hop via Future(() async {...}); the delay
+      // waits for the Completer to resolve before assertions run.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      // logout() must be called (RefreshInterceptor calls
+      // _ref.read(authProvider.notifier).logout() on any refresh failure).
+      expect(repo.logoutCallCount, equals(1));
+
+      // handler.next must be called (not handler.resolve — the request failed).
+      verify(() => handler.next(any())).called(1);
+      verifyNever(() => handler.resolve(any()));
+      verifyNever(() => mainDio.fetch<dynamic>(any()));
+    },
+  );
 }

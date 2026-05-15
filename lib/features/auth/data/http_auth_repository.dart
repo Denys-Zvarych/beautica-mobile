@@ -127,7 +127,7 @@ final class HttpAuthRepository implements AuthRepository {
           'refresh failed',
           name: 'auth.repository',
           level: 1000,
-          error: e,
+          error: '${e.type} ${e.response?.statusCode}',
           stackTrace: st,
         );
       }
@@ -151,7 +151,7 @@ final class HttpAuthRepository implements AuthRepository {
           'me failed',
           name: 'auth.repository',
           level: 1000,
-          error: e,
+          error: '${e.type} ${e.response?.statusCode}',
           stackTrace: st,
         );
       }

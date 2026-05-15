@@ -35,11 +35,6 @@ abstract final class AppConfig {
   /// also use HTTPS because they are production-equivalent builds used for
   /// performance profiling against real infrastructure.
   static void assertSecureUrl() {
-    // `assert` is a no-op in release; the if-guard below handles release mode.
-    assert(
-      true,
-      '',
-    ); // assertions disabled in release — this line is intentional
     if (!kDebugMode && !baseUrl.startsWith('https://')) {
       throw StateError(
         'BEAUTICA_BASE_URL must start with https:// in release builds. '

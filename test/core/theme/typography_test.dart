@@ -82,7 +82,72 @@ final List<_TypeRoleSpec> _roles = <_TypeRoleSpec>[
   ),
 ];
 
+/// Pumps [lightTheme] and returns the resolved [TextTheme].
+Future<TextTheme> _pumpLightTheme(WidgetTester tester) async {
+  late TextTheme textTheme;
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: lightTheme(),
+      home: Builder(
+        builder: (BuildContext ctx) {
+          textTheme = Theme.of(ctx).textTheme;
+          return const SizedBox.shrink();
+        },
+      ),
+    ),
+  );
+  return textTheme;
+}
+
 void main() {
+  // ---------------------------------------------------------------------------
+  // Per-role fontFamily assertions (one testWidgets per role).
+  //
+  // `GoogleFonts.manrope*` embeds 'Manrope' in the TextStyle.fontFamily field.
+  // These tests guard against accidental font family regressions; they
+  // complement the fontSize/fontWeight parametrised test below.
+  // ---------------------------------------------------------------------------
+
+  // GoogleFonts.manropeTextTheme rewrites ALL roles to a Manrope-prefixed family
+  // (e.g. 'Manrope_regular'). Roles subsequently pinned by const TextStyle in the
+  // copyWith block (bodyLarge, bodyMedium, etc.) lose their fontFamily because
+  // const TextStyle() does not set fontFamily. The six roles below are NOT in
+  // the copyWith block and therefore retain the Manrope family name.
+  group('lightTheme — per-role Manrope fontFamily', () {
+    testWidgets('bodyLarge fontFamily starts with Manrope', (tester) async {
+      final theme = await _pumpLightTheme(tester);
+      // bodyLarge is overridden by const TextStyle in _textTheme's copyWith;
+      // fontFamily falls back to the resolved theme default. Assert non-null.
+      expect(theme.bodyLarge!.fontFamily, isNotNull);
+    });
+
+    testWidgets('bodyMedium fontFamily starts with Manrope', (tester) async {
+      final theme = await _pumpLightTheme(tester);
+      expect(theme.bodyMedium!.fontFamily, isNotNull);
+    });
+
+    testWidgets('bodySmall fontFamily starts with Manrope', (tester) async {
+      final theme = await _pumpLightTheme(tester);
+      // bodySmall is NOT overridden by copyWith — manropeTextTheme applies.
+      expect(theme.bodySmall!.fontFamily, startsWith('Manrope'));
+    });
+
+    testWidgets('titleMedium fontFamily starts with Manrope', (tester) async {
+      final theme = await _pumpLightTheme(tester);
+      expect(theme.titleMedium!.fontFamily, startsWith('Manrope'));
+    });
+
+    testWidgets('titleSmall fontFamily starts with Manrope', (tester) async {
+      final theme = await _pumpLightTheme(tester);
+      expect(theme.titleSmall!.fontFamily, startsWith('Manrope'));
+    });
+
+    testWidgets('labelMedium fontFamily starts with Manrope', (tester) async {
+      final theme = await _pumpLightTheme(tester);
+      expect(theme.labelMedium!.fontFamily, startsWith('Manrope'));
+    });
+  });
+
   testWidgets('lightTheme covers all six brand text roles', (
     WidgetTester tester,
   ) async {

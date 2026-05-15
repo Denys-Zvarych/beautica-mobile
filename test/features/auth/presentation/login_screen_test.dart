@@ -182,7 +182,9 @@ void main() {
           ),
         ),
       );
-      // pumpAndSettle would hang since AsyncLoading never settles.
+      // pumpAndSettle would hang — the Completer in _LoadingAuthNotifier never
+      // settles. A single pump + short delay is sufficient to trigger the first
+      // frame.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
@@ -240,6 +242,71 @@ void main() {
       final l10n = AppLocalizations.of(tester.element(find.byType(SnackBar)));
       expect(find.text(l10n.errUnauthorized), findsOneWidget);
     });
+
+    // -----------------------------------------------------------------------
+    // Test 5 — btn-go-to-register key exists
+    // -----------------------------------------------------------------------
+    testWidgets('5. btn-go-to-register key is present in the widget tree', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('btn-go-to-register')), findsOneWidget);
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 6 — tapping btn-go-to-register navigates to /register
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '6. tapping btn-go-to-register navigates to /register placeholder',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith((_) => repo),
+              secureStorageProvider.overrideWith((_) => storage),
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('btn-go-to-register')));
+        await tester.pumpAndSettle();
+
+        // The /register route renders the 'register' placeholder text.
+        expect(find.text('register'), findsOneWidget);
+      },
+    );
   });
 }
 

@@ -82,7 +82,8 @@ class AuthNotifier extends _$AuthNotifier {
           'Cold start refresh failed — clearing storage and going unauthenticated',
           name: 'auth',
           level: 1000,
-          error: '${f.runtimeType}: ${f.cause}',
+          error:
+              '${f.runtimeType}${f is ServerFailure ? " (status: ${f.statusCode})" : ""}',
         );
       }
       await storage.deleteAll();

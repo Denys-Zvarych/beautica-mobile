@@ -19,6 +19,8 @@
 import 'dart:async';
 import 'dart:developer';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
@@ -76,13 +78,15 @@ final class RefreshInterceptor extends Interceptor {
       handler.resolve(retried);
     } catch (e, st) {
       _refreshing = null;
-      log(
-        'Token refresh failed — logging out',
-        name: 'auth.refresh',
-        level: 1000,
-        error: e,
-        stackTrace: st,
-      );
+      if (kDebugMode) {
+        log(
+          'Token refresh failed — logging out',
+          name: 'auth.refresh',
+          level: 1000,
+          error: e,
+          stackTrace: st,
+        );
+      }
       // Wipe the session; router guard will redirect to /login.
       await _ref.read(authProvider.notifier).logout();
       handler.next(err);
@@ -124,13 +128,15 @@ final class RefreshInterceptor extends Interceptor {
       log('Token refreshed silently', name: 'auth.refresh', level: 800);
       c.complete(newAccessToken);
     }).onError((e, st) {
-      log(
-        '_runRefresh failed',
-        name: 'auth.refresh',
-        level: 1000,
-        error: e,
-        stackTrace: st,
-      );
+      if (kDebugMode) {
+        log(
+          '_runRefresh failed',
+          name: 'auth.refresh',
+          level: 1000,
+          error: e,
+          stackTrace: st,
+        );
+      }
       c.completeError(e ?? const UnknownFailure(), st);
     });
     return c;

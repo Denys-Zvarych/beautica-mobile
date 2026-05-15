@@ -34,6 +34,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// Mirrors the redirect logic of [authRedirect] but takes a [location] string
 /// directly, making it trivially testable without a GoRouterState.
+///
+/// Mirrors the redirect logic of authRedirect. If a new route is added
+/// requiring special handling, update both this helper and authRedirect
+/// to keep them in sync — divergence is silent.
 String? _locationRedirect(AsyncValue<AuthSession> session, String location) {
   if (session.isLoading) {
     return location == RouteNames.splash ? null : RouteNames.splash;
@@ -144,6 +148,19 @@ void main() {
     test('anonymous user at /settings is redirected to /login', () {
       expect(
         _locationRedirect(_unauthenticatedSession, RouteNames.settings),
+        equals(RouteNames.login),
+      );
+    });
+
+    test('AsyncError<AuthSession> at / is redirected to /login', () {
+      // An AsyncError has no value (value is null) → treated as unauthenticated.
+      // The guard falls through session.value == null → !isAuthenticated → /login.
+      final errorSession = AsyncError<AuthSession>(
+        Exception('cold start failed'),
+        StackTrace.empty,
+      );
+      expect(
+        _locationRedirect(errorSession, RouteNames.home),
         equals(RouteNames.login),
       );
     });

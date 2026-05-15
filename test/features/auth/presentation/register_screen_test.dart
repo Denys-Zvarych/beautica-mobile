@@ -172,6 +172,8 @@ void main() {
         await tester.tap(find.byKey(const Key('btn-submit-register')));
         // Multiple pumps to allow: (1) tap event, (2) async register call,
         // (3) setState with server errors, (4) rebuild with errorText.
+        // pumpAndSettle alone is insufficient after server error — the async
+        // setState after Completer completion needs an explicit frame pump.
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
         await tester.pumpAndSettle();
@@ -253,6 +255,101 @@ void main() {
         find.byKey(const Key('btn-submit-register')),
       );
       expect(button.onPressed, isNull);
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 6 — empty firstName shows errNameRequired
+    // -----------------------------------------------------------------------
+    testWidgets('6. empty firstName shows errNameRequired error', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        _buildApp(router: router, repo: repo, storage: storage),
+      );
+      await tester.pumpAndSettle();
+
+      // Fill valid email and password but leave firstName blank.
+      await tester.enterText(
+        find.byKey(const Key('field-email')),
+        'ivan@beautica.test',
+      );
+      await tester.enterText(
+        find.byKey(const Key('field-password')),
+        'SecurePass1',
+      );
+      await tester.enterText(find.byKey(const Key('field-lastName')), 'Коваль');
+      // Intentionally leave field-firstName empty.
+
+      await tester.ensureVisible(find.byKey(const Key('btn-submit-register')));
+      await tester.tap(find.byKey(const Key('btn-submit-register')));
+      await tester.pump();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byKey(const Key('field-firstName'))),
+      );
+      expect(find.text(l10n.errNameRequired), findsOneWidget);
+
+      // No register call should have been made.
+      expect(repo.registerCalls, isEmpty);
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 7 — btn-go-to-login key exists
+    // -----------------------------------------------------------------------
+    testWidgets('7. btn-go-to-login key is present in the widget tree', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        _buildApp(router: router, repo: repo, storage: storage),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('btn-go-to-login')), findsOneWidget);
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 8 — tapping btn-go-to-login navigates to /login
+    // -----------------------------------------------------------------------
+    testWidgets('8. tapping btn-go-to-login navigates to /login', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter(); // already includes /login route
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byKey(const Key('btn-go-to-login')));
+      await tester.tap(find.byKey(const Key('btn-go-to-login')));
+      await tester.pumpAndSettle();
+
+      // The /login placeholder from _makeRouter renders Text('login').
+      expect(find.text('login'), findsOneWidget);
     });
   });
 }

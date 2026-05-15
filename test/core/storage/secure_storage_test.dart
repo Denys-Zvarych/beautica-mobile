@@ -37,11 +37,14 @@ void main() {
       expect(await s.readUserJson(), isNull);
     });
 
-    test('read returns null when nothing written', () async {
-      final s = FakeSecureStorage();
-      expect(await s.readRefreshToken(), isNull);
-      expect(await s.readUserJson(), isNull);
-    });
+    test(
+      'read returns null for both keys when nothing has been written',
+      () async {
+        final s = FakeSecureStorage();
+        expect(await s.readRefreshToken(), isNull);
+        expect(await s.readUserJson(), isNull);
+      },
+    );
 
     test('overwrite works — last write wins', () async {
       final s = FakeSecureStorage();
