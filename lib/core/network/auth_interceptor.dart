@@ -4,7 +4,7 @@
 // token. Auth endpoints are excluded to avoid attaching a stale token to
 // login / registration / refresh calls.
 //
-// The interceptor reads the current [AuthState] from [authNotifierProvider].
+// The interceptor reads the current [AuthSession] from [authProvider].
 // It intentionally does NOT handle 401 responses — that is the responsibility
 // of the RefreshInterceptor added in Phase 2.7.
 //
@@ -17,7 +17,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../features/auth/auth_notifier.dart';
+import '../../features/auth/domain/auth_session.dart';
+import '../../features/auth/presentation/auth_notifier.dart';
 import 'auth_paths.dart';
 
 /// Riverpod-aware Dio interceptor that injects the Bearer access token.

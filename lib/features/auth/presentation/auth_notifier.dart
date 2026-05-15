@@ -1,0 +1,148 @@
+// Phase 2.4 — Real AuthNotifier replacing the Phase 2.2 stub.
+//
+// Owns the sealed [AuthSession] state for the entire app lifecycle. Kept alive
+// because the auth interceptor, router guard, and all feature screens need it.
+//
+// Cold-start flow (build()):
+//   1. Read refresh token from SecureStorage.
+//   2. If absent → return Unauthenticated immediately.
+//   3. If present → call repo.refresh() to obtain a new token pair, then
+//      repo.me() to load the user profile.
+//   4. On any Failure (expired/revoked token) → wipe storage, return
+//      Unauthenticated. Never bubble the exception to the UI.
+//
+// Action methods (login, register, logout) follow the AsyncNotifier pattern:
+//   - Set state to AsyncLoading before the async work.
+//   - Use AsyncValue.guard() so any Failure is captured in AsyncError — the
+//     screen's .when(error:) handler surfaces it to the user.
+//
+// Security invariants (mobile-security MS-1 / MS-2):
+//   - Only the refresh token is written to SecureStorage.
+//   - The access token lives exclusively in the [Authenticated] state in memory.
+//   - Never pass the access token to writeRefreshToken — they are different keys.
+
+import 'dart:developer';
+
+import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+import '../../../core/errors/failures.dart';
+import '../../../core/storage/secure_storage_provider.dart';
+import '../data/auth_repository_provider.dart';
+import '../domain/auth_session.dart';
+
+part 'auth_notifier.g.dart';
+
+/// Manages the user's authentication session for the Beautica app lifetime.
+///
+/// Exposes [AsyncValue<AuthSession>] so that all consumers — interceptors,
+/// router guards, and screens — can distinguish between the initial loading
+/// state (cold start) and the settled [Authenticated] / [Unauthenticated]
+/// states.
+///
+/// Generated provider name: `authProvider` (Riverpod 3.x strips "Notifier").
+@Riverpod(keepAlive: true)
+class AuthNotifier extends _$AuthNotifier {
+  @override
+  Future<AuthSession> build() async {
+    final storage = ref.read(secureStorageProvider);
+    final rt = await storage.readRefreshToken();
+
+    if (rt == null) {
+      log(
+        'Cold start: no refresh token — unauthenticated',
+        name: 'auth',
+        level: 800,
+      );
+      return const AuthSession.unauthenticated();
+    }
+
+    try {
+      final repo = ref.read(authRepositoryProvider);
+      final tokens = await repo.refresh(rt);
+      // Persist the rotated refresh token before loading the profile.
+      await storage.writeRefreshToken(tokens.refreshToken);
+      final user = await repo.me();
+      log(
+        'Cold start: session restored for ${user.email}',
+        name: 'auth',
+        level: 800,
+      );
+      return AuthSession.authenticated(
+        user: user,
+        accessToken: tokens.accessToken,
+      );
+    } on Failure catch (f) {
+      log(
+        'Cold start refresh failed — clearing storage and going unauthenticated',
+        name: 'auth',
+        level: 1000,
+        error: '${f.runtimeType}: ${f.cause}',
+      );
+      await storage.deleteAll();
+      return const AuthSession.unauthenticated();
+    }
+  }
+
+  /// Authenticates the user with [email] and [password].
+  ///
+  /// On success, state becomes [AsyncData<Authenticated>] with the user profile
+  /// and a fresh access token. On failure, state becomes [AsyncError] with the
+  /// typed [Failure] — the calling screen's `.when(error:)` handler displays it.
+  Future<void> login(String email, String password) async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async {
+      final (user, tokens) = await ref
+          .read(authRepositoryProvider)
+          .login(email: email, password: password);
+      await ref
+          .read(secureStorageProvider)
+          .writeRefreshToken(tokens.refreshToken);
+      log('Login success: ${user.email}', name: 'auth', level: 800);
+      return AuthSession.authenticated(
+        user: user,
+        accessToken: tokens.accessToken,
+      );
+    });
+  }
+
+  /// Registers a new INDEPENDENT_MASTER account and logs in immediately.
+  ///
+  /// On success, state becomes [AsyncData<Authenticated>]. On failure (e.g.
+  /// [ValidationFailure] for duplicate email), state becomes [AsyncError].
+  Future<void> register({
+    required String email,
+    required String password,
+    required String firstName,
+    required String lastName,
+  }) async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async {
+      final (user, tokens) = await ref
+          .read(authRepositoryProvider)
+          .registerIndependentMaster(
+            email: email,
+            password: password,
+            firstName: firstName,
+            lastName: lastName,
+          );
+      await ref
+          .read(secureStorageProvider)
+          .writeRefreshToken(tokens.refreshToken);
+      log('Registration success: ${user.email}', name: 'auth', level: 800);
+      return AuthSession.authenticated(
+        user: user,
+        accessToken: tokens.accessToken,
+      );
+    });
+  }
+
+  /// Clears the session and wipes all tokens from secure storage.
+  ///
+  /// Sets state to [AsyncData<Unauthenticated>] synchronously after the storage
+  /// wipe. The router guard (Phase 2.9) will redirect to the login screen.
+  Future<void> logout() async {
+    await ref.read(secureStorageProvider).deleteAll();
+    log('Logout: session cleared', name: 'auth', level: 800);
+    state = const AsyncData(AuthSession.unauthenticated());
+  }
+}
