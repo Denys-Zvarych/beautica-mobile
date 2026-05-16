@@ -569,24 +569,33 @@ class _BrandRow extends StatelessWidget {
     return Row(
       children: [
         // Frosted glass monogram
-        ClipRRect(
-          borderRadius: _kMonogramRadius,
-          child: BackdropFilter(
-            filter: _kBlur,
-            child: Container(
-              width: 34,
-              height: 34,
-              decoration: _kMonogramDecoration,
-              alignment: Alignment.center,
-              child: const Text(
-                'B',
-                style: TextStyle(
-                  color: Color(0xF2FFFFFF), // white 95%
-                  fontSize: 20, // increased from 18
-                  fontWeight: FontWeight.w700,
-                  height: 1,
+        SizedBox(
+          width: 34,
+          height: 34,
+          child: ClipRRect(
+            borderRadius: _kMonogramRadius,
+            child: Stack(
+              children: [
+                // Blur + decoration background — no content in SaveLayer.
+                Positioned.fill(
+                  child: BackdropFilter(
+                    filter: _kBlur,
+                    child: const DecoratedBox(decoration: _kMonogramDecoration),
+                  ),
                 ),
-              ),
+                // 'B' text above the blur — crisp rendering.
+                const Center(
+                  child: Text(
+                    'B',
+                    style: TextStyle(
+                      color: Color(0xF2FFFFFF), // white 95%
+                      fontSize: 20, // increased from 18
+                      fontWeight: FontWeight.w700,
+                      height: 1,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -718,14 +727,22 @@ class _GlassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: _kCardRadius,
-      child: BackdropFilter(
-        filter: _kBlur,
-        child: Container(
+      child: Stack(
+        children: [
+          // Blur + glass fill — no content inside the SaveLayer.
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: _kBlur,
+              child: const DecoratedBox(decoration: _kDecoration),
+            ),
+          ),
+          // Content rendered above the blur, outside SaveLayer — crisp text.
           // .glass-card { padding: 22px 18px 20px } → LTRB(18, 22, 18, 20).
-          padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
-          decoration: _kDecoration,
-          child: child,
-        ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
+            child: child,
+          ),
+        ],
       ),
     );
   }

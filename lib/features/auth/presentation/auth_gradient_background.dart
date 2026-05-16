@@ -77,19 +77,25 @@ class _AuthBackgroundPainter extends CustomPainter {
   // ── Pre-computed gradient constants — no allocation per paint() call.
   //
   // Hex alpha derivation:
-  //   blob 1: 0.28 × 255 ≈ 71 = 0x47   → Color(0x47583A1A)
-  //   blob 2: 0.20 × 255 = 51 = 0x33   → Color(0x33442A10)
+  //   blob 1: 0.38 × 255 ≈ 97 = 0x61   → Color(0x61583A1A)
+  //   blob 2: 0.28 × 255 ≈ 71 = 0x47   → Color(0x47442A10)
+  // stops [0.0, 0.7]: matches CSS `transparent 70%` — gradient reaches fully
+  // transparent at 70% of radius (same as the HTML radial-gradient stop).
+  // Without stops, the gradient fades linearly across the full radius,
+  // creating a visible circular edge at the blob's boundary.
   // The transparent stop preserves the RGB channels (colour-aware transparent)
   // to prevent hue-shift artefacts in Impeller's blend mode.
 
-  /// Top-right blob gradient — rgba(88,56,26) at 28% centre → transparent.
+  /// Top-right blob gradient — rgba(88,56,26) at 38% centre → transparent at 70% radius.
   static const _kGrad1 = RadialGradient(
-    colors: [Color(0x47583A1A), Color(0x00583A1A)],
+    colors: [Color(0x61583A1A), Color(0x00583A1A)],
+    stops: [0.0, 0.7],
   );
 
-  /// Bottom-left blob gradient — rgba(68,42,16) at 20% centre → transparent.
+  /// Bottom-left blob gradient — rgba(68,42,16) at 28% centre → transparent at 70% radius.
   static const _kGrad2 = RadialGradient(
-    colors: [Color(0x33442A10), Color(0x00442A10)],
+    colors: [Color(0x47442A10), Color(0x00442A10)],
+    stops: [0.0, 0.7],
   );
 
   // ── Reusable Paint objects — allocated once, shader updated per paint().
