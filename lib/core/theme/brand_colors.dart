@@ -31,4 +31,33 @@ abstract final class BrandColors {
   /// Dark input field background — slightly lighter than [midnight] to give
   /// form fields a subtle lifted appearance on the gradient auth screens.
   static const Color darkSurface = Color(0xFF0A2540);
+
+  // ---------------------------------------------------------------------------
+  // Warm Mocha palette — auth screens (Phase 2.x visual redesign)
+  // Reference: docs/signup-designs/*.html
+  // ---------------------------------------------------------------------------
+
+  /// Espresso — deepest background / phone shell. Replaces the old navy
+  /// gradient on all auth screens. #0D0906.
+  static const Color espresso = Color(0xFF0D0906);
+
+  /// Mocha — CTA gradient seed / primary warm tone. #6A4A28.
+  static const Color mocha = Color(0xFF6A4A28);
+
+  /// Latte — CTA gradient highlight (brightest stop). #8A6840.
+  static const Color latte = Color(0xFF8A6840);
+
+  /// Camel — accent: selected state borders, focus rings, checkmarks. #B89A7A.
+  static const Color camel = Color(0xFFB89A7A);
+
+  /// Cream — primary on-dark text colour. #F5EDE0.
+  static const Color cream = Color(0xFFF5EDE0);
+
+  /// Ash — muted / dividers / secondary labels. #D4B896.
+  static const Color ash = Color(0xFFD4B896);
+
+  /// Error rust — validation errors and cancellation states on mocha screens.
+  /// Replaces [cherry] for the auth surface only; [cherry] remains the booking
+  /// status token. #A84040.
+  static const Color errorRust = Color(0xFFA84040);
 }

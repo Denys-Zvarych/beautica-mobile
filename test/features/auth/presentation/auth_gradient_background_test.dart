@@ -1,43 +1,22 @@
-// Widget tests for AuthGradientBackground.
+// Widget tests for AuthGradientBackground — Warm Mocha redesign (Phase 2.x).
 //
-// AuthGradientBackground is a new shared StatelessWidget introduced in the
-// auth-screen redesign (Phase 3.x visual). It is used by all three auth
-// screens (SplashScreen, LoginScreen, RegisterScreen) as the bottom layer of
-// their Stack. Zero test coverage existed before this file.
+// AuthGradientBackground was redesigned from a 5-stop navy LinearGradient to
+// an espresso (#0D0906) solid fill with two ambient RadialGradient blob
+// overlays.  These tests verify the new widget structure.
 //
 // Covered scenarios:
 //   1. Widget renders without error (smoke test).
-//   2. Widget contains a DecoratedBox (the gradient carrier).
-//   3. The decoration is a LinearGradient.
-//   4. The gradient begin/end alignment is topCenter → bottomCenter.
-//   5. The first gradient colour equals BrandColors.midnight (#0D3B66).
-//   6. The second gradient colour equals the deep-navy value (#061E35).
-//   7. The widget is wrapped in SizedBox.expand() — expands to fill the Stack.
+//   2. Widget tree contains a DecoratedBox with solid espresso fill.
+//   3. The solid-fill BoxDecoration uses BrandColors.espresso.
+//   4. Widget tree contains at least two ambient blob Containers.
+//   5. Blob containers use RadialGradient decorations.
+//   6. The gradient blobs contain mocha-toned warm colours.
+//   7. The widget contains a SizedBox.expand to fill available space.
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_gradient_background.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-// Convenience: returns the first [DecoratedBox] in the tree whose decoration
-// is a [BoxDecoration] with a [LinearGradient]. Throws if not found.
-DecoratedBox _findDecoratedBox(WidgetTester tester) {
-  final candidates = tester
-      .widgetList<DecoratedBox>(find.byType(DecoratedBox))
-      .where(
-        (db) =>
-            db.decoration is BoxDecoration &&
-            (db.decoration as BoxDecoration).gradient is LinearGradient,
-      )
-      .toList();
-
-  expect(
-    candidates,
-    isNotEmpty,
-    reason: 'Expected at least one DecoratedBox with a LinearGradient',
-  );
-  return candidates.first;
-}
 
 void main() {
   group('AuthGradientBackground', () {
@@ -55,27 +34,10 @@ void main() {
     });
 
     // -------------------------------------------------------------------------
-    // Test 2 — widget tree contains a DecoratedBox with a LinearGradient
-    // -------------------------------------------------------------------------
-    testWidgets('2. widget tree contains a DecoratedBox with a LinearGradient', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
-        ),
-      );
-
-      // _findDecoratedBox asserts the structure internally; no further assertion
-      // is needed here — the call throws if the widget is missing.
-      _findDecoratedBox(tester);
-    });
-
-    // -------------------------------------------------------------------------
-    // Test 3 — gradient direction is topCenter → bottomCenter
+    // Test 2 — widget tree contains a DecoratedBox with a solid-colour fill
     // -------------------------------------------------------------------------
     testWidgets(
-      '3. gradient runs from Alignment.topCenter to Alignment.bottomCenter',
+      '2. widget tree contains a DecoratedBox with a solid espresso fill',
       (tester) async {
         await tester.pumpWidget(
           const MaterialApp(
@@ -83,19 +45,29 @@ void main() {
           ),
         );
 
-        final gradient =
-            (_findDecoratedBox(tester).decoration as BoxDecoration).gradient!
-                as LinearGradient;
+        // Find DecoratedBoxes whose BoxDecoration has a solid colour (no gradient).
+        final solidFills = tester
+            .widgetList<DecoratedBox>(find.byType(DecoratedBox))
+            .where(
+              (db) =>
+                  db.decoration is BoxDecoration &&
+                  (db.decoration as BoxDecoration).color != null &&
+                  (db.decoration as BoxDecoration).gradient == null,
+            )
+            .toList();
 
-        expect(gradient.begin, equals(Alignment.topCenter));
-        expect(gradient.end, equals(Alignment.bottomCenter));
+        expect(
+          solidFills,
+          isNotEmpty,
+          reason: 'Expected at least one solid-fill DecoratedBox (espresso bg)',
+        );
       },
     );
 
     // -------------------------------------------------------------------------
-    // Test 4 — first gradient stop is BrandColors.midnight (#0D3B66)
+    // Test 3 — solid fill uses BrandColors.espresso
     // -------------------------------------------------------------------------
-    testWidgets('4. first gradient colour is BrandColors.midnight', (
+    testWidgets('3. the solid-fill BoxDecoration uses BrandColors.espresso', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -104,17 +76,60 @@ void main() {
         ),
       );
 
-      final gradient =
-          (_findDecoratedBox(tester).decoration as BoxDecoration).gradient!
-              as LinearGradient;
+      final solidFills = tester
+          .widgetList<DecoratedBox>(find.byType(DecoratedBox))
+          .where(
+            (db) =>
+                db.decoration is BoxDecoration &&
+                (db.decoration as BoxDecoration).color ==
+                    BrandColors.espresso &&
+                (db.decoration as BoxDecoration).gradient == null,
+          )
+          .toList();
 
-      expect(gradient.colors.first, equals(BrandColors.midnight));
+      expect(
+        solidFills,
+        isNotEmpty,
+        reason: 'Expected a DecoratedBox filled with BrandColors.espresso',
+      );
     });
 
     // -------------------------------------------------------------------------
-    // Test 5 — second gradient stop is deep-navy (#061E35)
+    // Test 4 — widget tree contains at least two ambient blob Containers
     // -------------------------------------------------------------------------
-    testWidgets('5. second gradient colour is deep-navy #061E35', (
+    testWidgets(
+      '4. widget tree contains at least two RadialGradient blob containers',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
+          ),
+        );
+
+        // Blob containers are rendered as Containers with a RadialGradient
+        // BoxDecoration and explicit width/height.
+        final blobs = tester
+            .widgetList<Container>(find.byType(Container))
+            .where(
+              (c) =>
+                  c.decoration is BoxDecoration &&
+                  (c.decoration as BoxDecoration).gradient is RadialGradient,
+            )
+            .toList();
+
+        expect(
+          blobs.length,
+          greaterThanOrEqualTo(2),
+          reason:
+              'Expected at least two ambient RadialGradient blob containers',
+        );
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // Test 5 — blob containers use RadialGradient decorations
+    // -------------------------------------------------------------------------
+    testWidgets('5. blob containers use RadialGradient decorations', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -123,17 +138,34 @@ void main() {
         ),
       );
 
-      final gradient =
-          (_findDecoratedBox(tester).decoration as BoxDecoration).gradient!
-              as LinearGradient;
+      final radialBlobs = tester
+          .widgetList<Container>(find.byType(Container))
+          .where(
+            (c) =>
+                c.decoration is BoxDecoration &&
+                (c.decoration as BoxDecoration).gradient is RadialGradient,
+          )
+          .toList();
 
-      expect(gradient.colors.last, equals(const Color(0xFF061E35)));
+      expect(radialBlobs, isNotEmpty);
+
+      // Each blob should fade from a semi-transparent warm colour to transparent.
+      for (final blob in radialBlobs) {
+        final gradient =
+            (blob.decoration! as BoxDecoration).gradient! as RadialGradient;
+        // Last stop must be fully transparent (a == 0.0).
+        expect(
+          gradient.colors.last.a,
+          equals(0.0),
+          reason: 'Blob edge must fade to fully transparent',
+        );
+      }
     });
 
     // -------------------------------------------------------------------------
-    // Test 6 — five gradient stops are defined (dithered to reduce banding)
+    // Test 6 — gradient blobs contain warm mocha-toned colours
     // -------------------------------------------------------------------------
-    testWidgets('6. gradient has five colour stops for banding reduction', (
+    testWidgets('6. the gradient blobs contain warm mocha-toned colours', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -142,15 +174,30 @@ void main() {
         ),
       );
 
-      final gradient =
-          (_findDecoratedBox(tester).decoration as BoxDecoration).gradient!
-              as LinearGradient;
+      final radialBlobs = tester
+          .widgetList<Container>(find.byType(Container))
+          .where(
+            (c) =>
+                c.decoration is BoxDecoration &&
+                (c.decoration as BoxDecoration).gradient is RadialGradient,
+          )
+          .toList();
 
-      // The gradient was upgraded from 2 stops to 5 intermediate stops to
-      // reduce visible colour banding on physical devices (8-bit GPU quantisation).
-      expect(gradient.colors, hasLength(5));
-      // Explicit stops list must be provided and also have 5 entries.
-      expect(gradient.stops, hasLength(5));
+      expect(radialBlobs, isNotEmpty);
+
+      // Centre colour of every blob must be a warm tone:
+      //   r channel ≥ g channel (warm, not cool — mocha tone check).
+      for (final blob in radialBlobs) {
+        final gradient =
+            (blob.decoration! as BoxDecoration).gradient! as RadialGradient;
+        final centre = gradient.colors.first;
+        // Warm colour: r ≥ g (using non-deprecated Color.r / Color.g API).
+        expect(
+          centre.r,
+          greaterThanOrEqualTo(centre.g),
+          reason: 'Blob centre colour should have r ≥ g (warm mocha tone)',
+        );
+      }
     });
 
     // -------------------------------------------------------------------------

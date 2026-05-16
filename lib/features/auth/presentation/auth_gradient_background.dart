@@ -1,42 +1,86 @@
-// Shared gradient background widget used by all three auth screens
-// (splash, login, register). Extracted from previously duplicated private
-// _GradientBackground classes to satisfy DRY (LOW L1 fix).
+// Warm Mocha auth background — Phase 2.x visual redesign.
+//
+// Replaces the old navy LinearGradient with an espresso (#0D0906) solid fill
+// plus two ambient radial-gradient blob overlays (top-right and bottom-left)
+// in warm mocha tones — mirroring the HTML mockups' ::before/::after blobs.
+//
+// Used as the bottom layer of the Stack in [LoginScreen] and [RegisterScreen].
+// Declared public so it is accessible across the auth presentation layer.
+//
+// IMPORTANT: This widget uses a [Stack] + [Positioned] approach rather than
+// CSS pseudo-elements. The background is rendered once and never rebuilt
+// because all its children are `const`.
 
 import 'package:flutter/material.dart';
 
-/// Full-screen gradient background — Midnight (#0D3B66) → deep navy (#061E35).
+import '../../../core/theme/brand_colors.dart';
+
+/// Full-screen Warm Mocha background — espresso solid fill with two ambient
+/// radial-gradient blobs in mocha tones.
 ///
-/// Uses a 5-stop dithered gradient instead of the original 2-stop version to
-/// reduce visible colour banding on physical devices. The intermediate stops
-/// evenly distribute the dark-blue transition so the GPU's 8-bit colour
-/// quantisation produces no perceptible horizontal bands.
+/// Blob 1 (top-right): 300 × 300 logical pixels, rgba(88,56,26,0.38).
+/// Blob 2 (bottom-left): 220 × 220 logical pixels, rgba(68,42,16,0.28).
 ///
-/// Used as the bottom layer of the Stack in [SplashScreen], [LoginScreen], and
-/// [RegisterScreen]. Declared public so it is accessible across the auth
-/// presentation layer without needing a shared/ re-export.
+/// These dimensions and positions faithfully match the HTML mockup's
+/// `::before` / `::after` pseudo-elements. The blobs are purely decorative
+/// and marked `excludeFromSemantics` implicitly by being `Container` paint.
 class AuthGradientBackground extends StatelessWidget {
   const AuthGradientBackground({super.key});
 
-  @override
-  Widget build(BuildContext context) => const DecoratedBox(
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        // 5-stop dithered gradient — reduces colour banding on 8-bit displays.
-        // BrandColors.midnight (#0D3B66) cannot be used as a const here because
-        // the stops list requires compile-time constants; literal hex is used
-        // for the first stop instead.
-        colors: [
-          Color(0xFF0D3B66), // BrandColors.midnight — top
-          Color(0xFF0B3359),
-          Color(0xFF092B4C),
-          Color(0xFF07243F),
-          Color(0xFF061E35), // deep navy — bottom
-        ],
-        stops: [0.0, 0.25, 0.5, 0.75, 1.0],
-      ),
+  // ── Static decoration objects — allocated once, never recreated on build().
+
+  static const BoxDecoration _solidFill = BoxDecoration(
+    color: BrandColors.espresso,
+  );
+
+  /// Top-right ambient blob — mocha warm glow.
+  static const BoxDecoration _blob1 = BoxDecoration(
+    shape: BoxShape.circle,
+    gradient: RadialGradient(
+      colors: [
+        Color(0x61583A1A), // rgba(88,56,26,0.38)
+        Color(0x00583A1A),
+      ],
+      stops: [0.0, 1.0],
     ),
-    child: SizedBox.expand(),
+  );
+
+  /// Bottom-left ambient blob — darker mocha undertone.
+  static const BoxDecoration _blob2 = BoxDecoration(
+    shape: BoxShape.circle,
+    gradient: RadialGradient(
+      colors: [
+        Color(0x47442A10), // rgba(68,42,16,0.28)
+        Color(0x00442A10),
+      ],
+      stops: [0.0, 1.0],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    children: [
+      // ── Solid espresso base — fills the entire screen.
+      const DecoratedBox(decoration: _solidFill, child: SizedBox.expand()),
+
+      // ── Blob 1: top-right, 300 × 300.
+      Positioned(
+        top: -70,
+        right: -80,
+        child: Container(width: 300, height: 300, decoration: _blob1),
+      ),
+
+      // ── Blob 2: bottom-left, 220 × 220.
+      // Positioned relative to bottom — LayoutBuilder lets us compute the
+      // bottom offset only if we know the height, but since this widget
+      // always fills the screen behind a SafeArea'd child, we use a
+      // fractional approach: we pin to bottom with an upward offset so it
+      // appears approximately 130 px from the bottom of the phone shell.
+      Positioned(
+        bottom: 130,
+        left: -70,
+        child: Container(width: 220, height: 220, decoration: _blob2),
+      ),
+    ],
   );
 }

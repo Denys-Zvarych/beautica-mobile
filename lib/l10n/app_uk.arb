@@ -261,5 +261,61 @@
   "hidePasswordSemanticLabel": "Приховати пароль",
   "@hidePasswordSemanticLabel": {
     "description": "Accessibility semantic label for the hide-password icon button (eye-off icon in password field)."
+  },
+  "loginHeadline": "З поверненням!",
+  "@loginHeadline": {
+    "description": "Large headline on the login screen (Warm Mocha redesign)."
+  },
+  "loginHeadlineAccent": "раді бачити вас знову",
+  "@loginHeadlineAccent": {
+    "description": "Italic serif accent line below the main login headline."
+  },
+  "loginSubText": "Увійдіть до свого акаунту, щоб продовжити",
+  "@loginSubText": {
+    "description": "Muted sub-text below the login headline describing the action."
+  },
+  "loginForgotPassword": "Забули пароль?",
+  "@loginForgotPassword": {
+    "description": "Right-aligned link text for the forgot-password flow on the login screen."
+  },
+  "registerHeadline": "Ласкаво просимо!",
+  "@registerHeadline": {
+    "description": "Large headline on the role selection step of the register screen."
+  },
+  "registerHeadlineAccent": "Хто ви?",
+  "@registerHeadlineAccent": {
+    "description": "Italic serif accent line on the role selection step of the register screen."
+  },
+  "registerSubText": "Оберіть роль, щоб ми могли налаштувати застосунок саме для вас.",
+  "@registerSubText": {
+    "description": "Muted sub-text below the role selection headline."
+  },
+  "intentClientDesc": "Шукайте майстрів і записуйтесь на послуги",
+  "@intentClientDesc": {
+    "description": "Short description line shown on the Client role card (Warm Mocha redesign)."
+  },
+  "intentSalonDesc": "Керуйте салоном, командою та записами",
+  "@intentSalonDesc": {
+    "description": "Short description line shown on the Salon Owner role card (Warm Mocha redesign)."
+  },
+  "intentIndependentDesc": "Працюйте самостійно та приймайте клієнтів",
+  "@intentIndependentDesc": {
+    "description": "Short description line shown on the Independent Master role card (Warm Mocha redesign)."
+  },
+  "registerContinue": "Продовжити",
+  "@registerContinue": {
+    "description": "CTA button label on the role selection step of the register screen."
+  },
+  "progressStepDetails": "Деталі",
+  "@progressStepDetails": {
+    "description": "Step 1 label in the 3-step registration progress indicator."
+  },
+  "progressStepVerification": "Верифікація",
+  "@progressStepVerification": {
+    "description": "Step 2 label in the 3-step registration progress indicator."
+  },
+  "progressStepDone": "Готово",
+  "@progressStepDone": {
+    "description": "Step 3 label in the 3-step registration progress indicator."
   }
 }

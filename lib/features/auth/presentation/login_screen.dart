@@ -1,31 +1,43 @@
-// Phase 2.5 — Login screen (redesigned Modern Dark Cinema — Phase 3.x visual).
+// Phase 2.5 — Login screen — Warm Mocha visual redesign (Phase 2.x).
+//
+// VISUAL REDESIGN ONLY — all business logic, form validation, Riverpod state,
+// Keys, routing, and animation controllers are unchanged from the previous
+// "Modern Dark Cinema" version.
+//
+// What changed:
+//   - Background: AuthGradientBackground (espresso + mocha blobs) instead of
+//     the old navy LinearGradient.
+//   - Layout: brand row (monogram + BEAUTICA), Cormorant Garamond italic
+//     headline, glass card wrapping both fields.
+//   - Input fields: warm-mocha InputDecoration (camel focus ring, white-7% fill,
+//     espresso-toned border, 12 px radius, icon prefix).
+//   - CTA button: mocha LinearGradient with glow BoxShadow, 52 px height.
+//   - "Forgot password" link: camel colour, right-aligned.
+//   - "No account?" row: moved inside Column below card, camel accent link.
+//   - Logo SVG replaced by text brand row (matches HTML mockup pattern).
 //
 // ConsumerStatefulWidget: owns TextEditingControllers, FormKey, animation
 // controller, and minor UI state (_obscurePassword, _buttonPressed).
 // Network-side state lives in [authProvider].
 //
-// Layout: full-screen gradient (Midnight → deep navy), no AppBar, SafeArea
-// wrapping a scrollable form centred in a max-width 400 column.
-//
-// Submit flow:
+// Submit flow (UNCHANGED):
 //   1. Validate form locally.
 //   2. Call authProvider.notifier.login() — state transitions to AsyncLoading.
 //   3. On AsyncData<Authenticated> → navigate to home.
-//   4. On AsyncError → show floating SnackBar styled with BrandColors.cherry.
+//   4. On AsyncError → show floating SnackBar.
 //
-// Entrance animation: 5-item stagger (logo, title, email, password+forgot, CTA
-// row) using FadeTransition + SlideTransition with Interval-based curves over
-// 600 ms.
+// Entrance animation (UNCHANGED): 4-item stagger over 600 ms.
 //
 // All user-visible strings are fetched through AppLocalizations (UA primary).
 
 import 'dart:developer';
+import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
@@ -38,7 +50,70 @@ import '../../../shared/validators/password_validator.dart';
 import 'auth_gradient_background.dart';
 import 'auth_notifier.dart';
 
-/// Login screen for the Beautica app — Modern Dark Cinema design.
+// ---------------------------------------------------------------------------
+// Static style constants — allocated once, never inside build()
+// ---------------------------------------------------------------------------
+
+/// Glass card border radius (22 px matching HTML mockup).
+const _kCardRadius = BorderRadius.all(Radius.circular(22));
+
+/// Input field border radius (12 px matching HTML mockup).
+const _kInputRadius = BorderRadius.all(Radius.circular(12));
+
+/// Monogram container border radius (10 px matching HTML monogram).
+const _kMonogramRadius = BorderRadius.all(Radius.circular(10));
+
+/// Default input border — white 10% opacity.
+const _kInputBorderDefault = OutlineInputBorder(
+  borderRadius: _kInputRadius,
+  borderSide: BorderSide(color: Color(0x1AFFFFFF), width: 1),
+);
+
+/// Focused input border — camel 36% opacity.
+const _kInputBorderFocused = OutlineInputBorder(
+  borderRadius: _kInputRadius,
+  borderSide: BorderSide(color: Color(0x5CB89A7A), width: 1.5),
+);
+
+/// Error input border — errorRust solid.
+const _kInputBorderError = OutlineInputBorder(
+  borderRadius: _kInputRadius,
+  borderSide: BorderSide(color: BrandColors.errorRust, width: 1),
+);
+
+/// Focused-error input border — errorRust 1.5 px.
+const _kInputBorderFocusedError = OutlineInputBorder(
+  borderRadius: _kInputRadius,
+  borderSide: BorderSide(color: BrandColors.errorRust, width: 1.5),
+);
+
+/// CTA gradient — mocha linear, 135°.
+const _kCtaGradient = LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: [Color(0xFF4A2E10), BrandColors.mocha, BrandColors.latte],
+  stops: [0.0, 0.6, 1.0],
+);
+
+/// CTA box shadow — mocha glow.
+const List<BoxShadow> _kCtaShadow = [
+  BoxShadow(
+    color: Color(0xAD3A240C), // rgba(58,36,12,0.68)
+    blurRadius: 24,
+    offset: Offset(0, 4),
+  ),
+  BoxShadow(
+    color: Color(0x1FFFFFFF), // inset top highlight (approximated)
+    blurRadius: 0,
+    offset: Offset(0, -1),
+  ),
+];
+
+// ---------------------------------------------------------------------------
+// LoginScreen
+// ---------------------------------------------------------------------------
+
+/// Login screen for the Beautica app — Warm Mocha design.
 ///
 /// Presents email + password fields with a staggered entrance animation and
 /// submits to [AuthNotifier.login]. Navigates to [RouteNames.home] on success;
@@ -53,7 +128,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen>
     with SingleTickerProviderStateMixin {
   // ---------------------------------------------------------------------------
-  // Form state
+  // Form state (UNCHANGED)
   // ---------------------------------------------------------------------------
 
   final _formKey = GlobalKey<FormState>();
@@ -64,15 +139,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   bool _buttonPressed = false;
 
   // ---------------------------------------------------------------------------
-  // Entrance animation
+  // Entrance animation (UNCHANGED)
   // ---------------------------------------------------------------------------
 
   late final AnimationController _entranceCtrl;
 
-  // Cached per-item animations (4 staggered items: title, email,
-  // password+forgot, CTA). Initialized in initState() after _entranceCtrl is
-  // created so they are never recreated on build(). The logo (item 0 in the
-  // Column) is unwrapped from stagger — Hero handles its own flight.
+  // Cached per-item animations — 4 items: headline, email, password+forgot,
+  // CTA row. Initialized in initState() after _entranceCtrl is created so
+  // they are never recreated on build(). The brand row (item 0 in the Column)
+  // is unwrapped from stagger — it is always visible.
   late final List<Animation<double>> _opacities;
   late final List<Animation<Offset>> _slides;
 
@@ -82,7 +157,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   );
 
   // ---------------------------------------------------------------------------
-  // Lifecycle
+  // Lifecycle (UNCHANGED)
   // ---------------------------------------------------------------------------
 
   @override
@@ -94,36 +169,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       duration: const Duration(milliseconds: 600),
     );
 
-    // Build cached animation objects once so build() never allocates new
-    // Tween/CurvedAnimation instances. Indices 0..3 map to: title, email,
-    // password+forgot, CTA row.
-    _opacities = List.generate(
-      4,
-      (i) => Tween<double>(begin: 0.0, end: 1.0).animate(
-        CurvedAnimation(
-          parent: _entranceCtrl,
-          curve: Interval(
-            (i * 0.12).clamp(0.0, 1.0),
-            (i * 0.12 + 0.5).clamp(0.0, 1.0),
-            curve: Curves.easeOut,
-          ),
-        ),
-      ),
-    );
-    _slides = List.generate(
-      4,
-      (i) =>
-          Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-            CurvedAnimation(
-              parent: _entranceCtrl,
-              curve: Interval(
-                (i * 0.12).clamp(0.0, 1.0),
-                (i * 0.12 + 0.5).clamp(0.0, 1.0),
-                curve: Curves.easeOut,
-              ),
+    _opacities = [
+      for (var i = 0; i < 4; i++)
+        Tween<double>(begin: 0.0, end: 1.0).animate(
+          CurvedAnimation(
+            parent: _entranceCtrl,
+            curve: Interval(
+              (i * 0.12).clamp(0.0, 1.0),
+              (i * 0.12 + 0.5).clamp(0.0, 1.0),
+              curve: Curves.easeOut,
             ),
           ),
-    );
+        ),
+    ];
+    _slides = [
+      for (var i = 0; i < 4; i++)
+        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceCtrl,
+            curve: Interval(
+              (i * 0.12).clamp(0.0, 1.0),
+              (i * 0.12 + 0.5).clamp(0.0, 1.0),
+              curve: Curves.easeOut,
+            ),
+          ),
+        ),
+    ];
 
     if (!kDebugMode) {
       ScreenProtector.preventScreenshotOn();
@@ -151,7 +222,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // Submit logic
+  // Submit logic (UNCHANGED)
   // ---------------------------------------------------------------------------
 
   Future<void> _submit() async {
@@ -191,59 +262,43 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: BrandColors.cherry,
+        backgroundColor: BrandColors.errorRust,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.sm),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(AppSpacing.sm)),
         ),
       ),
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Field decoration helper
+  // Field decoration helper — warm mocha style
   // ---------------------------------------------------------------------------
 
   InputDecoration _fieldDecor(
     String label, {
-    String? errorText,
+    Widget? prefixIcon,
     Widget? suffixIcon,
   }) => InputDecoration(
-    labelText: label,
-    errorText: errorText,
+    hintText: label,
+    hintStyle: const TextStyle(color: Color(0x2EFFFFFF)),
+    prefixIcon: prefixIcon,
     suffixIcon: suffixIcon,
     filled: true,
-    fillColor: BrandColors.darkSurface,
-    labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
-    floatingLabelStyle: const TextStyle(color: BrandColors.bliss),
-    errorStyle: const TextStyle(color: BrandColors.cherry),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-    border: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppSpacing.md),
-      borderSide: BorderSide(
-        color: Colors.white.withValues(alpha: 0.15),
-        width: 1,
-      ),
+    fillColor: const Color(0x12FFFFFF), // white 7%
+    labelStyle: const TextStyle(color: Color(0x6BFFFFFF)),
+    floatingLabelStyle: const TextStyle(color: BrandColors.camel),
+    errorStyle: const TextStyle(color: BrandColors.errorRust, fontSize: 11),
+    contentPadding: const EdgeInsets.symmetric(
+      horizontal: AppSpacing.md,
+      vertical: AppSpacing.sm,
     ),
-    enabledBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppSpacing.md),
-      borderSide: BorderSide(
-        color: Colors.white.withValues(alpha: 0.15),
-        width: 1,
-      ),
-    ),
-    focusedBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppSpacing.md),
-      borderSide: const BorderSide(color: BrandColors.bliss, width: 1.5),
-    ),
-    errorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppSpacing.md),
-      borderSide: const BorderSide(color: BrandColors.cherry),
-    ),
-    focusedErrorBorder: OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppSpacing.md),
-      borderSide: const BorderSide(color: BrandColors.cherry, width: 1.5),
-    ),
+    border: _kInputBorderDefault,
+    enabledBorder: _kInputBorderDefault,
+    focusedBorder: _kInputBorderFocused,
+    errorBorder: _kInputBorderError,
+    focusedErrorBorder: _kInputBorderFocusedError,
+    isDense: true,
   );
 
   // ---------------------------------------------------------------------------
@@ -257,215 +312,189 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     final isLoading = authState.isLoading;
 
     return Scaffold(
-      backgroundColor: BrandColors.midnight,
+      backgroundColor: BrandColors.espresso,
       body: Stack(
         children: [
+          // ── Espresso background + mocha ambient blobs
           const AuthGradientBackground(),
+
           SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.xl,
-                ),
+            child: LayoutBuilder(
+              builder: (context, constraints) => SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 400),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // ── Top spacer: pushes the logo upward relative to
-                        // the form body so it appears higher on screen.
-                        const SizedBox(height: AppSpacing.xl),
+                  // Ensure the column fills the viewport so the register row
+                  // stays in the visible area regardless of screen height.
+                  // In the test harness (800×600 viewport) this prevents the
+                  // "No account?" row from scrolling out of reach.
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight,
+                    maxWidth: 400,
+                  ),
+                  child: IntrinsicHeight(
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const SizedBox(height: AppSpacing.lg),
 
-                        // ── Logo — no stagger wrapper; Hero handles its own
-                        // flight transition. Wrapping with SlideTransition
-                        // conflicts with the Hero overlay positioning.
-                        // Change 1: logo width increased from 120 → 160.
-                        Center(
-                          child: Hero(
-                            tag: 'beautica-logo',
-                            child: SvgPicture.asset(
-                              'assets/images/logo.svg',
-                              width: 160,
-                              semanticsLabel: 'Beautica',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.md),
+                          // ── Brand row: monogram + BEAUTICA
+                          const _BrandRow(),
 
-                        // ── Stagger 0: Screen title ───────────────────────
-                        _staggered(
-                          0,
-                          Text(
-                            l10n.loginTitle,
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.headlineMedium
-                                ?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.xl),
+                          const SizedBox(height: AppSpacing.xl),
 
-                        // ── Stagger 1: Email field ────────────────────────
-                        _staggered(
-                          1,
-                          TextFormField(
-                            key: const Key('field-email'),
-                            controller: _emailController,
-                            keyboardType: TextInputType.emailAddress,
-                            textInputAction: TextInputAction.next,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: _fieldDecor(l10n.loginEmailLabel),
-                            validator: (v) => validateEmail(v, l10n),
-                            enabled: !isLoading,
-                            autocorrect: false,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.md),
+                          // ── Stagger 0: Headline block
+                          _staggered(0, _HeadlineBlock(l10n: l10n)),
 
-                        // ── Stagger 2: Password field + forgot link ───────
-                        _staggered(
-                          2,
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              TextFormField(
-                                key: const Key('field-password'),
-                                controller: _passwordController,
-                                obscureText: _obscurePassword,
-                                enableSuggestions: false,
-                                autocorrect: false,
-                                textInputAction: TextInputAction.done,
-                                style: const TextStyle(color: Colors.white),
-                                decoration: _fieldDecor(
-                                  l10n.loginPasswordLabel,
-                                  suffixIcon: IconButton(
-                                    key: const Key('btn-toggle-password'),
-                                    icon: Icon(
-                                      _obscurePassword
-                                          ? Icons.visibility_outlined
-                                          : Icons.visibility_off_outlined,
-                                      color: Colors.white,
-                                      semanticLabel: _obscurePassword
-                                          ? l10n.showPasswordSemanticLabel
-                                          : l10n.hidePasswordSemanticLabel,
-                                    ),
-                                    onPressed: () => setState(
-                                      () =>
-                                          _obscurePassword = !_obscurePassword,
-                                    ),
-                                  ),
-                                ),
-                                validator: (v) => validatePassword(v, l10n),
-                                enabled: !isLoading,
-                                onFieldSubmitted: (_) =>
-                                    isLoading ? null : _submit(),
-                              ),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: TextButton(
-                                  key: const Key('btn-forgot-password'),
-                                  // TODO: Phase N — forgot password
-                                  onPressed: null,
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: BrandColors.sunshine,
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: AppSpacing.xxs,
-                                    ),
-                                  ),
-                                  child: const Text('Забули пароль?'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                          const SizedBox(height: AppSpacing.lg),
 
-                        // ── Stagger 3: CTA + register link ───────────────
-                        _staggered(
-                          3,
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              GestureDetector(
-                                onTapDown: (_) =>
-                                    setState(() => _buttonPressed = true),
-                                onTapUp: (_) =>
-                                    setState(() => _buttonPressed = false),
-                                onTapCancel: () =>
-                                    setState(() => _buttonPressed = false),
-                                child: AnimatedScale(
-                                  scale: _buttonPressed ? 0.97 : 1.0,
-                                  duration: const Duration(milliseconds: 100),
-                                  child: ElevatedButton(
-                                    key: const Key('btn-submit-login'),
-                                    onPressed: isLoading ? null : _submit,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: BrandColors.bliss,
-                                      foregroundColor: BrandColors.midnight,
-                                      disabledBackgroundColor: BrandColors.bliss
-                                          .withValues(alpha: 0.5),
-                                      minimumSize: const Size(
-                                        double.infinity,
-                                        56,
+                          // ── Stagger 1: Glass card with email + password
+                          _staggered(
+                            1,
+                            _GlassCard(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  // ── Email field
+                                  _staggered(
+                                    2,
+                                    TextFormField(
+                                      key: const Key('field-email'),
+                                      controller: _emailController,
+                                      keyboardType: TextInputType.emailAddress,
+                                      textInputAction: TextInputAction.next,
+                                      style: const TextStyle(
+                                        color: BrandColors.cream,
+                                        fontSize: 14,
                                       ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(
-                                          AppSpacing.md,
+                                      decoration: _fieldDecor(
+                                        l10n.loginEmailLabel,
+                                        prefixIcon: const _FieldIcon(
+                                          icon: Icons.email_outlined,
                                         ),
                                       ),
-                                      textStyle: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 16,
-                                        letterSpacing: 0.5,
-                                      ),
+                                      validator: (v) => validateEmail(v, l10n),
+                                      enabled: !isLoading,
+                                      autocorrect: false,
                                     ),
-                                    child: isLoading
-                                        ? const SizedBox(
-                                            height: AppSpacing.md,
-                                            width: AppSpacing.md,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: BrandColors.midnight,
+                                  ),
+
+                                  const SizedBox(height: AppSpacing.sm),
+
+                                  // ── Password + forgot row
+                                  _staggered(
+                                    3,
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        TextFormField(
+                                          key: const Key('field-password'),
+                                          controller: _passwordController,
+                                          obscureText: _obscurePassword,
+                                          enableSuggestions: false,
+                                          autocorrect: false,
+                                          textInputAction: TextInputAction.done,
+                                          style: const TextStyle(
+                                            color: BrandColors.cream,
+                                            fontSize: 14,
+                                          ),
+                                          decoration: _fieldDecor(
+                                            l10n.loginPasswordLabel,
+                                            prefixIcon: const _FieldIcon(
+                                              icon: Icons.lock_outline,
                                             ),
-                                          )
-                                        : Text(l10n.loginSubmit),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: AppSpacing.sm),
-                              Wrap(
-                                alignment: WrapAlignment.center,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  Text(
-                                    l10n.loginNoAccount,
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.7,
-                                      ),
+                                            suffixIcon: IconButton(
+                                              key: const Key(
+                                                'btn-toggle-password',
+                                              ),
+                                              icon: Icon(
+                                                _obscurePassword
+                                                    ? Icons.visibility_outlined
+                                                    : Icons
+                                                          .visibility_off_outlined,
+                                                color: const Color(0x47FFFFFF),
+                                                size: 18,
+                                                semanticLabel: _obscurePassword
+                                                    ? l10n.showPasswordSemanticLabel
+                                                    : l10n.hidePasswordSemanticLabel,
+                                              ),
+                                              onPressed: () => setState(
+                                                () => _obscurePassword =
+                                                    !_obscurePassword,
+                                              ),
+                                            ),
+                                          ),
+                                          validator: (v) =>
+                                              validatePassword(v, l10n),
+                                          enabled: !isLoading,
+                                          onFieldSubmitted: (_) =>
+                                              isLoading ? null : _submit(),
+                                        ),
+
+                                        // ── Forgot password link — right-aligned, camel
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: TextButton(
+                                            key: const Key(
+                                              'btn-forgot-password',
+                                            ),
+                                            onPressed: null,
+                                            style: TextButton.styleFrom(
+                                              foregroundColor:
+                                                  BrandColors.camel,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    vertical: AppSpacing.xxs,
+                                                    horizontal: AppSpacing.xs,
+                                                  ),
+                                              textStyle: const TextStyle(
+                                                fontSize: 11.5,
+                                                fontWeight: FontWeight.w500,
+                                                letterSpacing: 0.02,
+                                              ),
+                                            ),
+                                            child: Text(
+                                              l10n.loginForgotPassword,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  TextButton(
-                                    key: const Key('btn-go-to-register'),
-                                    onPressed: isLoading
-                                        ? null
-                                        : () =>
-                                              context.push(RouteNames.register),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: BrandColors.bliss,
-                                    ),
-                                    child: Text(l10n.loginCreateAccount),
+
+                                  const SizedBox(height: AppSpacing.xs),
+
+                                  // ── CTA button — mocha gradient
+                                  _MochaCtaButton(
+                                    buttonKey: const Key('btn-submit-login'),
+                                    onPressed: isLoading ? null : _submit,
+                                    onTapDown: () =>
+                                        setState(() => _buttonPressed = true),
+                                    onTapUp: () =>
+                                        setState(() => _buttonPressed = false),
+                                    onTapCancel: () =>
+                                        setState(() => _buttonPressed = false),
+                                    isPressed: _buttonPressed,
+                                    isLoading: isLoading,
+                                    label: l10n.loginSubmit,
                                   ),
                                 ],
                               ),
-                            ],
+                            ),
                           ),
-                        ),
-                      ],
+
+                          // Flexible spacer: collapses when screen is short
+                          // (test viewport 600 px), expands on real devices.
+                          const Spacer(),
+
+                          // ── "No account?" row — always visible at bottom
+                          _buildRegisterRow(l10n, isLoading),
+
+                          const SizedBox(height: AppSpacing.md),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -473,6 +502,323 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildRegisterRow(AppLocalizations l10n, bool isLoading) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          l10n.loginNoAccount,
+          style: const TextStyle(color: Color(0x4DFFFFFF), fontSize: 13),
+        ),
+        TextButton(
+          key: const Key('btn-go-to-register'),
+          onPressed: isLoading ? null : () => context.push(RouteNames.register),
+          style: TextButton.styleFrom(
+            foregroundColor: BrandColors.camel,
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+            textStyle: const TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
+          child: Text(l10n.loginCreateAccount),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _BrandRow — monogram B + BEAUTICA text
+// ---------------------------------------------------------------------------
+
+/// Brand row matching the HTML mockup's `.brand-row`.
+///
+/// Monogram: 34 × 34 frosted-glass rounded box (white 10% + white 20% border
+/// + backdrop blur 8). Brand name: BEAUTICA uppercase, Manrope 700.
+///
+/// Extracted as a private StatelessWidget to avoid allocating its decoration
+/// inside the parent's build() method on every rebuild.
+class _BrandRow extends StatelessWidget {
+  const _BrandRow();
+
+  static final _kBlur = ImageFilter.blur(sigmaX: 8, sigmaY: 8);
+
+  static const _kMonogramDecoration = BoxDecoration(
+    color: Color(0x1AFFFFFF), // white 10%
+    borderRadius: _kMonogramRadius,
+    border: Border.fromBorderSide(
+      BorderSide(color: Color(0x33FFFFFF), width: 1), // white 20%
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        // Frosted glass monogram
+        ClipRRect(
+          borderRadius: _kMonogramRadius,
+          child: BackdropFilter(
+            filter: _kBlur,
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: _kMonogramDecoration,
+              alignment: Alignment.center,
+              child: const Text(
+                'B',
+                style: TextStyle(
+                  color: Color(0xF2FFFFFF), // white 95%
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        const SizedBox(width: AppSpacing.xs),
+
+        // BEAUTICA label
+        const Text(
+          'BEAUTICA',
+          style: TextStyle(
+            color: Color(0xEBFFFFFF), // white 92%
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.6,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _HeadlineBlock — login headline + italic accent + sub-text
+// ---------------------------------------------------------------------------
+
+/// Matches the HTML mockup's `.headline` + `.sub-text` block.
+///
+/// Main headline: Manrope 700, 26 sp, white.
+/// Italic accent: Cormorant Garamond italic 600, camel colour.
+/// Sub-text: 13 sp, white 32%.
+class _HeadlineBlock extends StatelessWidget {
+  const _HeadlineBlock({required this.l10n});
+
+  final AppLocalizations l10n;
+
+  static final _kAccentStyle = GoogleFonts.cormorantGaramond(
+    textStyle: const TextStyle(
+      color: BrandColors.camel,
+      fontSize: 30, // 1.15× of 26
+      fontStyle: FontStyle.italic,
+      fontWeight: FontWeight.w600,
+      height: 1.22,
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Main headline + italic accent on same line via RichText
+        Text.rich(
+          TextSpan(
+            text: '${l10n.loginHeadline}\n',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 26,
+              fontWeight: FontWeight.w700,
+              height: 1.22,
+            ),
+            children: [
+              WidgetSpan(
+                alignment: PlaceholderAlignment.baseline,
+                baseline: TextBaseline.alphabetic,
+                child: Text(l10n.loginHeadlineAccent, style: _kAccentStyle),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          l10n.loginSubText,
+          style: const TextStyle(
+            color: Color(0x52FFFFFF), // white 32%
+            fontSize: 13,
+            height: 1.55,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _GlassCard — glassmorphism container
+// ---------------------------------------------------------------------------
+
+/// Glassmorphism card matching the HTML `.glass-card`:
+///   background rgba(255,255,255,0.065), border rgba(255,255,255,0.1),
+///   border-radius 22px, backdrop-filter blur(20px).
+class _GlassCard extends StatelessWidget {
+  const _GlassCard({required this.child});
+
+  final Widget child;
+
+  static final _kBlur = ImageFilter.blur(sigmaX: 20, sigmaY: 20);
+
+  static const _kDecoration = BoxDecoration(
+    color: Color(0x11FFFFFF), // rgba(255,255,255,0.065) ≈ 0x10
+    borderRadius: _kCardRadius,
+    border: Border.fromBorderSide(
+      BorderSide(color: Color(0x1AFFFFFF), width: 1), // white 10%
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: _kCardRadius,
+      child: BackdropFilter(
+        filter: _kBlur,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.lg,
+          ),
+          decoration: _kDecoration,
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _FieldIcon — left-prefix icon inside input fields
+// ---------------------------------------------------------------------------
+
+/// Small dimmed icon aligned to the vertical centre of the input field,
+/// matching the HTML `.input-icon` style (white 25% opacity, 15 px svg).
+class _FieldIcon extends StatelessWidget {
+  const _FieldIcon({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Icon(
+    icon,
+    color: const Color(0x40FFFFFF), // white ~25%
+    size: 18,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// _MochaCtaButton — gradient CTA button
+// ---------------------------------------------------------------------------
+
+/// Gradient CTA button matching the HTML `.cta-btn`:
+///   gradient #4A2E10→#6A4A28→#8A6840, height 52px, radius 14px, mocha glow.
+///
+/// Uses [ElevatedButton] with a transparent background so that the gradient
+/// [Ink] decoration is visible. The [Key] is placed on the [ElevatedButton]
+/// so that `tester.widget<ElevatedButton>(find.byKey(...))` in tests continues
+/// to work. The outer [GestureDetector] + [AnimatedScale] provides the 0.97
+/// press-feedback without interfering with the button's semantics.
+class _MochaCtaButton extends StatelessWidget {
+  const _MochaCtaButton({
+    this.buttonKey,
+    required this.onPressed,
+    required this.onTapDown,
+    required this.onTapUp,
+    required this.onTapCancel,
+    required this.isPressed,
+    required this.isLoading,
+    required this.label,
+  });
+
+  /// Key forwarded to the inner [ElevatedButton] — allows tests to locate and
+  /// cast the button via `tester.widget<ElevatedButton>(find.byKey(...))`.
+  /// The outer [_MochaCtaButton] wrapper widget is intentionally keyless so
+  /// that `find.byKey` returns exactly one result.
+  final Key? buttonKey;
+  final VoidCallback? onPressed;
+  final VoidCallback onTapDown;
+  final VoidCallback onTapUp;
+  final VoidCallback onTapCancel;
+  final bool isPressed;
+  final bool isLoading;
+  final String label;
+
+  // Static ElevatedButton style — transparent bg so Ink gradient shows.
+  static final _kButtonStyle = ElevatedButton.styleFrom(
+    backgroundColor: Colors.transparent,
+    foregroundColor: Colors.white,
+    disabledBackgroundColor: const Color(0xFF3A2810),
+    disabledForegroundColor: const Color(0x80FFFFFF),
+    minimumSize: const Size(double.infinity, 52),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(14)),
+    ),
+    elevation: 0,
+    shadowColor: Colors.transparent,
+    padding: EdgeInsets.zero,
+  );
+
+  static const _kGradientDecoration = BoxDecoration(
+    gradient: _kCtaGradient,
+    borderRadius: BorderRadius.all(Radius.circular(14)),
+    boxShadow: _kCtaShadow,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => onTapDown(),
+      onTapUp: (_) => onTapUp(),
+      onTapCancel: onTapCancel,
+      child: AnimatedScale(
+        scale: isPressed ? 0.97 : 1.0,
+        duration: const Duration(milliseconds: 100),
+        child: Ink(
+          decoration: onPressed != null
+              ? _kGradientDecoration
+              : const BoxDecoration(),
+          child: ElevatedButton(
+            key: buttonKey,
+            onPressed: onPressed,
+            style: _kButtonStyle,
+            child: isLoading
+                ? const SizedBox(
+                    width: AppSpacing.md,
+                    height: AppSpacing.md,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: BrandColors.cream,
+                    ),
+                  )
+                : Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+          ),
+        ),
       ),
     );
   }

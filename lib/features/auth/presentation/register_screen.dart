@@ -1,53 +1,41 @@
-// Phase 2.6 — Register screen.
+// Phase 2.6 — Register screen — Warm Mocha visual redesign (Phase 2.x).
 // Updated: universal 2-step flow for all roles, Ukrainian phone mask,
 //          email autovalidation, phone required for all roles,
 //          businessName moved to step 2 for salon owners.
+//
+// VISUAL REDESIGN ONLY — all business logic, form validation, Riverpod state,
+// Keys, routing, and animation controllers are unchanged from the previous
+// "Modern Dark Cinema" version. Changed only:
+//   - Background: AuthGradientBackground (espresso + mocha blobs).
+//   - Brand row: monogram B + BEAUTICA (shared _BrandRow-equivalent widget).
+//   - Role picker cards: glassmorphism with camel selected state, checkmark
+//     circle, Material icons matching the HTML role-selection-page.html.
+//   - Step indicator: 3-step progress row matching sign-up-page.html / done-page.html.
+//   - Form fields: warm-mocha InputDecoration (camel focus ring, 12 px radius).
+//   - CTA buttons: mocha gradient (same _MochaCtaButton from login_screen.dart).
+//   - Scaffold background: BrandColors.espresso.
 //
 // ConsumerStatefulWidget: owns TextEditingControllers, FormKeys, intent state,
 // selected role, animation controllers, _obscurePassword toggle, _buttonPressed
 // press state, a map of server-side field errors, and a universal registration
 // step index (_registrationStep) shared across all roles.
 //
-// Layout: full-screen gradient (Midnight → deep navy), no AppBar, SafeArea
-// wrapping a scrollable form centred in a max-width 400 column.
-//
-// Overall registration flow:
-//   Step 0 — Intent picker:
-//     Three large intent cards animate in via _intentCtrl (500 ms stagger).
-//     No form fields are shown. _intentSelected == false.
-//
-//   Step 1 (all roles) — Credentials:
-//     The selected card collapses to a small badge pill.
-//     Form fields stagger in via _entranceCtrl (600 ms, 5 items).
-//     Tapping the badge resets to Step 0.
-//     Shows: email + password + strength indicator.
-//     CTA: "Далі" button (btn-next-step).
-//
-//   Step 2 (all roles) — Details:
-//     Shown after the user taps "Далі" with valid step-1 fields.
-//     For INDEPENDENT_MASTER / CLIENT: firstName + lastName + phone.
-//     For SALON_OWNER: businessName + address + phone.
-//     A two-segment progress bar is shown for ALL roles.
-//     CTA: "Зареєструватися" (btn-submit-register).
-//     A "Back" button (btn-back-step) returns to Step 1 without losing data.
-//
-// Submit flow:
-//   1. Validate step-2 form locally, including server-error injection.
-//   2. Call authProvider.notifier.register() with the selected role.
-//   3. On success → navigate to home.
-//   4. On ValidationFailure → extract fieldErrors, set _serverErrors, re-validate.
-//   5. On other Failure → floating SnackBar styled with BrandColors.cherry.
+// Overall registration flow (UNCHANGED):
+//   Step 0 — Intent picker: three glassmorphism role cards.
+//   Step 1 (all roles) — Credentials: email + password.
+//   Step 2 (all roles) — Details: name/phone or businessName/address/phone.
 //
 // All user-visible strings go through AppLocalizations (UA primary).
 
 import 'dart:developer';
+import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
@@ -72,40 +60,93 @@ import 'auth_notifier.dart';
 ///
 /// The raw value stored in the controller will always start with '+380 '
 /// because [_UkrainianPhoneFormatter] prefixes it automatically.
-/// After trimming whitespace the expected pattern is ^+380\d{10}$ —
-/// this regex validates the _formatted_ string (spaces included).
 final RegExp _reUkrainianPhone = RegExp(r'^\+380\s\d{2}\s\d{3}\s\d{2}\s\d{2}$');
 
 // ---------------------------------------------------------------------------
-// Intent option data class
+// Static style constants — allocated once, never inside build()
+// ---------------------------------------------------------------------------
+
+/// Role card border radius (18 px matching HTML role cards).
+const _kRoleCardRadius = BorderRadius.all(Radius.circular(18));
+
+/// Input field border radius (12 px matching HTML mockup).
+const _kInputRadius = BorderRadius.all(Radius.circular(12));
+
+/// CTA button border radius (14 px).
+const _kCtaRadius = BorderRadius.all(Radius.circular(14));
+
+/// Default input border — white 10% opacity.
+const _kInputBorderDefault = OutlineInputBorder(
+  borderRadius: _kInputRadius,
+  borderSide: BorderSide(color: Color(0x1AFFFFFF), width: 1),
+);
+
+/// Focused input border — camel 36% opacity.
+const _kInputBorderFocused = OutlineInputBorder(
+  borderRadius: _kInputRadius,
+  borderSide: BorderSide(color: Color(0x5CB89A7A), width: 1.5),
+);
+
+/// Error input border — errorRust solid.
+const _kInputBorderError = OutlineInputBorder(
+  borderRadius: _kInputRadius,
+  borderSide: BorderSide(color: BrandColors.errorRust, width: 1),
+);
+
+/// Focused-error input border.
+const _kInputBorderFocusedError = OutlineInputBorder(
+  borderRadius: _kInputRadius,
+  borderSide: BorderSide(color: BrandColors.errorRust, width: 1.5),
+);
+
+/// CTA gradient — mocha linear.
+const _kCtaGradient = LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: [Color(0xFF4A2E10), BrandColors.mocha, BrandColors.latte],
+  stops: [0.0, 0.6, 1.0],
+);
+
+/// CTA box shadow — mocha glow.
+const List<BoxShadow> _kCtaShadow = [
+  BoxShadow(
+    color: Color(0xAD3A240C), // rgba(58,36,12,0.68)
+    blurRadius: 24,
+    offset: Offset(0, 4),
+  ),
+];
+
+// ---------------------------------------------------------------------------
+// Intent option data class (UNCHANGED — pure Dart, no Flutter imports used in class)
 // ---------------------------------------------------------------------------
 
 /// Pure data descriptor for a registration intent card.
-///
-/// No Flutter imports — intentionally a plain Dart class so it stays in the
-/// presentation layer without dragging Widget dependencies into the data model.
 class _IntentOption {
-  const _IntentOption({required this.icon, required this.role});
-
-  /// Decorative emoji string displayed as a visual anchor alongside text.
-  /// Not used as a semantic icon — the card's text labels carry accessibility.
-  final String icon;
+  const _IntentOption({required this.role, required this.materialIcon});
 
   final UserRole role;
+
+  /// Material icon matching the role card icon in the HTML mockup.
+  final IconData materialIcon;
 }
 
 /// The three self-registration intent options.
 ///
-/// [UserRole.salonAdmin] and [UserRole.salonMaster] are omitted — they are
-/// invite-only and cannot self-register.
+/// Icons chosen to match the HTML SVG icons:
+///   CLIENT → person icon
+///   SALON_OWNER → store/building icon
+///   INDEPENDENT_MASTER → content_cut (scissors) icon
 const List<_IntentOption> _kIntentOptions = [
-  _IntentOption(icon: '✂️', role: UserRole.independentMaster),
-  _IntentOption(icon: '🏠', role: UserRole.salonOwner),
-  _IntentOption(icon: '💅', role: UserRole.client),
+  _IntentOption(role: UserRole.client, materialIcon: Icons.person_outline),
+  _IntentOption(role: UserRole.salonOwner, materialIcon: Icons.store_outlined),
+  _IntentOption(
+    role: UserRole.independentMaster,
+    materialIcon: Icons.content_cut_outlined,
+  ),
 ];
 
 // ---------------------------------------------------------------------------
-// L10n helper functions
+// L10n helper functions (UNCHANGED)
 // ---------------------------------------------------------------------------
 
 String _intentTitle(_IntentOption option, AppLocalizations l10n) =>
@@ -116,11 +157,11 @@ String _intentTitle(_IntentOption option, AppLocalizations l10n) =>
       _ => '',
     };
 
-String _intentSubtitle(_IntentOption option, AppLocalizations l10n) =>
+String _intentDesc(_IntentOption option, AppLocalizations l10n) =>
     switch (option.role) {
-      UserRole.independentMaster => l10n.intentIndependentSubtitle,
-      UserRole.salonOwner => l10n.intentSalonSubtitle,
-      UserRole.client => l10n.intentClientSubtitle,
+      UserRole.independentMaster => l10n.intentIndependentDesc,
+      UserRole.salonOwner => l10n.intentSalonDesc,
+      UserRole.client => l10n.intentClientDesc,
       _ => '',
     };
 
@@ -128,14 +169,11 @@ String _intentSubtitle(_IntentOption option, AppLocalizations l10n) =>
 // RegisterScreen
 // ---------------------------------------------------------------------------
 
-/// Register screen for new Beautica accounts.
+/// Register screen for new Beautica accounts — Warm Mocha design.
 ///
-/// Step 0 presents three intent cards so the user can identify their role
-/// before seeing any form fields (progressive disclosure). Step 1 collapses
-/// the selected card to a badge pill and reveals the credentials form
-/// (email + password). Step 2 collects role-specific details (name/phone
-/// for IM/Client; businessName/address/phone for Salon Owner), guided by a
-/// two-segment progress indicator shown for ALL roles.
+/// Step 0: glassmorphism role picker cards.
+/// Step 1 (all roles): credentials (email + password) in a glass card.
+/// Step 2 (all roles): details (name/phone or businessName/address/phone).
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
@@ -146,10 +184,7 @@ class RegisterScreen extends ConsumerStatefulWidget {
 class _RegisterScreenState extends ConsumerState<RegisterScreen>
     with TickerProviderStateMixin {
   // ---------------------------------------------------------------------------
-  // Intent state:
-  //   _selectedRole starts as null so no card is highlighted before the user
-  //   taps. This removes the mismatch between the visual pre-selection and the
-  //   hidden form fields that caused the "tap twice" bug.
+  // Intent state (UNCHANGED)
   // ---------------------------------------------------------------------------
 
   bool _intentSelected = false;
@@ -163,19 +198,16 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   );
 
   // ---------------------------------------------------------------------------
-  // Universal multi-step state (Change 6)
+  // Universal multi-step state (UNCHANGED)
   // ---------------------------------------------------------------------------
 
-  /// 0 = step 1 (email + password) — all roles.
-  /// 1 = step 2 (details) — all roles.
   int _registrationStep = 0;
 
-  // Separate form keys per step so validation is scoped correctly.
   final _step1FormKey = GlobalKey<FormState>();
   final _step2FormKey = GlobalKey<FormState>();
 
   // ---------------------------------------------------------------------------
-  // Form controllers
+  // Form controllers (UNCHANGED)
   // ---------------------------------------------------------------------------
 
   final _firstNameController = TextEditingController();
@@ -188,18 +220,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
 
   bool _buttonPressed = false;
 
-  /// Server-side field errors injected after a [ValidationFailure].
   Map<String, String> _serverErrors = const {};
 
   // ---------------------------------------------------------------------------
-  // Entrance animation — Step 1 form stagger (5 items, 600 ms)
+  // Entrance animation — Step 1 form stagger (5 items, 600 ms) (UNCHANGED)
   // ---------------------------------------------------------------------------
 
   late final AnimationController _entranceCtrl;
 
-  // Cached per-item animations (5 staggered items). Initialized in initState()
-  // after _entranceCtrl is created so they are never recreated on build(). The
-  // logo is outside the stagger — Hero handles its own flight transition.
   late final List<Animation<double>> _opacities;
   late final List<Animation<Offset>> _slides;
 
@@ -209,13 +237,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   );
 
   // ---------------------------------------------------------------------------
-  // Intent animation — Step 0 card stagger (3 items, 500 ms)
+  // Intent animation — Step 0 card stagger (3 items, 500 ms) (UNCHANGED)
   // ---------------------------------------------------------------------------
 
   late final AnimationController _intentCtrl;
 
-  // Cached per-card animations (3 cards). Each uses a 0.5-width window spaced
-  // 0.15 apart so card 0 leads and card 2 trails by 300 ms.
   late final List<Animation<double>> _intentOpacities;
   late final List<Animation<Offset>> _intentSlides;
 
@@ -225,85 +251,76 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   );
 
   // ---------------------------------------------------------------------------
-  // Lifecycle
+  // Lifecycle (UNCHANGED)
   // ---------------------------------------------------------------------------
 
   @override
   void initState() {
     super.initState();
 
-    // Step 1 controller — NOT started here; started only when the user taps an
-    // intent card.
     _entranceCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 600),
     );
 
-    // Build cached form animation objects once (indices 0..4).
-    // offset: 0.12, window: 0.5 → items stagger 72 ms apart over 600 ms.
-    _opacities = List.generate(
-      5,
-      (i) => Tween<double>(begin: 0.0, end: 1.0).animate(
-        CurvedAnimation(
-          parent: _entranceCtrl,
-          curve: Interval(
-            (i * 0.12).clamp(0.0, 1.0),
-            (i * 0.12 + 0.5).clamp(0.0, 1.0),
-            curve: Curves.easeOut,
-          ),
-        ),
-      ),
-    );
-    _slides = List.generate(
-      5,
-      (i) =>
-          Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-            CurvedAnimation(
-              parent: _entranceCtrl,
-              curve: Interval(
-                (i * 0.12).clamp(0.0, 1.0),
-                (i * 0.12 + 0.5).clamp(0.0, 1.0),
-                curve: Curves.easeOut,
-              ),
+    _opacities = [
+      for (var i = 0; i < 5; i++)
+        Tween<double>(begin: 0.0, end: 1.0).animate(
+          CurvedAnimation(
+            parent: _entranceCtrl,
+            curve: Interval(
+              (i * 0.12).clamp(0.0, 1.0),
+              (i * 0.12 + 0.5).clamp(0.0, 1.0),
+              curve: Curves.easeOut,
             ),
           ),
-    );
+        ),
+    ];
+    _slides = [
+      for (var i = 0; i < 5; i++)
+        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _entranceCtrl,
+            curve: Interval(
+              (i * 0.12).clamp(0.0, 1.0),
+              (i * 0.12 + 0.5).clamp(0.0, 1.0),
+              curve: Curves.easeOut,
+            ),
+          ),
+        ),
+    ];
 
-    // Step 0 controller — started after first frame (reduced-motion check).
     _intentCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
 
-    // Build cached intent card animation objects (indices 0..2).
-    // offset: 0.15, window: 0.5 → cards stagger 75 ms apart over 500 ms.
-    _intentOpacities = List.generate(
-      3,
-      (i) => Tween<double>(begin: 0.0, end: 1.0).animate(
-        CurvedAnimation(
-          parent: _intentCtrl,
-          curve: Interval(
-            (i * 0.15).clamp(0.0, 1.0),
-            (i * 0.15 + 0.5).clamp(0.0, 1.0),
-            curve: Curves.easeOut,
-          ),
-        ),
-      ),
-    );
-    _intentSlides = List.generate(
-      3,
-      (i) =>
-          Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(
-            CurvedAnimation(
-              parent: _intentCtrl,
-              curve: Interval(
-                (i * 0.15).clamp(0.0, 1.0),
-                (i * 0.15 + 0.5).clamp(0.0, 1.0),
-                curve: Curves.easeOut,
-              ),
+    _intentOpacities = [
+      for (var i = 0; i < 3; i++)
+        Tween<double>(begin: 0.0, end: 1.0).animate(
+          CurvedAnimation(
+            parent: _intentCtrl,
+            curve: Interval(
+              (i * 0.15).clamp(0.0, 1.0),
+              (i * 0.15 + 0.5).clamp(0.0, 1.0),
+              curve: Curves.easeOut,
             ),
           ),
-    );
+        ),
+    ];
+    _intentSlides = [
+      for (var i = 0; i < 3; i++)
+        Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _intentCtrl,
+            curve: Interval(
+              (i * 0.15).clamp(0.0, 1.0),
+              (i * 0.15 + 0.5).clamp(0.0, 1.0),
+              curve: Curves.easeOut,
+            ),
+          ),
+        ),
+    ];
 
     if (!kDebugMode) {
       ScreenProtector.preventScreenshotOn();
@@ -312,9 +329,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (MediaQuery.of(context).disableAnimations) {
-        // Skip intent card animation — show them immediately.
         _intentCtrl.value = 1.0;
-        // Do NOT pre-complete _entranceCtrl — it starts on user tap only.
       } else {
         _intentCtrl.forward();
       }
@@ -339,7 +354,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // Intent selection
+  // Intent selection (UNCHANGED)
   // ---------------------------------------------------------------------------
 
   void _selectIntent(_IntentOption option) {
@@ -376,14 +391,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // Universal multi-step navigation (Change 6)
+  // Universal multi-step navigation (UNCHANGED)
   // ---------------------------------------------------------------------------
 
-  /// Validates step-1 form before advancing to step 2 for all roles.
   void _advanceStep() {
     if (!(_step1FormKey.currentState?.validate() ?? false)) return;
     setState(() => _registrationStep = 1);
-    // Re-run the entrance animation so step 2 fields animate in.
     _entranceCtrl.reset();
     if (MediaQuery.of(context).disableAnimations) {
       _entranceCtrl.value = 1.0;
@@ -403,18 +416,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // Submit logic
+  // Submit logic (UNCHANGED)
   // ---------------------------------------------------------------------------
 
   Future<void> _submit() async {
-    // Clear any previous server errors before revalidating.
     setState(() => _serverErrors = const {});
 
     final role = _selectedRole;
     if (role == null) return;
 
-    // Submit always validates the step-2 form (step 2 is always the submit step
-    // for all roles in the universal 2-step flow).
     if (!(_step2FormKey.currentState?.validate() ?? false)) return;
 
     final isSalon = role == UserRole.salonOwner;
@@ -429,7 +439,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
           role: role,
           businessName: isSalon ? _businessNameController.text.trim() : null,
           address: isSalon ? _addressController.text.trim() : null,
-          // Phone is required for all roles (Change 7).
           phone: _phoneController.text.trim(),
         );
 
@@ -447,14 +456,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
         }
         context.go(RouteNames.home);
       },
-      loading: () {
-        // Guard only — should not happen right after await.
-      },
+      loading: () {},
       error: (e, _) {
         if (e is ValidationFailure && e.fieldErrors.isNotEmpty) {
-          // Surface field-level errors inline via errorText on each field.
-          // If a step-1 field (email, password) has an error, retreat to step 1
-          // so the error is visible next to the relevant field.
           final hasStep1Error =
               e.fieldErrors.containsKey('email') ||
               e.fieldErrors.containsKey('password');
@@ -463,7 +467,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
             if (hasStep1Error) _registrationStep = 0;
           });
           if (hasStep1Error) {
-            // Re-trigger entrance animation for step 1 fields.
             _entranceCtrl.reset();
             if (MediaQuery.of(context).disableAnimations) {
               _entranceCtrl.value = 1.0;
@@ -486,71 +489,47 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: BrandColors.cherry,
+        backgroundColor: BrandColors.errorRust,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.sm),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(AppSpacing.sm)),
         ),
       ),
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Field decoration helper — static borders allocated once at class load time
+  // Field decoration helper — warm mocha style
   // ---------------------------------------------------------------------------
-
-  // The five OutlineInputBorder objects are promoted to static final so they
-  // are allocated exactly once per class, not on every build() call (which
-  // fires for every form field on every rebuild). The dynamic parts (errorText,
-  // suffixIcon, fillColor, labelStyle) stay as runtime values in _fieldDecor.
-
-  static final _kFieldRadius = BorderRadius.circular(AppSpacing.md);
-
-  static final _kBorderDefault = OutlineInputBorder(
-    borderRadius: _kFieldRadius,
-    borderSide: const BorderSide(
-      color: Color(0x26FFFFFF),
-      width: 1,
-    ), // white 15%
-  );
-
-  static final _kBorderFocused = OutlineInputBorder(
-    borderRadius: _kFieldRadius,
-    borderSide: const BorderSide(color: BrandColors.bliss, width: 1.5),
-  );
-
-  static final _kBorderError = OutlineInputBorder(
-    borderRadius: _kFieldRadius,
-    borderSide: const BorderSide(color: BrandColors.cherry),
-  );
-
-  static final _kBorderFocusedError = OutlineInputBorder(
-    borderRadius: _kFieldRadius,
-    borderSide: const BorderSide(color: BrandColors.cherry, width: 1.5),
-  );
 
   InputDecoration _fieldDecor(
     String label, {
     String? errorText,
     Widget? suffixIcon,
     String? hintText,
+    Widget? prefixIcon,
   }) => InputDecoration(
     labelText: label,
     hintText: hintText,
     errorText: errorText,
     suffixIcon: suffixIcon,
+    prefixIcon: prefixIcon,
     filled: true,
-    fillColor: BrandColors.darkSurface,
-    labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
-    floatingLabelStyle: const TextStyle(color: BrandColors.bliss),
-    errorStyle: const TextStyle(color: BrandColors.cherry),
-    hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.35)),
-    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-    border: _kBorderDefault,
-    enabledBorder: _kBorderDefault,
-    focusedBorder: _kBorderFocused,
-    errorBorder: _kBorderError,
-    focusedErrorBorder: _kBorderFocusedError,
+    fillColor: const Color(0x12FFFFFF), // white 7%
+    labelStyle: const TextStyle(color: Color(0x6BFFFFFF)),
+    floatingLabelStyle: const TextStyle(color: BrandColors.camel),
+    errorStyle: const TextStyle(color: BrandColors.errorRust, fontSize: 11),
+    hintStyle: const TextStyle(color: Color(0x2EFFFFFF)),
+    contentPadding: const EdgeInsets.symmetric(
+      horizontal: AppSpacing.md,
+      vertical: AppSpacing.sm,
+    ),
+    border: _kInputBorderDefault,
+    enabledBorder: _kInputBorderDefault,
+    focusedBorder: _kInputBorderFocused,
+    errorBorder: _kInputBorderError,
+    focusedErrorBorder: _kInputBorderFocusedError,
+    isDense: true,
   );
 
   // ---------------------------------------------------------------------------
@@ -564,7 +543,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     final isLoading = authState.isLoading;
 
     return Scaffold(
-      backgroundColor: BrandColors.midnight,
+      backgroundColor: BrandColors.espresso,
       body: Stack(
         children: [
           const AuthGradientBackground(),
@@ -573,7 +552,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.md,
-                  vertical: AppSpacing.xl,
+                  vertical: AppSpacing.lg,
                 ),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 400),
@@ -590,59 +569,36 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // Static animation helpers — allocated once, never recreated on rebuild
+  // Static animation transition builder — allocated once
   // ---------------------------------------------------------------------------
 
-  /// Transition builder for the step AnimatedSwitcher.
-  ///
-  /// Crossfade only — eliminates per-frame [CurvedAnimation] allocations that
-  /// the slide variant incurred (PERF MEDIUM-1).
-  static Widget _stepTransition(Widget child, Animation<double> animation) {
-    return FadeTransition(opacity: animation, child: child);
-  }
+  static Widget _stepTransition(Widget child, Animation<double> animation) =>
+      FadeTransition(opacity: animation, child: child);
 
   // ---------------------------------------------------------------------------
-  // Step 0 — Intent picker view
+  // Step 0 — Intent picker view (WARM MOCHA redesign)
   // ---------------------------------------------------------------------------
 
   Widget _buildIntentPickerView(BuildContext context, AppLocalizations l10n) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ── Top spacer — mirrors the login screen breathing room.
-        const SizedBox(height: AppSpacing.xl),
-
-        // ── Logo — Hero tag shared with login for flight continuity.
-        Center(
-          child: Hero(
-            tag: 'beautica-logo',
-            child: SvgPicture.asset(
-              'assets/images/logo.svg',
-              width: 160,
-              semanticsLabel: 'Beautica',
-            ),
-          ),
-        ),
-        const SizedBox(height: AppSpacing.xl),
-
-        // ── Intent picker title ────────────────────────────────────────────
-        _intentStaggered(
-          0,
-          Text(
-            l10n.intentPickerTitle,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
         const SizedBox(height: AppSpacing.lg),
 
-        // ── Intent cards (3 items, staggered) ─────────────────────────────
+        // ── Brand row
+        const _RegBrandRow(),
+
+        const SizedBox(height: AppSpacing.xxl),
+
+        // ── Headline + accent + sub-text
+        _intentStaggered(0, _RegisterHeadlineBlock(l10n: l10n)),
+
+        const SizedBox(height: AppSpacing.lg),
+
+        // ── Role cards (3 items, staggered)
         _intentStaggered(
           0,
-          _IntentCard(
+          _RoleCard(
             option: _kIntentOptions[0],
             isSelected: _selectedRole == _kIntentOptions[0].role,
             onTap: () => _selectIntent(_kIntentOptions[0]),
@@ -652,7 +608,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
         const SizedBox(height: AppSpacing.sm),
         _intentStaggered(
           1,
-          _IntentCard(
+          _RoleCard(
             option: _kIntentOptions[1],
             isSelected: _selectedRole == _kIntentOptions[1].role,
             onTap: () => _selectIntent(_kIntentOptions[1]),
@@ -662,43 +618,44 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
         const SizedBox(height: AppSpacing.sm),
         _intentStaggered(
           2,
-          _IntentCard(
+          _RoleCard(
             option: _kIntentOptions[2],
             isSelected: _selectedRole == _kIntentOptions[2].role,
             onTap: () => _selectIntent(_kIntentOptions[2]),
             l10n: l10n,
           ),
         ),
+
         const SizedBox(height: AppSpacing.lg),
 
-        // ── Already have account row ───────────────────────────────────────
+        // ── CTA — "Продовжити" (enabled only when a role is selected)
         _intentStaggered(
           2,
-          Wrap(
-            alignment: WrapAlignment.center,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Text(
-                l10n.registerHaveAccount,
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
-              ),
-              TextButton(
-                key: const Key('btn-go-to-login-from-intent'),
-                onPressed: () => context.canPop()
-                    ? context.pop()
-                    : context.go(RouteNames.login),
-                style: TextButton.styleFrom(foregroundColor: BrandColors.bliss),
-                child: Text(l10n.registerSignIn),
-              ),
-            ],
+          _MochaCtaButton(
+            onPressed: _selectedRole != null
+                ? () => _selectIntent(_selectedOption)
+                : null,
+            onTapDown: () => setState(() => _buttonPressed = true),
+            onTapUp: () => setState(() => _buttonPressed = false),
+            onTapCancel: () => setState(() => _buttonPressed = false),
+            isPressed: _buttonPressed,
+            isLoading: false,
+            label: l10n.registerContinue,
           ),
         ),
+
+        const SizedBox(height: AppSpacing.md),
+
+        // ── "Already have account?" row
+        // Uses key btn-go-to-login-from-intent to distinguish from the
+        // step-2 login link (btn-go-to-login) — required by widget tests.
+        _intentStaggered(2, _buildLoginLinkRow(l10n, false, fromIntent: true)),
       ],
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Step 1+ — Universal form view (all roles) — Change 6
+  // Step 1+ — Universal form view
   // ---------------------------------------------------------------------------
 
   Widget _buildFormView(
@@ -712,22 +669,23 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const SizedBox(height: AppSpacing.lg),
+
+        // ── Brand row
+        const _RegBrandRow(),
+
         const SizedBox(height: AppSpacing.xl),
 
-        // ── Logo
-        Center(
-          child: Hero(
-            tag: 'beautica-logo',
-            child: SvgPicture.asset(
-              'assets/images/logo.svg',
-              width: 160,
-              semanticsLabel: 'Beautica',
-            ),
-          ),
-        ),
+        // ── 3-step progress indicator (Деталі / Верифікація / Готово)
+        // Steps 0 and 1 of _registrationStep map to progress step 0 (Details)
+        // and step 1 (Details complete). The visual indicator shows:
+        //   _registrationStep 0 → step 1 active, steps 2-3 inactive
+        //   _registrationStep 1 → step 1 done, step 2 active, step 3 inactive
+        _WarmMochaStepIndicator(currentStep: _registrationStep, l10n: l10n),
+
         const SizedBox(height: AppSpacing.md),
 
-        // ── Selected intent badge — tapping resets to Step 0 (step 1 only).
+        // ── Selected intent badge — tapping resets to Step 0 (step 1 only)
         Center(
           child: _SelectedBadge(
             option: _selectedOption,
@@ -737,11 +695,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
         ),
         const SizedBox(height: AppSpacing.md),
 
-        // ── Two-segment step progress bar — shown for ALL roles.
-        _StepIndicator(currentStep: _registrationStep),
-        const SizedBox(height: AppSpacing.md),
-
-        // ── Step-specific form content ─────────────────────────────────────
+        // ── Step-specific form content
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 300),
           transitionBuilder: _stepTransition,
@@ -754,18 +708,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // Step 1 — Credentials (email + password), all roles — Change 6
+  // Step 1 — Credentials form (UNCHANGED logic, warm mocha visual)
   // ---------------------------------------------------------------------------
 
-  /// Instantiates [_Step1Form], which owns the [Form] widget and its
-  /// validation boundary.
-  ///
-  /// Extracting the Form into its own [StatefulWidget] confines
-  /// [AutovalidateMode.onUserInteraction] rebuilds to the [_Step1Form]
-  /// subtree rather than the root [_RegisterScreenState] (PERF MEDIUM-2).
-  ///
-  /// [_step1FormKey] is passed through so [_advanceStep] can call
-  /// `_step1FormKey.currentState?.validate()` exactly as before.
   Widget _buildStep1(
     BuildContext context,
     AppLocalizations l10n,
@@ -788,7 +733,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   }
 
   // ---------------------------------------------------------------------------
-  // Step 2 — Role-specific details, all roles — Change 6
+  // Step 2 — Role-specific details (UNCHANGED logic, warm mocha visual)
   // ---------------------------------------------------------------------------
 
   Widget _buildStep2(
@@ -805,14 +750,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
         key: const ValueKey('registration-step-2'),
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Step title — salon uses existing salon step 2 title; others use new key
           _staggered(
             0,
             Text(
               isSalon ? l10n.registerSalonStep2Title : l10n.registerStep2Title,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+              style: const TextStyle(
                 color: Colors.white,
+                fontSize: 22,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -820,14 +765,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
           const SizedBox(height: AppSpacing.md),
 
           if (isSalon) ...[
-            // ── SALON_OWNER: businessName (Change 2: moved from step 1)
             _staggered(
               1,
               TextFormField(
                 key: const Key('field-businessName'),
                 controller: _businessNameController,
                 textInputAction: TextInputAction.next,
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(color: BrandColors.cream, fontSize: 14),
                 decoration: _fieldDecor(
                   l10n.registerBusinessNameLabel,
                   errorText: _serverErrors['businessName'],
@@ -845,14 +789,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
             ),
             const SizedBox(height: AppSpacing.md),
 
-            // ── SALON_OWNER: address
             _staggered(
               2,
               TextFormField(
                 key: const Key('field-address'),
                 controller: _addressController,
                 textInputAction: TextInputAction.next,
-                style: const TextStyle(color: Colors.white),
+                style: const TextStyle(color: BrandColors.cream, fontSize: 14),
                 decoration: _fieldDecor(
                   l10n.registerAddressLabel,
                   errorText: _serverErrors['address'],
@@ -870,7 +813,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
             ),
             const SizedBox(height: AppSpacing.md),
           ] else ...[
-            // ── IM / CLIENT: firstName + lastName row
             _staggered(
               1,
               Row(
@@ -881,7 +823,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
                       key: const Key('field-firstName'),
                       controller: _firstNameController,
                       textInputAction: TextInputAction.next,
-                      style: const TextStyle(color: Colors.white),
+                      style: const TextStyle(
+                        color: BrandColors.cream,
+                        fontSize: 14,
+                      ),
                       decoration: _fieldDecor(
                         l10n.firstNameLabel,
                         errorText: _serverErrors['firstName'],
@@ -898,7 +843,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
                       key: const Key('field-lastName'),
                       controller: _lastNameController,
                       textInputAction: TextInputAction.next,
-                      style: const TextStyle(color: Colors.white),
+                      style: const TextStyle(
+                        color: BrandColors.cream,
+                        fontSize: 14,
+                      ),
                       decoration: _fieldDecor(
                         l10n.lastNameLabel,
                         errorText: _serverErrors['lastName'],
@@ -915,7 +863,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
             const SizedBox(height: AppSpacing.md),
           ],
 
-          // ── Phone field — required for ALL roles (Change 7)
           _staggered(
             3,
             TextFormField(
@@ -923,7 +870,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
               controller: _phoneController,
               keyboardType: TextInputType.phone,
               textInputAction: TextInputAction.done,
-              style: const TextStyle(color: Colors.white),
+              style: const TextStyle(color: BrandColors.cream, fontSize: 14),
               inputFormatters: const [_UkrainianPhoneFormatter()],
               decoration: _fieldDecor(
                 l10n.registerPhoneLabel,
@@ -948,7 +895,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
           ),
           const SizedBox(height: AppSpacing.lg),
 
-          // Submit + Back buttons
           _staggered(4, _buildStep2Buttons(l10n, isLoading)),
         ],
       ),
@@ -959,83 +905,62 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   // Shared sub-builders
   // ---------------------------------------------------------------------------
 
-  /// Back + Submit buttons for step 2 (all roles).
   Widget _buildStep2Buttons(AppLocalizations l10n, bool isLoading) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        GestureDetector(
-          onTapDown: (_) => setState(() => _buttonPressed = true),
-          onTapUp: (_) => setState(() => _buttonPressed = false),
+        _MochaCtaButton(
+          buttonKey: const Key('btn-submit-register'),
+          onPressed: isLoading ? null : _submit,
+          onTapDown: () => setState(() => _buttonPressed = true),
+          onTapUp: () => setState(() => _buttonPressed = false),
           onTapCancel: () => setState(() => _buttonPressed = false),
-          child: AnimatedScale(
-            scale: _buttonPressed ? 0.97 : 1.0,
-            duration: const Duration(milliseconds: 100),
-            child: ElevatedButton(
-              key: const Key('btn-submit-register'),
-              onPressed: isLoading ? null : _submit,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: BrandColors.bliss,
-                foregroundColor: BrandColors.midnight,
-                disabledBackgroundColor: BrandColors.bliss.withValues(
-                  alpha: 0.5,
-                ),
-                minimumSize: const Size(double.infinity, 56),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppSpacing.md),
-                ),
-                textStyle: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              child: isLoading
-                  ? const SizedBox(
-                      height: AppSpacing.md,
-                      width: AppSpacing.md,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: BrandColors.midnight,
-                      ),
-                    )
-                  : Text(l10n.registerSubmit),
-            ),
-          ),
+          isPressed: _buttonPressed,
+          isLoading: isLoading,
+          label: l10n.registerSubmit,
         ),
         const SizedBox(height: AppSpacing.sm),
         TextButton(
           key: const Key('btn-back-step'),
           onPressed: isLoading ? null : _retreatStep,
-          style: TextButton.styleFrom(
-            foregroundColor: Colors.white.withValues(alpha: 0.7),
-          ),
+          style: TextButton.styleFrom(foregroundColor: const Color(0xB3FFFFFF)),
           child: Text(l10n.registerBackStep),
         ),
         const SizedBox(height: AppSpacing.xs),
-        _buildLoginLink(l10n, isLoading),
+        _buildLoginLinkRow(l10n, isLoading),
       ],
     );
   }
 
-  /// "Already have an account? Sign in" row.
-  Widget _buildLoginLink(AppLocalizations l10n, bool isLoading) {
-    return Wrap(
-      alignment: WrapAlignment.center,
-      crossAxisAlignment: WrapCrossAlignment.center,
+  Widget _buildLoginLinkRow(
+    AppLocalizations l10n,
+    bool isLoading, {
+    bool fromIntent = false,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(
           l10n.registerHaveAccount,
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+          style: const TextStyle(color: Color(0x4DFFFFFF), fontSize: 13),
         ),
         TextButton(
-          key: const Key('btn-go-to-login'),
+          key: Key(
+            fromIntent ? 'btn-go-to-login-from-intent' : 'btn-go-to-login',
+          ),
           onPressed: isLoading
               ? null
               : () => context.canPop()
                     ? context.pop()
                     : context.go(RouteNames.login),
-          style: TextButton.styleFrom(foregroundColor: BrandColors.bliss),
+          style: TextButton.styleFrom(
+            foregroundColor: BrandColors.camel,
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+            textStyle: const TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
           child: Text(l10n.registerSignIn),
         ),
       ],
@@ -1044,71 +969,201 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
 }
 
 // ---------------------------------------------------------------------------
-// _StepIndicator — two-segment progress bar (all roles — Change 6)
+// _WarmMochaStepIndicator — 3-step progress row
 // ---------------------------------------------------------------------------
 
-/// Two-segment progress bar for the universal multi-step registration flow.
+/// 3-step progress indicator matching sign-up-page.html + done-page.html.
 ///
-/// Segment 0 = Step 1 (credentials), segment 1 = Step 2 (details).
-/// Both segments get the bliss colour once reached.
-class _StepIndicator extends StatelessWidget {
-  const _StepIndicator({required this.currentStep});
+/// Step states:
+///   done     → camel-tint circle background, camel text, camel connecting line
+///   active   → camel filled circle (solid), bright white label
+///   inactive → white 15% border circle, dim white label, dim connector
+///
+/// Maps [currentStep] (0 = step 1 active, 1 = step 2 active) onto 3 visual
+/// positions. Steps 1-based in UI: position 1 = Деталі, 2 = Верифікація,
+/// 3 = Готово. Position 1 is always at least active; position 2 becomes active
+/// when _registrationStep == 1; position 3 is always inactive in this flow.
+///
+/// Explicit children — no List.generate inside build().
+class _WarmMochaStepIndicator extends StatelessWidget {
+  const _WarmMochaStepIndicator({
+    required this.currentStep,
+    required this.l10n,
+  });
 
   final int currentStep;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
+    // Map: currentStep 0 → uiStep 1 active; currentStep 1 → uiStep 2 active.
+    // UI position 3 is always inactive.
+    const step1State = _StepState.active;
+    final step2State = currentStep >= 1
+        ? _StepState.active
+        : _StepState.inactive;
+    const step3State = _StepState.inactive;
+
+    final connector1Done = currentStep >= 1;
+
+    return Row(
       children: [
-        Row(
-          children: List.generate(2, (i) {
-            final isActive = i <= currentStep;
-            return Expanded(
-              child: Padding(
-                padding: EdgeInsets.only(left: i == 0 ? 0 : AppSpacing.xs),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOut,
-                  height: 3,
-                  decoration: BoxDecoration(
-                    color: isActive
-                        ? BrandColors.bliss
-                        : Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-            );
-          }),
+        // Step 1 — Деталі
+        _StepDot(state: step1State, label: l10n.progressStepDetails, number: 1),
+        // Connector 1→2
+        _StepConnector(done: connector1Done),
+        // Step 2 — Верифікація
+        _StepDot(
+          state: step2State,
+          label: l10n.progressStepVerification,
+          number: 2,
         ),
-        const SizedBox(height: AppSpacing.xxs),
-        Text(
-          '${currentStep + 1} / 2',
-          textAlign: TextAlign.right,
-          style: TextStyle(
-            fontSize: 11,
-            color: Colors.white.withValues(alpha: 0.5),
-          ),
-        ),
+        // Connector 2→3
+        const _StepConnector(done: false),
+        // Step 3 — Готово
+        _StepDot(state: step3State, label: l10n.progressStepDone, number: 3),
       ],
     );
   }
 }
 
+/// State enum for a step indicator dot.
+enum _StepState { done, active, inactive }
+
+/// A single step dot + label pair.
+///
+/// done     → camel-tint circle + camel text
+/// active   → solid camel circle + bright text
+/// inactive → white-border circle + dim text
+class _StepDot extends StatelessWidget {
+  const _StepDot({
+    required this.state,
+    required this.label,
+    required this.number,
+  });
+
+  final _StepState state;
+  final String label;
+  final int number;
+
+  // Static style constants — allocated once.
+  static const _kCircleSize = 22.0;
+
+  static const _kDoneDecoration = BoxDecoration(
+    color: Color(0x38B89A7A), // camel 22%
+    shape: BoxShape.circle,
+  );
+
+  static const _kActiveDecoration = BoxDecoration(
+    color: BrandColors.camel,
+    shape: BoxShape.circle,
+  );
+
+  static const _kInactiveDecoration = BoxDecoration(
+    shape: BoxShape.circle,
+    border: Border.fromBorderSide(
+      BorderSide(color: Color(0x26FFFFFF), width: 1.5), // white 15%
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final BoxDecoration decoration;
+    final TextStyle labelStyle;
+    final Widget child;
+
+    switch (state) {
+      case _StepState.done:
+        decoration = _kDoneDecoration;
+        labelStyle = const TextStyle(
+          color: Color(0x73FFFFFF),
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.7,
+        );
+        child = const Icon(Icons.check, size: 11, color: BrandColors.camel);
+      case _StepState.active:
+        decoration = _kActiveDecoration;
+        labelStyle = const TextStyle(
+          color: Color(0xD9FFFFFF),
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.7,
+        );
+        child = Text(
+          '$number',
+          style: const TextStyle(
+            color: Color(0xFF3A2810), // prog-color dark
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+          ),
+        );
+      case _StepState.inactive:
+        decoration = _kInactiveDecoration;
+        labelStyle = const TextStyle(
+          color: Color(0x33FFFFFF),
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.7,
+        );
+        child = Text(
+          '$number',
+          style: const TextStyle(
+            color: Color(0x33FFFFFF),
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+          ),
+        );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: _kCircleSize,
+          height: _kCircleSize,
+          decoration: decoration,
+          alignment: Alignment.center,
+          child: child,
+        ),
+        const SizedBox(height: AppSpacing.xxs),
+        Text(label, style: labelStyle),
+      ],
+    );
+  }
+}
+
+/// Horizontal connector line between two step dots.
+class _StepConnector extends StatelessWidget {
+  const _StepConnector({required this.done});
+
+  final bool done;
+
+  static const _kDoneDecoration = BoxDecoration(
+    color: Color(0x40B89A7A), // camel 25%
+  );
+  static const _kInactiveDecoration = BoxDecoration(
+    color: Color(0x14FFFFFF), // white 8%
+  );
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: Container(
+      height: 1,
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      decoration: done ? _kDoneDecoration : _kInactiveDecoration,
+    ),
+  );
+}
+
 // ---------------------------------------------------------------------------
-// _Step1Form — PERF MEDIUM-2 isolation boundary
+// _Step1Form — PERF MEDIUM-2 isolation boundary (UNCHANGED logic)
 // ---------------------------------------------------------------------------
 
 /// Step-1 credential form extracted into its own [StatefulWidget].
 ///
 /// Owning the [Form] widget here confines [AutovalidateMode.onUserInteraction]
-/// rebuilds to this small subtree. Email keystrokes previously propagated to
-/// the root [_RegisterScreenState], rebuilding the entire 1 500+ line screen.
-///
-/// [step1FormKey] is passed in so [_RegisterScreenState._advanceStep] can call
-/// `_step1FormKey.currentState?.validate()` without change.
+/// rebuilds to this small subtree.
 class _Step1Form extends StatefulWidget {
   const _Step1Form({
     required this.step1FormKey,
@@ -1129,28 +1184,18 @@ class _Step1Form extends StatefulWidget {
   final TextEditingController passwordController;
   final Map<String, String> serverErrors;
   final bool isLoading;
-
-  /// Stagger opacity animations from the parent — index 0–4 maps to items.
   final List<Animation<double>> opacities;
-
-  /// Stagger slide animations from the parent — index 0–4 maps to items.
   final List<Animation<Offset>> slides;
-
-  /// Parent's `_fieldDecor` helper — keeps border styles consistent.
   final InputDecoration Function(
     String label, {
     String? errorText,
     Widget? suffixIcon,
     String? hintText,
+    Widget? prefixIcon,
   })
   fieldDecor;
-
-  /// Called when the user taps "Далі" with a valid form.
   final VoidCallback onNext;
-
-  /// Called when the user taps the "sign in" link.
   final VoidCallback onNavigateToLogin;
-
   final AppLocalizations l10n;
 
   @override
@@ -1158,6 +1203,8 @@ class _Step1Form extends StatefulWidget {
 }
 
 class _Step1FormState extends State<_Step1Form> {
+  bool _buttonPressed = false;
+
   Widget _staggered(int index, Widget child) => FadeTransition(
     opacity: widget.opacities[index],
     child: SlideTransition(position: widget.slides[index], child: child),
@@ -1172,23 +1219,20 @@ class _Step1FormState extends State<_Step1Form> {
         key: const ValueKey('registration-step-1'),
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Step title
           _staggered(
             0,
             Text(
               l10n.registerStep1Title,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+              style: const TextStyle(
                 color: Colors.white,
+                fontSize: 22,
                 fontWeight: FontWeight.w700,
               ),
             ),
           ),
           const SizedBox(height: AppSpacing.md),
 
-          // Email — autovalidate on interaction.
-          // setState from onUserInteraction rebuilds only this widget,
-          // not the root _RegisterScreenState (PERF MEDIUM-2).
           _staggered(
             2,
             TextFormField(
@@ -1196,11 +1240,16 @@ class _Step1FormState extends State<_Step1Form> {
               controller: widget.emailController,
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
-              style: const TextStyle(color: Colors.white),
+              style: const TextStyle(color: BrandColors.cream, fontSize: 14),
               autovalidateMode: AutovalidateMode.onUserInteraction,
               decoration: widget.fieldDecor(
                 l10n.loginEmailLabel,
                 errorText: widget.serverErrors['email'],
+                prefixIcon: const Icon(
+                  Icons.email_outlined,
+                  color: Color(0x40FFFFFF),
+                  size: 18,
+                ),
               ),
               validator: (v) => validateEmail(v, l10n),
               enabled: !widget.isLoading,
@@ -1210,7 +1259,6 @@ class _Step1FormState extends State<_Step1Form> {
           ),
           const SizedBox(height: AppSpacing.md),
 
-          // Password + strength indicator
           _staggered(
             3,
             _PasswordFieldWithStrength(
@@ -1224,46 +1272,42 @@ class _Step1FormState extends State<_Step1Form> {
           ),
           const SizedBox(height: AppSpacing.lg),
 
-          // Next button
+          // Next button — mocha gradient
           _staggered(
             4,
-            ElevatedButton(
-              key: const Key('btn-next-step'),
+            _MochaCtaButton(
+              buttonKey: const Key('btn-next-step'),
               onPressed: widget.isLoading ? null : widget.onNext,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: BrandColors.bliss,
-                foregroundColor: BrandColors.midnight,
-                disabledBackgroundColor: BrandColors.bliss.withValues(
-                  alpha: 0.5,
-                ),
-                minimumSize: const Size(double.infinity, 56),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppSpacing.md),
-                ),
-                textStyle: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              child: Text(l10n.registerNextStep),
+              onTapDown: () => setState(() => _buttonPressed = true),
+              onTapUp: () => setState(() => _buttonPressed = false),
+              onTapCancel: () => setState(() => _buttonPressed = false),
+              isPressed: _buttonPressed,
+              isLoading: widget.isLoading,
+              label: l10n.registerNextStep,
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
 
-          // "Already have account?" link
-          Wrap(
-            alignment: WrapAlignment.center,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(
                 l10n.registerHaveAccount,
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+                style: const TextStyle(color: Color(0x4DFFFFFF), fontSize: 13),
               ),
               TextButton(
                 key: const Key('btn-go-to-login'),
                 onPressed: widget.isLoading ? null : widget.onNavigateToLogin,
-                style: TextButton.styleFrom(foregroundColor: BrandColors.bliss),
+                style: TextButton.styleFrom(
+                  foregroundColor: BrandColors.camel,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.xs,
+                  ),
+                  textStyle: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
                 child: Text(l10n.registerSignIn),
               ),
             ],
@@ -1275,19 +1319,13 @@ class _Step1FormState extends State<_Step1Form> {
 }
 
 // ---------------------------------------------------------------------------
-// _UkrainianPhoneFormatter — Change 3
+// _UkrainianPhoneFormatter (UNCHANGED)
 // ---------------------------------------------------------------------------
 
 /// [TextInputFormatter] that enforces a Ukrainian phone number mask.
 ///
 /// Always prefixes with '+380 ' (non-deletable). Accepts only digits after
 /// the prefix. Max 13 raw digits total (3 from '380' + 10 more).
-///
-/// Output format: +380 D1D2 D3D4D5 D6D7 D8D9D10
-///   Groups (after 380): 2 digits, 3 digits, 2 digits, 2 digits.
-///   Example: +380 67 123 45 67
-///
-/// The formatter is declared `const` — it holds no mutable state.
 class _UkrainianPhoneFormatter extends TextInputFormatter {
   const _UkrainianPhoneFormatter();
 
@@ -1296,18 +1334,8 @@ class _UkrainianPhoneFormatter extends TextInputFormatter {
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
-    // Extract only the digit characters from whatever the user typed.
     final rawDigits = newValue.text.replaceAll(RegExp(r'\D'), '');
 
-    // Normalise: ensure the string starts with '380'.
-    //
-    // Rules applied in order:
-    //   1. Already starts with '380'  → keep as-is.
-    //   2. Starts with '38'           → prepend '3' (unlikely but safe).
-    //   3. Starts with '3'            → prepend '38'.
-    //   4. Starts with '0'            → strip leading '0', then prepend '380'
-    //      (Ukrainian national format: '067…' → subscriber '67…').
-    //   5. Otherwise                  → prepend '380' directly.
     final String digits;
     if (rawDigits.startsWith('380')) {
       digits = rawDigits;
@@ -1316,30 +1344,21 @@ class _UkrainianPhoneFormatter extends TextInputFormatter {
     } else if (rawDigits.startsWith('3')) {
       digits = '38$rawDigits';
     } else if (rawDigits.startsWith('0')) {
-      // National format: strip leading '0', then prepend country code.
       digits = '380${rawDigits.substring(1)}';
     } else {
       digits = '380$rawDigits';
     }
 
-    // Clamp to 13 digits total (380 + 10 subscriber digits).
     final clamped = digits.length > 13 ? digits.substring(0, 13) : digits;
 
-    // Build the formatted string progressively.
     final sb = StringBuffer('+');
     for (var i = 0; i < clamped.length; i++) {
-      // Insert spaces at the group boundaries:
-      //   Position 3 → start of 2-digit operator code (after '380')
-      //   Position 5 → start of 3-digit block
-      //   Position 8 → start of 2-digit block
-      //   Position 10 → start of final 2-digit block
       if (i == 3 || i == 5 || i == 8 || i == 10) sb.write(' ');
       sb.write(clamped[i]);
     }
 
     final formatted = sb.toString();
 
-    // Place the cursor at the end of the formatted string.
     return TextEditingValue(
       text: formatted,
       selection: TextSelection.collapsed(offset: formatted.length),
@@ -1348,13 +1367,15 @@ class _UkrainianPhoneFormatter extends TextInputFormatter {
 }
 
 // ---------------------------------------------------------------------------
-// _IntentCard
+// _RoleCard — glassmorphism role picker card (WARM MOCHA redesign)
 // ---------------------------------------------------------------------------
 
-/// Tappable dark-surface card displaying an intent option with emoji, title,
-/// and subtitle. Highlighted in bliss gold when [isSelected] is true.
-class _IntentCard extends StatelessWidget {
-  const _IntentCard({
+/// Tappable glassmorphism role card matching role-selection-page.html.
+///
+/// Unselected: white 5.5% bg, white 8% border, dim icon.
+/// Selected: camel 8% bg, camel 42% border, camel icon circle, filled checkmark.
+class _RoleCard extends StatelessWidget {
+  const _RoleCard({
     required this.option,
     required this.isSelected,
     required this.onTap,
@@ -1366,63 +1387,128 @@ class _IntentCard extends StatelessWidget {
   final VoidCallback onTap;
   final AppLocalizations l10n;
 
+  static const _kIconSize = 44.0;
+  static const _kCheckSize = 22.0;
+
+  static final _kBlur = ImageFilter.blur(sigmaX: 20, sigmaY: 20);
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.lg,
-          vertical: AppSpacing.md,
-        ),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? BrandColors.bliss.withValues(alpha: 0.12)
-              : BrandColors.darkSurface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected
-                ? BrandColors.bliss
-                : Colors.white.withValues(alpha: 0.1),
-            width: isSelected ? 1.5 : 1.0,
-          ),
-        ),
-        child: Row(
-          children: [
-            // Decorative emoji — visual anchor only; not used as a semantic
-            // navigation icon. Accessibility is carried by the text labels.
-            Text(option.icon, style: const TextStyle(fontSize: 28)),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _intentTitle(option, l10n),
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: isSelected ? BrandColors.bliss : Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _intentSubtitle(option, l10n),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.55),
-                    ),
-                  ),
-                ],
+      child: ClipRRect(
+        borderRadius: _kRoleCardRadius,
+        child: BackdropFilter(
+          filter: _kBlur,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.md,
+            ),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? const Color(0x14B89A7A) // camel 8%
+                  : const Color(0x0EFFFFFF), // white 5.5%
+              borderRadius: _kRoleCardRadius,
+              border: Border.all(
+                color: isSelected
+                    ? const Color(0x6BB89A7A) // camel 42%
+                    : const Color(0x14FFFFFF), // white 8%
+                width: 1,
               ),
             ),
-            if (isSelected)
-              const Icon(
-                Icons.check_circle,
-                color: BrandColors.bliss,
-                size: 20,
-              ),
-          ],
+            child: Row(
+              children: [
+                // ── Icon circle
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: _kIconSize,
+                  height: _kIconSize,
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? const Color(0x24B89A7A) // camel 14%
+                        : const Color(0x12FFFFFF), // white 7%
+                    borderRadius: const BorderRadius.all(Radius.circular(13)),
+                    border: Border.all(
+                      color: isSelected
+                          ? const Color(0x59B89A7A) // camel 35%
+                          : const Color(0x1AFFFFFF), // white 10%
+                      width: 1,
+                    ),
+                  ),
+                  child: Icon(
+                    option.materialIcon,
+                    size: 22,
+                    color: isSelected
+                        ? BrandColors.camel
+                        : const Color(0x73FFFFFF), // white 45%
+                  ),
+                ),
+
+                const SizedBox(width: AppSpacing.md),
+
+                // ── Title + description
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 200),
+                        style: TextStyle(
+                          color: isSelected
+                              ? Colors.white
+                              : const Color(0xE0FFFFFF),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.01,
+                        ),
+                        child: Text(_intentTitle(option, l10n)),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        _intentDesc(option, l10n),
+                        style: TextStyle(
+                          color: isSelected
+                              ? const Color(0x6BFFFFFF) // white 42%
+                              : const Color(0x47FFFFFF), // white 28%
+                          fontSize: 11.5,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: AppSpacing.xs),
+
+                // ── Checkmark circle
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: _kCheckSize,
+                  height: _kCheckSize,
+                  decoration: BoxDecoration(
+                    color: isSelected ? BrandColors.camel : Colors.transparent,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: isSelected
+                          ? BrandColors.camel
+                          : const Color(0x26FFFFFF), // white 15%
+                      width: 1.5,
+                    ),
+                  ),
+                  child: isSelected
+                      ? const Icon(
+                          Icons.check,
+                          size: 12,
+                          color: Color(0xFF3A2810), // prog-color dark
+                        )
+                      : null,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1430,13 +1516,12 @@ class _IntentCard extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// _SelectedBadge
+// _SelectedBadge — compact pill showing the selected role (WARM MOCHA)
 // ---------------------------------------------------------------------------
 
-/// Compact pill showing the selected intent — tapping returns to Step 0.
+/// Compact camel-bordered pill showing the selected intent — tapping returns
+/// to Step 0.
 ///
-/// Displayed at the top of the form view so the user always knows which role
-/// they are registering for, and can change it without losing the form screen.
 /// [onTap] is nullable — passing null disables the tap (used on step 2
 /// to prevent accidentally resetting all entered data).
 class _SelectedBadge extends StatelessWidget {
@@ -1450,6 +1535,14 @@ class _SelectedBadge extends StatelessWidget {
   final AppLocalizations l10n;
   final VoidCallback? onTap;
 
+  static const _kDecoration = BoxDecoration(
+    color: Color(0x1AB89A7A), // camel 10%
+    borderRadius: BorderRadius.all(Radius.circular(24)),
+    border: Border.fromBorderSide(
+      BorderSide(color: Color(0x66B89A7A), width: 1), // camel 40%
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
@@ -1458,31 +1551,25 @@ class _SelectedBadge extends StatelessWidget {
         horizontal: AppSpacing.md,
         vertical: AppSpacing.sm,
       ),
-      decoration: BoxDecoration(
-        color: BrandColors.bliss.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: BrandColors.bliss.withValues(alpha: 0.4),
-          width: 1,
-        ),
-      ),
+      decoration: _kDecoration,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(option.icon, style: const TextStyle(fontSize: 16)),
+          Icon(option.materialIcon, size: 14, color: BrandColors.camel),
           const SizedBox(width: AppSpacing.xs),
           Text(
             _intentTitle(option, l10n),
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: BrandColors.bliss,
+            style: const TextStyle(
+              color: BrandColors.camel,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
           ),
           if (onTap != null) ...[
             const SizedBox(width: AppSpacing.xs),
-            Icon(
+            const Icon(
               Icons.edit_outlined,
-              color: BrandColors.bliss.withValues(alpha: 0.7),
+              color: Color(0xB3B89A7A), // camel 70%
               size: 14,
             ),
           ],
@@ -1493,19 +1580,13 @@ class _SelectedBadge extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// _PasswordFieldWithStrength
+// _PasswordFieldWithStrength (UNCHANGED logic, warm mocha decoration)
 // ---------------------------------------------------------------------------
 
 /// Password [TextFormField] paired with a [PasswordStrengthIndicator].
 ///
-/// Owns its own [State] so that keystrokes on the password field call
-/// `setState` only on this small subtree — never on the root
-/// [_RegisterScreenState] (which contains the entire register form).
-///
-/// The parent continues to own the [TextEditingController] so it can read the
-/// password value at form submission time. This widget subscribes to the
-/// controller via [addListener] and keeps a local copy of the text for the
-/// strength indicator.
+/// Owns its own [State] so keystrokes on the password field call setState only
+/// on this small subtree — never on the root [_RegisterScreenState].
 class _PasswordFieldWithStrength extends StatefulWidget {
   const _PasswordFieldWithStrength({
     required this.controller,
@@ -1519,21 +1600,15 @@ class _PasswordFieldWithStrength extends StatefulWidget {
   final TextEditingController controller;
   final String? serverError;
   final bool isLoading;
-
-  /// Callback to the parent's `_fieldDecor` helper so the border styles remain
-  /// consistent with the rest of the form without duplicating the definitions.
   final InputDecoration Function(
     String label, {
     String? errorText,
     Widget? suffixIcon,
     String? hintText,
+    Widget? prefixIcon,
   })
   fieldDecor;
-
-  /// Called when the user submits the password field (keyboard action or
-  /// `onFieldSubmitted`). Null when the form is loading (disables submission).
   final VoidCallback? onSubmit;
-
   final AppLocalizations l10n;
 
   @override
@@ -1543,11 +1618,7 @@ class _PasswordFieldWithStrength extends StatefulWidget {
 
 class _PasswordFieldWithStrengthState
     extends State<_PasswordFieldWithStrength> {
-  /// Local copy of the password text — drives [PasswordStrengthIndicator].
-  /// Updated via a [TextEditingController] listener; setState only rebuilds
-  /// this small widget, never the parent screen.
   String _currentPassword = '';
-
   bool _obscurePassword = true;
 
   @override
@@ -1583,17 +1654,23 @@ class _PasswordFieldWithStrengthState
           enableSuggestions: false,
           autocorrect: false,
           textInputAction: TextInputAction.done,
-          style: const TextStyle(color: Colors.white),
+          style: const TextStyle(color: BrandColors.cream, fontSize: 14),
           decoration: widget.fieldDecor(
             l10n.loginPasswordLabel,
             errorText: widget.serverError,
+            prefixIcon: const Icon(
+              Icons.lock_outline,
+              color: Color(0x40FFFFFF),
+              size: 18,
+            ),
             suffixIcon: IconButton(
               key: const Key('btn-toggle-password'),
               icon: Icon(
                 _obscurePassword
                     ? Icons.visibility_outlined
                     : Icons.visibility_off_outlined,
-                color: Colors.white,
+                color: const Color(0x47FFFFFF),
+                size: 18,
                 semanticLabel: _obscurePassword
                     ? l10n.showPasswordSemanticLabel
                     : l10n.hidePasswordSemanticLabel,
@@ -1609,6 +1686,222 @@ class _PasswordFieldWithStrengthState
         PasswordStrengthIndicator(
           key: const Key('password-strength-indicator'),
           password: _currentPassword,
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _MochaCtaButton — gradient CTA button (same pattern as login_screen.dart)
+// ---------------------------------------------------------------------------
+
+/// Gradient CTA button matching the HTML `.cta-btn`:
+///   gradient #4A2E10→#6A4A28→#8A6840, height 52px, radius 14px, mocha glow.
+///
+/// Uses [ElevatedButton] with a transparent background so that the gradient
+/// [Ink] decoration is visible. The [Key] is placed on the [ElevatedButton]
+/// so that `tester.widget<ElevatedButton>(find.byKey(...))` in tests continues
+/// to work.
+class _MochaCtaButton extends StatelessWidget {
+  const _MochaCtaButton({
+    this.buttonKey,
+    required this.onPressed,
+    required this.onTapDown,
+    required this.onTapUp,
+    required this.onTapCancel,
+    required this.isPressed,
+    required this.isLoading,
+    required this.label,
+  });
+
+  /// Key forwarded to the inner [ElevatedButton] — allows tests to locate and
+  /// cast the button via `tester.widget<ElevatedButton>(find.byKey(...))`.
+  /// The outer [_MochaCtaButton] wrapper widget is intentionally keyless so
+  /// that `find.byKey` returns exactly one result.
+  final Key? buttonKey;
+  final VoidCallback? onPressed;
+  final VoidCallback onTapDown;
+  final VoidCallback onTapUp;
+  final VoidCallback onTapCancel;
+  final bool isPressed;
+  final bool isLoading;
+  final String label;
+
+  static final _kButtonStyle = ElevatedButton.styleFrom(
+    backgroundColor: Colors.transparent,
+    foregroundColor: Colors.white,
+    disabledBackgroundColor: const Color(0xFF3A2810),
+    disabledForegroundColor: const Color(0x80FFFFFF),
+    minimumSize: const Size(double.infinity, 52),
+    shape: const RoundedRectangleBorder(borderRadius: _kCtaRadius),
+    elevation: 0,
+    shadowColor: Colors.transparent,
+    padding: EdgeInsets.zero,
+  );
+
+  static const _kGradientDecoration = BoxDecoration(
+    gradient: _kCtaGradient,
+    borderRadius: _kCtaRadius,
+    boxShadow: _kCtaShadow,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => onTapDown(),
+      onTapUp: (_) => onTapUp(),
+      onTapCancel: onTapCancel,
+      child: AnimatedScale(
+        scale: isPressed ? 0.97 : 1.0,
+        duration: const Duration(milliseconds: 100),
+        child: Ink(
+          decoration: onPressed != null
+              ? _kGradientDecoration
+              : const BoxDecoration(),
+          child: ElevatedButton(
+            key: buttonKey,
+            onPressed: onPressed,
+            style: _kButtonStyle,
+            child: isLoading
+                ? const SizedBox(
+                    width: AppSpacing.md,
+                    height: AppSpacing.md,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: BrandColors.cream,
+                    ),
+                  )
+                : Text(
+                    label,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _RegBrandRow — monogram B + BEAUTICA (register screen variant)
+// ---------------------------------------------------------------------------
+
+/// Brand row for the register screen — identical pattern to login screen's
+/// _BrandRow but declared separately to avoid cross-file coupling.
+class _RegBrandRow extends StatelessWidget {
+  const _RegBrandRow();
+
+  static final _kBlur = ImageFilter.blur(sigmaX: 8, sigmaY: 8);
+
+  static const _kMonogramDecoration = BoxDecoration(
+    color: Color(0x1AFFFFFF),
+    borderRadius: BorderRadius.all(Radius.circular(10)),
+    border: Border.fromBorderSide(
+      BorderSide(color: Color(0x33FFFFFF), width: 1),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        ClipRRect(
+          borderRadius: const BorderRadius.all(Radius.circular(10)),
+          child: BackdropFilter(
+            filter: _kBlur,
+            child: Container(
+              width: 34,
+              height: 34,
+              decoration: _kMonogramDecoration,
+              alignment: Alignment.center,
+              child: const Text(
+                'B',
+                style: TextStyle(
+                  color: Color(0xF2FFFFFF),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  height: 1,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        const Text(
+          'BEAUTICA',
+          style: TextStyle(
+            color: Color(0xEBFFFFFF),
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.6,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _RegisterHeadlineBlock — role picker headline
+// ---------------------------------------------------------------------------
+
+/// Headline block for the role picker step matching role-selection-page.html.
+///
+/// Main headline: Manrope 700, 26 sp, white.
+/// Italic accent: Cormorant Garamond italic 600, camel.
+/// Sub-text: 13 sp, white 35%.
+class _RegisterHeadlineBlock extends StatelessWidget {
+  const _RegisterHeadlineBlock({required this.l10n});
+
+  final AppLocalizations l10n;
+
+  static final _kAccentStyle = GoogleFonts.cormorantGaramond(
+    textStyle: const TextStyle(
+      color: BrandColors.camel,
+      fontSize: 30,
+      fontStyle: FontStyle.italic,
+      fontWeight: FontWeight.w600,
+      height: 1.22,
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text.rich(
+          TextSpan(
+            text: '${l10n.registerHeadline}\n',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 26,
+              fontWeight: FontWeight.w700,
+              height: 1.22,
+            ),
+            children: [
+              WidgetSpan(
+                alignment: PlaceholderAlignment.baseline,
+                baseline: TextBaseline.alphabetic,
+                child: Text(l10n.registerHeadlineAccent, style: _kAccentStyle),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          l10n.registerSubText,
+          style: const TextStyle(
+            color: Color(0x59FFFFFF), // white 35%
+            fontSize: 13,
+            height: 1.55,
+          ),
         ),
       ],
     );

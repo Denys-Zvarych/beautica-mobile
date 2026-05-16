@@ -261,5 +261,61 @@
   "hidePasswordSemanticLabel": "Hide password",
   "@hidePasswordSemanticLabel": {
     "description": "Accessibility semantic label for the hide-password icon button (eye-off icon in password field)."
+  },
+  "loginHeadline": "Welcome back!",
+  "@loginHeadline": {
+    "description": "Large headline on the login screen (Warm Mocha redesign)."
+  },
+  "loginHeadlineAccent": "glad to see you again",
+  "@loginHeadlineAccent": {
+    "description": "Italic serif accent line below the main login headline."
+  },
+  "loginSubText": "Sign in to your account to continue",
+  "@loginSubText": {
+    "description": "Muted sub-text below the login headline describing the action."
+  },
+  "loginForgotPassword": "Forgot password?",
+  "@loginForgotPassword": {
+    "description": "Right-aligned link text for the forgot-password flow on the login screen."
+  },
+  "registerHeadline": "Welcome!",
+  "@registerHeadline": {
+    "description": "Large headline on the role selection step of the register screen."
+  },
+  "registerHeadlineAccent": "Who are you?",
+  "@registerHeadlineAccent": {
+    "description": "Italic serif accent line on the role selection step of the register screen."
+  },
+  "registerSubText": "Choose your role so we can tailor the app just for you.",
+  "@registerSubText": {
+    "description": "Muted sub-text below the role selection headline."
+  },
+  "intentClientDesc": "Find beauty professionals and book appointments",
+  "@intentClientDesc": {
+    "description": "Short description line shown on the Client role card (Warm Mocha redesign)."
+  },
+  "intentSalonDesc": "Manage your salon, team, and bookings",
+  "@intentSalonDesc": {
+    "description": "Short description line shown on the Salon Owner role card (Warm Mocha redesign)."
+  },
+  "intentIndependentDesc": "Work independently and accept clients",
+  "@intentIndependentDesc": {
+    "description": "Short description line shown on the Independent Master role card (Warm Mocha redesign)."
+  },
+  "registerContinue": "Continue",
+  "@registerContinue": {
+    "description": "CTA button label on the role selection step of the register screen."
+  },
+  "progressStepDetails": "Details",
+  "@progressStepDetails": {
+    "description": "Step 1 label in the 3-step registration progress indicator."
+  },
+  "progressStepVerification": "Verification",
+  "@progressStepVerification": {
+    "description": "Step 2 label in the 3-step registration progress indicator."
+  },
+  "progressStepDone": "Done",
+  "@progressStepDone": {
+    "description": "Step 3 label in the 3-step registration progress indicator."
   }
 }
