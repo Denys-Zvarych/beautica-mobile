@@ -98,11 +98,13 @@ const _kCtaGradient = LinearGradient(
   stops: [0.0, 0.6, 1.0],
 );
 
-/// CTA box shadow — mocha glow.
+/// CTA box shadow — mocha glow, reduced for Android/Impeller saturation.
+/// HTML value was rgba(58,36,12,0.68) / blur 24 — Android renders this more
+/// prominently than browser (blob-like). Reduced to 0.36 opacity / blur 16.
 const List<BoxShadow> _kCtaShadow = [
   BoxShadow(
-    color: Color(0xAD3A240C), // rgba(58,36,12,0.68)
-    blurRadius: 24,
+    color: Color(0x5B3A240C), // rgba(58,36,12,0.36) — reduced from 0.68
+    blurRadius: 16, // reduced from 24
     offset: Offset(0, 4),
   ),
   BoxShadow(
@@ -292,7 +294,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     fillColor: const Color(0x12FFFFFF), // white 7%
     labelStyle: const TextStyle(color: Color(0x6BFFFFFF)),
     floatingLabelStyle: const TextStyle(color: BrandColors.camel),
-    errorStyle: const TextStyle(color: BrandColors.errorRust, fontSize: 11),
+    errorStyle: const TextStyle(
+      color: BrandColors.errorRust,
+      fontSize: 12,
+    ), // increased from 11
     contentPadding: const EdgeInsets.symmetric(
       horizontal: AppSpacing.md,
       vertical: AppSpacing.sm,
@@ -358,7 +363,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             textInputAction: TextInputAction.next,
                             style: const TextStyle(
                               color: BrandColors.cream,
-                              fontSize: 14,
+                              fontSize: 15, // increased from 14
                             ),
                             decoration: _fieldDecor(
                               l10n.loginEmailPlaceholder,
@@ -393,7 +398,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             textInputAction: TextInputAction.done,
                             style: const TextStyle(
                               color: BrandColors.cream,
-                              fontSize: 14,
+                              fontSize: 15, // increased from 14
                             ),
                             decoration: _fieldDecor(
                               l10n.loginPasswordPlaceholder,
@@ -407,7 +412,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                       ? Icons.visibility_outlined
                                       : Icons.visibility_off_outlined,
                                   color: const Color(0x47FFFFFF),
-                                  size: 18,
+                                  size: 20, // increased from 18
                                   semanticLabel: _obscurePassword
                                       ? l10n.showPasswordSemanticLabel
                                       : l10n.hidePasswordSemanticLabel,
@@ -448,7 +453,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                   horizontal: AppSpacing.xs,
                                 ),
                                 textStyle: const TextStyle(
-                                  fontSize: 11.5,
+                                  fontSize: 13, // increased from 11.5
                                   fontWeight: FontWeight.w500,
                                   letterSpacing: 0.02,
                                 ),
@@ -505,7 +510,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       children: [
         Text(
           l10n.loginNoAccount,
-          style: const TextStyle(color: Color(0x4DFFFFFF), fontSize: 13),
+          style: const TextStyle(
+            color: Color(0x4DFFFFFF),
+            fontSize: 14,
+          ), // increased from 13
         ),
         // The HTML uses a non-breaking space (&nbsp;) between the prompt and
         // the link; reproduce that gap so they read as one line when they fit.
@@ -522,7 +530,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
             visualDensity: VisualDensity.compact,
             textStyle: const TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 13,
+              fontSize: 14, // increased from 13
             ),
           ),
           child: Text(l10n.loginCreateAccount),
@@ -574,7 +582,7 @@ class _BrandRow extends StatelessWidget {
                 'B',
                 style: TextStyle(
                   color: Color(0xF2FFFFFF), // white 95%
-                  fontSize: 18,
+                  fontSize: 20, // increased from 18
                   fontWeight: FontWeight.w700,
                   height: 1,
                 ),
@@ -590,9 +598,9 @@ class _BrandRow extends StatelessWidget {
           'BEAUTICA',
           style: TextStyle(
             color: Color(0xEBFFFFFF), // white 92%
-            fontSize: 16,
+            fontSize: 17, // increased from 16
             fontWeight: FontWeight.w700,
-            letterSpacing: 1.6,
+            letterSpacing: 1.6, // absolute px — kept unchanged
           ),
         ),
       ],
@@ -615,12 +623,12 @@ class _HeadlineBlock extends StatelessWidget {
   final AppLocalizations l10n;
 
   // login-page.html .headline em { font-family: 'Cormorant Garamond';
-  // font-style: italic; font-weight: 600; font-size: 1.15em (= 1.15 × 26 =
-  // 29.9 ≈ 30); color: var(--accent) #b89a7a }.
+  // font-style: italic; font-weight: 600; font-size: 1.15em (= 1.15 × 28 =
+  // 32.2 ≈ 32); color: var(--accent) #b89a7a }.
   static final _kAccentStyle = GoogleFonts.cormorantGaramond(
     textStyle: const TextStyle(
       color: BrandColors.camel,
-      fontSize: 30, // 1.15× of 26
+      fontSize: 32, // 1.15× of 28 (increased from 30)
       fontStyle: FontStyle.italic,
       fontWeight: FontWeight.w600,
       height: 1.22,
@@ -628,13 +636,12 @@ class _HeadlineBlock extends StatelessWidget {
   );
 
   // login-page.html .headline { font-family: 'Manrope'; font-size: 26px;
-  // font-weight: 700; color: #fff; line-height: 1.22 }. Manrope is loaded
-  // explicitly (GoogleFonts) so the main headline renders at the design
-  // weight/size rather than the platform default sans.
+  // font-weight: 700; color: #fff; line-height: 1.22 }. Increased to 28 for
+  // better on-device readability (+2 px across the board adjustment).
   static final _kHeadlineStyle = GoogleFonts.manrope(
     textStyle: const TextStyle(
       color: Colors.white,
-      fontSize: 26,
+      fontSize: 28, // increased from 26
       fontWeight: FontWeight.w700,
       height: 1.22,
     ),
@@ -665,12 +672,13 @@ class _HeadlineBlock extends StatelessWidget {
         const SizedBox(height: 10),
         // login-page.html .sub-text { font-size: 13px;
         // color: rgba(255,255,255,0.32); line-height: 1.55 }.
+        // Increased to 14 for on-device readability.
         Text(
           l10n.loginSubText,
           style: GoogleFonts.manrope(
             textStyle: const TextStyle(
               color: Color(0x52FFFFFF), // white 32%
-              fontSize: 13,
+              fontSize: 14, // increased from 13
               height: 1.55,
             ),
           ),
@@ -692,9 +700,9 @@ class _GlassCard extends StatelessWidget {
 
   final Widget child;
 
-  // CSS blur(20px) ≈ Flutter sigma ~12 (not 20) — the previous 20 over-blurred
-  // the card backdrop relative to the mockup.
-  static final _kBlur = ImageFilter.blur(sigmaX: 12, sigmaY: 12);
+  // HTML: backdrop-filter: blur(20px). Match directly with sigma 20 — the
+  // earlier sigma 12 under-blurred, making the card appear heavier/darker.
+  static final _kBlur = ImageFilter.blur(sigmaX: 20, sigmaY: 20);
 
   static const _kDecoration = BoxDecoration(
     color: Color(0x11FFFFFF), // rgba(255,255,255,0.065) ≈ 0x10
@@ -736,7 +744,7 @@ class _FieldIcon extends StatelessWidget {
   Widget build(BuildContext context) => Icon(
     icon,
     color: const Color(0x40FFFFFF), // white ~25%
-    size: 18,
+    size: 20, // increased from 18
   );
 }
 
@@ -835,7 +843,7 @@ class _MochaCtaButton extends StatelessWidget {
                                 label,
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 15,
+                                  fontSize: 16, // increased from 15
                                   fontWeight: FontWeight.w600,
                                   letterSpacing: 0.3,
                                 ),
@@ -844,7 +852,7 @@ class _MochaCtaButton extends StatelessWidget {
                               const Icon(
                                 Icons.arrow_forward,
                                 color: Colors.white,
-                                size: 18,
+                                size: 20, // increased from 18
                               ),
                             ],
                           ),

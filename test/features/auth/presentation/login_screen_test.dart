@@ -373,6 +373,57 @@ void main() {
         expect(find.text('register'), findsOneWidget);
       },
     );
+    // -----------------------------------------------------------------------
+    // Test 7 — _GlassCard BackdropFilter exists (glassmorphism regression guard)
+    // -----------------------------------------------------------------------
+    testWidgets('7. glass card contains a BackdropFilter with sigma 20', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Both _BrandRow (sigma 8) and _GlassCard (sigma 20) use BackdropFilter.
+      expect(
+        find.byType(BackdropFilter),
+        findsWidgets,
+        reason:
+            '_GlassCard must contain a BackdropFilter; '
+            'removing it breaks the glassmorphism effect',
+      );
+
+      // At least one BackdropFilter must use sigma 20 (_GlassCard._kBlur).
+      final filters = tester
+          .widgetList<BackdropFilter>(find.byType(BackdropFilter))
+          .toList();
+      final hasCardSigma = filters.any(
+        (bf) => bf.filter.toString().contains('20'),
+      );
+      expect(
+        hasCardSigma,
+        isTrue,
+        reason:
+            'Expected a BackdropFilter with sigma 20 (_GlassCard._kBlur); '
+            'sigma must remain 20 to match the HTML backdrop-filter: blur(20px)',
+      );
+    });
   });
 }
 
