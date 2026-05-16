@@ -424,6 +424,147 @@ void main() {
             'sigma must remain 20 to match the HTML backdrop-filter: blur(20px)',
       );
     });
+    // -----------------------------------------------------------------------
+    // Test 8 — CTA button label has fontSize 17 (Phase 2.x +2 px pass)
+    // -----------------------------------------------------------------------
+    testWidgets('8. CTA button label has fontSize 17', (tester) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      final labelText = tester.widget<Text>(
+        find.descendant(
+          of: find.byKey(const Key('btn-submit-login')),
+          matching: find.text(l10n.loginSubmit),
+        ),
+      );
+      expect(
+        labelText.style?.fontSize,
+        equals(17.0),
+        reason: 'CTA button label must be fontSize 17 per Phase 2.x +2 px pass',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 9 — Login headline Text.rich primary span has fontSize 30
+    // -----------------------------------------------------------------------
+    testWidgets('9. headline Text.rich primary span has fontSize 30', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // _HeadlineBlock renders the headline via Text.rich (textSpan != null).
+      // The root TextSpan carries _kHeadlineStyle with fontSize 30 (Manrope 700).
+      final headlineTexts = tester
+          .widgetList<Text>(find.byType(Text))
+          .where(
+            (w) =>
+                w.textSpan != null &&
+                w.textSpan is TextSpan &&
+                ((w.textSpan as TextSpan).style?.fontSize ?? 0) == 30.0,
+          )
+          .toList();
+
+      expect(
+        headlineTexts,
+        isNotEmpty,
+        reason:
+            'Expected a Text.rich widget with fontSize 30 for the login '
+            'headline; +2 px pass set it from 28 to 30',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 10 — Email validator error text has fontSize 13
+    // -----------------------------------------------------------------------
+    testWidgets('10. email validator error text has fontSize 13', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Trigger the email validation error.
+      await tester.enterText(
+        find.byKey(const Key('field-email')),
+        'not-an-email',
+      );
+      await tester.enterText(
+        find.byKey(const Key('field-password')),
+        'password',
+      );
+      await tester.ensureVisible(find.byKey(const Key('btn-submit-login')));
+      await tester.tap(find.byKey(const Key('btn-submit-login')));
+      await tester.pump();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byKey(const Key('field-email'))),
+      );
+      expect(find.text(l10n.errEmailInvalid), findsOneWidget);
+
+      final errorText = tester.widget<Text>(find.text(l10n.errEmailInvalid));
+      expect(
+        errorText.style?.fontSize,
+        equals(13.0),
+        reason:
+            'Email error text must be fontSize 13 per Phase 2.x +2 px pass '
+            '(_fieldDecor errorStyle)',
+      );
+    });
   });
 }
 

@@ -226,5 +226,50 @@ void main() {
         reason: 'Expected a SizedBox.expand() child to make the widget expand',
       );
     });
+
+    // -------------------------------------------------------------------------
+    // Test 8 — ambient blob centre opacity stays below 12% (Impeller guard)
+    // -------------------------------------------------------------------------
+    testWidgets(
+      '8. ambient blob centre colour alpha is below 12% (Impeller compensation)',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
+          ),
+        );
+
+        final radialBlobs = tester
+            .widgetList<Container>(find.byType(Container))
+            .where(
+              (c) =>
+                  c.decoration is BoxDecoration &&
+                  (c.decoration as BoxDecoration).gradient is RadialGradient,
+            )
+            .toList();
+
+        expect(
+          radialBlobs,
+          isNotEmpty,
+          reason: 'Expected at least one RadialGradient blob container',
+        );
+
+        // Android/Impeller renders warm RGBA colours more saturated than Chrome.
+        // Blob centres were reduced to ~8% and ~5% opacity to compensate.
+        // This test pins the upper bound to prevent accidental opacity creep.
+        for (final blob in radialBlobs) {
+          final gradient =
+              (blob.decoration! as BoxDecoration).gradient! as RadialGradient;
+          final centre = gradient.colors.first;
+          expect(
+            centre.a,
+            lessThan(0.12),
+            reason:
+                'Blob centre alpha must stay below 0.12 (12%) to remain a '
+                'subtle ambient glow on Android/Impeller; got ${centre.a}',
+          );
+        }
+      },
+    );
   });
 }

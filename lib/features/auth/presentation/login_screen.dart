@@ -296,8 +296,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     floatingLabelStyle: const TextStyle(color: BrandColors.camel),
     errorStyle: const TextStyle(
       color: BrandColors.errorRust,
-      fontSize: 12,
-    ), // increased from 11
+      fontSize: 13,
+    ), // increased from 12
     contentPadding: const EdgeInsets.symmetric(
       horizontal: AppSpacing.md,
       vertical: AppSpacing.sm,
@@ -363,7 +363,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             textInputAction: TextInputAction.next,
                             style: const TextStyle(
                               color: BrandColors.cream,
-                              fontSize: 15, // increased from 14
+                              fontSize: 16, // increased from 15
                             ),
                             decoration: _fieldDecor(
                               l10n.loginEmailPlaceholder,
@@ -398,7 +398,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             textInputAction: TextInputAction.done,
                             style: const TextStyle(
                               color: BrandColors.cream,
-                              fontSize: 15, // increased from 14
+                              fontSize: 16, // increased from 15
                             ),
                             decoration: _fieldDecor(
                               l10n.loginPasswordPlaceholder,
@@ -453,7 +453,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                   horizontal: AppSpacing.xs,
                                 ),
                                 textStyle: const TextStyle(
-                                  fontSize: 13, // increased from 11.5
+                                  fontSize: 14, // increased from 13
                                   fontWeight: FontWeight.w500,
                                   letterSpacing: 0.02,
                                 ),
@@ -512,8 +512,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           l10n.loginNoAccount,
           style: const TextStyle(
             color: Color(0x4DFFFFFF),
-            fontSize: 14,
-          ), // increased from 13
+            fontSize: 15,
+          ), // increased from 14
         ),
         // The HTML uses a non-breaking space (&nbsp;) between the prompt and
         // the link; reproduce that gap so they read as one line when they fit.
@@ -530,7 +530,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
             visualDensity: VisualDensity.compact,
             textStyle: const TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 14, // increased from 13
+              fontSize: 15, // increased from 14
             ),
           ),
           child: Text(l10n.loginCreateAccount),
@@ -598,7 +598,7 @@ class _BrandRow extends StatelessWidget {
           'BEAUTICA',
           style: TextStyle(
             color: Color(0xEBFFFFFF), // white 92%
-            fontSize: 17, // increased from 16
+            fontSize: 18, // increased from 17
             fontWeight: FontWeight.w700,
             letterSpacing: 1.6, // absolute px — kept unchanged
           ),
@@ -623,12 +623,12 @@ class _HeadlineBlock extends StatelessWidget {
   final AppLocalizations l10n;
 
   // login-page.html .headline em { font-family: 'Cormorant Garamond';
-  // font-style: italic; font-weight: 600; font-size: 1.15em (= 1.15 × 28 =
-  // 32.2 ≈ 32); color: var(--accent) #b89a7a }.
+  // font-style: italic; font-weight: 600; font-size: 1.15em (= 1.15 × 30 =
+  // 34.5 ≈ 34); color: var(--accent) #b89a7a }.
   static final _kAccentStyle = GoogleFonts.cormorantGaramond(
     textStyle: const TextStyle(
       color: BrandColors.camel,
-      fontSize: 32, // 1.15× of 28 (increased from 30)
+      fontSize: 34, // 1.15× of 30 (increased from 32)
       fontStyle: FontStyle.italic,
       fontWeight: FontWeight.w600,
       height: 1.22,
@@ -636,12 +636,12 @@ class _HeadlineBlock extends StatelessWidget {
   );
 
   // login-page.html .headline { font-family: 'Manrope'; font-size: 26px;
-  // font-weight: 700; color: #fff; line-height: 1.22 }. Increased to 28 for
-  // better on-device readability (+2 px across the board adjustment).
+  // font-weight: 700; color: #fff; line-height: 1.22 }. Increased to 30 for
+  // better on-device readability (+2 px pass; was 28).
   static final _kHeadlineStyle = GoogleFonts.manrope(
     textStyle: const TextStyle(
       color: Colors.white,
-      fontSize: 28, // increased from 26
+      fontSize: 30, // increased from 28
       fontWeight: FontWeight.w700,
       height: 1.22,
     ),
@@ -672,13 +672,13 @@ class _HeadlineBlock extends StatelessWidget {
         const SizedBox(height: 10),
         // login-page.html .sub-text { font-size: 13px;
         // color: rgba(255,255,255,0.32); line-height: 1.55 }.
-        // Increased to 14 for on-device readability.
+        // Increased to 15 for on-device readability (+2 px pass; was 14).
         Text(
           l10n.loginSubText,
           style: GoogleFonts.manrope(
             textStyle: const TextStyle(
               color: Color(0x52FFFFFF), // white 32%
-              fontSize: 14, // increased from 13
+              fontSize: 15, // increased from 14
               height: 1.55,
             ),
           ),
@@ -843,7 +843,7 @@ class _MochaCtaButton extends StatelessWidget {
                                 label,
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 16, // increased from 15
+                                  fontSize: 17, // increased from 16
                                   fontWeight: FontWeight.w600,
                                   letterSpacing: 0.3,
                                 ),

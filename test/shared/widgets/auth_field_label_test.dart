@@ -30,22 +30,22 @@ void main() {
       expect(find.text('PASSWORD'), findsOneWidget);
     });
 
-    testWidgets('3. applies fontSize 12 to the label text', (tester) async {
+    testWidgets('3. applies fontSize 13 to the label text', (tester) async {
       await tester.pumpWidget(wrap('email'));
       await tester.pumpAndSettle();
 
       final text = tester.widget<Text>(find.text('EMAIL'));
-      expect(text.style?.fontSize, equals(12.0));
+      expect(text.style?.fontSize, equals(13.0));
     });
 
-    testWidgets('4. applies letterSpacing 0.84 to the label text', (
+    testWidgets('4. applies letterSpacing 0.91 to the label text', (
       tester,
     ) async {
       await tester.pumpWidget(wrap('email'));
       await tester.pumpAndSettle();
 
       final text = tester.widget<Text>(find.text('EMAIL'));
-      expect(text.style?.letterSpacing, equals(0.84));
+      expect(text.style?.letterSpacing, equals(0.91));
     });
 
     testWidgets('5. includes a 6 px SizedBox gap below the label', (
