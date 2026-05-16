@@ -747,11 +747,20 @@ class _FieldIcon extends StatelessWidget {
 /// Gradient CTA button matching the HTML `.cta-btn`:
 ///   gradient #4A2E10→#6A4A28→#8A6840, height 52px, radius 14px, mocha glow.
 ///
-/// Uses [ElevatedButton] with a transparent background so that the gradient
-/// [Ink] decoration is visible. The [Key] is placed on the [ElevatedButton]
-/// so that `tester.widget<ElevatedButton>(find.byKey(...))` in tests continues
-/// to work. The outer [GestureDetector] + [AnimatedScale] provides the 0.97
-/// press-feedback without interfering with the button's semantics.
+/// Uses [DecoratedBox] → [ClipRRect] → [Material] (transparent) → [InkWell]
+/// instead of [ElevatedButton]. This pattern is required for Android Impeller
+/// (Flutter 3.22+): [ElevatedButton] creates its own composited [Material]
+/// layer that sits above any [Ink] gradient placed outside it, making the
+/// gradient invisible on device. [Material.transparency] has no competing
+/// paint layer, so the [DecoratedBox] gradient is always visible.
+///
+/// The gradient is rendered unconditionally in all states — idle, loading, and
+/// when [onPressed] is null (form invalid / no role selected). The design has
+/// no disabled visual state; a null [onPressed] makes the button non-tappable
+/// but keeps the filled mocha look.
+///
+/// The [Key] is placed on the outermost [GestureDetector] so that
+/// `find.byKey(...)` resolves regardless of the inner widget type.
 class _MochaCtaButton extends StatelessWidget {
   const _MochaCtaButton({
     this.buttonKey,
@@ -764,10 +773,8 @@ class _MochaCtaButton extends StatelessWidget {
     required this.label,
   });
 
-  /// Key forwarded to the inner [ElevatedButton] — allows tests to locate and
-  /// cast the button via `tester.widget<ElevatedButton>(find.byKey(...))`.
-  /// The outer [_MochaCtaButton] wrapper widget is intentionally keyless so
-  /// that `find.byKey` returns exactly one result.
+  /// Key placed on the outermost [GestureDetector] — tests locate the button
+  /// via `find.byKey(...)` without needing to cast to a specific button type.
   final Key? buttonKey;
   final VoidCallback? onPressed;
   final VoidCallback onTapDown;
@@ -777,75 +784,74 @@ class _MochaCtaButton extends StatelessWidget {
   final bool isLoading;
   final String label;
 
-  // Static ElevatedButton style — transparent bg so Ink gradient shows.
-  static final _kButtonStyle = ElevatedButton.styleFrom(
-    backgroundColor: Colors.transparent,
-    foregroundColor: Colors.white,
-    disabledBackgroundColor: const Color(0xFF3A2810),
-    disabledForegroundColor: const Color(0x80FFFFFF),
-    minimumSize: const Size(double.infinity, 52),
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.all(Radius.circular(14)),
-    ),
-    elevation: 0,
-    shadowColor: Colors.transparent,
-    padding: EdgeInsets.zero,
-  );
+  // CTA border radius — 14px per login-page.html `.cta-btn { border-radius: 14px }`.
+  static const _kCtaRadius = BorderRadius.all(Radius.circular(14));
 
+  // Gradient decoration applied unconditionally — no onPressed guard.
   static const _kGradientDecoration = BoxDecoration(
     gradient: _kCtaGradient,
-    borderRadius: BorderRadius.all(Radius.circular(14)),
+    borderRadius: _kCtaRadius,
     boxShadow: _kCtaShadow,
   );
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      key: buttonKey,
       onTapDown: (_) => onTapDown(),
       onTapUp: (_) => onTapUp(),
       onTapCancel: onTapCancel,
       child: AnimatedScale(
         scale: isPressed ? 0.97 : 1.0,
         duration: const Duration(milliseconds: 100),
-        child: Ink(
-          decoration: onPressed != null
-              ? _kGradientDecoration
-              : const BoxDecoration(),
-          child: ElevatedButton(
-            key: buttonKey,
-            onPressed: onPressed,
-            style: _kButtonStyle,
-            child: isLoading
-                ? const SizedBox(
-                    width: AppSpacing.md,
-                    height: AppSpacing.md,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: BrandColors.cream,
-                    ),
-                  )
-                // login-page.html .cta-btn { display: flex; gap: 8px } with a
-                // trailing right-arrow SVG (path M4 9h10M9 4l5 5-5 5).
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        label,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      const Icon(
-                        Icons.arrow_forward,
-                        color: Colors.white,
-                        size: 18,
-                      ),
-                    ],
+        // DecoratedBox paints the gradient on its own layer — Impeller sees it.
+        child: DecoratedBox(
+          decoration: _kGradientDecoration,
+          child: ClipRRect(
+            borderRadius: _kCtaRadius,
+            // MaterialType.transparency: no competing paint layer so the
+            // DecoratedBox gradient above is never occluded.
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                onTap: onPressed,
+                splashColor: Colors.white.withValues(alpha: 0.08),
+                highlightColor: Colors.white.withValues(alpha: 0.04),
+                child: SizedBox(
+                  height: 52,
+                  width: double.infinity,
+                  child: Align(
+                    child: isLoading
+                        ? const CircularProgressIndicator(
+                            color: BrandColors.cream,
+                            strokeWidth: 2,
+                          )
+                        // login-page.html .cta-btn { display: flex; gap: 8px }
+                        // with a trailing right-arrow SVG.
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                label,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Icon(
+                                Icons.arrow_forward,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                            ],
+                          ),
                   ),
+                ),
+              ),
+            ),
           ),
         ),
       ),

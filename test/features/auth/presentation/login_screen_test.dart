@@ -188,10 +188,15 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      final button = tester.widget<ElevatedButton>(
-        find.byKey(const Key('btn-submit-login')),
+      // The CTA is now DecoratedBox → ClipRRect → Material → InkWell (Impeller
+      // fix). The Key is on the outer GestureDetector; find InkWell underneath.
+      final inkWell = tester.widget<InkWell>(
+        find.descendant(
+          of: find.byKey(const Key('btn-submit-login')),
+          matching: find.byType(InkWell),
+        ),
       );
-      expect(button.onPressed, isNull);
+      expect(inkWell.onTap, isNull);
     });
     // -----------------------------------------------------------------------
     // Test 3b — While loading → CTA button shows CircularProgressIndicator

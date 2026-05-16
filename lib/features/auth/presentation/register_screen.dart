@@ -1481,9 +1481,19 @@ class _LoginLinkRow extends StatelessWidget {
 /// .cta-btn { background: var(--cta-grad); height:52px; border-radius:14px;
 /// display:flex; gap:8px } + a trailing right-arrow SVG (M4 9h10M9 4l5 5-5 5).
 ///
+/// Uses [DecoratedBox] → [ClipRRect] → [Material] (transparent) → [InkWell]
+/// instead of [ElevatedButton]. This pattern is required for Android Impeller
+/// (Flutter 3.22+): [ElevatedButton] creates its own composited [Material]
+/// layer that sits above any [Ink] gradient placed outside it, making the
+/// gradient invisible on device. [Material.transparency] has no competing
+/// paint layer, so the [DecoratedBox] gradient is always visible.
+///
 /// The gradient is ALWAYS rendered (the design has no disabled/empty state).
 /// When [onPressed] is null the button is non-tappable but keeps the filled
 /// mocha look per parity directive — it must not look disabled.
+///
+/// The [Key] is placed on the outermost [GestureDetector] so that
+/// `find.byKey(...)` resolves regardless of the inner widget type.
 class _MochaCtaButton extends StatelessWidget {
   const _MochaCtaButton({
     this.buttonKey,
@@ -1496,6 +1506,8 @@ class _MochaCtaButton extends StatelessWidget {
     required this.label,
   });
 
+  /// Key placed on the outermost [GestureDetector] — tests locate the button
+  /// via `find.byKey(...)` without needing to cast to a specific button type.
   final Key? buttonKey;
   final VoidCallback? onPressed;
   final VoidCallback onTapDown;
@@ -1505,20 +1517,7 @@ class _MochaCtaButton extends StatelessWidget {
   final bool isLoading;
   final String label;
 
-  static final _kButtonStyle = ElevatedButton.styleFrom(
-    backgroundColor: Colors.transparent,
-    foregroundColor: Colors.white,
-    // Keep the filled look even when non-interactive (no disabled state in
-    // the design).
-    disabledBackgroundColor: Colors.transparent,
-    disabledForegroundColor: Colors.white,
-    minimumSize: const Size(double.infinity, 52),
-    shape: const RoundedRectangleBorder(borderRadius: _kCtaRadius),
-    elevation: 0,
-    shadowColor: Colors.transparent,
-    padding: EdgeInsets.zero,
-  );
-
+  // Gradient decoration applied unconditionally — no onPressed guard.
   static const _kGradientDecoration = BoxDecoration(
     gradient: _kCtaGradient,
     borderRadius: _kCtaRadius,
@@ -1528,49 +1527,60 @@ class _MochaCtaButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      key: buttonKey,
       onTapDown: (_) => onTapDown(),
       onTapUp: (_) => onTapUp(),
       onTapCancel: onTapCancel,
       child: AnimatedScale(
         scale: isPressed ? 0.97 : 1.0,
         duration: const Duration(milliseconds: 100),
-        child: Ink(
-          // ALWAYS the gradient — no empty BoxDecoration fallback.
+        // DecoratedBox paints the gradient on its own layer — Impeller sees it.
+        child: DecoratedBox(
           decoration: _kGradientDecoration,
-          child: ElevatedButton(
-            key: buttonKey,
-            onPressed: onPressed,
-            style: _kButtonStyle,
-            child: isLoading
-                ? const SizedBox(
-                    width: AppSpacing.md,
-                    height: AppSpacing.md,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: BrandColors.cream,
-                    ),
-                  )
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        label,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.3,
-                        ),
-                      ),
-                      // .cta-btn { gap: 8px } + trailing arrow SVG.
-                      const SizedBox(width: 8),
-                      const Icon(
-                        Icons.arrow_forward,
-                        color: Colors.white,
-                        size: 18,
-                      ),
-                    ],
+          child: ClipRRect(
+            borderRadius: _kCtaRadius,
+            // MaterialType.transparency: no competing paint layer so the
+            // DecoratedBox gradient above is never occluded.
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                onTap: onPressed,
+                splashColor: Colors.white.withValues(alpha: 0.08),
+                highlightColor: Colors.white.withValues(alpha: 0.04),
+                child: SizedBox(
+                  height: 52,
+                  width: double.infinity,
+                  child: Align(
+                    child: isLoading
+                        ? const CircularProgressIndicator(
+                            color: BrandColors.cream,
+                            strokeWidth: 2,
+                          )
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                label,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                              // .cta-btn { gap: 8px } + trailing arrow SVG.
+                              const SizedBox(width: 8),
+                              const Icon(
+                                Icons.arrow_forward,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                            ],
+                          ),
                   ),
+                ),
+              ),
+            ),
           ),
         ),
       ),

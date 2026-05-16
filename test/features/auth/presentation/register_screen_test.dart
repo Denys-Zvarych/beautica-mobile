@@ -365,11 +365,16 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('btn-submit-register')));
       await tester.pump();
 
-      final submitButton = tester.widget<ElevatedButton>(
-        find.byKey(const Key('btn-submit-register')),
+      // The CTA is now DecoratedBox → ClipRRect → Material → InkWell (Impeller
+      // fix). The Key is on the outer GestureDetector; find InkWell underneath.
+      final submitButton = tester.widget<InkWell>(
+        find.descendant(
+          of: find.byKey(const Key('btn-submit-register')),
+          matching: find.byType(InkWell),
+        ),
       );
       expect(
-        submitButton.onPressed,
+        submitButton.onTap,
         isNull,
         reason: 'Submit must be disabled while authProvider is loading',
       );
