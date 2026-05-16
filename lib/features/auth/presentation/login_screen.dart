@@ -454,7 +454,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                 ),
                                 textStyle: const TextStyle(
                                   fontSize: 14, // increased from 13
-                                  fontWeight: FontWeight.w500,
+                                  fontWeight: FontWeight.w400,
                                   letterSpacing: 0.02,
                                 ),
                               ),
@@ -529,7 +529,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             visualDensity: VisualDensity.compact,
             textStyle: const TextStyle(
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w500,
               fontSize: 15, // increased from 14
             ),
           ),
@@ -625,12 +625,14 @@ class _HeadlineBlock extends StatelessWidget {
   // login-page.html .headline em { font-family: 'Cormorant Garamond';
   // font-style: italic; font-weight: 600; font-size: 1.15em (= 1.15 × 30 =
   // 34.5 ≈ 34); color: var(--accent) #b89a7a }.
+  // Weight set to w400 — the italic Cormorant Garamond face has sufficient
+  // visual presence at regular weight; bold italic competes with the headline.
   static final _kAccentStyle = GoogleFonts.cormorantGaramond(
     textStyle: const TextStyle(
       color: BrandColors.camel,
       fontSize: 34, // 1.15× of 30 (increased from 32)
       fontStyle: FontStyle.italic,
-      fontWeight: FontWeight.w600,
+      fontWeight: FontWeight.w400,
       height: 1.22,
     ),
   );
@@ -844,7 +846,7 @@ class _MochaCtaButton extends StatelessWidget {
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 17, // increased from 16
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w500,
                                   letterSpacing: 0.3,
                                 ),
                               ),

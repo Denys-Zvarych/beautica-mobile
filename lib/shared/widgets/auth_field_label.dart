@@ -30,14 +30,16 @@ class AuthFieldLabel extends StatelessWidget {
 
   final String text;
 
-  /// fontSize 13, w500, letterSpacing 0.07 * 13 = 0.91, white 42%.
+  /// fontSize 13, w400, letterSpacing 0.07 * 13 = 0.91, white 42%.
   /// Increased from 10.5 to 12, then to 13 for on-device readability (+2 px pass).
+  /// fontWeight reduced from w500 to w400 — uppercase small label at this size
+  /// reads clearly at regular weight without adding visual density.
   /// Hoisted to a static const per the perf convention (heavy-ish TextStyle
   /// reused on every field on every auth screen).
   static const TextStyle _kLabelStyle = TextStyle(
     color: Color(0x6BFFFFFF), // white ~42%
     fontSize: 13, // increased from 12
-    fontWeight: FontWeight.w500,
+    fontWeight: FontWeight.w400,
     letterSpacing: 0.91, // 0.07em × 13 = 0.91 (was 0.84 at 12)
   );
 
