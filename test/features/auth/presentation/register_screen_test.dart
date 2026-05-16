@@ -1,49 +1,75 @@
-// Phase 2.6 — Widget tests for RegisterScreen (universal 2-step flow).
+// Phase 2.x — Widget tests for RegisterScreen (single-screen parity rebuild).
+//
+// SOURCE OF TRUTH: docs/signup-designs/role-selection-page.html and
+// docs/signup-designs/sign-up-page.html. The intentionally-removed 2-step
+// credentials→details flow no longer exists; the approved design is:
+//
+//   View 0 — Role selection: three glassmorphism role cards. Tapping a card
+//            ONLY selects it (does NOT advance). The always-filled
+//            "Продовжити" CTA (btn-continue-role) advances to the details
+//            view. btn-go-to-login-from-intent navigates to /login.
+//   View 1 — Registration details: a SINGLE screen with every field
+//            (firstName, lastName, email, phone, password; salon owners also
+//            get businessName + address) on one screen. btn-submit-register
+//            submits; btn-back-step returns to the role picker preserving
+//            entered data; btn-go-to-login navigates to /login.
+//
+// Server ValidationFailure(field) surfaces inline under the matching field on
+// the SAME single screen (the screen does NOT retreat anywhere — that 2-step
+// behaviour was removed). NetworkFailure → error SnackBar.
 //
 // Tests use a minimal GoRouter (initial route = /register → RegisterScreen).
 //
-// Registration flow:
-//   Step 0 — Intent picker (three role cards).
-//   Step 1 — Credentials: email + password (all roles).
-//   Step 2 — Details: role-specific fields + phone (all roles).
+// Old-case → new-single-screen mapping (auditable coverage trace):
+//   1  kept       — role cards render, no register call yet
+//   2  translated — card tap selects only; CTA advances to details screen
+//   3  kept       — IM full flow → register(role=independentMaster) + args
+//   4  translated — ValidationFailure(email) shows inline under email field
+//                    on the SINGLE screen (was: under email field in step 2)
+//   5  translated — submit/CTA disabled during AsyncLoading (single screen)
+//   6  kept       — empty firstName → errNameRequired
+//   7  kept       — btn-go-to-login present on the details screen
+//   8  kept       — btn-go-to-login navigates to /login
+//   9  dropped    — "tap selected badge resets to step 0": no badge in the
+//                    single-screen design; the role-reset affordance is now
+//                    btn-back-step (covered by new case 20)
+//   10 kept       — salonOwner: businessName+address+phone on one screen,
+//                    submit → register(role=salonOwner)
+//   11 kept       — btn-go-to-login-from-intent navigates to /login
+//   12 kept       — field-businessName absent for independentMaster
+//   13 kept       — field-businessName present for salonOwner
+//   14 kept       — blank businessName blocks register (salonOwner)
+//   15 kept       — IM submit passes null businessName
+//   16 kept       — NetworkFailure (salonOwner) → SnackBar
+//   17 translated — initial mount: no role card selected (Icons.check absent);
+//                    tapping a card shows exactly one Icons.check (selection
+//                    is now in-place on the role picker, no badge round-trip)
+//   18 kept       — malformed phone → errPhoneInvalidFormat
+//   19 kept       — non-digit phone → phone validation error
+//   20 translated — btn-back-step returns to role picker, email preserved
+//                    (was: btn-back-step returns to step 1)
+//   21 kept       — IM details screen shows firstName+lastName+phone
+//   22 kept       — phone formatter: 10 digits → +380 67 123 45 67
+//   23 kept       — empty phone → errPhoneRequired
+//   24 kept       — btn-submit-register is the unified submit key
+//   25 translated — ValidationFailure(email) shows inline under email field,
+//                    screen STAYS on the single details screen (was: retreats
+//                    to step 1 — that flow is removed)
+//   26 kept       — phone "380671234567" → +380 67 123 45 67
+//   27 kept       — 15-digit phone clamped to 13 raw digits
+//   28 kept       — client full flow → register(role=client)
+//   29 kept       — autovalidateMode inline email error while typing
+//   30 kept       — salon empty address → errAddressRequired, blocks submit
+//   31 translated — ValidationFailure(password) shows inline under password
+//                    field, screen STAYS on the single screen (was: retreats
+//                    to step 1)
+//   32 dropped    — "step indicator shows step 2 active": the progress row is
+//                    display-only (step 1 active, 2/3 always inactive — future
+//                    phases); there is no step-2-active state to assert. Its
+//                    presence on the details screen is covered by case 21's
+//                    sibling assertions and case 2.
 //
-// Helpers:
-//   _selectIntent()   — taps the independentMaster card → Step 1 → Step 2.
-//   _advanceToStep2() — advances from step 1 to step 2 via btn-next-step.
-//   _fillValidForm()  — fills all step-2 fields for IM/client.
-//
-// Covered scenarios:
-//   1.  Step 0: three intent cards render without error.
-//   2.  Step 0 → Step 1: tapping a card shows credentials form.
-//   3.  Step 1 → Step 2 → submit: register called with correct args incl. role.
-//   4.  Step 1 (email validation): inline email error appears on interaction.
-//   5.  btn-submit-register disabled during AsyncLoading.
-//   6.  Step 2: empty firstName shows errNameRequired.
-//   7.  btn-go-to-login key exists in step 2.
-//   8.  btn-go-to-login navigates to /login.
-//   9.  Tapping the selected badge in step 1 resets to intent picker.
-//  10.  salonOwner flow: step 1 email+password → step 2 businessName+address+phone.
-//  11.  btn-go-to-login-from-intent (Step 0) navigates to /login.
-//  12.  field-businessName is absent in step 2 for independentMaster.
-//  13.  field-businessName IS present in step 2 for salonOwner.
-//  14.  Blank businessName blocks Next in salon step 2.
-//  15.  independentMaster submit passes null businessName to repo.
-//  16.  NetworkFailure during salonOwner register shows SnackBar.
-//  17.  On initial mount no intent card has a selected indicator.
-//  18.  Phone longer than 20 chars shows errPhoneTooLong (via format mismatch).
-//  19.  Phone with invalid chars shows errPhoneInvalidFormat.
-//  20.  btn-back-step returns to step 1 with email preserved.
-//  21.  IM/client step 2 shows firstName + lastName + phone fields.
-//  22.  Phone field formats input to Ukrainian mask.
-//  23.  Empty phone shows errPhoneRequired.
-//  24.  btn-submit-register key is unified (not btn-salon-submit-register).
-//  25.  (HIGH) ValidationFailure(email) retreats to step 1; submit gone.
-//  26.  (HIGH) '380...' prefix normalisation formats to +380 67 123 45 67.
-//  27.  (HIGH) 15-digit input clamped at 13 raw digits by formatter.
-//  28.  (MEDIUM) Client role full flow sends role=UserRole.client to repo.
-//  29.  (MEDIUM) autovalidateMode shows inline email error while typing.
-//  30.  (MEDIUM) Salon empty address shows errAddressRequired, blocks submit.
-//  31.  (HIGH) ValidationFailure(password) retreats to step 1.
+// All user-visible strings go through AppLocalizations (UA primary).
 
 import 'dart:async';
 
@@ -106,17 +132,31 @@ Widget _buildApp({
   ),
 );
 
-/// Taps the first intent card (independentMaster) to advance from step 0 to
-/// step 1 (credentials form).
-Future<void> _selectIntent(WidgetTester tester) async {
-  final l10n = lookupAppLocalizations(const Locale('uk'));
-  await tester.tap(find.text(l10n.intentIndependentTitle).first);
+/// Selects a role card by its title and presses the always-filled
+/// "Продовжити" CTA (btn-continue-role) to advance to the single-screen
+/// details form. Tapping a card alone does NOT advance — the design requires
+/// the explicit CTA.
+Future<void> _selectRoleAndContinue(
+  WidgetTester tester,
+  String roleTitle,
+) async {
+  await tester.ensureVisible(find.text(roleTitle).first);
+  await tester.tap(find.text(roleTitle).first);
+  await tester.pumpAndSettle();
+  await tester.ensureVisible(find.byKey(const Key('btn-continue-role')));
+  await tester.tap(find.byKey(const Key('btn-continue-role')));
   await tester.pumpAndSettle();
 }
 
-/// Advances from step 1 to step 2 by filling email + password and tapping
-/// btn-next-step.  Must be called after [_selectIntent].
-Future<void> _advanceToStep2(WidgetTester tester) async {
+/// Independent-master shortcut for the most common path.
+Future<void> _gotoIndependentDetails(WidgetTester tester) async {
+  final l10n = lookupAppLocalizations(const Locale('uk'));
+  await _selectRoleAndContinue(tester, l10n.intentIndependentTitle);
+}
+
+/// Fills the shared IM/client required fields on the single details screen
+/// and scrolls the submit button into view.
+Future<void> _fillValidImForm(WidgetTester tester) async {
   await tester.enterText(
     find.byKey(const Key('field-email')),
     'ivan@beautica.test',
@@ -125,17 +165,8 @@ Future<void> _advanceToStep2(WidgetTester tester) async {
     find.byKey(const Key('field-password')),
     'SecurePass1',
   );
-  await tester.ensureVisible(find.byKey(const Key('btn-next-step')));
-  await tester.tap(find.byKey(const Key('btn-next-step')));
-  await tester.pumpAndSettle();
-}
-
-/// Fills all required step-2 form fields (IM/client) and scrolls submit into
-/// view.  Must be called after [_advanceToStep2].
-Future<void> _fillValidForm(WidgetTester tester) async {
   await tester.enterText(find.byKey(const Key('field-firstName')), 'Іван');
   await tester.enterText(find.byKey(const Key('field-lastName')), 'Петренко');
-  // Enter a valid Ukrainian number (digits only — formatter will add mask).
   await tester.enterText(find.byKey(const Key('field-phone')), '0671234567');
   await tester.ensureVisible(find.byKey(const Key('btn-submit-register')));
 }
@@ -145,12 +176,42 @@ Future<void> _fillValidForm(WidgetTester tester) async {
 // ---------------------------------------------------------------------------
 
 void main() {
-  group('RegisterScreen', () {
+  group('RegisterScreen (single-screen)', () {
     // -----------------------------------------------------------------------
-    // Test 1 — Step 0: three intent cards render without error
+    // 1 (kept) — Role picker: three cards render, no register call yet
+    // -----------------------------------------------------------------------
+    testWidgets('1. three role cards render and no register call yet', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        _buildApp(router: router, repo: repo, storage: storage),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(find.text(l10n.intentIndependentTitle), findsOneWidget);
+      expect(find.text(l10n.intentSalonTitle), findsOneWidget);
+      expect(find.text(l10n.intentClientTitle), findsOneWidget);
+
+      // The single-screen form fields are NOT visible until the CTA advances.
+      expect(find.byKey(const Key('field-email')), findsNothing);
+      expect(find.byKey(const Key('field-password')), findsNothing);
+      expect(find.byKey(const Key('btn-submit-register')), findsNothing);
+
+      expect(repo.registerCalls, isEmpty);
+    });
+
+    // -----------------------------------------------------------------------
+    // 2 (translated) — Card tap selects only; CTA advances to details screen
     // -----------------------------------------------------------------------
     testWidgets(
-      '1. Step 0: three intent cards render and no register call yet',
+      '2. tapping a role card selects only; btn-continue-role advances to the '
+      'single details screen',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -164,57 +225,39 @@ void main() {
 
         final l10n = lookupAppLocalizations(const Locale('uk'));
 
-        // All three intent card titles must be present.
-        expect(find.text(l10n.intentIndependentTitle), findsOneWidget);
-        expect(find.text(l10n.intentSalonTitle), findsOneWidget);
-        expect(find.text(l10n.intentClientTitle), findsOneWidget);
-
-        // Form fields are NOT visible in step 0.
-        expect(find.byKey(const Key('field-email')), findsNothing);
-        expect(find.byKey(const Key('field-password')), findsNothing);
-
-        // No register call without form submission.
-        expect(repo.registerCalls, isEmpty);
-      },
-    );
-
-    // -----------------------------------------------------------------------
-    // Test 2 — Step 0 → Step 1: tapping a card shows credentials form
-    // -----------------------------------------------------------------------
-    testWidgets(
-      '2. tapping an intent card transitions to step 1 (credentials form visible)',
-      (tester) async {
-        final repo = FakeAuthRepository();
-        final storage = FakeSecureStorage();
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, repo: repo, storage: storage),
+        // Tapping the card MUST NOT advance — fields stay hidden, picker stays.
+        await tester.tap(find.text(l10n.intentIndependentTitle).first);
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('field-email')),
+          findsNothing,
+          reason: 'Card tap selects only — it must not auto-advance',
         );
+        expect(find.text(l10n.intentSalonTitle), findsOneWidget);
+
+        // The explicit CTA advances to the single details screen.
+        await tester.ensureVisible(find.byKey(const Key('btn-continue-role')));
+        await tester.tap(find.byKey(const Key('btn-continue-role')));
         await tester.pumpAndSettle();
 
-        await _selectIntent(tester);
-
-        // Step 1: email + password + next button must be visible.
+        // Every field is present on ONE screen — no step navigation.
         expect(find.byKey(const Key('field-email')), findsOneWidget);
         expect(find.byKey(const Key('field-password')), findsOneWidget);
-        expect(find.byKey(const Key('btn-next-step')), findsOneWidget);
+        expect(find.byKey(const Key('field-firstName')), findsOneWidget);
+        expect(find.byKey(const Key('field-lastName')), findsOneWidget);
+        expect(find.byKey(const Key('field-phone')), findsOneWidget);
+        expect(find.byKey(const Key('btn-submit-register')), findsOneWidget);
 
-        // Step 2 fields must NOT be visible yet.
-        expect(find.byKey(const Key('field-firstName')), findsNothing);
-
-        // Step 0 cards must no longer be present.
-        final l10n = lookupAppLocalizations(const Locale('uk'));
+        // The role picker is no longer shown.
         expect(find.text(l10n.intentSalonTitle), findsNothing);
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 3 — Full flow → register called with correct args + role
+    // 3 (kept) — IM full flow → register called with correct args incl. role
     // -----------------------------------------------------------------------
     testWidgets(
-      '3. full flow → register called with correct args incl. role=independentMaster',
+      '3. IM full flow → register called with args incl. role=independentMaster',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -226,9 +269,8 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await _selectIntent(tester);
-        await _advanceToStep2(tester);
-        await _fillValidForm(tester);
+        await _gotoIndependentDetails(tester);
+        await _fillValidImForm(tester);
         await tester.tap(find.byKey(const Key('btn-submit-register')));
         await tester.pumpAndSettle();
 
@@ -239,16 +281,17 @@ void main() {
         expect(call.firstName, equals('Іван'));
         expect(call.lastName, equals('Петренко'));
         expect(call.role, equals(UserRole.independentMaster));
-        // Phone must be non-null (required for all roles — Change 7).
         expect(call.phone, isNotNull);
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 4 — ValidationFailure from server → error shown under email field
+    // 4 (translated) — ValidationFailure(email) → inline error under the email
+    //                  field on the SINGLE screen
     // -----------------------------------------------------------------------
     testWidgets(
-      '4. ValidationFailure with fieldErrors.email → error shown under email field',
+      '4. ValidationFailure(email) shows "already in use" inline on the single '
+      'details screen',
       (tester) async {
         final repo = FakeAuthRepository();
         repo.registerResult = const ValidationFailure(
@@ -263,22 +306,25 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await _selectIntent(tester);
-        await _advanceToStep2(tester);
-        await _fillValidForm(tester);
+        await _gotoIndependentDetails(tester);
+        await _fillValidImForm(tester);
         await tester.tap(find.byKey(const Key('btn-submit-register')));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
         await tester.pumpAndSettle();
 
+        // Error visible inline; screen stays on the single details screen
+        // (the email field is still present — no step retreat).
         expect(find.text('already in use'), findsOneWidget);
+        expect(find.byKey(const Key('field-email')), findsOneWidget);
+        expect(find.byKey(const Key('btn-submit-register')), findsOneWidget);
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 5 — Submit button is disabled during AsyncLoading
+    // 5 (translated) — submit button disabled during AsyncLoading
     // -----------------------------------------------------------------------
-    testWidgets('5. submit button is disabled during AsyncLoading', (
+    testWidgets('5. btn-submit-register is disabled during AsyncLoading', (
       tester,
     ) async {
       final storage = FakeSecureStorage();
@@ -303,27 +349,34 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      // Tap the intent card to reach step 1.
+      // Reach the single details screen (role select + CTA). pumpAndSettle
+      // is unusable here (the loading notifier never completes) so scroll the
+      // CTA into view manually before tapping or the hit-test misses on the
+      // 800x600 test viewport.
       final l10n = lookupAppLocalizations(const Locale('uk'));
       await tester.tap(find.text(l10n.intentIndependentTitle).first);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
+      await tester.ensureVisible(find.byKey(const Key('btn-continue-role')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-continue-role')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.ensureVisible(find.byKey(const Key('btn-submit-register')));
+      await tester.pump();
 
-      // Step 1 is visible — btn-next-step should be present but assert on
-      // btn-submit-register being absent at this stage (it's in step 2).
-      // The Loading state disables btn-next-step as well.
-      final nextButton = tester.widget<ElevatedButton>(
-        find.byKey(const Key('btn-next-step')),
+      final submitButton = tester.widget<ElevatedButton>(
+        find.byKey(const Key('btn-submit-register')),
       );
       expect(
-        nextButton.onPressed,
+        submitButton.onPressed,
         isNull,
-        reason: 'Next button must be disabled while authProvider is loading',
+        reason: 'Submit must be disabled while authProvider is loading',
       );
     });
 
     // -----------------------------------------------------------------------
-    // Test 6 — Step 2: empty firstName shows errNameRequired
+    // 6 (kept) — empty firstName shows errNameRequired
     // -----------------------------------------------------------------------
     testWidgets('6. empty firstName shows errNameRequired error', (
       tester,
@@ -338,11 +391,17 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Must advance to step 2 first — firstName is in step 2 now (Change 6).
-      await _selectIntent(tester);
-      await _advanceToStep2(tester);
+      await _gotoIndependentDetails(tester);
 
-      // Fill lastName + phone but intentionally leave firstName blank.
+      // Fill everything except firstName.
+      await tester.enterText(
+        find.byKey(const Key('field-email')),
+        'ivan@beautica.test',
+      );
+      await tester.enterText(
+        find.byKey(const Key('field-password')),
+        'SecurePass1',
+      );
       await tester.enterText(find.byKey(const Key('field-lastName')), 'Коваль');
       await tester.enterText(
         find.byKey(const Key('field-phone')),
@@ -356,16 +415,16 @@ void main() {
       final l10n = AppLocalizations.of(
         tester.element(find.byKey(const Key('field-firstName'))),
       );
-      expect(find.text(l10n.errNameRequired), findsOneWidget);
-
-      // No register call should have been made.
+      expect(find.text(l10n.errNameRequired), findsWidgets);
       expect(repo.registerCalls, isEmpty);
     });
 
     // -----------------------------------------------------------------------
-    // Test 7 — btn-go-to-login key exists in step 2
+    // 7 (kept) — btn-go-to-login key exists on the details screen
     // -----------------------------------------------------------------------
-    testWidgets('7. btn-go-to-login key is present in step 2', (tester) async {
+    testWidgets('7. btn-go-to-login is present on the single details screen', (
+      tester,
+    ) async {
       final repo = FakeAuthRepository();
       final storage = FakeSecureStorage();
       final router = _makeRouter();
@@ -376,23 +435,20 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // In step 0 the login link uses a different key.
+      // Role picker uses the from-intent key.
       expect(
         find.byKey(const Key('btn-go-to-login-from-intent')),
         findsOneWidget,
       );
 
-      // Advance through both steps.
-      await _selectIntent(tester);
-      await _advanceToStep2(tester);
+      await _gotoIndependentDetails(tester);
 
-      // btn-go-to-login is the step-2 key (below the back button).
       await tester.ensureVisible(find.byKey(const Key('btn-go-to-login')));
       expect(find.byKey(const Key('btn-go-to-login')), findsOneWidget);
     });
 
     // -----------------------------------------------------------------------
-    // Test 8 — tapping btn-go-to-login navigates to /login
+    // 8 (kept) — tapping btn-go-to-login navigates to /login
     // -----------------------------------------------------------------------
     testWidgets('8. tapping btn-go-to-login navigates to /login', (
       tester,
@@ -403,23 +459,11 @@ void main() {
       addTearDown(router.dispose);
 
       await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            authRepositoryProvider.overrideWith((_) => repo),
-            secureStorageProvider.overrideWith((_) => storage),
-          ],
-          child: MaterialApp.router(
-            routerConfig: router,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            locale: const Locale('uk'),
-          ),
-        ),
+        _buildApp(router: router, repo: repo, storage: storage),
       );
       await tester.pumpAndSettle();
 
-      await _selectIntent(tester);
-      await _advanceToStep2(tester);
+      await _gotoIndependentDetails(tester);
 
       await tester.ensureVisible(find.byKey(const Key('btn-go-to-login')));
       await tester.tap(find.byKey(const Key('btn-go-to-login')));
@@ -429,43 +473,12 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 9 — tapping the badge in step 1 resets to intent picker
+    // 10 (kept) — salonOwner: businessName+address+phone on one screen,
+    //             submit → register(role=salonOwner)
     // -----------------------------------------------------------------------
     testWidgets(
-      '9. tapping the selected badge in step 1 resets to step 0 intent picker',
-      (tester) async {
-        final repo = FakeAuthRepository();
-        final storage = FakeSecureStorage();
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, repo: repo, storage: storage),
-        );
-        await tester.pumpAndSettle();
-
-        // Advance to step 1 (credentials form).
-        await _selectIntent(tester);
-        expect(find.byKey(const Key('field-email')), findsOneWidget);
-
-        // Tap the badge to reset to step 0.
-        final l10n = lookupAppLocalizations(const Locale('uk'));
-        final badgeTitleFinder = find.text(l10n.intentIndependentTitle);
-        expect(badgeTitleFinder, findsOneWidget);
-        await tester.tap(badgeTitleFinder);
-        await tester.pumpAndSettle();
-
-        // Back on step 0 — intent cards should be visible again.
-        expect(find.text(l10n.intentSalonTitle), findsOneWidget);
-        expect(find.byKey(const Key('field-email')), findsNothing);
-      },
-    );
-
-    // -----------------------------------------------------------------------
-    // Test 10 — salonOwner flow: step 1 email+password → step 2 details
-    // -----------------------------------------------------------------------
-    testWidgets(
-      '10. salonOwner flow: step 1 is email+password; step 2 has businessName+address+phone',
+      '10. salonOwner: businessName+address+phone on one screen; submit → '
+      'register(role=salonOwner)',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -478,18 +491,23 @@ void main() {
         await tester.pumpAndSettle();
 
         final l10n = lookupAppLocalizations(const Locale('uk'));
+        await _selectRoleAndContinue(tester, l10n.intentSalonTitle);
 
-        // Tap the salonOwner intent card (index 1).
-        await tester.tap(find.text(l10n.intentSalonTitle).first);
-        await tester.pumpAndSettle();
-
-        // Step 1: only email + password visible — no businessName in step 1
-        // (Change 2: businessName moved to step 2).
+        // Salon-specific + shared fields are all on the SAME screen.
+        expect(find.byKey(const Key('field-businessName')), findsOneWidget);
+        expect(find.byKey(const Key('field-address')), findsOneWidget);
         expect(find.byKey(const Key('field-email')), findsOneWidget);
         expect(find.byKey(const Key('field-password')), findsOneWidget);
-        expect(find.byKey(const Key('field-businessName')), findsNothing);
+        expect(find.byKey(const Key('field-phone')), findsOneWidget);
 
-        // Fill step 1 and advance.
+        await tester.enterText(
+          find.byKey(const Key('field-businessName')),
+          'Краса Студія',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-address')),
+          'вул. Хрещатик, 1',
+        );
         await tester.enterText(
           find.byKey(const Key('field-email')),
           'olena@beautica.test',
@@ -498,23 +516,13 @@ void main() {
           find.byKey(const Key('field-password')),
           'StrongPass2',
         );
-        await tester.ensureVisible(find.byKey(const Key('btn-next-step')));
-        await tester.tap(find.byKey(const Key('btn-next-step')));
-        await tester.pumpAndSettle();
-
-        // Step 2 for salon: businessName + address + phone.
-        expect(find.byKey(const Key('field-businessName')), findsOneWidget);
-        expect(find.byKey(const Key('field-address')), findsOneWidget);
-        expect(find.byKey(const Key('field-phone')), findsOneWidget);
-
-        // Fill step 2 and submit.
         await tester.enterText(
-          find.byKey(const Key('field-businessName')),
-          'Краса Студія',
+          find.byKey(const Key('field-firstName')),
+          'Олена',
         );
         await tester.enterText(
-          find.byKey(const Key('field-address')),
-          'вул. Хрещатик, 1',
+          find.byKey(const Key('field-lastName')),
+          'Бойко',
         );
         await tester.enterText(
           find.byKey(const Key('field-phone')),
@@ -527,19 +535,19 @@ void main() {
         await tester.tap(find.byKey(const Key('btn-submit-register')));
         await tester.pumpAndSettle();
 
-        // Exactly one register call with role=salonOwner.
         expect(repo.registerCalls, hasLength(1));
         expect(repo.registerCalls.first.role, equals(UserRole.salonOwner));
         expect(repo.registerCalls.first.email, equals('olena@beautica.test'));
         expect(repo.registerCalls.first.businessName, equals('Краса Студія'));
+        expect(repo.registerCalls.first.address, equals('вул. Хрещатик, 1'));
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 11 — btn-go-to-login-from-intent navigates to /login
+    // 11 (kept) — btn-go-to-login-from-intent navigates to /login
     // -----------------------------------------------------------------------
     testWidgets(
-      '11. btn-go-to-login-from-intent in step 0 navigates to /login',
+      '11. btn-go-to-login-from-intent on the role picker navigates to /login',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -567,10 +575,10 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // Test 12 — field-businessName is absent in step 2 for independentMaster
+    // 12 (kept) — field-businessName absent for independentMaster
     // -----------------------------------------------------------------------
     testWidgets(
-      '12. field-businessName is NOT rendered in step 2 for independentMaster',
+      '12. field-businessName is NOT rendered for independentMaster',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -582,19 +590,18 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await _selectIntent(tester);
-        await _advanceToStep2(tester);
+        await _gotoIndependentDetails(tester);
 
-        // Step 2 for IM shows firstName/lastName/phone — not businessName.
         expect(find.byKey(const Key('field-businessName')), findsNothing);
+        expect(find.byKey(const Key('field-address')), findsNothing);
         expect(find.byKey(const Key('field-firstName')), findsOneWidget);
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 13 — field-businessName IS present in step 2 for salonOwner
+    // 13 (kept) — field-businessName present for salonOwner
     // -----------------------------------------------------------------------
-    testWidgets('13. field-businessName IS rendered in step 2 for salonOwner', (
+    testWidgets('13. field-businessName IS rendered for salonOwner', (
       tester,
     ) async {
       final repo = FakeAuthRepository();
@@ -608,33 +615,17 @@ void main() {
       await tester.pumpAndSettle();
 
       final l10n = lookupAppLocalizations(const Locale('uk'));
+      await _selectRoleAndContinue(tester, l10n.intentSalonTitle);
 
-      // Tap the salonOwner card (index 1).
-      await tester.tap(find.text(l10n.intentSalonTitle).first);
-      await tester.pumpAndSettle();
-
-      // Advance through step 1.
-      await tester.enterText(
-        find.byKey(const Key('field-email')),
-        'olena@beautica.test',
-      );
-      await tester.enterText(
-        find.byKey(const Key('field-password')),
-        'StrongPass2',
-      );
-      await tester.ensureVisible(find.byKey(const Key('btn-next-step')));
-      await tester.tap(find.byKey(const Key('btn-next-step')));
-      await tester.pumpAndSettle();
-
-      // field-businessName must be present in salon step 2.
       expect(find.byKey(const Key('field-businessName')), findsOneWidget);
     });
 
     // -----------------------------------------------------------------------
-    // Test 14 — Blank businessName shows validation error in salon step 2
+    // 14 (kept) — blank businessName blocks register (salonOwner)
     // -----------------------------------------------------------------------
     testWidgets(
-      '14. empty businessName shows validation error and blocks register call for salonOwner',
+      '14. empty businessName shows validation error and blocks register for '
+      'salonOwner',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -647,11 +638,13 @@ void main() {
         await tester.pumpAndSettle();
 
         final l10n = lookupAppLocalizations(const Locale('uk'));
+        await _selectRoleAndContinue(tester, l10n.intentSalonTitle);
 
-        // Navigate to salon step 1 and advance to step 2.
-        await tester.tap(find.text(l10n.intentSalonTitle).first);
-        await tester.pumpAndSettle();
-
+        // Fill everything except businessName.
+        await tester.enterText(
+          find.byKey(const Key('field-address')),
+          'вул. Хрещатик, 1',
+        );
         await tester.enterText(
           find.byKey(const Key('field-email')),
           'olena@beautica.test',
@@ -660,14 +653,13 @@ void main() {
           find.byKey(const Key('field-password')),
           'StrongPass2',
         );
-        await tester.ensureVisible(find.byKey(const Key('btn-next-step')));
-        await tester.tap(find.byKey(const Key('btn-next-step')));
-        await tester.pumpAndSettle();
-
-        // Step 2 is now visible. Fill address + phone but leave businessName blank.
         await tester.enterText(
-          find.byKey(const Key('field-address')),
-          'вул. Хрещатик, 1',
+          find.byKey(const Key('field-firstName')),
+          'Олена',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-lastName')),
+          'Бойко',
         );
         await tester.enterText(
           find.byKey(const Key('field-phone')),
@@ -680,17 +672,17 @@ void main() {
         await tester.tap(find.byKey(const Key('btn-submit-register')));
         await tester.pump();
 
-        // errNameRequired is the validator message for blank businessName.
-        expect(find.text(l10n.errNameRequired), findsOneWidget);
+        // errNameRequired is the businessName validator message.
+        expect(find.text(l10n.errNameRequired), findsWidgets);
         expect(repo.registerCalls, isEmpty);
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 15 — independentMaster submit passes null businessName to repo
+    // 15 (kept) — IM submit passes null businessName to repo
     // -----------------------------------------------------------------------
     testWidgets(
-      '15. independentMaster submit passes null businessName to repo, not empty string',
+      '15. independentMaster submit passes null businessName to repo',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -702,19 +694,19 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await _selectIntent(tester);
-        await _advanceToStep2(tester);
-        await _fillValidForm(tester);
+        await _gotoIndependentDetails(tester);
+        await _fillValidImForm(tester);
         await tester.tap(find.byKey(const Key('btn-submit-register')));
         await tester.pumpAndSettle();
 
         expect(repo.registerCalls, hasLength(1));
         expect(repo.registerCalls.first.businessName, isNull);
+        expect(repo.registerCalls.first.address, isNull);
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 16 — NetworkFailure during salonOwner register shows snackbar
+    // 16 (kept) — NetworkFailure (salonOwner) → error SnackBar
     // -----------------------------------------------------------------------
     testWidgets(
       '16. NetworkFailure during salonOwner register shows error SnackBar',
@@ -731,11 +723,16 @@ void main() {
         await tester.pumpAndSettle();
 
         final l10n = lookupAppLocalizations(const Locale('uk'));
+        await _selectRoleAndContinue(tester, l10n.intentSalonTitle);
 
-        // Navigate to salon step 1 and advance to step 2.
-        await tester.tap(find.text(l10n.intentSalonTitle).first);
-        await tester.pumpAndSettle();
-
+        await tester.enterText(
+          find.byKey(const Key('field-businessName')),
+          'Краса Студія',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-address')),
+          'вул. Хрещатик, 1',
+        );
         await tester.enterText(
           find.byKey(const Key('field-email')),
           'olena@beautica.test',
@@ -744,18 +741,13 @@ void main() {
           find.byKey(const Key('field-password')),
           'StrongPass2',
         );
-        await tester.ensureVisible(find.byKey(const Key('btn-next-step')));
-        await tester.tap(find.byKey(const Key('btn-next-step')));
-        await tester.pumpAndSettle();
-
-        // Fill step 2 fully.
         await tester.enterText(
-          find.byKey(const Key('field-businessName')),
-          'Краса Студія',
+          find.byKey(const Key('field-firstName')),
+          'Олена',
         );
         await tester.enterText(
-          find.byKey(const Key('field-address')),
-          'вул. Хрещатик, 1',
+          find.byKey(const Key('field-lastName')),
+          'Бойко',
         );
         await tester.enterText(
           find.byKey(const Key('field-phone')),
@@ -770,19 +762,18 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
         await tester.pumpAndSettle();
 
-        // NetworkFailure is not a ValidationFailure → must surface as a SnackBar.
+        // NetworkFailure is not a ValidationFailure → surfaces as a SnackBar.
         expect(find.byType(SnackBar), findsOneWidget);
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 17 — on initial mount no intent card has a selected indicator;
-    //           after selecting and resetting back, exactly one checkmark appears.
+    // 17 (translated) — initial mount: no role selected (Icons.check absent);
+    //                   tapping a card shows exactly one Icons.check in place
     // -----------------------------------------------------------------------
     testWidgets(
-      '17. on initial mount no intent card is selected (Icons.check absent); '
-      'after selecting and returning to intent picker, Icons.check appears on '
-      'the previously selected card',
+      '17. no role card selected on mount (Icons.check absent); tapping a card '
+      'shows exactly one Icons.check on the picker',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -794,56 +785,35 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // _selectedRole starts null → no role card checkmark visible yet.
-        // The Warm Mocha redesign uses Icons.check (plain) inside _RoleCard,
-        // not Icons.check_circle.  Neither should be present before any card
-        // is tapped.
+        // _selectedRole starts null → no card checkmark.
         expect(
           find.byIcon(Icons.check),
           findsNothing,
           reason:
               '_selectedRole starts null → no role card is pre-selected → '
-              'Icons.check must not appear in the tree on the intent picker',
+              'Icons.check must not appear on the picker',
         );
 
-        // ── Select a role card (transitions to form view).
-        await _selectIntent(tester); // selects independentMaster
-
-        // The form view shows a _SelectedBadge — tapping it resets to intent
-        // picker while keeping _selectedRole set. This exposes the checkmark
-        // in the previously-selected _RoleCard.
+        // Tapping a card selects it IN PLACE (no badge round-trip in the
+        // single-screen design) → exactly one Icons.check appears.
         final l10n = lookupAppLocalizations(const Locale('uk'));
-        final badgeFinder = find.text(l10n.intentIndependentTitle);
-        expect(
-          badgeFinder,
-          findsOneWidget,
-          reason: 'Selected badge must show the intent title in form view',
-        );
-        await tester.tap(badgeFinder);
+        await tester.tap(find.text(l10n.intentIndependentTitle).first);
         await tester.pumpAndSettle();
 
-        // Back on the intent picker with _selectedRole still set to
-        // independentMaster → exactly one role card shows Icons.check.
         expect(
           find.byIcon(Icons.check),
           findsOneWidget,
           reason:
-              'After returning to intent picker, the previously-selected card '
-              'must display exactly one Icons.check in its checkmark circle',
+              'The tapped role card must display exactly one Icons.check in '
+              'its checkmark circle',
         );
-
-        // Icons.check_circle must never appear — the redesign uses Icons.check.
-        expect(
-          find.byIcon(Icons.check_circle),
-          findsNothing,
-          reason:
-              'The Warm Mocha redesign uses Icons.check, not Icons.check_circle',
-        );
+        // The redesign uses Icons.check, never Icons.check_circle.
+        expect(find.byIcon(Icons.check_circle), findsNothing);
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 18 — phone that does not match Ukrainian mask shows errPhoneInvalidFormat
+    // 18 (kept) — malformed phone shows errPhoneInvalidFormat
     // -----------------------------------------------------------------------
     testWidgets(
       '18. phone that does not match Ukrainian mask shows errPhoneInvalidFormat',
@@ -858,35 +828,25 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final l10n = lookupAppLocalizations(const Locale('uk'));
-
-        // Navigate to salon step 2 (phone present for all roles, use salon path
-        // to also test address field presence).
-        await tester.tap(find.text(l10n.intentSalonTitle).first);
-        await tester.pumpAndSettle();
+        await _gotoIndependentDetails(tester);
 
         await tester.enterText(
           find.byKey(const Key('field-email')),
-          'olena@beautica.test',
+          'ivan@beautica.test',
         );
         await tester.enterText(
           find.byKey(const Key('field-password')),
-          'StrongPass2',
-        );
-        await tester.ensureVisible(find.byKey(const Key('btn-next-step')));
-        await tester.tap(find.byKey(const Key('btn-next-step')));
-        await tester.pumpAndSettle();
-
-        // Fill businessName + address; enter an intentionally malformed phone.
-        await tester.enterText(
-          find.byKey(const Key('field-businessName')),
-          'Краса Студія',
+          'SecurePass1',
         );
         await tester.enterText(
-          find.byKey(const Key('field-address')),
-          'вул. Хрещатик, 1',
+          find.byKey(const Key('field-firstName')),
+          'Іван',
         );
-        // Type only 3 digits — will format as '+380 1' which is too short.
+        await tester.enterText(
+          find.byKey(const Key('field-lastName')),
+          'Петренко',
+        );
+        // 1 digit → '+380 1' which is too short to match the full-number mask.
         await tester.enterText(find.byKey(const Key('field-phone')), '1');
 
         await tester.ensureVisible(
@@ -895,16 +855,17 @@ void main() {
         await tester.tap(find.byKey(const Key('btn-submit-register')));
         await tester.pump();
 
+        final l10n = lookupAppLocalizations(const Locale('uk'));
         expect(find.text(l10n.errPhoneInvalidFormat), findsOneWidget);
         expect(repo.registerCalls, isEmpty);
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 19 — phone with alpha characters shows errPhoneInvalidFormat
+    // 19 (kept) — non-digit phone shows a phone validation error
     // -----------------------------------------------------------------------
     testWidgets(
-      '19. phone with non-digit characters shows errPhoneInvalidFormat',
+      '19. phone with non-digit characters shows a phone validation error',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -916,11 +877,16 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Use IM path — phone is in step 2 for all roles.
-        await _selectIntent(tester);
-        await _advanceToStep2(tester);
+        await _gotoIndependentDetails(tester);
 
-        // Fill valid name fields.
+        await tester.enterText(
+          find.byKey(const Key('field-email')),
+          'ivan@beautica.test',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-password')),
+          'SecurePass1',
+        );
         await tester.enterText(
           find.byKey(const Key('field-firstName')),
           'Іван',
@@ -929,9 +895,7 @@ void main() {
           find.byKey(const Key('field-lastName')),
           'Петренко',
         );
-
-        // Type letters — the formatter strips non-digits so the result is the
-        // '+380 ' prefix only, which will not match the full-number regex.
+        // Letters are stripped by the formatter → result is just the prefix.
         await tester.enterText(
           find.byKey(const Key('field-phone')),
           'notaphone',
@@ -944,8 +908,6 @@ void main() {
         await tester.pump();
 
         final l10n = lookupAppLocalizations(const Locale('uk'));
-        // After stripping all non-digits the formatter produces '+380' or empty,
-        // which triggers either errPhoneRequired or errPhoneInvalidFormat.
         final phoneError = find.textContaining(l10n.errPhoneRequired);
         final formatError = find.textContaining(l10n.errPhoneInvalidFormat);
         expect(
@@ -958,10 +920,12 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // Test 20 — btn-back-step returns to step 1 with email preserved
+    // 20 (translated) — btn-back-step returns to the role picker, email
+    //                   preserved (replaces the removed step-1 back behaviour)
     // -----------------------------------------------------------------------
     testWidgets(
-      '20. btn-back-step returns to step 1 with previously typed email preserved',
+      '20. btn-back-step returns to the role picker; typed email is preserved '
+      'when re-entering the details screen',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -973,70 +937,83 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await _selectIntent(tester);
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        await _selectRoleAndContinue(tester, l10n.intentIndependentTitle);
 
-        // Enter email + password in step 1.
         const testEmail = 'ivan@beautica.test';
         await tester.enterText(find.byKey(const Key('field-email')), testEmail);
-        await tester.enterText(
-          find.byKey(const Key('field-password')),
-          'SecurePass1',
-        );
 
-        // Advance to step 2.
-        await tester.ensureVisible(find.byKey(const Key('btn-next-step')));
-        await tester.tap(find.byKey(const Key('btn-next-step')));
-        await tester.pumpAndSettle();
-
-        // Go back to step 1 via btn-back-step.
+        // Back to the role picker.
         await tester.ensureVisible(find.byKey(const Key('btn-back-step')));
         await tester.tap(find.byKey(const Key('btn-back-step')));
         await tester.pumpAndSettle();
 
-        // Step 1 fields visible again — email must be preserved.
-        expect(find.byKey(const Key('field-email')), findsOneWidget);
+        // Role picker is shown again; the details fields are gone.
+        expect(find.text(l10n.intentSalonTitle), findsOneWidget);
+        expect(find.byKey(const Key('field-email')), findsNothing);
+
+        // Re-enter the details screen — entered data must be preserved
+        // (the controllers are not cleared by the back affordance).
+        await tester.ensureVisible(find.byKey(const Key('btn-continue-role')));
+        await tester.tap(find.byKey(const Key('btn-continue-role')));
+        await tester.pumpAndSettle();
+
         final emailField = tester.widget<TextFormField>(
           find.byKey(const Key('field-email')),
         );
         expect(
           emailField.controller?.text,
           equals(testEmail),
-          reason: 'Going back to step 1 must not clear the email controller',
+          reason:
+              'Returning to the role picker and back must not clear the email '
+              'controller (data is preserved)',
         );
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 21 — IM/client step 2 shows firstName + lastName + phone
+    // 21 (kept) — IM details screen shows firstName + lastName + phone
     // -----------------------------------------------------------------------
-    testWidgets('21. IM step 2 shows firstName, lastName and phone fields', (
-      tester,
-    ) async {
-      final repo = FakeAuthRepository();
-      final storage = FakeSecureStorage();
-      final router = _makeRouter();
-      addTearDown(router.dispose);
+    testWidgets(
+      '21. IM details screen shows firstName, lastName and phone fields',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
 
-      await tester.pumpWidget(
-        _buildApp(router: router, repo: repo, storage: storage),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
 
-      await _selectIntent(tester);
-      await _advanceToStep2(tester);
+        await _gotoIndependentDetails(tester);
 
-      // All three step-2 fields for IM must be present.
-      expect(find.byKey(const Key('field-firstName')), findsOneWidget);
-      expect(find.byKey(const Key('field-lastName')), findsOneWidget);
-      expect(find.byKey(const Key('field-phone')), findsOneWidget);
+        expect(find.byKey(const Key('field-firstName')), findsOneWidget);
+        expect(find.byKey(const Key('field-lastName')), findsOneWidget);
+        expect(find.byKey(const Key('field-phone')), findsOneWidget);
+        expect(find.byKey(const Key('field-businessName')), findsNothing);
+        expect(find.byKey(const Key('field-address')), findsNothing);
 
-      // Salon-only fields must be absent.
-      expect(find.byKey(const Key('field-businessName')), findsNothing);
-      expect(find.byKey(const Key('field-address')), findsNothing);
-    });
+        // The display-only progress row renders on the details screen.
+        // _ProgressItem renders each label via label.toUpperCase() (the HTML
+        // .prog-item uses text-transform: uppercase) so assert the uppercased
+        // strings the widget actually paints.
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        expect(
+          find.text(l10n.progressStepDetails.toUpperCase()),
+          findsOneWidget,
+        );
+        expect(
+          find.text(l10n.progressStepVerification.toUpperCase()),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.progressStepDone.toUpperCase()), findsOneWidget);
+      },
+    );
 
     // -----------------------------------------------------------------------
-    // Test 22 — phone field formats input to Ukrainian mask
+    // 22 (kept) — phone formatter: 10 digits → +380 67 123 45 67
     // -----------------------------------------------------------------------
     testWidgets('22. entering 10 digits formats to +380 67 123 45 67', (
       tester,
@@ -1051,10 +1028,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await _selectIntent(tester);
-      await _advanceToStep2(tester);
+      await _gotoIndependentDetails(tester);
 
-      // Entering the 10 subscriber digits should format automatically.
       await tester.enterText(
         find.byKey(const Key('field-phone')),
         '0671234567',
@@ -1064,7 +1039,6 @@ void main() {
       final phoneField = tester.widget<TextFormField>(
         find.byKey(const Key('field-phone')),
       );
-      // Formatter turns '0671234567' into '+380 67 123 45 67'.
       expect(
         phoneField.controller?.text,
         equals('+380 67 123 45 67'),
@@ -1073,7 +1047,7 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 23 — empty phone shows errPhoneRequired
+    // 23 (kept) — empty phone shows errPhoneRequired
     // -----------------------------------------------------------------------
     testWidgets('23. empty phone field shows errPhoneRequired', (tester) async {
       final repo = FakeAuthRepository();
@@ -1086,15 +1060,22 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await _selectIntent(tester);
-      await _advanceToStep2(tester);
+      await _gotoIndependentDetails(tester);
 
-      // Fill name fields but leave phone empty.
+      await tester.enterText(
+        find.byKey(const Key('field-email')),
+        'ivan@beautica.test',
+      );
+      await tester.enterText(
+        find.byKey(const Key('field-password')),
+        'SecurePass1',
+      );
       await tester.enterText(find.byKey(const Key('field-firstName')), 'Іван');
       await tester.enterText(
         find.byKey(const Key('field-lastName')),
         'Петренко',
       );
+      // Leave phone empty.
 
       await tester.ensureVisible(find.byKey(const Key('btn-submit-register')));
       await tester.tap(find.byKey(const Key('btn-submit-register')));
@@ -1106,15 +1087,103 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 25 (HIGH) — ValidationFailure with email fieldError retreats to
-    //                  step 1 and hides the submit button
+    // 24 (kept) — btn-submit-register is the unified submit key (all roles)
     // -----------------------------------------------------------------------
-    testWidgets('25. ValidationFailure(email) → retreats to step 1; '
-        'btn-submit-register gone; error text visible', (tester) async {
+    testWidgets(
+      '24. btn-submit-register is the unified submit key for all roles',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+
+        // IM path.
+        await _selectRoleAndContinue(tester, l10n.intentIndependentTitle);
+        expect(
+          find.byKey(const Key('btn-submit-register')),
+          findsOneWidget,
+          reason: 'IM path must use btn-submit-register',
+        );
+        expect(
+          find.byKey(const Key('btn-salon-submit-register')),
+          findsNothing,
+        );
+
+        // Back to picker → salon path uses the same key.
+        await tester.ensureVisible(find.byKey(const Key('btn-back-step')));
+        await tester.tap(find.byKey(const Key('btn-back-step')));
+        await tester.pumpAndSettle();
+
+        await _selectRoleAndContinue(tester, l10n.intentSalonTitle);
+        expect(
+          find.byKey(const Key('btn-submit-register')),
+          findsOneWidget,
+          reason: 'Salon path must also use btn-submit-register',
+        );
+        expect(
+          find.byKey(const Key('btn-salon-submit-register')),
+          findsNothing,
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // 25 (translated) — ValidationFailure(email) shows inline; screen stays on
+    //                   the single details screen (no step retreat)
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '25. ValidationFailure(email) shows inline error and keeps the single '
+      'details screen (does not retreat anywhere)',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        repo.registerResult = const ValidationFailure(
+          fieldErrors: {'email': 'already in use'},
+        );
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
+
+        await _gotoIndependentDetails(tester);
+        await _fillValidImForm(tester);
+        await tester.tap(find.byKey(const Key('btn-submit-register')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pumpAndSettle();
+
+        // Single screen stays put — email field AND submit button remain.
+        expect(
+          find.byKey(const Key('field-email')),
+          findsOneWidget,
+          reason: 'The single-screen design does not retreat — email stays',
+        );
+        expect(
+          find.byKey(const Key('btn-submit-register')),
+          findsOneWidget,
+          reason: 'btn-submit-register must remain on the single screen',
+        );
+        expect(find.text('already in use'), findsOneWidget);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // 26 (kept) — phone "380671234567" normalises to +380 67 123 45 67
+    // -----------------------------------------------------------------------
+    testWidgets('26. entering "380671234567" formats to +380 67 123 45 67', (
+      tester,
+    ) async {
       final repo = FakeAuthRepository();
-      repo.registerResult = const ValidationFailure(
-        fieldErrors: {'email': 'already in use'},
-      );
       final storage = FakeSecureStorage();
       final router = _makeRouter();
       addTearDown(router.dispose);
@@ -1124,39 +1193,31 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await _selectIntent(tester);
-      await _advanceToStep2(tester);
-      await _fillValidForm(tester);
-      await tester.tap(find.byKey(const Key('btn-submit-register')));
-      // FakeAuthRepository resolves synchronously but the setState async
-      // hop that updates _registrationStep requires at least one pump().
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.pumpAndSettle();
+      await _gotoIndependentDetails(tester);
 
-      // Screen must have retreated to step 1 — email field visible again.
-      expect(
-        find.byKey(const Key('field-email')),
-        findsOneWidget,
-        reason: 'email ValidationFailure must retreat to step 1',
+      await tester.enterText(
+        find.byKey(const Key('field-phone')),
+        '380671234567',
       );
-      // Step 2 is gone — submit button is no longer in the tree.
-      expect(
-        find.byKey(const Key('btn-submit-register')),
-        findsNothing,
-        reason: 'step 2 must be hidden after retreating to step 1',
+      await tester.pump();
+
+      final phoneField = tester.widget<TextFormField>(
+        find.byKey(const Key('field-phone')),
       );
-      // Step 1 next button is present.
-      expect(find.byKey(const Key('btn-next-step')), findsOneWidget);
-      // Server error text must be visible near the email field.
-      expect(find.text('already in use'), findsOneWidget);
+      expect(
+        phoneField.controller?.text,
+        equals('+380 67 123 45 67'),
+        reason:
+            '380671234567 must be normalised and formatted '
+            'to +380 67 123 45 67',
+      );
     });
 
     // -----------------------------------------------------------------------
-    // Test 26 (HIGH) — phone '380...' prefix normalisation
+    // 27 (kept) — 15-digit phone clamped to 13 raw digits
     // -----------------------------------------------------------------------
     testWidgets(
-      '26. entering "380671234567" into field-phone formats to +380 67 123 45 67',
+      '27. entering 15 digits is clamped to 13 raw digits by the formatter',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -1168,184 +1229,12 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await _selectIntent(tester);
-        await _advanceToStep2(tester);
+        await _gotoIndependentDetails(tester);
 
-        // Input starts with '380' — formatter keeps it as-is and formats.
-        await tester.enterText(
-          find.byKey(const Key('field-phone')),
-          '380671234567',
-        );
-        // FakeAuthRepository resolves synchronously; one pump() flushes the
-        // formatter's TextEditingValue into the widget tree.
-        await tester.pump();
-
-        final phoneField = tester.widget<TextFormField>(
-          find.byKey(const Key('field-phone')),
-        );
-        expect(
-          phoneField.controller?.text,
-          equals('+380 67 123 45 67'),
-          reason:
-              '380671234567 must be normalised and formatted '
-              'to +380 67 123 45 67',
-        );
-      },
-    );
-
-    // -----------------------------------------------------------------------
-    // Test 27 (HIGH) — phone input clamped at 13 total digits
-    // -----------------------------------------------------------------------
-    testWidgets(
-      '27. entering 15 digits into field-phone is clamped to +380 67 123 45 67 '
-      '(13 digits max)',
-      (tester) async {
-        final repo = FakeAuthRepository();
-        final storage = FakeSecureStorage();
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await tester.pumpWidget(
-          _buildApp(router: router, repo: repo, storage: storage),
-        );
-        await tester.pumpAndSettle();
-
-        await _selectIntent(tester);
-        await _advanceToStep2(tester);
-
-        // 15 digit string — first 13 after normalisation should be kept.
-        // '067123456799999' → strip leading 0, prepend 380 → '380671234567'
-        // + trailing '99999' = '38067123456799999' but clamped at 13 →
-        // '3806712345679' → ...wait, the raw input '067123456799999':
-        //   starts with '0' → strip → '67123456799999'
-        //   prepend '380'  → '38067123456799999'
-        //   clamp to 13    → '3806712345679'
-        // Formatted: +380 67 123 45 67  (first 13 of the normalised string)
-        //
-        // But we need exactly the same result as entering '0671234567' + extra
-        // digits clamped. Simpler input: '067123456799999'
-        //   raw → '067123456799999'
-        //   normalise (starts '0') → '380' + '67123456799999'
-        //   digits = '38067123456799999'
-        //   clamp(13) → '3806712345679' (13 chars)
-        //   BUT that formats to +380 67 123 45 67 with a trailing 9?
-        //   positions: 380|67|123|45|679  → +380 67 123 45 679?
-        // The formatter inserts spaces at positions 3,5,8,10 in the clamped
-        // string. clamped='3806712345679' has 13 chars:
-        //   i=0..2  → '380'
-        //   i=3     → space + '6'   → +380 6
-        //   i=4     → '7'           → +380 67
-        //   i=5     → space + '1'   → +380 67 1
-        //   ...i=12 → '9'
-        // Actually the clamp is 13 digits total (380 + 10 subscriber digits).
-        // With input '0671234567' (10 subscriber after stripping 0) we get
-        // exactly 3+10=13. With '067123456799999' (15 raw chars after strip 0):
-        //   subscriber portion = '67123456799999' (14 chars) but clamped total
-        //   to 13 means subscriber = 10 → '6712345679' ... hmm, test intent is
-        //   just to verify clamping produces the same value as the 10-digit
-        //   test, assuming the extra digits are '99999' after a full number.
-        //
-        // Use a simpler form: enter '380671234567' (the already-complete 13
-        // digits) + extra '99999' = '38067123456799999'. Formatter clamps to
-        // '3806712345679' — which is 13 chars producing +380 67 123 45 67 9.
-        //
-        // The real clamping test should be: supply a 10-digit number THEN
-        // supply more digits; verify value does not grow. Simplest: enter
-        // '0671234567' (10 digits, formats to +380 67 123 45 67), then enter
-        // '0671234567' + '99' (12 raw digits) — after normalisation that is
-        // 380+12=15 digits, clamped to 13, producing +380 67 123 45 67.
-        //
-        // enterText replaces the whole field, so we supply a 12-digit input
-        // starting with '0' so that after prepend we exceed 13 and get clamped.
-        // Input: '067123456799'
-        //   starts '0' → strip → '67123456799'
-        //   prepend 380 → '38067123456799'
-        //   length = 14, clamp to 13 → '3806712345679'
-        // That still does not give the canonical output. The cleanest approach:
-        // supply a string that, after normalisation, produces exactly the
-        // canonical 13-digit string '3806712345679'. Let's just verify that the
-        // the result for '38067123456799999' is identical to '380671234567'
-        // (i.e., both produce +380 67 123 45 67 because clamping cuts at 13).
-        // '380671234567' → already starts '380' → digits = '380671234567'
-        //                  length = 12, no clamp needed → +380 67 123 45 67
-        // So entering exactly '380671234567' PLUS two extra digits should still
-        // yield +380 67 123 45 67.  Actual input: '38067123456799'.
-        //   starts '380' → digits = '38067123456799'
-        //   clamp(13) → '3806712345679'
-        //   format: +380 67 123 45 67 (positions 0-9 = '3806712345') then
-        //     i=10 → space + '6', i=11 → '7'  ← subscriber 9th and 10th digit?
-        // Wait — let me re-read the formatter code positions:
-        //   Space inserted at i==3 (after '380'), i==5, i==8, i==10.
-        //   clamped '3806712345679' (13 chars, indices 0-12):
-        //     0='3',1='8',2='0',3='6' → before i=3 insert space, so sb: +380 6
-        //     4='7' → +380 67
-        //     5='1' → before i=5 insert space → +380 67 1
-        //     6='2',7='3',8='4' → before i=8 insert space → +380 67 123 4
-        //     9='5',10='6' → before i=10 insert space → +380 67 123 45 6
-        //     11='7',12='9' → +380 67 123 45 679
-        //
-        // So with 14 raw digits starting '380', the clamp produces
-        // '+380 67 123 45 679' (an invalid number, not '+380 67 123 45 67').
-        //
-        // The correct test for clamping: prove that a 15-digit raw string
-        // that starts with 0 (→ +3 prefix digits + 12 subscriber) gets clamped
-        // to 10 subscriber digits = the same as the valid 10-digit input.
-        // Input: '067123456799999' (15 chars)
-        //   starts '0' → strip → '67123456799999' (14 chars)
-        //   prepend '380' → '38067123456799999' (17 chars)
-        //   clamp(13) → '3806712345679' (13 chars)
-        //   format → +380 67 123 45 679  (NOT the canonical +380 67 123 45 67)
-        //
-        // The spec says "clamped to +380 67 123 45 67 (13 digits max)".
-        // That is only achievable when the input already has exactly 10
-        // subscriber digits. The spec example input '067123456799999' becomes
-        // subscriber digits 6712345679 (10 digits, with '9' at position 10) →
-        // still '+380 67 123 45 679'.
-        //
-        // Re-reading the spec more carefully: "phone input clamped at 13 total
-        // digits" — the expected result listed is '+380 67 123 45 67' which is
-        // the same canonical value. This is achievable only if the clamping is
-        // applied BEFORE the trailing '99999' subscriber digits. So the intent
-        // is: input has the canonical 10 subscriber digits followed by noise;
-        // after clamp the noise is gone. For that to produce exactly
-        // '+380 67 123 45 67', the 13-digit clamped result must be
-        // '3806712345 67' — but that is only 12 unique digits...
-        //
-        // Summary: the spec example is internally consistent only if the input
-        // '067123456799999' represents a number where '0671234567' are the 10
-        // subscriber digits and '99999' is the overflow. After normalisation:
-        // '380' + '671234567' + '99999' where clamp cuts after 10th subscriber
-        // digit = '3806712345679' giving '+380 67 123 45 679' ≠ '+380 67 123 45 67'.
-        //
-        // The ONLY way to get '+380 67 123 45 67' from a long input is if the
-        // input ends with '67' at positions 11-12 (0-indexed). Use input:
-        // '06712345679999' where after strip-0 and prepend-380 we get
-        // '380671234567 9999' (17 chars) clamped to '3806712345679'... still
-        // the same problem.
-        //
-        // Final resolution: the spec test description may have a slight error
-        // in the expected output for a 15-digit input, but the intent of the
-        // test is clear — extra digits are silently dropped. We verify that:
-        //   (a) the controller text is NOT '380671234567' + two more chars
-        //   (b) the formatted text starts with '+380 67 123 45 67'
-        //   (c) no character beyond the 17-char formatted string is present
-        //
-        // We use the fact that entering '0671234567' + '99' (12 chars after
-        // strip-0, 15 chars after prepend-380) gets clamped to 13 chars:
-        //   '380671234567' (12) + '9' (1) = 13 → '+380 67 123 45 679'
-        // and verify length == 17 ('+380 67 123 45 67'.length is 17 chars + 1
-        // extra digit = 18 for 679). Hmm.
-        //
-        // SIMPLEST correct test: assert that entering a 15+ digit string
-        // produces a result that is NOT longer than the max formatted length
-        // of 17 chars ('+380 67 123 45 67'). The formatter clamps at 13
-        // raw digits; 13 raw digits with 4 inserted spaces = 17 chars max.
         await tester.enterText(
           find.byKey(const Key('field-phone')),
           '067123456799999',
         );
-        // FakeAuthRepository resolves synchronously; one pump() flushes the
-        // formatter's TextEditingValue into the widget tree.
         await tester.pump();
 
         final phoneField = tester.widget<TextFormField>(
@@ -1353,23 +1242,10 @@ void main() {
         );
         final formatted = phoneField.controller?.text ?? '';
         expect(
-          formatted.length,
-          lessThanOrEqualTo(18),
-          reason:
-              'Phone formatter clamps at 13 raw digits (3 prefix + 10 '
-              'subscriber); formatted output must not exceed 18 chars '
-              '(+380 DD DDD DD DD9 with worst-case extra digit)',
-        );
-        // Verify the canonical prefix is intact.
-        expect(
           formatted.startsWith('+380 '),
           isTrue,
           reason: 'Formatted phone must always start with +380 space',
         );
-        // The significant check: 15 input digits produce at most 13 raw
-        // digits in the output (formatted length ≤ 17 chars for a complete
-        // number, ≤ 18 for the boundary case where clamp hits the 13th digit
-        // mid-group).
         expect(
           formatted.replaceAll(RegExp(r'\D'), '').length,
           lessThanOrEqualTo(13),
@@ -1379,7 +1255,7 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // Test 28 (MEDIUM) — client role full flow
+    // 28 (kept) — client full flow → register(role=client)
     // -----------------------------------------------------------------------
     testWidgets(
       '28. client role: full flow sends role=UserRole.client to repo',
@@ -1395,14 +1271,15 @@ void main() {
         await tester.pumpAndSettle();
 
         final l10n = lookupAppLocalizations(const Locale('uk'));
+        await _selectRoleAndContinue(tester, l10n.intentClientTitle);
 
-        // The client card (index 2) may be off-screen on small test viewports;
-        // scroll it into view before tapping.
-        await tester.ensureVisible(find.text(l10n.intentClientTitle).first);
-        await tester.tap(find.text(l10n.intentClientTitle).first);
-        await tester.pumpAndSettle();
+        // Client sees the reduced set: no businessName / address.
+        expect(find.byKey(const Key('field-firstName')), findsOneWidget);
+        expect(find.byKey(const Key('field-lastName')), findsOneWidget);
+        expect(find.byKey(const Key('field-phone')), findsOneWidget);
+        expect(find.byKey(const Key('field-businessName')), findsNothing);
+        expect(find.byKey(const Key('field-address')), findsNothing);
 
-        // Step 1: fill email + password, advance to step 2.
         await tester.enterText(
           find.byKey(const Key('field-email')),
           'client@beautica.test',
@@ -1411,16 +1288,6 @@ void main() {
           find.byKey(const Key('field-password')),
           'SecurePass1',
         );
-        await tester.ensureVisible(find.byKey(const Key('btn-next-step')));
-        await tester.tap(find.byKey(const Key('btn-next-step')));
-        await tester.pumpAndSettle();
-
-        // Step 2: client sees firstName + lastName + phone (no businessName).
-        expect(find.byKey(const Key('field-firstName')), findsOneWidget);
-        expect(find.byKey(const Key('field-lastName')), findsOneWidget);
-        expect(find.byKey(const Key('field-phone')), findsOneWidget);
-        expect(find.byKey(const Key('field-businessName')), findsNothing);
-
         await tester.enterText(
           find.byKey(const Key('field-firstName')),
           'Катерина',
@@ -1450,11 +1317,11 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // Test 29 (MEDIUM) — autovalidateMode shows inline email error while typing
+    // 29 (kept) — autovalidateMode shows inline email error while typing
     // -----------------------------------------------------------------------
     testWidgets(
       '29. autovalidateMode.onUserInteraction shows inline email error '
-      'without tapping Next',
+      'without tapping submit',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -1466,41 +1333,32 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final l10n = lookupAppLocalizations(const Locale('uk'));
+        await _gotoIndependentDetails(tester);
 
-        // Step 0 → Step 1.
-        await _selectIntent(tester);
-
-        // Type an invalid email string — do NOT tap btn-next-step.
         await tester.enterText(
           find.byKey(const Key('field-email')),
           'not-an-email',
         );
-        // AutovalidateMode.onUserInteraction fires after the first
-        // interaction; one pump() renders the validation error.
         await tester.pump();
 
-        // Inline validation error must appear immediately under the field.
+        final l10n = lookupAppLocalizations(const Locale('uk'));
         expect(
           find.text(l10n.errEmailInvalid),
           findsOneWidget,
           reason:
-              'errEmailInvalid must appear inline under the email field '
-              'when autovalidateMode.onUserInteraction is active',
+              'errEmailInvalid must appear inline under the email field when '
+              'autovalidateMode.onUserInteraction is active',
         );
-        // No navigation happened — btn-next-step is still present.
-        expect(find.byKey(const Key('btn-next-step')), findsOneWidget);
-        // No register call was made.
         expect(repo.registerCalls, isEmpty);
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 30 (MEDIUM) — salon address validation: empty address blocks submit
+    // 30 (kept) — salon empty address → errAddressRequired, blocks submit
     // -----------------------------------------------------------------------
     testWidgets(
-      '30. salon owner: empty address field shows errAddressRequired and '
-      'blocks register call',
+      '30. salon owner: empty address shows errAddressRequired and blocks '
+      'register call',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -1513,11 +1371,13 @@ void main() {
         await tester.pumpAndSettle();
 
         final l10n = lookupAppLocalizations(const Locale('uk'));
+        await _selectRoleAndContinue(tester, l10n.intentSalonTitle);
 
-        // Select salon owner intent → step 1.
-        await tester.tap(find.text(l10n.intentSalonTitle).first);
-        await tester.pumpAndSettle();
-
+        // Fill everything except address.
+        await tester.enterText(
+          find.byKey(const Key('field-businessName')),
+          'Краса Студія',
+        );
         await tester.enterText(
           find.byKey(const Key('field-email')),
           'salon@beautica.test',
@@ -1526,14 +1386,13 @@ void main() {
           find.byKey(const Key('field-password')),
           'StrongPass2',
         );
-        await tester.ensureVisible(find.byKey(const Key('btn-next-step')));
-        await tester.tap(find.byKey(const Key('btn-next-step')));
-        await tester.pumpAndSettle();
-
-        // Fill businessName and phone; intentionally leave address empty.
         await tester.enterText(
-          find.byKey(const Key('field-businessName')),
-          'Краса Студія',
+          find.byKey(const Key('field-firstName')),
+          'Олена',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-lastName')),
+          'Бойко',
         );
         await tester.enterText(
           find.byKey(const Key('field-phone')),
@@ -1544,164 +1403,37 @@ void main() {
           find.byKey(const Key('btn-submit-register')),
         );
         await tester.tap(find.byKey(const Key('btn-submit-register')));
-        // FakeAuthRepository resolves synchronously; one pump() renders the
-        // form validation result (addresses the required field validator).
         await tester.pump();
 
         expect(
           find.text(l10n.errAddressRequired),
           findsOneWidget,
           reason:
-              'Empty salon address must trigger the errAddressRequired '
-              'inline validation error',
+              'Empty salon address must trigger the errAddressRequired inline '
+              'validation error',
         );
         expect(
           repo.registerCalls,
           isEmpty,
           reason:
-              'Register must not be called when the address field '
-              'fails validation',
+              'Register must not be called when the address field fails '
+              'validation',
         );
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 31 (HIGH) — ValidationFailure with password fieldError retreats to
-    //                  step 1
-    // -----------------------------------------------------------------------
-    testWidgets('31. ValidationFailure(password) → retreats to step 1; '
-        'field-email is visible', (tester) async {
-      final repo = FakeAuthRepository();
-      repo.registerResult = const ValidationFailure(
-        fieldErrors: {'password': 'too weak'},
-      );
-      final storage = FakeSecureStorage();
-      final router = _makeRouter();
-      addTearDown(router.dispose);
-
-      await tester.pumpWidget(
-        _buildApp(router: router, repo: repo, storage: storage),
-      );
-      await tester.pumpAndSettle();
-
-      await _selectIntent(tester);
-      await _advanceToStep2(tester);
-      await _fillValidForm(tester);
-      await tester.tap(find.byKey(const Key('btn-submit-register')));
-      // FakeAuthRepository resolves synchronously but the setState async
-      // hop that updates _registrationStep requires at least one pump().
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.pumpAndSettle();
-
-      // Screen must have retreated to step 1 — email field is visible.
-      expect(
-        find.byKey(const Key('field-email')),
-        findsOneWidget,
-        reason:
-            'password ValidationFailure must retreat to step 1 where '
-            'the email field is visible',
-      );
-      // Step 2 submit button is gone.
-      expect(
-        find.byKey(const Key('btn-submit-register')),
-        findsNothing,
-        reason: 'step 2 must be hidden after retreating to step 1',
-      );
-    });
-
-    // -----------------------------------------------------------------------
-    // Test 32 (MEDIUM) — _WarmMochaStepIndicator transitions to step-2-active
-    //                    state after advancing from step 1 to step 2
-    // -----------------------------------------------------------------------
-    testWidgets('32. step indicator shows step 2 as active (camel dot, number "2") '
-        'when _registrationStep advances to 1', (tester) async {
-      final repo = FakeAuthRepository();
-      final storage = FakeSecureStorage();
-      final router = _makeRouter();
-      addTearDown(router.dispose);
-
-      await tester.pumpWidget(
-        _buildApp(router: router, repo: repo, storage: storage),
-      );
-      await tester.pumpAndSettle();
-
-      // ── Step 0: intent picker is shown; step indicator is NOT present yet.
-      final l10n = lookupAppLocalizations(const Locale('uk'));
-      expect(
-        find.text(l10n.progressStepDetails),
-        findsNothing,
-        reason:
-            'Step indicator must not be rendered on the intent picker (step 0)',
-      );
-
-      // ── Advance to Step 1 (credentials form) — indicator becomes visible.
-      await _selectIntent(tester);
-
-      expect(
-        find.text(l10n.progressStepDetails),
-        findsOneWidget,
-        reason: 'Step indicator must render after intent is selected (step 1)',
-      );
-      expect(
-        find.text(l10n.progressStepVerification),
-        findsOneWidget,
-        reason: 'Step indicator must render the Verification label on step 1',
-      );
-      expect(
-        find.text(l10n.progressStepDone),
-        findsOneWidget,
-        reason: 'Step indicator must render the Done label on step 1',
-      );
-
-      // On step 1 (_registrationStep == 0): step 2 dot is INACTIVE.
-      // Its number text uses color 0x33FFFFFF (dim white), not the dark
-      // prog-color (0xFF3A2810) which only appears in the active dot.
-      // Verify step 2 is not yet active by asserting no active-dot Text('2')
-      // with the active (dark) colour exists.
-      expect(
-        find.byWidgetPredicate(
-          (w) =>
-              w is Text &&
-              w.data == '2' &&
-              w.style?.color == const Color(0xFF3A2810),
-        ),
-        findsNothing,
-        reason:
-            'Step 2 dot must be inactive (dim text) while on step 1 of the form',
-      );
-
-      // ── Advance to Step 2 (details form).
-      await _advanceToStep2(tester);
-
-      // Now _registrationStep == 1 → step 2 dot transitions to active.
-      // Active dot child is Text('2') with dark prog-color (0xFF3A2810).
-      expect(
-        find.byWidgetPredicate(
-          (w) =>
-              w is Text &&
-              w.data == '2' &&
-              w.style?.color == const Color(0xFF3A2810),
-        ),
-        findsOneWidget,
-        reason:
-            'Step 2 dot must be active (dark number text inside camel circle) '
-            'when _registrationStep == 1',
-      );
-
-      // Step indicator labels are still all present on step 2.
-      expect(find.text(l10n.progressStepDetails), findsOneWidget);
-      expect(find.text(l10n.progressStepVerification), findsOneWidget);
-      expect(find.text(l10n.progressStepDone), findsOneWidget);
-    });
-
-    // -----------------------------------------------------------------------
-    // Test 24 — btn-submit-register key is unified (no btn-salon-submit-register)
+    // 31 (translated) — ValidationFailure(password) shows inline; screen stays
+    //                   on the single details screen (no step retreat)
     // -----------------------------------------------------------------------
     testWidgets(
-      '24. btn-submit-register is the unified submit key for all roles',
+      '31. ValidationFailure(password) shows inline error and keeps the single '
+      'details screen',
       (tester) async {
         final repo = FakeAuthRepository();
+        repo.registerResult = const ValidationFailure(
+          fieldErrors: {'password': 'too weak'},
+        );
         final storage = FakeSecureStorage();
         final router = _makeRouter();
         addTearDown(router.dispose);
@@ -1711,56 +1443,27 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final l10n = lookupAppLocalizations(const Locale('uk'));
+        await _gotoIndependentDetails(tester);
+        await _fillValidImForm(tester);
+        await tester.tap(find.byKey(const Key('btn-submit-register')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pumpAndSettle();
 
-        // --- IM path ---
-        await _selectIntent(tester);
-        await _advanceToStep2(tester);
+        // The single screen stays — email + submit remain visible.
         expect(
-          find.byKey(const Key('btn-submit-register')),
-          findsOneWidget,
-          reason: 'IM path must use btn-submit-register',
-        );
-        // Old key must be absent.
-        expect(
-          find.byKey(const Key('btn-salon-submit-register')),
-          findsNothing,
-        );
-
-        // Go back to step 1, then to intent picker, then select salon path.
-        await tester.ensureVisible(find.byKey(const Key('btn-back-step')));
-        await tester.tap(find.byKey(const Key('btn-back-step')));
-        await tester.pumpAndSettle();
-
-        // Badge is tappable in step 1 — tap to reset to intent picker.
-        final badgeFinder = find.text(l10n.intentIndependentTitle);
-        await tester.tap(badgeFinder.first);
-        await tester.pumpAndSettle();
-
-        await tester.tap(find.text(l10n.intentSalonTitle).first);
-        await tester.pumpAndSettle();
-
-        await tester.enterText(
           find.byKey(const Key('field-email')),
-          'olena@beautica.test',
+          findsOneWidget,
+          reason: 'password ValidationFailure must keep the single screen',
         );
-        await tester.enterText(
-          find.byKey(const Key('field-password')),
-          'StrongPass2',
-        );
-        await tester.ensureVisible(find.byKey(const Key('btn-next-step')));
-        await tester.tap(find.byKey(const Key('btn-next-step')));
-        await tester.pumpAndSettle();
-
         expect(
           find.byKey(const Key('btn-submit-register')),
           findsOneWidget,
-          reason: 'Salon path must also use btn-submit-register',
+          reason: 'btn-submit-register must remain on the single screen',
         );
-        expect(
-          find.byKey(const Key('btn-salon-submit-register')),
-          findsNothing,
-        );
+        // Inline server error visible under the password field.
+        await tester.ensureVisible(find.byKey(const Key('field-password')));
+        expect(find.text('too weak'), findsOneWidget);
       },
     );
   });
@@ -1770,8 +1473,8 @@ void main() {
 // AuthNotifier stubs
 // ---------------------------------------------------------------------------
 
-/// Stays in [AsyncLoading] indefinitely — used to verify that the next/submit
-/// buttons and all form fields are disabled while a request is in flight.
+/// Stays in [AsyncLoading] indefinitely — used to verify that the submit
+/// button is disabled while a request is in flight.
 class _LoadingAuthNotifier extends AuthNotifier {
   @override
   Future<AuthSession> build() async {

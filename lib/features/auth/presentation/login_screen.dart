@@ -88,11 +88,13 @@ const _kInputBorderFocusedError = OutlineInputBorder(
   borderSide: BorderSide(color: BrandColors.errorRust, width: 1.5),
 );
 
-/// CTA gradient — mocha linear, 135°.
+/// CTA gradient — literal hex from login-page.html
+/// `--cta-grad: linear-gradient(135deg, #4a2e10 0%, #6a4a28 60%, #8a6840 100%)`.
+/// Literal hex stops (NOT BrandColors tokens) per parity directive #3.
 const _kCtaGradient = LinearGradient(
   begin: Alignment.topLeft,
   end: Alignment.bottomRight,
-  colors: [Color(0xFF4A2E10), BrandColors.mocha, BrandColors.latte],
+  colors: [Color(0xFF4A2E10), Color(0xFF6A4A28), Color(0xFF8A6840)],
   stops: [0.0, 0.6, 1.0],
 );
 
@@ -277,11 +279,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   // ---------------------------------------------------------------------------
 
   InputDecoration _fieldDecor(
-    String label, {
+    String hint, {
     Widget? prefixIcon,
     Widget? suffixIcon,
   }) => InputDecoration(
-    hintText: label,
+    hintText: hint,
+    // login-page.html: input::placeholder { color: rgba(255,255,255,0.18) }
     hintStyle: const TextStyle(color: Color(0x2EFFFFFF)),
     prefixIcon: prefixIcon,
     suffixIcon: suffixIcon,
@@ -358,9 +361,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                               fontSize: 14,
                             ),
                             decoration: _fieldDecor(
-                              l10n.loginEmailLabel,
+                              l10n.loginEmailPlaceholder,
                               prefixIcon: const _FieldIcon(
-                                icon: Icons.email_outlined,
+                                icon: Icons.mail_outline,
                               ),
                             ),
                             validator: (v) => validateEmail(v, l10n),
@@ -393,7 +396,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                               fontSize: 14,
                             ),
                             decoration: _fieldDecor(
-                              l10n.loginPasswordLabel,
+                              l10n.loginPasswordPlaceholder,
                               prefixIcon: const _FieldIcon(
                                 icon: Icons.lock_outline,
                               ),
@@ -423,16 +426,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                           // .forgot-row { margin-top: 6px }
                           const SizedBox(height: 6),
 
-                          // ── Forgot password link — right-aligned, camel
+                          // ── Forgot password link — right-aligned, camel.
+                          // login-page.html:334 `.forgot-link`: camel @ 0.8
+                          // opacity, 11.5px, w500. Backend flow is a future
+                          // phase; the link must render in its NORMAL (not
+                          // disabled/greyed) visual state per parity directive
+                          // #2, so onPressed is a harmless no-op.
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton(
                               key: const Key('btn-forgot-password'),
-                              onPressed: null,
+                              onPressed: () {},
                               style: TextButton.styleFrom(
                                 foregroundColor: BrandColors.camel.withValues(
                                   alpha: 0.8,
                                 ),
+                                disabledForegroundColor: BrandColors.camel
+                                    .withValues(alpha: 0.8),
                                 padding: const EdgeInsets.symmetric(
                                   vertical: AppSpacing.xxs,
                                   horizontal: AppSpacing.xs,
@@ -483,19 +493,33 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   }
 
   Widget _buildRegisterRow(AppLocalizations l10n, bool isLoading) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    // login-page.html .register-row: a single centred line —
+    // "<p>Ще немає акаунту? &nbsp;<a>Зареєструватись</a></p>". The previous
+    // rigid Row overflowed by 36 px at 360–430 px widths because Text +
+    // TextButton could not shrink. Wrap centres the line at normal phone
+    // widths and gracefully drops the camel link onto a second centred line
+    // at the narrowest widths instead of throwing a RenderFlex overflow.
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         Text(
           l10n.loginNoAccount,
           style: const TextStyle(color: Color(0x4DFFFFFF), fontSize: 13),
         ),
+        // The HTML uses a non-breaking space (&nbsp;) between the prompt and
+        // the link; reproduce that gap so they read as one line when they fit.
+        const SizedBox(width: AppSpacing.xs),
         TextButton(
           key: const Key('btn-go-to-register'),
           onPressed: isLoading ? null : () => context.push(RouteNames.register),
           style: TextButton.styleFrom(
             foregroundColor: BrandColors.camel,
+            // Compact tap padding keeps the line tight while still meeting the
+            // 48 dp touch target via the button's default minimum height.
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: VisualDensity.compact,
             textStyle: const TextStyle(
               fontWeight: FontWeight.w600,
               fontSize: 13,
@@ -590,12 +614,28 @@ class _HeadlineBlock extends StatelessWidget {
 
   final AppLocalizations l10n;
 
+  // login-page.html .headline em { font-family: 'Cormorant Garamond';
+  // font-style: italic; font-weight: 600; font-size: 1.15em (= 1.15 × 26 =
+  // 29.9 ≈ 30); color: var(--accent) #b89a7a }.
   static final _kAccentStyle = GoogleFonts.cormorantGaramond(
     textStyle: const TextStyle(
       color: BrandColors.camel,
       fontSize: 30, // 1.15× of 26
       fontStyle: FontStyle.italic,
       fontWeight: FontWeight.w600,
+      height: 1.22,
+    ),
+  );
+
+  // login-page.html .headline { font-family: 'Manrope'; font-size: 26px;
+  // font-weight: 700; color: #fff; line-height: 1.22 }. Manrope is loaded
+  // explicitly (GoogleFonts) so the main headline renders at the design
+  // weight/size rather than the platform default sans.
+  static final _kHeadlineStyle = GoogleFonts.manrope(
+    textStyle: const TextStyle(
+      color: Colors.white,
+      fontSize: 26,
+      fontWeight: FontWeight.w700,
       height: 1.22,
     ),
   );
@@ -609,12 +649,7 @@ class _HeadlineBlock extends StatelessWidget {
         Text.rich(
           TextSpan(
             text: '${l10n.loginHeadline}\n',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 26,
-              fontWeight: FontWeight.w700,
-              height: 1.22,
-            ),
+            style: _kHeadlineStyle,
             children: [
               WidgetSpan(
                 alignment: PlaceholderAlignment.baseline,
@@ -628,12 +663,16 @@ class _HeadlineBlock extends StatelessWidget {
         // (task spec: headline→subtext gap 10). Literal — no AppSpacing token
         // is 10; snapping to a token is what caused Defect 1 drift.
         const SizedBox(height: 10),
+        // login-page.html .sub-text { font-size: 13px;
+        // color: rgba(255,255,255,0.32); line-height: 1.55 }.
         Text(
           l10n.loginSubText,
-          style: const TextStyle(
-            color: Color(0x52FFFFFF), // white 32%
-            fontSize: 13,
-            height: 1.55,
+          style: GoogleFonts.manrope(
+            textStyle: const TextStyle(
+              color: Color(0x52FFFFFF), // white 32%
+              fontSize: 13,
+              height: 1.55,
+            ),
           ),
         ),
       ],
@@ -785,14 +824,27 @@ class _MochaCtaButton extends StatelessWidget {
                       color: BrandColors.cream,
                     ),
                   )
-                : Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.3,
-                    ),
+                // login-page.html .cta-btn { display: flex; gap: 8px } with a
+                // trailing right-arrow SVG (path M4 9h10M9 4l5 5-5 5).
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      const Icon(
+                        Icons.arrow_forward,
+                        color: Colors.white,
+                        size: 18,
+                      ),
+                    ],
                   ),
           ),
         ),

@@ -62,13 +62,21 @@
   "@loginSubmit": {
     "description": "Label for the submit button on the login screen."
   },
-  "loginNoAccount": "Немає акаунту?",
+  "loginNoAccount": "Ще немає акаунту?",
   "@loginNoAccount": {
-    "description": "Prompt text shown before the create account link."
+    "description": "Prompt text shown before the create account link (login-page.html .register-row)."
   },
-  "loginCreateAccount": "Створити акаунт",
+  "loginCreateAccount": "Зареєструватись",
   "@loginCreateAccount": {
-    "description": "Link label to navigate to the register screen."
+    "description": "Link label to navigate to the register screen (login-page.html .register-row a)."
+  },
+  "loginEmailPlaceholder": "anya@example.com",
+  "@loginEmailPlaceholder": {
+    "description": "In-field placeholder for the email input on the login screen (login-page.html input placeholder)."
+  },
+  "loginPasswordPlaceholder": "Ваш пароль",
+  "@loginPasswordPlaceholder": {
+    "description": "In-field placeholder for the password input on the login screen (login-page.html input placeholder)."
   },
   "errEmailRequired": "Введіть email",
   "@errEmailRequired": {
@@ -162,25 +170,25 @@
   "@intentPickerTitle": {
     "description": "Heading on the intent picker step of the register screen."
   },
-  "intentIndependentTitle": "Веду клієнтів самостійно",
+  "intentIndependentTitle": "Незалежний майстер",
   "@intentIndependentTitle": {
-    "description": "Primary label for the independent master intent card."
+    "description": "Title for the independent master role card (role-selection-page.html .role-title)."
   },
   "intentIndependentSubtitle": "Незалежний майстер",
   "@intentIndependentSubtitle": {
     "description": "Secondary label for the independent master intent card."
   },
-  "intentSalonTitle": "Відкриваю або маю салон",
+  "intentSalonTitle": "Власник салону",
   "@intentSalonTitle": {
-    "description": "Primary label for the salon owner intent card."
+    "description": "Title for the salon owner role card (role-selection-page.html .role-title)."
   },
   "intentSalonSubtitle": "Власник салону",
   "@intentSalonSubtitle": {
     "description": "Secondary label for the salon owner intent card."
   },
-  "intentClientTitle": "Шукаю процедури",
+  "intentClientTitle": "Клієнт",
   "@intentClientTitle": {
-    "description": "Primary label for the client intent card."
+    "description": "Title for the client role card (role-selection-page.html .role-title)."
   },
   "intentClientSubtitle": "Клієнт",
   "@intentClientSubtitle": {
@@ -317,5 +325,61 @@
   "progressStepDone": "Готово",
   "@progressStepDone": {
     "description": "Step 3 label in the 3-step registration progress indicator."
+  },
+  "registerDetailsHeadline": "Welcome to Premium",
+  "@registerDetailsHeadline": {
+    "description": "Main headline on the registration details screen (sign-up-page.html .headline). Brand copy kept verbatim from the approved design."
+  },
+  "registerDetailsHeadlineAccent": "beauty services",
+  "@registerDetailsHeadlineAccent": {
+    "description": "Italic Cormorant Garamond accent line under the registration details headline (sign-up-page.html .headline em)."
+  },
+  "registerFirstNamePlaceholder": "Аня",
+  "@registerFirstNamePlaceholder": {
+    "description": "In-field placeholder for the first name input (sign-up-page.html input placeholder)."
+  },
+  "registerLastNamePlaceholder": "Коваль",
+  "@registerLastNamePlaceholder": {
+    "description": "In-field placeholder for the last name input (sign-up-page.html input placeholder)."
+  },
+  "registerEmailPlaceholder": "anya@example.com",
+  "@registerEmailPlaceholder": {
+    "description": "In-field placeholder for the email input on the registration details screen (sign-up-page.html input placeholder)."
+  },
+  "registerPhonePlaceholder": "+380 __ ___ ____",
+  "@registerPhonePlaceholder": {
+    "description": "In-field placeholder for the phone input (sign-up-page.html input placeholder)."
+  },
+  "registerPasswordPlaceholder": "Мінімум 8 символів",
+  "@registerPasswordPlaceholder": {
+    "description": "In-field placeholder for the password input on the registration details screen (sign-up-page.html input placeholder)."
+  },
+  "registerPasswordCriteriaLength": "8+ симв.",
+  "@registerPasswordCriteriaLength": {
+    "description": "Password helper criterion: minimum length (sign-up-page.html .helper-text)."
+  },
+  "registerPasswordCriteriaDigit": "Цифра",
+  "@registerPasswordCriteriaDigit": {
+    "description": "Password helper criterion: contains a digit (sign-up-page.html .helper-text)."
+  },
+  "registerPasswordCriteriaUppercase": "Велика літера",
+  "@registerPasswordCriteriaUppercase": {
+    "description": "Password helper criterion: contains an uppercase letter (sign-up-page.html .helper-text)."
+  },
+  "registerTermsPrefix": "Реєструючись, ви погоджуєтесь з нашими",
+  "@registerTermsPrefix": {
+    "description": "Leading text of the terms-and-privacy line on the registration details screen (sign-up-page.html .terms)."
+  },
+  "registerTermsTerms": "Умовами",
+  "@registerTermsTerms": {
+    "description": "Inline link label for the Terms document (sign-up-page.html .terms a)."
+  },
+  "registerTermsConjunction": " та ",
+  "@registerTermsConjunction": {
+    "description": "Conjunction between the Terms and Privacy links (sign-up-page.html .terms)."
+  },
+  "registerTermsPrivacy": "Політикою конфіденційності",
+  "@registerTermsPrivacy": {
+    "description": "Inline link label for the Privacy Policy document (sign-up-page.html .terms a)."
   }
 }

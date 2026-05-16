@@ -62,13 +62,21 @@
   "@loginSubmit": {
     "description": "Label for the submit button on the login screen."
   },
-  "loginNoAccount": "Don't have an account?",
+  "loginNoAccount": "Don't have an account yet?",
   "@loginNoAccount": {
-    "description": "Prompt text shown before the create account link."
+    "description": "Prompt text shown before the create account link (login-page.html .register-row)."
   },
-  "loginCreateAccount": "Create account",
+  "loginCreateAccount": "Sign up",
   "@loginCreateAccount": {
-    "description": "Link label to navigate to the register screen."
+    "description": "Link label to navigate to the register screen (login-page.html .register-row a)."
+  },
+  "loginEmailPlaceholder": "anya@example.com",
+  "@loginEmailPlaceholder": {
+    "description": "In-field placeholder for the email input on the login screen (login-page.html input placeholder)."
+  },
+  "loginPasswordPlaceholder": "Your password",
+  "@loginPasswordPlaceholder": {
+    "description": "In-field placeholder for the password input on the login screen (login-page.html input placeholder)."
   },
   "errEmailRequired": "Email is required",
   "@errEmailRequired": {
@@ -162,25 +170,25 @@
   "@intentPickerTitle": {
     "description": "Heading on the intent picker step of the register screen."
   },
-  "intentIndependentTitle": "I work with clients independently",
+  "intentIndependentTitle": "Independent master",
   "@intentIndependentTitle": {
-    "description": "Primary label for the independent master intent card."
+    "description": "Title for the independent master role card (role-selection-page.html .role-title)."
   },
   "intentIndependentSubtitle": "Independent master",
   "@intentIndependentSubtitle": {
     "description": "Secondary label for the independent master intent card."
   },
-  "intentSalonTitle": "I own or am opening a salon",
+  "intentSalonTitle": "Salon owner",
   "@intentSalonTitle": {
-    "description": "Primary label for the salon owner intent card."
+    "description": "Title for the salon owner role card (role-selection-page.html .role-title)."
   },
   "intentSalonSubtitle": "Salon owner",
   "@intentSalonSubtitle": {
     "description": "Secondary label for the salon owner intent card."
   },
-  "intentClientTitle": "I am looking for procedures",
+  "intentClientTitle": "Client",
   "@intentClientTitle": {
-    "description": "Primary label for the client intent card."
+    "description": "Title for the client role card (role-selection-page.html .role-title)."
   },
   "intentClientSubtitle": "Client",
   "@intentClientSubtitle": {
@@ -317,5 +325,61 @@
   "progressStepDone": "Done",
   "@progressStepDone": {
     "description": "Step 3 label in the 3-step registration progress indicator."
+  },
+  "registerDetailsHeadline": "Welcome to Premium",
+  "@registerDetailsHeadline": {
+    "description": "Main headline on the registration details screen (sign-up-page.html .headline). Brand copy kept verbatim from the approved design."
+  },
+  "registerDetailsHeadlineAccent": "beauty services",
+  "@registerDetailsHeadlineAccent": {
+    "description": "Italic Cormorant Garamond accent line under the registration details headline (sign-up-page.html .headline em)."
+  },
+  "registerFirstNamePlaceholder": "Anya",
+  "@registerFirstNamePlaceholder": {
+    "description": "In-field placeholder for the first name input (sign-up-page.html input placeholder)."
+  },
+  "registerLastNamePlaceholder": "Koval",
+  "@registerLastNamePlaceholder": {
+    "description": "In-field placeholder for the last name input (sign-up-page.html input placeholder)."
+  },
+  "registerEmailPlaceholder": "anya@example.com",
+  "@registerEmailPlaceholder": {
+    "description": "In-field placeholder for the email input on the registration details screen (sign-up-page.html input placeholder)."
+  },
+  "registerPhonePlaceholder": "+380 __ ___ ____",
+  "@registerPhonePlaceholder": {
+    "description": "In-field placeholder for the phone input (sign-up-page.html input placeholder)."
+  },
+  "registerPasswordPlaceholder": "At least 8 characters",
+  "@registerPasswordPlaceholder": {
+    "description": "In-field placeholder for the password input on the registration details screen (sign-up-page.html input placeholder)."
+  },
+  "registerPasswordCriteriaLength": "8+ chars",
+  "@registerPasswordCriteriaLength": {
+    "description": "Password helper criterion: minimum length (sign-up-page.html .helper-text)."
+  },
+  "registerPasswordCriteriaDigit": "Digit",
+  "@registerPasswordCriteriaDigit": {
+    "description": "Password helper criterion: contains a digit (sign-up-page.html .helper-text)."
+  },
+  "registerPasswordCriteriaUppercase": "Uppercase",
+  "@registerPasswordCriteriaUppercase": {
+    "description": "Password helper criterion: contains an uppercase letter (sign-up-page.html .helper-text)."
+  },
+  "registerTermsPrefix": "By signing up, you agree to our",
+  "@registerTermsPrefix": {
+    "description": "Leading text of the terms-and-privacy line on the registration details screen (sign-up-page.html .terms)."
+  },
+  "registerTermsTerms": "Terms",
+  "@registerTermsTerms": {
+    "description": "Inline link label for the Terms document (sign-up-page.html .terms a)."
+  },
+  "registerTermsConjunction": " and ",
+  "@registerTermsConjunction": {
+    "description": "Conjunction between the Terms and Privacy links (sign-up-page.html .terms)."
+  },
+  "registerTermsPrivacy": "Privacy Policy",
+  "@registerTermsPrivacy": {
+    "description": "Inline link label for the Privacy Policy document (sign-up-page.html .terms a)."
   }
 }
