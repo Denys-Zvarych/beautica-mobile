@@ -776,10 +776,13 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // Test 17 — on initial mount no intent card has a selected indicator
+    // Test 17 — on initial mount no intent card has a selected indicator;
+    //           after selecting and resetting back, exactly one checkmark appears.
     // -----------------------------------------------------------------------
     testWidgets(
-      '17. on initial mount no intent card has a selected visual indicator (Icons.check_circle absent)',
+      '17. on initial mount no intent card is selected (Icons.check absent); '
+      'after selecting and returning to intent picker, Icons.check appears on '
+      'the previously selected card',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -791,13 +794,50 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // _selectedRole starts null so no card is pre-highlighted.
+        // _selectedRole starts null → no role card checkmark visible yet.
+        // The Warm Mocha redesign uses Icons.check (plain) inside _RoleCard,
+        // not Icons.check_circle.  Neither should be present before any card
+        // is tapped.
+        expect(
+          find.byIcon(Icons.check),
+          findsNothing,
+          reason:
+              '_selectedRole starts null → no role card is pre-selected → '
+              'Icons.check must not appear in the tree on the intent picker',
+        );
+
+        // ── Select a role card (transitions to form view).
+        await _selectIntent(tester); // selects independentMaster
+
+        // The form view shows a _SelectedBadge — tapping it resets to intent
+        // picker while keeping _selectedRole set. This exposes the checkmark
+        // in the previously-selected _RoleCard.
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        final badgeFinder = find.text(l10n.intentIndependentTitle);
+        expect(
+          badgeFinder,
+          findsOneWidget,
+          reason: 'Selected badge must show the intent title in form view',
+        );
+        await tester.tap(badgeFinder);
+        await tester.pumpAndSettle();
+
+        // Back on the intent picker with _selectedRole still set to
+        // independentMaster → exactly one role card shows Icons.check.
+        expect(
+          find.byIcon(Icons.check),
+          findsOneWidget,
+          reason:
+              'After returning to intent picker, the previously-selected card '
+              'must display exactly one Icons.check in its checkmark circle',
+        );
+
+        // Icons.check_circle must never appear — the redesign uses Icons.check.
         expect(
           find.byIcon(Icons.check_circle),
           findsNothing,
           reason:
-              '_selectedRole starts null → no intent card is pre-selected → '
-              'Icons.check_circle must not appear in the tree',
+              'The Warm Mocha redesign uses Icons.check, not Icons.check_circle',
         );
       },
     );
@@ -1568,6 +1608,91 @@ void main() {
         findsNothing,
         reason: 'step 2 must be hidden after retreating to step 1',
       );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 32 (MEDIUM) — _WarmMochaStepIndicator transitions to step-2-active
+    //                    state after advancing from step 1 to step 2
+    // -----------------------------------------------------------------------
+    testWidgets('32. step indicator shows step 2 as active (camel dot, number "2") '
+        'when _registrationStep advances to 1', (tester) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        _buildApp(router: router, repo: repo, storage: storage),
+      );
+      await tester.pumpAndSettle();
+
+      // ── Step 0: intent picker is shown; step indicator is NOT present yet.
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(
+        find.text(l10n.progressStepDetails),
+        findsNothing,
+        reason:
+            'Step indicator must not be rendered on the intent picker (step 0)',
+      );
+
+      // ── Advance to Step 1 (credentials form) — indicator becomes visible.
+      await _selectIntent(tester);
+
+      expect(
+        find.text(l10n.progressStepDetails),
+        findsOneWidget,
+        reason: 'Step indicator must render after intent is selected (step 1)',
+      );
+      expect(
+        find.text(l10n.progressStepVerification),
+        findsOneWidget,
+        reason: 'Step indicator must render the Verification label on step 1',
+      );
+      expect(
+        find.text(l10n.progressStepDone),
+        findsOneWidget,
+        reason: 'Step indicator must render the Done label on step 1',
+      );
+
+      // On step 1 (_registrationStep == 0): step 2 dot is INACTIVE.
+      // Its number text uses color 0x33FFFFFF (dim white), not the dark
+      // prog-color (0xFF3A2810) which only appears in the active dot.
+      // Verify step 2 is not yet active by asserting no active-dot Text('2')
+      // with the active (dark) colour exists.
+      expect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is Text &&
+              w.data == '2' &&
+              w.style?.color == const Color(0xFF3A2810),
+        ),
+        findsNothing,
+        reason:
+            'Step 2 dot must be inactive (dim text) while on step 1 of the form',
+      );
+
+      // ── Advance to Step 2 (details form).
+      await _advanceToStep2(tester);
+
+      // Now _registrationStep == 1 → step 2 dot transitions to active.
+      // Active dot child is Text('2') with dark prog-color (0xFF3A2810).
+      expect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is Text &&
+              w.data == '2' &&
+              w.style?.color == const Color(0xFF3A2810),
+        ),
+        findsOneWidget,
+        reason:
+            'Step 2 dot must be active (dark number text inside camel circle) '
+            'when _registrationStep == 1',
+      );
+
+      // Step indicator labels are still all present on step 2.
+      expect(find.text(l10n.progressStepDetails), findsOneWidget);
+      expect(find.text(l10n.progressStepVerification), findsOneWidget);
+      expect(find.text(l10n.progressStepDone), findsOneWidget);
     });
 
     // -----------------------------------------------------------------------

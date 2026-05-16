@@ -194,6 +194,60 @@ void main() {
       expect(button.onPressed, isNull);
     });
     // -----------------------------------------------------------------------
+    // Test 3b — While loading → CTA button shows CircularProgressIndicator
+    //           and hides the label text
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '3b. while AsyncLoading → CTA button shows CircularProgressIndicator '
+      'and label text is not visible',
+      (tester) async {
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              // Override authProvider with a notifier that stays in AsyncLoading.
+              authProvider.overrideWith(() => _LoadingAuthNotifier()),
+              secureStorageProvider.overrideWith((_) => storage),
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        // pumpAndSettle would hang — the Completer in _LoadingAuthNotifier never
+        // settles. A single pump + short delay triggers the first frame.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // The _MochaCtaButton renders a CircularProgressIndicator when
+        // isLoading == true (driven by authState.isLoading).
+        expect(
+          find.byType(CircularProgressIndicator),
+          findsOneWidget,
+          reason:
+              '_MochaCtaButton must show a CircularProgressIndicator inside '
+              'btn-submit-login when authProvider is in AsyncLoading state',
+        );
+
+        // The label text must NOT be visible — the spinner replaces it.
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        expect(
+          find.text(l10n.loginSubmit),
+          findsNothing,
+          reason:
+              'The CTA button label must be hidden while isLoading == true; '
+              'only the CircularProgressIndicator is shown',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // Test 4 — login() error → SnackBar shows the localised failure message
     // -----------------------------------------------------------------------
     testWidgets('4. shows SnackBar with error message on failed login', (
