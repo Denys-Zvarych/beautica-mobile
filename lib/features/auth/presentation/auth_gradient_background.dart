@@ -1,41 +1,40 @@
 // Warm Mocha auth background — Phase 2.x visual redesign (CustomPainter rewrite).
 //
 // Replaces the previous Positioned-Container + RadialGradient approach with a
-// CustomPainter that draws directly onto the canvas via canvas.drawCircle() +
-// RadialGradient.createShader(). This bypasses all Impeller compositing layers
-// that caused hard-edged circle artifacts on Android.
+// CustomPainter that draws directly onto the canvas. Two corner-anchored
+// RadialGradient washes are painted with canvas.drawRect(), which covers the
+// full screen area. The gradient fades naturally from each corner with no
+// visible circular boundary.
 //
-// Root cause of the old approach:
-//   Positioned Container widgets with RadialGradient BoxDecoration trigger
-//   Impeller compositing boundaries even without BoxShape.circle. When a
-//   Container is partially off-screen (clipped by the Stack viewport), Impeller
-//   may rasterize the visible edge as a hard boundary. canvas.drawCircle() is a
-//   native canvas operation; Impeller handles it without a compositing layer.
+// Why canvas.drawRect() instead of canvas.drawCircle():
+//   canvas.drawCircle(center, radius, paint) only touches pixels within the
+//   circle of that radius. The human eye sees the sharp boundary between the
+//   painted circle and the untouched base as a visible circle edge, even when
+//   the gradient alpha reaches zero well before the edge.
+//   canvas.drawRect(fullRect, paintWithGradientShader) paints the entire canvas
+//   area. The RadialGradient shader still has a circular falloff, but the alpha
+//   blends smoothly into the espresso base everywhere — no circle edge, just a
+//   warm colour wash emanating from the corner.
 //
 // CustomPainter design decisions:
 //   - canvas.drawRect fills the espresso base, replacing DecoratedBox.
-//   - canvas.drawCircle() draws the blob shape; the RadialGradient shader
-//     is created from Rect.fromCircle centered on the blob — the gradient
-//     fades from the warm colour at opacity [opacity] to alpha=0 at the radius.
-//   - Blob positions mirror the HTML ::before/::after CSS pseudo-elements,
-//     translated from CSS top/right/bottom/left into screen-space Offsets.
+//   - Two more canvas.drawRect calls paint corner-anchored RadialGradient shaders
+//     (top-right and bottom-left) using the same fullRect, so both shaders receive
+//     accurate corner-anchor mapping from Alignment → screen coordinates.
+//   - No canvas.drawCircle — eliminates the visible circular boundary artifact.
 //   - shouldRepaint always returns false — background is fully static.
 //   - No RepaintBoundary — Flutter's render tree manages layer caching.
-//
-// HTML reference (docs/signup-designs/login-page.html):
-//   .phone::before — 300×300, top:-70, right:-80, blob-1 rgba(88,56,26,0.38)→transparent at 70%
-//   .phone::after  — 220×220, bottom:130, left:-70, blob-2 rgba(68,42,16,0.28)→transparent at 70%
 
 import 'package:flutter/material.dart';
 
 /// Full-screen Warm Mocha background painted directly on the canvas.
 ///
 /// Uses a [CustomPainter] to:
-///   1. Fill the espresso base colour (#0D0906).
-///   2. Draw two ambient radial-gradient blobs (top-right and bottom-left)
-///      via [canvas.drawCircle] + [RadialGradient.createShader], avoiding
-///      all Impeller compositing artifacts from the previous Positioned-Container
-///      approach.
+///   1. Fill the espresso base colour (#0D0906) with [canvas.drawRect].
+///   2. Overlay two corner-anchored [RadialGradient] washes using two more
+///      [canvas.drawRect] calls. Each wash is anchored to its screen corner via
+///      [Alignment] so the glow fades smoothly across the full canvas with no
+///      visible circular boundary.
 ///
 /// This widget is always [const] — it carries no state and never repaints.
 class AuthGradientBackground extends StatelessWidget {
@@ -49,12 +48,17 @@ class AuthGradientBackground extends StatelessWidget {
 }
 
 /// Static [CustomPainter] that draws the espresso base fill and two warm mocha
-/// ambient glow blobs directly onto the canvas.
+/// corner gradient washes directly onto the canvas.
 ///
-/// All drawing is done with [canvas.drawRect] and [canvas.drawCircle] —
-/// no Flutter widget compositing layers involved, which eliminates the
-/// hard-edged circle artifact produced by Impeller when rendering
-/// [RadialGradient] inside a [Container].
+/// All drawing uses [canvas.drawRect] — no [canvas.drawCircle] calls. This
+/// eliminates the visible circular boundary that appears when [drawCircle]
+/// clips the gradient at the circle's radius edge.
+///
+/// Each [RadialGradient] is anchored to its screen corner via [Alignment] and
+/// created from [fullRect] so the [Alignment.topRight] / [Alignment.bottomLeft]
+/// anchor resolves correctly to the actual corner pixel. The gradient fades
+/// from the warm mocha colour at the corner to fully transparent before
+/// reaching the opposite corner, leaving no visible boundary on screen.
 ///
 /// Performance notes:
 ///   - [_kGrad1] / [_kGrad2] are `static const` — allocated once at class
@@ -79,23 +83,33 @@ class _AuthBackgroundPainter extends CustomPainter {
   // Hex alpha derivation:
   //   blob 1: 0.38 × 255 ≈ 97 = 0x61   → Color(0x61583A1A)
   //   blob 2: 0.28 × 255 ≈ 71 = 0x47   → Color(0x47442A10)
-  // stops [0.0, 0.7]: matches CSS `transparent 70%` — gradient reaches fully
-  // transparent at 70% of radius (same as the HTML radial-gradient stop).
-  // Without stops, the gradient fades linearly across the full radius,
-  // creating a visible circular edge at the blob's boundary.
+  //
+  // radius explanation (Flutter RadialGradient docs):
+  //   radius: 1.0 = a circle whose radius equals the shorter side of the
+  //   bounding rect. For a 390pt phone:
+  //     _kGrad1 radius 1.3 → 507pt from corner. At the opposite corner
+  //     (390pt), 77% of the gradient is consumed → visible warm glow. At the
+  //     far diagonal (913pt), gradient is fully transparent → no visible edge.
+  //     _kGrad2 radius 1.1 → 429pt from corner → subtler secondary accent.
+  //
   // The transparent stop preserves the RGB channels (colour-aware transparent)
   // to prevent hue-shift artefacts in Impeller's blend mode.
 
-  /// Top-right blob gradient — rgba(88,56,26) at 38% centre → transparent at 70% radius.
+  /// Top-right warm wash — anchored to the top-right corner. Drawn with
+  /// drawRect so the gradient fades into the espresso base with no visible
+  /// circular boundary.
   static const _kGrad1 = RadialGradient(
+    center: Alignment.topRight,
+    radius: 1.3,
     colors: [Color(0x61583A1A), Color(0x00583A1A)],
-    stops: [0.0, 0.7],
   );
 
-  /// Bottom-left blob gradient — rgba(68,42,16) at 28% centre → transparent at 70% radius.
+  /// Bottom-left warm wash — anchored to the bottom-left corner. Slightly
+  /// tighter radius for a subtler secondary accent.
   static const _kGrad2 = RadialGradient(
+    center: Alignment.bottomLeft,
+    radius: 1.1,
     colors: [Color(0x47442A10), Color(0x00442A10)],
-    stops: [0.0, 0.7],
   );
 
   // ── Reusable Paint objects — allocated once, shader updated per paint().
@@ -105,30 +119,18 @@ class _AuthBackgroundPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final fullRect = Rect.fromLTWH(0, 0, size.width, size.height);
+
     // ── 1. Espresso base fill — covers the entire paint area.
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), _sBasePaint);
+    canvas.drawRect(fullRect, _sBasePaint);
 
-    // ── 2. Blob 1 — top-right ambient glow.
-    //
-    // HTML .phone::before: width 300, height 300, top -70, right -80.
-    //   center_x = size.width + 80 - 150 = size.width - 70
-    //   center_y = -70 + 150 = 80
-    final blob1Center = Offset(size.width - 70, 80);
-    _sPaint1.shader = _kGrad1.createShader(
-      Rect.fromCircle(center: blob1Center, radius: 150),
-    );
-    canvas.drawCircle(blob1Center, 150, _sPaint1);
+    // ── 2. Top-right warm wash — gradient fades from corner across the screen.
+    _sPaint1.shader = _kGrad1.createShader(fullRect);
+    canvas.drawRect(fullRect, _sPaint1);
 
-    // ── 3. Blob 2 — bottom-left ambient glow.
-    //
-    // HTML .phone::after: width 220, height 220, bottom 130, left -70.
-    //   center_x = -70 + 110 = 40
-    //   center_y = size.height - 130 - 110 = size.height - 240
-    final blob2Center = Offset(40, size.height - 240);
-    _sPaint2.shader = _kGrad2.createShader(
-      Rect.fromCircle(center: blob2Center, radius: 110),
-    );
-    canvas.drawCircle(blob2Center, 110, _sPaint2);
+    // ── 3. Bottom-left warm wash — secondary accent gradient.
+    _sPaint2.shader = _kGrad2.createShader(fullRect);
+    canvas.drawRect(fullRect, _sPaint2);
   }
 
   /// Background is fully static — never repaint.

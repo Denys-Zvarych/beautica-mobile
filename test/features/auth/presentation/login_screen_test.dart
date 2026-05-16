@@ -434,77 +434,74 @@ void main() {
     //           BackdropFilter at sigma 8 survived the restructure and the
     //           'B' monogram text is rendered above it.
     // -----------------------------------------------------------------------
-    testWidgets(
-      '7b. brand row monogram contains a BackdropFilter with sigma 8 '
-      'and renders the B monogram text',
-      (tester) async {
-        final repo = FakeAuthRepository();
-        final storage = FakeSecureStorage();
-        final router = _makeRouter();
-        addTearDown(router.dispose);
+    testWidgets('7b. brand row monogram contains a BackdropFilter with sigma 8 '
+        'and renders the B monogram text', (tester) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
 
-        await tester.pumpWidget(
-          ProviderScope(
-            overrides: [
-              authRepositoryProvider.overrideWith((_) => repo),
-              secureStorageProvider.overrideWith((_) => storage),
-            ],
-            child: MaterialApp.router(
-              routerConfig: router,
-              localizationsDelegates: AppLocalizations.localizationsDelegates,
-              supportedLocales: AppLocalizations.supportedLocales,
-              locale: const Locale('uk'),
-            ),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
           ),
-        );
-        await tester.pumpAndSettle();
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        // Locate the brand row by key.
-        final brandRowFinder = find.byKey(const Key('brand-row'));
-        expect(
-          brandRowFinder,
-          findsOneWidget,
-          reason: '_BrandRow must be present with key "brand-row"',
-        );
+      // Locate the brand row by key.
+      final brandRowFinder = find.byKey(const Key('brand-row'));
+      expect(
+        brandRowFinder,
+        findsOneWidget,
+        reason: '_BrandRow must be present with key "brand-row"',
+      );
 
-        // The brand row must contain a BackdropFilter descendant (monogram blur).
-        final brandBlurFinder = find.descendant(
-          of: brandRowFinder,
-          matching: find.byType(BackdropFilter),
-        );
-        expect(
-          brandBlurFinder,
-          findsOneWidget,
-          reason:
-              '_BrandRow monogram must contain a BackdropFilter; '
-              'removing it breaks the frosted-glass monogram effect',
-        );
+      // The brand row must contain a BackdropFilter descendant (monogram blur).
+      final brandBlurFinder = find.descendant(
+        of: brandRowFinder,
+        matching: find.byType(BackdropFilter),
+      );
+      expect(
+        brandBlurFinder,
+        findsOneWidget,
+        reason:
+            '_BrandRow monogram must contain a BackdropFilter; '
+            'removing it breaks the frosted-glass monogram effect',
+      );
 
-        // That BackdropFilter must use sigma 8
-        // (matches _BrandRow._kBlur = ImageFilter.blur(sigmaX: 8, sigmaY: 8)).
-        final brandFilter = tester.widget<BackdropFilter>(brandBlurFinder);
-        expect(
-          brandFilter.filter.toString().contains('8'),
-          isTrue,
-          reason:
-              'Brand row BackdropFilter must use sigma 8 '
-              '(ImageFilter.blur(sigmaX: 8, sigmaY: 8))',
-        );
+      // That BackdropFilter must use sigma 8
+      // (matches _BrandRow._kBlur = ImageFilter.blur(sigmaX: 8, sigmaY: 8)).
+      final brandFilter = tester.widget<BackdropFilter>(brandBlurFinder);
+      expect(
+        brandFilter.filter.toString().contains('8'),
+        isTrue,
+        reason:
+            'Brand row BackdropFilter must use sigma 8 '
+            '(ImageFilter.blur(sigmaX: 8, sigmaY: 8))',
+      );
 
-        // The 'B' monogram text must be rendered above the blur.
-        final monogramFinder = find.descendant(
-          of: brandRowFinder,
-          matching: find.text('B'),
-        );
-        expect(
-          monogramFinder,
-          findsOneWidget,
-          reason:
-              'The monogram letter "B" must be rendered above the BackdropFilter '
-              'in the brand row Stack — removing it breaks the monogram display',
-        );
-      },
-    );
+      // The 'B' monogram text must be rendered above the blur.
+      final monogramFinder = find.descendant(
+        of: brandRowFinder,
+        matching: find.text('B'),
+      );
+      expect(
+        monogramFinder,
+        findsOneWidget,
+        reason:
+            'The monogram letter "B" must be rendered above the BackdropFilter '
+            'in the brand row Stack — removing it breaks the monogram display',
+      );
+    });
     // -----------------------------------------------------------------------
     // Test 8 — CTA button label has fontSize 17 (Phase 2.x +2 px pass)
     // -----------------------------------------------------------------------
