@@ -92,7 +92,9 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: BrandColors.midnight,
+      // Warm Mocha palette — must match the shared AuthGradientBackground
+      // (espresso #0D0906), not the legacy navy midnight.
+      backgroundColor: BrandColors.espresso,
       body: Stack(
         children: [
           const AuthGradientBackground(),

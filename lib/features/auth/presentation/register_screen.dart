@@ -46,9 +46,10 @@ import '../../../routing/route_names.dart';
 import '../../../shared/validators/email_validator.dart';
 import '../../../shared/validators/name_validator.dart';
 import '../../../shared/validators/password_validator.dart';
+import '../../../shared/widgets/auth_field_label.dart';
+import '../../../shared/widgets/auth_scaffold.dart';
 import '../../../shared/widgets/password_strength_indicator.dart';
 import '../domain/user_role.dart';
-import 'auth_gradient_background.dart';
 import 'auth_notifier.dart';
 
 // ---------------------------------------------------------------------------
@@ -502,6 +503,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   // Field decoration helper — warm mocha style
   // ---------------------------------------------------------------------------
 
+  // The static uppercase label now lives in an [AuthFieldLabel] above each
+  // field (Defect 1 — design parity with sign-up-page.html). The string
+  // passed here is therefore used as the in-field placeholder, mirroring the
+  // login screen's pattern and the mockup's `placeholder` attribute. No
+  // logic/validator/l10n key changes — purely the visual surface.
   InputDecoration _fieldDecor(
     String label, {
     String? errorText,
@@ -509,8 +515,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     String? hintText,
     Widget? prefixIcon,
   }) => InputDecoration(
-    labelText: label,
-    hintText: hintText,
+    hintText: hintText ?? label,
     errorText: errorText,
     suffixIcon: suffixIcon,
     prefixIcon: prefixIcon,
@@ -542,27 +547,23 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     final authState = ref.watch(authProvider);
     final isLoading = authState.isLoading;
 
-    return Scaffold(
-      backgroundColor: BrandColors.espresso,
-      body: Stack(
+    return AuthScaffold(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const AuthGradientBackground(),
-          SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.lg,
-                ),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 400),
-                  child: _intentSelected
-                      ? _buildFormView(context, l10n, isLoading)
-                      : _buildIntentPickerView(context, l10n),
-                ),
-              ),
-            ),
-          ),
+          // ── Shared top geometry — identical to login + every register
+          //    step so the brand row never jumps on setState() step change.
+          const SizedBox(height: 24),
+
+          // ── Brand row (shared across step 0 and steps 1–2)
+          const _RegBrandRow(key: Key('brand-row')),
+
+          const SizedBox(height: 36),
+
+          // ── Step-specific content below the (static) brand row.
+          _intentSelected
+              ? _buildFormView(context, l10n, isLoading)
+              : _buildIntentPickerView(context, l10n),
         ],
       ),
     );
@@ -583,12 +584,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: AppSpacing.lg),
-
-        // ── Brand row
-        const _RegBrandRow(),
-
-        const SizedBox(height: AppSpacing.xxl),
+        // Brand row + its surrounding 24/36 gaps now live in build()'s
+        // shared parent so step 0 and steps 1–2 share identical top geometry.
 
         // ── Headline + accent + sub-text
         _intentStaggered(0, _RegisterHeadlineBlock(l10n: l10n)),
@@ -669,12 +666,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: AppSpacing.lg),
-
-        // ── Brand row
-        const _RegBrandRow(),
-
-        const SizedBox(height: AppSpacing.xl),
+        // Brand row + its surrounding 24/36 gaps now live in build()'s
+        // shared parent so the brand row stays put on every step change.
 
         // ── 3-step progress indicator (Деталі / Верифікація / Готово)
         // Steps 0 and 1 of _registrationStep map to progress step 0 (Details)
@@ -764,133 +757,183 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
           ),
           const SizedBox(height: AppSpacing.md),
 
-          if (isSalon) ...[
-            _staggered(
-              1,
-              TextFormField(
-                key: const Key('field-businessName'),
-                controller: _businessNameController,
-                textInputAction: TextInputAction.next,
-                style: const TextStyle(color: BrandColors.cream, fontSize: 14),
-                decoration: _fieldDecor(
-                  l10n.registerBusinessNameLabel,
-                  errorText: _serverErrors['businessName'],
-                ),
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) {
-                    return l10n.errNameRequired;
-                  }
-                  return null;
-                },
-                enabled: !isLoading,
-                autocorrect: false,
-                enableIMEPersonalizedLearning: false,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
+          // ── Glass card wrapping the form fields (sign-up-page.html
+          //    `.glass-card`). Step 1/2 fields previously sat bare on the
+          //    background — Defect 1.
+          _RegGlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (isSalon) ...[
+                  _staggered(
+                    1,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        AuthFieldLabel(l10n.registerBusinessNameLabel),
+                        TextFormField(
+                          key: const Key('field-businessName'),
+                          controller: _businessNameController,
+                          textInputAction: TextInputAction.next,
+                          style: const TextStyle(
+                            color: BrandColors.cream,
+                            fontSize: 14,
+                          ),
+                          decoration: _fieldDecor(
+                            l10n.registerBusinessNameLabel,
+                            errorText: _serverErrors['businessName'],
+                          ),
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty) {
+                              return l10n.errNameRequired;
+                            }
+                            return null;
+                          },
+                          enabled: !isLoading,
+                          autocorrect: false,
+                          enableIMEPersonalizedLearning: false,
+                        ),
+                      ],
+                    ),
+                  ),
+                  // .field-group { margin-bottom: 14px }
+                  const SizedBox(height: 14),
 
-            _staggered(
-              2,
-              TextFormField(
-                key: const Key('field-address'),
-                controller: _addressController,
-                textInputAction: TextInputAction.next,
-                style: const TextStyle(color: BrandColors.cream, fontSize: 14),
-                decoration: _fieldDecor(
-                  l10n.registerAddressLabel,
-                  errorText: _serverErrors['address'],
-                ),
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) {
-                    return l10n.errAddressRequired;
-                  }
-                  if (v.length > 255) return l10n.errAddressTooLong;
-                  return null;
-                },
-                enabled: !isLoading,
-                autocorrect: false,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-          ] else ...[
-            _staggered(
-              1,
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      key: const Key('field-firstName'),
-                      controller: _firstNameController,
-                      textInputAction: TextInputAction.next,
-                      style: const TextStyle(
-                        color: BrandColors.cream,
-                        fontSize: 14,
-                      ),
-                      decoration: _fieldDecor(
-                        l10n.firstNameLabel,
-                        errorText: _serverErrors['firstName'],
-                      ),
-                      validator: (v) => validateName(v, l10n),
-                      enabled: !isLoading,
-                      autocorrect: false,
-                      enableIMEPersonalizedLearning: false,
+                  _staggered(
+                    2,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        AuthFieldLabel(l10n.registerAddressLabel),
+                        TextFormField(
+                          key: const Key('field-address'),
+                          controller: _addressController,
+                          textInputAction: TextInputAction.next,
+                          style: const TextStyle(
+                            color: BrandColors.cream,
+                            fontSize: 14,
+                          ),
+                          decoration: _fieldDecor(
+                            l10n.registerAddressLabel,
+                            errorText: _serverErrors['address'],
+                          ),
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty) {
+                              return l10n.errAddressRequired;
+                            }
+                            if (v.length > 255) return l10n.errAddressTooLong;
+                            return null;
+                          },
+                          enabled: !isLoading,
+                          autocorrect: false,
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: TextFormField(
-                      key: const Key('field-lastName'),
-                      controller: _lastNameController,
-                      textInputAction: TextInputAction.next,
-                      style: const TextStyle(
-                        color: BrandColors.cream,
-                        fontSize: 14,
-                      ),
-                      decoration: _fieldDecor(
-                        l10n.lastNameLabel,
-                        errorText: _serverErrors['lastName'],
-                      ),
-                      validator: (v) => validateName(v, l10n),
-                      enabled: !isLoading,
-                      autocorrect: false,
-                      enableIMEPersonalizedLearning: false,
+                  const SizedBox(height: 14),
+                ] else ...[
+                  _staggered(
+                    1,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              AuthFieldLabel(l10n.firstNameLabel),
+                              TextFormField(
+                                key: const Key('field-firstName'),
+                                controller: _firstNameController,
+                                textInputAction: TextInputAction.next,
+                                style: const TextStyle(
+                                  color: BrandColors.cream,
+                                  fontSize: 14,
+                                ),
+                                decoration: _fieldDecor(
+                                  l10n.firstNameLabel,
+                                  errorText: _serverErrors['firstName'],
+                                ),
+                                validator: (v) => validateName(v, l10n),
+                                enabled: !isLoading,
+                                autocorrect: false,
+                                enableIMEPersonalizedLearning: false,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              AuthFieldLabel(l10n.lastNameLabel),
+                              TextFormField(
+                                key: const Key('field-lastName'),
+                                controller: _lastNameController,
+                                textInputAction: TextInputAction.next,
+                                style: const TextStyle(
+                                  color: BrandColors.cream,
+                                  fontSize: 14,
+                                ),
+                                decoration: _fieldDecor(
+                                  l10n.lastNameLabel,
+                                  errorText: _serverErrors['lastName'],
+                                ),
+                                validator: (v) => validateName(v, l10n),
+                                enabled: !isLoading,
+                                autocorrect: false,
+                                enableIMEPersonalizedLearning: false,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
+                  const SizedBox(height: 14),
                 ],
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-          ],
 
-          _staggered(
-            3,
-            TextFormField(
-              key: const Key('field-phone'),
-              controller: _phoneController,
-              keyboardType: TextInputType.phone,
-              textInputAction: TextInputAction.done,
-              style: const TextStyle(color: BrandColors.cream, fontSize: 14),
-              inputFormatters: const [_UkrainianPhoneFormatter()],
-              decoration: _fieldDecor(
-                l10n.registerPhoneLabel,
-                hintText: '+380 XX XXX XX XX',
-                errorText: _serverErrors['phoneNumber'],
-              ),
-              validator: (v) {
-                final trimmed = v?.trim() ?? '';
-                if (trimmed.isEmpty || trimmed == '+380') {
-                  return l10n.errPhoneRequired;
-                }
-                if (!_reUkrainianPhone.hasMatch(trimmed)) {
-                  return l10n.errPhoneInvalidFormat;
-                }
-                return null;
-              },
-              enabled: !isLoading,
-              autocorrect: false,
-              enableIMEPersonalizedLearning: false,
-              onFieldSubmitted: (_) => isLoading ? null : _submit(),
+                _staggered(
+                  3,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AuthFieldLabel(l10n.registerPhoneLabel),
+                      TextFormField(
+                        key: const Key('field-phone'),
+                        controller: _phoneController,
+                        keyboardType: TextInputType.phone,
+                        textInputAction: TextInputAction.done,
+                        style: const TextStyle(
+                          color: BrandColors.cream,
+                          fontSize: 14,
+                        ),
+                        inputFormatters: const [_UkrainianPhoneFormatter()],
+                        decoration: _fieldDecor(
+                          l10n.registerPhoneLabel,
+                          hintText: '+380 XX XXX XX XX',
+                          errorText: _serverErrors['phoneNumber'],
+                        ),
+                        validator: (v) {
+                          final trimmed = v?.trim() ?? '';
+                          if (trimmed.isEmpty || trimmed == '+380') {
+                            return l10n.errPhoneRequired;
+                          }
+                          if (!_reUkrainianPhone.hasMatch(trimmed)) {
+                            return l10n.errPhoneInvalidFormat;
+                          }
+                          return null;
+                        },
+                        enabled: !isLoading,
+                        autocorrect: false,
+                        enableIMEPersonalizedLearning: false,
+                        onFieldSubmitted: (_) => isLoading ? null : _submit(),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
@@ -1157,6 +1200,48 @@ class _StepConnector extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
+// _RegGlassCard — glassmorphism container (same treatment as login _GlassCard)
+// ---------------------------------------------------------------------------
+
+/// Glassmorphism card matching the HTML `.glass-card` used on
+/// sign-up-page.html to wrap the step 1 / step 2 form fields.
+///
+/// background rgba(255,255,255,0.065), border rgba(255,255,255,0.1),
+/// border-radius 22px, padding 22 18 20, backdrop-filter blur(20px) ≈ sigma 12.
+class _RegGlassCard extends StatelessWidget {
+  const _RegGlassCard({required this.child});
+
+  final Widget child;
+
+  static const _kRadius = BorderRadius.all(Radius.circular(22));
+
+  static final _kBlur = ImageFilter.blur(sigmaX: 12, sigmaY: 12);
+
+  static const _kDecoration = BoxDecoration(
+    color: Color(0x11FFFFFF), // rgba(255,255,255,0.065)
+    borderRadius: _kRadius,
+    border: Border.fromBorderSide(
+      BorderSide(color: Color(0x1AFFFFFF), width: 1), // white 10%
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: _kRadius,
+      child: BackdropFilter(
+        filter: _kBlur,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
+          decoration: _kDecoration,
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // _Step1Form — PERF MEDIUM-2 isolation boundary (UNCHANGED logic)
 // ---------------------------------------------------------------------------
 
@@ -1233,41 +1318,66 @@ class _Step1FormState extends State<_Step1Form> {
           ),
           const SizedBox(height: AppSpacing.md),
 
-          _staggered(
-            2,
-            TextFormField(
-              key: const Key('field-email'),
-              controller: widget.emailController,
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.next,
-              style: const TextStyle(color: BrandColors.cream, fontSize: 14),
-              autovalidateMode: AutovalidateMode.onUserInteraction,
-              decoration: widget.fieldDecor(
-                l10n.loginEmailLabel,
-                errorText: widget.serverErrors['email'],
-                prefixIcon: const Icon(
-                  Icons.email_outlined,
-                  color: Color(0x40FFFFFF),
-                  size: 18,
+          // ── Glass card wrapping the credential fields (sign-up-page.html
+          //    `.glass-card`). Step 1 fields previously sat bare — Defect 1.
+          _RegGlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _staggered(
+                  2,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AuthFieldLabel(l10n.loginEmailLabel),
+                      TextFormField(
+                        key: const Key('field-email'),
+                        controller: widget.emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        textInputAction: TextInputAction.next,
+                        style: const TextStyle(
+                          color: BrandColors.cream,
+                          fontSize: 14,
+                        ),
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
+                        decoration: widget.fieldDecor(
+                          l10n.loginEmailLabel,
+                          errorText: widget.serverErrors['email'],
+                          prefixIcon: const Icon(
+                            Icons.email_outlined,
+                            color: Color(0x40FFFFFF),
+                            size: 18,
+                          ),
+                        ),
+                        validator: (v) => validateEmail(v, l10n),
+                        enabled: !widget.isLoading,
+                        autocorrect: false,
+                        enableIMEPersonalizedLearning: false,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              validator: (v) => validateEmail(v, l10n),
-              enabled: !widget.isLoading,
-              autocorrect: false,
-              enableIMEPersonalizedLearning: false,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
+                // .field-group { margin-bottom: 14px }
+                const SizedBox(height: 14),
 
-          _staggered(
-            3,
-            _PasswordFieldWithStrength(
-              controller: widget.passwordController,
-              serverError: widget.serverErrors['password'],
-              isLoading: widget.isLoading,
-              fieldDecor: widget.fieldDecor,
-              onSubmit: widget.isLoading ? null : widget.onNext,
-              l10n: l10n,
+                _staggered(
+                  3,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AuthFieldLabel(l10n.loginPasswordLabel),
+                      _PasswordFieldWithStrength(
+                        controller: widget.passwordController,
+                        serverError: widget.serverErrors['password'],
+                        isLoading: widget.isLoading,
+                        fieldDecor: widget.fieldDecor,
+                        onSubmit: widget.isLoading ? null : widget.onNext,
+                        l10n: l10n,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
@@ -1390,7 +1500,8 @@ class _RoleCard extends StatelessWidget {
   static const _kIconSize = 44.0;
   static const _kCheckSize = 22.0;
 
-  static final _kBlur = ImageFilter.blur(sigmaX: 20, sigmaY: 20);
+  // CSS blur(20px) ≈ Flutter sigma ~12 (not 20).
+  static final _kBlur = ImageFilter.blur(sigmaX: 12, sigmaY: 12);
 
   @override
   Widget build(BuildContext context) {
@@ -1795,7 +1906,7 @@ class _MochaCtaButton extends StatelessWidget {
 /// Brand row for the register screen — identical pattern to login screen's
 /// _BrandRow but declared separately to avoid cross-file coupling.
 class _RegBrandRow extends StatelessWidget {
-  const _RegBrandRow();
+  const _RegBrandRow({super.key});
 
   static final _kBlur = ImageFilter.blur(sigmaX: 8, sigmaY: 8);
 

@@ -354,6 +354,13 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        // AuthScaffold wraps content in a SingleChildScrollView, so the
+        // "go to register" link can flow below the default 800x600 test
+        // viewport fold. Scroll it into view before tapping or the
+        // hit-test misses and navigation never fires.
+        await tester.ensureVisible(find.byKey(const Key('btn-go-to-register')));
+        await tester.pumpAndSettle();
+
         await tester.tap(find.byKey(const Key('btn-go-to-register')));
         await tester.pumpAndSettle();
 

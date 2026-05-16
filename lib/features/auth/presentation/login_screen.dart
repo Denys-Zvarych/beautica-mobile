@@ -47,7 +47,8 @@ import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/validators/email_validator.dart';
 import '../../../shared/validators/password_validator.dart';
-import 'auth_gradient_background.dart';
+import '../../../shared/widgets/auth_field_label.dart';
+import '../../../shared/widgets/auth_scaffold.dart';
 import 'auth_notifier.dart';
 
 // ---------------------------------------------------------------------------
@@ -311,197 +312,172 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     final authState = ref.watch(authProvider);
     final isLoading = authState.isLoading;
 
-    return Scaffold(
-      backgroundColor: BrandColors.espresso,
-      body: Stack(
-        children: [
-          // ── Espresso background + mocha ambient blobs
-          const AuthGradientBackground(),
+    return AuthScaffold(
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // ── Shared top geometry — identical to register so the brand
+            //    row never jumps when switching Login ↔ Register.
+            const SizedBox(height: 24),
 
-          SafeArea(
-            child: LayoutBuilder(
-              builder: (context, constraints) => SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-                child: ConstrainedBox(
-                  // Ensure the column fills the viewport so the register row
-                  // stays in the visible area regardless of screen height.
-                  // In the test harness (800×600 viewport) this prevents the
-                  // "No account?" row from scrolling out of reach.
-                  constraints: BoxConstraints(
-                    minHeight: constraints.maxHeight,
-                    maxWidth: 400,
-                  ),
-                  child: IntrinsicHeight(
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
+            // ── Brand row: monogram + BEAUTICA
+            const _BrandRow(key: Key('brand-row')),
+
+            const SizedBox(height: 36),
+
+            // ── Stagger 0: Headline block
+            _staggered(0, _HeadlineBlock(l10n: l10n)),
+
+            // headline → glass card gap (mockup .headline + .sub-text block
+            // sits directly above the card; 24 keeps a comfortable rhythm).
+            const SizedBox(height: AppSpacing.lg),
+
+            // ── Stagger 1: Glass card with email + password
+            _staggered(
+              1,
+              _GlassCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ── Email field
+                    _staggered(
+                      2,
+                      Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          const SizedBox(height: AppSpacing.lg),
-
-                          // ── Brand row: monogram + BEAUTICA
-                          const _BrandRow(),
-
-                          const SizedBox(height: AppSpacing.xl),
-
-                          // ── Stagger 0: Headline block
-                          _staggered(0, _HeadlineBlock(l10n: l10n)),
-
-                          const SizedBox(height: AppSpacing.lg),
-
-                          // ── Stagger 1: Glass card with email + password
-                          _staggered(
-                            1,
-                            _GlassCard(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  // ── Email field
-                                  _staggered(
-                                    2,
-                                    TextFormField(
-                                      key: const Key('field-email'),
-                                      controller: _emailController,
-                                      keyboardType: TextInputType.emailAddress,
-                                      textInputAction: TextInputAction.next,
-                                      style: const TextStyle(
-                                        color: BrandColors.cream,
-                                        fontSize: 14,
-                                      ),
-                                      decoration: _fieldDecor(
-                                        l10n.loginEmailLabel,
-                                        prefixIcon: const _FieldIcon(
-                                          icon: Icons.email_outlined,
-                                        ),
-                                      ),
-                                      validator: (v) => validateEmail(v, l10n),
-                                      enabled: !isLoading,
-                                      autocorrect: false,
-                                    ),
-                                  ),
-
-                                  const SizedBox(height: AppSpacing.sm),
-
-                                  // ── Password + forgot row
-                                  _staggered(
-                                    3,
-                                    Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        TextFormField(
-                                          key: const Key('field-password'),
-                                          controller: _passwordController,
-                                          obscureText: _obscurePassword,
-                                          enableSuggestions: false,
-                                          autocorrect: false,
-                                          textInputAction: TextInputAction.done,
-                                          style: const TextStyle(
-                                            color: BrandColors.cream,
-                                            fontSize: 14,
-                                          ),
-                                          decoration: _fieldDecor(
-                                            l10n.loginPasswordLabel,
-                                            prefixIcon: const _FieldIcon(
-                                              icon: Icons.lock_outline,
-                                            ),
-                                            suffixIcon: IconButton(
-                                              key: const Key(
-                                                'btn-toggle-password',
-                                              ),
-                                              icon: Icon(
-                                                _obscurePassword
-                                                    ? Icons.visibility_outlined
-                                                    : Icons
-                                                          .visibility_off_outlined,
-                                                color: const Color(0x47FFFFFF),
-                                                size: 18,
-                                                semanticLabel: _obscurePassword
-                                                    ? l10n.showPasswordSemanticLabel
-                                                    : l10n.hidePasswordSemanticLabel,
-                                              ),
-                                              onPressed: () => setState(
-                                                () => _obscurePassword =
-                                                    !_obscurePassword,
-                                              ),
-                                            ),
-                                          ),
-                                          validator: (v) =>
-                                              validatePassword(v, l10n),
-                                          enabled: !isLoading,
-                                          onFieldSubmitted: (_) =>
-                                              isLoading ? null : _submit(),
-                                        ),
-
-                                        // ── Forgot password link — right-aligned, camel
-                                        Align(
-                                          alignment: Alignment.centerRight,
-                                          child: TextButton(
-                                            key: const Key(
-                                              'btn-forgot-password',
-                                            ),
-                                            onPressed: null,
-                                            style: TextButton.styleFrom(
-                                              foregroundColor:
-                                                  BrandColors.camel,
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: AppSpacing.xxs,
-                                                    horizontal: AppSpacing.xs,
-                                                  ),
-                                              textStyle: const TextStyle(
-                                                fontSize: 11.5,
-                                                fontWeight: FontWeight.w500,
-                                                letterSpacing: 0.02,
-                                              ),
-                                            ),
-                                            child: Text(
-                                              l10n.loginForgotPassword,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-
-                                  const SizedBox(height: AppSpacing.xs),
-
-                                  // ── CTA button — mocha gradient
-                                  _MochaCtaButton(
-                                    buttonKey: const Key('btn-submit-login'),
-                                    onPressed: isLoading ? null : _submit,
-                                    onTapDown: () =>
-                                        setState(() => _buttonPressed = true),
-                                    onTapUp: () =>
-                                        setState(() => _buttonPressed = false),
-                                    onTapCancel: () =>
-                                        setState(() => _buttonPressed = false),
-                                    isPressed: _buttonPressed,
-                                    isLoading: isLoading,
-                                    label: l10n.loginSubmit,
-                                  ),
-                                ],
+                          AuthFieldLabel(l10n.loginEmailLabel),
+                          TextFormField(
+                            key: const Key('field-email'),
+                            controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            style: const TextStyle(
+                              color: BrandColors.cream,
+                              fontSize: 14,
+                            ),
+                            decoration: _fieldDecor(
+                              l10n.loginEmailLabel,
+                              prefixIcon: const _FieldIcon(
+                                icon: Icons.email_outlined,
                               ),
                             ),
+                            validator: (v) => validateEmail(v, l10n),
+                            enabled: !isLoading,
+                            autocorrect: false,
                           ),
-
-                          // Flexible spacer: collapses when screen is short
-                          // (test viewport 600 px), expands on real devices.
-                          const Spacer(),
-
-                          // ── "No account?" row — always visible at bottom
-                          _buildRegisterRow(l10n, isLoading),
-
-                          const SizedBox(height: AppSpacing.md),
                         ],
                       ),
                     ),
-                  ),
+
+                    // .field-group { margin-bottom: 14px }
+                    const SizedBox(height: 14),
+
+                    // ── Password + forgot row
+                    _staggered(
+                      3,
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          AuthFieldLabel(l10n.loginPasswordLabel),
+                          TextFormField(
+                            key: const Key('field-password'),
+                            controller: _passwordController,
+                            obscureText: _obscurePassword,
+                            enableSuggestions: false,
+                            autocorrect: false,
+                            textInputAction: TextInputAction.done,
+                            style: const TextStyle(
+                              color: BrandColors.cream,
+                              fontSize: 14,
+                            ),
+                            decoration: _fieldDecor(
+                              l10n.loginPasswordLabel,
+                              prefixIcon: const _FieldIcon(
+                                icon: Icons.lock_outline,
+                              ),
+                              suffixIcon: IconButton(
+                                key: const Key('btn-toggle-password'),
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                  color: const Color(0x47FFFFFF),
+                                  size: 18,
+                                  semanticLabel: _obscurePassword
+                                      ? l10n.showPasswordSemanticLabel
+                                      : l10n.hidePasswordSemanticLabel,
+                                ),
+                                onPressed: () => setState(
+                                  () => _obscurePassword = !_obscurePassword,
+                                ),
+                              ),
+                            ),
+                            validator: (v) => validatePassword(v, l10n),
+                            enabled: !isLoading,
+                            onFieldSubmitted: (_) =>
+                                isLoading ? null : _submit(),
+                          ),
+
+                          // .forgot-row { margin-top: 6px }
+                          const SizedBox(height: 6),
+
+                          // ── Forgot password link — right-aligned, camel
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              key: const Key('btn-forgot-password'),
+                              onPressed: null,
+                              style: TextButton.styleFrom(
+                                foregroundColor: BrandColors.camel.withValues(
+                                  alpha: 0.8,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: AppSpacing.xxs,
+                                  horizontal: AppSpacing.xs,
+                                ),
+                                textStyle: const TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w500,
+                                  letterSpacing: 0.02,
+                                ),
+                              ),
+                              child: Text(l10n.loginForgotPassword),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // .cta-btn { margin-top: 4px }
+                    const SizedBox(height: 4),
+
+                    // ── CTA button — mocha gradient
+                    _MochaCtaButton(
+                      buttonKey: const Key('btn-submit-login'),
+                      onPressed: isLoading ? null : _submit,
+                      onTapDown: () => setState(() => _buttonPressed = true),
+                      onTapUp: () => setState(() => _buttonPressed = false),
+                      onTapCancel: () => setState(() => _buttonPressed = false),
+                      isPressed: _buttonPressed,
+                      isLoading: isLoading,
+                      label: l10n.loginSubmit,
+                    ),
+                  ],
                 ),
               ),
             ),
-          ),
-        ],
+
+            // .register-row { margin-top: 20px } — sits 20 px below the
+            // card, NOT bottom-anchored (Spacer removed → no vertical jump).
+            const SizedBox(height: 20),
+
+            _buildRegisterRow(l10n, isLoading),
+
+            const SizedBox(height: AppSpacing.md),
+          ],
+        ),
       ),
     );
   }
@@ -544,7 +520,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 /// Extracted as a private StatelessWidget to avoid allocating its decoration
 /// inside the parent's build() method on every rebuild.
 class _BrandRow extends StatelessWidget {
-  const _BrandRow();
+  const _BrandRow({super.key});
 
   static final _kBlur = ImageFilter.blur(sigmaX: 8, sigmaY: 8);
 
@@ -648,7 +624,10 @@ class _HeadlineBlock extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: AppSpacing.xs),
+        // .headline margin-bottom 8 + .sub-text margin-top 10 → 10 px gap
+        // (task spec: headline→subtext gap 10). Literal — no AppSpacing token
+        // is 10; snapping to a token is what caused Defect 1 drift.
+        const SizedBox(height: 10),
         Text(
           l10n.loginSubText,
           style: const TextStyle(
@@ -674,7 +653,9 @@ class _GlassCard extends StatelessWidget {
 
   final Widget child;
 
-  static final _kBlur = ImageFilter.blur(sigmaX: 20, sigmaY: 20);
+  // CSS blur(20px) ≈ Flutter sigma ~12 (not 20) — the previous 20 over-blurred
+  // the card backdrop relative to the mockup.
+  static final _kBlur = ImageFilter.blur(sigmaX: 12, sigmaY: 12);
 
   static const _kDecoration = BoxDecoration(
     color: Color(0x11FFFFFF), // rgba(255,255,255,0.065) ≈ 0x10
@@ -691,12 +672,8 @@ class _GlassCard extends StatelessWidget {
       child: BackdropFilter(
         filter: _kBlur,
         child: Container(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.md,
-            AppSpacing.lg,
-            AppSpacing.md,
-            AppSpacing.lg,
-          ),
+          // .glass-card { padding: 22px 18px 20px } → LTRB(18, 22, 18, 20).
+          padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
           decoration: _kDecoration,
           child: child,
         ),
