@@ -8,8 +8,10 @@
 # § 0.7 (network routing note).
 #
 # Usage:
-#   ./scripts/run_local.sh                  # default local URL
+#   ./scripts/run_local.sh [debug|profile|release]   (default: debug)
+#   ./scripts/run_local.sh                  # default local URL, debug mode
 #   BEAUTICA_BASE_URL=http://192.168.56.1:8080/api/v1 ./scripts/run_local.sh
+#   ./scripts/run_local.sh profile          # profile mode — removes JIT overhead
 #
 # Prerequisites:
 #   - Windows AVD booted + start_adb_server.ps1 running on the host.
@@ -17,9 +19,10 @@
 
 set -euo pipefail
 
+MODE="${1:-debug}"
 BASE_URL="${BEAUTICA_BASE_URL:-http://10.0.2.2:8080/api/v1}"
 
 cd "$(dirname "$0")/.."
 
-exec flutter run \
+exec flutter run --$MODE \
   --dart-define=BEAUTICA_BASE_URL="$BASE_URL"

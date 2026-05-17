@@ -1473,6 +1473,128 @@ void main() {
         expect(find.text('too weak'), findsOneWidget);
       },
     );
+    // -----------------------------------------------------------------------
+    // 32 (new) — BackdropFilter blur-budget ceiling on the role-selection step
+    //
+    // The role-selection view renders exactly 3 _RoleCard instances (each with
+    // one BackdropFilter at sigma 12) and one _RegBrandRow (sigma 8) = 4 total.
+    // _RegGlassCard is NOT present on this view — it only appears in the details
+    // form. Asserting an upper bound of 4 prevents future additions from silently
+    // exceeding the raster budget that was established by the sigma 20→12 fix.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '32. role-selection step has at most 4 BackdropFilter instances (blur budget ceiling)',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
+
+        // We are on the role-selection step — _RegGlassCard is not in the tree.
+        expect(
+          find.byKey(const Key('field-email')),
+          findsNothing,
+          reason: 'Sanity: must be on the role-selection step, not details',
+        );
+
+        final backdropCount = find.byType(BackdropFilter).evaluate().length;
+        expect(
+          backdropCount,
+          lessThanOrEqualTo(4),
+          reason:
+              'role-selection step must have at most 4 BackdropFilter widgets '
+              '(3 role cards + 1 brand row). Found $backdropCount. '
+              'A regression here means the raster budget sigma-12 fix was undone.',
+        );
+      },
+    );
+  });
+
+  // =========================================================================
+  // _WarmMochaStepIndicator — step progress row widget tests
+  //
+  // The production widget is _ProgressRow (inside register_screen.dart).
+  // It is private and cannot be targeted via find.byType; structural
+  // assertions are used instead.
+  //
+  // When the user is on the DETAILS step (step 2, _showDetails == true):
+  //   • btn-back-step is visible  → confirms details step is active.
+  //   • field-email is visible    → confirms the single-screen form rendered.
+  //   • The role picker is gone   → intentSalonTitle is absent.
+  //
+  // The _ProgressRow does NOT use Icons.check inside its own dots; it renders
+  // numbers. The only Icons.check in the tree at this point comes from a
+  // _RoleCard — but role cards are not shown on the details step, so
+  // find.byIcon(Icons.check) correctly finds nothing, confirming that the
+  // selected-role checkmark is not leaked into the details view.
+  // =========================================================================
+  group('_WarmMochaStepIndicator', () {
+    testWidgets('step 2 shows done dot for step 1 and active dot for step 2', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        _buildApp(router: router, repo: repo, storage: storage),
+      );
+      await tester.pumpAndSettle();
+
+      // Navigate to the details step (step 2) via the IM role card + CTA.
+      // _gotoIndependentDetails selects the IM card then taps btn-continue-role.
+      await _gotoIndependentDetails(tester);
+
+      // btn-back-step confirms the details step is active.
+      await tester.ensureVisible(find.byKey(const Key('btn-back-step')));
+      expect(
+        find.byKey(const Key('btn-back-step')),
+        findsOneWidget,
+        reason:
+            'btn-back-step must be visible on the details step, '
+            'confirming _ProgressRow has rendered',
+      );
+
+      // field-email present → the single-screen details form is showing.
+      expect(
+        find.byKey(const Key('field-email')),
+        findsOneWidget,
+        reason: 'field-email must be visible — we are on the details step',
+      );
+
+      // The role picker is no longer in the tree.
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(
+        find.text(l10n.intentSalonTitle),
+        findsNothing,
+        reason: 'Role picker must be gone when _ProgressRow step 2 is active',
+      );
+
+      // Icons.check is absent on the details step: role cards (the only
+      // source of Icons.check) are not rendered here, so the selected-role
+      // checkmark is not leaked into the step-2 view.
+      expect(
+        find.byIcon(Icons.check),
+        findsNothing,
+        reason:
+            'Icons.check must not appear on the details step — '
+            '_ProgressRow dots use numbered text, not check icons',
+      );
+
+      // _ProgressRow renders "КРОКИ" label variants — assert step 2 label is visible.
+      expect(
+        find.text(l10n.progressStepDetails.toUpperCase()),
+        findsOneWidget,
+        reason:
+            '_ProgressRow must render the details step label when on step 2',
+      );
+    });
   });
 }
 

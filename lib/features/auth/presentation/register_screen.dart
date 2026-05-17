@@ -1043,8 +1043,9 @@ class _RegGlassCard extends StatelessWidget {
 
   final Widget child;
 
-  // HTML: backdrop-filter: blur(20px). Match directly — sigma 12 was under-blurred.
-  static final _kBlur = ImageFilter.blur(sigmaX: 20, sigmaY: 20);
+  // Reduced from sigmaX/Y=20 to 12 to eliminate concurrent 4-layer blur overhead
+  // (role cards=12, brand row=8 are already at target values).
+  static final _kBlur = ImageFilter.blur(sigmaX: 12, sigmaY: 12);
 
   static const _kDecoration = BoxDecoration(
     color: Color(0x11FFFFFF), // rgba(255,255,255,0.065)
