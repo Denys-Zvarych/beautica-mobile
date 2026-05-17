@@ -183,16 +183,12 @@ class AuthNotifier extends _$AuthNotifier {
           .read(authRepositoryProvider)
           .verifyEmail(email: email, otp: otp);
       if (kDebugMode) {
-        log(
-          'verifyEmail completed for $email',
-          name: 'auth.verification',
-          level: 800,
-        );
+        log('verifyEmail completed', name: 'auth.verification', level: 800);
       }
     } catch (e, st) {
       if (kDebugMode) {
         log(
-          'verifyEmail failed for $email',
+          'verifyEmail failed',
           name: 'auth.verification',
           level: 900,
           error: e,
@@ -215,16 +211,12 @@ class AuthNotifier extends _$AuthNotifier {
           .read(authRepositoryProvider)
           .resendVerificationCode(email: email);
       if (kDebugMode) {
-        log(
-          'resendCode dispatched for $email',
-          name: 'auth.verification',
-          level: 800,
-        );
+        log('resendCode dispatched', name: 'auth.verification', level: 800);
       }
     } catch (e, st) {
       if (kDebugMode) {
         log(
-          'resendCode failed for $email',
+          'resendCode failed',
           name: 'auth.verification',
           level: 900,
           error: e,

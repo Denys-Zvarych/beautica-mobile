@@ -1101,8 +1101,12 @@ class _UkrainianPhoneFormatter extends TextInputFormatter {
     final String digits;
     if (rawDigits.startsWith('380')) {
       digits = rawDigits;
-    } else if (rawDigits.startsWith('38')) {
-      digits = '3$rawDigits';
+    } else if (rawDigits.startsWith('38') && !rawDigits.startsWith('380')) {
+      // Paste like "38671234567": strip the ambiguous "38" and re-prefix with
+      // the full "380" country code so the subscriber digits are preserved.
+      // Old: '3$rawDigits' → '338671234567' → '+338 67 123 45 67' (wrong).
+      // Fix: '380' + rawDigits.substring(2) → '380671234567' → correct mask.
+      digits = '380${rawDigits.substring(2)}';
     } else if (rawDigits.startsWith('3')) {
       digits = '38$rawDigits';
     } else if (rawDigits.startsWith('0')) {

@@ -39,6 +39,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
 import '../../../core/theme/brand_colors.dart';
@@ -158,6 +159,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     _controllers = List.generate(_kOtpLength, (_) => TextEditingController());
     _focusNodes = List.generate(_kOtpLength, (_) => FocusNode());
     _startCountdown();
+    if (!kDebugMode) ScreenProtector.preventScreenshotOn();
   }
 
   @override
@@ -169,6 +171,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       f.dispose();
     }
     _countdownTimer?.cancel();
+    if (!kDebugMode) ScreenProtector.preventScreenshotOff();
     super.dispose();
   }
 
@@ -276,11 +279,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       if (!mounted) return;
 
       if (kDebugMode) {
-        log(
-          'Resend code dispatched for ${widget.email}',
-          name: 'auth.verification',
-          level: 800,
-        );
+        log('Resend code dispatched', name: 'auth.verification', level: 800);
       }
     } catch (e) {
       if (!mounted) return;
@@ -973,6 +972,22 @@ class _OtpBox extends StatefulWidget {
 
 class _OtpBoxState extends State<_OtpBox> {
   @override
+  void initState() {
+    super.initState();
+    widget.focusNode.addListener(_onFocusChange);
+  }
+
+  void _onFocusChange() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    widget.focusNode.removeListener(_onFocusChange);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
 
@@ -1020,6 +1035,12 @@ class _OtpBoxState extends State<_OtpBox> {
             // Implemented via focused box shadow inside InputDecoration
             // by wrapping the Container (see below).
           ),
+          // Prevent IME/keyboard from learning OTP digits (security).
+          autocorrect: false,
+          enableSuggestions: false,
+          enableIMEPersonalizedLearning: false,
+          // Enables SMS autofill on Android and iOS for OTP codes.
+          autofillHints: const [AutofillHints.oneTimeCode],
           onChanged: widget.onChanged,
           onTap: () {
             // Select all text on tap so the digit is replaced, not appended.

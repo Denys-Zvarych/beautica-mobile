@@ -358,6 +358,10 @@
   "@registerPhonePlaceholder": {
     "description": "In-field placeholder for the phone input (sign-up-page.html input placeholder)."
   },
+  "registerPhoneHint": "+380 XX XXX XX XX",
+  "@registerPhoneHint": {
+    "description": "Hint text showing the Ukrainian phone number format pattern in the registration phone field."
+  },
   "registerPasswordPlaceholder": "At least 8 characters",
   "@registerPasswordPlaceholder": {
     "description": "In-field placeholder for the password input on the registration details screen (sign-up-page.html input placeholder)."

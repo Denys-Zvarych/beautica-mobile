@@ -102,3 +102,36 @@ esac
 **Added:** 2026-05-17 | **Audit:** Phase 2.11 email verification screen re-audit
 
 ---
+
+## LOW — verification_screen_test.dart does not assert the OTP value passed to repo.verifyEmail
+
+**File:** `test/features/auth/presentation/verification_screen_test.dart` (Test 4 — verify success)
+
+**Finding:** Test 4 confirms that a successful `verifyEmail` call navigates to `/done`, but never asserts what OTP value was forwarded to the repository. `FakeAuthRepository.verifyEmailCalls` captures the `(email, otp)` pair on every call. A future regression where the notifier passes an empty string or the wrong box values would still navigate successfully and leave all 10 tests green.
+
+**Fix (next iteration):** After the tap in Test 4, add:
+```dart
+expect(repo.verifyEmailCalls, hasLength(1));
+expect(repo.verifyEmailCalls.first.otp, equals('654321'));
+expect(repo.verifyEmailCalls.first.email, equals(_testEmail));
+```
+
+**Pattern:** M4-adjacent (missing strict argument assertion on a domain-significant value — the OTP itself).
+
+**Added:** 2026-05-17 | **Audit:** Phase 2.11 backlog fix pass re-audit
+
+---
+
+## LOW — verification_screen_test.dart has no test for resend failure path
+
+**File:** `test/features/auth/presentation/verification_screen_test.dart`
+
+**Finding:** Test 3b asserts that tapping `btn-resend` clears the OTP boxes and hides the button (timer restarts). It does not simulate a failure from `resendVerificationCode`. If `_resend()` catches a `Failure` and sets `_inlineError`, that error state is untested. `FakeAuthRepository.resendVerificationResult` supports this scenario via `resendVerificationResult = const NetworkFailure()`.
+
+**Fix (next iteration):** Add a test that advances the timer to 0, taps `btn-resend`, and asserts an inline error is rendered (matching `l10n.verificationError` or `l10n.verificationServiceUnavailable`).
+
+**Pattern:** M3-adjacent (error state of the resend action untested).
+
+**Added:** 2026-05-17 | **Audit:** Phase 2.11 backlog fix pass re-audit
+
+---

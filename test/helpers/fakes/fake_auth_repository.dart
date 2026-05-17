@@ -62,6 +62,10 @@ final class FakeAuthRepository implements AuthRepository {
   registerCalls = [];
   int logoutCallCount = 0;
 
+  /// Captured arguments for each [verifyEmail] call.
+  /// Tests can assert `verifyEmailCalls.first.email` / `.otp`.
+  final List<({String email, String otp})> verifyEmailCalls = [];
+
   // ---------------------------------------------------------------------------
   // AuthRepository
   // ---------------------------------------------------------------------------
@@ -142,6 +146,7 @@ final class FakeAuthRepository implements AuthRepository {
 
   @override
   Future<void> verifyEmail({required String email, required String otp}) async {
+    verifyEmailCalls.add((email: email, otp: otp));
     final result = verifyEmailResult;
     if (result is Failure) throw result;
   }

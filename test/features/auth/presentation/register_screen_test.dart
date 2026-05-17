@@ -68,6 +68,12 @@
 //                    phases); there is no step-2-active state to assert. Its
 //                    presence on the details screen is covered by case 21's
 //                    sibling assertions and case 2.
+//   34a new       — regression: paste "38671234567" (starts-with-38, not 380)
+//                    must produce "+380 67 123 45 67"; old branch gave
+//                    "+338 67 123 45 67" (MEDIUM QA finding).
+//   34b new       — regression guard: paste "380671234567" (full 380 prefix)
+//                    must still produce "+380 67 123 45 67" — the 34a fix must
+//                    not break the already-correct 380-path (test 26).
 //
 // All user-visible strings go through AppLocalizations (UA primary).
 
@@ -1518,6 +1524,95 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
+    // 34a (new, regression) — paste "38671234567" (starts-with-38, not 380)
+    //
+    // Bug: the old `startsWith('38') && !startsWith('380')` branch did
+    //   digits = '3' + rawDigits  →  '338671234567'  →  '+338 67 123 45 67'
+    // Fix: strip the ambiguous '38' prefix and prepend the full '380' country
+    //   code instead:
+    //   digits = '380' + rawDigits.substring(2)  →  '380671234567'  →  correct
+    //
+    // This is a MEDIUM-severity QA finding — must not regress.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '34a. pasting "38671234567" (38-prefix, not 380) formats to +380 67 123 45 67',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
+
+        await _gotoIndependentDetails(tester);
+
+        // Simulate a user pasting a number that starts with '38' but not '380'
+        // — the old formatter prepended '3' giving '338...' instead of '380...'.
+        await tester.enterText(
+          find.byKey(const Key('field-phone')),
+          '38671234567',
+        );
+        await tester.pump();
+
+        final phoneField = tester.widget<TextFormField>(
+          find.byKey(const Key('field-phone')),
+        );
+        expect(
+          phoneField.controller?.text,
+          equals('+380 67 123 45 67'),
+          reason:
+              'Pasting "38671234567" must produce "+380 67 123 45 67". '
+              'The old branch (digits = "3" + rawDigits) gave "+338 67 123 45 67" '
+              '— the startsWith("38") && !startsWith("380") fix must stay intact.',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // 34b (new, regression guard) — "380671234567" path not broken by the fix
+    //
+    // The startsWith('380') branch must still pass unchanged so that the fix
+    // for 34a does not break the already-correct '380' prefix path (test 26).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '34b. pasting "380671234567" (full 380 prefix) still formats to +380 67 123 45 67',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
+
+        await _gotoIndependentDetails(tester);
+
+        await tester.enterText(
+          find.byKey(const Key('field-phone')),
+          '380671234567',
+        );
+        await tester.pump();
+
+        final phoneField = tester.widget<TextFormField>(
+          find.byKey(const Key('field-phone')),
+        );
+        expect(
+          phoneField.controller?.text,
+          equals('+380 67 123 45 67'),
+          reason:
+              'The startsWith("380") branch must be unaffected by the '
+              '"38"-prefix fix in 34a. Pasting "380671234567" must still '
+              'produce "+380 67 123 45 67".',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // 32 (new) — BackdropFilter blur-budget ceiling on the role-selection step
     //
     // The role-selection view renders exactly 3 _RoleCard instances (each with
@@ -1566,79 +1661,163 @@ void main() {
   // It is private and cannot be targeted via find.byType; structural
   // assertions are used instead.
   //
-  // When the user is on the DETAILS step (step 2, _showDetails == true):
-  //   • btn-back-step is visible  → confirms details step is active.
-  //   • field-email is visible    → confirms the single-screen form rendered.
-  //   • The role picker is gone   → intentSalonTitle is absent.
+  // _ProgressRow is DISPLAY-ONLY (step 1 always active, steps 2–3 always
+  // inactive). It only appears on the DETAILS step (_showDetails == true),
+  // never on the role-picker step. Tests therefore:
   //
-  // The _ProgressRow does NOT use Icons.check inside its own dots; it renders
-  // numbers. The only Icons.check in the tree at this point comes from a
-  // _RoleCard — but role cards are not shown on the details step, so
-  // find.byIcon(Icons.check) correctly finds nothing, confirming that the
-  // selected-role checkmark is not leaked into the details view.
+  //   • Confirm the progress row is absent on the role-picker step.
+  //   • Confirm on the details step that:
+  //       – All three step labels render (active dot = step 1, inactive = 2-3).
+  //       – The active-dot number "1" is painted (camel fill circle).
+  //       – Inactive-dot numbers "2" and "3" are painted (border-only circles).
+  //       – No Icons.check leaks from _RoleCard into the progress row.
+  //
+  // _ProgressRow dots use numbered Text widgets, not Icons.check.
+  // BoxDecoration colours are implementation-internal and are not asserted
+  // through the private widget boundary — label presence + number text
+  // are the structural surface the tests rely on.
   // =========================================================================
   group('_WarmMochaStepIndicator', () {
-    testWidgets('step 2 shows done dot for step 1 and active dot for step 2', (
-      tester,
-    ) async {
-      final repo = FakeAuthRepository();
-      final storage = FakeSecureStorage();
-      final router = _makeRouter();
-      addTearDown(router.dispose);
+    // -----------------------------------------------------------------------
+    // step 1 (role-picker): progress row is NOT rendered
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'step 1 (role-picker): progress row absent — no step labels in tree',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
 
-      await tester.pumpWidget(
-        _buildApp(router: router, repo: repo, storage: storage),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
 
-      // Navigate to the details step (step 2) via the IM role card + CTA.
-      // _gotoIndependentDetails selects the IM card then taps btn-continue-role.
-      await _gotoIndependentDetails(tester);
+        // Sanity: we are on the role-picker step.
+        expect(find.byKey(const Key('field-email')), findsNothing);
 
-      // btn-back-step confirms the details step is active.
-      await tester.ensureVisible(find.byKey(const Key('btn-back-step')));
-      expect(
-        find.byKey(const Key('btn-back-step')),
-        findsOneWidget,
-        reason:
-            'btn-back-step must be visible on the details step, '
-            'confirming _ProgressRow has rendered',
-      );
+        final l10n = lookupAppLocalizations(const Locale('uk'));
 
-      // field-email present → the single-screen details form is showing.
-      expect(
-        find.byKey(const Key('field-email')),
-        findsOneWidget,
-        reason: 'field-email must be visible — we are on the details step',
-      );
+        // _ProgressRow is only shown on the details step — its labels must be
+        // absent while the user is still on the role-picker step.
+        expect(
+          find.text(l10n.progressStepDetails.toUpperCase()),
+          findsNothing,
+          reason:
+              '_ProgressRow must NOT render on the role-picker step '
+              '(_showDetails == false)',
+        );
+        expect(
+          find.text(l10n.progressStepVerification.toUpperCase()),
+          findsNothing,
+          reason: 'Verification step label must be absent on the role picker',
+        );
+        expect(
+          find.text(l10n.progressStepDone.toUpperCase()),
+          findsNothing,
+          reason: 'Done step label must be absent on the role picker',
+        );
+      },
+    );
 
-      // The role picker is no longer in the tree.
-      final l10n = lookupAppLocalizations(const Locale('uk'));
-      expect(
-        find.text(l10n.intentSalonTitle),
-        findsNothing,
-        reason: 'Role picker must be gone when _ProgressRow step 2 is active',
-      );
+    // -----------------------------------------------------------------------
+    // step 2 (details): active dot for step 1, inactive for steps 2–3
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'step 2 (details): step 1 dot active (camel fill), steps 2-3 inactive; '
+      'no Icons.check leaks from role cards',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
 
-      // Icons.check is absent on the details step: role cards (the only
-      // source of Icons.check) are not rendered here, so the selected-role
-      // checkmark is not leaked into the step-2 view.
-      expect(
-        find.byIcon(Icons.check),
-        findsNothing,
-        reason:
-            'Icons.check must not appear on the details step — '
-            '_ProgressRow dots use numbered text, not check icons',
-      );
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: storage),
+        );
+        await tester.pumpAndSettle();
 
-      // _ProgressRow renders "КРОКИ" label variants — assert step 2 label is visible.
-      expect(
-        find.text(l10n.progressStepDetails.toUpperCase()),
-        findsOneWidget,
-        reason:
-            '_ProgressRow must render the details step label when on step 2',
-      );
-    });
+        // Navigate to the details step via the IM role card + CTA.
+        await _gotoIndependentDetails(tester);
+
+        // btn-back-step confirms the details step is active.
+        await tester.ensureVisible(find.byKey(const Key('btn-back-step')));
+        expect(
+          find.byKey(const Key('btn-back-step')),
+          findsOneWidget,
+          reason:
+              'btn-back-step must be visible on the details step, '
+              'confirming _ProgressRow has rendered',
+        );
+
+        // field-email present → single-screen details form is showing.
+        expect(
+          find.byKey(const Key('field-email')),
+          findsOneWidget,
+          reason: 'field-email must be visible — we are on the details step',
+        );
+
+        // Role picker is gone.
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        expect(
+          find.text(l10n.intentSalonTitle),
+          findsNothing,
+          reason: 'Role picker must be gone when _ProgressRow step 2 is active',
+        );
+
+        // All three step labels are rendered by _ProgressRow.
+        expect(
+          find.text(l10n.progressStepDetails.toUpperCase()),
+          findsOneWidget,
+          reason: 'Step 1 (Details) label must render on the details step',
+        );
+        expect(
+          find.text(l10n.progressStepVerification.toUpperCase()),
+          findsOneWidget,
+          reason: 'Step 2 (Verification) label must render on the details step',
+        );
+        expect(
+          find.text(l10n.progressStepDone.toUpperCase()),
+          findsOneWidget,
+          reason: 'Step 3 (Done) label must render on the details step',
+        );
+
+        // _ProgressRow dots paint numbered Text widgets: "1", "2", "3".
+        // The active dot (step 1) has a camel-fill BoxDecoration; inactive
+        // dots (steps 2–3) have a border-only BoxDecoration. Both are
+        // Container children with Text — assert the numbers are present.
+        expect(
+          find.text('1'),
+          findsOneWidget,
+          reason:
+              '_ProgressItem for step 1 must paint the number "1" in its dot',
+        );
+        expect(
+          find.text('2'),
+          findsOneWidget,
+          reason:
+              '_ProgressItem for step 2 must paint the number "2" in its dot',
+        );
+        expect(
+          find.text('3'),
+          findsOneWidget,
+          reason:
+              '_ProgressItem for step 3 must paint the number "3" in its dot',
+        );
+
+        // Icons.check must not appear: role cards (the only source of
+        // Icons.check) are not rendered on the details step, confirming
+        // no checkmark leaks into the progress row view.
+        expect(
+          find.byIcon(Icons.check),
+          findsNothing,
+          reason:
+              'Icons.check must not appear on the details step — '
+              '_ProgressRow dots use numbered Text, not check icons',
+        );
+      },
+    );
   });
 }
 
