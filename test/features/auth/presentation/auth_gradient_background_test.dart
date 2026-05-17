@@ -159,25 +159,22 @@ void main() {
     // different display densities. Physical resolution is therefore 390 × 844 px
     // — large enough to make circular vs. rect boundary artifacts visible.
     // -------------------------------------------------------------------------
-    testGoldens(
-      '6. rendered output matches approved drawRect baseline',
-      (tester) async {
-        await tester.pumpWidgetBuilder(
-          const AuthGradientBackground(),
-          // Wrap in a zero-MediaQuery context so the widget receives a
-          // deterministic constraint. SizedBox.expand() fills the surfaceSize.
-          wrapper: materialAppWrapper(
-            theme: ThemeData.dark(),
-          ),
-          surfaceSize: const Size(390, 844),
-        );
+    testGoldens('6. rendered output matches approved drawRect baseline', (
+      tester,
+    ) async {
+      await tester.pumpWidgetBuilder(
+        const AuthGradientBackground(),
+        // Wrap in a zero-MediaQuery context so the widget receives a
+        // deterministic constraint. SizedBox.expand() fills the surfaceSize.
+        wrapper: materialAppWrapper(theme: ThemeData.dark()),
+        surfaceSize: const Size(390, 844),
+      );
 
-        await screenMatchesGolden(
-          tester,
-          'auth_gradient_background_drawrect',
-          customPump: (t) async => t.pump(),
-        );
-      },
-    );
+      await screenMatchesGolden(
+        tester,
+        'auth_gradient_background_drawrect',
+        customPump: (t) async => t.pump(),
+      );
+    });
   });
 }
