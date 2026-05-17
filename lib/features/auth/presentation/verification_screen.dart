@@ -42,6 +42,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
@@ -349,7 +350,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     return Padding(
       // verification-page.html .screen-header { padding: 26px 24px 20px }
       // AuthScaffold already provides 16 px horizontal padding; add 8 more.
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 0),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -401,7 +402,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
               ),
             ),
             // verification-page.html padding: 24px 18px 22px
-            padding: const EdgeInsets.fromLTRB(18, 24, 18, 22),
+            padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -731,7 +732,7 @@ class _ProgressRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 36, 8, 0),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.xs, AppSpacing.xl, AppSpacing.xs, 0),
       child: Row(
         children: [
           // Step 1 — done (checkmark, camel-tinted circle)

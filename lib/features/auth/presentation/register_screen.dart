@@ -1073,7 +1073,7 @@ class _RegGlassCard extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
+            padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.md),
             child: child,
           ),
         ],
@@ -1177,7 +1177,7 @@ class _RoleCard extends StatelessWidget {
               duration: const Duration(milliseconds: 200),
               curve: Curves.easeOut,
               // .role-card { padding: 16px 16px }.
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
                 color: isSelected
                     ? const Color(0x14B89A7A) // rgba(184,154,122,0.08)

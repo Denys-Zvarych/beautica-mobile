@@ -737,9 +737,9 @@ class _GlassCard extends StatelessWidget {
             ),
           ),
           // Content rendered above the blur, outside SaveLayer — crisp text.
-          // .glass-card { padding: 22px 18px 20px } → LTRB(18, 22, 18, 20).
+          // .glass-card { padding: 22px 18px 20px } → approx LTRB(md, lg, md, md) via AppSpacing.
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
+            padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.md),
             child: child,
           ),
         ],
