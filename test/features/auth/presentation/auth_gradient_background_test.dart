@@ -1,19 +1,22 @@
-// Widget tests for AuthGradientBackground — drawRect redesign (Phase 2.x).
+// Widget tests for AuthGradientBackground — LinearGradient redesign (Phase 2.x).
 //
-// AuthGradientBackground was rewritten from a Positioned-Container + RadialGradient
-// approach to a CustomPainter-based implementation that draws directly on the canvas
-// via canvas.drawRect() + RadialGradient.createShader(). The previous drawCircle()
-// approach produced a visible circular boundary artifact; drawRect() eliminates it.
+// History: AuthGradientBackground previously used a CustomPainter that drew an
+// espresso rect + two RadialGradient "blob" shaders. On real devices the blobs
+// ALWAYS rendered as a visible ring/disc. The radial approach is abandoned.
+// The widget is now a DecoratedBox whose BoxDecoration carries a single
+// full-bleed LinearGradient (top-left → bottom-right Warm Mocha wash). There is
+// no CustomPaint and no RadialGradient anywhere — a ring is impossible.
 //
 // Covered scenarios:
 //   1. Widget renders without error (smoke test).
-//   2. Widget tree contains exactly one CustomPaint.
-//   3. The CustomPaint has a non-null painter.
-//   4. The painter reports shouldRepaint == false (background is static).
-//   5. The CustomPaint child is a SizedBox.expand (fills available space).
-//   6. Golden: rendered output matches the approved drawRect baseline.
-//      Catches regressions back to drawCircle (circle boundary artifact),
-//      wrong gradient anchor positions, and opacity changes.
+//   2. Widget tree contains a DecoratedBox descendant.
+//   3. The decoration is a BoxDecoration whose gradient is a LinearGradient
+//      (never a RadialGradient / SweepGradient).
+//   4. The gradient runs topLeft → bottomRight with the exact Warm Mocha stops.
+//   5. The DecoratedBox child is a SizedBox.expand (fills available space).
+//   6. Golden: rendered output matches the approved LinearGradient baseline.
+//      Catches regressions back to any radial/blob model, wrong direction,
+//      wrong colors, or wrong stops.
 
 import 'package:beautica_mobile/features/auth/presentation/auth_gradient_background.dart';
 import 'package:flutter/material.dart';
@@ -22,8 +25,8 @@ import 'package:golden_toolkit/golden_toolkit.dart';
 
 void main() {
   // Golden tests use loadAppFonts() to ensure font rendering is deterministic
-  // across machines. For a pure-canvas CustomPainter (no text rendered) this is
-  // a no-op but is kept as a convention so the group can grow without surprises.
+  // across machines. For a pure-decoration widget (no text rendered) this is a
+  // no-op but is kept as a convention so the group can grow without surprises.
   setUpAll(() async => loadAppFonts());
 
   group('AuthGradientBackground', () {
@@ -41,12 +44,38 @@ void main() {
     });
 
     // -------------------------------------------------------------------------
-    // Test 2 — widget tree contains at least one CustomPaint descending from
-    // AuthGradientBackground (the framework may add its own CustomPaint nodes)
+    // Test 2 — widget tree contains a DecoratedBox descendant
     // -------------------------------------------------------------------------
-    testWidgets('2. AuthGradientBackground contains a CustomPaint descendant', (
-      tester,
-    ) async {
+    testWidgets(
+      '2. AuthGradientBackground contains a DecoratedBox descendant',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
+          ),
+        );
+
+        final bgFinder = find.byType(AuthGradientBackground);
+        final boxFinder = find.descendant(
+          of: bgFinder,
+          matching: find.byType(DecoratedBox),
+        );
+
+        expect(
+          boxFinder,
+          findsOneWidget,
+          reason:
+              'AuthGradientBackground must contain exactly one DecoratedBox '
+              '(no CustomPaint / radial shader anymore)',
+        );
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // Test 3 — decoration is a BoxDecoration whose gradient is a LinearGradient
+    //          (and is provably NOT a RadialGradient / SweepGradient)
+    // -------------------------------------------------------------------------
+    testWidgets('3. decoration gradient is a LinearGradient', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
@@ -54,70 +83,77 @@ void main() {
       );
 
       final bgFinder = find.byType(AuthGradientBackground);
-      final painterFinder = find.descendant(
+      final boxFinder = find.descendant(
         of: bgFinder,
-        matching: find.byType(CustomPaint),
+        matching: find.byType(DecoratedBox),
       );
+      final box = tester.widget<DecoratedBox>(boxFinder);
+      final decoration = box.decoration;
 
       expect(
-        painterFinder,
-        findsOneWidget,
-        reason:
-            'AuthGradientBackground must contain exactly one CustomPaint descendant',
+        decoration,
+        isA<BoxDecoration>(),
+        reason: 'decoration must be a BoxDecoration',
+      );
+      final gradient = (decoration as BoxDecoration).gradient;
+      expect(
+        gradient,
+        isA<LinearGradient>(),
+        reason: 'gradient must be a LinearGradient',
+      );
+      expect(
+        gradient,
+        isNot(isA<RadialGradient>()),
+        reason: 'gradient must NEVER be a RadialGradient (no ring/disc)',
+      );
+      expect(
+        gradient,
+        isNot(isA<SweepGradient>()),
+        reason: 'gradient must NEVER be a SweepGradient',
       );
     });
 
     // -------------------------------------------------------------------------
-    // Test 3 — the CustomPaint has a non-null painter
+    // Test 4 — gradient runs topLeft → bottomRight with the exact Warm Mocha
+    //          stops/colors (locks the brand spec)
     // -------------------------------------------------------------------------
-    testWidgets('3. the CustomPaint has a non-null painter', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
-        ),
-      );
+    testWidgets(
+      '4. gradient direction, colors and stops are the Warm Mocha spec',
+      (tester) async {
+        const g = AuthGradientBackground.gradient;
 
-      final bgFinder = find.byType(AuthGradientBackground);
-      final painterFinder = find.descendant(
-        of: bgFinder,
-        matching: find.byType(CustomPaint),
-      );
-      final customPaint = tester.widget<CustomPaint>(painterFinder);
-      expect(
-        customPaint.painter,
-        isNotNull,
-        reason: 'CustomPaint.painter must not be null',
-      );
-    });
-
-    // -------------------------------------------------------------------------
-    // Test 4 — shouldRepaint returns false (background is static)
-    // -------------------------------------------------------------------------
-    testWidgets('4. painter.shouldRepaint returns false', (tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
-        ),
-      );
-
-      final bgFinder = find.byType(AuthGradientBackground);
-      final painterFinder = find.descendant(
-        of: bgFinder,
-        matching: find.byType(CustomPaint),
-      );
-      final customPaint = tester.widget<CustomPaint>(painterFinder);
-      final painter = customPaint.painter!;
-
-      expect(
-        painter.shouldRepaint(painter),
-        isFalse,
-        reason:
-            'The background painter is static and must never request a repaint',
-      );
-    });
+        expect(
+          g.begin,
+          Alignment.topLeft,
+          reason: 'gradient must begin at topLeft (warm corner)',
+        );
+        expect(
+          g.end,
+          Alignment.bottomRight,
+          reason: 'gradient must end at bottomRight (espresso base)',
+        );
+        expect(
+          g.colors,
+          const [
+            Color(0xFF3A2615),
+            Color(0xFF2A1A0E),
+            Color(0xFF1C1109),
+            Color(0xFF0D0906),
+          ],
+          reason:
+              'colors must be the dark Warm Mocha ramp (no light/cream tones)',
+        );
+        expect(g.stops, const [
+          0.0,
+          0.35,
+          0.65,
+          1.0,
+        ], reason: 'stops must be the approved smooth ramp');
+      },
+    );
 
     // -------------------------------------------------------------------------
-    // Test 5 — CustomPaint child is SizedBox.expand to fill available space
+    // Test 5 — DecoratedBox child is SizedBox.expand to fill available space
     // -------------------------------------------------------------------------
     testWidgets('5. contains SizedBox.expand to fill available space', (
       tester,
@@ -144,35 +180,34 @@ void main() {
     });
 
     // -------------------------------------------------------------------------
-    // Test 6 — Golden: rendered pixel output matches the approved drawRect
-    // baseline. This is the only layer that can catch a regression back to
-    // canvas.drawCircle (which produces a visible circular boundary artifact)
-    // or changes to gradient anchor positions, radii, or opacity constants.
+    // Test 6 — Golden: rendered pixel output matches the approved LinearGradient
+    // baseline. This is the layer that catches a regression back to any
+    // radial/blob model (visible ring), a flipped direction, or changed
+    // colors/stops.
     //
     // Baseline: run `flutter test --update-goldens` once after the redesign is
     // approved, commit the generated PNG at:
-    //   test/features/auth/presentation/goldens/auth_gradient_background_drawrect.png
+    //   test/features/auth/presentation/goldens/auth_gradient_background_linear.png
     // Subsequent CI runs compare against that baseline automatically.
     //
     // Device size — 390 × 844 pt (logical pixels), 1× device pixel ratio.
     // Using a fixed DPR prevents baseline mismatches across CI runners with
-    // different display densities. Physical resolution is therefore 390 × 844 px
-    // — large enough to make circular vs. rect boundary artifacts visible.
+    // different display densities.
     // -------------------------------------------------------------------------
-    testGoldens('6. rendered output matches approved drawRect baseline', (
+    testGoldens('6. rendered output matches approved LinearGradient baseline', (
       tester,
     ) async {
       await tester.pumpWidgetBuilder(
         const AuthGradientBackground(),
-        // Wrap in a zero-MediaQuery context so the widget receives a
-        // deterministic constraint. SizedBox.expand() fills the surfaceSize.
+        // Wrap in a deterministic context so the widget receives a fixed
+        // constraint. SizedBox.expand() fills the surfaceSize.
         wrapper: materialAppWrapper(theme: ThemeData.dark()),
         surfaceSize: const Size(390, 844),
       );
 
       await screenMatchesGolden(
         tester,
-        'auth_gradient_background_drawrect',
+        'auth_gradient_background_linear',
         customPump: (t) async => t.pump(),
       );
     });

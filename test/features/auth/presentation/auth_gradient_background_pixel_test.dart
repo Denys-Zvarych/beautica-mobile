@@ -1,20 +1,31 @@
-// Pixel-level acceptance gate for AuthGradientBackground — Phase 2.x geometry fix.
+// Pixel-level acceptance gate for AuthGradientBackground — LinearGradient model.
 //
-// Rationale: a golden test is self-referential (regenerating it resets the
-// baseline) and cannot detect the disc-vs-gradient regression on its own.
-// This file renders the real widget, reads raw RGBA bytes, and asserts seven
-// structural properties that prove the canvas shows a smooth directional
-// gradient with no visible disc:
+// History: the widget previously drew two RadialGradient "blob" shaders. On
+// real devices those ALWAYS rendered as a visible ring/disc. The radial model
+// is abandoned. The widget is now ONE full-bleed LinearGradient running the
+// top-left → bottom-right diagonal (Warm Mocha: #3A2615 → #2A1A0E → #1C1109 →
+// espresso #0D0906).
 //
-//   A1 — top-right corner is warm (blob 1 tail present)
-//   A2 — top-left corner is cold (no bleed to the opposite corner)
-//   A3 — at y=40, red is monotonically non-decreasing left→right (gradient, not disc)
-//   A4 — at y=80, no sample pair 5px apart has a red delta > 4 (no sharp ring edge)
-//   A5 — screen centre is near-espresso (no blob dominates the middle)
-//   A6 — bottom-left area is warm (blob 2 tail present)
-//   A7 — bottom-right corner is cold (no bleed to the opposite corner)
+// A golden test is self-referential (regenerating it resets the baseline) and
+// cannot, on its own, prove "smooth linear gradient, no ring/disc". This file
+// renders the real widget, reads raw RGBA bytes, and asserts STRUCTURAL
+// properties that a ring/disc would necessarily violate:
+//
+//   L1 — Along the gradient axis (TL→BR diagonal) the red channel is
+//        MONOTONICALLY NON-INCREASING end to end (warm corner → espresso).
+//   L2 — NO interior local maximum on that axis. A ring/disc brightens then
+//        darkens somewhere; a linear ramp never does. No sampled interior
+//        point may be a strict peak vs BOTH neighbours beyond tolerance.
+//   L3 — Perpendicular to the gradient axis (the anti-diagonal, constant
+//        x+y), red is approximately CONSTANT — proving a directional wash,
+//        not a localized blob.
+//   L4 — Warm but dark: the warm corner's red is meaningfully above espresso
+//        red, AND no pixel anywhere approaches a bright/cream level.
+//
+// All assertions use a ±1 rounding tolerance for byte quantisation. Values are
+// reported on failure for diagnosability. Assertions are NOT weakened to pass.
 
-import 'dart:typed_data';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:beautica_mobile/features/auth/presentation/auth_gradient_background.dart';
@@ -27,17 +38,16 @@ void main() {
   const testWidth = 390.0;
   const testHeight = 844.0;
 
-  late Uint8List rgba;
-  late int w;
-  late int h;
+  // Espresso (#0D0906) red channel = 0x0D = 13 — the gradient's darkest stop.
+  const espressoRed = 13;
+  // Restrained mocha (#3A2615) red channel = 0x3A = 58 — the warm stop.
+  const warmRed = 58;
+  // Byte-quantisation tolerance for "monotonic / constant" comparisons.
+  const tol = 1;
 
-  // ---------------------------------------------------------------------------
-  // The actual pixel gate — one testWidgets that renders + checks all 7 props.
-  // ---------------------------------------------------------------------------
-  testWidgets('A1–A7: pixel assertions prove smooth gradient, no disc', (
+  testWidgets('L1–L4: linear gradient is a smooth warm-dark wash, no ring', (
     tester,
   ) async {
-    // Fix the surface to a deterministic size.
     await tester.binding.setSurfaceSize(const Size(testWidth, testHeight));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -56,7 +66,6 @@ void main() {
 
     await tester.pump(); // ensure first frame is flushed
 
-    // Capture the rendered image from the RepaintBoundary.
     final element = repaintKey.currentContext!;
     final image = await captureImage(element as Element);
     final byteData = await tester.runAsync(
@@ -64,136 +73,164 @@ void main() {
     );
     expect(byteData, isNotNull, reason: 'toByteData must return data');
 
-    final bytes = byteData!.buffer.asUint8List();
-    w = image.width;
-    h = image.height;
-    rgba = bytes;
+    final rgba = byteData!.buffer.asUint8List();
+    final w = image.width;
+    final h = image.height;
 
-    // rAt returns the red channel at logical pixel (x, y).
-    // Bytes layout: [R, G, B, A] per pixel, row-major.
-    int rAt(int x, int y) {
-      final idx = (y * w + x) * 4;
-      return rgba[idx];
-    }
+    // Red / green / blue channel accessors. Bytes are [R,G,B,A] row-major.
+    int rAt(int x, int y) => rgba[(y * w + x) * 4];
+    int gAt(int x, int y) => rgba[(y * w + x) * 4 + 1];
+    int bAt(int x, int y) => rgba[(y * w + x) * 4 + 2];
 
-    // -----------------------------------------------------------------------
-    // A1 — top-right corner red ≥ 28 (blob 1 tail must be visible).
-    // Geometry: blob1 center = (w+30, -30), radius = 420.
-    // At (w-5, 5), distance ≈ 49px → well inside the tail → warm red.
-    // -----------------------------------------------------------------------
-    final a1Red = rAt(w - 5, 5);
-    expect(
-      a1Red,
-      greaterThanOrEqualTo(28),
-      reason:
-          'A1: top-right corner red=$a1Red must be ≥ 28 (blob1 tail present)',
-    );
+    // The gradient axis is the TL→BR diagonal. Sample N points evenly along
+    // the main diagonal from (0,0) → (w-1, h-1).
+    const n = 7; // 7 points → 5 interior points for the peak test
+    int diagX(int i) => ((w - 1) * i / (n - 1)).round();
+    int diagY(int i) => ((h - 1) * i / (n - 1)).round();
+    final axisReds = [for (var i = 0; i < n; i++) rAt(diagX(i), diagY(i))];
 
     // -----------------------------------------------------------------------
-    // A2 — top-left corner red ≤ 16 (no bleed to the opposite corner).
-    // Blob1 center is at (w+30, -30) — far from (5, 5). Red ≈ espresso (13).
+    // L1 — red is monotonically NON-INCREASING along TL→BR (warm → espresso).
     // -----------------------------------------------------------------------
-    final a2Red = rAt(5, 5);
-    expect(
-      a2Red,
-      lessThanOrEqualTo(16),
-      reason:
-          'A2: top-left corner red=$a2Red must be ≤ 16 (cold, no blob1 bleed)',
-    );
-
-    // -----------------------------------------------------------------------
-    // A3 — at y=40, red is monotonically non-decreasing sampled at
-    //        x = 40%, 55%, 70%, 85%, (w-5).
-    // Blob1 distance decreases as x→w+30, so red increases left→right.
-    // A disc would peak then drop; a tail-only gradient does not.
-    // Tolerance: allow –1 for rounding noise between adjacent samples.
-    // -----------------------------------------------------------------------
-    final a3Xs = [
-      (w * 0.40).round(),
-      (w * 0.55).round(),
-      (w * 0.70).round(),
-      (w * 0.85).round(),
-      w - 5,
-    ];
-    final a3Reds = a3Xs.map((x) => rAt(x, 40)).toList();
-    for (var i = 0; i < a3Reds.length - 1; i++) {
+    for (var i = 0; i < axisReds.length - 1; i++) {
       expect(
-        a3Reds[i + 1],
-        greaterThanOrEqualTo(a3Reds[i] - 1),
+        axisReds[i + 1],
+        lessThanOrEqualTo(axisReds[i] + tol),
         reason:
-            'A3: at y=40 red must be non-decreasing left→right; '
-            'sample[$i]=${a3Reds[i]} sample[${i + 1}]=${a3Reds[i + 1]} '
-            '(xs=${a3Xs[i]},${a3Xs[i + 1]})',
+            'L1: along TL→BR diagonal red must be non-increasing; '
+            'sample[$i]=${axisReds[i]} sample[${i + 1}]=${axisReds[i + 1]} '
+            '(full axis = $axisReds). A rise here means a ring/disc.',
       );
     }
 
     // -----------------------------------------------------------------------
-    // A4 — at y=80, max absolute red delta between any two samples 5px apart
-    //        must be ≤ 4. A disc has a sharp ring edge (large delta). A smooth
-    //        radial tail does not.
-    // Sample a 100px span near the centre of the right half.
+    // L2 — no interior local MAXIMUM on the axis. A ring/disc creates a
+    //      brighten-then-darken bump; a linear ramp cannot. An interior point
+    //      that is strictly greater than BOTH neighbours (beyond tol) fails.
     // -----------------------------------------------------------------------
-    var a4MaxDelta = 0;
-    var a4MaxX = 0;
-    for (var x = 100; x < w - 5; x += 5) {
-      final delta = (rAt(x + 5, 80) - rAt(x, 80)).abs();
-      if (delta > a4MaxDelta) {
-        a4MaxDelta = delta;
-        a4MaxX = x;
+    for (var i = 1; i < axisReds.length - 1; i++) {
+      final isStrictPeak =
+          axisReds[i] > axisReds[i - 1] + tol &&
+          axisReds[i] > axisReds[i + 1] + tol;
+      expect(
+        isStrictPeak,
+        isFalse,
+        reason:
+            'L2: interior axis point $i (=${axisReds[i]}) is a strict peak vs '
+            'neighbours (${axisReds[i - 1]}, ${axisReds[i + 1]}) — that is the '
+            'signature of a ring/disc. Full axis = $axisReds.',
+      );
+    }
+
+    // -----------------------------------------------------------------------
+    // L3 — perpendicular to the gradient axis, red is approximately CONSTANT.
+    //
+    // For a LinearGradient(begin=topLeft, end=bottomRight) on a W×H rect,
+    // Flutter projects every pixel onto the begin→end vector (W, H). The
+    // colour parameter is t ∝ (x·W + y·H), so the TRUE iso-colour lines are
+    // NOT the geometric 45° anti-diagonal (that only holds on a square) — they
+    // are the lines where (x·W + y·H) is constant, i.e. the direction
+    // (−H, W) (because (−H)·W + W·H = 0 keeps the projection fixed).
+    //
+    // We walk a centred segment along that exact iso-colour direction. On it a
+    // directional wash is flat; a localized blob would still vary sharply.
+    // -----------------------------------------------------------------------
+    final cx = w / 2.0;
+    final cy = h / 2.0;
+    // Unit vector along the iso-colour line: (−H, W) normalised.
+    final len = math.sqrt(w * w + h * h);
+    final ux = -h / len;
+    final uy = w / len;
+    // Longest centred segment that stays on-canvas in BOTH directions.
+    var maxS = double.infinity;
+    for (final s in [
+      ux > 0 ? (w - 1 - cx) / ux : (ux < 0 ? -cx / ux : double.infinity),
+      uy > 0 ? (h - 1 - cy) / uy : (uy < 0 ? -cy / uy : double.infinity),
+    ]) {
+      if (s.abs() < maxS) maxS = s.abs();
+    }
+    final perpReds = <int>[];
+    for (var k = -3; k <= 3; k++) {
+      final s = maxS * k / 3.0;
+      final x = (cx + ux * s).round().clamp(0, w - 1);
+      final y = (cy + uy * s).round().clamp(0, h - 1);
+      perpReds.add(rAt(x, y));
+    }
+    final perpMin = perpReds.reduce((a, b) => a < b ? a : b);
+    final perpMax = perpReds.reduce((a, b) => a > b ? a : b);
+    expect(
+      perpMax - perpMin,
+      lessThanOrEqualTo(2 * tol),
+      reason:
+          'L3: red must be ~constant along the gradient iso-colour line '
+          '(perpendicular to the projected begin→end axis); '
+          'spread=${perpMax - perpMin} reds=$perpReds. A spread here means '
+          'the wash is localized (blob), not directional.',
+    );
+
+    // -----------------------------------------------------------------------
+    // L4 — visibly warm but dark.
+    //   (a) The warm (top-left) corner red is meaningfully above espresso red.
+    //   (b) Every sampled pixel stays dark — red well below any cream/bright
+    //       level (cream #F5EDE0 red = 245; cap generously at 90).
+    //   (c) The far (bottom-right) corner has settled to ~espresso.
+    // -----------------------------------------------------------------------
+    final warmCornerRed = rAt(2, 2);
+    final darkCornerRed = rAt(w - 3, h - 3);
+
+    expect(
+      warmCornerRed,
+      greaterThan(espressoRed + 10),
+      reason:
+          'L4a: warm corner red=$warmCornerRed must be clearly above espresso '
+          '($espressoRed) — the wash must read warm (target ≈ $warmRed).',
+    );
+    expect(
+      warmCornerRed,
+      lessThan(90),
+      reason:
+          'L4b: warm corner red=$warmCornerRed must stay dark (< 90, far below '
+          'cream 245) — never a bright field.',
+    );
+    // Whole-image dark cap: scan a coarse grid, assert no pixel is bright and
+    // every pixel is warm-or-neutral (R ≥ G ≥ B holds for the Warm Mocha ramp).
+    var globalMaxRed = 0;
+    for (var y = 0; y < h; y += 37) {
+      for (var x = 0; x < w; x += 37) {
+        final r = rAt(x, y);
+        final g = gAt(x, y);
+        final b = bAt(x, y);
+        if (r > globalMaxRed) globalMaxRed = r;
+        expect(
+          r,
+          lessThan(90),
+          reason: 'L4b: pixel ($x,$y) red=$r must stay dark (< 90).',
+        );
+        expect(
+          r >= g - tol && g >= b - tol,
+          isTrue,
+          reason:
+              'L4b: pixel ($x,$y) must be warm-toned (R≥G≥B); got '
+              'R=$r G=$g B=$b.',
+        );
       }
     }
     expect(
-      a4MaxDelta,
-      lessThanOrEqualTo(4),
+      darkCornerRed,
+      lessThanOrEqualTo(espressoRed + tol),
       reason:
-          'A4: at y=80, max 5px red delta=$a4MaxDelta (at x=$a4MaxX) must be '
-          '≤ 4 (no sharp ring edge = not a disc)',
-    );
-
-    // -----------------------------------------------------------------------
-    // A5 — screen centre red ≤ 18 (near-espresso; no blob dominates middle).
-    // Both blob centres are off-screen and their radii do not reach the centre.
-    // -----------------------------------------------------------------------
-    final a5Red = rAt(w ~/ 2, h ~/ 2);
-    expect(
-      a5Red,
-      lessThanOrEqualTo(18),
-      reason: 'A5: centre red=$a5Red must be ≤ 18 (near-espresso, no blob)',
-    );
-
-    // -----------------------------------------------------------------------
-    // A6 — bottom-left area (x=5, y=h-250) red ≥ 20 (blob 2 tail present).
-    // Blob2 center = (-30, h-240). At (5, h-250), distance ≈ 36px → warm.
-    // -----------------------------------------------------------------------
-    final a6Red = rAt(5, h - 250);
-    expect(
-      a6Red,
-      greaterThanOrEqualTo(20),
-      reason:
-          'A6: bottom-left (5,h-250) red=$a6Red must be ≥ 20 (blob2 tail present)',
-    );
-
-    // -----------------------------------------------------------------------
-    // A7 — bottom-right corner red ≤ 16 (cold; no blob reaches here).
-    // -----------------------------------------------------------------------
-    final a7Red = rAt(w - 5, h - 5);
-    expect(
-      a7Red,
-      lessThanOrEqualTo(16),
-      reason: 'A7: bottom-right corner red=$a7Red must be ≤ 16 (cold, no blob)',
+          'L4c: bottom-right corner red=$darkCornerRed must settle to espresso '
+          '(≈ $espressoRed) — the cool end of the wash.',
     );
 
     // Report sampled values for diagnosability even on pass.
-    // ignore: avoid_print — test-only output, not production code.
     printOnFailure(
-      'Pixel sample report:\n'
-      '  A1 top-right (${w - 5},5)     R=$a1Red  (≥28)\n'
-      '  A2 top-left  (5,5)            R=$a2Red  (≤16)\n'
-      '  A3 y=40 reds: $a3Reds         (non-decreasing)\n'
-      '  A4 max 5px delta at y=80      Δ=$a4MaxDelta at x=$a4MaxX (≤4)\n'
-      '  A5 centre (${w ~/ 2},${h ~/ 2}) R=$a5Red  (≤18)\n'
-      '  A6 bot-left (5,${h - 250})   R=$a6Red  (≥20)\n'
-      '  A7 bot-right (${w - 5},${h - 5}) R=$a7Red  (≤16)\n',
+      'Linear gradient pixel report (image ${w}x$h):\n'
+      '  L1/L2 axis reds (TL→BR)      = $axisReds  (non-increasing, no peak)\n'
+      '  L3 anti-diagonal reds        = $perpReds  (spread ≤ ${2 * tol})\n'
+      '  L4a warm corner (2,2) R      = $warmCornerRed  (> ${espressoRed + 10})\n'
+      '  L4c dark corner  (w-3,h-3) R = $darkCornerRed  (≤ ${espressoRed + tol})\n'
+      '  L4b global max sampled R     = $globalMaxRed  (< 90)\n',
     );
   });
 }

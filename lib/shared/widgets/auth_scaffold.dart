@@ -12,7 +12,7 @@
 // [AuthScaffold] is the single source of truth for the outer geometry. Every
 // auth screen passes only its screen-specific column content as [child]; the
 // scaffold guarantees identical:
-//   - espresso background + blurred mocha blobs (AuthGradientBackground)
+//   - Warm Mocha linear-gradient background (AuthGradientBackground)
 //   - SafeArea inset
 //   - 16 px symmetric horizontal scroll padding
 //   - minHeight == viewport height (so short content still fills the screen
@@ -30,7 +30,7 @@ import '../../features/auth/presentation/auth_gradient_background.dart';
 
 /// Shared outer scaffold for the auth screens (login + register).
 ///
-/// Provides the espresso background, blurred ambient blobs, safe area, a
+/// Provides the Warm Mocha linear-gradient background, safe area, a
 /// single scroll view, and a `minHeight == viewport` constrained 400 px-wide
 /// column. The [child] is the screen-specific column content (brand row,
 /// headline, form, etc.).

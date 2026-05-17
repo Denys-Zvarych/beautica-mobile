@@ -5,7 +5,7 @@
 // "Modern Dark Cinema" version.
 //
 // What changed:
-//   - Background: AuthGradientBackground (espresso + mocha blobs) instead of
+//   - Background: AuthGradientBackground (Warm Mocha linear gradient) instead of
 //     the old navy LinearGradient.
 //   - Layout: brand row (monogram + BEAUTICA), Cormorant Garamond italic
 //     headline, glass card wrapping both fields.
