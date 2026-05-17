@@ -162,6 +162,14 @@
   "@logout": {
     "description": "Label for the logout action."
   },
+  "logoutConfirm": "Ви впевнені, що хочете вийти?",
+  "@logoutConfirm": {
+    "description": "Confirmation dialog body asking the user to confirm logout."
+  },
+  "cancel": "Скасувати",
+  "@cancel": {
+    "description": "Label for a generic cancel action (e.g. in confirmation dialogs)."
+  },
   "settingsTitle": "Налаштування",
   "@settingsTitle": {
     "description": "Title of the settings screen."
@@ -381,5 +389,9 @@
   "registerTermsPrivacy": "Політикою конфіденційності",
   "@registerTermsPrivacy": {
     "description": "Inline link label for the Privacy Policy document (sign-up-page.html .terms a)."
+  },
+  "logoutFailed": "Вихід не вдався. Спробуйте ще раз.",
+  "@logoutFailed": {
+    "description": "SnackBar message shown when an unexpected error occurs during logout."
   }
 }

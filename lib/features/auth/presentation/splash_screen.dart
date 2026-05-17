@@ -105,19 +105,20 @@ class _SplashScreenState extends State<SplashScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AnimatedBuilder(
-                  animation: _logoCtrl,
-                  builder: (_, child) => Opacity(
-                    opacity: _logoOpacity.value,
-                    child: Transform.scale(
-                      scale: _logoScale.value,
-                      child: child,
+                // FadeTransition drives opacity via the animation object directly,
+                // avoiding the per-frame SaveLayer that Opacity(opacity: x!=1)
+                // would create. The inner AnimatedBuilder handles only scale.
+                FadeTransition(
+                  opacity: _logoOpacity,
+                  child: AnimatedBuilder(
+                    animation: _logoScale,
+                    builder: (_, child) =>
+                        Transform.scale(scale: _logoScale.value, child: child),
+                    child: SvgPicture.asset(
+                      'assets/images/logo.svg',
+                      width: 200,
+                      semanticsLabel: 'Beautica',
                     ),
-                  ),
-                  child: SvgPicture.asset(
-                    'assets/images/logo.svg',
-                    width: 200,
-                    semanticsLabel: 'Beautica',
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xxl),
@@ -125,7 +126,7 @@ class _SplashScreenState extends State<SplashScreen>
                   opacity: _showSpinner ? 1.0 : 0.0,
                   duration: const Duration(milliseconds: 200),
                   child: const CircularProgressIndicator(
-                    color: BrandColors.bliss,
+                    color: BrandColors.camel,
                     strokeWidth: 2,
                   ),
                 ),

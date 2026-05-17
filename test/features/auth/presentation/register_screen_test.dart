@@ -346,8 +346,10 @@ void main() {
         ),
       );
       // pumpAndSettle would hang — _LoadingAuthNotifier never completes.
+      // Pump the full 500ms _intentCtrl duration so all role cards complete
+      // their stagger animation and reach opacity 1.0 before tapping.
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 500));
 
       // Reach the single details screen (role select + CTA). pumpAndSettle
       // is unusable here (the loading notifier never completes) so scroll the
@@ -356,7 +358,7 @@ void main() {
       final l10n = lookupAppLocalizations(const Locale('uk'));
       await tester.tap(find.text(l10n.intentIndependentTitle).first);
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 500));
       await tester.ensureVisible(find.byKey(const Key('btn-continue-role')));
       await tester.pump();
       await tester.tap(find.byKey(const Key('btn-continue-role')));

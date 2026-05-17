@@ -103,9 +103,20 @@ const _kCtaGradient = LinearGradient(
   stops: [0.0, 0.6, 1.0],
 );
 
-/// .cta-btn { box-shadow: 0 4px 24px rgba(58,36,12,0.68) }.
+/// CTA box shadow — mocha glow, reduced for Android/Impeller saturation.
+/// HTML value was rgba(58,36,12,0.68)/blur 24 — Android renders this more
+/// prominently than browser. Reduced to 0.36 opacity/blur 16 (matches login).
 const List<BoxShadow> _kCtaShadow = [
-  BoxShadow(color: Color(0xAD3A240C), blurRadius: 24, offset: Offset(0, 4)),
+  BoxShadow(
+    color: Color(0x5B3A240C), // rgba(58,36,12,0.36)
+    blurRadius: 16,
+    offset: Offset(0, 4),
+  ),
+  BoxShadow(
+    color: Color(0x1FFFFFFF), // inset top highlight
+    blurRadius: 0,
+    offset: Offset(0, -1),
+  ),
 ];
 
 // ---------------------------------------------------------------------------
@@ -591,7 +602,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
                         textInputAction: TextInputAction.next,
                         style: const TextStyle(
                           color: BrandColors.cream,
-                          fontSize: 14,
+                          fontSize: 16,
                         ),
                         decoration: _fieldDecor(
                           l10n.registerBusinessNameLabel,
@@ -617,7 +628,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
                         textInputAction: TextInputAction.next,
                         style: const TextStyle(
                           color: BrandColors.cream,
-                          fontSize: 14,
+                          fontSize: 16,
                         ),
                         decoration: _fieldDecor(
                           l10n.registerAddressLabel,
@@ -654,7 +665,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
                             textInputAction: TextInputAction.next,
                             style: const TextStyle(
                               color: BrandColors.cream,
-                              fontSize: 14,
+                              fontSize: 16,
                             ),
                             decoration: _fieldDecor(
                               l10n.registerFirstNamePlaceholder,
@@ -680,7 +691,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
                             textInputAction: TextInputAction.next,
                             style: const TextStyle(
                               color: BrandColors.cream,
-                              fontSize: 14,
+                              fontSize: 16,
                             ),
                             decoration: _fieldDecor(
                               l10n.registerLastNamePlaceholder,
@@ -712,7 +723,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
                       textInputAction: TextInputAction.next,
                       style: const TextStyle(
                         color: BrandColors.cream,
-                        fontSize: 14,
+                        fontSize: 16,
                       ),
                       autovalidateMode: AutovalidateMode.onUserInteraction,
                       decoration: _fieldDecor(
@@ -739,7 +750,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
                       textInputAction: TextInputAction.next,
                       style: const TextStyle(
                         color: BrandColors.cream,
-                        fontSize: 14,
+                        fontSize: 16,
                       ),
                       inputFormatters: const [_UkrainianPhoneFormatter()],
                       decoration: _fieldDecor(
@@ -879,8 +890,7 @@ class _LabeledField extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 /// sign-up-page.html .input-icon { color: rgba(255,255,255,0.25) } and
-/// .input-icon svg { width:15px; height:15px }. Rendered at 18 to keep a
-/// comfortable hit/visual size; colour matched literally.
+/// .input-icon svg { width:15px; height:15px }. Rendered at 20 to match login.
 class _FieldIcon extends StatelessWidget {
   const _FieldIcon({required this.icon});
 
@@ -890,7 +900,7 @@ class _FieldIcon extends StatelessWidget {
   Widget build(BuildContext context) => Icon(
     icon,
     color: const Color(0x40FFFFFF), // white ~25%
-    size: 18,
+    size: 20,
   );
 }
 
@@ -1033,7 +1043,8 @@ class _RegGlassCard extends StatelessWidget {
 
   final Widget child;
 
-  static final _kBlur = ImageFilter.blur(sigmaX: 12, sigmaY: 12);
+  // HTML: backdrop-filter: blur(20px). Match directly — sigma 12 was under-blurred.
+  static final _kBlur = ImageFilter.blur(sigmaX: 20, sigmaY: 20);
 
   static const _kDecoration = BoxDecoration(
     color: Color(0x11FFFFFF), // rgba(255,255,255,0.065)
@@ -1047,13 +1058,19 @@ class _RegGlassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: _kGlassRadius,
-      child: BackdropFilter(
-        filter: _kBlur,
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
-          decoration: _kDecoration,
-          child: child,
-        ),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: _kBlur,
+              child: const DecoratedBox(decoration: _kDecoration),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 22, 18, 20),
+            child: child,
+          ),
+        ],
       ),
     );
   }
@@ -1127,6 +1144,10 @@ class _RoleCard extends StatelessWidget {
   final VoidCallback onTap;
   final AppLocalizations l10n;
 
+  // role-selection-page.html .role-card { backdrop-filter: blur(20px) }.
+  // Reduced to sigma 12 for raster budget: 3 simultaneous BackdropFilter
+  // layers on role selection + _RegBrandRow = 4 total. sigma 20 × 4 exceeded
+  // 16 ms on mid-range hardware. sigma 12 is visually equivalent at this size.
   static final _kBlur = ImageFilter.blur(sigmaX: 12, sigmaY: 12);
 
   @override
@@ -1196,15 +1217,14 @@ class _RoleCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // .role-title { font-size:14px; font-weight:600;
-                        //   color:rgba(255,255,255,0.88) }; selected → #fff.
+                        // .role-title 14px → 16 for on-device readability (+2px pass).
                         AnimatedDefaultTextStyle(
                           duration: const Duration(milliseconds: 200),
                           style: TextStyle(
                             color: isSelected
                                 ? Colors.white
                                 : const Color(0xE0FFFFFF),
-                            fontSize: 14,
+                            fontSize: 16,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 0.14,
                           ),
@@ -1212,16 +1232,14 @@ class _RoleCard extends StatelessWidget {
                         ),
                         // .role-title { margin-bottom: 3px }.
                         const SizedBox(height: 3),
-                        // .role-desc { font-size:11.5px;
-                        //   color:rgba(255,255,255,0.28); line-height:1.45 };
-                        //   selected → rgba(255,255,255,0.42).
+                        // .role-desc 11.5px → 13.5 for on-device readability (+2px pass).
                         Text(
                           _intentDesc(option, l10n),
                           style: TextStyle(
                             color: isSelected
                                 ? const Color(0x6BFFFFFF)
                                 : const Color(0x47FFFFFF),
-                            fontSize: 11.5,
+                            fontSize: 13.5,
                             height: 1.45,
                           ),
                         ),
@@ -1341,7 +1359,7 @@ class _PasswordFieldWithCriteriaState
           enableSuggestions: false,
           autocorrect: false,
           textInputAction: TextInputAction.done,
-          style: const TextStyle(color: BrandColors.cream, fontSize: 14),
+          style: const TextStyle(color: BrandColors.cream, fontSize: 16),
           decoration: widget.fieldDecor(
             l10n.registerPasswordPlaceholder,
             errorText: widget.serverError,
@@ -1451,7 +1469,7 @@ class _LoginLinkRow extends StatelessWidget {
       children: [
         Text(
           l10n.registerHaveAccount,
-          style: const TextStyle(color: Color(0x4DFFFFFF), fontSize: 13),
+          style: const TextStyle(color: Color(0x4DFFFFFF), fontSize: 15),
         ),
         TextButton(
           key: Key(
@@ -1464,7 +1482,7 @@ class _LoginLinkRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 8),
             textStyle: const TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 13,
+              fontSize: 15,
             ),
           ),
           child: Text(l10n.registerSignIn),
@@ -1563,8 +1581,8 @@ class _MochaCtaButton extends StatelessWidget {
                                 label,
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w600,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w500,
                                   letterSpacing: 0.3,
                                 ),
                               ),
@@ -1573,7 +1591,7 @@ class _MochaCtaButton extends StatelessWidget {
                               const Icon(
                                 Icons.arrow_forward,
                                 color: Colors.white,
-                                size: 18,
+                                size: 20,
                               ),
                             ],
                           ),
@@ -1612,38 +1630,43 @@ class _RegBrandRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        ClipRRect(
-          borderRadius: const BorderRadius.all(Radius.circular(10)),
-          child: BackdropFilter(
-            filter: _kBlur,
-            child: Container(
-              width: 34,
-              height: 34,
-              decoration: _kMonogramDecoration,
-              alignment: Alignment.center,
-              child: const Text(
-                'B',
-                style: TextStyle(
-                  color: Color(0xF2FFFFFF), // white 95%
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  height: 1,
+        // Frosted glass monogram — content rendered outside SaveLayer for crisp text.
+        SizedBox(
+          width: 34,
+          height: 34,
+          child: ClipRRect(
+            borderRadius: const BorderRadius.all(Radius.circular(10)),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: BackdropFilter(
+                    filter: _kBlur,
+                    child: const DecoratedBox(decoration: _kMonogramDecoration),
+                  ),
                 ),
-              ),
+                const Center(
+                  child: Text(
+                    'B',
+                    style: TextStyle(
+                      color: Color(0xF2FFFFFF), // white 95%
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      height: 1,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-        // .brand-row { gap: 10px }.
-        const SizedBox(width: 10),
-        Text(
+        const SizedBox(width: AppSpacing.xs),
+        const Text(
           'BEAUTICA',
-          style: GoogleFonts.manrope(
-            textStyle: const TextStyle(
-              color: Color(0xEBFFFFFF), // white 92%
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.6, // 0.1em × 16
-            ),
+          style: TextStyle(
+            color: Color(0xEBFFFFFF), // white 92%
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.6,
           ),
         ),
       ],
@@ -1665,22 +1688,34 @@ class _RoleHeadlineBlock extends StatelessWidget {
 
   final AppLocalizations l10n;
 
+  // role-selection-page.html .headline 26px → 30 for on-device readability (matches login).
   static final _kHeadlineStyle = GoogleFonts.manrope(
     textStyle: const TextStyle(
       color: Colors.white,
-      fontSize: 26,
+      fontSize: 30,
       fontWeight: FontWeight.w700,
       height: 1.22,
     ),
   );
 
+  // .headline em: 1.15em × 30 = 34.5 ≈ 34 (matches login accent).
   static final _kAccentStyle = GoogleFonts.cormorantGaramond(
     textStyle: const TextStyle(
       color: BrandColors.camel,
-      fontSize: 30, // 1.15 × 26
+      fontSize: 34,
       fontStyle: FontStyle.italic,
-      fontWeight: FontWeight.w600,
+      fontWeight: FontWeight.w400,
       height: 1.22,
+    ),
+  );
+
+  // sub-text 13px → 15 for on-device readability. Promoted from inline build()
+  // call to static final to avoid per-rebuild GoogleFonts allocation.
+  static final _kSubTextStyle = GoogleFonts.manrope(
+    textStyle: const TextStyle(
+      color: Color(0x59FFFFFF), // rgba(255,255,255,0.35)
+      fontSize: 15,
+      height: 1.55,
     ),
   );
 
@@ -1704,16 +1739,7 @@ class _RoleHeadlineBlock extends StatelessWidget {
         ),
         // .sub-text { margin-top: 10px }.
         const SizedBox(height: 10),
-        Text(
-          l10n.registerSubText,
-          style: GoogleFonts.manrope(
-            textStyle: const TextStyle(
-              color: Color(0x59FFFFFF), // rgba(255,255,255,0.35)
-              fontSize: 13,
-              height: 1.55,
-            ),
-          ),
-        ),
+        Text(l10n.registerSubText, style: _kSubTextStyle),
       ],
     );
   }
@@ -1731,21 +1757,23 @@ class _DetailsHeadlineBlock extends StatelessWidget {
 
   final AppLocalizations l10n;
 
+  // sign-up-page.html .headline 26px → 30 for on-device readability (matches login).
   static final _kHeadlineStyle = GoogleFonts.manrope(
     textStyle: const TextStyle(
       color: Colors.white,
-      fontSize: 26,
+      fontSize: 30,
       fontWeight: FontWeight.w700,
       height: 1.22,
     ),
   );
 
+  // .headline em: 1.15em × 30 = 34.5 ≈ 34 (matches login accent).
   static final _kAccentStyle = GoogleFonts.cormorantGaramond(
     textStyle: const TextStyle(
       color: BrandColors.camel,
-      fontSize: 30, // 1.15 × 26
+      fontSize: 34,
       fontStyle: FontStyle.italic,
-      fontWeight: FontWeight.w600,
+      fontWeight: FontWeight.w400,
       height: 1.22,
     ),
   );

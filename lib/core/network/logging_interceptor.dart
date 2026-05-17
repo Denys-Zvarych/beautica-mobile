@@ -93,9 +93,16 @@ final class LoggingInterceptor extends Interceptor {
 
     final elapsed = _stopElapsed(err.requestOptions);
 
+    // Redact response body for auth endpoints to avoid leaking tokens or
+    // credentials in error logs (e.g. a 401 on /auth/login that echoes input).
+    final dynamic errBody = kAuthPaths.contains(err.requestOptions.path)
+        ? '[REDACTED]'
+        : err.response?.data;
+
     log(
       '<-- ERROR ${err.requestOptions.method} ${err.requestOptions.path} '
-      '(${elapsed}ms) ${err.type} ${err.response?.statusCode ?? ""}',
+      '(${elapsed}ms) ${err.type} ${err.response?.statusCode ?? ""}'
+      '${errBody != null ? "\n    body: $errBody" : ""}',
       name: 'http',
       level: 900, // WARNING
       error: '${err.type} ${err.response?.statusCode}',

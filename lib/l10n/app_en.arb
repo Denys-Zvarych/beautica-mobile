@@ -162,6 +162,14 @@
   "@logout": {
     "description": "Label for the logout action."
   },
+  "logoutConfirm": "Are you sure you want to log out?",
+  "@logoutConfirm": {
+    "description": "Confirmation dialog body asking the user to confirm logout."
+  },
+  "cancel": "Cancel",
+  "@cancel": {
+    "description": "Label for a generic cancel action (e.g. in confirmation dialogs)."
+  },
   "settingsTitle": "Settings",
   "@settingsTitle": {
     "description": "Title of the settings screen."
@@ -381,5 +389,9 @@
   "registerTermsPrivacy": "Privacy Policy",
   "@registerTermsPrivacy": {
     "description": "Inline link label for the Privacy Policy document (sign-up-page.html .terms a)."
+  },
+  "logoutFailed": "Logout failed. Please try again.",
+  "@logoutFailed": {
+    "description": "SnackBar message shown when an unexpected error occurs during logout."
   }
 }
