@@ -59,14 +59,14 @@ class _AuthBackgroundPainter extends CustomPainter {
     final w = size.width;
     final h = size.height;
 
-    // 1. Espresso base fill.
+    // 1. Espresso base fill — HTML: .phone { background: var(--phone-bg) }
+    //    --phone-bg resolves to #0d0906 (the design has no base linear-gradient).
     canvas.drawRect(Rect.fromLTWH(0, 0, w, h), Paint()..color = _kEspresso);
 
-    // 2. Blob 1 — top-right corner wash.
-    // HTML: 300px blob, top:-70 right:-80, radial-gradient(circle,
-    // rgba(88,56,26,0.38) 0%, transparent 70%). Centre placed off-screen
-    // so only the faint tail is visible. Radius = 300/2 = 150pt.
-    final blob1Center = Offset(w + 80, -70);
+    // 2. Blob 1 — top-right warm wash.
+    // HTML .phone::before: 300×300px, top:-70px right:-80px.
+    // Element left edge = w + 80 - 300 = w - 220 → centre = (w - 70, 80). Radius = 150.
+    final blob1Center = Offset(w - 70, 80);
     const blob1Radius = 150.0;
     canvas.drawRect(
       Rect.fromLTWH(0, 0, w, h),
@@ -80,10 +80,10 @@ class _AuthBackgroundPainter extends CustomPainter {
             ),
     );
 
-    // 3. Blob 2 — bottom-left corner wash.
-    // HTML: 220px blob, bottom:130 left:-70, radial-gradient(circle,
-    // rgba(68,42,16,0.28) 0%, transparent 70%). Radius = 220/2 = 110pt.
-    final blob2Center = Offset(-70, h - 130);
+    // 3. Blob 2 — bottom-left warm wash.
+    // HTML .phone::after: 220×220px, bottom:130px left:-70px.
+    // Element top edge = h - 350 → centre = (40, h - 240). Radius = 110.
+    final blob2Center = Offset(40, h - 240);
     const blob2Radius = 110.0;
     canvas.drawRect(
       Rect.fromLTWH(0, 0, w, h),
