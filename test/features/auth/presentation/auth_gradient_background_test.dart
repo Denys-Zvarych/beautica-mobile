@@ -1,22 +1,21 @@
-// Widget tests for AuthGradientBackground — LinearGradient redesign (Phase 2.x).
+// Widget tests for AuthGradientBackground — Bayer-4×4 dithered gradient.
 //
-// History: AuthGradientBackground previously used a CustomPainter that drew an
-// espresso rect + two RadialGradient "blob" shaders. On real devices the blobs
-// ALWAYS rendered as a visible ring/disc. The radial approach is abandoned.
-// The widget is now a DecoratedBox whose BoxDecoration carries a single
-// full-bleed LinearGradient (top-left → bottom-right Warm Mocha wash). There is
-// no CustomPaint and no RadialGradient anywhere — a ring is impossible.
+// History:
+//   LinearGradient (iteration 5): tested DecoratedBox + LinearGradient tree.
+//   Dithered (iteration 6, this file): widget now uses CustomPaint + a
+//   ui.PictureRecorder that records 1×1 drawRect calls per pixel. The
+//   DecoratedBox / LinearGradient structural assertions are replaced.
 //
 // Covered scenarios:
 //   1. Widget renders without error (smoke test).
-//   2. Widget tree contains a DecoratedBox descendant.
-//   3. The decoration is a BoxDecoration whose gradient is a LinearGradient
-//      (never a RadialGradient / SweepGradient).
-//   4. The gradient runs topLeft → bottomRight with the exact Warm Mocha stops.
-//   5. The DecoratedBox child is a SizedBox.expand (fills available space).
-//   6. Golden: rendered output matches the approved LinearGradient baseline.
-//      Catches regressions back to any radial/blob model, wrong direction,
-//      wrong colors, or wrong stops.
+//   2. Widget tree contains a CustomPaint descendant (never a DecoratedBox with
+//      a gradient — proves the linear-gradient code path is gone).
+//   3. ColoredBox espresso fallback is shown when constraints are empty.
+//   4. Widget is const-constructible (public API unchanged).
+//   5. SizedBox.expand child is present inside the CustomPaint tree.
+//   6. Golden: rendered output matches the approved dithered baseline.
+//      Catches regressions back to any radial/blob/linear model, wrong colors,
+//      or banding.
 
 import 'package:beautica_mobile/features/auth/presentation/auth_gradient_background.dart';
 import 'package:flutter/material.dart';
@@ -24,10 +23,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:golden_toolkit/golden_toolkit.dart';
 
 void main() {
-  // Golden tests use loadAppFonts() to ensure font rendering is deterministic
-  // across machines. For a pure-decoration widget (no text rendered) this is a
-  // no-op but is kept as a convention so the group can grow without surprises.
   setUpAll(() async => loadAppFonts());
+
+  // Clear the static picture cache before each test so tests are isolated.
+  setUp(() => ditherPictureCache.clear());
 
   group('AuthGradientBackground', () {
     // -------------------------------------------------------------------------
@@ -39,121 +38,91 @@ void main() {
           home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
         ),
       );
-      // No exception thrown — rendering succeeded.
+      await tester.pump(); // LayoutBuilder resolves constraints
       expect(find.byType(AuthGradientBackground), findsOneWidget);
     });
 
     // -------------------------------------------------------------------------
-    // Test 2 — widget tree contains a DecoratedBox descendant
+    // Test 2 — widget tree contains a CustomPaint descendant (not DecoratedBox)
     // -------------------------------------------------------------------------
     testWidgets(
-      '2. AuthGradientBackground contains a DecoratedBox descendant',
+      '2. contains a CustomPaint descendant (no DecoratedBox/LinearGradient)',
       (tester) async {
         await tester.pumpWidget(
           const MaterialApp(
             home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
           ),
         );
+        await tester.pump();
 
         final bgFinder = find.byType(AuthGradientBackground);
-        final boxFinder = find.descendant(
-          of: bgFinder,
-          matching: find.byType(DecoratedBox),
+
+        expect(
+          find.descendant(of: bgFinder, matching: find.byType(DecoratedBox)),
+          findsNothing,
+          reason:
+              'AuthGradientBackground must NOT contain a DecoratedBox — '
+              'the LinearGradient implementation is replaced by dithering.',
         );
 
         expect(
-          boxFinder,
-          findsOneWidget,
+          find.descendant(of: bgFinder, matching: find.byType(CustomPaint)),
+          findsWidgets,
           reason:
-              'AuthGradientBackground must contain exactly one DecoratedBox '
-              '(no CustomPaint / radial shader anymore)',
+              'AuthGradientBackground must contain a CustomPaint for the '
+              'dithered pixel buffer.',
         );
       },
     );
 
     // -------------------------------------------------------------------------
-    // Test 3 — decoration is a BoxDecoration whose gradient is a LinearGradient
-    //          (and is provably NOT a RadialGradient / SweepGradient)
+    // Test 3 — ColoredBox espresso fallback is the correct color
     // -------------------------------------------------------------------------
-    testWidgets('3. decoration gradient is a LinearGradient', (tester) async {
+    testWidgets('3. ColoredBox fallback color is espresso #0D0906', (
+      tester,
+    ) async {
+      // Pump with tight zero constraints to force the ColoredBox branch.
       await tester.pumpWidget(
         const MaterialApp(
-          home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
+          home: Scaffold(
+            body: SizedBox.shrink(child: AuthGradientBackground()),
+          ),
         ),
       );
+      await tester.pump();
 
-      final bgFinder = find.byType(AuthGradientBackground);
-      final boxFinder = find.descendant(
-        of: bgFinder,
-        matching: find.byType(DecoratedBox),
+      final coloredBoxes = tester.widgetList<ColoredBox>(
+        find.byType(ColoredBox),
       );
-      final box = tester.widget<DecoratedBox>(boxFinder);
-      final decoration = box.decoration;
 
-      expect(
-        decoration,
-        isA<BoxDecoration>(),
-        reason: 'decoration must be a BoxDecoration',
-      );
-      final gradient = (decoration as BoxDecoration).gradient;
-      expect(
-        gradient,
-        isA<LinearGradient>(),
-        reason: 'gradient must be a LinearGradient',
+      // There may be multiple ColoredBox widgets (MaterialApp etc.); find ours.
+      final espresso = coloredBoxes.where(
+        (cb) => cb.color == const Color(0xFF0D0906),
       );
       expect(
-        gradient,
-        isNot(isA<RadialGradient>()),
-        reason: 'gradient must NEVER be a RadialGradient (no ring/disc)',
-      );
-      expect(
-        gradient,
-        isNot(isA<SweepGradient>()),
-        reason: 'gradient must NEVER be a SweepGradient',
+        espresso,
+        isNotEmpty,
+        reason:
+            'ColoredBox fallback must use espresso #0D0906 to avoid a '
+            'white flash when layout constraints are empty.',
       );
     });
 
     // -------------------------------------------------------------------------
-    // Test 4 — gradient runs topLeft → bottomRight with the exact Warm Mocha
-    //          stops/colors (locks the brand spec)
+    // Test 4 — public API is const-constructible (compile-time assertion)
     // -------------------------------------------------------------------------
-    testWidgets(
-      '4. gradient direction, colors and stops are the Warm Mocha spec',
-      (tester) async {
-        const g = AuthGradientBackground.gradient;
-
-        expect(
-          g.begin,
-          Alignment.topLeft,
-          reason: 'gradient must begin at topLeft (warm corner)',
-        );
-        expect(
-          g.end,
-          Alignment.bottomRight,
-          reason: 'gradient must end at bottomRight (espresso base)',
-        );
-        expect(
-          g.colors,
-          const [
-            Color(0xFF3A2615),
-            Color(0xFF2A1A0E),
-            Color(0xFF1C1109),
-            Color(0xFF0D0906),
-          ],
-          reason:
-              'colors must be the dark Warm Mocha ramp (no light/cream tones)',
-        );
-        expect(g.stops, const [
-          0.0,
-          0.35,
-          0.65,
-          1.0,
-        ], reason: 'stops must be the approved smooth ramp');
-      },
-    );
+    testWidgets('4. widget is const-constructible', (tester) async {
+      const widget = AuthGradientBackground();
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(body: Stack(children: [widget])),
+        ),
+      );
+      expect(find.byType(AuthGradientBackground), findsOneWidget);
+    });
 
     // -------------------------------------------------------------------------
-    // Test 5 — DecoratedBox child is SizedBox.expand to fill available space
+    // Test 5 — SizedBox.expand child is present inside the CustomPaint tree
     // -------------------------------------------------------------------------
     testWidgets('5. contains SizedBox.expand to fill available space', (
       tester,
@@ -163,10 +132,15 @@ void main() {
           home: Scaffold(body: Stack(children: [AuthGradientBackground()])),
         ),
       );
+      await tester.pump();
 
-      // SizedBox.expand() sets width = double.infinity and height = double.infinity.
       final sizedBoxes = tester
-          .widgetList<SizedBox>(find.byType(SizedBox))
+          .widgetList<SizedBox>(
+            find.descendant(
+              of: find.byType(AuthGradientBackground),
+              matching: find.byType(SizedBox),
+            ),
+          )
           .where(
             (sb) => sb.width == double.infinity && sb.height == double.infinity,
           )
@@ -175,39 +149,33 @@ void main() {
       expect(
         sizedBoxes,
         isNotEmpty,
-        reason: 'Expected a SizedBox.expand() child to make the widget expand',
+        reason:
+            'Expected a SizedBox.expand() child so the painter fills space.',
       );
     });
 
     // -------------------------------------------------------------------------
-    // Test 6 — Golden: rendered pixel output matches the approved LinearGradient
-    // baseline. This is the layer that catches a regression back to any
-    // radial/blob model (visible ring), a flipped direction, or changed
-    // colors/stops.
+    // Test 6 — Golden: rendered output matches the approved dithered baseline.
     //
-    // Baseline: run `flutter test --update-goldens` once after the redesign is
-    // approved, commit the generated PNG at:
-    //   test/features/auth/presentation/goldens/auth_gradient_background_linear.png
-    // Subsequent CI runs compare against that baseline automatically.
+    // Baseline filename: auth_gradient_background_dithered.png
+    // (old auth_gradient_background_linear.png deleted)
     //
-    // Device size — 390 × 844 pt (logical pixels), 1× device pixel ratio.
-    // Using a fixed DPR prevents baseline mismatches across CI runners with
-    // different display densities.
+    // Regenerate: flutter test --update-goldens
+    //   test/features/auth/presentation/auth_gradient_background_test.dart
     // -------------------------------------------------------------------------
-    testGoldens('6. rendered output matches approved LinearGradient baseline', (
+    testGoldens('6. rendered output matches approved dithered baseline', (
       tester,
     ) async {
       await tester.pumpWidgetBuilder(
         const AuthGradientBackground(),
-        // Wrap in a deterministic context so the widget receives a fixed
-        // constraint. SizedBox.expand() fills the surfaceSize.
         wrapper: materialAppWrapper(theme: ThemeData.dark()),
         surfaceSize: const Size(390, 844),
       );
+      await tester.pump(); // LayoutBuilder resolves constraints
 
       await screenMatchesGolden(
         tester,
-        'auth_gradient_background_linear',
+        'auth_gradient_background_dithered',
         customPump: (t) async => t.pump(),
       );
     });
