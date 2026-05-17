@@ -214,15 +214,81 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Tap the logout tile.
+        // Tap the logout tile — this opens the confirmation dialog.
         await tester.tap(find.byKey(const Key('btn-logout')));
-        await tester.pumpAndSettle();
+        await tester.pumpAndSettle(); // dialog animates in
+
+        // Confirm the dialog — tap the confirm button.
+        await tester.tap(find.byKey(const Key('btn-logout-confirm')));
+        await tester.pumpAndSettle(); // logout completes + router navigates
 
         // The router must have navigated to /login.
         expect(find.text('login'), findsOneWidget);
 
         // The repository logout method must have been called once.
         expect(repo.logoutCallCount, equals(1));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 5 — SettingsScreen widget-layer: cancel dialog stays on settings
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'tapping btn-logout-cancel in the dialog stays on settings and does not call logout',
+      (tester) async {
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+
+        final repo = FakeAuthRepository()
+          ..refreshResult = _testTokens
+          ..meResult = _testUser;
+
+        final router = GoRouter(
+          initialLocation: RouteNames.settings,
+          redirect: (context, state) => null,
+          routes: [
+            GoRoute(
+              path: RouteNames.settings,
+              builder: (context, state) => const SettingsScreen(),
+            ),
+            GoRoute(
+              path: RouteNames.login,
+              builder: (context, state) =>
+                  const Scaffold(body: Center(child: Text('login'))),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              secureStorageProvider.overrideWith((_) => storage),
+              authRepositoryProvider.overrideWith((_) => repo),
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Tap the logout tile — opens the confirmation dialog.
+        await tester.tap(find.byKey(const Key('btn-logout')));
+        await tester.pumpAndSettle(); // dialog animates in
+
+        // Dismiss the dialog via the cancel button.
+        await tester.tap(find.byKey(const Key('btn-logout-cancel')));
+        await tester.pumpAndSettle(); // dialog dismisses
+
+        // The router must NOT have navigated — settings content still visible.
+        expect(find.text('login'), findsNothing);
+
+        // Repository logout must NOT have been called.
+        expect(repo.logoutCallCount, equals(0));
       },
     );
   });

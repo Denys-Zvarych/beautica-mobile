@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for all network calls in all build variants (debug, profile, release). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="Beautica"
         android:name="${applicationName}"

@@ -2,22 +2,24 @@
 <!--
     Network security configuration for Beautica Mobile.
 
+    IMPORTANT: When a custom <network-security-config> is present, Android's
+    built-in cleartext allowance for 10.0.2.2 does NOT apply automatically.
+    Every local address that needs cleartext HTTP must be listed explicitly in
+    a <domain-config> block below.
+
     Production domain: HTTPS-only, cleartext blocked.
     Trust anchors: ISRG Root X1 (Let's Encrypt) — stable until 2035.
     Rotate to ISRG Root X2 before ISRG Root X1 retires.
-
-    Debug builds: Android allows cleartext to 10.0.2.2 (AVD loopback) by
-    default, so the emulator development flow is unaffected.
 -->
 <network-security-config>
-    <!-- Block cleartext globally for all domains not explicitly configured -->
+    <!-- Production: HTTPS only, no user CAs -->
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
 
-    <!-- Production: HTTPS only, pinned to ISRG Root X1 -->
+    <!-- Production Railway domain: HTTPS only, pinned to ISRG Root X1 -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">beautica-backend-production.up.railway.app</domain>
         <trust-anchors>
@@ -25,4 +27,30 @@
             <certificates src="@raw/isrg_root_x1" />
         </trust-anchors>
     </domain-config>
+
+    <!-- Local development: allow cleartext HTTP to known local addresses.
+         In this project the Android emulator runs on the Windows 11 host while
+         the Spring Boot backend runs on the Ubuntu VM (VirtualBox).
+         From the emulator, 10.0.2.2 reaches the Windows host loopback — NOT
+         the Ubuntu VM. Use the Ubuntu VM's host-only adapter IP instead.
+         The typical VirtualBox host-only adapter IP for the Ubuntu VM is
+         192.168.56.101; verify with `ip addr show` on the VM side and update
+         this list if your setup uses a different address. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Android AVD loopback to the Windows host (kept for reference) -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <!-- Ubuntu VM host-only adapter IP — adjust to match your VirtualBox
+             network settings if different (verify with `ip addr show` on the VM). -->
+        <domain includeSubdomains="false">192.168.56.101</domain>
+        <!-- localhost for unit/integration test runners -->
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+
+    <!-- Debug builds: also trust user-installed CA certificates (e.g. Charles, mitmproxy) -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
 </network-security-config>

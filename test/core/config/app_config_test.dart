@@ -5,7 +5,8 @@
 // never fires. Tests validate:
 //   1. `assertSecureUrl()` does NOT throw in debug mode (even with HTTP URL).
 //   2. A pure URL-check helper (_isSecureUrl) correctly identifies HTTPS vs HTTP.
-//   3. `AppConfig.baseUrl` is not null or empty.
+//   3. `AppConfig.baseUrl` defaults to the localhost fallback when no dart-define
+//      is supplied (Ubuntu VM dev machine — not the emulator's 10.0.2.2 address).
 
 import 'package:beautica_mobile/core/config/app_config.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -55,26 +56,32 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 3 — AppConfig.baseUrl is not empty
+    // Test 3 — AppConfig.baseUrl defaults to localhost fallback
+    //
+    // When BEAUTICA_BASE_URL dart-define is absent, falls back to localhost
+    // (Ubuntu VM dev machine). Emulator builds require an explicit dart-define
+    // pointing to the VM's host-only adapter IP (e.g. 192.168.56.101:8080).
     // -----------------------------------------------------------------------
-    test('baseUrl is not null or empty', () {
-      expect(AppConfig.baseUrl, isNotEmpty);
+    test('baseUrl defaults to localhost fallback', () {
+      // When BEAUTICA_BASE_URL dart-define is absent, falls back to localhost
+      // (Ubuntu VM dev). Emulator builds require explicit dart-define.
+      expect(AppConfig.baseUrl, equals('http://localhost:8080/api/v1'));
     });
 
     // -----------------------------------------------------------------------
     // Test 4 — AppConfig.baseUrl is NOT https in the default debug build
     //
     // This test documents the profile-mode guard invariant:
-    //   • The compile-time default (used in emulator dev) points to the local
-    //     ADB bridge (http://10.0.2.2:8080) which is HTTP, not HTTPS.
+    //   • The compile-time default points to http://localhost:8080/api/v1
+    //     (the Ubuntu VM where `flutter run` executes) — HTTP, not HTTPS.
     //   • assertSecureUrl() is guarded by `!kDebugMode`, so it is a no-op in
     //     tests and debug builds.
     //   • In a release build, if someone accidentally leaves the HTTP URL,
     //     assertSecureUrl() would throw at startup — this test documents that
-    //     the HTTP default is intentional for the debug target only.
+    //     the HTTP default is intentional for the debug/VM target only.
     // -----------------------------------------------------------------------
     test(
-      'baseUrl is NOT https in debug/test builds (http emulator default is intentional)',
+      'baseUrl is NOT https in debug/test builds (http localhost default is intentional)',
       () {
         // The test-only _isSecureUrl helper mirrors the production URL check
         // without the kDebugMode gate. We assert the result is false to
@@ -84,8 +91,8 @@ void main() {
           _isSecureUrl(AppConfig.baseUrl),
           isFalse,
           reason:
-              'AppConfig.baseUrl defaults to an HTTP emulator address in '
-              'debug/test builds. assertSecureUrl() is a no-op here '
+              'AppConfig.baseUrl defaults to http://localhost:8080/api/v1 '
+              '(Ubuntu VM dev). assertSecureUrl() is a no-op here '
               '(kDebugMode == true). In a release build, this URL must be '
               'replaced with the HTTPS Railway endpoint or assertSecureUrl() '
               'will throw at startup.',
