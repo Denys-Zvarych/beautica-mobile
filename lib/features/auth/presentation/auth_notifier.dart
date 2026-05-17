@@ -167,6 +167,74 @@ class AuthNotifier extends _$AuthNotifier {
     });
   }
 
+  /// Verifies the user's email address by submitting the 6-digit [otp] code.
+  ///
+  /// The [email] must match the address used during registration. This method
+  /// does NOT mutate [state] — OTP verification is a transient action that
+  /// does not change the auth session. Callers (i.e. [VerificationScreen])
+  /// must wrap the call in `try/catch` and handle the error themselves.
+  ///
+  /// Throws whatever the underlying [AuthRepository.verifyEmail] throws:
+  /// - [Failure] subclass on any business error.
+  /// - [UnimplementedError] while the backend endpoint is not yet live.
+  Future<void> verifyEmail({required String email, required String otp}) async {
+    try {
+      await ref
+          .read(authRepositoryProvider)
+          .verifyEmail(email: email, otp: otp);
+      if (kDebugMode) {
+        log(
+          'verifyEmail completed for $email',
+          name: 'auth.verification',
+          level: 800,
+        );
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'verifyEmail failed for $email',
+          name: 'auth.verification',
+          level: 900,
+          error: e,
+          stackTrace: st,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// Re-sends the verification code to [email].
+  ///
+  /// Like [verifyEmail], this method does NOT mutate [state]. Callers wrap
+  /// the call in `try/catch` and handle errors themselves.
+  ///
+  /// Throws whatever [AuthRepository.resendVerificationCode] throws.
+  Future<void> resendCode({required String email}) async {
+    try {
+      await ref
+          .read(authRepositoryProvider)
+          .resendVerificationCode(email: email);
+      if (kDebugMode) {
+        log(
+          'resendCode dispatched for $email',
+          name: 'auth.verification',
+          level: 800,
+        );
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'resendCode failed for $email',
+          name: 'auth.verification',
+          level: 900,
+          error: e,
+          stackTrace: st,
+        );
+      }
+      rethrow;
+    }
+  }
+
   /// Updates the in-memory access token without re-fetching the user profile.
   ///
   /// Called by [RefreshInterceptor] after a silent token refresh so that

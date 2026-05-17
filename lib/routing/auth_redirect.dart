@@ -42,8 +42,13 @@ String? authRedirect(AsyncValue<AuthSession> session, GoRouterState state) {
 
   // Routes where an unauthenticated user may remain once session has settled.
   // /splash is NOT included — it is only valid while session.isLoading is true.
+  // /verification and /done are part of the registration flow and are reachable
+  // before the session is established (the OTP step precedes a valid session).
   final isAtAuthRoute =
-      location == RouteNames.login || location == RouteNames.register;
+      location == RouteNames.login ||
+      location == RouteNames.register ||
+      location == RouteNames.verification ||
+      location == RouteNames.done;
 
   final isAtSplash = location == RouteNames.splash;
 

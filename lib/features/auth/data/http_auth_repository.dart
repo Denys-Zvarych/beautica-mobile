@@ -246,6 +246,30 @@ final class HttpAuthRepository implements AuthRepository {
   }
 
   // ---------------------------------------------------------------------------
+  // OTP / email verification — STUB (backend endpoint not yet live)
+  // ---------------------------------------------------------------------------
+
+  /// Stub — backend OTP verification endpoint is not yet implemented.
+  ///
+  /// Once the backend ships `POST /auth/verify-email`, replace this body with
+  /// a real Dio call (pattern: follow registerIndependentMaster above).
+  @override
+  Future<void> verifyEmail({required String email, required String otp}) async {
+    // ignore: only_throw_errors
+    throw UnimplementedError('OTP endpoint not yet live');
+  }
+
+  /// Stub — backend resend-code endpoint is not yet implemented.
+  ///
+  /// Once the backend ships `POST /auth/resend-verification`, replace this
+  /// body with a real Dio call.
+  @override
+  Future<void> resendVerificationCode({required String email}) async {
+    // ignore: only_throw_errors
+    throw UnimplementedError('OTP endpoint not yet live');
+  }
+
+  // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
 

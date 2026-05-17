@@ -3,6 +3,8 @@
 // Phase 2.6 — RegisterScreen wired.
 // Phase 2.8 — SettingsScreen + RouteNames.settings wired.
 // Phase 2.9 — AuthRefreshNotifier + real authRedirect(session, state) guard.
+// Phase 2.11 — VerificationScreen at /verification (email via GoRouter extra).
+//              /done placeholder → redirects to / until Phase 2.12.
 //
 // [appRouterProvider] is kept alive because [GoRouter] must survive tab
 // switches and is shared across the entire widget tree via
@@ -16,6 +18,7 @@ import '../features/auth/presentation/auth_notifier.dart';
 import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/register_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
+import '../features/auth/presentation/verification_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
@@ -50,6 +53,21 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.register,
         builder: (context, state) => const RegisterScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.verification,
+        builder: (context, state) {
+          // Email is passed as GoRouter extra from RegisterScreen on success.
+          // Fall back to empty string if extra is absent (e.g. manual deep-link).
+          final email = (state.extra as String?) ?? '';
+          return VerificationScreen(email: email);
+        },
+      ),
+      GoRoute(
+        // Phase 2.12 placeholder — /done redirects to home until the
+        // "Registration Done" screen is implemented.
+        path: RouteNames.done,
+        redirect: (context, state) => RouteNames.home,
       ),
       GoRoute(
         path: RouteNames.home,

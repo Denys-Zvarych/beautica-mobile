@@ -34,6 +34,14 @@ final class FakeAuthRepository implements AuthRepository {
   /// Whether [logout] should throw.
   bool logoutThrows = false;
 
+  /// Return value for the next [verifyEmail] call.
+  /// Set to a [Failure] to simulate an error; leave null for success.
+  Object? verifyEmailResult;
+
+  /// Return value for the next [resendVerificationCode] call.
+  /// Set to a [Failure] to simulate an error; leave null for success.
+  Object? resendVerificationResult;
+
   // ---------------------------------------------------------------------------
   // Captured calls (for assertion in tests)
   // ---------------------------------------------------------------------------
@@ -130,5 +138,17 @@ final class FakeAuthRepository implements AuthRepository {
   Future<void> logout() async {
     logoutCallCount++;
     if (logoutThrows) throw const UnauthorizedFailure();
+  }
+
+  @override
+  Future<void> verifyEmail({required String email, required String otp}) async {
+    final result = verifyEmailResult;
+    if (result is Failure) throw result;
+  }
+
+  @override
+  Future<void> resendVerificationCode({required String email}) async {
+    final result = resendVerificationResult;
+    if (result is Failure) throw result;
   }
 }

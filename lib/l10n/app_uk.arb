@@ -393,5 +393,69 @@
   "logoutFailed": "Вихід не вдався. Спробуйте ще раз.",
   "@logoutFailed": {
     "description": "SnackBar message shown when an unexpected error occurs during logout."
+  },
+  "verificationTitle": "Перевірте пошту",
+  "@verificationTitle": {
+    "description": "Title of the email verification screen."
+  },
+  "verificationHeadline": "Перевірте",
+  "@verificationHeadline": {
+    "description": "Main headline line 1 on the email verification screen (verification-page.html .headline)."
+  },
+  "verificationHeadlineAccent": "електронну пошту",
+  "@verificationHeadlineAccent": {
+    "description": "Italic Cormorant Garamond accent line on the email verification screen (verification-page.html .headline em)."
+  },
+  "verificationCardTitle": "Введіть код підтвердження",
+  "@verificationCardTitle": {
+    "description": "Card heading on the email verification screen (verification-page.html .card-title)."
+  },
+  "verificationCardDesc": "Ми надіслали 6-значний код на",
+  "@verificationCardDesc": {
+    "description": "Card description before the masked email address (verification-page.html .card-desc)."
+  },
+  "verificationResendPrompt": "Не отримали?",
+  "@verificationResendPrompt": {
+    "description": "Leading prompt in the resend row shown while the countdown is active (verification-page.html .resend-text)."
+  },
+  "verificationResendTimer": "Повторно через {time}",
+  "@verificationResendTimer": {
+    "description": "Countdown timer text shown while the resend cooldown is active (verification-page.html .timer).",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "01:24"
+      }
+    }
+  },
+  "verificationResendBtn": "Повторно надіслати",
+  "@verificationResendBtn": {
+    "description": "Resend code link shown when the countdown reaches zero (verification-page.html .resend-link)."
+  },
+  "verificationConfirmBtn": "Підтвердити",
+  "@verificationConfirmBtn": {
+    "description": "CTA button label on the email verification screen (verification-page.html .cta-btn)."
+  },
+  "verificationBackBtn": "← Повернутись назад",
+  "@verificationBackBtn": {
+    "description": "Back link below the glass card on the email verification screen (verification-page.html .back-row a)."
+  },
+  "verificationOtpSemantics": "Цифра {index} з 6",
+  "@verificationOtpSemantics": {
+    "description": "Accessibility semantic label for each OTP digit box.",
+    "placeholders": {
+      "index": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+  "verificationServiceUnavailable": "Сервіс тимчасово недоступний. Спробуйте пізніше.",
+  "@verificationServiceUnavailable": {
+    "description": "Inline error shown when the OTP or resend endpoint is not yet live (stub response)."
+  },
+  "verificationError": "Невірний код. Перевірте та спробуйте ще раз.",
+  "@verificationError": {
+    "description": "Inline error shown when the OTP verification call returns a failure."
   }
 }

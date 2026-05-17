@@ -76,3 +76,29 @@ esac
 **Added:** 2026-05-17 | **Audit:** BackdropFilter inventory scan
 
 ---
+
+## LOW — verification_screen_test.dart uses tester.pump(Duration(seconds: 91)) for timer test
+
+**File:** `test/features/auth/presentation/verification_screen_test.dart:197` (Test 3)
+
+**Finding:** Pattern M6-adjacent — fixed-duration pump rather than `pumpAndSettle`. However this is the only correct approach because the resend countdown `Timer` fires `setState` every second, permanently preventing `pumpAndSettle` from settling. The inline comment documents this rationale. No change required; flagged for awareness when the timer implementation changes.
+
+**Pattern:** M6-adjacent (justified exception — documented inline).
+
+**Added:** 2026-05-17 | **Audit:** Phase 2.11 email verification screen re-audit
+
+---
+
+## LOW — No test asserts email masking in VerificationScreen
+
+**File:** `test/features/auth/presentation/verification_screen_test.dart`
+
+**Finding:** The `email` value passed via `GoRouterState.extra` is displayed in masked form (e.g., `a***@example.com`). No test asserts the masking widget (`Key('verification-email-hint')`) renders the correct masked value. If the masking logic regresses silently, all tests remain green.
+
+**Fix (next iteration):** Add a test that pumps `_makeRouter(email: 'alice@example.com')` and asserts the masked-email widget renders the expected string (or asserts the widget is present via its key). Requires adding `Key('verification-email-hint')` to the source widget if not already present.
+
+**Pattern:** M3-adjacent (data-binding assertion gap on the loaded state).
+
+**Added:** 2026-05-17 | **Audit:** Phase 2.11 email verification screen re-audit
+
+---

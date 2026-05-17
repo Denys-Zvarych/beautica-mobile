@@ -112,6 +112,12 @@ GoRouter _makeRouter() => GoRouter(
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text('home'))),
     ),
+    // Phase 2.11 — verification route needed for register-success navigation test.
+    GoRoute(
+      path: RouteNames.verification,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('verification'))),
+    ),
   ],
 );
 
@@ -1473,6 +1479,44 @@ void main() {
         expect(find.text('too weak'), findsOneWidget);
       },
     );
+    // -----------------------------------------------------------------------
+    // 33 (new, Phase 2.11) — register success navigates to /verification
+    //
+    // register_screen.dart was updated in Phase 2.11 to navigate to
+    // RouteNames.verification on success (context.go(RouteNames.verification,
+    // extra: email)). This test asserts that behaviour (QA HIGH-3 fix).
+    // -----------------------------------------------------------------------
+    testWidgets('33. register success navigates to /verification', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository(); // default: returns success
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        _buildApp(router: router, repo: repo, storage: storage),
+      );
+      await tester.pumpAndSettle();
+
+      // Complete both steps: role selection + all required fields.
+      await _gotoIndependentDetails(tester);
+      await _fillValidImForm(tester);
+
+      await tester.tap(find.byKey(const Key('btn-submit-register')));
+      await tester.pumpAndSettle();
+
+      // After a successful register the screen must transition to
+      // the /verification placeholder (Phase 2.11 routing).
+      expect(
+        find.text('verification'),
+        findsOneWidget,
+        reason:
+            'register_screen.dart must navigate to RouteNames.verification '
+            'on registration success',
+      );
+    });
+
     // -----------------------------------------------------------------------
     // 32 (new) — BackdropFilter blur-budget ceiling on the role-selection step
     //

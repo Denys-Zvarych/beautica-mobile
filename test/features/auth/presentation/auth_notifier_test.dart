@@ -5,13 +5,17 @@
 // MockAuthRepository (mocktail) stubs the network boundary.
 //
 // Coverage:
-//   1. Cold start — no refresh token → Unauthenticated (no repo calls).
-//   2. Cold start — valid refresh token → Authenticated (session restored).
-//   3. Cold start — stale token throws UnauthorizedFailure → Unauthenticated
-//      and storage is wiped.
-//   4. login success → Authenticated with correct user + token; refresh token
-//      persisted to storage.
-//   5. logout → Unauthenticated; storage is empty.
+//   1.  Cold start — no refresh token → Unauthenticated (no repo calls).
+//   2.  Cold start — valid refresh token → Authenticated (session restored).
+//   3.  Cold start — stale token throws UnauthorizedFailure → Unauthenticated
+//       and storage is wiped.
+//   4.  login success → Authenticated with correct user + token; refresh token
+//       persisted to storage.
+//   5.  logout → Unauthenticated; storage is empty.
+//   ...
+//   Phase 2.11 additions:
+//   verifyEmail group — success, Failure rethrow, UnimplementedError rethrow.
+//   resendCode group  — success, Failure rethrow.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -634,6 +638,156 @@ void main() {
             accessToken: testTokens.accessToken,
           ),
         ),
+      );
+    });
+  });
+
+  // =========================================================================
+  // Phase 2.11 — verifyEmail (QA HIGH-2 fix)
+  // =========================================================================
+  group('verifyEmail', () {
+    // -----------------------------------------------------------------------
+    // verifyEmail — success: resolves without mutating session state
+    // -----------------------------------------------------------------------
+    test(
+      'verifyEmail success: resolves without throwing or mutating session state',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(
+          () => repo.verifyEmail(
+            email: any(named: 'email'),
+            otp: any(named: 'otp'),
+          ),
+        ).thenAnswer((_) async {});
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        // Capture state before the call — it must not change.
+        final stateBefore = container.read(authProvider).value;
+
+        await expectLater(
+          () => container
+              .read(authProvider.notifier)
+              .verifyEmail(email: 'anya@example.com', otp: '123456'),
+          returnsNormally,
+        );
+
+        // verifyEmail must not mutate the auth session.
+        expect(container.read(authProvider).value, equals(stateBefore));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // verifyEmail — Failure rethrow
+    // -----------------------------------------------------------------------
+    test('verifyEmail rethrows a Failure from the repository', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      const failure = ValidationFailure(fieldErrors: {'otp': 'invalid'});
+      when(
+        () => repo.verifyEmail(
+          email: any(named: 'email'),
+          otp: any(named: 'otp'),
+        ),
+      ).thenThrow(failure);
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await expectLater(
+        () => container
+            .read(authProvider.notifier)
+            .verifyEmail(email: 'anya@example.com', otp: '000000'),
+        throwsA(isA<ValidationFailure>()),
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // verifyEmail — UnimplementedError rethrow (backend not yet live)
+    // -----------------------------------------------------------------------
+    test(
+      'verifyEmail rethrows UnimplementedError when backend endpoint is not yet live',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(
+          () => repo.verifyEmail(
+            email: any(named: 'email'),
+            otp: any(named: 'otp'),
+          ),
+        ).thenThrow(UnimplementedError('endpoint not live'));
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        await expectLater(
+          () => container
+              .read(authProvider.notifier)
+              .verifyEmail(email: 'anya@example.com', otp: '111111'),
+          throwsA(isA<UnimplementedError>()),
+        );
+      },
+    );
+  });
+
+  // =========================================================================
+  // Phase 2.11 — resendCode (QA HIGH-2 fix)
+  // =========================================================================
+  group('resendCode', () {
+    // -----------------------------------------------------------------------
+    // resendCode — success: resolves without mutating session state
+    // -----------------------------------------------------------------------
+    test(
+      'resendCode success: resolves without throwing or mutating session state',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(
+          () => repo.resendVerificationCode(email: any(named: 'email')),
+        ).thenAnswer((_) async {});
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        final stateBefore = container.read(authProvider).value;
+
+        await expectLater(
+          () => container
+              .read(authProvider.notifier)
+              .resendCode(email: 'anya@example.com'),
+          returnsNormally,
+        );
+
+        // resendCode must not mutate the auth session.
+        expect(container.read(authProvider).value, equals(stateBefore));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // resendCode — Failure rethrow
+    // -----------------------------------------------------------------------
+    test('resendCode rethrows a Failure from the repository', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.resendVerificationCode(email: any(named: 'email')),
+      ).thenThrow(const NetworkFailure());
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await expectLater(
+        () => container
+            .read(authProvider.notifier)
+            .resendCode(email: 'anya@example.com'),
+        throwsA(isA<NetworkFailure>()),
       );
     });
   });

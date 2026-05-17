@@ -393,5 +393,69 @@
   "logoutFailed": "Logout failed. Please try again.",
   "@logoutFailed": {
     "description": "SnackBar message shown when an unexpected error occurs during logout."
+  },
+  "verificationTitle": "Check your email",
+  "@verificationTitle": {
+    "description": "Title of the email verification screen."
+  },
+  "verificationHeadline": "Check your",
+  "@verificationHeadline": {
+    "description": "Main headline line 1 on the email verification screen (verification-page.html .headline)."
+  },
+  "verificationHeadlineAccent": "email address",
+  "@verificationHeadlineAccent": {
+    "description": "Italic Cormorant Garamond accent line on the email verification screen (verification-page.html .headline em)."
+  },
+  "verificationCardTitle": "Enter the verification code",
+  "@verificationCardTitle": {
+    "description": "Card heading on the email verification screen (verification-page.html .card-title)."
+  },
+  "verificationCardDesc": "We sent a 6-digit code to",
+  "@verificationCardDesc": {
+    "description": "Card description before the masked email address (verification-page.html .card-desc)."
+  },
+  "verificationResendPrompt": "Didn't receive it?",
+  "@verificationResendPrompt": {
+    "description": "Leading prompt in the resend row shown while the countdown is active (verification-page.html .resend-text)."
+  },
+  "verificationResendTimer": "Resend in {time}",
+  "@verificationResendTimer": {
+    "description": "Countdown timer text shown while the resend cooldown is active (verification-page.html .timer).",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "01:24"
+      }
+    }
+  },
+  "verificationResendBtn": "Resend code",
+  "@verificationResendBtn": {
+    "description": "Resend code link shown when the countdown reaches zero (verification-page.html .resend-link)."
+  },
+  "verificationConfirmBtn": "Confirm",
+  "@verificationConfirmBtn": {
+    "description": "CTA button label on the email verification screen (verification-page.html .cta-btn)."
+  },
+  "verificationBackBtn": "← Go back",
+  "@verificationBackBtn": {
+    "description": "Back link below the glass card on the email verification screen (verification-page.html .back-row a)."
+  },
+  "verificationOtpSemantics": "Digit {index} of 6",
+  "@verificationOtpSemantics": {
+    "description": "Accessibility semantic label for each OTP digit box.",
+    "placeholders": {
+      "index": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+  "verificationServiceUnavailable": "Service temporarily unavailable. Please try again later.",
+  "@verificationServiceUnavailable": {
+    "description": "Inline error shown when the OTP or resend endpoint is not yet live (stub response)."
+  },
+  "verificationError": "Incorrect code. Please check and try again.",
+  "@verificationError": {
+    "description": "Inline error shown when the OTP verification call returns a failure."
   }
 }

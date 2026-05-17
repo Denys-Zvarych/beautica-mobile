@@ -11,4 +11,10 @@ const Set<String> kAuthPaths = {
   '/auth/register',
   '/auth/register/independent-master',
   '/auth/refresh',
+  // Phase 2.11 — OTP verification paths added pre-emptively so that
+  // LoggingInterceptor never logs an OTP body in plaintext (SECURITY HIGH fix).
+  // Paths may be renamed once the backend SpringDoc spec is finalised; the
+  // redaction rule must be in place before the first real Dio call is made.
+  '/auth/verify-email',
+  '/auth/resend-verification',
 };

@@ -87,4 +87,26 @@ abstract interface class AuthRepository {
   /// successfully; they should wipe local storage unconditionally after the
   /// call returns or throws.
   Future<void> logout();
+
+  /// Verifies the email address by submitting the [otp] code that was sent to
+  /// [email].
+  ///
+  /// Throws:
+  /// - [ValidationFailure] — the code is wrong or expired.
+  /// - [NetworkFailure] — connectivity issues.
+  /// - [UnknownFailure] — any other unexpected error.
+  ///
+  /// NOTE: The backend endpoint is not yet live. The implementation throws
+  /// [UnimplementedError] until Phase 3.x wires the real endpoint.
+  Future<void> verifyEmail({required String email, required String otp});
+
+  /// Re-sends the email verification code to [email].
+  ///
+  /// Throws:
+  /// - [NetworkFailure] — connectivity issues.
+  /// - [UnknownFailure] — any other unexpected error.
+  ///
+  /// NOTE: The backend endpoint is not yet live. The implementation throws
+  /// [UnimplementedError] until Phase 3.x wires the real endpoint.
+  Future<void> resendVerificationCode({required String email});
 }

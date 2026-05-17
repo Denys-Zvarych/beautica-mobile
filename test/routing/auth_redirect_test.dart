@@ -12,13 +12,17 @@
 // instead of a GoRouterState, which maps directly to authRedirect's logic.
 //
 // Covered scenarios:
-//   1. Anonymous user at / → redirected to /login.
-//   2. Authenticated user at /login → redirected to /.
-//   3. Loading user at /splash → stays on /splash (null).
-//   4. Loading user at / → redirected to /splash.
-//   5. Anonymous user at /login → stays on /login (null).
-//   6. Settled anonymous user at /splash → redirected to /login.
-//   7. Authenticated user at /splash → redirected to /.
+//   1.  Anonymous user at / → redirected to /login.
+//   2.  Authenticated user at /login → redirected to /.
+//   3.  Loading user at /splash → stays on /splash (null).
+//   4.  Loading user at / → redirected to /splash.
+//   5.  Anonymous user at /login → stays on /login (null).
+//   6.  Settled anonymous user at /splash → redirected to /login.
+//   7.  Authenticated user at /splash → redirected to /.
+//   8.  Anonymous user at /verification → stays on /verification (null).
+//   9.  Anonymous user at /done → stays on /done (null).
+//   10. Authenticated user at /verification → redirected to /.
+//   11. Authenticated user at /done → redirected to /.
 
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -42,16 +46,20 @@ import 'package:flutter_test/flutter_test.dart';
 /// and authRedirect — divergence is silent and will cause guard failures in
 /// production without failing the test suite.
 ///
-/// Current production rules (Phase 2.9):
+/// Current production rules (Phase 2.9 + 2.11):
 ///   isLoading → park on /splash; redirect all other locations to /splash.
 ///   Unauthenticated + not on an auth route → redirect to /login.
 ///   Unauthenticated on /splash (session settled) → redirect to /login.
-///   Authenticated + on an auth route (login/register/splash) → redirect to /.
+///   Authenticated + on an auth route (login/register/verification/done/splash)
+///     → redirect to /.
 ///   Otherwise → null (stay).
 ///
-/// Auth routes = /login, /register. /splash is NOT an auth route — it is only
-/// valid while session.isLoading is true. Once the session settles, any
-/// unauthenticated user still on /splash must be forwarded to /login.
+/// Auth routes = /login, /register, /verification, /done. /splash is NOT an
+/// auth route — it is only valid while session.isLoading is true. Once the
+/// session settles, any unauthenticated user still on /splash must be forwarded
+/// to /login.
+///
+/// KEEP THIS IN SYNC with [authRedirect] in lib/routing/auth_redirect.dart.
 String? _locationRedirect(AsyncValue<AuthSession> session, String location) {
   if (session.isLoading) {
     return location == RouteNames.splash ? null : RouteNames.splash;
@@ -61,8 +69,13 @@ String? _locationRedirect(AsyncValue<AuthSession> session, String location) {
 
   // Routes where an unauthenticated user may remain once session has settled.
   // /splash is NOT included — it is only valid while session.isLoading is true.
+  // /verification and /done are part of the registration flow and are reachable
+  // before the session is established (the OTP step precedes a valid session).
   final isAtAuthRoute =
-      location == RouteNames.login || location == RouteNames.register;
+      location == RouteNames.login ||
+      location == RouteNames.register ||
+      location == RouteNames.verification ||
+      location == RouteNames.done;
 
   final isAtSplash = location == RouteNames.splash;
 
@@ -195,6 +208,38 @@ void main() {
       expect(
         _locationRedirect(errorSession, RouteNames.home),
         equals(RouteNames.login),
+      );
+    });
+
+    // Phase 2.11 — /verification and /done are auth routes (reachable before
+    // a valid session is established). Tests mirror the production authRedirect
+    // behaviour added in Phase 2.11 (QA HIGH-1 fix).
+
+    test('anonymous user at /verification stays on /verification (null)', () {
+      expect(
+        _locationRedirect(_unauthenticatedSession, RouteNames.verification),
+        isNull,
+      );
+    });
+
+    test('anonymous user at /done stays on /done (null)', () {
+      expect(
+        _locationRedirect(_unauthenticatedSession, RouteNames.done),
+        isNull,
+      );
+    });
+
+    test('authenticated user at /verification is redirected to /', () {
+      expect(
+        _locationRedirect(_authenticatedSession, RouteNames.verification),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('authenticated user at /done is redirected to /', () {
+      expect(
+        _locationRedirect(_authenticatedSession, RouteNames.done),
+        equals(RouteNames.home),
       );
     });
   });

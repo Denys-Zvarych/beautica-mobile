@@ -18,8 +18,8 @@
 //     "Welcome to Premium / beauty services" headline, a 3-criteria password
 //     helper row, the terms line, and the "Вже є акаунт? Увійти" row.
 //
-// Verification/Done are FUTURE phases — the progress row past step 1 is
-// display-only and submit still calls context.go(RouteNames.home).
+// Phase 2.11 — registration success now navigates to /verification with the
+// email as GoRouter extra. The progress row is display-only (steps 2–3).
 //
 // All user-visible strings go through AppLocalizations (UA primary).
 
@@ -385,13 +385,18 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
       data: (_) {
         if (kDebugMode) {
           log(
-            'Register screen: navigating to home',
+            'Register screen: navigating to verification',
             name: 'auth.register',
             level: 800,
           );
         }
-        // Verification/done are future phases — keep the existing path.
-        context.go(RouteNames.home);
+        // Phase 2.11 — route to the email verification screen.
+        // The email is passed as [GoRouter] extra so the screen can display
+        // the masked address without reading it from an unsettled session.
+        context.go(
+          RouteNames.verification,
+          extra: _emailController.text.trim(),
+        );
       },
       loading: () {},
       error: (e, _) {
