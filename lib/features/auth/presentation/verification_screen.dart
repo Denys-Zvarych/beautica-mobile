@@ -402,7 +402,12 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
               ),
             ),
             // verification-page.html padding: 24px 18px 22px
-            padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.lg),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.lg,
+              AppSpacing.md,
+              AppSpacing.lg,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -732,7 +737,12 @@ class _ProgressRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(AppSpacing.xs, AppSpacing.xl, AppSpacing.xs, 0),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.xs,
+        AppSpacing.xl,
+        AppSpacing.xs,
+        0,
+      ),
       child: Row(
         children: [
           // Step 1 — done (checkmark, camel-tinted circle)
