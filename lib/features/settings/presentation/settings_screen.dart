@@ -83,7 +83,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         actions: [
           TextButton(
             key: const Key('btn-logout-cancel'),
-            onPressed: () => Navigator.of(ctx).pop(false),
+            onPressed: () => ctx.pop(false),
             child: Text(
               l10n.cancel,
               style: const TextStyle(color: BrandColors.camel),
@@ -91,7 +91,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           TextButton(
             key: const Key('btn-logout-confirm'),
-            onPressed: () => Navigator.of(ctx).pop(true),
+            onPressed: () => ctx.pop(true),
             child: Text(
               l10n.logout,
               style: const TextStyle(color: BrandColors.camel),
