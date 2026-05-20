@@ -168,8 +168,10 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
       return const AuthScaffold(child: SizedBox.shrink());
     }
 
-    final step = _stepForLocation(GoRouterState.of(context).matchedLocation);
+    final location = GoRouterState.of(context).matchedLocation;
+    final step = _stepForLocation(location);
     final headline = _headlineFor(step, l10n);
+    final activeLabel = _labelForLocation(location, l10n);
 
     return AuthScaffold(
       child: Column(
@@ -189,6 +191,7 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
           RegistrationProgress(
             key: const Key('registration-progress'),
             currentStep: step,
+            activeStepLabel: activeLabel,
           ),
           const SizedBox(height: 20),
           _GlassCard(child: widget.child),
@@ -221,6 +224,27 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
       return RegistrationStep.details;
     }
     return RegistrationStep.account;
+  }
+
+  /// Per-route active-label copy for the 4-dot progress widget.
+  ///
+  /// Step 2 and Step 3 both collapse to [RegistrationStep.details] (dot 2 is
+  /// active for both routes) — the only thing that differs is the label
+  /// rendered under dot 2: "Профіль" on /register/step-2 and "Локація" on
+  /// /register/step-3. This helper returns the correct localised label per
+  /// route. The verification + done screens render their own progress widget
+  /// outside the shell and pass their own labels.
+  static String _labelForLocation(String location, AppLocalizations l10n) {
+    if (location == RouteNames.register) return l10n.registerProgressAccount;
+    if (location == RouteNames.registerStep2) {
+      return l10n.registerProgressProfile;
+    }
+    if (location == RouteNames.registerStep3) {
+      return l10n.registerProgressLocation;
+    }
+    // Defensive fallback — should never happen since the shell only mounts on
+    // /register*; keep the Account label to avoid a blank progress row.
+    return l10n.registerProgressAccount;
   }
 
   /// Per-step headline copy (line 1 in Manrope 700, line 2 in Cormorant

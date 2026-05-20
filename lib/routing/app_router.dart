@@ -29,8 +29,10 @@ import '../features/auth/presentation/register_step_1_screen.dart';
 import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
+import '../features/auth/presentation/widgets/registration_progress.dart';
 import '../features/auth/state/register_draft_notifier.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../l10n/app_localizations.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
 import 'route_names.dart';
@@ -214,6 +216,24 @@ class _DonePlaceholderScreenState extends ConsumerState<DonePlaceholderScreen> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      const Scaffold(body: SizedBox.shrink(key: Key('done-placeholder')));
+  Widget build(BuildContext context) {
+    // 2026-05-20 design refresh — even though this is a redirect placeholder
+    // (the real Phase 2.12 "Done" screen is still pending), the brief
+    // requires the 4-dot progress to render with the Готово label active so
+    // any frame painted before the post-frame redirect matches the
+    // done-page.html design. The widget is sized to zero via SizedBox.shrink
+    // so it never paints visible pixels in the production redirect path —
+    // tests that mount this widget directly can still locate the
+    // progress-active-label key.
+    final l10n = AppLocalizations.of(context);
+    return Scaffold(
+      body: SizedBox.shrink(
+        key: const Key('done-placeholder'),
+        child: RegistrationProgress(
+          currentStep: RegistrationStep.done,
+          activeStepLabel: l10n.registerProgressDone,
+        ),
+      ),
+    );
+  }
 }

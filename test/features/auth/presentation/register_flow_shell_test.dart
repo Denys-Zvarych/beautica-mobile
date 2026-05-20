@@ -217,7 +217,7 @@ void main() {
     });
 
     testWidgets(
-      '2c. /register/step-3 → RegistrationStep.details (shared pill)',
+      '2c. /register/step-3 → RegistrationStep.details (shared dot)',
       (tester) async {
         await _pumpShell(tester, initialLocation: RouteNames.registerStep3);
         final progress = tester.widget<RegistrationProgress>(
@@ -225,6 +225,68 @@ void main() {
         );
         expect(progress.currentStep, equals(RegistrationStep.details));
         expect(find.byKey(const Key('step-3-body')), findsOneWidget);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // 2.5 Active-label dispatch — 2026-05-20 design refresh
+    //
+    // Step 2 and Step 3 BOTH collapse to RegistrationStep.details (dot 2 is
+    // active for both), so the only observable distinction between the two
+    // routes is the under-dot label: "Профіль" on /register/step-2 and
+    // "Локація" on /register/step-3. _labelForLocation must return the
+    // right label so the shell forwards it to RegistrationProgress.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '2.5a. /register renders the "Акаунт" active-label under dot 1',
+      (tester) async {
+        await _pumpShell(tester, initialLocation: RouteNames.register);
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        expect(find.text(l10n.registerProgressAccount), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('progress-step-1')),
+            matching: find.byKey(const Key('progress-active-label')),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      '2.5b. /register/step-2 renders the "Профіль" active-label under dot 2',
+      (tester) async {
+        await _pumpShell(tester, initialLocation: RouteNames.registerStep2);
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        expect(find.text(l10n.registerProgressProfile), findsOneWidget);
+        // The Локація label MUST NOT appear (otherwise the dispatcher is broken).
+        expect(find.text(l10n.registerProgressLocation), findsNothing);
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('progress-step-2')),
+            matching: find.byKey(const Key('progress-active-label')),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      '2.5c. /register/step-3 renders the "Локація" active-label under dot 2 '
+      '(same dot as Step 2, different label)',
+      (tester) async {
+        await _pumpShell(tester, initialLocation: RouteNames.registerStep3);
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        expect(find.text(l10n.registerProgressLocation), findsOneWidget);
+        // The Профіль label MUST NOT appear.
+        expect(find.text(l10n.registerProgressProfile), findsNothing);
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('progress-step-2')),
+            matching: find.byKey(const Key('progress-active-label')),
+          ),
+          findsOneWidget,
+        );
       },
     );
 

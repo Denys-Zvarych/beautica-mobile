@@ -39,6 +39,17 @@ import '../../../shared/widgets/password_criteria_row.dart';
 import '../state/register_draft_notifier.dart';
 
 // ---------------------------------------------------------------------------
+// Bottom back-link style — matches Step 2/3 _BackLink in RegisterFlowShell.
+// ---------------------------------------------------------------------------
+
+/// .back-row a { font-size: 13px; color: var(--accent); font-weight: 600 }.
+const _kBackToRoleStyle = TextStyle(
+  color: BrandColors.camel,
+  fontSize: 13,
+  fontWeight: FontWeight.w600,
+);
+
+// ---------------------------------------------------------------------------
 // Static style constants — literal CSS values, allocated once.
 // ---------------------------------------------------------------------------
 
@@ -251,6 +262,23 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
 
           const SizedBox(height: 12),
           _TermsLine(l10n: l10n),
+          // ── 2026-05-20 design refresh: bottom-of-card "← Назад" link ────
+          //    Mirrors the Step 2/3 _BackLink placement so the wizard has a
+          //    consistent back affordance at the same on-screen location on
+          //    every step. Tap clears the in-progress draft (HIGH-1 from
+          //    Phase 2.16 — discards in-flight credentials) BEFORE navigating
+          //    back to the role-selection gate.
+          const SizedBox(height: 16),
+          _BackToRoleLink(
+            l10n: l10n,
+            onTap: () {
+              // Order matters — reset BEFORE navigation so the draft cannot
+              // leak even if the route transition triggers a rebuild that
+              // would otherwise re-read the still-populated provider state.
+              ref.read(registerDraftProvider.notifier).reset();
+              context.go(RouteNames.registerRole);
+            },
+          ),
           const SizedBox(height: 12),
           _LoginLinkRow(
             l10n: l10n,
@@ -592,6 +620,40 @@ class _TermsLine extends StatelessWidget {
         ],
       ),
       textAlign: TextAlign.center,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _BackToRoleLink — "← Назад" link below the glass card on Step 1.
+//
+// Mirrors the visual treatment of the Step 2/3 _BackLink in
+// register_flow_shell.dart (camel, 13 px, font-weight 600, decorative "←"
+// arrow). Destination is the role-selection screen; the tap handler is
+// supplied by the caller so the in-progress draft can be reset BEFORE
+// navigation (Phase 2.16 HIGH-1).
+// ---------------------------------------------------------------------------
+
+class _BackToRoleLink extends StatelessWidget {
+  const _BackToRoleLink({required this.l10n, required this.onTap});
+
+  final AppLocalizations l10n;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: TextButton(
+        key: const Key('btn-back-to-role'),
+        onPressed: onTap,
+        style: TextButton.styleFrom(
+          foregroundColor: BrandColors.camel,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+        ),
+        // ignore: no_raw_ui_strings
+        // The "←" prefix is a decorative arrow; the localised text is in [label].
+        child: Text('← ${l10n.registerBackToRole}', style: _kBackToRoleStyle),
+      ),
     );
   }
 }

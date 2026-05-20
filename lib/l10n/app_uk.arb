@@ -324,31 +324,39 @@
   },
   "progressStepDetails": "Деталі",
   "@progressStepDetails": {
-    "description": "Step 1 label in the 3-step registration progress indicator (legacy 3-pill — kept for backward compatibility with the old verification screen progress; the canonical 4-pill keys are progressStepAccount / progressStepDetailsLabel / progressStepVerificationLabel / progressStepDoneLabel)."
+    "description": "Legacy 3-step progress label (kept for backward compatibility; superseded by the registerProgress* family on 2026-05-20)."
   },
   "progressStepVerification": "Верифікація",
   "@progressStepVerification": {
-    "description": "Step 2 label in the 3-step registration progress indicator (legacy 3-pill — see progressStepVerificationLabel for the canonical 4-pill key)."
+    "description": "Legacy 3-step progress label (kept for backward compatibility; superseded by registerProgressVerification on 2026-05-20)."
   },
   "progressStepDone": "Готово",
   "@progressStepDone": {
-    "description": "Step 3 label in the 3-step registration progress indicator (legacy 3-pill — see progressStepDoneLabel for the canonical 4-pill key)."
+    "description": "Legacy 3-step progress label (kept for backward compatibility; superseded by registerProgressDone on 2026-05-20)."
   },
-  "progressStepAccount": "Акаунт",
-  "@progressStepAccount": {
-    "description": "Pill 1 label in the 4-pill registration wizard progress (sign-up-page.html .prog-item)."
+  "registerProgressAccount": "Акаунт",
+  "@registerProgressAccount": {
+    "description": "Active label under dot 1 of the 4-dot wizard progress indicator on the Step 1 credentials screen (sign-up-page.html .prog-label-under). Used only when dot 1 is the active step."
   },
-  "progressStepDetailsLabel": "Деталі",
-  "@progressStepDetailsLabel": {
-    "description": "Pill 2 label in the 4-pill registration wizard progress (sign-up-step-2-profile.html .prog-item)."
+  "registerProgressProfile": "Профіль",
+  "@registerProgressProfile": {
+    "description": "Active label under dot 2 of the 4-dot wizard progress indicator on the Step 2 profile screen (sign-up-step-2-profile.html .prog-label-under). Step 2 and Step 3 both collapse to dot 2; only the active label text differs."
   },
-  "progressStepVerificationLabel": "Верифікація",
-  "@progressStepVerificationLabel": {
-    "description": "Pill 3 label in the 4-pill registration wizard progress (verification-page.html .prog-item)."
+  "registerProgressLocation": "Локація",
+  "@registerProgressLocation": {
+    "description": "Active label under dot 2 of the 4-dot wizard progress indicator on the Step 3 address screen (sign-up-step-3-address.html .prog-label-under). Step 2 and Step 3 both collapse to dot 2; only the active label text differs."
   },
-  "progressStepDoneLabel": "Готово",
-  "@progressStepDoneLabel": {
-    "description": "Pill 4 label in the 4-pill registration wizard progress (done-page.html .prog-item)."
+  "registerProgressVerification": "Верифікація",
+  "@registerProgressVerification": {
+    "description": "Active label under dot 3 of the 4-dot wizard progress indicator on the verification screen (verification-page.html .prog-label-under)."
+  },
+  "registerProgressDone": "Готово",
+  "@registerProgressDone": {
+    "description": "Active label under dot 4 of the 4-dot wizard progress indicator on the registration-done screen (done-page.html .prog-label-under)."
+  },
+  "registerBackToRole": "Назад",
+  "@registerBackToRole": {
+    "description": "Bottom-of-card back link on the Step 1 credentials screen that returns to the role-selection screen (sign-up-page.html .back-row a, 2026-05-20 design refresh)."
   },
   "registerStep1HeadlineAccent": "акаунт",
   "@registerStep1HeadlineAccent": {

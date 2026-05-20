@@ -405,10 +405,14 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           const SizedBox(height: 36),
           _buildHeadline(l10n),
           const SizedBox(height: 28),
-          // Phase 2.16 — 4-pill progress (Акаунт / Деталі / Верифікація / Готово).
-          const RegistrationProgress(
-            key: Key('registration-progress'),
+          // Phase 2.16 — 4-dot progress (Акаунт / Профіль / Верифікація / Готово).
+          // 2026-05-20 design refresh: dot 3 is active; the under-dot label
+          // "Верифікація" is supplied via [activeStepLabel] (no per-pill
+          // label rendering anymore).
+          RegistrationProgress(
+            key: const Key('registration-progress'),
             currentStep: RegistrationStep.verification,
+            activeStepLabel: l10n.registerProgressVerification,
           ),
           const SizedBox(height: 20),
           _buildGlassCard(l10n, maskedEmail, isLoading),

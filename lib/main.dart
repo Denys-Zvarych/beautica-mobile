@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -18,11 +19,21 @@ import 'routing/app_router.dart';
 /// Phase 1.4 — replaced [MaterialApp] with [MaterialApp.router] wired to
 /// [appRouterProvider] via [ConsumerWidget]; the [_BootstrapHome] counter
 /// scaffold has been removed and the app now boots to [RouteNames.splash].
-void main() {
+Future<void> main() async {
   // Required before accessing any binding instance from main() — without it
   // SchedulerBinding.instance below hangs on Mali-G52 / this Flutter combo.
   WidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = kDebugMode;
+
+  // 2026-05-20 — Portrait-only orientation lock for the whole app.
+  // The Android manifest and iOS Info.plist also lock orientation
+  // (defense-in-depth — defends against OS-level forced-rotation
+  // accessibility settings). This Dart call additionally pins the engine's
+  // preferred orientation list so any in-app orientation change request
+  // (e.g. from a third-party plugin) cannot accidentally rotate the UI.
+  await SystemChrome.setPreferredOrientations(const [
+    DeviceOrientation.portraitUp,
+  ]);
 
   runApp(const ProviderScope(child: BeauticaApp()));
 }

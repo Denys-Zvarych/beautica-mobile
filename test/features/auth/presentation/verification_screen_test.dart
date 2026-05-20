@@ -674,6 +674,35 @@ void main() {
         );
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Test 9 — 2026-05-20 design refresh: the Verification copy must render
+    //           as the under-dot active label (progress-active-label key),
+    //           NOT as the legacy per-pill label.
+    //           The label string is read via AppLocalizations.of(context)
+    //           so the assertion is locale-independent (the helper
+    //           `_pumpVerification` doesn't pin a locale; Flutter's default
+    //           in-test locale is en, but this test would also pass under uk).
+    // -----------------------------------------------------------------------
+    testWidgets('9. Verification copy renders as a progress-active-label', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await _pumpVerification(tester, repo: repo, router: router);
+
+      // The label IS the under-dot active label — there's no legacy pill.
+      expect(find.byKey(const Key('progress-active-label')), findsOneWidget);
+      final label = tester.widget<Text>(
+        find.byKey(const Key('progress-active-label')),
+      );
+      final l10n = AppLocalizations.of(
+        tester.element(find.byKey(const Key('progress-active-label'))),
+      );
+      expect(label.data, equals(l10n.registerProgressVerification));
+    });
   });
 }
 

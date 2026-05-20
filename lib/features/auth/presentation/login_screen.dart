@@ -668,16 +668,30 @@ class _HeadlineBlock extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Main headline + italic accent on same line via RichText
+        // Main headline + italic accent on same line via RichText.
+        //
+        // 2026-05-20 design refresh: login-page.html (line 287) renders an
+        // English-only brand marketing headline — "Welcome to / premium
+        // beauty service". These are intentionally NOT routed through l10n
+        // (same exemption as the 'Beautica' wordmark and 'B' monogram brand
+        // strings — see mobile-backlog known-issue pattern §5).
         Text.rich(
           TextSpan(
-            text: '${l10n.loginHeadline}\n',
+            // ignore: no_raw_ui_strings
+            // brand: English-only marketing headline (line 1, Manrope w700)
+            text: 'Welcome to\n',
             style: _kHeadlineStyle,
             children: [
               WidgetSpan(
                 alignment: PlaceholderAlignment.baseline,
                 baseline: TextBaseline.alphabetic,
-                child: Text(l10n.loginHeadlineAccent, style: _kAccentStyle),
+                child: Text(
+                  // ignore: no_raw_ui_strings
+                  // brand: English-only marketing headline (line 2, italic
+                  // Cormorant Garamond camel)
+                  'premium beauty service',
+                  style: _kAccentStyle,
+                ),
               ),
             ],
           ),

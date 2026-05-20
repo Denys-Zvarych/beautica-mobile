@@ -653,6 +653,65 @@ void main() {
             '(_fieldDecor errorStyle)',
       );
     });
+
+    // -----------------------------------------------------------------------
+    // Test 11 — 2026-05-20 design refresh: English brand-marketing headline
+    //           "Welcome to / premium beauty service". These are hard-coded
+    //           literals (NOT l10n) per mobile-backlog brand-string exemption.
+    // -----------------------------------------------------------------------
+    testWidgets('11. headline shows English brand-marketing copy '
+        '"Welcome to / premium beauty service"', (tester) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Line 2 is rendered as a standalone Text widget inside the
+      // Text.rich WidgetSpan — find.text matches it directly.
+      expect(
+        find.text('premium beauty service'),
+        findsOneWidget,
+        reason:
+            'Line 2 of the login headline must be the italic Cormorant '
+            'Garamond "premium beauty service" brand string',
+      );
+
+      // Line 1 ("Welcome to\n") sits as a TextSpan text inside the parent
+      // Text.rich — find.text won't match TextSpan text directly, so we
+      // walk the Text widgets and look for any whose textSpan contains
+      // "Welcome to" as its `text` field.
+      final headlineWithWelcome = tester
+          .widgetList<Text>(find.byType(Text))
+          .where(
+            (w) =>
+                w.textSpan is TextSpan &&
+                ((w.textSpan as TextSpan).text ?? '').contains('Welcome to'),
+          )
+          .toList();
+      expect(
+        headlineWithWelcome,
+        isNotEmpty,
+        reason:
+            'Line 1 of the login headline must contain "Welcome to" as the '
+            'root TextSpan text',
+      );
+    });
   });
 }
 

@@ -56,6 +56,11 @@ GoRouter _makeRouter() => GoRouter(
           const Scaffold(body: Center(child: Text('step-2'))),
     ),
     GoRoute(
+      path: RouteNames.registerRole,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('role-selection'))),
+    ),
+    GoRoute(
       path: RouteNames.login,
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text('login'))),
@@ -325,6 +330,67 @@ void main() {
       );
       expect(confirmField.controller?.text, equals('PrePass1'));
     });
+
+    testWidgets(
+      '8. tapping btn-back-to-role clears the draft AND navigates to '
+      '/register/role (2026-05-20 design refresh — Step 1 bottom back link)',
+      (tester) async {
+        final (:container, :repo) = _makeContainerWithRepo();
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        // Pre-seed credentials so we can verify the reset wipes them. We do
+        // this via the notifier rather than via on-screen typing because
+        // updateStep1 is the canonical write path and avoids depending on
+        // the autovalidate / form-validate timing.
+        container
+            .read(registerDraftProvider.notifier)
+            .updateStep1(
+              email: 'pre-fill@example.com',
+              password: 'PrePass1',
+              confirmPassword: 'PrePass1',
+            );
+        // Sanity check: the draft is populated.
+        final beforeTap = container.read(registerDraftProvider)!;
+        expect(beforeTap.email, equals('pre-fill@example.com'));
+        expect(beforeTap.password, equals('PrePass1'));
+
+        // The btn-back-to-role link sits at the bottom of the Step 1 screen
+        // and may fall below the default 800x600 test viewport fold; scroll
+        // it into view before tapping.
+        await tester.ensureVisible(find.byKey(const Key('btn-back-to-role')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('btn-back-to-role')));
+        await tester.pumpAndSettle();
+
+        // (1) The draft is cleared. The notifier's reset() returns the state
+        // to null (no role + no credentials), which is the security contract
+        // — Phase 2.16 HIGH-1.
+        expect(
+          container.read(registerDraftProvider),
+          isNull,
+          reason:
+              'Tapping the bottom back link on Step 1 must invoke '
+              'RegisterDraftNotifier.reset() — HIGH-1 from Phase 2.16',
+        );
+
+        // (2) Navigation landed on /register/role.
+        expect(
+          router.routerDelegate.currentConfiguration.fullPath,
+          equals(RouteNames.registerRole),
+        );
+        expect(find.text('role-selection'), findsOneWidget);
+
+        // (3) No registration POST was fired.
+        _assertNoRegisterPostFired(repo);
+      },
+    );
 
     testWidgets(
       '7. Step 1 does NOT call AuthNotifier.register on submit (deferred '
