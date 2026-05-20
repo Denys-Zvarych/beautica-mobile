@@ -11,11 +11,18 @@
 // test an extracted helper [_locationRedirect] that accepts a plain String
 // instead of a GoRouterState, which maps directly to authRedirect's logic.
 //
+// F4 — AuthNotifier.build() now returns SYNCHRONOUSLY with Unauthenticated,
+// so AsyncLoading should rarely (if ever) reach this guard at cold start.
+// The loading branch of authRedirect is retained as a defensive fallback —
+// e.g. if a future action method sets `state = AsyncLoading()` mid-flight.
+// The two loading-branch tests below still verify the contract of the pure
+// function; they no longer represent the dominant cold-start path.
+//
 // Covered scenarios:
 //   1.  Anonymous user at / → redirected to /login.
 //   2.  Authenticated user at /login → redirected to /.
-//   3.  Loading user at /splash → stays on /splash (null).
-//   4.  Loading user at / → redirected to /splash.
+//   3.  Loading user at /splash → stays on /splash (null). [retained, rare]
+//   4.  Loading user at / → redirected to /splash. [retained, rare]
 //   5.  Anonymous user at /login → stays on /login (null).
 //   6.  Settled anonymous user at /splash → redirected to /login.
 //   7.  Authenticated user at /splash → redirected to /.
@@ -46,8 +53,8 @@ import 'package:flutter_test/flutter_test.dart';
 /// and authRedirect — divergence is silent and will cause guard failures in
 /// production without failing the test suite.
 ///
-/// Current production rules (Phase 2.9 + 2.11):
-///   isLoading → park on /splash; redirect all other locations to /splash.
+/// Current production rules (Phase 2.9 + 2.11 + F4 corrected):
+///   isLoading → redirect to /login (microsecond-short window in F4).
 ///   Unauthenticated + not on an auth route → redirect to /login.
 ///   Unauthenticated on /splash (session settled) → redirect to /login.
 ///   Authenticated + on an auth route (login/register/verification/done/splash)
@@ -62,7 +69,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// KEEP THIS IN SYNC with [authRedirect] in lib/routing/auth_redirect.dart.
 String? _locationRedirect(AsyncValue<AuthSession> session, String location) {
   if (session.isLoading) {
-    return location == RouteNames.splash ? null : RouteNames.splash;
+    return location == RouteNames.login ? null : RouteNames.login;
   }
 
   final isAuthenticated = session.value is Authenticated;
@@ -146,14 +153,25 @@ void main() {
       );
     });
 
-    test('loading session at /splash stays on /splash (null)', () {
-      expect(_locationRedirect(_loadingSession, RouteNames.splash), isNull);
+    test('loading session at /login stays on /login (null)', () {
+      expect(_locationRedirect(_loadingSession, RouteNames.login), isNull);
     });
 
-    test('loading session at / is redirected to /splash', () {
+    test('loading session at / is redirected to /login', () {
       expect(
         _locationRedirect(_loadingSession, RouteNames.home),
-        equals(RouteNames.splash),
+        equals(RouteNames.login),
+      );
+    });
+
+    test('loading session at /splash is redirected to /login', () {
+      // F4 corrected: /splash is no longer the loading parking spot. The
+      // loading window (microsecond) resolves to /login as a neutral landing
+      // pad; if the background restore flips to Authenticated, the next
+      // redirect pass forwards to /home.
+      expect(
+        _locationRedirect(_loadingSession, RouteNames.splash),
+        equals(RouteNames.login),
       );
     });
 

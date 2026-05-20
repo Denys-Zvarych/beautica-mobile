@@ -5,7 +5,9 @@
 // current location.
 //
 // Rules:
-//   isLoading → park on /splash; redirect all other locations to /splash.
+//   isLoading → redirect to /login (F4 corrected design — the AsyncLoading
+//     window now lasts microseconds, so /login is the right "neutral" landing
+//     pad and avoids a visible /splash flash on cold start).
 //   Unauthenticated + not on an auth route → redirect to /login.
 //   Unauthenticated on /splash (session settled) → redirect to /login.
 //   Authenticated + on an auth route (login/register/splash) → redirect to /.
@@ -42,13 +44,18 @@ String? authRedirect(AsyncValue<AuthSession> session, GoRouterState state) {
       : 'unauthenticated';
   perfLog('redirect:enter (state=$stateName, location=$location)');
 
-  // While the session is resolving (cold-start), park on the splash screen.
+  // While the session is resolving (cold-start), route to /login. F4
+  // (corrected design): build() resolves the Future synchronously to
+  // Unauthenticated and the background restore mutates state when it settles,
+  // so this loading window is microseconds long. /login is the safe
+  // landing pad — if the background task later flips to Authenticated, the
+  // next redirect pass forwards to /home.
   if (session.isLoading) {
-    if (location == RouteNames.splash) {
+    if (location == RouteNames.login) {
       return null;
     }
-    perfLog('redirect:to=${RouteNames.splash}');
-    return RouteNames.splash;
+    perfLog('redirect:to=${RouteNames.login}');
+    return RouteNames.login;
   }
 
   final isAuthenticated = session.value is Authenticated;

@@ -80,8 +80,11 @@ _makeAuthenticatedContainer() async {
     ..meResult = _testUser;
 
   final container = _makeContainer(storage: storage, repo: repo);
-  // Wait for cold-start to complete.
+  // F4 — build() returns Unauthenticated synchronously; the background restore
+  // then flips state to Authenticated. Drain microtasks + Futures so callers
+  // see the post-restore (Authenticated) state.
   await container.read(authProvider.future);
+  await pumpEventQueue();
 
   return (container, repo);
 }
@@ -131,7 +134,10 @@ void main() {
           ..logoutThrows = true; // repo.logout() will throw UnauthorizedFailure
 
         final container = _makeContainer(storage: storage, repo: repo);
+        // F4 — drain microtasks so the background restore settles to
+        // Authenticated before logout() is invoked.
         await container.read(authProvider.future);
+        await pumpEventQueue();
 
         // Logout must NOT throw despite repo throwing.
         // Direct await — if logout() throws, the test fails.

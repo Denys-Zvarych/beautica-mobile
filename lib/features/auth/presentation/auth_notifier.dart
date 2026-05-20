@@ -3,13 +3,19 @@
 // Owns the sealed [AuthSession] state for the entire app lifecycle. Kept alive
 // because the auth interceptor, router guard, and all feature screens need it.
 //
-// Cold-start flow (build()):
-//   1. Read refresh token from SecureStorage.
-//   2. If absent → return Unauthenticated immediately.
-//   3. If present → call repo.refresh() to obtain a new token pair, then
-//      repo.me() to load the user profile.
-//   4. On any Failure (expired/revoked token) → wipe storage, return
-//      Unauthenticated. Never bubble the exception to the UI.
+// Cold-start flow (build()) — F4 perf fix:
+//   build() returns SYNCHRONOUSLY with Unauthenticated so the router can
+//   immediately redirect to /login (splash no longer blocks for ~1.5 s on the
+//   KeyStore-backed flutter_secure_storage read). The storage read + refresh
+//   call run as a fire-and-forget background task that mutates [state] when
+//   it completes:
+//     1. Read refresh token from SecureStorage.
+//     2. If absent → state stays Unauthenticated (no-op, build() already set it).
+//     3. If present → call repo.refresh() then repo.me().
+//        - Success → state = AsyncData(Authenticated(...)).
+//        - Failure → wipe storage, state = AsyncData(Unauthenticated).
+//   The background task never throws to the caller — every failure path
+//   resolves to Unauthenticated, so the router guard sees a settled state.
 //
 // Action methods (login, register, logout) follow the AsyncNotifier pattern:
 //   - Set state to AsyncLoading before the async work.
@@ -21,6 +27,7 @@
 //   - The access token lives exclusively in the [Authenticated] state in memory.
 //   - Never pass the access token to writeRefreshToken — they are different keys.
 
+import 'dart:async';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
@@ -46,8 +53,33 @@ part 'auth_notifier.g.dart';
 @Riverpod(keepAlive: true)
 class AuthNotifier extends _$AuthNotifier {
   @override
-  Future<AuthSession> build() async {
+  Future<AuthSession> build() {
     perfLog('authNotifier:build-enter');
+    // F4 (corrected) — never block the splash on the KeyStore-backed storage
+    // read. Schedule the storage read + refresh as a microtask so the Future
+    // returned here resolves IMMEDIATELY (synchronously-completed) — by the
+    // time the router observes [authProvider], the AsyncNotifier has settled
+    // to AsyncData(Unauthenticated()). The background task then mutates
+    // [state] to AsyncData(Authenticated(...)) if a valid session is restored.
+    //
+    // NOTE: build() is intentionally NOT marked `async`. Using `async` would
+    // force a microtask boundary before the value is observable; returning
+    // `Future.value(...)` is observably synchronous when awaited but cleanly
+    // typed as Future<AuthSession>. This preserves the public AsyncValue
+    // surface that every consumer (router, interceptor, selectors, screens)
+    // depends on.
+    unawaited(Future.microtask(_restoreSessionInBackground));
+    return Future.value(const AuthSession.unauthenticated());
+  }
+
+  /// Background restoration task — never throws. Runs after [build] returns.
+  ///
+  /// Reads the stored refresh token; if present, exchanges it for a new token
+  /// pair and loads the user profile. On any failure, wipes storage and leaves
+  /// the state as Unauthenticated.
+  ///
+  /// Mutates [state] directly — does not return anything.
+  Future<void> _restoreSessionInBackground() async {
     final storage = ref.read(secureStorageProvider);
     perfLog('authNotifier:before-storage-read');
     final rt = await storage.readRefreshToken();
@@ -64,16 +96,21 @@ class AuthNotifier extends _$AuthNotifier {
           level: 800,
         );
       }
-      return const AuthSession.unauthenticated();
+      // Already AsyncData(Unauthenticated) from build(); nothing to update.
+      return;
     }
 
     try {
       final repo = ref.read(authRepositoryProvider);
       perfLog('authNotifier:before-refresh-call');
+      // F3 piggy-back — timeout lowered from 20 s to 6 s. Splash is no longer
+      // blocked on this call (F4) so a snappier "you're logged out" UX is the
+      // goal; 6 s comfortably covers a slow mobile network round-trip while
+      // still surfacing dead-server scenarios quickly.
       final tokens = await repo
           .refresh(rt)
           .timeout(
-            const Duration(seconds: 20),
+            const Duration(seconds: 6),
             onTimeout: () =>
                 throw const NetworkFailure(cause: 'refresh timed out'),
           );
@@ -88,9 +125,8 @@ class AuthNotifier extends _$AuthNotifier {
           level: 800,
         );
       }
-      return AuthSession.authenticated(
-        user: user,
-        accessToken: tokens.accessToken,
+      state = AsyncData(
+        AuthSession.authenticated(user: user, accessToken: tokens.accessToken),
       );
     } on Failure catch (f) {
       perfLog('authNotifier:after-refresh-call (failed: ${f.runtimeType})');
@@ -104,7 +140,24 @@ class AuthNotifier extends _$AuthNotifier {
         );
       }
       await storage.deleteAll();
-      return const AuthSession.unauthenticated();
+      // Re-assert Unauthenticated in case any caller mutated state in between
+      // (defensive — the more common path is that state is already this value).
+      state = const AsyncData(AuthSession.unauthenticated());
+    } catch (e, st) {
+      // Catch-all — must not bubble up since this is a fire-and-forget Future.
+      perfLog('authNotifier:after-refresh-call (failed: ${e.runtimeType})');
+      if (kDebugMode) {
+        log(
+          'Cold start refresh failed with non-Failure exception — '
+          'clearing storage and going unauthenticated',
+          name: 'auth',
+          level: 1000,
+          error: e,
+          stackTrace: st,
+        );
+      }
+      await storage.deleteAll();
+      state = const AsyncData(AuthSession.unauthenticated());
     }
   }
 

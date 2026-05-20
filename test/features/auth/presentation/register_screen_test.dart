@@ -1613,16 +1613,18 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // 32 (new) — BackdropFilter blur-budget ceiling on the role-selection step
+    // 32 — BackdropFilter blur-budget ceiling on the role-selection step
     //
-    // The role-selection view renders exactly 3 _RoleCard instances (each with
-    // one BackdropFilter at sigma 12) and one _RegBrandRow (sigma 8) = 4 total.
-    // _RegGlassCard is NOT present on this view — it only appears in the details
-    // form. Asserting an upper bound of 4 prevents future additions from silently
-    // exceeding the raster budget that was established by the sigma 20→12 fix.
+    // F7 (mobile-perf): the role-selection view now renders ONLY one
+    // BackdropFilter — the _RegBrandRow (sigma 8). The 3 _RoleCard
+    // BackdropFilters were removed because, on the already-dithered Warm
+    // Mocha background, an 88-dp card-sized gaussian was perceptually
+    // negligible but cost a SaveLayer + per-frame gaussian per card.
+    // _RegGlassCard is NOT present on this view — it only appears in the
+    // details form. Asserting an upper bound of 1 locks in the F7 budget.
     // -----------------------------------------------------------------------
     testWidgets(
-      '32. role-selection step has at most 4 BackdropFilter instances (blur budget ceiling)',
+      '32. role-selection step has at most 1 BackdropFilter (F7 blur budget)',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -1644,11 +1646,11 @@ void main() {
         final backdropCount = find.byType(BackdropFilter).evaluate().length;
         expect(
           backdropCount,
-          lessThanOrEqualTo(4),
+          lessThanOrEqualTo(1),
           reason:
-              'role-selection step must have at most 4 BackdropFilter widgets '
-              '(3 role cards + 1 brand row). Found $backdropCount. '
-              'A regression here means the raster budget sigma-12 fix was undone.',
+              'role-selection step must have at most 1 BackdropFilter widget '
+              '(_RegBrandRow only). Found $backdropCount. '
+              'A regression here means F7 (role-card blur removal) was undone.',
         );
       },
     );

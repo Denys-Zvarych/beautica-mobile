@@ -4,6 +4,11 @@
 // channels are involved. FakeSecureStorage provides in-memory storage;
 // MockAuthRepository (mocktail) stubs the network boundary.
 //
+// F4 — build() now returns SYNCHRONOUSLY with Unauthenticated; the storage
+// read + refresh runs as a fire-and-forget background task that mutates
+// [state] when it settles. Tests use `pumpEventQueue` to flush the
+// microtask + pending Futures before reading the post-restore state.
+//
 // Coverage:
 //   1.  Cold start — no refresh token → Unauthenticated (no repo calls).
 //   2.  Cold start — valid refresh token → Authenticated (session restored).
@@ -84,9 +89,22 @@ void main() {
         final storage = FakeSecureStorage(); // empty — no tokens written
 
         final container = makeContainer(repo: repo, storage: storage);
-        final session = await container.read(authProvider.future);
 
+        // F4 — build() returns synchronously with Unauthenticated. The
+        // initial read settles immediately; the background storage read
+        // also resolves to "no token" so state stays Unauthenticated.
+        final session = await container.read(authProvider.future);
         expect(session, equals(const AuthSession.unauthenticated()));
+
+        // Flush the background microtask so any pending storage I/O drains
+        // before asserting `verifyNever` — otherwise a late repo call could
+        // slip through after the assertion.
+        await pumpEventQueue();
+
+        expect(
+          container.read(authProvider).value,
+          equals(const AuthSession.unauthenticated()),
+        );
 
         // The repository must never be called when there is no stored token.
         verifyNever(() => repo.refresh(any()));
@@ -110,10 +128,15 @@ void main() {
         when(() => repo.me()).thenAnswer((_) async => testUser);
 
         final container = makeContainer(repo: repo, storage: storage);
-        final session = await container.read(authProvider.future);
+
+        // F4 — initial state settles synchronously to Unauthenticated, then
+        // the background task swaps it to Authenticated once repo.refresh()
+        // + repo.me() resolve. Drain the event queue to wait for that swap.
+        await container.read(authProvider.future);
+        await pumpEventQueue();
 
         expect(
-          session,
+          container.read(authProvider).value,
           equals(
             AuthSession.authenticated(
               user: testUser,
@@ -144,9 +167,17 @@ void main() {
       ).thenThrow(const UnauthorizedFailure());
 
       final container = makeContainer(repo: repo, storage: storage);
-      final session = await container.read(authProvider.future);
 
-      expect(session, equals(const AuthSession.unauthenticated()));
+      // F4 — initial state is Unauthenticated synchronously. The background
+      // task tries to refresh, gets UnauthorizedFailure, wipes storage and
+      // re-asserts Unauthenticated. Drain the event queue to wait for that.
+      await container.read(authProvider.future);
+      await pumpEventQueue();
+
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+      );
 
       // Storage must be wiped so the next cold start skips the refresh attempt.
       expect(await storage.readRefreshToken(), isNull);
@@ -212,8 +243,10 @@ void main() {
       when(() => repo.logout()).thenAnswer((_) async {});
 
       final container = makeContainer(repo: repo, storage: storage);
-      // Wait for the cold-start to complete (Authenticated).
+      // F4 — wait for the background cold-start restore to complete
+      // (state becomes Authenticated) before invoking logout().
       await container.read(authProvider.future);
+      await pumpEventQueue();
 
       await container.read(authProvider.notifier).logout();
 
@@ -377,42 +410,35 @@ void main() {
     // Test 10 — cold-start raw exception (non-Failure)
     // -----------------------------------------------------------------------
     test(
-      'cold start: raw Exception (non-Failure) from repo.refresh → AsyncError',
+      'cold start: raw Exception (non-Failure) from repo.refresh → '
+      'Unauthenticated (caught in background task) and storage wiped',
       () async {
         final repo = MockAuthRepository();
         final storage = FakeSecureStorage();
         await storage.writeRefreshToken('stored-refresh');
 
         // Throw a raw exception that is NOT a Failure subclass.
-        // build() catches only `on Failure` — raw exceptions propagate and
-        // Riverpod's AsyncNotifier machinery sets state = AsyncError<Exception>.
+        // F4 — the background restoration task has a catch-all so any
+        // non-Failure exception is treated like a failed refresh: storage
+        // is wiped and state ends up Unauthenticated. The exception must
+        // NOT bubble up to AsyncError because that would re-trigger
+        // build() on `ref.invalidate(authProvider)` and produce a redirect
+        // loop in production.
         when(
           () => repo.refresh('stored-refresh'),
         ).thenThrow(Exception('format error'));
 
         final container = makeContainer(repo: repo, storage: storage);
 
-        // Trigger build by reading — do NOT await .future because the raw
-        // exception may cause it to never resolve in certain Riverpod versions.
-        // Instead, listen to state transitions via a subscription and wait for
-        // the state to settle away from AsyncLoading.
-        container.read(authProvider); // trigger build
-
-        // Poll until state is no longer AsyncLoading (max 2 seconds).
-        for (var i = 0; i < 40; i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-          final v = container.read(authProvider);
-          if (!v.isLoading) break;
-        }
+        // build() returns synchronously with Unauthenticated; the background
+        // task fires the failing repo.refresh() then catches it.
+        await container.read(authProvider.future);
+        await pumpEventQueue();
 
         final value = container.read(authProvider);
-        // In Riverpod 3.x, an uncaught exception in AsyncNotifier.build() causes
-        // the provider to enter retry mode: the state becomes AsyncLoading with
-        // a non-null .error (i.e. the exception is captured and available).
-        // We assert the error is exposed regardless of whether the state is
-        // AsyncError or AsyncLoading(retrying: true) — both indicate the raw
-        // exception was not silently swallowed.
-        expect(value.error, isA<Exception>());
+        expect(value, isA<AsyncData<AuthSession>>());
+        expect(value.value, equals(const AuthSession.unauthenticated()));
+        expect(await storage.readRefreshToken(), isNull);
       },
     );
 
@@ -461,7 +487,9 @@ void main() {
         when(() => repo.me()).thenAnswer((_) async => testUser);
 
         final container = makeContainer(repo: repo, storage: storage);
+        // F4 — wait for the background restore to settle to Authenticated.
         await container.read(authProvider.future);
+        await pumpEventQueue();
 
         // State is now Authenticated with rotatedTokens.accessToken.
         container.read(authProvider.notifier).setAccessToken('brand-new-token');

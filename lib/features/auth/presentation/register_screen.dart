@@ -35,6 +35,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/perf/perf_log.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../l10n/app_localizations.dart';
@@ -225,6 +226,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
 
   @override
   void initState() {
+    perfLog('register:initState');
     super.initState();
 
     _intentCtrl = AnimationController(
@@ -294,6 +296,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      perfLog('register:first-frame');
       if (!mounted) return;
       if (MediaQuery.of(context).disableAnimations) {
         _intentCtrl.value = 1.0;
@@ -301,6 +304,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
         _intentCtrl.forward();
       }
     });
+    perfLog('register:initState-done');
   }
 
   @override
@@ -457,6 +461,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
 
   @override
   Widget build(BuildContext context) {
+    perfLog('register:build');
     final l10n = AppLocalizations.of(context);
     final authState = ref.watch(authProvider);
     final isLoading = authState.isLoading;
@@ -1159,11 +1164,20 @@ class _RoleCard extends StatelessWidget {
   final VoidCallback onTap;
   final AppLocalizations l10n;
 
-  // role-selection-page.html .role-card { backdrop-filter: blur(20px) }.
-  // Reduced to sigma 12 for raster budget: 3 simultaneous BackdropFilter
-  // layers on role selection + _RegBrandRow = 4 total. sigma 20 × 4 exceeded
-  // 16 ms on mid-range hardware. sigma 12 is visually equivalent at this size.
-  static final _kBlur = ImageFilter.blur(sigmaX: 12, sigmaY: 12);
+  // F7 — BackdropFilter REMOVED from role cards.
+  //
+  // Previously each _RoleCard wrapped its content in a BackdropFilter
+  // (sigma 12), giving 3 simultaneous gaussian SaveLayers on the role
+  // selection view (+ _RegBrandRow = 4 total). On the already-dithered
+  // Warm Mocha gradient, an 88-dp card-sized blur added negligible
+  // perceptual difference but cost a SaveLayer + per-frame gaussian pass
+  // per card, dominating the shader compile cost on cold-start nav.
+  //
+  // Option 1 chosen (preferred — least visual change): replace the
+  // BackdropFilter with the existing semi-transparent fill on the
+  // AnimatedContainer. The camel border ring, gradient overlay, icon ring
+  // and selection animation are all unchanged — only the gaussian behind
+  // the fill is gone.
 
   @override
   Widget build(BuildContext context) {
@@ -1176,123 +1190,120 @@ class _RoleCard extends StatelessWidget {
         onTap: onTap,
         child: ClipRRect(
           borderRadius: _kRoleCardRadius,
-          child: BackdropFilter(
-            filter: _kBlur,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOut,
-              // .role-card { padding: 16px 16px }.
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            // .role-card { padding: 16px 16px }.
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? const Color(0x14B89A7A) // rgba(184,154,122,0.08)
+                  : const Color(0x0EFFFFFF), // rgba(255,255,255,0.055)
+              borderRadius: _kRoleCardRadius,
+              border: Border.all(
                 color: isSelected
-                    ? const Color(0x14B89A7A) // rgba(184,154,122,0.08)
-                    : const Color(0x0EFFFFFF), // rgba(255,255,255,0.055)
-                borderRadius: _kRoleCardRadius,
-                border: Border.all(
-                  color: isSelected
-                      ? const Color(0x6BB89A7A) // rgba(184,154,122,0.42)
-                      : const Color(0x14FFFFFF), // rgba(255,255,255,0.08)
-                  width: 1,
+                    ? const Color(0x6BB89A7A) // rgba(184,154,122,0.42)
+                    : const Color(0x14FFFFFF), // rgba(255,255,255,0.08)
+                width: 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                // .role-icon { width:44px; height:44px; border-radius:13px }.
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 44,
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? const Color(0x24B89A7A) // rgba(184,154,122,0.14)
+                        : const Color(0x12FFFFFF), // rgba(255,255,255,0.07)
+                    borderRadius: const BorderRadius.all(Radius.circular(13)),
+                    border: Border.all(
+                      color: isSelected
+                          ? const Color(0x59B89A7A) // rgba(184,154,122,0.35)
+                          : const Color(0x1AFFFFFF), // rgba(255,255,255,0.1)
+                      width: 1,
+                    ),
+                  ),
+                  child: AuthRoleIcon(
+                    glyph: option.glyph,
+                    // .role-icon { color: rgba(255,255,255,0.45) };
+                    // .selected .role-icon { color: var(--accent) }.
+                    color: isSelected
+                        ? BrandColors.camel
+                        : const Color(0x73FFFFFF),
+                  ),
                 ),
-              ),
-              child: Row(
-                children: [
-                  // .role-icon { width:44px; height:44px; border-radius:13px }.
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: 44,
-                    height: 44,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? const Color(0x24B89A7A) // rgba(184,154,122,0.14)
-                          : const Color(0x12FFFFFF), // rgba(255,255,255,0.07)
-                      borderRadius: const BorderRadius.all(Radius.circular(13)),
-                      border: Border.all(
-                        color: isSelected
-                            ? const Color(0x59B89A7A) // rgba(184,154,122,0.35)
-                            : const Color(0x1AFFFFFF), // rgba(255,255,255,0.1)
-                        width: 1,
+
+                // .role-card { gap: 14px }.
+                const SizedBox(width: 14),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // .role-title 14px → 16 for on-device readability (+2px pass).
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 200),
+                        style: TextStyle(
+                          color: isSelected
+                              ? Colors.white
+                              : const Color(0xE0FFFFFF),
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.14,
+                        ),
+                        child: Text(_intentTitle(option, l10n)),
                       ),
-                    ),
-                    child: AuthRoleIcon(
-                      glyph: option.glyph,
-                      // .role-icon { color: rgba(255,255,255,0.45) };
-                      // .selected .role-icon { color: var(--accent) }.
+                      // .role-title { margin-bottom: 3px }.
+                      const SizedBox(height: 3),
+                      // .role-desc 11.5px → 13.5 for on-device readability (+2px pass).
+                      Text(
+                        _intentDesc(option, l10n),
+                        style: TextStyle(
+                          color: isSelected
+                              ? const Color(0x6BFFFFFF)
+                              : const Color(0x47FFFFFF),
+                          fontSize: 13.5,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(width: 14),
+
+                // .role-check { width:22px; height:22px; border-radius:50%;
+                //   border:1.5px solid rgba(255,255,255,0.15) }; selected →
+                //   bg+border var(--accent), check glyph #3a2810.
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? BrandColors.camel
+                        : Colors.transparent,
+                    shape: BoxShape.circle,
+                    border: Border.all(
                       color: isSelected
                           ? BrandColors.camel
-                          : const Color(0x73FFFFFF),
+                          : const Color(0x26FFFFFF), // white 15%
+                      width: 1.5,
                     ),
                   ),
-
-                  // .role-card { gap: 14px }.
-                  const SizedBox(width: 14),
-
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // .role-title 14px → 16 for on-device readability (+2px pass).
-                        AnimatedDefaultTextStyle(
-                          duration: const Duration(milliseconds: 200),
-                          style: TextStyle(
-                            color: isSelected
-                                ? Colors.white
-                                : const Color(0xE0FFFFFF),
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.14,
-                          ),
-                          child: Text(_intentTitle(option, l10n)),
-                        ),
-                        // .role-title { margin-bottom: 3px }.
-                        const SizedBox(height: 3),
-                        // .role-desc 11.5px → 13.5 for on-device readability (+2px pass).
-                        Text(
-                          _intentDesc(option, l10n),
-                          style: TextStyle(
-                            color: isSelected
-                                ? const Color(0x6BFFFFFF)
-                                : const Color(0x47FFFFFF),
-                            fontSize: 13.5,
-                            height: 1.45,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(width: 14),
-
-                  // .role-check { width:22px; height:22px; border-radius:50%;
-                  //   border:1.5px solid rgba(255,255,255,0.15) }; selected →
-                  //   bg+border var(--accent), check glyph #3a2810.
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    width: 22,
-                    height: 22,
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? BrandColors.camel
-                          : Colors.transparent,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: isSelected
-                            ? BrandColors.camel
-                            : const Color(0x26FFFFFF), // white 15%
-                        width: 1.5,
-                      ),
-                    ),
-                    child: isSelected
-                        ? const Icon(
-                            Icons.check,
-                            size: 12,
-                            color: Color(0xFF3A2810),
-                          )
-                        : null,
-                  ),
-                ],
-              ),
+                  child: isSelected
+                      ? const Icon(
+                          Icons.check,
+                          size: 12,
+                          color: Color(0xFF3A2810),
+                        )
+                      : null,
+                ),
+              ],
             ),
           ),
         ),
