@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'core/perf/perf_log.dart';
 import 'core/theme/app_theme.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
@@ -19,7 +20,9 @@ import 'routing/app_router.dart';
 /// [appRouterProvider] via [ConsumerWidget]; the [_BootstrapHome] counter
 /// scaffold has been removed and the app now boots to [RouteNames.splash].
 void main() {
+  perfLog('main:enter');
   GoogleFonts.config.allowRuntimeFetching = kDebugMode;
+  perfLog('main:before-runApp');
   runApp(const ProviderScope(child: BeauticaApp()));
 }
 

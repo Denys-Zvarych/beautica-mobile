@@ -27,6 +27,7 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/perf/perf_log.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
@@ -46,8 +47,14 @@ part 'auth_notifier.g.dart';
 class AuthNotifier extends _$AuthNotifier {
   @override
   Future<AuthSession> build() async {
+    perfLog('authNotifier:build-enter');
     final storage = ref.read(secureStorageProvider);
+    perfLog('authNotifier:before-storage-read');
     final rt = await storage.readRefreshToken();
+    perfLog(
+      'authNotifier:after-storage-read '
+      '(${rt == null ? 'storage-read:no-token' : 'storage-read:has-token'})',
+    );
 
     if (rt == null) {
       if (kDebugMode) {
@@ -62,6 +69,7 @@ class AuthNotifier extends _$AuthNotifier {
 
     try {
       final repo = ref.read(authRepositoryProvider);
+      perfLog('authNotifier:before-refresh-call');
       final tokens = await repo
           .refresh(rt)
           .timeout(
@@ -69,6 +77,7 @@ class AuthNotifier extends _$AuthNotifier {
             onTimeout: () =>
                 throw const NetworkFailure(cause: 'refresh timed out'),
           );
+      perfLog('authNotifier:after-refresh-call');
       // Persist the rotated refresh token before loading the profile.
       await storage.writeRefreshToken(tokens.refreshToken);
       final user = await repo.me();
@@ -84,6 +93,7 @@ class AuthNotifier extends _$AuthNotifier {
         accessToken: tokens.accessToken,
       );
     } on Failure catch (f) {
+      perfLog('authNotifier:after-refresh-call (failed: ${f.runtimeType})');
       if (kDebugMode) {
         log(
           'Cold start refresh failed — clearing storage and going unauthenticated',
