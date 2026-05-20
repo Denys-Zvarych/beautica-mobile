@@ -934,4 +934,236 @@ void main() {
       expect(capturedBody!['role'], equals('SALON_OWNER'));
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Group 11 — verifyEmail (backend Phase 1.5)
+  //
+  // Contract:
+  //   Request:  POST /auth/verify-email  {email, code: <otp>}
+  //   Success:  ApiResponse<AuthResponse> — full session envelope.
+  //   400:      ApiResponse<{code: "INVALID_CODE" | "CODE_EXPIRED" |
+  //             "ALREADY_VERIFIED"}> → VerificationFailure via interceptor.
+  // -------------------------------------------------------------------------
+
+  group('verifyEmail', () {
+    test('success → returns (User, AuthTokens) parsed from envelope', () async {
+      Map<String, dynamic>? capturedBody;
+
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/verify-email',
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        capturedBody =
+            invocation.namedArguments[const Symbol('data')]
+                as Map<String, dynamic>;
+        return Response(
+          requestOptions: _fakeOptions('/auth/verify-email'),
+          statusCode: 200,
+          data: _loginEnvelope(),
+        );
+      });
+
+      final (user, tokens) = await repository.verifyEmail(
+        email: 'master@beautica.test',
+        otp: '654321',
+      );
+
+      // Request body uses the wire field `code` (not `otp`).
+      expect(capturedBody, isNotNull);
+      expect(capturedBody!['email'], equals('master@beautica.test'));
+      expect(
+        capturedBody!['code'],
+        equals('654321'),
+        reason:
+            'Backend Phase 1.5 wire field is `code`, not `otp` — '
+            'mobile param name is `otp` for HTML-mockup parity only',
+      );
+
+      // Response is parsed via the same helper as /auth/login.
+      expect(user.id, 'usr-1');
+      expect(user.email, 'master@beautica.test');
+      expect(user.role, UserRole.independentMaster);
+      expect(tokens.accessToken, 'access.jwt.token');
+      expect(tokens.refreshToken, 'refresh.jwt.token');
+    });
+
+    test(
+      'INVALID_CODE → throws VerificationFailure(invalidCode) via interceptor',
+      () async {
+        const failure = VerificationFailure(
+          code: VerificationErrorCode.invalidCode,
+        );
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/verify-email',
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(_dioWithFailure(failure, statusCode: 400));
+
+        await expectLater(
+          () => repository.verifyEmail(email: 'x@x.com', otp: '000000'),
+          throwsA(
+            isA<VerificationFailure>().having(
+              (f) => f.code,
+              'code',
+              VerificationErrorCode.invalidCode,
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'CODE_EXPIRED → throws VerificationFailure(codeExpired) via interceptor',
+      () async {
+        const failure = VerificationFailure(
+          code: VerificationErrorCode.codeExpired,
+        );
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/verify-email',
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(_dioWithFailure(failure, statusCode: 400));
+
+        await expectLater(
+          () => repository.verifyEmail(email: 'x@x.com', otp: '111111'),
+          throwsA(
+            isA<VerificationFailure>().having(
+              (f) => f.code,
+              'code',
+              VerificationErrorCode.codeExpired,
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'ALREADY_VERIFIED → throws VerificationFailure(alreadyVerified) via interceptor',
+      () async {
+        const failure = VerificationFailure(
+          code: VerificationErrorCode.alreadyVerified,
+        );
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/verify-email',
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(_dioWithFailure(failure, statusCode: 400));
+
+        await expectLater(
+          () => repository.verifyEmail(email: 'x@x.com', otp: '222222'),
+          throwsA(
+            isA<VerificationFailure>().having(
+              (f) => f.code,
+              'code',
+              VerificationErrorCode.alreadyVerified,
+            ),
+          ),
+        );
+      },
+    );
+
+    test('raw DioException → throws UnknownFailure', () async {
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/verify-email',
+          data: any(named: 'data'),
+        ),
+      ).thenThrow(_rawDioException());
+
+      await expectLater(
+        () => repository.verifyEmail(email: 'x@x.com', otp: '333333'),
+        throwsA(isA<UnknownFailure>()),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 12 — resendVerificationCode (backend Phase 1.6)
+  //
+  // Contract:
+  //   Request:  POST /auth/resend-verification  {email}
+  //   Success:  ApiResponse<RegistrationResponse> — repository returns void.
+  //   429:      {success:false, message:"...", data:{retryAfterSeconds:N}}
+  //             → ResendThrottledFailure via interceptor.
+  // -------------------------------------------------------------------------
+
+  group('resendVerificationCode', () {
+    test('success → request body carries {email}, completes void', () async {
+      Map<String, dynamic>? capturedBody;
+
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/resend-verification',
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        capturedBody =
+            invocation.namedArguments[const Symbol('data')]
+                as Map<String, dynamic>;
+        return Response(
+          requestOptions: _fakeOptions('/auth/resend-verification'),
+          statusCode: 200,
+          data: {
+            'success': true,
+            'data': {
+              'message': 'Verification code resent.',
+              'email': 'master@beautica.test',
+            },
+            'message': null,
+          },
+        );
+      });
+
+      await repository.resendVerificationCode(email: 'master@beautica.test');
+
+      expect(capturedBody, isNotNull);
+      expect(capturedBody!['email'], equals('master@beautica.test'));
+      // Only the email is sent — nothing else.
+      expect(capturedBody!.length, equals(1));
+    });
+
+    test(
+      '429 ResendThrottledFailure → throws ResendThrottledFailure with retryAfterSeconds',
+      () async {
+        const failure = ResendThrottledFailure(retryAfterSeconds: 42);
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/resend-verification',
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(_dioWithFailure(failure, statusCode: 429));
+
+        await expectLater(
+          () =>
+              repository.resendVerificationCode(email: 'master@beautica.test'),
+          throwsA(
+            isA<ResendThrottledFailure>().having(
+              (f) => f.retryAfterSeconds,
+              'retryAfterSeconds',
+              42,
+            ),
+          ),
+        );
+      },
+    );
+
+    test('raw DioException → throws UnknownFailure', () async {
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/resend-verification',
+          data: any(named: 'data'),
+        ),
+      ).thenThrow(_rawDioException());
+
+      await expectLater(
+        () => repository.resendVerificationCode(email: 'x@x.com'),
+        throwsA(isA<UnknownFailure>()),
+      );
+    });
+  });
 }

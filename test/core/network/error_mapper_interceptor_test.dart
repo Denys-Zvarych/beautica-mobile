@@ -272,6 +272,219 @@ void main() {
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // Phase 2.11 — verify-email typed-code envelope (backend Phase 1.5)
+  // ---------------------------------------------------------------------------
+
+  group('ErrorMapperInterceptor — verify-email typed errors', () {
+    test(
+      '400 with data.code = INVALID_CODE → VerificationFailure(invalidCode)',
+      () {
+        final rejected = _captureRejected(
+          _httpError(
+            400,
+            path: '/auth/verify-email',
+            body: {
+              'success': false,
+              'data': {'code': 'INVALID_CODE'},
+            },
+          ),
+        );
+
+        expect(rejected.error, isA<VerificationFailure>());
+        expect(
+          (rejected.error as VerificationFailure).code,
+          equals(VerificationErrorCode.invalidCode),
+        );
+      },
+    );
+
+    test(
+      '400 with data.code = CODE_EXPIRED → VerificationFailure(codeExpired)',
+      () {
+        final rejected = _captureRejected(
+          _httpError(
+            400,
+            path: '/auth/verify-email',
+            body: {
+              'success': false,
+              'data': {'code': 'CODE_EXPIRED'},
+            },
+          ),
+        );
+
+        expect(rejected.error, isA<VerificationFailure>());
+        expect(
+          (rejected.error as VerificationFailure).code,
+          equals(VerificationErrorCode.codeExpired),
+        );
+      },
+    );
+
+    test(
+      '400 with data.code = ALREADY_VERIFIED → VerificationFailure(alreadyVerified)',
+      () {
+        final rejected = _captureRejected(
+          _httpError(
+            400,
+            path: '/auth/verify-email',
+            body: {
+              'success': false,
+              'data': {'code': 'ALREADY_VERIFIED'},
+            },
+          ),
+        );
+
+        expect(rejected.error, isA<VerificationFailure>());
+        expect(
+          (rejected.error as VerificationFailure).code,
+          equals(VerificationErrorCode.alreadyVerified),
+        );
+      },
+    );
+
+    test('400 with unknown wire code → falls back to invalidCode', () {
+      final rejected = _captureRejected(
+        _httpError(
+          400,
+          path: '/auth/verify-email',
+          body: {
+            'success': false,
+            'data': {'code': 'SOME_FUTURE_CODE'},
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<VerificationFailure>());
+      expect(
+        (rejected.error as VerificationFailure).code,
+        equals(VerificationErrorCode.invalidCode),
+      );
+    });
+
+    test(
+      '400 on /auth/verify-email WITHOUT data.code key → ValidationFailure '
+      'fallback (genuinely-malformed 400s still surface as field-errors)',
+      () {
+        final rejected = _captureRejected(
+          _httpError(
+            400,
+            path: '/auth/verify-email',
+            body: {
+              'success': false,
+              'errors': {'code': 'must not be blank'},
+            },
+          ),
+        );
+
+        // No data.code envelope → falls through to the generic 400 branch.
+        expect(rejected.error, isA<ValidationFailure>());
+        expect(rejected.error, isNot(isA<VerificationFailure>()));
+      },
+    );
+
+    test('400 with data.code on a DIFFERENT path → ValidationFailure '
+        '(typed-code mapping is scoped to /auth/verify-email)', () {
+      final rejected = _captureRejected(
+        _httpError(
+          400,
+          path: '/auth/login',
+          body: {
+            'success': false,
+            'data': {'code': 'INVALID_CODE'},
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<ValidationFailure>());
+      expect(rejected.error, isNot(isA<VerificationFailure>()));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Phase 2.11 — resend-verification 429 throttle (backend Phase 1.6)
+  // ---------------------------------------------------------------------------
+
+  group('ErrorMapperInterceptor — resend-verification 429 throttle', () {
+    test(
+      '429 with data.retryAfterSeconds → ResendThrottledFailure with value',
+      () {
+        final rejected = _captureRejected(
+          _httpError(
+            429,
+            path: '/auth/resend-verification',
+            body: {
+              'success': false,
+              'message': 'Too many resend attempts',
+              'data': {'retryAfterSeconds': 42},
+            },
+          ),
+        );
+
+        expect(rejected.error, isA<ResendThrottledFailure>());
+        expect(
+          (rejected.error as ResendThrottledFailure).retryAfterSeconds,
+          equals(42),
+        );
+      },
+    );
+
+    test(
+      '429 with missing data → ResendThrottledFailure(retryAfterSeconds: 0)',
+      () {
+        final rejected = _captureRejected(
+          _httpError(
+            429,
+            path: '/auth/resend-verification',
+            body: {'success': false, 'message': 'Too many resend attempts'},
+          ),
+        );
+
+        expect(rejected.error, isA<ResendThrottledFailure>());
+        expect(
+          (rejected.error as ResendThrottledFailure).retryAfterSeconds,
+          equals(0),
+        );
+      },
+    );
+
+    test('429 with negative retryAfterSeconds → clamped to 0', () {
+      final rejected = _captureRejected(
+        _httpError(
+          429,
+          path: '/auth/resend-verification',
+          body: {
+            'success': false,
+            'data': {'retryAfterSeconds': -7},
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<ResendThrottledFailure>());
+      expect(
+        (rejected.error as ResendThrottledFailure).retryAfterSeconds,
+        equals(0),
+      );
+    });
+
+    test('429 on a DIFFERENT path → UnknownFailure '
+        '(throttle mapping is scoped to /auth/resend-verification)', () {
+      final rejected = _captureRejected(
+        _httpError(
+          429,
+          path: '/auth/login',
+          body: {
+            'success': false,
+            'data': {'retryAfterSeconds': 42},
+          },
+        ),
+      );
+
+      // 429 is not in the generic mapping table, so it falls through.
+      expect(rejected.error, isA<UnknownFailure>());
+    });
+  });
+
   group('ErrorMapperInterceptor — Failure carries original cause', () {
     test('cause is the original DioException', () {
       final input = _httpError(404);

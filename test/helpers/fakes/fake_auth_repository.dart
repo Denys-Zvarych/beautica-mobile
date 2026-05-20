@@ -36,11 +36,20 @@ final class FakeAuthRepository implements AuthRepository {
   bool logoutThrows = false;
 
   /// Return value for the next [verifyEmail] call.
-  /// Set to a [Failure] to simulate an error; leave null for success.
+  ///
+  /// Accepted values:
+  ///   - `null`               → success with default user + tokens.
+  ///   - `(User, AuthTokens)` → success with these specific values.
+  ///   - `Failure`            → thrown to simulate a backend error
+  ///                            (e.g. [VerificationFailure] with INVALID_CODE).
   Object? verifyEmailResult;
 
   /// Return value for the next [resendVerificationCode] call.
-  /// Set to a [Failure] to simulate an error; leave null for success.
+  ///
+  /// Accepted values:
+  ///   - `null`     → success (no return value).
+  ///   - `Failure`  → thrown to simulate a backend error
+  ///                  (e.g. [ResendThrottledFailure]).
   Object? resendVerificationResult;
 
   // ---------------------------------------------------------------------------
@@ -66,6 +75,10 @@ final class FakeAuthRepository implements AuthRepository {
   /// Captured arguments for each [verifyEmail] call.
   /// Tests can assert `verifyEmailCalls.first.email` / `.otp`.
   final List<({String email, String otp})> verifyEmailCalls = [];
+
+  /// Captured arguments for each [resendVerificationCode] call.
+  /// Tests can assert `resendCalls.first.email` (backlog row 164).
+  final List<({String email})> resendCalls = [];
 
   // ---------------------------------------------------------------------------
   // AuthRepository
@@ -153,14 +166,20 @@ final class FakeAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> verifyEmail({required String email, required String otp}) async {
+  Future<(User, AuthTokens)> verifyEmail({
+    required String email,
+    required String otp,
+  }) async {
     verifyEmailCalls.add((email: email, otp: otp));
     final result = verifyEmailResult;
     if (result is Failure) throw result;
+    if (result is (User, AuthTokens)) return result;
+    return (_defaultUser, _defaultTokens);
   }
 
   @override
   Future<void> resendVerificationCode({required String email}) async {
+    resendCalls.add((email: email));
     final result = resendVerificationResult;
     if (result is Failure) throw result;
   }

@@ -750,51 +750,71 @@ void main() {
   });
 
   // =========================================================================
-  // Phase 2.11 — verifyEmail (QA HIGH-2 fix)
+  // Phase 2.11 — verifyEmail (backend Phase 1.5 — returns full session)
+  //
+  // Contract (locked, 2026-05-20):
+  //   On success the verify-email endpoint returns AuthResponse just like
+  //   /auth/login — the user is fully authenticated as a side-effect of
+  //   verification. The notifier mirrors the login success path:
+  //     - persists refresh token to secure storage,
+  //     - transitions state to AsyncData(Authenticated(user, accessToken)).
   // =========================================================================
   group('verifyEmail', () {
     // -----------------------------------------------------------------------
-    // verifyEmail — success: resolves without mutating session state
+    // verifyEmail — success: transitions to Authenticated and persists token
     // -----------------------------------------------------------------------
     test(
-      'verifyEmail success: resolves without throwing or mutating session state',
+      'verifyEmail success: state → Authenticated, refresh token persisted',
       () async {
         final repo = MockAuthRepository();
         final storage = FakeSecureStorage();
 
+        // M-QA-2 (2026-05-20): exact-match args instead of any(named: ...) so
+        // a future arg-swap inside AuthNotifier.verifyEmail would fail this
+        // test instead of silently passing.
         when(
-          () => repo.verifyEmail(
-            email: any(named: 'email'),
-            otp: any(named: 'otp'),
-          ),
-        ).thenAnswer((_) async {});
+          () => repo.verifyEmail(email: 'anya@example.com', otp: '123456'),
+        ).thenAnswer((_) async => (testUser, testTokens));
 
         final container = makeContainer(repo: repo, storage: storage);
         await container.read(authProvider.future);
 
-        // Capture state before the call — it must not change.
-        final stateBefore = container.read(authProvider).value;
+        await container
+            .read(authProvider.notifier)
+            .verifyEmail(email: 'anya@example.com', otp: '123456');
 
-        await expectLater(
-          () => container
-              .read(authProvider.notifier)
-              .verifyEmail(email: 'anya@example.com', otp: '123456'),
-          returnsNormally,
+        // State must flip to Authenticated with the correct user + access token.
+        final value = container.read(authProvider);
+        expect(value, isA<AsyncData<AuthSession>>());
+        expect(
+          value.value,
+          equals(
+            AuthSession.authenticated(
+              user: testUser,
+              accessToken: testTokens.accessToken,
+            ),
+          ),
         );
 
-        // verifyEmail must not mutate the auth session.
-        expect(container.read(authProvider).value, equals(stateBefore));
+        // Only the refresh token is persisted (security invariant MS-1) —
+        // the access token lives in-memory in the [Authenticated] state.
+        expect(
+          await storage.readRefreshToken(),
+          equals(testTokens.refreshToken),
+        );
       },
     );
 
     // -----------------------------------------------------------------------
-    // verifyEmail — Failure rethrow
+    // verifyEmail — VerificationFailure rethrown (typed backend error)
     // -----------------------------------------------------------------------
-    test('verifyEmail rethrows a Failure from the repository', () async {
+    test('verifyEmail rethrows VerificationFailure for INVALID_CODE', () async {
       final repo = MockAuthRepository();
       final storage = FakeSecureStorage();
 
-      const failure = ValidationFailure(fieldErrors: {'otp': 'invalid'});
+      const failure = VerificationFailure(
+        code: VerificationErrorCode.invalidCode,
+      );
       when(
         () => repo.verifyEmail(
           email: any(named: 'email'),
@@ -809,15 +829,22 @@ void main() {
         () => container
             .read(authProvider.notifier)
             .verifyEmail(email: 'anya@example.com', otp: '000000'),
-        throwsA(isA<ValidationFailure>()),
+        throwsA(isA<VerificationFailure>()),
       );
+
+      // State must remain Unauthenticated and storage must stay empty.
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+      );
+      expect(await storage.readRefreshToken(), isNull);
     });
 
     // -----------------------------------------------------------------------
-    // verifyEmail — UnimplementedError rethrow (backend not yet live)
+    // verifyEmail — generic Failure rethrown (network, server, etc.)
     // -----------------------------------------------------------------------
     test(
-      'verifyEmail rethrows UnimplementedError when backend endpoint is not yet live',
+      'verifyEmail rethrows a generic Failure from the repository',
       () async {
         final repo = MockAuthRepository();
         final storage = FakeSecureStorage();
@@ -827,7 +854,7 @@ void main() {
             email: any(named: 'email'),
             otp: any(named: 'otp'),
           ),
-        ).thenThrow(UnimplementedError('endpoint not live'));
+        ).thenThrow(const NetworkFailure());
 
         final container = makeContainer(repo: repo, storage: storage);
         await container.read(authProvider.future);
@@ -836,14 +863,17 @@ void main() {
           () => container
               .read(authProvider.notifier)
               .verifyEmail(email: 'anya@example.com', otp: '111111'),
-          throwsA(isA<UnimplementedError>()),
+          throwsA(isA<NetworkFailure>()),
         );
+
+        // No token persisted, no state change.
+        expect(await storage.readRefreshToken(), isNull);
       },
     );
   });
 
   // =========================================================================
-  // Phase 2.11 — resendCode (QA HIGH-2 fix)
+  // Phase 2.11 — resendCode (backend Phase 1.6 — returns void; 429 throttled)
   // =========================================================================
   group('resendCode', () {
     // -----------------------------------------------------------------------
@@ -897,5 +927,37 @@ void main() {
         throwsA(isA<NetworkFailure>()),
       );
     });
+
+    // -----------------------------------------------------------------------
+    // resendCode — ResendThrottledFailure (backend 429) preserves retryAfterSeconds
+    // -----------------------------------------------------------------------
+    test(
+      'resendCode rethrows ResendThrottledFailure preserving retryAfterSeconds',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        const failure = ResendThrottledFailure(retryAfterSeconds: 42);
+        when(
+          () => repo.resendVerificationCode(email: any(named: 'email')),
+        ).thenThrow(failure);
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        await expectLater(
+          () => container
+              .read(authProvider.notifier)
+              .resendCode(email: 'anya@example.com'),
+          throwsA(
+            isA<ResendThrottledFailure>().having(
+              (f) => f.retryAfterSeconds,
+              'retryAfterSeconds',
+              42,
+            ),
+          ),
+        );
+      },
+    );
   });
 }

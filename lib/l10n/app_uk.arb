@@ -497,5 +497,27 @@
   "verificationError": "Невірний код. Перевірте та спробуйте ще раз.",
   "@verificationError": {
     "description": "Inline error shown when the OTP verification call returns a failure."
+  },
+  "verificationErrInvalidCode": "Невірний код. Перевірте та спробуйте ще раз.",
+  "@verificationErrInvalidCode": {
+    "description": "Inline error shown when the backend returns INVALID_CODE for POST /auth/verify-email (wrong digits OR non-existent email; backend uses the same code to prevent enumeration)."
+  },
+  "verificationErrCodeExpired": "Термін дії коду минув. Надішліть код повторно.",
+  "@verificationErrCodeExpired": {
+    "description": "Inline error shown when the backend returns CODE_EXPIRED for POST /auth/verify-email (OTP older than 15 min)."
+  },
+  "verificationErrAlreadyVerified": "Цей акаунт вже підтверджено. Увійдіть.",
+  "@verificationErrAlreadyVerified": {
+    "description": "Inline error shown when the backend returns ALREADY_VERIFIED for POST /auth/verify-email."
+  },
+  "verificationErrResendThrottled": "Зачекайте {seconds} с перш ніж надсилати код знову.",
+  "@verificationErrResendThrottled": {
+    "description": "Error shown when POST /auth/resend-verification returns 429 with a retry-after value.",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "example": "42"
+      }
+    }
   }
 }

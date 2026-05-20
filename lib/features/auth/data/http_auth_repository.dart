@@ -247,27 +247,74 @@ final class HttpAuthRepository implements AuthRepository {
   }
 
   // ---------------------------------------------------------------------------
-  // OTP / email verification — STUB (backend endpoint not yet live)
+  // OTP / email verification — backend Phase 1.5 + 1.6
   // ---------------------------------------------------------------------------
 
-  /// Stub — backend OTP verification endpoint is not yet implemented.
+  /// Posts the 6-digit [otp] to `POST /api/v1/auth/verify-email`.
   ///
-  /// Once the backend ships `POST /auth/verify-email`, replace this body with
-  /// a real Dio call (pattern: follow registerIndependentMaster above).
+  /// Backend Phase 1.5 contract (locked):
+  ///   Request:  `{"email": "...", "code": "123456"}`  — wire field is `code`,
+  ///             not `otp`. The mobile param name stays `otp` to match the
+  ///             HTML mockup vocabulary; only the body field is `code`.
+  ///   Success:  `ApiResponse<AuthResponse>` envelope with `data.{user,
+  ///             accessToken, refreshToken}` — identical shape to /auth/login.
+  ///   400:      `{success:false, data:{code:"INVALID_CODE"|"CODE_EXPIRED"|
+  ///             "ALREADY_VERIFIED"}}` — mapped to [VerificationFailure] by
+  ///             [ErrorMapperInterceptor] before reaching this catch block.
+  ///
+  /// On success the user is fully authenticated — the caller persists the
+  /// refresh token and transitions to the home shell via the redirect.
   @override
-  Future<void> verifyEmail({required String email, required String otp}) async {
-    // ignore: only_throw_errors
-    throw UnimplementedError('OTP endpoint not yet live');
+  Future<(User, AuthTokens)> verifyEmail({
+    required String email,
+    required String otp,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/auth/verify-email',
+        data: {'email': email, 'code': otp},
+      );
+      return _parseUserAndTokens(response.data!);
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'verifyEmail failed: ${e.type} ${e.response?.statusCode}',
+          name: 'auth.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
   }
 
-  /// Stub — backend resend-code endpoint is not yet implemented.
+  /// Posts to `POST /api/v1/auth/resend-verification`.
   ///
-  /// Once the backend ships `POST /auth/resend-verification`, replace this
-  /// body with a real Dio call.
+  /// Backend Phase 1.6 contract (locked):
+  ///   Request:  `{"email": "..."}`
+  ///   Success:  `ApiResponse<RegistrationResponse>` — `data.{message, email}`.
+  ///             The mobile layer does not need any field from the body, so
+  ///             the method returns `void`.
+  ///   429:      `{success:false, message:"...", data:{retryAfterSeconds:N}}`
+  ///             — mapped to [ResendThrottledFailure] by [ErrorMapperInterceptor].
   @override
   Future<void> resendVerificationCode({required String email}) async {
-    // ignore: only_throw_errors
-    throw UnimplementedError('OTP endpoint not yet live');
+    try {
+      await _dio.post<Map<String, dynamic>>(
+        '/auth/resend-verification',
+        data: {'email': email},
+      );
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'resendVerificationCode failed: ${e.type} ${e.response?.statusCode}',
+          name: 'auth.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
   }
 
   // ---------------------------------------------------------------------------

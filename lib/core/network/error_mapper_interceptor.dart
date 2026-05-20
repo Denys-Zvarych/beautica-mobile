@@ -73,7 +73,30 @@ final class ErrorMapperInterceptor extends Interceptor {
 
     // HTTP response errors.
     final statusCode = err.response?.statusCode;
+    final path = err.requestOptions.path;
     if (statusCode != null) {
+      // Phase 2.11 — verify-email typed errors (backend Phase 1.5).
+      // The backend returns 400 with envelope {success:false, data:{code:"..."}}
+      // for INVALID_CODE / CODE_EXPIRED / ALREADY_VERIFIED. Surface as a
+      // VerificationFailure so the screen can render the right UA copy.
+      // Must be checked BEFORE the generic 400/422 → ValidationFailure branch
+      // so the typed-code envelope wins over the field-errors fallback.
+      if (statusCode == 400 && path.endsWith('/auth/verify-email')) {
+        final code = _extractVerificationCode(err);
+        if (code != null) {
+          return VerificationFailure(code: code, cause: err);
+        }
+      }
+
+      // Phase 2.11 — resend-verification 429 throttle (backend Phase 1.6).
+      // Envelope: {success:false, message:"...", data:{retryAfterSeconds:42}}.
+      if (statusCode == 429 && path.endsWith('/auth/resend-verification')) {
+        return ResendThrottledFailure(
+          retryAfterSeconds: _extractRetryAfterSeconds(err),
+          cause: err,
+        );
+      }
+
       if (statusCode == 401) return UnauthorizedFailure(cause: err);
       if (statusCode == 404) return NotFoundFailure(cause: err);
       if (statusCode == 400 || statusCode == 422) {
@@ -88,6 +111,65 @@ final class ErrorMapperInterceptor extends Interceptor {
     }
 
     return UnknownFailure(cause: err);
+  }
+
+  /// Extracts the typed `data.code` string from the verify-email envelope
+  /// and decodes it into a [VerificationErrorCode].
+  ///
+  /// Returns `null` if the body is not a `{data:{code:String}}` shape — in
+  /// that case the caller falls through to the generic ValidationFailure
+  /// mapping (so genuinely-malformed responses still surface as 400 errors
+  /// instead of swallowing the typed-code branch).
+  VerificationErrorCode? _extractVerificationCode(DioException err) {
+    try {
+      final body = err.response?.data;
+      if (body is Map<String, dynamic>) {
+        final data = body['data'];
+        if (data is Map<String, dynamic>) {
+          final code = data['code'];
+          if (code is String && code.isNotEmpty) {
+            return VerificationErrorCode.fromWire(code);
+          }
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        log(
+          'Failed to parse verify-email code from response: $e',
+          name: 'network.error',
+          level: 900,
+        );
+      }
+    }
+    return null;
+  }
+
+  /// Extracts `data.retryAfterSeconds` from the throttle envelope.
+  ///
+  /// Falls back to `0` if the body is malformed — the screen still shows the
+  /// throttle copy and the user can manually retry once the existing
+  /// countdown finishes.
+  int _extractRetryAfterSeconds(DioException err) {
+    try {
+      final body = err.response?.data;
+      if (body is Map<String, dynamic>) {
+        final data = body['data'];
+        if (data is Map<String, dynamic>) {
+          final raw = data['retryAfterSeconds'];
+          if (raw is int) return raw < 0 ? 0 : raw;
+          if (raw is num) return raw.toInt().clamp(0, 1 << 31);
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        log(
+          'Failed to parse retry-after-seconds from response: $e',
+          name: 'network.error',
+          level: 900,
+        );
+      }
+    }
+    return 0;
   }
 
   /// Safely extracts field-level error messages from the response body.

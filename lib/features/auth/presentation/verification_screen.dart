@@ -31,6 +31,7 @@
 
 import 'dart:async';
 import 'dart:developer';
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -46,6 +47,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
+import '../../../shared/util/mask_email.dart';
 import '../../../shared/widgets/auth_scaffold.dart';
 import 'auth_notifier.dart';
 import 'widgets/registration_progress.dart';
@@ -217,6 +219,20 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   void _startCountdown() {
     _countdownTimer?.cancel();
     setState(() => _secondsLeft = _kResendCooldownSeconds);
+    _startTickerIfStopped();
+  }
+
+  /// Ensures the periodic 1-second ticker is running so [_secondsLeft] can
+  /// drain to zero. Does NOT reset [_secondsLeft] — the caller is responsible
+  /// for setting the starting value before invoking this helper.
+  ///
+  /// Used by the throttle-aware resend catch (M-Sec-1): when the server
+  /// returns 429 with `retryAfterSeconds`, the existing timer may have already
+  /// drained to 0 and been cancelled. We bump `_secondsLeft` to the server
+  /// value and call this to restart the periodic tick without clobbering it
+  /// back to the 90-second default.
+  void _startTickerIfStopped() {
+    if (_countdownTimer?.isActive ?? false) return;
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       if (_secondsLeft > 0) {
@@ -303,46 +319,70 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     if (!_canResend) return;
     final l10n = AppLocalizations.of(context);
 
-    // Clear boxes and restart timer optimistically.
-    for (final c in _controllers) {
-      c.clear();
-    }
-    _startCountdown();
-    _focusNodes[0].requestFocus();
-
+    // M-Sec-1 (2026-05-20): Side-effects (clearing OTP boxes, restarting the
+    // countdown, moving focus, clearing the inline error) MUST fire AFTER the
+    // await succeeds — never before. Doing them optimistically meant a 429
+    // ResendThrottledFailure (server still throttling) would silently wipe
+    // the user's typed digits and reset the timer to 90 s — possibly SHORTER
+    // than the server's retryAfterSeconds, allowing a second tap before the
+    // server is ready.
     try {
       await ref.read(authProvider.notifier).resendCode(email: widget.email);
 
       if (!mounted) return;
 
+      // Success path — now we may safely clear the OTP boxes, reset the
+      // inline error, restart the full 90 s timer, and move focus.
+      for (final c in _controllers) {
+        c.clear();
+      }
+      setState(() => _inlineError = null);
+      _startCountdown();
+      _focusNodes[0].requestFocus();
+
       if (kDebugMode) {
         log('Resend code dispatched', name: 'auth.verification', level: 800);
       }
+    } on ResendThrottledFailure catch (throttle) {
+      if (!mounted) return;
+      // Adopt the server's retryAfterSeconds. We take the max of the current
+      // local timer and the server value so a malformed 0 from the body
+      // cannot SHORTEN an already-running cooldown. OTP digits are NOT
+      // cleared — the request never consumed a slot.
+      setState(() {
+        _secondsLeft = math.max(_secondsLeft, throttle.retryAfterSeconds);
+        _inlineError = throttle.userMessage(context);
+      });
+      // The periodic timer may have already drained to 0 and cancelled itself
+      // (btn-resend is only tappable when _secondsLeft == 0). Restart the
+      // ticker so the new _secondsLeft can drain back to 0 organically.
+      _startTickerIfStopped();
     } catch (e) {
       if (!mounted) return;
+      // Non-throttle failures (NetworkFailure / ServerFailure / etc.) — show
+      // the inline error but do NOT restart the timer; the user should be
+      // able to retry immediately.
       final message = _errorMessage(e, l10n);
       setState(() => _inlineError = message);
     }
   }
 
   String _errorMessage(Object? error, AppLocalizations l10n) {
+    // UnimplementedError historically signalled "endpoint not yet live" while
+    // the backend stub was in place. Phase 1.5/1.6 ship the real endpoints so
+    // this branch is now a defensive fallback only (e.g. a future repository
+    // path that has not been wired yet).
     if (error is UnimplementedError) {
       return l10n.verificationServiceUnavailable;
     }
-    if (error is Failure) return l10n.verificationError;
+    if (error is Failure) {
+      // Each Failure subclass knows its own user-facing message via
+      // userMessage(context) — VerificationFailure handles the three typed
+      // verify-email codes; ResendThrottledFailure substitutes the
+      // retry-after seconds.
+      return error.userMessage(context);
+    }
     return l10n.verificationServiceUnavailable;
-  }
-
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  /// Masks an email address: `anya@example.com` → `a***@example.com`.
-  String _maskEmail(String email) {
-    final atIdx = email.indexOf('@');
-    if (atIdx <= 0) return email;
-    final local = email.substring(0, atIdx);
-    final domain = email.substring(atIdx);
-    if (local.isEmpty) return email;
-    return '${local[0]}***$domain';
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
@@ -352,7 +392,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     final l10n = AppLocalizations.of(context);
     final authState = ref.watch(authProvider);
     final isLoading = authState.isLoading;
-    final maskedEmail = _maskEmail(widget.email);
+    final maskedEmail = maskEmail(widget.email);
 
     return AuthScaffold(
       child: Column(

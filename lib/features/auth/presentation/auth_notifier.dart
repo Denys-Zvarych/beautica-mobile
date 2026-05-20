@@ -35,6 +35,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
 import '../../../core/storage/secure_storage_provider.dart';
+import '../../../shared/util/mask_email.dart';
 import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
 import '../domain/register_result.dart';
@@ -254,26 +255,41 @@ class AuthNotifier extends _$AuthNotifier {
 
   /// Verifies the user's email address by submitting the 6-digit [otp] code.
   ///
-  /// The [email] must match the address used during registration. This method
-  /// does NOT mutate [state] — OTP verification is a transient action that
-  /// does not change the auth session. Callers (i.e. [VerificationScreen])
-  /// must wrap the call in `try/catch` and handle the error themselves.
+  /// Backend Phase 1.5 contract: a successful verify-email call returns a full
+  /// `AuthResponse` (user + accessToken + refreshToken) — the account is
+  /// authenticated as a side-effect of verification.
   ///
-  /// Throws whatever the underlying [AuthRepository.verifyEmail] throws:
-  /// - [Failure] subclass on any business error.
-  /// - [UnimplementedError] while the backend endpoint is not yet live.
+  /// On success this method mirrors the [login] / [register] success path:
+  ///   - persists the rotated refresh token to [SecureStorage];
+  ///   - flips [state] to `AsyncData(Authenticated(user, accessToken))`.
+  /// The router redirect (Phase 2.9) detects the Authenticated state and
+  /// forwards the user away from `/verification`.
+  ///
+  /// Throws whatever the underlying [AuthRepository.verifyEmail] throws —
+  /// the calling screen wraps the call in `try/catch` to render the inline
+  /// error message via [VerificationFailure.userMessage].
   Future<void> verifyEmail({required String email, required String otp}) async {
     try {
-      await ref
+      final (user, tokens) = await ref
           .read(authRepositoryProvider)
           .verifyEmail(email: email, otp: otp);
+      await ref
+          .read(secureStorageProvider)
+          .writeRefreshToken(tokens.refreshToken);
+      state = AsyncData(
+        AuthSession.authenticated(user: user, accessToken: tokens.accessToken),
+      );
       if (kDebugMode) {
-        log('verifyEmail completed', name: 'auth.verification', level: 800);
+        log(
+          'verifyEmail success for ${maskEmail(email)}',
+          name: 'auth.verification',
+          level: 800,
+        );
       }
     } catch (e, st) {
       if (kDebugMode) {
         log(
-          'verifyEmail failed',
+          'verifyEmail failed for ${maskEmail(email)}',
           name: 'auth.verification',
           level: 900,
           error: e,
@@ -286,8 +302,9 @@ class AuthNotifier extends _$AuthNotifier {
 
   /// Re-sends the verification code to [email].
   ///
-  /// Like [verifyEmail], this method does NOT mutate [state]. Callers wrap
-  /// the call in `try/catch` and handle errors themselves.
+  /// Does NOT mutate [state] — the resend call only triggers a side-effect
+  /// on the backend. Callers wrap the call in `try/catch` so they can render
+  /// [ResendThrottledFailure] (429) inline.
   ///
   /// Throws whatever [AuthRepository.resendVerificationCode] throws.
   Future<void> resendCode({required String email}) async {
@@ -296,12 +313,16 @@ class AuthNotifier extends _$AuthNotifier {
           .read(authRepositoryProvider)
           .resendVerificationCode(email: email);
       if (kDebugMode) {
-        log('resendCode dispatched', name: 'auth.verification', level: 800);
+        log(
+          'resendCode dispatched for ${maskEmail(email)}',
+          name: 'auth.verification',
+          level: 800,
+        );
       }
     } catch (e, st) {
       if (kDebugMode) {
         log(
-          'resendCode failed',
+          'resendCode failed for ${maskEmail(email)}',
           name: 'auth.verification',
           level: 900,
           error: e,

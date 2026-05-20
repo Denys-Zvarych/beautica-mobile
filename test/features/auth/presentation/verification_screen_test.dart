@@ -265,6 +265,111 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
+    // Test 3c — Resend 429 ResendThrottledFailure adopts server retryAfterSeconds
+    //           (M-Sec-1 fix, 2026-05-20)
+    //
+    // Before the fix `_resend()` cleared the OTP boxes and called
+    // `_startCountdown()` BEFORE the await — so a 429 with
+    // `retryAfterSeconds > 90` would silently shorten the lockout and wipe
+    // the user's typed digits even though the request never consumed a slot.
+    //
+    // This test asserts the post-fix contract:
+    //   - OTP boxes retain whatever was typed (NOT cleared).
+    //   - The inline error renders the throttled message (l10n key
+    //     `verificationErrResendThrottled`, parameter = retryAfterSeconds).
+    //   - The local timer adopts the server value (42 s here) and drains
+    //     organically — btn-resend stays hidden for 41 more seconds and
+    //     reappears on the 42nd.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '3c. resend 429 (ResendThrottledFailure) adopts server retryAfterSeconds',
+      (tester) async {
+        final repo = FakeAuthRepository()
+          ..resendVerificationResult = const ResendThrottledFailure(
+            retryAfterSeconds: 42,
+          );
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        // Type six digits — they must survive the throttled response.
+        await _fillOtp(tester, '654321');
+        await tester.pump();
+
+        // Drain the initial 90 s countdown so btn-resend is tappable.
+        await tester.pump(const Duration(seconds: 91));
+        await tester.pump();
+        expect(find.byKey(const Key('btn-resend')), findsOneWidget);
+
+        // Tap btn-resend — fake throws ResendThrottledFailure(42).
+        await tester.tap(find.byKey(const Key('btn-resend')));
+        // Cannot pumpAndSettle: the throttle catch restarts the periodic
+        // timer, which fires setState every second.
+        await tester.pump(); // begin async
+        await tester.pump(); // microtasks (await + catch)
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // OTP digits must be preserved — the request never consumed a slot.
+        for (var i = 0; i < 6; i++) {
+          final box = tester.widget<TextField>(
+            find.descendant(
+              of: find.byKey(Key('otp-box-$i')),
+              matching: find.byType(TextField),
+            ),
+          );
+          expect(
+            box.controller?.text,
+            equals('654321'[i]),
+            reason:
+                'OTP box $i must retain its digit after a throttled resend; '
+                'optimistic clear was the M-Sec-1 bug',
+          );
+        }
+
+        // Inline error must use the localized throttled message.
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const Key('otp-box-0'))),
+        );
+        final throttledMsg = l10n.verificationErrResendThrottled(42);
+        expect(
+          tester
+              .widgetList<Text>(find.byType(Text))
+              .any((t) => t.data == throttledMsg),
+          isTrue,
+          reason:
+              'Expected an inline error Text matching '
+              'verificationErrResendThrottled(42). '
+              'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
+        );
+
+        // Btn-resend must be hidden — the timer adopted 42 s.
+        expect(find.byKey(const Key('btn-resend')), findsNothing);
+
+        // After 41 seconds the timer is still running; btn-resend remains
+        // hidden because _secondsLeft > 0.
+        await tester.pump(const Duration(seconds: 41));
+        expect(
+          find.byKey(const Key('btn-resend')),
+          findsNothing,
+          reason:
+              'btn-resend must stay hidden while the server throttle has not '
+              'fully elapsed',
+        );
+
+        // The 42nd second drains _secondsLeft to 0 → btn-resend reappears.
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          find.byKey(const Key('btn-resend')),
+          findsOneWidget,
+          reason:
+              'btn-resend must reappear once the server-mandated cooldown '
+              'has fully elapsed',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // Test 4 — Verify success navigates to /done (→ / redirect)
     // -----------------------------------------------------------------------
     testWidgets('4. verify success navigates away from verification screen', (
@@ -294,60 +399,57 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 5 — Verify failure → inline "service unavailable" shown
+    // Test 5 — Verify failure (typed VerificationFailure) shows inline copy
+    //
+    // Backend Phase 1.5 contract: a 400 with `data.code: "INVALID_CODE"` is
+    // mapped to VerificationFailure(invalidCode) by the interceptor. The
+    // screen renders [Failure.userMessage(context)] which resolves to the
+    // verificationErrInvalidCode l10n key.
     // -----------------------------------------------------------------------
-    testWidgets(
-      '5. verify failure (stub) shows inline service-unavailable error',
-      (tester) async {
-        // HttpAuthRepository.verifyEmail throws UnimplementedError (stub).
-        // FakeAuthRepository.verifyEmailResult defaults to null (success),
-        // so we set a Failure to simulate the unavailable error.
-        final repo = FakeAuthRepository()
-          ..verifyEmailResult = const UnknownFailure(cause: 'stub');
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await _pumpVerification(tester, repo: repo, router: router);
-
-        await _fillOtp(tester, '000000');
-        // Use pump (not pumpAndSettle) because the countdown timer fires
-        // setState every second, which prevents pumpAndSettle from settling.
-        await tester.pump();
-
-        await tester.ensureVisible(find.byKey(const Key('btn-verify')));
-        await tester.pump();
-
-        await tester.tap(find.byKey(const Key('btn-verify')));
-        // Drive microtasks and animation frames.
-        // Cannot use pumpAndSettle because the countdown timer fires setState
-        // every second, preventing the framework from settling.
-        await tester.pump(); // begin async
-        await tester.pump(); // complete microtasks
-        await tester.pump(const Duration(milliseconds: 50)); // animations
-
-        // Should still be on verification screen with an error message visible.
-        expect(find.byKey(const Key('btn-verify')), findsOneWidget);
-        // Use l10n key lookup instead of a raw string so the test survives
-        // copy changes and locale updates (QA MEDIUM-1 fix).
-        final l10n = AppLocalizations.of(
-          tester.element(find.byKey(const Key('btn-verify'))),
+    testWidgets('5. verify failure (VerificationFailure.invalidCode) shows inline '
+        'verificationErrInvalidCode copy', (tester) async {
+      final repo = FakeAuthRepository()
+        ..verifyEmailResult = const VerificationFailure(
+          code: VerificationErrorCode.invalidCode,
         );
-        expect(
-          tester
-              .widgetList<Text>(find.byType(Text))
-              .any(
-                (t) =>
-                    t.data == l10n.verificationError ||
-                    t.data == l10n.verificationServiceUnavailable,
-              ),
-          isTrue,
-          reason:
-              'Expected an inline error Text matching verificationError or '
-              'verificationServiceUnavailable. '
-              'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
-        );
-      },
-    );
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await _pumpVerification(tester, repo: repo, router: router);
+
+      await _fillOtp(tester, '000000');
+      // Use pump (not pumpAndSettle) because the countdown timer fires
+      // setState every second, which prevents pumpAndSettle from settling.
+      await tester.pump();
+
+      await tester.ensureVisible(find.byKey(const Key('btn-verify')));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-verify')));
+      // Drive microtasks and animation frames.
+      // Cannot use pumpAndSettle because the countdown timer fires setState
+      // every second, preventing the framework from settling.
+      await tester.pump(); // begin async
+      await tester.pump(); // complete microtasks
+      await tester.pump(const Duration(milliseconds: 50)); // animations
+
+      // Should still be on verification screen with an error message visible.
+      expect(find.byKey(const Key('btn-verify')), findsOneWidget);
+      // Use l10n key lookup instead of a raw string so the test survives
+      // copy changes and locale updates (QA MEDIUM-1 fix).
+      final l10n = AppLocalizations.of(
+        tester.element(find.byKey(const Key('btn-verify'))),
+      );
+      expect(
+        tester
+            .widgetList<Text>(find.byType(Text))
+            .any((t) => t.data == l10n.verificationErrInvalidCode),
+        isTrue,
+        reason:
+            'Expected an inline error Text matching verificationErrInvalidCode. '
+            'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
+      );
+    });
 
     // -----------------------------------------------------------------------
     // Test 6 — Back link navigates to /register/step-3 (Phase 2.16)
@@ -394,6 +496,112 @@ void main() {
               'Expected ≤2 BackdropFilter nodes (render-budget ceiling). '
               'Found $bdfCount — check for extra blur layers.',
         );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 7b — OTP TextField hardening (backlog row 161, gate crossed)
+    //
+    // Each _OtpBox TextField must:
+    //   - disable autocorrect       (no learned suggestions for OTP digits)
+    //   - disable text suggestions  (same as above on Android)
+    //   - disable IME personalised learning (no on-device retention)
+    //   - declare autofillHints: [AutofillHints.oneTimeCode] so Android /
+    //     iOS can offer the SMS OTP autofill prompt.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '7b. _OtpBox TextField has security hardening + AutofillHints.oneTimeCode',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        for (var i = 0; i < 6; i++) {
+          final field = tester.widget<TextField>(
+            find.descendant(
+              of: find.byKey(Key('otp-box-$i')),
+              matching: find.byType(TextField),
+            ),
+          );
+          expect(
+            field.autocorrect,
+            isFalse,
+            reason: 'OTP box $i must disable autocorrect',
+          );
+          expect(
+            field.enableSuggestions,
+            isFalse,
+            reason: 'OTP box $i must disable text suggestions',
+          );
+          expect(
+            field.enableIMEPersonalizedLearning,
+            isFalse,
+            reason: 'OTP box $i must disable IME personalised learning',
+          );
+          expect(
+            field.autofillHints,
+            contains(AutofillHints.oneTimeCode),
+            reason:
+                'OTP box $i must declare AutofillHints.oneTimeCode so SMS '
+                'autofill can prompt with the received code',
+          );
+        }
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 4b — Verify success flips auth state to Authenticated
+    //
+    // Backend Phase 1.5 contract: verify-email returns a full session, so
+    // the notifier writes the refresh token + transitions state. We assert
+    // both side-effects via the captured FakeSecureStorage.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '4b. verify success persists refresh token and arrives at home',
+      (tester) async {
+        final repo =
+            FakeAuthRepository(); // default = success with default user
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith((_) => repo),
+              secureStorageProvider.overrideWith((_) => storage),
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+
+        await tester.ensureVisible(find.byKey(const Key('btn-verify')));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('btn-verify')));
+        await tester.pumpAndSettle();
+
+        // /done forwards to home — the placeholder is now visible.
+        expect(find.text('home'), findsOneWidget);
+
+        // The captured args carry both email and otp (backlog row 164).
+        expect(repo.verifyEmailCalls, hasLength(1));
+        expect(repo.verifyEmailCalls.single.email, equals(_testEmail));
+        expect(repo.verifyEmailCalls.single.otp, equals('654321'));
+
+        // Refresh token was persisted (security invariant MS-1) — the
+        // FakeAuthRepository default tokens have refreshToken = 'refresh-token'.
+        expect(await storage.readRefreshToken(), equals('refresh-token'));
       },
     );
 

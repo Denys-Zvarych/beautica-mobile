@@ -99,22 +99,27 @@ abstract interface class AuthRepository {
   /// Verifies the email address by submitting the [otp] code that was sent to
   /// [email].
   ///
+  /// On success the backend issues a full session (Phase 1.5 contract): the
+  /// returned tuple carries both the authenticated [User] and the freshly
+  /// minted [AuthTokens]. The caller persists the refresh token and flips
+  /// the auth state to [Authenticated].
+  ///
   /// Throws:
-  /// - [ValidationFailure] — the code is wrong or expired.
+  /// - [VerificationFailure] — typed `INVALID_CODE` / `CODE_EXPIRED` /
+  ///   `ALREADY_VERIFIED` from the backend.
+  /// - [ValidationFailure] — fallback for generic 400 without a typed code.
   /// - [NetworkFailure] — connectivity issues.
   /// - [UnknownFailure] — any other unexpected error.
-  ///
-  /// NOTE: The backend endpoint is not yet live. The implementation throws
-  /// [UnimplementedError] until Phase 3.x wires the real endpoint.
-  Future<void> verifyEmail({required String email, required String otp});
+  Future<(User, AuthTokens)> verifyEmail({
+    required String email,
+    required String otp,
+  });
 
   /// Re-sends the email verification code to [email].
   ///
   /// Throws:
+  /// - [ResendThrottledFailure] — backend 429 with `retryAfterSeconds` payload.
   /// - [NetworkFailure] — connectivity issues.
   /// - [UnknownFailure] — any other unexpected error.
-  ///
-  /// NOTE: The backend endpoint is not yet live. The implementation throws
-  /// [UnimplementedError] until Phase 3.x wires the real endpoint.
   Future<void> resendVerificationCode({required String email});
 }

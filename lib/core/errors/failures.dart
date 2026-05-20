@@ -110,3 +110,82 @@ final class UnknownFailure extends Failure {
   @override
   String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errUnknown;
 }
+
+/// Typed error codes returned by `POST /auth/verify-email` (backend Phase 1.5).
+///
+/// The backend envelope `{success:false, data:{code:"..."}}` carries one of
+/// these wire values. [ErrorMapperInterceptor] decodes the wire string into
+/// this enum so the screen can render the right localized copy without
+/// re-parsing the response body.
+enum VerificationErrorCode {
+  /// Wrong OTP digits — also returned when the email does not exist (the
+  /// backend deliberately reuses the same code to prevent enumeration).
+  invalidCode,
+
+  /// OTP older than the 15-minute TTL.
+  codeExpired,
+
+  /// The account was verified by a previous successful call.
+  alreadyVerified;
+
+  /// Decodes the backend wire string into [VerificationErrorCode].
+  ///
+  /// Unknown values fall back to [invalidCode] so the user still sees a
+  /// reasonable error message — the screen will surface "wrong code" rather
+  /// than crash on an unrecognised future server enum.
+  static VerificationErrorCode fromWire(String? wire) {
+    switch (wire) {
+      case 'INVALID_CODE':
+        return VerificationErrorCode.invalidCode;
+      case 'CODE_EXPIRED':
+        return VerificationErrorCode.codeExpired;
+      case 'ALREADY_VERIFIED':
+        return VerificationErrorCode.alreadyVerified;
+      default:
+        return VerificationErrorCode.invalidCode;
+    }
+  }
+}
+
+/// Emitted when `POST /auth/verify-email` returns 400 with a typed
+/// `data.code` error envelope (backend Phase 1.5).
+///
+/// [code] is one of the [VerificationErrorCode] variants and lets the
+/// verification screen surface the exact UA copy for each case (wrong code,
+/// expired code, already verified).
+final class VerificationFailure extends Failure {
+  const VerificationFailure({required this.code, super.cause});
+
+  /// The typed error code returned by the backend.
+  final VerificationErrorCode code;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final l10n = AppLocalizations.of(ctx);
+    switch (code) {
+      case VerificationErrorCode.invalidCode:
+        return l10n.verificationErrInvalidCode;
+      case VerificationErrorCode.codeExpired:
+        return l10n.verificationErrCodeExpired;
+      case VerificationErrorCode.alreadyVerified:
+        return l10n.verificationErrAlreadyVerified;
+    }
+  }
+}
+
+/// Emitted when `POST /auth/resend-verification` returns 429 because the
+/// per-account resend cooldown is still active (backend Phase 1.6).
+///
+/// [retryAfterSeconds] is the server-supplied number of seconds the client
+/// must wait before retrying. May be 0 if the body is malformed.
+final class ResendThrottledFailure extends Failure {
+  const ResendThrottledFailure({required this.retryAfterSeconds, super.cause});
+
+  /// Seconds until the next resend is allowed. Always ≥ 0.
+  final int retryAfterSeconds;
+
+  @override
+  String userMessage(BuildContext ctx) => AppLocalizations.of(
+    ctx,
+  ).verificationErrResendThrottled(retryAfterSeconds);
+}

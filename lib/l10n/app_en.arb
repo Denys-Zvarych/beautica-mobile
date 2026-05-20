@@ -497,5 +497,27 @@
   "verificationError": "Incorrect code. Please check and try again.",
   "@verificationError": {
     "description": "Inline error shown when the OTP verification call returns a failure."
+  },
+  "verificationErrInvalidCode": "Incorrect code. Please check and try again.",
+  "@verificationErrInvalidCode": {
+    "description": "Inline error shown when the backend returns INVALID_CODE for POST /auth/verify-email (wrong digits OR non-existent email; backend uses the same code to prevent enumeration)."
+  },
+  "verificationErrCodeExpired": "The code has expired. Please request a new one.",
+  "@verificationErrCodeExpired": {
+    "description": "Inline error shown when the backend returns CODE_EXPIRED for POST /auth/verify-email (OTP older than 15 min)."
+  },
+  "verificationErrAlreadyVerified": "This account is already verified. Please sign in.",
+  "@verificationErrAlreadyVerified": {
+    "description": "Inline error shown when the backend returns ALREADY_VERIFIED for POST /auth/verify-email."
+  },
+  "verificationErrResendThrottled": "Please wait {seconds} s before requesting another code.",
+  "@verificationErrResendThrottled": {
+    "description": "Error shown when POST /auth/resend-verification returns 429 with a retry-after value.",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "example": "42"
+      }
+    }
   }
 }
