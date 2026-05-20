@@ -520,7 +520,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         const SizedBox(width: AppSpacing.xs),
         TextButton(
           key: const Key('btn-go-to-register'),
-          onPressed: isLoading ? null : () => context.push(RouteNames.register),
+          // Phase 2.16 — the registration wizard's entry point is the
+          // role-selection gate; /register itself is now Step 1 (credentials)
+          // and requires a role to already be set in the draft.
+          onPressed: isLoading
+              ? null
+              : () => context.push(RouteNames.registerRole),
           style: TextButton.styleFrom(
             foregroundColor: BrandColors.camel,
             // Compact tap padding keeps the line tight while still meeting the

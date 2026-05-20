@@ -48,6 +48,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/widgets/auth_scaffold.dart';
 import 'auth_notifier.dart';
+import 'widgets/registration_progress.dart';
 
 // ---------------------------------------------------------------------------
 // Static style constants — literal CSS values from verification-page.html.
@@ -70,6 +71,41 @@ const _kResendCooldownSeconds = 90;
 
 /// Number of OTP digits.
 const _kOtpLength = 6;
+
+// ---------------------------------------------------------------------------
+// OTP sizing tokens — Phase 2.16 migration to the new --otp-* HTML tokens.
+//
+// SOURCE OF TRUTH: docs/signup-designs/verification-page.html  :root vars
+// (2026-05-20 redesign). Default sizing on phones > 340 dp:
+//   --otp-box:    42 px  →  [OtpTokens.boxWidth]
+//   --otp-height: 52 px  →  [OtpTokens.boxHeight]
+//   --otp-gap:     8 px  →  [OtpTokens.gap]
+//   font-size:    20 px  →  [OtpTokens.digitFont]
+//
+// On phones ≤ 340 dp the HTML @media rule swaps to:
+//   --otp-box:    36 px / --otp-height: 48 px / --otp-gap: 4 px / font 18 px
+//
+// Math (default): 6 × 42 + 5 × 8 = 252 + 40 = 292 px ≤ 311 px card content
+// area at 375 dp. (Compact: 6 × 36 + 5 × 4 = 236 px ≤ 256 px at 320 dp.)
+// ---------------------------------------------------------------------------
+
+abstract final class OtpTokens {
+  /// Default (phones > 340 dp).
+  static const double boxWidth = 42;
+  static const double boxHeight = 52;
+  static const double gap = 8;
+  static const double digitFont = 20;
+
+  /// Compact tokens used when `MediaQuery.size.width <= 340`.
+  static const double compactBoxWidth = 36;
+  static const double compactBoxHeight = 48;
+  static const double compactGap = 4;
+  static const double compactDigitFont = 18;
+
+  /// Breakpoint at which the layout switches to the compact tokens.
+  /// Matches the HTML `@media (max-width: 340px)` rule.
+  static const double compactBreakpoint = 340;
+}
 
 // ---------------------------------------------------------------------------
 // OTP box borders — literal CSS rgba values from verification-page.html.
@@ -328,11 +364,11 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           const _VerifBrandRow(key: Key('brand-row')),
           const SizedBox(height: 36),
           _buildHeadline(l10n),
-          const SizedBox(height: 0),
-          _ProgressRow(
-            stepDetails: l10n.progressStepDetails,
-            stepVerification: l10n.progressStepVerification,
-            stepDone: l10n.progressStepDone,
+          const SizedBox(height: 28),
+          // Phase 2.16 — 4-pill progress (Акаунт / Деталі / Верифікація / Готово).
+          const RegistrationProgress(
+            key: Key('registration-progress'),
+            currentStep: RegistrationStep.verification,
           ),
           const SizedBox(height: 20),
           _buildGlassCard(l10n, maskedEmail, isLoading),
@@ -503,21 +539,37 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   }
 
   // ── OTP boxes (verification-page.html .otp-row / .otp-box) ──────────────
+  //
+  // Phase 2.16 — tokenised sizing via [OtpTokens]. Default 42×52×8, swapping
+  // to 36×48×4 on phones ≤ 340 dp. Matches the HTML --otp-* :root vars.
 
   Widget _buildOtpRow() {
+    final width = MediaQuery.sizeOf(context).width;
+    final isCompact = width <= OtpTokens.compactBreakpoint;
+    final boxWidth = isCompact ? OtpTokens.compactBoxWidth : OtpTokens.boxWidth;
+    final boxHeight = isCompact
+        ? OtpTokens.compactBoxHeight
+        : OtpTokens.boxHeight;
+    final gap = isCompact ? OtpTokens.compactGap : OtpTokens.gap;
+    final digitFont = isCompact
+        ? OtpTokens.compactDigitFont
+        : OtpTokens.digitFont;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(_kOtpLength, (i) {
         final isFilled = _controllers[i].text.isNotEmpty;
         return Padding(
-          // verification-page.html .otp-row { gap: 10px }
-          padding: EdgeInsets.only(right: i < _kOtpLength - 1 ? 10 : 0),
+          padding: EdgeInsets.only(right: i < _kOtpLength - 1 ? gap : 0),
           child: _OtpBox(
             key: Key('otp-box-$i'),
             controller: _controllers[i],
             focusNode: _focusNodes[i],
             isFilled: isFilled,
             semanticIndex: i + 1,
+            boxWidth: boxWidth,
+            boxHeight: boxHeight,
+            digitFont: digitFont,
             onChanged: (v) => _onOtpChanged(i, v),
           ),
         );
@@ -689,7 +741,10 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     return Center(
       child: GestureDetector(
         key: const Key('btn-back'),
-        onTap: () => context.go(RouteNames.register),
+        // Phase 2.16 — back from verification returns to the wizard. Step 3
+        // (Phase 2.19) is the natural previous step; until that ships, the
+        // placeholder still loads inside the wizard shell.
+        onTap: () => context.go(RouteNames.registerStep3),
         child: Semantics(
           button: true,
           label: l10n.verificationBackBtn,
@@ -704,62 +759,6 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Progress row — extracted StatelessWidget so timer ticks do NOT rebuild it.
-//
-// The three label strings are stable for the life of the screen (they come
-// from l10n which does not change), so constructing this widget once from
-// the parent's build() is correct — subsequent timer ticks bypass this subtree
-// entirely (PERF MEDIUM-1 fix).
-// ---------------------------------------------------------------------------
-
-class _ProgressRow extends StatelessWidget {
-  const _ProgressRow({
-    required this.stepDetails,
-    required this.stepVerification,
-    required this.stepDone,
-  });
-
-  /// Label for step 1 (done).
-  final String stepDetails;
-
-  /// Label for step 2 (active — verification).
-  final String stepVerification;
-
-  /// Label for step 3 (inactive — done screen).
-  final String stepDone;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.xs,
-        AppSpacing.xl,
-        AppSpacing.xs,
-        0,
-      ),
-      child: Row(
-        children: [
-          // Step 1 — done (checkmark, camel-tinted circle)
-          _ProgItem(label: stepDetails, state: _ProgState.done),
-          // Line between 1 and 2 — done (camel-tinted)
-          const _ProgLine(done: true),
-          // Step 2 — active ('2', camel filled)
-          _ProgItem(
-            label: stepVerification,
-            state: _ProgState.active,
-            number: '2',
-          ),
-          // Line between 2 and 3 — inactive
-          const _ProgLine(done: false),
-          // Step 3 — inactive ('3', outlined)
-          _ProgItem(label: stepDone, state: _ProgState.inactive, number: '3'),
-        ],
       ),
     );
   }
@@ -817,147 +816,6 @@ class _VerifBrandRow extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Progress step indicator.
-// ---------------------------------------------------------------------------
-
-enum _ProgState { done, active, inactive }
-
-class _ProgItem extends StatelessWidget {
-  const _ProgItem({required this.label, required this.state, this.number});
-
-  final String label;
-  final _ProgState state;
-
-  /// Shown inside the circle for active/inactive steps. Null for done steps.
-  final String? number;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Circle
-        _ProgCircle(state: state, number: number),
-        const SizedBox(width: 6),
-        // Label
-        Text(
-          label,
-          style: TextStyle(
-            fontFamily: 'Manrope',
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.07 * 10,
-            color: switch (state) {
-              // .prog-item.done { color: rgba(255,255,255,0.45) }
-              _ProgState.done => const Color(0x73FFFFFF),
-              // .prog-item.active { color: rgba(255,255,255,0.85) }
-              _ProgState.active => const Color(0xD9FFFFFF),
-              // .prog-item.inactive { color: rgba(255,255,255,0.2) }
-              _ProgState.inactive => const Color(0x33FFFFFF),
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _ProgCircle extends StatelessWidget {
-  const _ProgCircle({required this.state, this.number});
-
-  final _ProgState state;
-  final String? number;
-
-  @override
-  Widget build(BuildContext context) {
-    // .prog-num { width:22; height:22; border-radius:50% }
-    const size = 22.0;
-
-    return SizedBox(
-      width: size,
-      height: size,
-      child: switch (state) {
-        _ProgState.done => Container(
-          decoration: const BoxDecoration(
-            // .prog-item.done .prog-num { background: rgba(184,154,122,0.22) }
-            color: Color(0x38B89A7A),
-            shape: BoxShape.circle,
-          ),
-          alignment: Alignment.center,
-          // Checkmark icon path from verification-page.html svg
-          child: CustomPaint(
-            size: const Size(11, 11),
-            painter: _CheckmarkPainter(),
-          ),
-        ),
-        _ProgState.active => Container(
-          decoration: const BoxDecoration(
-            // .prog-item.active .prog-num { background: var(--accent) }
-            color: BrandColors.camel,
-            shape: BoxShape.circle,
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            number ?? '',
-            style: const TextStyle(
-              fontFamily: 'Manrope',
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              // color: var(--prog-color) = #3a2810
-              color: Color(0xFF3A2810),
-            ),
-          ),
-        ),
-        _ProgState.inactive => Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(
-              // .prog-item.inactive .prog-num { border: 1.5px solid rgba(255,255,255,0.15) }
-              color: const Color(0x26FFFFFF),
-              width: 1.5,
-            ),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            number ?? '',
-            style: const TextStyle(
-              fontFamily: 'Manrope',
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              // rgba(255,255,255,0.2)
-              color: Color(0x33FFFFFF),
-            ),
-          ),
-        ),
-      },
-    );
-  }
-}
-
-// Horizontal connector line between progress steps.
-class _ProgLine extends StatelessWidget {
-  const _ProgLine({required this.done});
-
-  final bool done;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        height: 1,
-        // Horizontal margin matches verification-page.html .prog-line { margin: 0 8px }
-        margin: const EdgeInsets.symmetric(horizontal: 8),
-        color: done
-            // .prog-line.done { background: rgba(184,154,122,0.25) }
-            ? const Color(0x40B89A7A)
-            // .prog-line { background: rgba(255,255,255,0.08) }
-            : const Color(0x14FFFFFF),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
 // OTP single-character input box.
 // ---------------------------------------------------------------------------
 
@@ -968,6 +826,9 @@ class _OtpBox extends StatefulWidget {
     required this.focusNode,
     required this.isFilled,
     required this.semanticIndex,
+    required this.boxWidth,
+    required this.boxHeight,
+    required this.digitFont,
     required this.onChanged,
   });
 
@@ -975,6 +836,9 @@ class _OtpBox extends StatefulWidget {
   final FocusNode focusNode;
   final bool isFilled;
   final int semanticIndex;
+  final double boxWidth;
+  final double boxHeight;
+  final double digitFont;
   final ValueChanged<String> onChanged;
 
   @override
@@ -1006,9 +870,10 @@ class _OtpBoxState extends State<_OtpBox> {
       label: l10n.verificationOtpSemantics(widget.semanticIndex),
       textField: true,
       child: SizedBox(
-        // verification-page.html .otp-box { width: 46px; height: 54px }
-        width: 46,
-        height: 54,
+        // Phase 2.16 — tokenised sizing via [OtpTokens] (42×52 default,
+        // 36×48 compact). See the OtpTokens block at the top of this file.
+        width: widget.boxWidth,
+        height: widget.boxHeight,
         child: TextField(
           controller: widget.controller,
           focusNode: widget.focusNode,
@@ -1022,7 +887,7 @@ class _OtpBoxState extends State<_OtpBox> {
           textAlign: TextAlign.center,
           style: TextStyle(
             fontFamily: 'Manrope',
-            fontSize: 20,
+            fontSize: widget.digitFont,
             fontWeight: FontWeight.w700,
             // Filled: camel; unfilled: white 90%
             color: widget.isFilled
@@ -1109,36 +974,6 @@ class _EnvelopeIconPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_EnvelopeIconPainter old) => false;
-}
-
-/// Checkmark icon from verification-page.html .prog-item.done svg.
-///
-/// SVG path: M2 5.5 l2.5 2.5 4.5-4.5 (viewBox 11×11)
-/// stroke-width: 2, stroke: camel, fill: none.
-class _CheckmarkPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = BrandColors.camel
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..strokeJoin = StrokeJoin.round
-      ..strokeCap = StrokeCap.round
-      ..isAntiAlias = true;
-
-    // Scale into size (11×11 logical).
-    final sx = size.width / 11;
-    final sy = size.height / 11;
-
-    final path = Path()
-      ..moveTo(2 * sx, 5.5 * sy)
-      ..lineTo(4.5 * sx, 8 * sy)
-      ..lineTo(9 * sx, 3.5 * sy);
-    canvas.drawPath(path, paint);
-  }
-
-  @override
-  bool shouldRepaint(_CheckmarkPainter old) => false;
 }
 
 /// Arrow-right icon from verification-page.html .cta-btn svg.

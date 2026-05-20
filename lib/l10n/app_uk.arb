@@ -324,15 +324,51 @@
   },
   "progressStepDetails": "Деталі",
   "@progressStepDetails": {
-    "description": "Step 1 label in the 3-step registration progress indicator."
+    "description": "Step 1 label in the 3-step registration progress indicator (legacy 3-pill — kept for backward compatibility with the old verification screen progress; the canonical 4-pill keys are progressStepAccount / progressStepDetailsLabel / progressStepVerificationLabel / progressStepDoneLabel)."
   },
   "progressStepVerification": "Верифікація",
   "@progressStepVerification": {
-    "description": "Step 2 label in the 3-step registration progress indicator."
+    "description": "Step 2 label in the 3-step registration progress indicator (legacy 3-pill — see progressStepVerificationLabel for the canonical 4-pill key)."
   },
   "progressStepDone": "Готово",
   "@progressStepDone": {
-    "description": "Step 3 label in the 3-step registration progress indicator."
+    "description": "Step 3 label in the 3-step registration progress indicator (legacy 3-pill — see progressStepDoneLabel for the canonical 4-pill key)."
+  },
+  "progressStepAccount": "Акаунт",
+  "@progressStepAccount": {
+    "description": "Pill 1 label in the 4-pill registration wizard progress (sign-up-page.html .prog-item)."
+  },
+  "progressStepDetailsLabel": "Деталі",
+  "@progressStepDetailsLabel": {
+    "description": "Pill 2 label in the 4-pill registration wizard progress (sign-up-step-2-profile.html .prog-item)."
+  },
+  "progressStepVerificationLabel": "Верифікація",
+  "@progressStepVerificationLabel": {
+    "description": "Pill 3 label in the 4-pill registration wizard progress (verification-page.html .prog-item)."
+  },
+  "progressStepDoneLabel": "Готово",
+  "@progressStepDoneLabel": {
+    "description": "Pill 4 label in the 4-pill registration wizard progress (done-page.html .prog-item)."
+  },
+  "registerStep1HeadlineAccent": "акаунт",
+  "@registerStep1HeadlineAccent": {
+    "description": "Italic Cormorant Garamond accent on the Step 1 credentials screen headline (sign-up-page.html .headline em — 'Створіть акаунт')."
+  },
+  "registerStep1Headline": "Створіть",
+  "@registerStep1Headline": {
+    "description": "Main headline on the Step 1 credentials screen (sign-up-page.html .headline — 'Створіть акаунт')."
+  },
+  "registerConfirmPasswordLabel": "Повторіть пароль",
+  "@registerConfirmPasswordLabel": {
+    "description": "Label for the confirm-password input on the Step 1 credentials screen (sign-up-page.html .field-group label)."
+  },
+  "registerConfirmPasswordPlaceholder": "Повторіть пароль",
+  "@registerConfirmPasswordPlaceholder": {
+    "description": "In-field placeholder for the confirm-password input on the Step 1 credentials screen (sign-up-page.html input placeholder)."
+  },
+  "errPasswordsMismatch": "Паролі не співпадають",
+  "@errPasswordsMismatch": {
+    "description": "Validation error when the confirm-password value does not match the password value (sign-up-page.html .error-text)."
   },
   "registerDetailsHeadline": "Welcome to Premium",
   "@registerDetailsHeadline": {

@@ -5,7 +5,23 @@
 abstract final class RouteNames {
   static const String splash = '/splash';
   static const String login = '/login';
+
+  // Phase 2.16 — multi-step registration wizard. The three /register* paths
+  // share a `RegisterFlowShell` chrome (status bar + brand row + role chip +
+  // 4-pill progress + glass card) via a `ShellRoute`.
+  /// Pre-wizard role-selection gate. The chosen role is written into the
+  /// `registerDraftProvider` before the user advances to `/register`.
+  static const String registerRole = '/register/role';
+
+  /// Step 1 — credentials (email + password + confirm-password). Phase 2.16.
   static const String register = '/register';
+
+  /// Step 2 — profile (name + surname + phone + salonName). Phase 2.17.
+  static const String registerStep2 = '/register/step-2';
+
+  /// Step 3 — address (oblast/city/district + street/building/note). Phase 2.19.
+  static const String registerStep3 = '/register/step-3';
+
   // Phase 2.11 — email verification; receives email via GoRouterState.extra.
   static const String verification = '/verification';
   // Phase 2.12 — registration done screen (placeholder: redirects to home).

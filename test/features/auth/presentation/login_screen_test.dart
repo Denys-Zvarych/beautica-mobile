@@ -47,6 +47,14 @@ GoRouter _makeRouter() => GoRouter(
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text('register'))),
     ),
+    // Phase 2.16 — login's "Sign up" link now navigates to the
+    // role-selection gate at /register/role (the registration wizard's
+    // pre-flow entry point).
+    GoRoute(
+      path: RouteNames.registerRole,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('role-selection'))),
+    ),
     GoRoute(
       path: RouteNames.home,
       builder: (context, state) =>
@@ -333,10 +341,11 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 6 — tapping btn-go-to-register navigates to /register
+    // Test 6 — tapping btn-go-to-register navigates to /register/role
+    //          (Phase 2.16 — wizard entry gate, was /register before)
     // -----------------------------------------------------------------------
     testWidgets(
-      '6. tapping btn-go-to-register navigates to /register placeholder',
+      '6. tapping btn-go-to-register navigates to /register/role placeholder',
       (tester) async {
         final repo = FakeAuthRepository();
         final storage = FakeSecureStorage();
@@ -369,8 +378,9 @@ void main() {
         await tester.tap(find.byKey(const Key('btn-go-to-register')));
         await tester.pumpAndSettle();
 
-        // The /register route renders the 'register' placeholder text.
-        expect(find.text('register'), findsOneWidget);
+        // Phase 2.16 — the wizard entry gate (/register/role) renders the
+        // 'role-selection' placeholder text.
+        expect(find.text('role-selection'), findsOneWidget);
       },
     );
     // -----------------------------------------------------------------------

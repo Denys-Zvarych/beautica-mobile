@@ -324,15 +324,51 @@
   },
   "progressStepDetails": "Details",
   "@progressStepDetails": {
-    "description": "Step 1 label in the 3-step registration progress indicator."
+    "description": "Step 1 label in the 3-step registration progress indicator (legacy 3-pill — kept for backward compatibility with the old verification screen progress; the canonical 4-pill keys are progressStepAccount / progressStepDetailsLabel / progressStepVerificationLabel / progressStepDoneLabel)."
   },
   "progressStepVerification": "Verification",
   "@progressStepVerification": {
-    "description": "Step 2 label in the 3-step registration progress indicator."
+    "description": "Step 2 label in the 3-step registration progress indicator (legacy 3-pill — see progressStepVerificationLabel for the canonical 4-pill key)."
   },
   "progressStepDone": "Done",
   "@progressStepDone": {
-    "description": "Step 3 label in the 3-step registration progress indicator."
+    "description": "Step 3 label in the 3-step registration progress indicator (legacy 3-pill — see progressStepDoneLabel for the canonical 4-pill key)."
+  },
+  "progressStepAccount": "Account",
+  "@progressStepAccount": {
+    "description": "Pill 1 label in the 4-pill registration wizard progress (sign-up-page.html .prog-item)."
+  },
+  "progressStepDetailsLabel": "Details",
+  "@progressStepDetailsLabel": {
+    "description": "Pill 2 label in the 4-pill registration wizard progress (sign-up-step-2-profile.html .prog-item)."
+  },
+  "progressStepVerificationLabel": "Verification",
+  "@progressStepVerificationLabel": {
+    "description": "Pill 3 label in the 4-pill registration wizard progress (verification-page.html .prog-item)."
+  },
+  "progressStepDoneLabel": "Done",
+  "@progressStepDoneLabel": {
+    "description": "Pill 4 label in the 4-pill registration wizard progress (done-page.html .prog-item)."
+  },
+  "registerStep1HeadlineAccent": "account",
+  "@registerStep1HeadlineAccent": {
+    "description": "Italic Cormorant Garamond accent on the Step 1 credentials screen headline (sign-up-page.html .headline em — 'Create an account')."
+  },
+  "registerStep1Headline": "Create your",
+  "@registerStep1Headline": {
+    "description": "Main headline on the Step 1 credentials screen (sign-up-page.html .headline — 'Create your account')."
+  },
+  "registerConfirmPasswordLabel": "Confirm password",
+  "@registerConfirmPasswordLabel": {
+    "description": "Label for the confirm-password input on the Step 1 credentials screen (sign-up-page.html .field-group label)."
+  },
+  "registerConfirmPasswordPlaceholder": "Confirm password",
+  "@registerConfirmPasswordPlaceholder": {
+    "description": "In-field placeholder for the confirm-password input on the Step 1 credentials screen (sign-up-page.html input placeholder)."
+  },
+  "errPasswordsMismatch": "Passwords do not match",
+  "@errPasswordsMismatch": {
+    "description": "Validation error when the confirm-password value does not match the password value (sign-up-page.html .error-text)."
   },
   "registerDetailsHeadline": "Welcome to Premium",
   "@registerDetailsHeadline": {

@@ -78,9 +78,14 @@ String? _locationRedirect(AsyncValue<AuthSession> session, String location) {
   // /splash is NOT included — it is only valid while session.isLoading is true.
   // /verification and /done are part of the registration flow and are reachable
   // before the session is established (the OTP step precedes a valid session).
+  // Phase 2.16 — the multi-step wizard adds /register/role +
+  // /register/step-2 + /register/step-3. They are all unauthenticated-only.
   final isAtAuthRoute =
       location == RouteNames.login ||
       location == RouteNames.register ||
+      location == RouteNames.registerRole ||
+      location == RouteNames.registerStep2 ||
+      location == RouteNames.registerStep3 ||
       location == RouteNames.verification ||
       location == RouteNames.done;
 

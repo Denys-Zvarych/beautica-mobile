@@ -56,6 +56,13 @@ GoRouter _makeRouter({String email = _testEmail}) => GoRouter(
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text('register'))),
     ),
+    // Phase 2.16 — the back link on verification now returns to Step 3
+    // of the wizard (the natural previous step), not /register.
+    GoRoute(
+      path: RouteNames.registerStep3,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('register-step-3'))),
+    ),
     GoRoute(
       path: RouteNames.done,
       redirect: (context, state) => RouteNames.home,
@@ -343,9 +350,9 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // Test 6 — Back link navigates to /register
+    // Test 6 — Back link navigates to /register/step-3 (Phase 2.16)
     // -----------------------------------------------------------------------
-    testWidgets('6. back link navigates to /register', (tester) async {
+    testWidgets('6. back link navigates to /register/step-3', (tester) async {
       final repo = FakeAuthRepository();
       final router = _makeRouter();
       addTearDown(router.dispose);
@@ -359,8 +366,9 @@ void main() {
       await tester.tap(find.byKey(const Key('btn-back')));
       await tester.pumpAndSettle();
 
-      // Should be on the register placeholder.
-      expect(find.text('register'), findsOneWidget);
+      // Phase 2.16 — should be on the Step 3 placeholder route (the natural
+      // previous step in the wizard).
+      expect(find.text('register-step-3'), findsOneWidget);
     });
 
     // -----------------------------------------------------------------------

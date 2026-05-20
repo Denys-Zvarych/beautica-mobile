@@ -39,6 +39,7 @@ import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
 import '../domain/register_result.dart';
 import '../domain/user_role.dart';
+import '../state/register_draft_notifier.dart';
 
 part 'auth_notifier.g.dart';
 
@@ -344,6 +345,11 @@ class AuthNotifier extends _$AuthNotifier {
       }
     }
     await ref.read(secureStorageProvider).deleteAll();
+    // Security (Phase 2.16 HIGH-1) — clear any in-flight registration draft
+    // so the password fields it holds in memory do not linger past the user's
+    // explicit logout. The draft survives across nav (keepAlive) so without
+    // this it would persist until the process is killed.
+    ref.read(registerDraftProvider.notifier).reset();
     if (kDebugMode) {
       log('Logout: session cleared', name: 'auth', level: 800);
     }
