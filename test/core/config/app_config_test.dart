@@ -56,41 +56,36 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 3 — AppConfig.baseUrl defaults to the Railway production URL
+    // Test 3 — AppConfig.baseUrl defaults to the localhost fallback
     //
-    // When BEAUTICA_BASE_URL dart-define is absent, falls back to the Railway
-    // production endpoint so installed release APKs reach a real backend
-    // instead of timing out against an unreachable localhost. Dev workflows
-    // override via `--dart-define=BEAUTICA_BASE_URL=http://<host-ip>:8080/api/v1`.
+    // When BEAUTICA_BASE_URL dart-define is absent, falls back to
+    // `http://localhost:8080/api/v1` — the backend reachable from the Ubuntu
+    // VM where `flutter run` executes. Dev workflows targeting the emulator
+    // override via `--dart-define=BEAUTICA_BASE_URL=http://<host-ip>:8080/api/v1`,
+    // and CI/release builds bake in the production HTTPS URL via build args.
     // -----------------------------------------------------------------------
-    test('baseUrl defaults to the Railway production URL', () {
-      expect(
-        AppConfig.baseUrl,
-        equals('https://beautica-backend-production.up.railway.app/api/v1'),
-      );
+    test('baseUrl defaults to the localhost fallback', () {
+      expect(AppConfig.baseUrl, equals('http://localhost:8080/api/v1'));
     });
 
     // -----------------------------------------------------------------------
-    // Test 4 — AppConfig.baseUrl is HTTPS in the default build
+    // Test 4 — AppConfig.baseUrl is HTTP in the default debug build
     //
-    // This test documents that the compile-time default is the Railway
-    // production endpoint (HTTPS), so:
-    //   • Release/profile builds without a dart-define still satisfy
-    //     `assertSecureUrl()`.
-    //   • The test-only `_isSecureUrl` helper mirrors that check and returns
-    //     true for the default URL.
-    // Dev builds that want to hit a local backend must opt in explicitly via
-    //   `--dart-define=BEAUTICA_BASE_URL=http://<host-ip>:8080/api/v1`.
+    // The compile-time default is `http://localhost:8080/api/v1`, so the
+    // test-only `_isSecureUrl` helper returns false. `assertSecureUrl()`
+    // tolerates this in debug mode but throws in release/profile builds —
+    // CI/deploy pipelines must supply an HTTPS dart-define for release APKs.
     // -----------------------------------------------------------------------
-    test('baseUrl is https in the default build (Railway production URL)', () {
+    test('baseUrl is http in the default debug build (localhost fallback)', () {
       expect(
         _isSecureUrl(AppConfig.baseUrl),
-        isTrue,
+        isFalse,
         reason:
-            'AppConfig.baseUrl defaults to the Railway production HTTPS URL '
-            'so release APKs do not stall on localhost timeouts. '
-            'assertSecureUrl() therefore passes in release/profile builds '
-            'when no dart-define is supplied.',
+            'AppConfig.baseUrl defaults to http://localhost:8080/api/v1 so '
+            '`flutter run` on the Ubuntu VM works without a dart-define. '
+            'Release/profile builds must override via '
+            '--dart-define=BEAUTICA_BASE_URL=https://... to satisfy '
+            'assertSecureUrl().',
       );
     });
   });
