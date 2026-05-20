@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -22,6 +23,35 @@ import 'routing/app_router.dart';
 void main() {
   perfLog('main:enter');
   GoogleFonts.config.allowRuntimeFetching = kDebugMode;
+
+  // PERF instrumentation — frame timings.
+  //
+  // Logs any frame whose `buildDuration` or `rasterDuration` exceeds 50 ms
+  // (mobile budget is 16.7 ms at 60 fps; >50 ms is jank-level slow). This
+  // is the ground truth for the GPU-rasterisation gap during the login →
+  // register navigation: per-frame raster of 150 ms+ confirms a Mali-G52
+  // stall on the dithered bg picture; <16 ms after the AuthGradientBackground
+  // RepaintBoundary + _RegBrandRow BackdropFilter removal means the fix
+  // landed.
+  //
+  // Grep target: `adb logcat | grep BEAUTICA_PERF`. SchedulerBinding is
+  // auto-created on first access, so the callback can be registered before
+  // runApp() and will start receiving timings as soon as the binding ticks.
+  SchedulerBinding.instance.addTimingsCallback((List<FrameTiming> timings) {
+    for (final t in timings) {
+      final buildMs = t.buildDuration.inMicroseconds / 1000.0;
+      final rasterMs = t.rasterDuration.inMicroseconds / 1000.0;
+      final totalMs = t.totalSpan.inMicroseconds / 1000.0;
+      if (rasterMs > 50.0 || buildMs > 50.0) {
+        perfLog(
+          'frame: build=${buildMs.toStringAsFixed(1)}ms '
+          'raster=${rasterMs.toStringAsFixed(1)}ms '
+          'total=${totalMs.toStringAsFixed(1)}ms',
+        );
+      }
+    }
+  });
+
   perfLog('main:before-runApp');
   runApp(const ProviderScope(child: BeauticaApp()));
 }

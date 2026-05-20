@@ -1615,13 +1615,21 @@ void main() {
     // -----------------------------------------------------------------------
     // 32 — BackdropFilter blur-budget ceiling on the role-selection step
     //
-    // F7 (mobile-perf): the role-selection view now renders ONLY one
-    // BackdropFilter — the _RegBrandRow (sigma 8). The 3 _RoleCard
-    // BackdropFilters were removed because, on the already-dithered Warm
-    // Mocha background, an 88-dp card-sized gaussian was perceptually
-    // negligible but cost a SaveLayer + per-frame gaussian per card.
-    // _RegGlassCard is NOT present on this view — it only appears in the
-    // details form. Asserting an upper bound of 1 locks in the F7 budget.
+    // F7 (mobile-perf): the 3 _RoleCard BackdropFilters were removed because,
+    // on the already-dithered Warm Mocha background, an 88-dp card-sized
+    // gaussian was perceptually negligible but cost a SaveLayer + per-frame
+    // gaussian per card. F-final (this iteration): the _RegBrandRow
+    // BackdropFilter (sigma 8 over a 34-dp monogram) was ALSO removed for
+    // the same reason — the dither already supplies texture/atmosphere at
+    // that scale, and the SaveLayer + gaussian was stalling the GPU for
+    // ~150 ms per frame on Mali-G52 during the entrance animation. The
+    // monogram now uses fill + border only to convey "glass mark".
+    //
+    // _RegGlassCard (sigma 12) is NOT present on this view — it only
+    // appears in the details form. So the role-selection step now has 0
+    // BackdropFilters. The ≤ 1 ceiling is kept (not tightened to == 0)
+    // so future designers can re-introduce a single blur if a real visual
+    // need emerges, without breaking this test.
     // -----------------------------------------------------------------------
     testWidgets(
       '32. role-selection step has at most 1 BackdropFilter (F7 blur budget)',
@@ -1648,9 +1656,12 @@ void main() {
           backdropCount,
           lessThanOrEqualTo(1),
           reason:
-              'role-selection step must have at most 1 BackdropFilter widget '
-              '(_RegBrandRow only). Found $backdropCount. '
-              'A regression here means F7 (role-card blur removal) was undone.',
+              'role-selection step must have at most 1 BackdropFilter widget. '
+              'Found $backdropCount. _RegBrandRow no longer uses one (the '
+              'gaussian over a 34-dp pill cost SaveLayer + per-frame blur '
+              'and added no perceptual value over the dithered bg). '
+              'A regression here means F7 (role-card blur removal) or the '
+              'final brand-row blur removal was undone.',
         );
       },
     );

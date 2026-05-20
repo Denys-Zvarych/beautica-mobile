@@ -1643,12 +1643,23 @@ class _MochaCtaButton extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 /// role-selection-page.html / sign-up-page.html .brand-row:
-/// 34×34 frosted monogram (white 10% bg, white 20% border, blur 8) +
-/// "BEAUTICA" uppercase Manrope 700 16px, letter-spacing 0.1em.
+/// 34×34 monogram (white 10% bg, white 20% border) + "BEAUTICA" uppercase
+/// Manrope 700 16px, letter-spacing 0.1em.
+///
+/// PERF: The previous implementation wrapped the monogram body in a
+/// BackdropFilter(σ8) for a "frosted glass" effect. On the Bayer-dithered
+/// Warm-Mocha auth background, the σ8 gaussian over a 34-dp surface was
+/// visually negligible (the dither already provides texture/atmosphere)
+/// but cost a SaveLayer + per-frame gaussian on every frame the brand row
+/// was in the dirty rect — i.e. every frame of the 800 ms entrance
+/// animation. The pill now reads as a glass mark via:
+///   • semi-transparent white fill (10%) → translucent perception
+///   • thin white 20% border             → "edge of glass" cue
+///   • dithered bg behind it             → atmospheric depth
+/// (Apple HIG: blur is for background-dismissal signalling, not decoration
+/// on micro-elements; small-scale glassmorphism is carried by fill+border.)
 class _RegBrandRow extends StatelessWidget {
   const _RegBrandRow({super.key});
-
-  static final _kBlur = ImageFilter.blur(sigmaX: 8, sigmaY: 8);
 
   static const _kMonogramDecoration = BoxDecoration(
     color: Color(0x1AFFFFFF), // white 10%
@@ -1660,39 +1671,32 @@ class _RegBrandRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return const Row(
       children: [
-        // Frosted glass monogram — content rendered outside SaveLayer for crisp text.
+        // Monogram pill — fill + border only (no SaveLayer, no gaussian).
         SizedBox(
           width: 34,
           height: 34,
           child: ClipRRect(
-            borderRadius: const BorderRadius.all(Radius.circular(10)),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: BackdropFilter(
-                    filter: _kBlur,
-                    child: const DecoratedBox(decoration: _kMonogramDecoration),
+            borderRadius: BorderRadius.all(Radius.circular(10)),
+            child: DecoratedBox(
+              decoration: _kMonogramDecoration,
+              child: Center(
+                child: Text(
+                  'B',
+                  style: TextStyle(
+                    color: Color(0xF2FFFFFF), // white 95%
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    height: 1,
                   ),
                 ),
-                const Center(
-                  child: Text(
-                    'B',
-                    style: TextStyle(
-                      color: Color(0xF2FFFFFF), // white 95%
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                      height: 1,
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         ),
-        const SizedBox(width: AppSpacing.xs),
-        const Text(
+        SizedBox(width: AppSpacing.xs),
+        Text(
           'BEAUTICA',
           style: TextStyle(
             color: Color(0xEBFFFFFF), // white 92%

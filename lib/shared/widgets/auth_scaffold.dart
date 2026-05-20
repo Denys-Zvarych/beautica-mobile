@@ -54,7 +54,12 @@ class AuthScaffold extends StatelessWidget {
       backgroundColor: BrandColors.espresso,
       body: Stack(
         children: [
-          const AuthGradientBackground(),
+          // PERF: Belt-and-braces — AuthGradientBackground also wraps itself
+          // in a RepaintBoundary internally. Wrapping again at the call site
+          // guarantees the layer is hoisted even if a future refactor inside
+          // AuthGradientBackground removes the inner boundary. Flutter
+          // coalesces adjacent RepaintBoundary widgets, so this is free.
+          const RepaintBoundary(child: AuthGradientBackground()),
           SafeArea(
             child: LayoutBuilder(
               builder: (ctx, c) => SingleChildScrollView(
