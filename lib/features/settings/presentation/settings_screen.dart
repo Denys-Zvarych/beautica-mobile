@@ -148,7 +148,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
       body: Stack(
         children: [
-          // PERF: RepaintBoundary keeps the dithered bg picture in its own
+          // PERF: RepaintBoundary keeps the gradient layer in its own
           // composited layer; ListView scrolls and ScaffoldMessenger toasts
           // would otherwise invalidate it. AuthGradientBackground also wraps
           // itself; Flutter coalesces the duplicate boundary.

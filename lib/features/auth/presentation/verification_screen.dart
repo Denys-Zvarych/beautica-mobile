@@ -15,7 +15,7 @@
 //   CTA radius        : BorderRadius.all(Radius.circular(14))   (_kCtaRadius)
 //   CTA gradient      : [Color(0xFF4A2E10), Color(0xFF6A4A28), Color(0xFF8A6840)]
 //   CTA pattern       : DecoratedBox → ClipRRect → Material(transparent) → InkWell
-//   Auth background   : AuthGradientBackground CustomPainter (Bayer dithering)
+//   Auth background   : AuthGradientBackground (Warm-Mocha LinearGradient)
 //   OTP boxes         : same input radius (12) and fill (white 7%) as inputs
 //
 // Render-budget rules:

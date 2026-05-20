@@ -100,11 +100,13 @@ class _SplashScreenState extends State<SplashScreen>
       backgroundColor: BrandColors.espresso,
       body: Stack(
         children: [
-          // PERF: RepaintBoundary hoists the dithered Picture into its own
-          // composited layer so the logo scale+fade entrance animation does
-          // not invalidate (and re-rasterise) the 329 K-drawRect background
+          // PERF: RepaintBoundary hoists the gradient layer so the logo
+          // scale+fade entrance animation does not invalidate the background
           // on every frame. AuthGradientBackground also has an internal
-          // RepaintBoundary; the duplicate is coalesced by Flutter.
+          // RepaintBoundary; the duplicate is coalesced by Flutter. The
+          // background itself is now a single LinearGradient draw call
+          // (was a 288 k drawRect Bayer-dither painter; reverted 2026-05-20
+          // — measured ~2.5 s GPU raster/frame on Mali-G52).
           const RepaintBoundary(child: AuthGradientBackground()),
           // Align at (0, -0.4) shifts the logo into the upper-middle zone —
           // roughly 38% from the top — rather than dead centre.
