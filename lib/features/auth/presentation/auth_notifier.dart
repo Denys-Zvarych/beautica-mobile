@@ -39,6 +39,7 @@ import '../../../core/perf/perf_log.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
+import '../domain/register_result.dart';
 import '../domain/user_role.dart';
 
 part 'auth_notifier.g.dart';
@@ -224,15 +225,23 @@ class AuthNotifier extends _$AuthNotifier {
     });
   }
 
-  /// Registers a new account with the given [role] and logs in immediately.
+  /// Registers a new account with the given [role].
   ///
   /// [role] defaults to [UserRole.independentMaster] for backwards compatibility.
   /// The backend validates eligibility — non-self-registerable roles surface as
   /// a [Failure] that the calling screen displays via snackbar.
   ///
-  /// On success, state becomes [AsyncData<Authenticated>]. On failure (e.g.
-  /// [ValidationFailure] for duplicate email), state becomes [AsyncError].
-  Future<void> register({
+  /// Returns a [RegisterResult] so the caller can branch on whether email
+  /// verification is required:
+  /// - [VerificationRequired]    — state stays [Unauthenticated]; caller
+  ///                                navigates to the OTP screen.
+  /// - [AuthenticatedRegisterResult] — refresh token is persisted and state
+  ///                                becomes [AsyncData<Authenticated>]; caller
+  ///                                may transition straight to the home shell.
+  /// - `null` (only when an error occurred) — state becomes [AsyncError] with
+  ///   the typed [Failure]; the calling screen's `.when(error:)` handler
+  ///   surfaces it via inline field errors / snackbar.
+  Future<RegisterResult?> register({
     required String email,
     required String password,
     required String firstName,
@@ -244,10 +253,14 @@ class AuthNotifier extends _$AuthNotifier {
   }) async {
     perfLog('authNotifier:register-enter (url=$_baseUrlForLog)');
     state = const AsyncLoading();
+    // AsyncValue.guard fixes the [state] for screens that pattern-match on
+    // [AsyncValue]; we keep a local handle on the [RegisterResult] so we can
+    // return it to the caller (which AsyncValue.guard cannot do).
+    RegisterResult? result;
     state = await AsyncValue.guard(() async {
       try {
         perfLog('authNotifier:before-register-call');
-        final (user, tokens) = await ref
+        final outcome = await ref
             .read(authRepositoryProvider)
             .registerIndependentMaster(
               email: email,
@@ -260,20 +273,34 @@ class AuthNotifier extends _$AuthNotifier {
               phone: phone,
             );
         perfLog('authNotifier:after-register-call (ok)');
-        await ref
-            .read(secureStorageProvider)
-            .writeRefreshToken(tokens.refreshToken);
-        if (kDebugMode) {
-          log(
-            'Registration success: user ${user.id}',
-            name: 'auth',
-            level: 800,
-          );
+        result = outcome;
+        switch (outcome) {
+          case AuthenticatedRegisterResult(:final user, :final tokens):
+            await ref
+                .read(secureStorageProvider)
+                .writeRefreshToken(tokens.refreshToken);
+            if (kDebugMode) {
+              log(
+                'Registration success (auto-login): user ${user.id}',
+                name: 'auth',
+                level: 800,
+              );
+            }
+            return AuthSession.authenticated(
+              user: user,
+              accessToken: tokens.accessToken,
+            );
+          case VerificationRequired(:final email):
+            if (kDebugMode) {
+              log(
+                'Registration success (verification-required) for $email',
+                name: 'auth',
+                level: 800,
+              );
+            }
+            // No session yet — user must verify their email next.
+            return const AuthSession.unauthenticated();
         }
-        return AuthSession.authenticated(
-          user: user,
-          accessToken: tokens.accessToken,
-        );
       } on Failure catch (e) {
         perfLog(
           'authNotifier:after-register-call '
@@ -289,6 +316,7 @@ class AuthNotifier extends _$AuthNotifier {
         rethrow;
       }
     });
+    return result;
   }
 
   /// Verifies the user's email address by submitting the 6-digit [otp] code.

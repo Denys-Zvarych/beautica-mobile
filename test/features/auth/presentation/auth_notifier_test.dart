@@ -32,6 +32,7 @@ import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
+import 'package:beautica_mobile/features/auth/domain/register_result.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
@@ -278,9 +279,14 @@ void main() {
             lastName: 'Коваль',
             role: UserRole.independentMaster,
           ),
-        ).thenAnswer((_) async => (testUser, testTokens));
+        ).thenAnswer(
+          (_) async => const RegisterResult.authenticated(
+            user: testUser,
+            tokens: testTokens,
+          ),
+        );
 
-        await container
+        final result = await container
             .read(authProvider.notifier)
             .register(
               email: 'new@example.com',
@@ -288,6 +294,8 @@ void main() {
               firstName: 'Іван',
               lastName: 'Коваль',
             );
+
+        expect(result, isA<AuthenticatedRegisterResult>());
 
         final value = container.read(authProvider);
         expect(value, isA<AsyncData<AuthSession>>());
@@ -306,6 +314,62 @@ void main() {
           await storage.readRefreshToken(),
           equals(testTokens.refreshToken),
         );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 6b — register success (verification-required envelope)
+    //
+    // Regression guard for the `_TypeError: type 'Null' is not a subtype of
+    // type 'Map<String, dynamic>'` crash. When the backend returns the
+    // verification-required envelope, the notifier must:
+    //   - leave state as AsyncData(Unauthenticated) (no session created),
+    //   - return RegisterResult.verificationRequired so the screen can
+    //     navigate to the OTP screen,
+    //   - NOT persist any refresh token (there is none).
+    // -----------------------------------------------------------------------
+    test(
+      'register success (verification-required) → state stays Unauthenticated, '
+      'no refresh token written, RegisterResult.verificationRequired returned',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        when(
+          () => repo.registerIndependentMaster(
+            email: 'new@example.com',
+            password: 'pass123',
+            firstName: 'Іван',
+            lastName: 'Коваль',
+            role: UserRole.independentMaster,
+          ),
+        ).thenAnswer(
+          (_) async => const RegisterResult.verificationRequired(
+            email: 'new@example.com',
+          ),
+        );
+
+        final result = await container
+            .read(authProvider.notifier)
+            .register(
+              email: 'new@example.com',
+              password: 'pass123',
+              firstName: 'Іван',
+              lastName: 'Коваль',
+            );
+
+        expect(result, isA<VerificationRequired>());
+        expect((result! as VerificationRequired).email, 'new@example.com');
+
+        final value = container.read(authProvider);
+        expect(value, isA<AsyncData<AuthSession>>());
+        expect(value.value, equals(const AuthSession.unauthenticated()));
+
+        // No session → no refresh token written.
+        expect(await storage.readRefreshToken(), isNull);
       },
     );
 
@@ -545,7 +609,12 @@ void main() {
             role: UserRole.salonOwner,
             businessName: 'Краса Студія',
           ),
-        ).thenAnswer((_) async => (testUser, testTokens));
+        ).thenAnswer(
+          (_) async => const RegisterResult.authenticated(
+            user: testUser,
+            tokens: testTokens,
+          ),
+        );
 
         await container
             .read(authProvider.notifier)
@@ -597,7 +666,12 @@ void main() {
             lastName: 'Коваль',
             role: UserRole.independentMaster,
           ),
-        ).thenAnswer((_) async => (testUser, testTokens));
+        ).thenAnswer(
+          (_) async => const RegisterResult.authenticated(
+            user: testUser,
+            tokens: testTokens,
+          ),
+        );
 
         await container
             .read(authProvider.notifier)
@@ -639,7 +713,12 @@ void main() {
           address: 'вул. Хрещатик, 1',
           phone: '+380501234567',
         ),
-      ).thenAnswer((_) async => (testUser, testTokens));
+      ).thenAnswer(
+        (_) async => const RegisterResult.authenticated(
+          user: testUser,
+          tokens: testTokens,
+        ),
+      );
 
       await container
           .read(authProvider.notifier)

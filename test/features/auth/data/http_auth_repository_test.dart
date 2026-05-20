@@ -24,6 +24,7 @@ import 'dart:async';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/data/http_auth_repository.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
+import 'package:beautica_mobile/features/auth/domain/register_result.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -227,31 +228,124 @@ void main() {
   // -------------------------------------------------------------------------
 
   group('registerIndependentMaster', () {
-    test('5. success → returns (User, AuthTokens)', () async {
-      when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/register/independent-master',
-          data: any(named: 'data'),
-        ),
-      ).thenAnswer(
-        (_) async => Response(
-          requestOptions: _fakeOptions('/auth/register/independent-master'),
-          statusCode: 201,
-          data: _loginEnvelope(),
-        ),
-      );
+    test(
+      '5. success (auto-login envelope) → returns AuthenticatedRegisterResult',
+      () async {
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register/independent-master',
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer(
+          (_) async => Response(
+            requestOptions: _fakeOptions('/auth/register/independent-master'),
+            statusCode: 201,
+            data: _loginEnvelope(),
+          ),
+        );
 
-      final (user, tokens) = await repository.registerIndependentMaster(
-        email: 'master@beautica.test',
-        password: 'P@ssw0rd!',
-        firstName: 'Іванна',
-        lastName: 'Коваль',
-      );
+        final result = await repository.registerIndependentMaster(
+          email: 'master@beautica.test',
+          password: 'P@ssw0rd!',
+          firstName: 'Іванна',
+          lastName: 'Коваль',
+        );
 
-      expect(user.role, UserRole.independentMaster);
-      expect(tokens.accessToken, 'access.jwt.token');
-      expect(tokens.refreshToken, 'refresh.jwt.token');
-    });
+        expect(result, isA<AuthenticatedRegisterResult>());
+        final auth = result as AuthenticatedRegisterResult;
+        expect(auth.user.role, UserRole.independentMaster);
+        expect(auth.tokens.accessToken, 'access.jwt.token');
+        expect(auth.tokens.refreshToken, 'refresh.jwt.token');
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // 5b — verification-required envelope (current backend default)
+    //
+    // Regression guard for the `_TypeError: type 'Null' is not a subtype of
+    // type 'Map<String, dynamic>'` crash: the backend returns
+    //   { "success": true, "data": { "message": "...", "email": "..." } }
+    // for newly-registered accounts that still need email verification. The
+    // repository must surface that as VerificationRequired, NOT call
+    // _parseUserAndTokens (which casts data['user'] and would crash on null).
+    // -------------------------------------------------------------------------
+    test(
+      '5b. success (verification-required envelope) → returns VerificationRequired',
+      () async {
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register/independent-master',
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer(
+          (_) async => Response(
+            requestOptions: _fakeOptions('/auth/register/independent-master'),
+            statusCode: 200,
+            data: {
+              'success': true,
+              'data': {
+                'message':
+                    'Registration successful. Check your email for the verification code.',
+                'email': 'master@beautica.test',
+              },
+              'message': null,
+            },
+          ),
+        );
+
+        final result = await repository.registerIndependentMaster(
+          email: 'master@beautica.test',
+          password: 'P@ssw0rd!',
+          firstName: 'Іванна',
+          lastName: 'Коваль',
+        );
+
+        expect(result, isA<VerificationRequired>());
+        expect(
+          (result as VerificationRequired).email,
+          equals('master@beautica.test'),
+        );
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // 5c — malformed envelope (no user AND no email) → UnknownFailure
+    //
+    // The repository must not silently swallow a genuinely-broken response
+    // shape: throw UnknownFailure so the screen surfaces a snackbar instead
+    // of crashing with a generic cast error.
+    // -------------------------------------------------------------------------
+    test(
+      '5c. malformed envelope (no user, no email) → throws UnknownFailure',
+      () async {
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/register/independent-master',
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer(
+          (_) async => Response(
+            requestOptions: _fakeOptions('/auth/register/independent-master'),
+            statusCode: 200,
+            data: {
+              'success': true,
+              'data': {'message': 'something happened'},
+              'message': null,
+            },
+          ),
+        );
+
+        await expectLater(
+          () => repository.registerIndependentMaster(
+            email: 'master@beautica.test',
+            password: 'P@ssw0rd!',
+            firstName: 'Іванна',
+            lastName: 'Коваль',
+          ),
+          throwsA(isA<UnknownFailure>()),
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -446,7 +540,7 @@ void main() {
           ),
         );
 
-        final (user, tokens) = await repository.registerIndependentMaster(
+        final result = await repository.registerIndependentMaster(
           email: 'owner@beautica.test',
           password: 'P@ssw0rd!',
           firstName: 'Марія',
@@ -455,8 +549,10 @@ void main() {
           businessName: 'Краса Студія',
         );
 
-        expect(user.role, UserRole.salonOwner);
-        expect(tokens.accessToken, 'access.jwt.token');
+        expect(result, isA<AuthenticatedRegisterResult>());
+        final auth = result as AuthenticatedRegisterResult;
+        expect(auth.user.role, UserRole.salonOwner);
+        expect(auth.tokens.accessToken, 'access.jwt.token');
 
         // Verify the exact unified endpoint was hit — if the routing were wrong
         // and /auth/register/independent-master were used instead, mocktail would
@@ -486,7 +582,7 @@ void main() {
           ),
         );
 
-        final (user, tokens) = await repository.registerIndependentMaster(
+        final result = await repository.registerIndependentMaster(
           email: 'client@beautica.test',
           password: 'P@ssw0rd!',
           firstName: 'Катерина',
@@ -494,8 +590,10 @@ void main() {
           role: UserRole.client,
         );
 
-        expect(user.role, UserRole.client);
-        expect(tokens.refreshToken, 'refresh.jwt.token');
+        expect(result, isA<AuthenticatedRegisterResult>());
+        final auth = result as AuthenticatedRegisterResult;
+        expect(auth.user.role, UserRole.client);
+        expect(auth.tokens.refreshToken, 'refresh.jwt.token');
 
         verify(
           () => mockDio.post<Map<String, dynamic>>(

@@ -46,6 +46,7 @@ import '../../../shared/validators/password_validator.dart';
 import '../../../shared/widgets/auth_field_label.dart';
 import '../../../shared/widgets/auth_scaffold.dart';
 import '../../../shared/widgets/password_criteria_row.dart';
+import '../domain/register_result.dart';
 import '../domain/user_role.dart';
 import 'auth_role_icons.dart';
 import 'auth_notifier.dart';
@@ -377,7 +378,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
 
     final isSalon = role == UserRole.salonOwner;
 
-    await ref
+    final result = await ref
         .read(authProvider.notifier)
         .register(
           email: _emailController.text.trim(),
@@ -393,36 +394,51 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     if (!mounted) return;
 
     final authState = ref.read(authProvider);
-    authState.when(
-      data: (_) {
+    // [authState] is AsyncData on both happy paths (verification-required and
+    // auto-login) and AsyncError on failure. We use [result] (when present)
+    // to choose the navigation target; AsyncError remains the source of truth
+    // for inline field errors / snackbars.
+    if (authState.hasError) {
+      final e = authState.error;
+      if (e is ValidationFailure && e.fieldErrors.isNotEmpty) {
+        setState(() => _serverErrors = e.fieldErrors);
+      } else {
+        final l10n = AppLocalizations.of(context);
+        final message = e is Failure ? e.userMessage(context) : l10n.errUnknown;
+        _showErrorSnackBar(message);
+      }
+      return;
+    }
+
+    // Happy paths — branch on the RegisterResult variant.
+    switch (result) {
+      case VerificationRequired(:final email):
         if (kDebugMode) {
           log(
-            'Register screen: navigating to verification',
+            'Register screen: navigating to verification for $email',
             name: 'auth.register',
             level: 800,
           );
         }
         // Phase 2.11 — route to the email verification screen.
-        // The email is passed as [GoRouter] extra so the screen can display
-        // the masked address without reading it from an unsettled session.
-        context.go(
-          RouteNames.verification,
-          extra: _emailController.text.trim(),
-        );
-      },
-      loading: () {},
-      error: (e, _) {
-        if (e is ValidationFailure && e.fieldErrors.isNotEmpty) {
-          setState(() => _serverErrors = e.fieldErrors);
-        } else {
-          final l10n = AppLocalizations.of(context);
-          final message = e is Failure
-              ? e.userMessage(context)
-              : l10n.errUnknown;
-          _showErrorSnackBar(message);
+        // Email is taken from the RegisterResult (server-confirmed) so it
+        // matches what the backend stored / sent the code to.
+        context.go(RouteNames.verification, extra: email);
+      case AuthenticatedRegisterResult():
+        // Auto-login path — router guard redirects to /home automatically
+        // once the auth session becomes Authenticated. Nothing to do here.
+        if (kDebugMode) {
+          log(
+            'Register screen: auto-login completed, router will redirect',
+            name: 'auth.register',
+            level: 800,
+          );
         }
-      },
-    );
+      case null:
+        // Should not happen on the happy path (only when an error was thrown,
+        // already handled above). Defensive no-op.
+        break;
+    }
   }
 
   void _showErrorSnackBar(String message) {

@@ -23,6 +23,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../domain/auth_tokens.dart';
+import '../domain/register_result.dart';
 import '../domain/user.dart';
 import '../domain/user_role.dart';
 import 'auth_repository.dart';
@@ -73,7 +74,7 @@ final class HttpAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<(User, AuthTokens)> registerIndependentMaster({
+  Future<RegisterResult> registerIndependentMaster({
     required String email,
     required String password,
     required String firstName,
@@ -154,7 +155,7 @@ final class HttpAuthRepository implements AuthRepository {
         );
       }
 
-      return _parseUserAndTokens(response.data!);
+      return _parseRegisterResult(response.data!);
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
@@ -283,6 +284,41 @@ final class HttpAuthRepository implements AuthRepository {
       refreshToken: data['refreshToken'] as String,
     );
     return (user, tokens);
+  }
+
+  /// Inspects the registration response envelope and dispatches to the
+  /// appropriate [RegisterResult] variant.
+  ///
+  /// The backend currently returns a verification-required envelope by
+  /// default:
+  ///   { "success": true, "data": { "message": "...", "email": "..." } }
+  /// Legacy / future auto-login responses carry the full session payload:
+  ///   { "success": true, "data": { "user": {...}, "accessToken": "...",
+  ///     "refreshToken": "..." } }
+  ///
+  /// Anything else (no `data`, or a `data` block missing both `email` and
+  /// `user`) is genuinely wrong — we throw [UnknownFailure] so the screen
+  /// surfaces a snackbar instead of crashing with a generic cast error.
+  RegisterResult _parseRegisterResult(Map<String, dynamic> envelope) {
+    final data = envelope['data'];
+    if (data is! Map<String, dynamic>) {
+      throw const UnknownFailure(
+        cause: 'register response missing "data" object',
+      );
+    }
+    // Auto-login (legacy) path — full session in the body.
+    if (data['user'] is Map<String, dynamic>) {
+      final (user, tokens) = _parseUserAndTokens(envelope);
+      return RegisterResult.authenticated(user: user, tokens: tokens);
+    }
+    // Verification-required (current default) — only the email comes back.
+    final email = data['email'];
+    if (email is String && email.isNotEmpty) {
+      return RegisterResult.verificationRequired(email: email);
+    }
+    throw const UnknownFailure(
+      cause: 'unexpected register response shape (no user, no email)',
+    );
   }
 
   /// Maps a [DioException] to a typed [Failure].

@@ -8,6 +8,7 @@
 // platform packages. This keeps the interface a pure-Dart declaration.
 
 import '../domain/auth_tokens.dart';
+import '../domain/register_result.dart';
 import '../domain/user.dart';
 import '../domain/user_role.dart';
 
@@ -41,14 +42,21 @@ abstract interface class AuthRepository {
   /// error surfaces via the existing [ValidationFailure] / [ServerFailure]
   /// snackbar flow.
   ///
-  /// Returns a tuple of the newly-created [User] and the issued [AuthTokens]
-  /// on success — the user is logged in immediately after registration.
+  /// Returns a [RegisterResult] union — the backend may respond with EITHER:
+  /// - [VerificationRequired] — current default. The account is created but
+  ///   the user must verify their email via OTP before a session is issued.
+  ///   The repository returns the registered email so the UI can navigate to
+  ///   the verification screen.
+  /// - [AuthenticatedRegisterResult] — legacy / future auto-login path. The
+  ///   account is created AND a session is issued immediately; the caller
+  ///   persists the refresh token and transitions straight to home.
   ///
   /// Throws:
   /// - [ValidationFailure] — email already in use, password too weak, etc.
   /// - [NetworkFailure] — connectivity issues.
-  /// - [UnknownFailure] — any other unexpected error.
-  Future<(User, AuthTokens)> registerIndependentMaster({
+  /// - [UnknownFailure] — any other unexpected error, including a 200 with
+  ///   an unrecognised response shape.
+  Future<RegisterResult> registerIndependentMaster({
     required String email,
     required String password,
     required String firstName,

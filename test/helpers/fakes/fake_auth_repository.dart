@@ -7,6 +7,7 @@
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
+import 'package:beautica_mobile/features/auth/domain/register_result.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 
@@ -96,7 +97,7 @@ final class FakeAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<(User, AuthTokens)> registerIndependentMaster({
+  Future<RegisterResult> registerIndependentMaster({
     required String email,
     required String password,
     required String firstName,
@@ -118,8 +119,15 @@ final class FakeAuthRepository implements AuthRepository {
     ));
     final result = registerResult;
     if (result is Failure) throw result;
-    if (result is (User, AuthTokens)) return result;
-    return (_defaultUser, _defaultTokens);
+    if (result is RegisterResult) return result;
+    // Legacy convenience: tests that set registerResult to a (User, AuthTokens)
+    // tuple keep their existing semantics — treated as auto-login.
+    if (result is (User, AuthTokens)) {
+      final (user, tokens) = result;
+      return RegisterResult.authenticated(user: user, tokens: tokens);
+    }
+    // Default: verification-required (matches the current backend default).
+    return RegisterResult.verificationRequired(email: email);
   }
 
   @override
