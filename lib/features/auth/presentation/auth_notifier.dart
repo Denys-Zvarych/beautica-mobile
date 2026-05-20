@@ -33,6 +33,7 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../core/config/app_config.dart';
 import '../../../core/errors/failures.dart';
 import '../../../core/perf/perf_log.dart';
 import '../../../core/storage/secure_storage_provider.dart';
@@ -52,6 +53,19 @@ part 'auth_notifier.g.dart';
 /// Generated provider name: `authProvider` (Riverpod 3.x strips "Notifier").
 @Riverpod(keepAlive: true)
 class AuthNotifier extends _$AuthNotifier {
+  /// Reads the live API base URL for diagnostic logging.
+  ///
+  /// Evaluated at log-time (not constructor-time) so probes reflect the
+  /// current dart-define rather than a stale captured value. Guarded so an
+  /// unexpected read failure never breaks the probe path.
+  String get _baseUrlForLog {
+    try {
+      return AppConfig.baseUrl;
+    } catch (_) {
+      return '<AppConfig.baseUrl read failed>';
+    }
+  }
+
   @override
   Future<AuthSession> build() {
     perfLog('authNotifier:build-enter');
@@ -102,7 +116,7 @@ class AuthNotifier extends _$AuthNotifier {
 
     try {
       final repo = ref.read(authRepositoryProvider);
-      perfLog('authNotifier:before-refresh-call');
+      perfLog('authNotifier:before-refresh-call (url=$_baseUrlForLog)');
       // F3 piggy-back — timeout lowered from 20 s to 6 s. Splash is no longer
       // blocked on this call (F4) so a snappier "you're logged out" UX is the
       // goal; 6 s comfortably covers a slow mobile network round-trip while
@@ -114,7 +128,7 @@ class AuthNotifier extends _$AuthNotifier {
             onTimeout: () =>
                 throw const NetworkFailure(cause: 'refresh timed out'),
           );
-      perfLog('authNotifier:after-refresh-call');
+      perfLog('authNotifier:after-refresh-call (ok)');
       // Persist the rotated refresh token before loading the profile.
       await storage.writeRefreshToken(tokens.refreshToken);
       final user = await repo.me();
@@ -129,7 +143,11 @@ class AuthNotifier extends _$AuthNotifier {
         AuthSession.authenticated(user: user, accessToken: tokens.accessToken),
       );
     } on Failure catch (f) {
-      perfLog('authNotifier:after-refresh-call (failed: ${f.runtimeType})');
+      perfLog(
+        'authNotifier:after-refresh-call '
+        '(failed: Failure ${f.runtimeType} msg=${f.toString()} '
+        'url=$_baseUrlForLog)',
+      );
       if (kDebugMode) {
         log(
           'Cold start refresh failed — clearing storage and going unauthenticated',
@@ -145,7 +163,10 @@ class AuthNotifier extends _$AuthNotifier {
       state = const AsyncData(AuthSession.unauthenticated());
     } catch (e, st) {
       // Catch-all — must not bubble up since this is a fire-and-forget Future.
-      perfLog('authNotifier:after-refresh-call (failed: ${e.runtimeType})');
+      perfLog(
+        'authNotifier:after-refresh-call '
+        '(failed: ${e.runtimeType} msg=$e url=$_baseUrlForLog)',
+      );
       if (kDebugMode) {
         log(
           'Cold start refresh failed with non-Failure exception — '
@@ -167,21 +188,39 @@ class AuthNotifier extends _$AuthNotifier {
   /// and a fresh access token. On failure, state becomes [AsyncError] with the
   /// typed [Failure] — the calling screen's `.when(error:)` handler displays it.
   Future<void> login(String email, String password) async {
+    perfLog('authNotifier:login-enter (url=$_baseUrlForLog)');
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      final (user, tokens) = await ref
-          .read(authRepositoryProvider)
-          .login(email: email, password: password);
-      await ref
-          .read(secureStorageProvider)
-          .writeRefreshToken(tokens.refreshToken);
-      if (kDebugMode) {
-        log('Login success: user ${user.id}', name: 'auth', level: 800);
+      try {
+        perfLog('authNotifier:before-login-call');
+        final (user, tokens) = await ref
+            .read(authRepositoryProvider)
+            .login(email: email, password: password);
+        perfLog('authNotifier:after-login-call (ok)');
+        await ref
+            .read(secureStorageProvider)
+            .writeRefreshToken(tokens.refreshToken);
+        if (kDebugMode) {
+          log('Login success: user ${user.id}', name: 'auth', level: 800);
+        }
+        return AuthSession.authenticated(
+          user: user,
+          accessToken: tokens.accessToken,
+        );
+      } on Failure catch (e) {
+        perfLog(
+          'authNotifier:after-login-call '
+          '(failed: Failure ${e.runtimeType} msg=${e.toString()} '
+          'url=$_baseUrlForLog)',
+        );
+        rethrow;
+      } catch (e) {
+        perfLog(
+          'authNotifier:after-login-call '
+          '(failed: ${e.runtimeType} msg=$e url=$_baseUrlForLog)',
+        );
+        rethrow;
       }
-      return AuthSession.authenticated(
-        user: user,
-        accessToken: tokens.accessToken,
-      );
     });
   }
 
@@ -203,30 +242,52 @@ class AuthNotifier extends _$AuthNotifier {
     String? address,
     String? phone,
   }) async {
+    perfLog('authNotifier:register-enter (url=$_baseUrlForLog)');
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      final (user, tokens) = await ref
-          .read(authRepositoryProvider)
-          .registerIndependentMaster(
-            email: email,
-            password: password,
-            firstName: firstName,
-            lastName: lastName,
-            role: role,
-            businessName: businessName,
-            address: address,
-            phone: phone,
+      try {
+        perfLog('authNotifier:before-register-call');
+        final (user, tokens) = await ref
+            .read(authRepositoryProvider)
+            .registerIndependentMaster(
+              email: email,
+              password: password,
+              firstName: firstName,
+              lastName: lastName,
+              role: role,
+              businessName: businessName,
+              address: address,
+              phone: phone,
+            );
+        perfLog('authNotifier:after-register-call (ok)');
+        await ref
+            .read(secureStorageProvider)
+            .writeRefreshToken(tokens.refreshToken);
+        if (kDebugMode) {
+          log(
+            'Registration success: user ${user.id}',
+            name: 'auth',
+            level: 800,
           );
-      await ref
-          .read(secureStorageProvider)
-          .writeRefreshToken(tokens.refreshToken);
-      if (kDebugMode) {
-        log('Registration success: user ${user.id}', name: 'auth', level: 800);
+        }
+        return AuthSession.authenticated(
+          user: user,
+          accessToken: tokens.accessToken,
+        );
+      } on Failure catch (e) {
+        perfLog(
+          'authNotifier:after-register-call '
+          '(failed: Failure ${e.runtimeType} msg=${e.toString()} '
+          'url=$_baseUrlForLog)',
+        );
+        rethrow;
+      } catch (e) {
+        perfLog(
+          'authNotifier:after-register-call '
+          '(failed: ${e.runtimeType} msg=$e url=$_baseUrlForLog)',
+        );
+        rethrow;
       }
-      return AuthSession.authenticated(
-        user: user,
-        accessToken: tokens.accessToken,
-      );
     });
   }
 
