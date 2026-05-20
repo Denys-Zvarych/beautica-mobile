@@ -22,21 +22,16 @@ import 'routing/app_router.dart';
 /// scaffold has been removed and the app now boots to [RouteNames.splash].
 void main() {
   perfLog('main:enter');
+  // Required before accessing any binding instance from main() — without it
+  // SchedulerBinding.instance below hangs on Mali-G52 / this Flutter combo.
+  WidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = kDebugMode;
 
   // PERF instrumentation — frame timings.
   //
   // Logs any frame whose `buildDuration` or `rasterDuration` exceeds 50 ms
-  // (mobile budget is 16.7 ms at 60 fps; >50 ms is jank-level slow). This
-  // is the ground truth for the GPU-rasterisation gap during the login →
-  // register navigation: per-frame raster of 150 ms+ confirms a Mali-G52
-  // stall on the dithered bg picture; <16 ms after the AuthGradientBackground
-  // RepaintBoundary + _RegBrandRow BackdropFilter removal means the fix
-  // landed.
-  //
-  // Grep target: `adb logcat | grep BEAUTICA_PERF`. SchedulerBinding is
-  // auto-created on first access, so the callback can be registered before
-  // runApp() and will start receiving timings as soon as the binding ticks.
+  // (mobile budget is 16.7 ms at 60 fps; >50 ms is jank-level slow). Grep
+  // target: `adb logcat | grep BEAUTICA_PERF`.
   SchedulerBinding.instance.addTimingsCallback((List<FrameTiming> timings) {
     for (final t in timings) {
       final buildMs = t.buildDuration.inMicroseconds / 1000.0;
