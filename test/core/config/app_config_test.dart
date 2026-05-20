@@ -1,23 +1,22 @@
 // Tests for AppConfig compile-time configuration.
 //
-// `assertSecureUrl()` checks `!kDebugMode && !baseUrl.startsWith('https://')`.
-// In test builds, `kDebugMode` is always `true`, so the release-mode guard
-// never fires. Tests validate:
+// `assertSecureUrl()` gates on `kReleaseMode || kProfileMode`.  In test builds
+// `kDebugMode` is always `true`, so the release/profile branch can never be
+// triggered from a unit test — we test it indirectly by exercising the
+// `@visibleForTesting` helper [AppConfig.isPrivateOrLoopbackUrl], which
+// encapsulates the only non-trivial decision the release branch makes.
+//
+// Coverage:
 //   1. `assertSecureUrl()` does NOT throw in debug mode (even with HTTP URL).
-//   2. A pure URL-check helper (_isSecureUrl) correctly identifies HTTPS vs HTTP.
-//   3. `AppConfig.baseUrl` defaults to the localhost fallback when no dart-define
-//      is supplied (Ubuntu VM dev machine — not the emulator's 10.0.2.2 address).
+//   2. `AppConfig.baseUrl` defaults to the localhost fallback when no
+//      dart-define is supplied.
+//   3. `isPrivateOrLoopbackUrl(...)` correctly classifies hosts:
+//        - allows loopback and RFC 1918 private LAN
+//        - rejects public hosts and homograph attacks like
+//          `localhost.evil.com`
 
 import 'package:beautica_mobile/core/config/app_config.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-/// Test-only pure helper that extracts the URL security check from
-/// [AppConfig.assertSecureUrl] so it can be exercised without a compile flag.
-///
-/// This function is defined here in the test file only — it does NOT exist in
-/// production code. The production guard uses `kDebugMode` which cannot be
-/// overridden at test time.
-bool _isSecureUrl(String url) => url.startsWith('https://');
 
 void main() {
   group('AppConfig', () {
@@ -28,39 +27,17 @@ void main() {
       'assertSecureUrl() does not throw in debug mode (kDebugMode == true)',
       () {
         // In test builds, kDebugMode is true → the release guard is skipped.
-        // Any base URL (including the HTTP emulator default) is accepted.
+        // Any base URL (including the HTTP localhost default) is accepted.
         expect(AppConfig.assertSecureUrl, returnsNormally);
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 2 — _isSecureUrl pure helper
-    // -----------------------------------------------------------------------
-    group('_isSecureUrl (test-only URL-check helper)', () {
-      test('returns true for https:// URLs', () {
-        expect(_isSecureUrl('https://api.beautica.com/api/v1'), isTrue);
-        expect(
-          _isSecureUrl('https://beautica-backend-production.up.railway.app'),
-          isTrue,
-        );
-      });
-
-      test('returns false for http:// URLs', () {
-        expect(_isSecureUrl('http://10.0.2.2:8080/api/v1'), isFalse);
-        expect(_isSecureUrl('http://localhost:8080/api/v1'), isFalse);
-      });
-
-      test('returns false for empty string', () {
-        expect(_isSecureUrl(''), isFalse);
-      });
-    });
-
-    // -----------------------------------------------------------------------
-    // Test 3 — AppConfig.baseUrl defaults to the localhost fallback
+    // Test 2 — AppConfig.baseUrl defaults to the localhost fallback
     //
     // When BEAUTICA_BASE_URL dart-define is absent, falls back to
     // `http://localhost:8080/api/v1` — the backend reachable from the Ubuntu
-    // VM where `flutter run` executes. Dev workflows targeting the emulator
+    // VM where `flutter run` executes.  Dev workflows targeting the emulator
     // override via `--dart-define=BEAUTICA_BASE_URL=http://<host-ip>:8080/api/v1`,
     // and CI/release builds bake in the production HTTPS URL via build args.
     // -----------------------------------------------------------------------
@@ -69,24 +46,110 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 4 — AppConfig.baseUrl is HTTP in the default debug build
+    // Test 3 — isPrivateOrLoopbackUrl whitelist
     //
-    // The compile-time default is `http://localhost:8080/api/v1`, so the
-    // test-only `_isSecureUrl` helper returns false. `assertSecureUrl()`
-    // tolerates this in debug mode but throws in release/profile builds —
-    // CI/deploy pipelines must supply an HTTPS dart-define for release APKs.
+    // The release/profile branch of assertSecureUrl() consults this helper to
+    // decide whether to allow an `http://` URL through.  We cannot drive
+    // release mode in a unit test, so we validate the gatekeeper directly.
     // -----------------------------------------------------------------------
-    test('baseUrl is http in the default debug build (localhost fallback)', () {
-      expect(
-        _isSecureUrl(AppConfig.baseUrl),
-        isFalse,
-        reason:
-            'AppConfig.baseUrl defaults to http://localhost:8080/api/v1 so '
-            '`flutter run` on the Ubuntu VM works without a dart-define. '
-            'Release/profile builds must override via '
-            '--dart-define=BEAUTICA_BASE_URL=https://... to satisfy '
-            'assertSecureUrl().',
-      );
+    group('isPrivateOrLoopbackUrl', () {
+      test('allows hostname-style loopback (localhost)', () {
+        expect(
+          AppConfig.isPrivateOrLoopbackUrl('http://localhost:8080/api/v1'),
+          isTrue,
+        );
+        expect(AppConfig.isPrivateOrLoopbackUrl('https://localhost/'), isTrue);
+      });
+
+      test('allows IPv4 loopback (127.0.0.1)', () {
+        expect(
+          AppConfig.isPrivateOrLoopbackUrl('http://127.0.0.1:8080'),
+          isTrue,
+        );
+      });
+
+      test('allows IPv6 loopback (::1)', () {
+        // Uri.parse strips the surrounding [] from the IPv6 literal.
+        expect(AppConfig.isPrivateOrLoopbackUrl('http://[::1]:8080'), isTrue);
+      });
+
+      test('allows Android emulator loopback alias (10.0.2.2)', () {
+        expect(
+          AppConfig.isPrivateOrLoopbackUrl('http://10.0.2.2:8080'),
+          isTrue,
+        );
+      });
+
+      test('allows RFC 1918 10.0.0.0/8 addresses', () {
+        expect(
+          AppConfig.isPrivateOrLoopbackUrl('http://10.1.2.3:8080'),
+          isTrue,
+        );
+        expect(
+          AppConfig.isPrivateOrLoopbackUrl('http://10.255.255.255'),
+          isTrue,
+        );
+      });
+
+      test('allows RFC 1918 172.16.0.0/12 addresses', () {
+        expect(
+          AppConfig.isPrivateOrLoopbackUrl('http://172.16.0.1:8080'),
+          isTrue,
+        );
+        expect(AppConfig.isPrivateOrLoopbackUrl('http://172.20.10.5'), isTrue);
+        expect(
+          AppConfig.isPrivateOrLoopbackUrl('http://172.31.255.254'),
+          isTrue,
+        );
+      });
+
+      test('rejects 172.x outside 16-31 range', () {
+        expect(AppConfig.isPrivateOrLoopbackUrl('http://172.15.0.1'), isFalse);
+        expect(AppConfig.isPrivateOrLoopbackUrl('http://172.32.0.1'), isFalse);
+      });
+
+      test('allows RFC 1918 192.168.0.0/16 addresses', () {
+        expect(
+          AppConfig.isPrivateOrLoopbackUrl('http://192.168.1.42:8080'),
+          isTrue,
+        );
+        expect(AppConfig.isPrivateOrLoopbackUrl('http://192.168.0.1'), isTrue);
+        expect(
+          AppConfig.isPrivateOrLoopbackUrl('http://192.168.255.254'),
+          isTrue,
+        );
+      });
+
+      test('rejects 192.x outside 168 range', () {
+        expect(AppConfig.isPrivateOrLoopbackUrl('http://192.167.1.1'), isFalse);
+        expect(AppConfig.isPrivateOrLoopbackUrl('http://192.169.1.1'), isFalse);
+      });
+
+      test('rejects public hosts', () {
+        expect(AppConfig.isPrivateOrLoopbackUrl('http://example.com'), isFalse);
+        expect(
+          AppConfig.isPrivateOrLoopbackUrl('http://api.beautica.com/api/v1'),
+          isFalse,
+        );
+        expect(AppConfig.isPrivateOrLoopbackUrl('http://8.8.8.8'), isFalse);
+      });
+
+      test('rejects homograph-style attacks on loopback labels', () {
+        // Exact-host matching prevents `localhost.evil.com` from passing.
+        expect(
+          AppConfig.isPrivateOrLoopbackUrl('http://localhost.evil.com'),
+          isFalse,
+        );
+        expect(
+          AppConfig.isPrivateOrLoopbackUrl('http://127.0.0.1.evil.com'),
+          isFalse,
+        );
+      });
+
+      test('rejects empty / hostless URLs', () {
+        expect(AppConfig.isPrivateOrLoopbackUrl(''), isFalse);
+        expect(AppConfig.isPrivateOrLoopbackUrl('not-a-url'), isFalse);
+      });
     });
   });
 }
