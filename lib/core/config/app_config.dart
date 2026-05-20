@@ -43,7 +43,7 @@ abstract final class AppConfig {
   /// HTTPS, so the fallback is never reachable in production.
   static const String baseUrl = String.fromEnvironment(
     'BEAUTICA_BASE_URL',
-    defaultValue: 'http://localhost:8080/api/v1',
+    defaultValue: 'https://beautica-backend-production.up.railway.app/api/v1',
   );
 
   /// Validates [baseUrl] at startup.

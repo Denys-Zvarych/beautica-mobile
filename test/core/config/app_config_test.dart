@@ -56,48 +56,42 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 3 — AppConfig.baseUrl defaults to localhost fallback
+    // Test 3 — AppConfig.baseUrl defaults to the Railway production URL
     //
-    // When BEAUTICA_BASE_URL dart-define is absent, falls back to localhost
-    // (Ubuntu VM dev machine). Emulator builds require an explicit dart-define
-    // pointing to the VM's host-only adapter IP (e.g. 192.168.56.101:8080).
+    // When BEAUTICA_BASE_URL dart-define is absent, falls back to the Railway
+    // production endpoint so installed release APKs reach a real backend
+    // instead of timing out against an unreachable localhost. Dev workflows
+    // override via `--dart-define=BEAUTICA_BASE_URL=http://<host-ip>:8080/api/v1`.
     // -----------------------------------------------------------------------
-    test('baseUrl defaults to localhost fallback', () {
-      // When BEAUTICA_BASE_URL dart-define is absent, falls back to localhost
-      // (Ubuntu VM dev). Emulator builds require explicit dart-define.
-      expect(AppConfig.baseUrl, equals('http://localhost:8080/api/v1'));
+    test('baseUrl defaults to the Railway production URL', () {
+      expect(
+        AppConfig.baseUrl,
+        equals('https://beautica-backend-production.up.railway.app/api/v1'),
+      );
     });
 
     // -----------------------------------------------------------------------
-    // Test 4 — AppConfig.baseUrl is NOT https in the default debug build
+    // Test 4 — AppConfig.baseUrl is HTTPS in the default build
     //
-    // This test documents the profile-mode guard invariant:
-    //   • The compile-time default points to http://localhost:8080/api/v1
-    //     (the Ubuntu VM where `flutter run` executes) — HTTP, not HTTPS.
-    //   • assertSecureUrl() is guarded by `!kDebugMode`, so it is a no-op in
-    //     tests and debug builds.
-    //   • In a release build, if someone accidentally leaves the HTTP URL,
-    //     assertSecureUrl() would throw at startup — this test documents that
-    //     the HTTP default is intentional for the debug/VM target only.
+    // This test documents that the compile-time default is the Railway
+    // production endpoint (HTTPS), so:
+    //   • Release/profile builds without a dart-define still satisfy
+    //     `assertSecureUrl()`.
+    //   • The test-only `_isSecureUrl` helper mirrors that check and returns
+    //     true for the default URL.
+    // Dev builds that want to hit a local backend must opt in explicitly via
+    //   `--dart-define=BEAUTICA_BASE_URL=http://<host-ip>:8080/api/v1`.
     // -----------------------------------------------------------------------
-    test(
-      'baseUrl is NOT https in debug/test builds (http localhost default is intentional)',
-      () {
-        // The test-only _isSecureUrl helper mirrors the production URL check
-        // without the kDebugMode gate. We assert the result is false to
-        // document that the default URL is HTTP and would trigger the release
-        // guard if kDebugMode were false.
-        expect(
-          _isSecureUrl(AppConfig.baseUrl),
-          isFalse,
-          reason:
-              'AppConfig.baseUrl defaults to http://localhost:8080/api/v1 '
-              '(Ubuntu VM dev). assertSecureUrl() is a no-op here '
-              '(kDebugMode == true). In a release build, this URL must be '
-              'replaced with the HTTPS Railway endpoint or assertSecureUrl() '
-              'will throw at startup.',
-        );
-      },
-    );
+    test('baseUrl is https in the default build (Railway production URL)', () {
+      expect(
+        _isSecureUrl(AppConfig.baseUrl),
+        isTrue,
+        reason:
+            'AppConfig.baseUrl defaults to the Railway production HTTPS URL '
+            'so release APKs do not stall on localhost timeouts. '
+            'assertSecureUrl() therefore passes in release/profile builds '
+            'when no dart-define is supplied.',
+      );
+    });
   });
 }
