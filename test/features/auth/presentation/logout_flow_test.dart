@@ -15,8 +15,10 @@
 // Phase 2.16 HIGH-1 regression tests for reset() callers:
 //   5. logout-clears-draft — populated [registerDraftProvider] is wiped to
 //      null by logout().
-//   6. /done-clears-draft — pumping the done route with a seeded draft
-//      yields a null draft after the first frame.
+//   6. /done-clears-draft — pumping the production [DoneScreen] with a seeded
+//      draft yields a null draft after the first frame. Phase 2.12 migrated
+//      the post-frame reset from the old `DonePlaceholderScreen` to the real
+//      celebration screen; the contract is unchanged.
 //   7. login-link-clears-draft (Step 1) — tapping `btn-go-to-login` on Step 1
 //      clears the draft.
 //   8. login-link-clears-draft (role-selection) — tapping
@@ -30,12 +32,12 @@ import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/auth/presentation/done_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_step_1_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/role_selection_screen.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
 import 'package:beautica_mobile/features/settings/presentation/settings_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
-import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -295,8 +297,8 @@ void main() {
 
   group('Phase 2.16 HIGH-1 — register-draft hygiene', () {
     testWidgets(
-      '/done-clears-draft — mounting DonePlaceholderScreen resets the draft '
-      'to null on the first frame (HIGH-1)',
+      '/done-clears-draft — mounting DoneScreen resets the draft to null on '
+      'the first frame (HIGH-1)',
       (tester) async {
         final storage = FakeSecureStorage();
         final repo = FakeAuthRepository();
@@ -320,17 +322,19 @@ void main() {
           );
         expect(container.read(registerDraftProvider), isNotNull);
 
-        // Drive a minimal GoRouter that mounts the production
-        // [DonePlaceholderScreen] (exposed via @visibleForTesting). Avoids
-        // pulling in the full production router (AuthRefreshNotifier +
-        // auth_redirect) which would require a settled AuthNotifier.
+        // Drive a minimal GoRouter that mounts the production [DoneScreen].
+        // Avoids pulling in the full production router (AuthRefreshNotifier
+        // + auth_redirect) which would require a settled AuthNotifier with
+        // a session. The DoneScreen falls back to the localised "друже"
+        // placeholder when no authenticated user is present — fine for a
+        // reset-contract regression test.
         final router = GoRouter(
           initialLocation: RouteNames.done,
           redirect: (context, state) => null,
           routes: [
             GoRoute(
               path: RouteNames.done,
-              builder: (context, state) => const DonePlaceholderScreen(),
+              builder: (context, state) => const DoneScreen(),
             ),
             GoRoute(
               path: RouteNames.home,
@@ -352,8 +356,9 @@ void main() {
             ),
           ),
         );
-        // First frame mounts DonePlaceholderScreen; the post-frame callback
-        // fires reset() + context.go(/home). One additional pump drains it.
+        // First frame mounts DoneScreen; the post-frame callback fires
+        // ref.read(registerDraftProvider.notifier).reset(). One additional
+        // pump drains the microtask queue.
         await tester.pump();
 
         // The draft is cleared after the post-frame callback runs.
@@ -365,11 +370,6 @@ void main() {
               'post-frame callback — leaving the password in memory after '
               'wizard completion is HIGH-1.',
         );
-
-        // The /home route has been navigated to (defensive — proves the
-        // post-frame go() also fired, so the placeholder doesn't dead-end).
-        await tester.pumpAndSettle(const Duration(seconds: 1));
-        expect(find.text('home'), findsOneWidget);
       },
     );
 

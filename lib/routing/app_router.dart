@@ -5,6 +5,9 @@
 // Phase 2.9 — AuthRefreshNotifier + real authRedirect(session, state) guard.
 // Phase 2.11 — VerificationScreen at /verification (email via GoRouter extra).
 //              /done placeholder → redirects to / until Phase 2.12.
+// Phase 2.12 — Real [DoneScreen] replaces the [DonePlaceholderScreen]. The
+//              draft-reset (HIGH-1) contract migrates to the real screen's
+//              own initState post-frame callback.
 // Phase 2.16 — Multi-step registration wizard. /register/role hosts the
 //              role-selection entry gate; /register, /register/step-2 and
 //              /register/step-3 are nested under a ShellRoute that draws
@@ -18,21 +21,18 @@
 // [MaterialApp.router].
 
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../features/auth/presentation/auth_notifier.dart';
+import '../features/auth/presentation/done_screen.dart';
 import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/register_flow_shell.dart';
 import '../features/auth/presentation/register_step_1_screen.dart';
 import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
-import '../features/auth/presentation/widgets/registration_progress.dart';
-import '../features/auth/state/register_draft_notifier.dart';
 import '../features/settings/presentation/settings_screen.dart';
-import '../l10n/app_localizations.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
 import 'route_names.dart';
@@ -125,14 +125,13 @@ GoRouter appRouter(Ref ref) {
         },
       ),
       GoRoute(
-        // Phase 2.12 placeholder — /done redirects to home until the real
-        // "Registration Done" screen is implemented. The placeholder still
-        // owns the security contract: clearing the in-memory registration
-        // draft (Phase 2.16 HIGH-1). The reset runs in initState so it
-        // happens even if the redirect-fallback path is exercised first.
+        // Phase 2.12 — Registration Done screen. Renders the celebration
+        // surface and owns the HIGH-1 contract: clearing the in-memory
+        // registration draft on arrival via a post-frame callback in
+        // [DoneScreen.initState].
         path: RouteNames.done,
         pageBuilder: (context, state) =>
-            _instantPage(state, const DonePlaceholderScreen()),
+            _instantPage(state, const DoneScreen()),
       ),
       GoRoute(
         path: RouteNames.home,
@@ -170,70 +169,4 @@ class _StepPlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       Center(child: Text(label, key: const Key('step-placeholder')));
-}
-
-/// Phase 2.12 placeholder for the /done route.
-///
-/// Two responsibilities:
-///   1. SECURITY (Phase 2.16 HIGH-1) — clear the in-memory
-///      [registerDraftProvider] so the password fields collected during the
-///      wizard do not linger after the user reaches the terminal screen.
-///   2. UX — forward to /home. Done via a post-frame [context.go] so the
-///      reset runs before the redirect (a `redirect:` callback would never
-///      let the widget mount, so the reset would never fire).
-///
-/// Phase 2.12 will replace this with the real "Registration Done" screen
-/// that also calls reset() in its initState.
-///
-/// Exposed with [visibleForTesting] so the HIGH-1 regression test can mount
-/// the production widget directly inside a minimal test router (avoids the
-/// AuthRefreshNotifier wiring that the full production router needs).
-@visibleForTesting
-class DonePlaceholderScreen extends ConsumerStatefulWidget {
-  @visibleForTesting
-  const DonePlaceholderScreen({super.key});
-
-  @override
-  ConsumerState<DonePlaceholderScreen> createState() =>
-      _DonePlaceholderScreenState();
-}
-
-class _DonePlaceholderScreenState extends ConsumerState<DonePlaceholderScreen> {
-  @override
-  void initState() {
-    super.initState();
-    // Riverpod forbids provider mutation during widget life-cycles (build /
-    // initState / didChangeDependencies) — schedule both the draft reset and
-    // the post-frame redirect inside the same post-frame callback. The reset
-    // still runs before any next frame paints, so the security contract
-    // ("on /done arrival the draft is cleared") holds; the test asserts it
-    // after a single `pump()`.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ref.read(registerDraftProvider.notifier).reset();
-      context.go(RouteNames.home);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // 2026-05-20 design refresh — even though this is a redirect placeholder
-    // (the real Phase 2.12 "Done" screen is still pending), the brief
-    // requires the 4-dot progress to render with the Готово label active so
-    // any frame painted before the post-frame redirect matches the
-    // done-page.html design. The widget is sized to zero via SizedBox.shrink
-    // so it never paints visible pixels in the production redirect path —
-    // tests that mount this widget directly can still locate the
-    // progress-active-label key.
-    final l10n = AppLocalizations.of(context);
-    return Scaffold(
-      body: SizedBox.shrink(
-        key: const Key('done-placeholder'),
-        child: RegistrationProgress(
-          currentStep: RegistrationStep.done,
-          activeStepLabel: l10n.registerProgressDone,
-        ),
-      ),
-    );
-  }
 }

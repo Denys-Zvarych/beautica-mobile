@@ -527,5 +527,47 @@
         "example": "42"
       }
     }
+  },
+  "registerDoneGreeting": "Welcome, {firstName}!",
+  "@registerDoneGreeting": {
+    "description": "Personalized celebration headline on the registration-done screen (done-page.html .celebrate-title). Interpolates the authenticated user's first name; when no first name is available the screen falls back to `registerDoneGreetingFallback`.",
+    "placeholders": {
+      "firstName": {
+        "type": "String",
+        "example": "Anya"
+      }
+    }
+  },
+  "registerDoneGreetingFallback": "friend",
+  "@registerDoneGreetingFallback": {
+    "description": "Fallback first-name substitute used in `registerDoneGreeting` when the authenticated user has no first name set."
+  },
+  "registerDoneSubtitle": "Your account is ready",
+  "@registerDoneSubtitle": {
+    "description": "Italic Cormorant Garamond accent subtitle on the registration-done screen (done-page.html .celebrate-subtitle)."
+  },
+  "registerDoneDesc": "You can now discover top professionals and book appointments in seconds.",
+  "@registerDoneDesc": {
+    "description": "Body description below the headline on the registration-done screen (done-page.html .celebrate-desc)."
+  },
+  "registerDoneChipRoleClient": "Client",
+  "@registerDoneChipRoleClient": {
+    "description": "Role summary chip text on the registration-done screen when the user registered as a CLIENT (done-page.html .chip — first chip in the .chips-row)."
+  },
+  "registerDoneChipEmailVerified": "Email verified",
+  "@registerDoneChipEmailVerified": {
+    "description": "Second summary chip on the registration-done screen confirming the email has been verified (done-page.html .chip — second chip)."
+  },
+  "registerDoneChipReadyFast": "Ready in seconds",
+  "@registerDoneChipReadyFast": {
+    "description": "Third summary chip on the registration-done screen — marketing copy reinforcing how fast booking will be (done-page.html .chip — third chip)."
+  },
+  "registerDoneCtaPrimary": "Go to the app",
+  "@registerDoneCtaPrimary": {
+    "description": "Primary CTA button label on the registration-done screen (done-page.html .cta-btn). Navigates to the home shell."
+  },
+  "registerDoneCtaSecondary": "Set up profile later",
+  "@registerDoneCtaSecondary": {
+    "description": "Secondary action link below the primary CTA on the registration-done screen (done-page.html .secondary-action a). Today this navigates to /home — Phase 4.x profile-setup will divert it once that screen exists."
   }
 }

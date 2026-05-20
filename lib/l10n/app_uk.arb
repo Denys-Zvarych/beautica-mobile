@@ -527,5 +527,47 @@
         "example": "42"
       }
     }
+  },
+  "registerDoneGreeting": "Вітаємо, {firstName}!",
+  "@registerDoneGreeting": {
+    "description": "Personalized celebration headline on the registration-done screen (done-page.html .celebrate-title). Interpolates the authenticated user's first name; when no first name is available the screen falls back to `registerDoneGreetingFallback`.",
+    "placeholders": {
+      "firstName": {
+        "type": "String",
+        "example": "Аня"
+      }
+    }
+  },
+  "registerDoneGreetingFallback": "друже",
+  "@registerDoneGreetingFallback": {
+    "description": "Fallback first-name substitute used in `registerDoneGreeting` when the authenticated user has no first name set (e.g. account auto-provisioned during verification before a profile-setup step). Vocative case in Ukrainian — slots into 'Вітаємо, {firstName}!'."
+  },
+  "registerDoneSubtitle": "Ваш акаунт створено",
+  "@registerDoneSubtitle": {
+    "description": "Italic Cormorant Garamond accent subtitle on the registration-done screen (done-page.html .celebrate-subtitle)."
+  },
+  "registerDoneDesc": "Тепер ви можете знайти для себе найкращих майстрів та здійснювати запис за лічені секунди.",
+  "@registerDoneDesc": {
+    "description": "Body description below the headline on the registration-done screen (done-page.html .celebrate-desc)."
+  },
+  "registerDoneChipRoleClient": "Клієнт",
+  "@registerDoneChipRoleClient": {
+    "description": "Role summary chip text on the registration-done screen when the user registered as a CLIENT (done-page.html .chip — first chip in the .chips-row)."
+  },
+  "registerDoneChipEmailVerified": "Пошта підтверджена",
+  "@registerDoneChipEmailVerified": {
+    "description": "Second summary chip on the registration-done screen confirming the email has been verified (done-page.html .chip — second chip)."
+  },
+  "registerDoneChipReadyFast": "Готово за лічені секунди",
+  "@registerDoneChipReadyFast": {
+    "description": "Third summary chip on the registration-done screen — marketing copy reinforcing how fast booking will be (done-page.html .chip — third chip)."
+  },
+  "registerDoneCtaPrimary": "Перейти до застосунку",
+  "@registerDoneCtaPrimary": {
+    "description": "Primary CTA button label on the registration-done screen (done-page.html .cta-btn). Navigates to the home shell."
+  },
+  "registerDoneCtaSecondary": "Налаштувати профіль пізніше",
+  "@registerDoneCtaSecondary": {
+    "description": "Secondary action link below the primary CTA on the registration-done screen (done-page.html .secondary-action a). Today this navigates to /home — Phase 4.x profile-setup will divert it once that screen exists."
   }
 }
