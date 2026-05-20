@@ -526,6 +526,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
               : () {
                   perfLog('login:register-tap');
                   context.push(RouteNames.register);
+                  perfLog('login:after-push');
                 },
           style: TextButton.styleFrom(
             foregroundColor: BrandColors.camel,

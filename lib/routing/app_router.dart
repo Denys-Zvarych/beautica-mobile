@@ -14,6 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../core/perf/perf_log.dart';
 import '../features/auth/presentation/auth_notifier.dart';
 import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/register_screen.dart';
@@ -25,6 +26,30 @@ import 'auth_refresh_notifier.dart';
 import 'route_names.dart';
 
 part 'app_router.g.dart';
+
+// ---------------------------------------------------------------------------
+// Zero-duration transition helper (auth flow only)
+// ---------------------------------------------------------------------------
+//
+// The default MaterialPage uses Android's OpenUpwardsPageTransitionsBuilder
+// slide-and-fade — adding 300+ ms of compounded layout/animation cost between
+// `context.push(...)` and the first paint of the destination. On the auth flow
+// — splash, login, register, verification, home — every millisecond before
+// the destination is interactive directly hurts the impression the user forms
+// of the app. Switch those routes to a `CustomTransitionPage` with zero
+// duration so the destination renders the instant the framework can build it.
+//
+// Non-auth routes (settings, future feature areas) keep their default Material
+// transitions — the cost we're attacking is specifically the auth entry path.
+CustomTransitionPage<void> _instantPage(GoRouterState state, Widget child) =>
+    CustomTransitionPage<void>(
+      key: state.pageKey,
+      child: child,
+      transitionDuration: Duration.zero,
+      reverseTransitionDuration: Duration.zero,
+      transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+          child,
+    );
 
 /// Riverpod-managed [GoRouter] instance.
 ///
@@ -44,23 +69,33 @@ GoRouter appRouter(Ref ref) {
     routes: [
       GoRoute(
         path: RouteNames.splash,
-        builder: (context, state) => const SplashScreen(),
+        pageBuilder: (context, state) {
+          perfLog('router:build-splash-page');
+          return _instantPage(state, const SplashScreen());
+        },
       ),
       GoRoute(
         path: RouteNames.login,
-        builder: (context, state) => const LoginScreen(),
+        pageBuilder: (context, state) {
+          perfLog('router:build-login-page');
+          return _instantPage(state, const LoginScreen());
+        },
       ),
       GoRoute(
         path: RouteNames.register,
-        builder: (context, state) => const RegisterScreen(),
+        pageBuilder: (context, state) {
+          perfLog('router:build-register-page');
+          return _instantPage(state, const RegisterScreen());
+        },
       ),
       GoRoute(
         path: RouteNames.verification,
-        builder: (context, state) {
+        pageBuilder: (context, state) {
+          perfLog('router:build-verification-page');
           // Email is passed as GoRouter extra from RegisterScreen on success.
           // Fall back to empty string if extra is absent (e.g. manual deep-link).
           final email = (state.extra as String?) ?? '';
-          return VerificationScreen(email: email);
+          return _instantPage(state, VerificationScreen(email: email));
         },
       ),
       GoRoute(
@@ -71,7 +106,10 @@ GoRouter appRouter(Ref ref) {
       ),
       GoRoute(
         path: RouteNames.home,
-        builder: (context, state) => const _Placeholder('home'),
+        pageBuilder: (context, state) {
+          perfLog('router:build-home-page');
+          return _instantPage(state, const _Placeholder('home'));
+        },
       ),
       GoRoute(
         path: RouteNames.settings,

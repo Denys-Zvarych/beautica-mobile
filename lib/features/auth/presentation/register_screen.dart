@@ -173,8 +173,16 @@ String _intentDesc(_IntentOption option, AppLocalizations l10n) =>
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
+  // `perfLog` below is a fire-and-forget timing probe (single `print` call).
+  // It captures the moment the State object is about to be created so we can
+  // attribute the gap between the route's `pageBuilder` and the State's
+  // `initState`. No business logic — the analyzer rule does not apply.
   @override
-  ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
+  // ignore: no_logic_in_create_state
+  ConsumerState<RegisterScreen> createState() {
+    perfLog('register:createState');
+    return _RegisterScreenState();
+  }
 }
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen>
@@ -1284,9 +1292,7 @@ class _RoleCard extends StatelessWidget {
                   width: 22,
                   height: 22,
                   decoration: BoxDecoration(
-                    color: isSelected
-                        ? BrandColors.camel
-                        : Colors.transparent,
+                    color: isSelected ? BrandColors.camel : Colors.transparent,
                     shape: BoxShape.circle,
                     border: Border.all(
                       color: isSelected
