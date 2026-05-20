@@ -41,7 +41,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
-import '../../../core/perf/perf_log.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../l10n/app_localizations.dart';
@@ -521,13 +520,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         const SizedBox(width: AppSpacing.xs),
         TextButton(
           key: const Key('btn-go-to-register'),
-          onPressed: isLoading
-              ? null
-              : () {
-                  perfLog('login:register-tap');
-                  context.push(RouteNames.register);
-                  perfLog('login:after-push');
-                },
+          onPressed: isLoading ? null : () => context.push(RouteNames.register),
           style: TextButton.styleFrom(
             foregroundColor: BrandColors.camel,
             // Compact tap padding keeps the line tight while still meeting the

@@ -14,7 +14,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../core/perf/perf_log.dart';
 import '../features/auth/presentation/auth_notifier.dart';
 import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/register_screen.dart';
@@ -69,29 +68,22 @@ GoRouter appRouter(Ref ref) {
     routes: [
       GoRoute(
         path: RouteNames.splash,
-        pageBuilder: (context, state) {
-          perfLog('router:build-splash-page');
-          return _instantPage(state, const SplashScreen());
-        },
+        pageBuilder: (context, state) =>
+            _instantPage(state, const SplashScreen()),
       ),
       GoRoute(
         path: RouteNames.login,
-        pageBuilder: (context, state) {
-          perfLog('router:build-login-page');
-          return _instantPage(state, const LoginScreen());
-        },
+        pageBuilder: (context, state) =>
+            _instantPage(state, const LoginScreen()),
       ),
       GoRoute(
         path: RouteNames.register,
-        pageBuilder: (context, state) {
-          perfLog('router:build-register-page');
-          return _instantPage(state, const RegisterScreen());
-        },
+        pageBuilder: (context, state) =>
+            _instantPage(state, const RegisterScreen()),
       ),
       GoRoute(
         path: RouteNames.verification,
         pageBuilder: (context, state) {
-          perfLog('router:build-verification-page');
           // Email is passed as GoRouter extra from RegisterScreen on success.
           // Fall back to empty string if extra is absent (e.g. manual deep-link).
           final email = (state.extra as String?) ?? '';
@@ -106,10 +98,8 @@ GoRouter appRouter(Ref ref) {
       ),
       GoRoute(
         path: RouteNames.home,
-        pageBuilder: (context, state) {
-          perfLog('router:build-home-page');
-          return _instantPage(state, const _Placeholder('home'));
-        },
+        pageBuilder: (context, state) =>
+            _instantPage(state, const _Placeholder('home')),
       ),
       GoRoute(
         path: RouteNames.settings,

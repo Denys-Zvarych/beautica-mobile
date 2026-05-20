@@ -1,10 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'core/perf/perf_log.dart';
 import 'core/theme/app_theme.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
@@ -21,33 +19,11 @@ import 'routing/app_router.dart';
 /// [appRouterProvider] via [ConsumerWidget]; the [_BootstrapHome] counter
 /// scaffold has been removed and the app now boots to [RouteNames.splash].
 void main() {
-  perfLog('main:enter');
   // Required before accessing any binding instance from main() — without it
   // SchedulerBinding.instance below hangs on Mali-G52 / this Flutter combo.
   WidgetsFlutterBinding.ensureInitialized();
   GoogleFonts.config.allowRuntimeFetching = kDebugMode;
 
-  // PERF instrumentation — frame timings.
-  //
-  // Logs any frame whose `buildDuration` or `rasterDuration` exceeds 50 ms
-  // (mobile budget is 16.7 ms at 60 fps; >50 ms is jank-level slow). Grep
-  // target: `adb logcat | grep BEAUTICA_PERF`.
-  SchedulerBinding.instance.addTimingsCallback((List<FrameTiming> timings) {
-    for (final t in timings) {
-      final buildMs = t.buildDuration.inMicroseconds / 1000.0;
-      final rasterMs = t.rasterDuration.inMicroseconds / 1000.0;
-      final totalMs = t.totalSpan.inMicroseconds / 1000.0;
-      if (rasterMs > 50.0 || buildMs > 50.0) {
-        perfLog(
-          'frame: build=${buildMs.toStringAsFixed(1)}ms '
-          'raster=${rasterMs.toStringAsFixed(1)}ms '
-          'total=${totalMs.toStringAsFixed(1)}ms',
-        );
-      }
-    }
-  });
-
-  perfLog('main:before-runApp');
   runApp(const ProviderScope(child: BeauticaApp()));
 }
 

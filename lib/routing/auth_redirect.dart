@@ -20,7 +20,6 @@
 // Testable without a widget tree: the function is pure and has no side effects.
 // See test/routing/auth_redirect_test.dart.
 
-import 'package:beautica_mobile/core/perf/perf_log.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -35,14 +34,6 @@ import 'route_names.dart';
 /// [state] is the [GoRouterState] provided by [GoRouter].
 String? authRedirect(AsyncValue<AuthSession> session, GoRouterState state) {
   final location = state.matchedLocation;
-  final stateName = session.isLoading
-      ? 'loading'
-      : session.hasError
-      ? 'error'
-      : session.value is Authenticated
-      ? 'authenticated'
-      : 'unauthenticated';
-  perfLog('redirect:enter (state=$stateName, location=$location)');
 
   // While the session is resolving (cold-start), route to /login. F4
   // (corrected design): build() resolves the Future synchronously to
@@ -54,7 +45,6 @@ String? authRedirect(AsyncValue<AuthSession> session, GoRouterState state) {
     if (location == RouteNames.login) {
       return null;
     }
-    perfLog('redirect:to=${RouteNames.login}');
     return RouteNames.login;
   }
 
@@ -74,13 +64,11 @@ String? authRedirect(AsyncValue<AuthSession> session, GoRouterState state) {
 
   // Settled unauthenticated user anywhere (including /splash) → /login.
   if (!isAuthenticated && (!isAtAuthRoute || isAtSplash)) {
-    perfLog('redirect:to=${RouteNames.login}');
     return RouteNames.login;
   }
 
   // Authenticated user sitting on an auth-only route or splash → send to home.
   if (isAuthenticated && (isAtAuthRoute || isAtSplash)) {
-    perfLog('redirect:to=${RouteNames.home}');
     return RouteNames.home;
   }
 

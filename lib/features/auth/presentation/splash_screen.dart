@@ -20,7 +20,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
-import '../../../core/perf/perf_log.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/brand_colors.dart';
 import 'auth_gradient_background.dart';
@@ -74,7 +73,6 @@ class _SplashScreenState extends State<SplashScreen>
 
     // Defer reduced-motion check to post-frame so MediaQuery is available.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      perfLog('splash:first-frame');
       if (!mounted) return;
       if (MediaQuery.of(context).disableAnimations) {
         _logoCtrl.value = 1.0;
@@ -93,7 +91,6 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    perfLog('splash:build');
     return Scaffold(
       // Warm Mocha palette — must match the shared AuthGradientBackground
       // (espresso #0D0906), not the legacy navy midnight.

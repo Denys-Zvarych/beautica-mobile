@@ -35,7 +35,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
-import '../../../core/perf/perf_log.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../l10n/app_localizations.dart';
@@ -174,16 +173,8 @@ String _intentDesc(_IntentOption option, AppLocalizations l10n) =>
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
-  // `perfLog` below is a fire-and-forget timing probe (single `print` call).
-  // It captures the moment the State object is about to be created so we can
-  // attribute the gap between the route's `pageBuilder` and the State's
-  // `initState`. No business logic — the analyzer rule does not apply.
   @override
-  // ignore: no_logic_in_create_state
-  ConsumerState<RegisterScreen> createState() {
-    perfLog('register:createState');
-    return _RegisterScreenState();
-  }
+  ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
 }
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen>
@@ -235,7 +226,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
 
   @override
   void initState() {
-    perfLog('register:initState');
     super.initState();
 
     _intentCtrl = AnimationController(
@@ -305,7 +295,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      perfLog('register:first-frame');
       if (!mounted) return;
       if (MediaQuery.of(context).disableAnimations) {
         _intentCtrl.value = 1.0;
@@ -313,7 +302,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
         _intentCtrl.forward();
       }
     });
-    perfLog('register:initState-done');
   }
 
   @override
@@ -485,7 +473,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
 
   @override
   Widget build(BuildContext context) {
-    perfLog('register:build');
     final l10n = AppLocalizations.of(context);
     final authState = ref.watch(authProvider);
     final isLoading = authState.isLoading;
