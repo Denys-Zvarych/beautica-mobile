@@ -96,9 +96,35 @@ dev_dependencies:
   custom_lint_builder: ^0.8.1
   riverpod_lint: ^3.1.0
 
+  # Launcher icon generator — runs at build prep time only (Phase 2.14).
+  # Generates Android mipmap-*/launcher_icon.png, adaptive-icon XML, themed
+  # monochrome variant, and the iOS AppIcon.appiconset family from the
+  # source PNGs in assets/branding/.
+  flutter_launcher_icons: ^0.14.1
+
+# Launcher icon configuration — read by `dart run flutter_launcher_icons`.
+# Lives at the TOP level (not under `flutter:`) because the dev tool — not the
+# Flutter framework — consumes it. Phase 2.14.
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/branding/launcher_icon_source.png"
+  image_path_android: "assets/branding/launcher_icon_source.png"
+  image_path_ios: "assets/branding/launcher_icon_source.png"
+  # Android 8+ adaptive icon layers (mandatory since target API 26+).
+  adaptive_icon_background: "#0D0906"
+  adaptive_icon_foreground: "assets/branding/launcher_icon_foreground.png"
+  # Android 13+ themed icons (monochrome silhouette tinted by user's wallpaper).
+  adaptive_icon_monochrome: "assets/branding/launcher_icon_monochrome.png"
+  # macOS / Windows / web deferred — only Android + iOS for MVP.
+  # In flutter_launcher_icons 0.14.x these platforms default to disabled when
+  # the key is omitted; passing `false` is a schema-cast error (expects Map).
+
 # Flutter section — enables Material icons + l10n codegen (`flutter gen-l10n`).
 flutter:
   uses-material-design: true
   generate: true
   assets:
     - assets/images/
+    - assets/branding/
