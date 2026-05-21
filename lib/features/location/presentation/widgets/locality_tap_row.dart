@@ -30,6 +30,7 @@ class LocalityTapRow extends StatelessWidget {
     this.value,
     this.enabled = true,
     this.helper,
+    this.errorText,
     this.labelSuffix,
     super.key,
   });
@@ -52,6 +53,12 @@ class LocalityTapRow extends StatelessWidget {
 
   /// Optional helper line rendered below the row (disabled-with-helper state).
   final String? helper;
+
+  /// Optional inline error rendered below the row in the rust error colour.
+  /// Used by Phase 2.19 to attach a per-level locality validation message to
+  /// the specific failing row (e.g. "Оберіть місто" under the City row) rather
+  /// than once below the whole cascade. Takes precedence over [helper].
+  final String? errorText;
 
   /// Optional inline widget rendered to the RIGHT of the [label] (same row as
   /// the label text). Used by Phase 2.19 to append the CLIENT "— необов'язково"
@@ -94,6 +101,11 @@ class LocalityTapRow extends StatelessWidget {
     fontSize: 11,
     height: 1.45,
     color: _kHelperColor,
+  );
+  static const _kErrorStyle = TextStyle(
+    fontSize: 11,
+    height: 1.4,
+    color: BrandColors.errorRust,
   );
 
   // Hoisted row decorations — selected by [_isFilled] so `build()` allocates
@@ -196,7 +208,25 @@ class LocalityTapRow extends StatelessWidget {
           value: _isFilled ? value : placeholder,
           child: row,
         ),
-        if (helper != null)
+        // Error takes precedence over the helper line (error-placement: a
+        // single message below the related field). When an error is present the
+        // helper is suppressed to avoid stacking two captions.
+        if (errorText != null)
+          Padding(
+            padding: const EdgeInsets.only(
+              top: AppSpacing.xxs,
+              left: AppSpacing.xxs,
+            ),
+            child: Semantics(
+              liveRegion: true,
+              child: Text(
+                errorText!,
+                key: const Key('locality_tap_row_error'),
+                style: _kErrorStyle,
+              ),
+            ),
+          )
+        else if (helper != null)
           Padding(
             padding: const EdgeInsets.only(
               top: AppSpacing.xxs,

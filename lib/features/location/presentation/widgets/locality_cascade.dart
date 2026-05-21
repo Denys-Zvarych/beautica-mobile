@@ -39,6 +39,9 @@ class LocalityCascade extends ConsumerWidget {
     this.districtRequired = false,
     this.showDistrictNoneHelper = true,
     this.oblastLabelSuffix,
+    this.oblastError,
+    this.cityError,
+    this.districtError,
     super.key,
   });
 
@@ -84,6 +87,14 @@ class LocalityCascade extends ConsumerWidget {
   /// here; null on every other consumer.
   final Widget? oblastLabelSuffix;
 
+  /// Per-row inline validation errors (Defect 7). Each is rendered below its
+  /// matching tap-row in the rust error colour. Null = no error on that row.
+  /// The consuming screen maps a [LocalityValidationError] to exactly one of
+  /// these so the message appears under the failing row, not the whole cascade.
+  final String? oblastError;
+  final String? cityError;
+  final String? districtError;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
@@ -108,6 +119,7 @@ class LocalityCascade extends ConsumerWidget {
           placeholder: l10n.localityOblastPlaceholder,
           value: oblast?.name,
           labelSuffix: oblastLabelSuffix,
+          errorText: oblastError,
           onTap: () => _pickOblast(context, ref),
         ),
         const SizedBox(height: AppSpacing.md),
@@ -117,6 +129,7 @@ class LocalityCascade extends ConsumerWidget {
           placeholder: l10n.localityCityPlaceholder,
           value: city?.name,
           enabled: cityEnabled,
+          errorText: cityError,
           onTap: () {
             final o = selectedOblast;
             if (o != null) _pickCity(context, ref, o);
@@ -129,6 +142,7 @@ class LocalityCascade extends ConsumerWidget {
           placeholder: l10n.localityDistrictPlaceholder,
           value: selectedDistrict?.name,
           enabled: districtEnabled,
+          errorText: districtError,
           helper: (showDistrictHelper && showDistrictNoneHelper)
               ? l10n.localityDistrictNoneHelper
               : null,

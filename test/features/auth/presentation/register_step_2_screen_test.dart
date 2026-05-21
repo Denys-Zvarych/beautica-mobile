@@ -241,14 +241,12 @@ void main() {
         expect(find.byKey(const Key('field-name')), findsOneWidget);
         expect(find.text('step-3'), findsNothing);
 
-        // (b) phone validation error is rendered.
-        // ARB key errPhoneInvalid = "Невірний формат телефону. Використовуйте +380 XX XXX XXXX"
-        expect(
-          find.text(
-            'Невірний формат телефону. Використовуйте +380 XX XXX XXXX',
-          ),
-          findsOneWidget,
+        // (b) phone validation error is rendered. Resolve via the l10n key so
+        // the assertion survives copy changes (Defect 4 shortened the string).
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const Key('field-phone'))),
         );
+        expect(find.text(l10n.errPhoneInvalid), findsOneWidget);
       },
     );
 

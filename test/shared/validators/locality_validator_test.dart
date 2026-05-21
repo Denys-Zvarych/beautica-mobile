@@ -39,11 +39,19 @@ final class _FakeL10n extends Fake implements AppLocalizations {
   String get errLocalityDistrictRequired => 'district_required';
 }
 
+/// Matcher helper — asserts a [LocalityValidationError] with the given level
+/// and message (Defect 7: the validator now returns BOTH so the screen can
+/// attach the message to the matching row).
+Matcher _isError(LocalityLevel level, String message) =>
+    isA<LocalityValidationError>()
+        .having((e) => e.level, 'level', level)
+        .having((e) => e.message, 'message', message);
+
 void main() {
   final l10n = _FakeL10n();
 
   group('validateProviderLocality — oblast (most-specific-node ordering)', () {
-    test('null oblast → errLocalityOblastRequired', () {
+    test('null oblast → oblast-level error', () {
       expect(
         validateProviderLocality(
           oblastCode: null,
@@ -52,11 +60,11 @@ void main() {
           cityHasDistricts: true,
           l10n: l10n,
         ),
-        equals('oblast_required'),
+        _isError(LocalityLevel.oblast, 'oblast_required'),
       );
     });
 
-    test('empty oblast → errLocalityOblastRequired', () {
+    test('empty oblast → oblast-level error', () {
       expect(
         validateProviderLocality(
           oblastCode: '',
@@ -65,7 +73,7 @@ void main() {
           cityHasDistricts: true,
           l10n: l10n,
         ),
-        equals('oblast_required'),
+        _isError(LocalityLevel.oblast, 'oblast_required'),
       );
     });
 
@@ -78,13 +86,13 @@ void main() {
           cityHasDistricts: false,
           l10n: l10n,
         ),
-        equals('oblast_required'),
+        _isError(LocalityLevel.oblast, 'oblast_required'),
       );
     });
   });
 
   group('validateProviderLocality — city', () {
-    test('oblast set, null city → errLocalityCityRequired', () {
+    test('oblast set, null city → city-level error', () {
       expect(
         validateProviderLocality(
           oblastCode: 'o1',
@@ -93,11 +101,11 @@ void main() {
           cityHasDistricts: false,
           l10n: l10n,
         ),
-        equals('city_required'),
+        _isError(LocalityLevel.city, 'city_required'),
       );
     });
 
-    test('oblast set, empty city → errLocalityCityRequired', () {
+    test('oblast set, empty city → city-level error', () {
       expect(
         validateProviderLocality(
           oblastCode: 'o1',
@@ -106,7 +114,7 @@ void main() {
           cityHasDistricts: false,
           l10n: l10n,
         ),
-        equals('city_required'),
+        _isError(LocalityLevel.city, 'city_required'),
       );
     });
   });
@@ -138,7 +146,7 @@ void main() {
       );
     });
 
-    test('non-leaf city, null district → errLocalityDistrictRequired', () {
+    test('non-leaf city, null district → district-level error', () {
       expect(
         validateProviderLocality(
           oblastCode: 'o1',
@@ -147,11 +155,11 @@ void main() {
           cityHasDistricts: true,
           l10n: l10n,
         ),
-        equals('district_required'),
+        _isError(LocalityLevel.district, 'district_required'),
       );
     });
 
-    test('non-leaf city, empty district → errLocalityDistrictRequired', () {
+    test('non-leaf city, empty district → district-level error', () {
       expect(
         validateProviderLocality(
           oblastCode: 'o1',
@@ -160,7 +168,7 @@ void main() {
           cityHasDistricts: true,
           l10n: l10n,
         ),
-        equals('district_required'),
+        _isError(LocalityLevel.district, 'district_required'),
       );
     });
 

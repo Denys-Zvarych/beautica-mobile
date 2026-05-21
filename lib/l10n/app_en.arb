@@ -496,7 +496,7 @@
   "@verificationConfirmBtn": {
     "description": "CTA button label on the email verification screen (verification-page.html .cta-btn)."
   },
-  "verificationBackBtn": "← Go back",
+  "verificationBackBtn": "Go back",
   "@verificationBackBtn": {
     "description": "Back link below the glass card on the email verification screen (verification-page.html .back-row a)."
   },
@@ -643,7 +643,7 @@
   "@step2CtaContinue": {
     "description": "CTA button label on the Step 2 Profile screen. Advances the wizard to Step 3."
   },
-  "errPhoneInvalid": "Invalid phone format. Use +380 XX XXX XXXX",
+  "errPhoneInvalid": "Invalid phone number",
   "@errPhoneInvalid": {
     "description": "Validation error shown when the phone field contains an unrecognised phone number."
   },
@@ -682,6 +682,10 @@
   "localityDistrictNoneHelper": "Optional for cities without districts",
   "@localityDistrictNoneHelper": {
     "description": "Helper line shown below the disabled District tap-row when the selected city has no urban districts."
+  },
+  "localityPickerClose": "Close",
+  "@localityPickerClose": {
+    "description": "Accessibility label / tooltip for the close (X) button in the header of the locality picker bottom sheet. Lets the user dismiss the sheet even with the keyboard open."
   },
   "localitySearchHint": "Search…",
   "@localitySearchHint": {

@@ -49,6 +49,10 @@ import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/util/mask_email.dart';
 import '../../../shared/widgets/auth_scaffold.dart';
+import '../../master/data/master_repository.dart';
+import '../../salon/data/salon_repository.dart';
+import '../domain/user_role.dart';
+import '../state/register_draft_notifier.dart';
 import 'auth_notifier.dart';
 import 'widgets/registration_progress.dart';
 
@@ -190,6 +194,15 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   /// Inline error message shown below the OTP row.
   String? _inlineError;
 
+  /// True once OTP verification has succeeded and a session token exists.
+  ///
+  /// Defect 8 — the provider profile/salon save (auth-required) runs HERE,
+  /// after verification, not on Step 3 (where there is no token yet). If that
+  /// save throws, the account is already verified, so a re-tap must NOT re-run
+  /// `verifyEmail` (the code is consumed) — it should retry only the save. This
+  /// flag drives that branch in [_submit].
+  bool _emailVerified = false;
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   @override
@@ -294,10 +307,23 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     final l10n = AppLocalizations.of(context);
 
     try {
-      await ref
-          .read(authProvider.notifier)
-          .verifyEmail(email: widget.email, otp: _otp);
+      // Skip re-verification when the code was already accepted but the
+      // post-verification provider save failed (Defect 8 retry path): the OTP
+      // is consumed, so only retry the save.
+      if (!_emailVerified) {
+        await ref
+            .read(authProvider.notifier)
+            .verifyEmail(email: widget.email, otp: _otp);
+        if (!mounted) return;
+        _emailVerified = true;
+      }
 
+      // Defect 8 — a session token now exists, so persist the provider's
+      // locality/address that was stashed in the draft on Step 3. This is the
+      // FIRST point the auth-required PATCH /independent-masters/me and
+      // POST /salons calls can succeed. A failure here surfaces a real inline
+      // error (not silent) and keeps the user on this screen so they can retry.
+      await _saveProviderProfile(l10n);
       if (!mounted) return;
 
       if (kDebugMode) {
@@ -312,6 +338,59 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       if (!mounted) return;
       final message = _errorMessage(e, l10n);
       setState(() => _inlineError = message);
+    }
+  }
+
+  /// Persists the provider's locality/address after verification.
+  ///
+  /// Reads the stashed Step 3 slice from the keepAlive register draft and calls
+  /// the role-appropriate endpoint:
+  ///   INDEPENDENT_MASTER → PATCH /independent-masters/me
+  ///   SALON_OWNER        → POST  /salons
+  ///   CLIENT             → no provider profile; locality rode along in the
+  ///                        register body — nothing to save.
+  ///
+  /// Rethrows the typed [Failure] on error so [_submit]'s catch surfaces it as
+  /// a real inline message (Defect 8 — never silent).
+  Future<void> _saveProviderProfile(AppLocalizations l10n) async {
+    final draft = ref.read(registerDraftProvider);
+    // No draft (e.g. deep-link straight to /verification) or no city selected →
+    // nothing to persist. CLIENT also has no provider profile.
+    if (draft == null) return;
+    final cityId = draft.cityId;
+    if (cityId == null || cityId.isEmpty) return;
+
+    final districtId = draft.districtId;
+
+    switch (draft.role) {
+      case UserRole.independentMaster:
+        await ref
+            .read(masterRepositoryProvider)
+            .updateLocality(
+              cityId: cityId,
+              districtId: districtId,
+              street: draft.street,
+              buildingNo: draft.buildingNo,
+              locationNote: draft.locationNote,
+            );
+      case UserRole.salonOwner:
+        await ref
+            .read(salonRepositoryProvider)
+            .create(
+              dto: SalonCreateDto(
+                name: draft.salonName,
+                cityId: cityId,
+                districtId: districtId,
+                street: draft.street,
+                buildingNo: draft.buildingNo,
+                locationNote: draft.locationNote,
+              ),
+            );
+      case UserRole.client:
+      case UserRole.salonAdmin:
+      case UserRole.salonMaster:
+        // No provider profile to persist for these roles.
+        return;
     }
   }
 
@@ -792,15 +871,30 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
         child: Semantics(
           button: true,
           label: l10n.verificationBackBtn,
-          child: Text(
-            l10n.verificationBackBtn,
-            // .back-row a { color: var(--accent); font-weight: 600 }
-            style: const TextStyle(
-              fontFamily: 'Manrope',
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: BrandColors.camel,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Icons.west is a Material icon (always paints). The Manrope UI
+              // font has no glyph for U+2190 (←), so a literal "← " baked into
+              // the ARB rendered a blank tofu square. This mirrors the
+              // already-correct back-link pattern in RegisterFlowShell.
+              Icon(
+                Icons.west,
+                size: 15,
+                color: BrandColors.camel.withValues(alpha: 0.85),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                l10n.verificationBackBtn,
+                // .back-row a { color: var(--accent); font-weight: 600 }
+                style: const TextStyle(
+                  fontFamily: 'Manrope',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: BrandColors.camel,
+                ),
+              ),
+            ],
           ),
         ),
       ),

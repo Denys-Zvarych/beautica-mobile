@@ -49,6 +49,10 @@ Future<T?> showLocalityPickerSheet<T>({
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
+    // Explicit dismiss affordances: tapping the scrim closes the sheet, AND the
+    // header carries an explicit close (X) button (Defect 6) — with the keyboard
+    // open the scrim can be unreachable, so the X is the reliable escape route.
+    isDismissible: true,
     backgroundColor: Colors.transparent,
     barrierColor: const Color(0x99000000), // ~60% black scrim for legibility
     builder: (_) => _LocalityPickerSheet<T>(
@@ -183,125 +187,156 @@ class _LocalityPickerSheetState<T>
       padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxHeight),
-        child: DecoratedBox(
-          // Warm-Mocha gradient base, then a translucent white glass overlay —
-          // matches the app's surface treatment instead of a flat near-black.
-          decoration: _kSheetDecoration,
+        // Clip the whole gradient + glass + list stack to the 16 px top radius
+        // (Defect 1). Without this, the rounded look came only from the
+        // DecoratedBox borderRadius, leaving the square corners outside the
+        // radius painting the dark scrim as black wedges.
+        child: ClipRRect(
+          borderRadius: _kSheetRadius,
           child: DecoratedBox(
-            decoration: _kSheetGlassOverlay,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Drag handle.
-                const Padding(
-                  padding: EdgeInsets.only(
-                    top: AppSpacing.sm,
-                    bottom: AppSpacing.xs,
-                  ),
-                  child: _DragHandle(color: _kHandleColor),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.md,
-                    AppSpacing.xxs,
-                    AppSpacing.md,
-                    AppSpacing.sm,
-                  ),
-                  child: Text(widget.titleLabel, style: _kTitleStyle),
-                ),
-                // Search field.
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.md,
-                    0,
-                    AppSpacing.md,
-                    AppSpacing.sm,
-                  ),
-                  child: TextField(
-                    key: const Key('locality_picker_search'),
-                    controller: _searchController,
-                    onChanged: _onSearchChanged,
-                    autocorrect: false,
-                    textInputAction: TextInputAction.search,
-                    style: const TextStyle(
-                      fontSize: 15,
-                      color: BrandColors.cream,
+            // Warm-Mocha gradient base, then a translucent white glass overlay —
+            // matches the app's surface treatment instead of a flat near-black.
+            decoration: _kSheetDecoration,
+            child: DecoratedBox(
+              decoration: _kSheetGlassOverlay,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Drag handle.
+                  const Padding(
+                    padding: EdgeInsets.only(
+                      top: AppSpacing.sm,
+                      bottom: AppSpacing.xs,
                     ),
-                    cursorColor: BrandColors.camel,
-                    decoration: InputDecoration(
-                      isDense: true,
-                      filled: true,
-                      fillColor: _kSearchFill,
-                      hintText: l10n.localitySearchHint,
-                      hintStyle: const TextStyle(color: Color(0x59FFFFFF)),
-                      prefixIcon: const Icon(
-                        Icons.search_rounded,
-                        size: 20,
-                        color: Color(0x80FFFFFF),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: AppSpacing.sm,
-                      ),
-                      enabledBorder: const OutlineInputBorder(
-                        borderRadius: _kSearchRadius,
-                        borderSide: BorderSide(color: _kSearchBorder),
-                      ),
-                      focusedBorder: const OutlineInputBorder(
-                        borderRadius: _kSearchRadius,
-                        borderSide: BorderSide(color: BrandColors.camel),
-                      ),
+                    child: _DragHandle(color: _kHandleColor),
+                  ),
+                  // Header: title on the left, explicit close (X) on the right.
+                  // The close button is the reliable dismiss affordance when the
+                  // keyboard is open and the scrim is unreachable (Defect 6).
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.md,
+                      AppSpacing.xxs,
+                      AppSpacing.xs,
+                      AppSpacing.sm,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(widget.titleLabel, style: _kTitleStyle),
+                        ),
+                        IconButton(
+                          key: const Key('locality_picker_close'),
+                          icon: const Icon(Icons.close_rounded),
+                          iconSize: 20,
+                          color: BrandColors.camel,
+                          tooltip: l10n.localityPickerClose,
+                          // 44×44 hit target (touch-target-size); visual glyph 20.
+                          constraints: const BoxConstraints(
+                            minWidth: 44,
+                            minHeight: 44,
+                          ),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                Flexible(
-                  child: async.when(
-                    loading: () => const _SheetLoading(),
-                    error: (err, _) => _SheetError(
-                      failure: err,
-                      onRetry: widget.onRetry,
-                      retryLabel: l10n.localityRetry,
+                  // Search field.
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.md,
+                      0,
+                      AppSpacing.md,
+                      AppSpacing.sm,
                     ),
-                    data: (items) {
-                      final filtered = _filter(items);
-                      if (filtered.isEmpty) {
-                        return Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(AppSpacing.xl),
-                            child: Text(
-                              l10n.localitySearchEmpty,
-                              key: const Key('locality_picker_empty'),
-                              style: _kEmptyStyle,
+                    child: TextField(
+                      key: const Key('locality_picker_search'),
+                      controller: _searchController,
+                      onChanged: _onSearchChanged,
+                      autocorrect: false,
+                      textInputAction: TextInputAction.search,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        color: BrandColors.cream,
+                      ),
+                      cursorColor: BrandColors.camel,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        filled: true,
+                        fillColor: _kSearchFill,
+                        hintText: l10n.localitySearchHint,
+                        hintStyle: const TextStyle(color: Color(0x59FFFFFF)),
+                        prefixIcon: const Icon(
+                          Icons.search_rounded,
+                          size: 20,
+                          color: Color(0x80FFFFFF),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: AppSpacing.sm,
+                        ),
+                        enabledBorder: const OutlineInputBorder(
+                          borderRadius: _kSearchRadius,
+                          borderSide: BorderSide(color: _kSearchBorder),
+                        ),
+                        focusedBorder: const OutlineInputBorder(
+                          borderRadius: _kSearchRadius,
+                          borderSide: BorderSide(color: BrandColors.camel),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Flexible(
+                    child: async.when(
+                      loading: () => const _SheetLoading(),
+                      error: (err, _) => _SheetError(
+                        failure: err,
+                        onRetry: widget.onRetry,
+                        retryLabel: l10n.localityRetry,
+                      ),
+                      data: (items) {
+                        final filtered = _filter(items);
+                        if (filtered.isEmpty) {
+                          return Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(AppSpacing.xl),
+                              child: Text(
+                                l10n.localitySearchEmpty,
+                                key: const Key('locality_picker_empty'),
+                                style: _kEmptyStyle,
+                              ),
                             ),
+                          );
+                        }
+                        // Isolate fling-scroll repaints from the gradient + glass
+                        // layers behind the list (those never change on scroll).
+                        return RepaintBoundary(
+                          child: ListView.builder(
+                            padding: const EdgeInsets.only(
+                              bottom: AppSpacing.md,
+                            ),
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) {
+                              final item = filtered[index];
+                              final label = widget.labelOf(item);
+                              // Key off the item's stable UUID — unique within the
+                              // list (homonymous settlements share a `nameUk`, which
+                              // would collide on a label-derived key) and not
+                              // user-facing. Stable across filtered reorder too.
+                              return LocalityPickerTile(
+                                key: ValueKey(
+                                  'locality_picker_tile_${widget.idOf(item)}',
+                                ),
+                                label: label,
+                                onTap: () => Navigator.of(context).pop(item),
+                              );
+                            },
                           ),
                         );
-                      }
-                      // Isolate fling-scroll repaints from the gradient + glass
-                      // layers behind the list (those never change on scroll).
-                      return RepaintBoundary(
-                        child: ListView.builder(
-                          padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                          itemCount: filtered.length,
-                          itemBuilder: (context, index) {
-                            final item = filtered[index];
-                            final label = widget.labelOf(item);
-                            // Key off the item's stable UUID — unique within the
-                            // list (homonymous settlements share a `nameUk`, which
-                            // would collide on a label-derived key) and not
-                            // user-facing. Stable across filtered reorder too.
-                            return LocalityPickerTile(
-                              key: ValueKey(
-                                'locality_picker_tile_${widget.idOf(item)}',
-                              ),
-                              label: label,
-                              onTap: () => Navigator.of(context).pop(item),
-                            );
-                          },
-                        ),
-                      );
-                    },
+                      },
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

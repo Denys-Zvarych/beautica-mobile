@@ -21,18 +21,20 @@
 //
 // Submit flow (phase doc Step 3):
 //   1. Validate per role.
-//   2. Write the Step 3 slice into registerDraftProvider.
+//   2. Write the Step 3 slice (locality + address) into registerDraftProvider.
 //   3. register(draft) → POST /auth/register/<role>.
-//   4. On register success, role-aware profile/locality save:
-//        CLIENT (Зберегти) → no dedicated client-locality endpoint yet, so the
-//                            locality already rode along in the register body;
-//                            nothing extra to save.
-//        CLIENT (Пропустити)→ null out locality, skip save.
-//        MASTER            → masterRepository.updateLocality(...).
-//        OWNER             → salonRepository.create(SalonCreateDto(...)).
-//   5. Navigate to /verification (carrying the email via `extra`).
-//   If the profile-save fails AFTER register succeeds, do NOT roll back —
-//   surface a snackbar and still navigate to /verification.
+//   4. Navigate to /verification (carrying the email via `extra`).
+//
+// The role-aware profile/salon save deliberately does NOT run on this screen.
+// register() returns VerificationRequired with NO access token, so the
+// auth-required PATCH /independent-masters/me and POST /salons calls would 401
+// and the address would be silently lost (Defect 8). The locality + address
+// slice is stashed in the keepAlive draft and persisted by VerificationScreen
+// AFTER OTP verification issues a session:
+//   CLIENT             → locality rides along in the register body; nothing
+//                        extra to save (and "Пропустити" nulls it out).
+//   INDEPENDENT_MASTER → masterRepository.updateLocality(...) post-verification.
+//   SALON_OWNER        → salonRepository.create(SalonCreateDto(...)) post-verif.
 //
 // Design tokens (ARCHITECTURE-mobile.md § 9 — locked): input radius 12, input
 // fill white 7%, CTA height 52, CTA radius 14, CTA gradient #4A2E10→#6A4A28→
@@ -60,11 +62,8 @@ import '../../location/domain/city.dart';
 import '../../location/domain/city_district.dart';
 import '../../location/domain/oblast.dart';
 import '../../location/presentation/widgets/locality_cascade.dart';
-import '../../master/data/master_repository.dart';
-import '../../salon/data/salon_repository.dart';
 import '../domain/register_result.dart';
 import '../domain/user_role.dart';
-import '../state/register_draft.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_notifier.dart';
 import 'widgets/sub_step_indicator.dart';
@@ -225,8 +224,10 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
   bool _submitting = false;
 
   /// Set when the provider tapped submit with an unsatisfied locality — drives
-  /// the inline locality error message (the cascade has no FormField hook).
-  String? _localityError;
+  /// the inline locality error message under the FAILING row (the cascade has
+  /// no FormField hook). Carries the level so the message attaches to the
+  /// matching row (Defect 7), not once below the whole cascade.
+  LocalityValidationError? _localityError;
 
   @override
   void dispose() {
@@ -287,6 +288,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
         // Focus the first invalid text field (UX: focus-management) once
         // locality is satisfied.
         if (localityErr == null) {
+          // (locality satisfied — fall through to address-field focusing below)
           if (validateStreet(_streetController.text, l10n) != null) {
             _streetFocusNode.requestFocus();
           } else if (validateBuilding(_buildingController.text, l10n) != null) {
@@ -318,10 +320,20 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
     await _runRegisterAndSave(l10n: l10n, role: role, skipLocality: true);
   }
 
-  /// Shared register + role-aware profile-save + navigate pipeline.
+  /// Shared register + navigate pipeline.
   ///
-  /// [skipLocality] true for CLIENT "Пропустити": locality is nulled out and no
-  /// profile-save runs.
+  /// [skipLocality] true for CLIENT "Пропустити": locality is nulled out.
+  ///
+  /// Defect 8 — the role-aware profile/salon save (PATCH /independent-masters/me
+  /// and POST /salons) is AUTH-REQUIRED, but `register()` returns
+  /// [VerificationRequired] with NO access token, so calling those endpoints
+  /// here always 401'd and the address was silently lost. The Step 3 locality +
+  /// address are stashed in the keepAlive draft; the actual provider save now
+  /// runs in [VerificationScreen] AFTER OTP verification issues a session.
+  ///
+  /// Defect 2 — the body is wrapped in try/finally so `_submitting` is ALWAYS
+  /// reset even on a throw/early-return, otherwise both CTAs (incl. the CLIENT
+  /// "Пропустити" ghost button) could stick permanently disabled.
   Future<void> _runRegisterAndSave({
     required AppLocalizations l10n,
     required UserRole role,
@@ -348,115 +360,59 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
 
     setState(() => _submitting = true);
 
-    if (kDebugMode) {
-      log(
-        'Step 3 submit: role=${role.toWire} skipLocality=$skipLocality '
-        'isProvider=${role != UserRole.client}',
-        name: 'auth.register.step3',
-        level: 800,
-      );
-    }
-
-    // 1. Register the account.
-    final result = await ref
-        .read(authProvider.notifier)
-        .register(
-          email: draft.email,
-          password: draft.password,
-          firstName: draft.firstName,
-          lastName: draft.lastName,
-          role: role,
-          businessName: role == UserRole.salonOwner ? draft.salonName : null,
-          phone: draft.phone,
-        );
-
-    if (!mounted) return;
-
-    // register() returns null only when an AsyncError was captured — surface it
-    // and stop (the account was NOT created).
-    if (result == null) {
-      setState(() => _submitting = false);
-      final error = ref.read(authProvider).error;
-      _showSnackBar(
-        error is Failure ? error.userMessage(context) : l10n.errUnknown,
-      );
-      return;
-    }
-
-    // Security (MEDIUM-1) — the account now exists, so the plaintext password
-    // is no longer needed by the wizard (the OTP step keys off the email). Wipe
-    // it from the keepAlive draft immediately, BEFORE any further await /
-    // navigation, so the credential's in-memory lifetime is minimal. The full
-    // reset still runs at /done; this is the earlier, narrower clear.
-    draftNotifier.clearCredentials();
-
-    // 2. Role-aware profile/locality save (best-effort — failure does NOT roll
-    //    back the registration; we still navigate).
-    if (!skipLocality) {
-      final saved = await _saveProfileLocality(role: role, draft: draft);
-      if (!mounted) return;
-      if (!saved) {
-        _showSnackBar(l10n.step3ProfileSaveFallback);
-      }
-    }
-
-    // 3. Navigate to verification, carrying the email for the OTP screen.
-    final email = result is VerificationRequired ? result.email : draft.email;
-    if (!mounted) return;
-    setState(() => _submitting = false);
-    context.go(RouteNames.verification, extra: email);
-  }
-
-  /// Performs the role-specific locality write. Returns true on success, false
-  /// if it threw (caller surfaces the fallback snackbar). Never rethrows.
-  Future<bool> _saveProfileLocality({
-    required UserRole role,
-    required RegisterDraft draft,
-  }) async {
     try {
-      switch (role) {
-        case UserRole.independentMaster:
-          await ref
-              .read(masterRepositoryProvider)
-              .updateLocality(
-                cityId: _city!.id,
-                districtId: _district?.id,
-                street: _streetController.text.trim(),
-                buildingNo: _buildingController.text.trim(),
-                locationNote: _noteController.text.trim(),
-              );
-          return true;
-        case UserRole.salonOwner:
-          await ref
-              .read(salonRepositoryProvider)
-              .create(
-                dto: SalonCreateDto(
-                  name: draft.salonName,
-                  cityId: _city!.id,
-                  districtId: _district?.id,
-                  street: _streetController.text.trim(),
-                  buildingNo: _buildingController.text.trim(),
-                  locationNote: _noteController.text.trim(),
-                ),
-              );
-          return true;
-        case UserRole.client:
-        case UserRole.salonAdmin:
-        case UserRole.salonMaster:
-          // CLIENT locality (when not skipped) rode along in the register body;
-          // staff roles never reach this screen with a save. Nothing to do.
-          return true;
-      }
-    } catch (e, st) {
       if (kDebugMode) {
         log(
-          'profile-save after register failed (tolerated): ${e.runtimeType}',
+          'Step 3 submit: role=${role.toWire} skipLocality=$skipLocality '
+          'isProvider=${role != UserRole.client}',
           name: 'auth.register.step3',
-          level: 900,
-          stackTrace: st,
+          level: 800,
         );
       }
-      return false;
+
+      // 1. Register the account.
+      final result = await ref
+          .read(authProvider.notifier)
+          .register(
+            email: draft.email,
+            password: draft.password,
+            firstName: draft.firstName,
+            lastName: draft.lastName,
+            role: role,
+            businessName: role == UserRole.salonOwner ? draft.salonName : null,
+            phone: draft.phone,
+          );
+
+      if (!mounted) return;
+
+      // register() returns null only when an AsyncError was captured — surface
+      // it and stop (the account was NOT created).
+      if (result == null) {
+        final error = ref.read(authProvider).error;
+        _showSnackBar(
+          error is Failure ? error.userMessage(context) : l10n.errUnknown,
+        );
+        return;
+      }
+
+      // Security (MEDIUM-1) — the account now exists, so the plaintext password
+      // is no longer needed by the wizard (the OTP step keys off the email).
+      // Wipe it from the keepAlive draft immediately, BEFORE navigation, so the
+      // credential's in-memory lifetime is minimal. The full reset still runs
+      // at /done; this is the earlier, narrower clear. The locality/address
+      // slice stays in the draft so the post-verification save can read it.
+      draftNotifier.clearCredentials();
+
+      // 2. Navigate to verification, carrying the email for the OTP screen.
+      //    The provider profile/salon save deliberately does NOT run here — see
+      //    the method doc (Defect 8); it runs post-verification once a session
+      //    token exists.
+      final email = result is VerificationRequired ? result.email : draft.email;
+      if (!mounted) return;
+      context.go(RouteNames.verification, extra: email);
+    } finally {
+      // Defect 2 — always re-enable the CTAs, even on a throw or early return.
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
@@ -603,7 +559,7 @@ class _LocalityBlock extends StatelessWidget {
   final Oblast? oblast;
   final City? city;
   final CityDistrict? district;
-  final String? localityError;
+  final LocalityValidationError? localityError;
   final ValueChanged<Oblast?> onOblast;
   final ValueChanged<City?> onCity;
   final ValueChanged<CityDistrict?> onDistrict;
@@ -611,36 +567,29 @@ class _LocalityBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        LocalityCascade(
-          key: const Key('locality-cascade'),
-          selectedOblast: oblast,
-          selectedCity: city,
-          selectedDistrict: district,
-          onOblast: onOblast,
-          onCity: onCity,
-          onDistrict: onDistrict,
-          districtRequired: !isClient,
-          // Phase 2.19 design dropped the "Не обов'язково для міст без районів"
-          // helper line; the row still switches to disabled for leaf cities.
-          showDistrictNoneHelper: false,
-          // HTML: the Область label carries (CLIENT only) a muted optional tag,
-          // and (all roles) a "?" tip-icon. Appended inline to the row label.
-          oblastLabelSuffix: _OblastLabelSuffix(isClient: isClient, l10n: l10n),
-        ),
-        if (localityError != null)
-          Padding(
-            padding: const EdgeInsets.only(top: AppSpacing.xs),
-            child: Text(
-              localityError!,
-              key: const Key('locality-error'),
-              // role=alert equivalent — announce to screen readers (UX a11y).
-              style: _kErrorStyle,
-            ),
-          ),
-      ],
+    // Defect 7 — route the single first-unsatisfied message to the FAILING
+    // row only, so e.g. "Оберіть місто" renders under the City row instead of
+    // once below the whole cascade (which placed it under the District row).
+    final err = localityError;
+    return LocalityCascade(
+      key: const Key('locality-cascade'),
+      selectedOblast: oblast,
+      selectedCity: city,
+      selectedDistrict: district,
+      onOblast: onOblast,
+      onCity: onCity,
+      onDistrict: onDistrict,
+      districtRequired: !isClient,
+      oblastError: err?.level == LocalityLevel.oblast ? err!.message : null,
+      cityError: err?.level == LocalityLevel.city ? err!.message : null,
+      districtError: err?.level == LocalityLevel.district ? err!.message : null,
+      // Defect 5 — re-enable the "Не обов'язково для міст без районів" caption
+      // on the District row for leaf cities so users understand WHY the field
+      // is disabled (backend has districts only for ~17 large cities).
+      showDistrictNoneHelper: true,
+      // HTML: the Область label carries (CLIENT only) a muted optional tag,
+      // and (all roles) a "?" tip-icon. Appended inline to the row label.
+      oblastLabelSuffix: _OblastLabelSuffix(isClient: isClient, l10n: l10n),
     );
   }
 }

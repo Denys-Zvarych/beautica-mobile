@@ -496,7 +496,7 @@
   "@verificationConfirmBtn": {
     "description": "CTA button label on the email verification screen (verification-page.html .cta-btn)."
   },
-  "verificationBackBtn": "← Повернутись назад",
+  "verificationBackBtn": "Повернутись назад",
   "@verificationBackBtn": {
     "description": "Back link below the glass card on the email verification screen (verification-page.html .back-row a)."
   },
@@ -643,7 +643,7 @@
   "@step2CtaContinue": {
     "description": "CTA button label on the Step 2 Profile screen (sign-up-step-2-profile.html .cta-btn — 'Продовжити'). Advances the wizard to Step 3."
   },
-  "errPhoneInvalid": "Невірний формат телефону. Використовуйте +380 XX XXX XXXX",
+  "errPhoneInvalid": "Невірний номер телефону",
   "@errPhoneInvalid": {
     "description": "Validation error shown when the phone field contains an unrecognised phone number. Accepts Ukrainian +380 format with 9-digit subscriber number."
   },
@@ -682,6 +682,10 @@
   "localityDistrictNoneHelper": "Не обов'язково для міст без районів",
   "@localityDistrictNoneHelper": {
     "description": "Helper line shown below the disabled District tap-row when the selected city has no urban districts (sign-up-step-3-address.html .picker-helper — \"Не обов'язково для міст без районів.\")."
+  },
+  "localityPickerClose": "Закрити",
+  "@localityPickerClose": {
+    "description": "Accessibility label / tooltip for the close (X) button in the header of the locality picker bottom sheet. Lets the user dismiss the sheet even with the keyboard open."
   },
   "localitySearchHint": "Пошук…",
   "@localitySearchHint": {

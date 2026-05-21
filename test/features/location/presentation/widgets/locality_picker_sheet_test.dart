@@ -270,6 +270,61 @@ void main() {
     });
   });
 
+  group('sheet shape + dismiss affordances (Defects 1 & 6)', () {
+    testWidgets(
+      'Defect 1 — sheet body is clipped to a 16px top-radius ClipRRect',
+      (tester) async {
+        final repo = _CountingLocationRepository();
+        await tester.pumpWidget(_wrap(const _CascadeHarness(), repo));
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('locality_row_oblast')));
+        await tester.pumpAndSettle();
+
+        // Structural assertion (NOT a golden re-baseline, per project rule):
+        // a ClipRRect with the exact 16px top-radius must wrap the gradient +
+        // glass + list stack, so the corners can't show black scrim wedges.
+        const expectedRadius = BorderRadius.vertical(top: Radius.circular(16));
+        final clips = tester
+            .widgetList<ClipRRect>(find.byType(ClipRRect))
+            .where((c) => c.borderRadius == expectedRadius);
+        expect(
+          clips,
+          isNotEmpty,
+          reason: 'sheet stack must be clipped to the 16px top radius',
+        );
+      },
+    );
+
+    testWidgets('Defect 6 — explicit close (X) button dismisses the sheet', (
+      tester,
+    ) async {
+      final repo = _CountingLocationRepository();
+      await tester.pumpWidget(_wrap(const _CascadeHarness(), repo));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('locality_row_oblast')));
+      await tester.pumpAndSettle();
+
+      // Sheet is open: the close button + a tile are present.
+      final close = find.byKey(const Key('locality_picker_close'));
+      expect(close, findsOneWidget);
+      expect(
+        find.byKey(ValueKey('locality_picker_tile_${_oblast.id}')),
+        findsOneWidget,
+      );
+
+      // Tapping the X pops the sheet without selecting anything.
+      await tester.tap(close);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('locality_picker_close')), findsNothing);
+      expect(
+        find.byKey(ValueKey('locality_picker_tile_${_oblast.id}')),
+        findsNothing,
+      );
+    });
+  });
+
   group('keepAlive memoization — no refetch on reopen (AC#4)', () {
     testWidgets(
       'oblast / city / district fetches fire exactly once across reopens',

@@ -2,21 +2,26 @@
 //
 // SOURCE OF TRUTH: docs/signup-designs/sign-up-step-3-address.html.
 //
-// Covered scenarios (9 per phase-doc Step 7):
+// Covered scenarios:
 //   1. CLIENT renders 3 picker rows + split CTA, NO street/building/note.
 //   2. MASTER renders 3 picker rows + street/building/note + single CTA.
 //   3. OWNER renders 3 picker rows + street/building/note + single CTA.
-//   4. CLIENT "Пропустити" → register WITHOUT profile-save → /verification.
-//   5. MASTER full submit → register THEN updateLocality → /verification.
-//   6. OWNER full submit → register THEN salon.create → /verification.
-//   7. City-without-districts → District disabled; provider submit succeeds with
-//      districtId = null.
-//   8. City-with-districts, district unpicked → submit blocked, "Оберіть район".
-//   9. Profile-save failure after register success → snackbar + still navigates.
+//   4. CLIENT "Пропустити" → register → /verification (no provider save).
+//   5. MASTER full submit → register, stash locality in draft → /verification.
+//      The provider save is DEFERRED to VerificationScreen (Defect 8): no
+//      updateLocality call happens on Step 3 (no token yet → it would 401).
+//   6. OWNER full submit → register, stash salon locality → /verification.
+//   7. City-without-districts → District disabled; submit OK, draft districtId
+//      stays null.
+//   8. City-with-districts, district unpicked → submit blocked; "Оберіть район"
+//      renders under the DISTRICT row (Defect 7 per-row error placement).
+//   9. (Defect 2) CLIENT Save→(validation/register error)→Skip proves the
+//      _submitting flag resets so the CTAs are not stuck disabled.
 //
 // Strategy: override authRepositoryProvider (register), locationRepositoryProvider
-// (cascade), masterRepositoryProvider + salonRepositoryProvider (profile-save)
-// with mocktail mocks / a fake. The draft is pre-seeded with Step 1/2 data.
+// (cascade). masterRepositoryProvider / salonRepositoryProvider are still
+// overridable but are NOT invoked on Step 3 anymore — the save moved to
+// verification. The draft is pre-seeded with Step 1/2 data.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
@@ -330,8 +335,11 @@ void main() {
     expect(find.text('verification:a@b.com'), findsOneWidget);
   });
 
-  // ── 5. MASTER full submit → register THEN updateLocality → /verification ──
-  testWidgets('5. MASTER submit → register then updateLocality, navigates', (
+  // ── 5. MASTER full submit → register, stash locality, navigate ────────────
+  // Defect 8 — the provider save is DEFERRED to VerificationScreen, so Step 3
+  // must NOT call updateLocality (no session token yet). It must register,
+  // stash the locality/address in the draft, and navigate.
+  testWidgets('5. MASTER submit → register, stash draft locality, navigates', (
     tester,
   ) async {
     final authRepo = _MockAuthRepository();
@@ -350,15 +358,6 @@ void main() {
     ).thenAnswer(
       (_) async => const RegisterResult.verificationRequired(email: 'a@b.com'),
     );
-    when(
-      () => masterRepo.updateLocality(
-        cityId: any(named: 'cityId'),
-        districtId: any(named: 'districtId'),
-        street: any(named: 'street'),
-        buildingNo: any(named: 'buildingNo'),
-        locationNote: any(named: 'locationNote'),
-      ),
-    ).thenAnswer((_) async {});
 
     final container = _container(
       role: UserRole.independentMaster,
@@ -381,7 +380,7 @@ void main() {
 
     await _tap(tester, const Key('btn-save-continue-step3'));
 
-    verifyInOrder([
+    verify(
       () => authRepo.registerIndependentMaster(
         email: any(named: 'email'),
         password: any(named: 'password'),
@@ -392,20 +391,30 @@ void main() {
         address: any(named: 'address'),
         phone: any(named: 'phone'),
       ),
+    ).called(1);
+    // The auth-required save MUST NOT run on Step 3 (Defect 8).
+    verifyNever(
       () => masterRepo.updateLocality(
-        cityId: 'c1',
-        districtId: 'd1',
-        // Pin the trimmed street to lock the screen→repo arg mapping (M4).
-        street: 'вул. Тестова',
+        cityId: any(named: 'cityId'),
+        districtId: any(named: 'districtId'),
+        street: any(named: 'street'),
         buildingNo: any(named: 'buildingNo'),
         locationNote: any(named: 'locationNote'),
       ),
-    ]);
+    );
+    // The locality/address is stashed in the keepAlive draft for the
+    // post-verification save.
+    final draft = container.read(registerDraftProvider)!;
+    expect(draft.cityId, 'c1');
+    expect(draft.districtId, 'd1');
+    expect(draft.street, 'вул. Тестова');
     expect(find.text('verification:a@b.com'), findsOneWidget);
   });
 
-  // ── 6. OWNER full submit → register THEN salon.create → /verification ─────
-  testWidgets('6. OWNER submit → register then salon.create, navigates', (
+  // ── 6. OWNER full submit → register, stash salon locality, navigate ───────
+  // Defect 8 — POST /salons is deferred to VerificationScreen; Step 3 must not
+  // call salon.create.
+  testWidgets('6. OWNER submit → register, stash draft locality, navigates', (
     tester,
   ) async {
     final authRepo = _MockAuthRepository();
@@ -424,9 +433,6 @@ void main() {
     ).thenAnswer(
       (_) async => const RegisterResult.verificationRequired(email: 'a@b.com'),
     );
-    when(
-      () => salonRepo.create(dto: any(named: 'dto')),
-    ).thenAnswer((_) async {});
 
     final container = _container(
       role: UserRole.salonOwner,
@@ -449,7 +455,7 @@ void main() {
 
     await _tap(tester, const Key('btn-save-continue-step3'));
 
-    verifyInOrder([
+    verify(
       () => authRepo.registerIndependentMaster(
         email: any(named: 'email'),
         password: any(named: 'password'),
@@ -460,13 +466,17 @@ void main() {
         address: any(named: 'address'),
         phone: any(named: 'phone'),
       ),
-      () => salonRepo.create(dto: any(named: 'dto')),
-    ]);
+    ).called(1);
+    // POST /salons MUST NOT run on Step 3 (Defect 8).
+    verifyNever(() => salonRepo.create(dto: any(named: 'dto')));
+    final draft = container.read(registerDraftProvider)!;
+    expect(draft.cityId, 'c1');
+    expect(draft.districtId, 'd1');
     expect(find.text('verification:a@b.com'), findsOneWidget);
   });
 
-  // ── 7. City without districts → submit succeeds with districtId = null ────
-  testWidgets('7. City-without-districts → submit OK with districtId null', (
+  // ── 7. City without districts → District disabled + helper; submit OK ─────
+  testWidgets('7. City-without-districts → submit OK, draft districtId null', (
     tester,
   ) async {
     final authRepo = _MockAuthRepository();
@@ -485,15 +495,6 @@ void main() {
     ).thenAnswer(
       (_) async => const RegisterResult.verificationRequired(email: 'a@b.com'),
     );
-    when(
-      () => masterRepo.updateLocality(
-        cityId: any(named: 'cityId'),
-        districtId: any(named: 'districtId'),
-        street: any(named: 'street'),
-        buildingNo: any(named: 'buildingNo'),
-        locationNote: any(named: 'locationNote'),
-      ),
-    ).thenAnswer((_) async {});
 
     final container = _container(
       role: UserRole.independentMaster,
@@ -516,6 +517,13 @@ void main() {
     );
     expect(ink.onTap, isNull);
 
+    // Defect 5 — the explanatory helper caption is shown so users understand
+    // WHY the District field is disabled.
+    final l10n = AppLocalizations.of(
+      tester.element(find.byKey(const Key('locality-cascade'))),
+    );
+    expect(find.text(l10n.localityDistrictNoneHelper), findsOneWidget);
+
     await tester.enterText(
       find.byKey(const Key('field-street')),
       'вул. Тестова',
@@ -525,15 +533,20 @@ void main() {
 
     await _tap(tester, const Key('btn-save-continue-step3'));
 
-    verify(
+    // Save is deferred to verification; the draft carries the leaf city with a
+    // null district.
+    final draft = container.read(registerDraftProvider)!;
+    expect(draft.cityId, 'c2');
+    expect(draft.districtId, isNull);
+    verifyNever(
       () => masterRepo.updateLocality(
-        cityId: 'c2',
-        districtId: null,
+        cityId: any(named: 'cityId'),
+        districtId: any(named: 'districtId'),
         street: any(named: 'street'),
         buildingNo: any(named: 'buildingNo'),
         locationNote: any(named: 'locationNote'),
       ),
-    ).called(1);
+    );
     expect(find.text('verification:a@b.com'), findsOneWidget);
   });
 
@@ -568,14 +581,31 @@ void main() {
     final l10n = AppLocalizations.of(
       tester.element(find.byKey(const Key('locality-cascade'))),
     );
-    // The keyed inline error renders the "Оберіть район" message. (Note the
-    // District placeholder happens to share that exact string, so assert on the
-    // keyed error widget specifically rather than the bare text.)
-    final errorFinder = find.byKey(const Key('locality-error'));
-    expect(errorFinder, findsOneWidget);
+    // Defect 7 — the "Оберіть район" error must render under the DISTRICT row
+    // specifically (per-row placement), not once below the whole cascade.
+    final districtError = find.descendant(
+      of: find.byKey(const Key('locality_row_district')),
+      matching: find.byKey(const Key('locality_tap_row_error')),
+    );
+    expect(districtError, findsOneWidget);
     expect(
-      tester.widget<Text>(errorFinder).data,
+      tester.widget<Text>(districtError).data,
       l10n.errLocalityDistrictRequired,
+    );
+    // The error is NOT attached to the oblast/city rows.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('locality_row_oblast')),
+        matching: find.byKey(const Key('locality_tap_row_error')),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('locality_row_city')),
+        matching: find.byKey(const Key('locality_tap_row_error')),
+      ),
+      findsNothing,
     );
     // Register must NOT have been called.
     verifyNever(
@@ -593,12 +623,16 @@ void main() {
     expect(find.textContaining('verification:'), findsNothing);
   });
 
-  // ── 9. Profile-save failure after register success → snackbar + navigate ──
-  testWidgets('9. Profile-save failure → snackbar shown, still navigates', (
+  // ── 9. (Defect 2) CLIENT Save→register error→Skip — _submitting resets ────
+  // If register throws between setState(submitting=true) and the success path,
+  // the finally block must reset _submitting so BOTH CTAs re-enable. We prove
+  // it by failing the first Save (register returns null → snackbar), then
+  // succeeding on Skip (which would be inert if _submitting were stuck true).
+  testWidgets('9. CLIENT Save error then Skip — CTAs not stuck disabled', (
     tester,
   ) async {
     final authRepo = _MockAuthRepository();
-    final masterRepo = _MockMasterRepository();
+    var call = 0;
     when(
       () => authRepo.registerIndependentMaster(
         email: any(named: 'email'),
@@ -610,41 +644,32 @@ void main() {
         address: any(named: 'address'),
         phone: any(named: 'phone'),
       ),
-    ).thenAnswer(
-      (_) async => const RegisterResult.verificationRequired(email: 'a@b.com'),
-    );
-    when(
-      () => masterRepo.updateLocality(
-        cityId: any(named: 'cityId'),
-        districtId: any(named: 'districtId'),
-        street: any(named: 'street'),
-        buildingNo: any(named: 'buildingNo'),
-        locationNote: any(named: 'locationNote'),
-      ),
-    ).thenThrow(const NetworkFailure());
+    ).thenAnswer((_) async {
+      call++;
+      // First Save fails (account NOT created); second (Skip) succeeds.
+      if (call == 1) throw const NetworkFailure();
+      return const RegisterResult.verificationRequired(email: 'a@b.com');
+    });
 
-    final container = _container(
-      role: UserRole.independentMaster,
-      authRepo: authRepo,
-      masterRepo: masterRepo,
-    );
+    final container = _container(role: UserRole.client, authRepo: authRepo);
     addTearDown(container.dispose);
     await tester.pumpWidget(_app(_makeRouter(), container));
     await tester.pumpAndSettle();
 
-    await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
-    await _pick(tester, const Key('locality_row_city'), 'Львів');
-    await _pick(tester, const Key('locality_row_district'), 'Галицький');
-    await tester.enterText(
-      find.byKey(const Key('field-street')),
-      'вул. Тестова',
+    // First tap Save → register fails → error snackbar, still on Step 3.
+    await _tap(tester, const Key('btn-save-step3'));
+    expect(find.byKey(const Key('step3-snackbar')), findsOneWidget);
+    expect(find.textContaining('verification:'), findsNothing);
+
+    // The Skip ghost button must be re-enabled (onTap non-null) — proves
+    // _submitting reset in the finally block.
+    final skipInk = tester.widget<InkWell>(
+      find.byKey(const Key('btn-skip-step3')),
     );
-    await tester.enterText(find.byKey(const Key('field-building')), '12');
-    await tester.pumpAndSettle();
+    expect(skipInk.onTap, isNotNull);
 
-    await _tap(tester, const Key('btn-save-continue-step3'));
-
-    // Navigated despite the save failure.
+    // Tapping Skip now succeeds and navigates.
+    await _tap(tester, const Key('btn-skip-step3'));
     expect(find.text('verification:a@b.com'), findsOneWidget);
   });
 
