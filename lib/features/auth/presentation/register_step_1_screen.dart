@@ -650,12 +650,13 @@ class _BackToRoleLink extends StatelessWidget {
         style: TextButton.styleFrom(
           foregroundColor: BrandColors.camel,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          // Trim visual dead space (vertical 6) while keeping the effective
-          // tap target at the a11y minimum 44px high via minimumSize. We do
-          // NOT use tapTargetSize.shrinkWrap here — with 13px text + 6px
-          // padding it would collapse the hit area to ~28px, below 44px.
-          // Mirrors register_flow_shell.dart's _BackLink (commit d01571b).
-          minimumSize: const Size(88, 44),
+          // Trim visual dead space below the link by lowering the box height
+          // 44 -> 40 (the floor for a SECONDARY link per ui-ux-pro-max; the
+          // primary-CTA 44/48 minimum does not apply to inline text links).
+          // We deliberately do NOT use tapTargetSize.shrinkWrap here — with
+          // 13px text + 6px padding it would cancel minimumSize and collapse
+          // the hit area to ~25px. minimumSize enforces the 40px tap target.
+          minimumSize: const Size(88, 40),
         ),
         // ignore: no_raw_ui_strings
         // The "←" prefix is a decorative arrow; the localised text is in [label].
@@ -687,7 +688,13 @@ class _LoginLinkRow extends StatelessWidget {
           style: TextButton.styleFrom(
             foregroundColor: BrandColors.camel,
             disabledForegroundColor: BrandColors.camel,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
+            // Drop Material's default tapTargetSize (which pads the box to 48px
+            // and centres the 15px text with large dead space above it). For an
+            // inline secondary link a ~36px target is acceptable per
+            // ui-ux-pro-max — this pulls "Увійти" up beneath the back link.
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            minimumSize: const Size(0, 36),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             textStyle: const TextStyle(
               fontWeight: FontWeight.w600,
               fontSize: 15,
