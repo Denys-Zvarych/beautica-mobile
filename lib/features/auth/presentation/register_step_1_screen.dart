@@ -43,9 +43,10 @@ import '../state/register_draft_notifier.dart';
 // Bottom back-link style — matches Step 2/3 _BackLink in RegisterFlowShell.
 // ---------------------------------------------------------------------------
 
-/// .back-row a { font-size: 13px; color: var(--accent); font-weight: 600 }.
-const _kBackToRoleStyle = TextStyle(
-  color: BrandColors.camel,
+/// .back-row a { font-size: 13px; color: var(--accent); font-weight: 600;
+/// opacity: 0.85 }.
+final _kBackToRoleStyle = TextStyle(
+  color: BrandColors.camel.withValues(alpha: 0.85),
   fontSize: 13,
   fontWeight: FontWeight.w600,
 );
@@ -122,7 +123,7 @@ const _kTermsLink = TextStyle(
   height: 1.65,
 );
 
-const _kLoginPromptStyle = TextStyle(color: Color(0x4DFFFFFF), fontSize: 15);
+const _kLoginPromptStyle = TextStyle(color: Color(0x4DFFFFFF), fontSize: 13);
 
 // ---------------------------------------------------------------------------
 // Screen
@@ -269,16 +270,11 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           //    every step. Tap clears the in-progress draft (HIGH-1 from
           //    Phase 2.16 — discards in-flight credentials) BEFORE navigating
           //    back to the role-selection gate.
-          // Visual-rhythm balance (no token maps cleanly): the gap *below* the
-          // back link inherits the _LoginLinkRow's ~9px top dead space — the
-          // 36px "Увійти" TextButton centres its 15px text — whereas the gap
-          // *above* sits under plain _TermsLine text with only ~3px descender
-          // slack. That ~6px asymmetry is closed by widening THIS top spacer
-          // from xxs(4) to 10 so the empty space directly above "← Назад"
-          // visually matches the empty space directly below it. Tap targets
-          // (back 40 / login 36) are untouched. Raw 10 = measured login-row
-          // top-dead-space delta; AppSpacing.xs(8)/sm(12) both miss it.
-          const SizedBox(height: 10),
+          // .back-row { margin-top: 16px } — the back link and login link are
+          // now plain compact text (shrinkWrap, zero padding/minimumSize), so
+          // the design's literal gaps apply directly with no box inflation to
+          // compensate for. AppSpacing.md == 16.
+          const SizedBox(height: AppSpacing.md),
           _BackToRoleLink(
             l10n: l10n,
             onTap: () {
@@ -289,7 +285,8 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
               context.go(RouteNames.registerRole);
             },
           ),
-          const SizedBox(height: AppSpacing.xxs),
+          // .login-row { margin-top: 12px }. AppSpacing.sm == 12.
+          const SizedBox(height: AppSpacing.sm),
           _LoginLinkRow(
             l10n: l10n,
             onTap: () {
@@ -658,14 +655,15 @@ class _BackToRoleLink extends StatelessWidget {
         onPressed: onTap,
         style: TextButton.styleFrom(
           foregroundColor: BrandColors.camel,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          // Trim visual dead space below the link by lowering the box height
-          // 44 -> 40 (the floor for a SECONDARY link per ui-ux-pro-max; the
-          // primary-CTA 44/48 minimum does not apply to inline text links).
-          // We deliberately do NOT use tapTargetSize.shrinkWrap here — with
-          // 13px text + 6px padding it would cancel minimumSize and collapse
-          // the hit area to ~25px. minimumSize enforces the 40px tap target.
-          minimumSize: const Size(88, 40),
+          // Plain compact text link — mirrors the HTML `.back-row a` which is a
+          // bare <a> with no tap-target box. shrinkWrap + zero minimumSize +
+          // zero padding strip Material's enforced box so the link no longer
+          // inflates the vertical rhythm; the design's literal 16/12px gaps now
+          // sit flush against the text. Intentionally drops below the 44px tap
+          // target to match the HTML source of truth (per task instruction).
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          minimumSize: const Size(0, 0),
+          padding: EdgeInsets.zero,
         ),
         // ignore: no_raw_ui_strings
         // The "←" prefix is a decorative arrow; the localised text is in [label].
@@ -691,22 +689,28 @@ class _LoginLinkRow extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(l10n.registerHaveAccount, style: _kLoginPromptStyle),
+        // HTML `.login-row` renders "Вже є акаунт? &nbsp;<a>" — the small gap
+        // between prompt and link. The button now has zero padding, so the gap
+        // is supplied here. AppSpacing.xxs == 4 ≈ the "&nbsp;" + trailing space.
+        const SizedBox(width: AppSpacing.xxs),
         TextButton(
           key: const Key('btn-go-to-login'),
           onPressed: onTap,
           style: TextButton.styleFrom(
             foregroundColor: BrandColors.camel,
             disabledForegroundColor: BrandColors.camel,
-            // Drop Material's default tapTargetSize (which pads the box to 48px
-            // and centres the 15px text with large dead space above it). For an
-            // inline secondary link a ~36px target is acceptable per
-            // ui-ux-pro-max — this pulls "Увійти" up beneath the back link.
+            // Plain compact text link — mirrors the HTML `.login-row a` (bare
+            // <a>, font-size 13px, weight 600). shrinkWrap + zero
+            // minimumSize/padding strip Material's enforced box so the link no
+            // longer inflates the row; the leading prompt + "&nbsp;" gap is
+            // supplied by the SizedBox below. Intentionally below 44px tap
+            // target to match the HTML source of truth (per task instruction).
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            minimumSize: const Size(0, 36),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            minimumSize: const Size(0, 0),
+            padding: EdgeInsets.zero,
             textStyle: const TextStyle(
               fontWeight: FontWeight.w600,
-              fontSize: 15,
+              fontSize: 13,
             ),
           ),
           child: Text(l10n.registerSignIn),
