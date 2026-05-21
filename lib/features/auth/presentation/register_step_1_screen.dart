@@ -270,11 +270,13 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           //    every step. Tap clears the in-progress draft (HIGH-1 from
           //    Phase 2.16 — discards in-flight credentials) BEFORE navigating
           //    back to the role-selection gate.
-          // .back-row { margin-top: 16px } — the back link and login link are
-          // now plain compact text (shrinkWrap, zero padding/minimumSize), so
-          // the design's literal gaps apply directly with no box inflation to
-          // compensate for. AppSpacing.md == 16.
-          const SizedBox(height: AppSpacing.md),
+          // .back-row { margin-top: 16px }. The back link reclaims 14px of this
+          // gap as TOP tap padding (a11y), so this spacer carries the
+          // remaining 16 − 14 = 2px. Visible gap above the back text stays
+          // 2 (here) + 14 (back-link top pad) = 16. No AppSpacing token equals
+          // 2 — it is a derived padding-compensation offset, not a design
+          // value, so it is written as a literal.
+          const SizedBox(height: 2),
           _BackToRoleLink(
             l10n: l10n,
             onTap: () {
@@ -285,8 +287,12 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
               context.go(RouteNames.registerRole);
             },
           ),
-          // .login-row { margin-top: 12px }. AppSpacing.sm == 12.
-          const SizedBox(height: AppSpacing.sm),
+          // .login-row { margin-top: 12px }. The back link contributes 2px
+          // BOTTOM tap pad and the login link 2px TOP tap pad, so this spacer
+          // carries 12 − 2 − 2 = 8px. Visible gap below the back text stays
+          // 2 + 8 + 2 = 12, and the two links' hit boxes remain 8px apart
+          // (ui-ux-pro-max `touch-spacing` minimum). AppSpacing.xs == 8.
+          const SizedBox(height: AppSpacing.xs),
           _LoginLinkRow(
             l10n: l10n,
             onTap: () {
@@ -649,21 +655,33 @@ class _BackToRoleLink extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    // A11y: the visible "← Назад" text keeps its exact position and the
+    // design's 16-above / 12-below gaps, but the *tap* area is enlarged by
+    // pulling the adjacent whitespace INTO the button as hit padding and
+    // stretching it full-width. The vertical padding is asymmetric:
+    //   top    = 14  → reclaims most of the 16px SizedBox above (now 16−14=2)
+    //   bottom = 2   → reclaims 2px of the 12px gap below
+    // Net visible gap above = 2 (SizedBox) + 14 (top pad) = 16 ✓. Material's
+    // own padded box is suppressed (shrinkWrap) so this padding is exact and
+    // never inflates the layout. Effective hit area ≈ 13px text line + 14 + 2
+    // ≈ 33px tall × full row width — well above the previous ~13px text-only
+    // target. 44px is geometrically unreachable here (two links only 12px
+    // apart cannot both have a 44px box while keeping the required ≥8px
+    // touch-spacing between hit boxes — ui-ux-pro-max `touch-spacing`), so we
+    // maximise within the available rhythm and prioritise full WIDTH. A wide
+    // ~33px target is an acceptable a11y improvement for a secondary inline
+    // link (ui-ux-pro-max `touch-target-size`: extend hit area beyond visual
+    // bounds when a full box doesn't fit).
+    return SizedBox(
+      width: double.infinity,
       child: TextButton(
         key: const Key('btn-back-to-role'),
         onPressed: onTap,
         style: TextButton.styleFrom(
           foregroundColor: BrandColors.camel,
-          // Plain compact text link — mirrors the HTML `.back-row a` which is a
-          // bare <a> with no tap-target box. shrinkWrap + zero minimumSize +
-          // zero padding strip Material's enforced box so the link no longer
-          // inflates the vertical rhythm; the design's literal 16/12px gaps now
-          // sit flush against the text. Intentionally drops below the 44px tap
-          // target to match the HTML source of truth (per task instruction).
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           minimumSize: const Size(0, 0),
-          padding: EdgeInsets.zero,
+          padding: const EdgeInsets.only(top: 14, bottom: 2),
         ),
         // ignore: no_raw_ui_strings
         // The "←" prefix is a decorative arrow; the localised text is in [label].
@@ -699,15 +717,22 @@ class _LoginLinkRow extends StatelessWidget {
           style: TextButton.styleFrom(
             foregroundColor: BrandColors.camel,
             disabledForegroundColor: BrandColors.camel,
-            // Plain compact text link — mirrors the HTML `.login-row a` (bare
-            // <a>, font-size 13px, weight 600). shrinkWrap + zero
-            // minimumSize/padding strip Material's enforced box so the link no
-            // longer inflates the row; the leading prompt + "&nbsp;" gap is
-            // supplied by the SizedBox below. Intentionally below 44px tap
-            // target to match the HTML source of truth (per task instruction).
+            // A11y: keep the "Увійти" text exactly where it sits in the centred
+            // prompt row, but enlarge the tap area with vertical hit padding:
+            //   top    = 2   → reclaims 2px of the 12px gap above this row
+            //   bottom = 14  → extends DOWN into the card's existing bottom
+            //                  whitespace (this Row is the Column's last child,
+            //                  so nothing visible renders below it — the text
+            //                  position is unchanged)
+            // Combined with the back link's 2px bottom pad and the now-8px
+            // SizedBox between them, the visible gap below the back text stays
+            // 2 + 8 + 2 = 12 ✓, and the two HIT boxes stay 8px apart
+            // (ui-ux-pro-max `touch-spacing`). Effective hit area ≈ 13px text
+            // line + 2 + 14 ≈ 33px tall. shrinkWrap keeps the padding exact so
+            // Material's own box never re-inflates the row.
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             minimumSize: const Size(0, 0),
-            padding: EdgeInsets.zero,
+            padding: const EdgeInsets.only(top: 2, bottom: 14),
             textStyle: const TextStyle(
               fontWeight: FontWeight.w600,
               fontSize: 13,
