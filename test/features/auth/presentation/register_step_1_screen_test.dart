@@ -332,8 +332,9 @@ void main() {
     });
 
     testWidgets(
-      '8. tapping btn-back-to-role clears the draft AND navigates to '
-      '/register/role (2026-05-20 design refresh — Step 1 bottom back link)',
+      '8. tapping btn-back-to-role PRESERVES the draft (role survives) AND '
+      'navigates to /register/role — the back link goes one wizard step back, '
+      'so the role-selection screen can re-highlight the chosen role',
       (tester) async {
         final (:container, :repo) = _makeContainerWithRepo();
         addTearDown(container.dispose);
@@ -345,10 +346,10 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Pre-seed credentials so we can verify the reset wipes them. We do
-        // this via the notifier rather than via on-screen typing because
-        // updateStep1 is the canonical write path and avoids depending on
-        // the autovalidate / form-validate timing.
+        // Pre-seed credentials so we can verify the back link does NOT wipe
+        // them on a single-step back. We do this via the notifier rather than
+        // via on-screen typing because updateStep1 is the canonical write path
+        // and avoids depending on the autovalidate / form-validate timing.
         container
             .read(registerDraftProvider.notifier)
             .updateStep1(
@@ -356,8 +357,9 @@ void main() {
               password: 'PrePass1',
               confirmPassword: 'PrePass1',
             );
-        // Sanity check: the draft is populated.
+        // Sanity check: the draft is populated (default role = client).
         final beforeTap = container.read(registerDraftProvider)!;
+        expect(beforeTap.role, equals(UserRole.client));
         expect(beforeTap.email, equals('pre-fill@example.com'));
         expect(beforeTap.password, equals('PrePass1'));
 
@@ -369,16 +371,21 @@ void main() {
         await tester.tap(find.byKey(const Key('btn-back-to-role')));
         await tester.pumpAndSettle();
 
-        // (1) The draft is cleared. The notifier's reset() returns the state
-        // to null (no role + no credentials), which is the security contract
-        // — Phase 2.16 HIGH-1.
+        // (1) The draft is PRESERVED — going one wizard step back must keep
+        // the chosen role (and the in-progress credentials) so the role-
+        // selection screen re-highlights the previously chosen role and keeps
+        // Continue enabled. The HIGH-1 reset() only fires on the "log in
+        // instead" link, not on a single-step back.
+        final afterTap = container.read(registerDraftProvider);
         expect(
-          container.read(registerDraftProvider),
-          isNull,
+          afterTap,
+          isNotNull,
           reason:
-              'Tapping the bottom back link on Step 1 must invoke '
-              'RegisterDraftNotifier.reset() — HIGH-1 from Phase 2.16',
+              'Tapping the bottom back link on Step 1 must NOT reset() the '
+              'draft — the role must survive a single-step back so role-'
+              'selection can re-highlight it.',
         );
+        expect(afterTap!.role, equals(UserRole.client));
 
         // (2) Navigation landed on /register/role.
         expect(

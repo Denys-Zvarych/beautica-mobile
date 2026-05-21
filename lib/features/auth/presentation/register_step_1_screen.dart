@@ -267,9 +267,12 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           // ── 2026-05-20 design refresh: bottom-of-card "← Назад" link ────
           //    Mirrors the Step 2/3 _BackLink placement so the wizard has a
           //    consistent back affordance at the same on-screen location on
-          //    every step. Tap clears the in-progress draft (HIGH-1 from
-          //    Phase 2.16 — discards in-flight credentials) BEFORE navigating
-          //    back to the role-selection gate.
+          //    every step. Going back ONE wizard step preserves the draft
+          //    (incl. the chosen role) so the role-selection screen can
+          //    re-highlight the previously chosen role — see role_selection_
+          //    screen.dart initState. The HIGH-1 credential-leak concern is
+          //    NOT triggered by a single-step back: the draft only escapes the
+          //    wizard via the "log in instead" link (which still resets).
           // .back-row { margin-top: 16px }. The back link reclaims 14px of this
           // gap as TOP tap padding (a11y), so this spacer carries the
           // remaining 16 − 14 = 2px. Visible gap above the back text stays
@@ -280,10 +283,9 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           _BackToRoleLink(
             l10n: l10n,
             onTap: () {
-              // Order matters — reset BEFORE navigation so the draft cannot
-              // leak even if the route transition triggers a rebuild that
-              // would otherwise re-read the still-populated provider state.
-              ref.read(registerDraftProvider.notifier).reset();
+              // Going back one wizard step PRESERVES the draft (incl. role) so
+              // the role-selection screen re-highlights the chosen role and
+              // keeps Continue enabled. Do NOT reset() here.
               context.go(RouteNames.registerRole);
             },
           ),
@@ -299,11 +301,10 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
               // Security (Phase 2.16 HIGH-1) — wipe the in-progress draft
               // (password fields included) before abandoning the wizard.
               ref.read(registerDraftProvider.notifier).reset();
-              if (context.canPop()) {
-                context.pop();
-              } else {
-                context.go(RouteNames.login);
-              }
+              // Navigate unconditionally to login. The wizard nav stack is
+              // role→step1, so canPop() would land on role-selection, not the
+              // login page — go() guarantees the correct destination.
+              context.go(RouteNames.login);
             },
           ),
         ],

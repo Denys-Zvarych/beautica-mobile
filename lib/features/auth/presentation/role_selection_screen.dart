@@ -130,6 +130,11 @@ class _RoleSelectionScreenState extends ConsumerState<RoleSelectionScreen> {
     if (!kDebugMode) {
       ScreenProtector.preventScreenshotOn();
     }
+    // Preselect the role from the draft when the user returns here via the
+    // Step 1 "← Назад" link (the draft survives a single-step back). On a
+    // fresh entry the draft is null, so _selectedRole stays null and Continue
+    // stays disabled until the user picks.
+    _selectedRole = ref.read(registerDraftProvider)?.role;
   }
 
   @override
@@ -215,11 +220,9 @@ class _RoleSelectionScreenState extends ConsumerState<RoleSelectionScreen> {
               // screen, but the role choice itself is part of the draft and
               // must not survive a "let me log in instead" detour.
               ref.read(registerDraftProvider.notifier).reset();
-              if (context.canPop()) {
-                context.pop();
-              } else {
-                context.go(RouteNames.login);
-              }
+              // Navigate unconditionally to login — never pop() back into the
+              // wizard. Consistent with Step 1's login link.
+              context.go(RouteNames.login);
             },
           ),
           const SizedBox(height: 16),

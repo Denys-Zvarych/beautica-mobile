@@ -224,5 +224,46 @@ void main() {
         expect(find.text('step-1'), findsNothing);
       },
     );
+
+    // -----------------------------------------------------------------------
+    // 5. Preselection from an existing draft (returning via Step 1 back link)
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '5. when the draft already has a role (user returned via the Step 1 '
+      'back link), that role is preselected — Continue is enabled and shows '
+      'exactly one check icon without re-tapping a card',
+      (tester) async {
+        final (:container, repo: _) = _makeContainerWithRepo();
+        addTearDown(container.dispose);
+        // Seed the draft as if the user had already chosen a role and stepped
+        // into Step 1, then tapped "← Назад".
+        container
+            .read(registerDraftProvider.notifier)
+            .start(UserRole.independentMaster);
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        // The preselected role surfaces a single check icon with no taps.
+        expect(find.byIcon(Icons.check), findsOneWidget);
+
+        // Continue is enabled — tapping it advances and overwrites cleanly.
+        await tester.ensureVisible(find.byKey(const Key('btn-continue-role')));
+        await tester.tap(find.byKey(const Key('btn-continue-role')));
+        await tester.pumpAndSettle();
+
+        final draft = container.read(registerDraftProvider);
+        expect(draft, isNotNull);
+        expect(draft!.role, equals(UserRole.independentMaster));
+        expect(
+          router.routerDelegate.currentConfiguration.fullPath,
+          equals(RouteNames.register),
+        );
+      },
+    );
   });
 }
