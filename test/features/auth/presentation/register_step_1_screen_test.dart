@@ -519,5 +519,122 @@ void main() {
         _assertNoRegisterPostFired(repo);
       },
     );
+
+    // -----------------------------------------------------------------------
+    // 11. Weak password "asd" is blocked at submit by validateNewPassword.
+    //
+    // Ensures the registration password field uses the STRICT validator, not
+    // the lenient validatePassword used by the login screen. "asd" is 3 chars
+    // — it fails the minimum-8 rule and must show errPasswordTooShort.
+    // The step must NOT advance to step-2, and no registration POST must fire.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '11. weak password "asd" shows errPasswordTooShort and does NOT advance '
+      'or fire a registration POST',
+      (tester) async {
+        final (:container, :repo) = _makeContainerWithRepo();
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const Key('field-email')),
+          'anya@example.com',
+        );
+        await tester.enterText(find.byKey(const Key('field-password')), 'asd');
+        await tester.enterText(
+          find.byKey(const Key('field-confirm-password')),
+          'asd',
+        );
+
+        await tester.ensureVisible(find.byKey(const Key('btn-submit-step-1')));
+        await tester.tap(find.byKey(const Key('btn-submit-step-1')));
+        await tester.pump();
+
+        // The password field must show the too-short error.
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('field-password')),
+            matching: find.text(l10n.errPasswordTooShort),
+          ),
+          findsOneWidget,
+          reason:
+              'field-password must show errPasswordTooShort when "asd" is '
+              'submitted — validateNewPassword must be wired, not validatePassword',
+        );
+
+        // The step did NOT advance.
+        expect(
+          find.text('step-2'),
+          findsNothing,
+          reason: 'A weak password must block navigation to step-2',
+        );
+
+        // No registration POST fired.
+        _assertNoRegisterPostFired(repo);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // 12. Strong password "Abcde123" passes the registration validator.
+    //
+    // Verifies that a password satisfying all three criteria (8+ chars,
+    // ≥1 digit, ≥1 uppercase) is accepted and the step advances normally.
+    // This is also a regression guard: if the strict validator is ever
+    // accidentally made stricter than the advertised criteria this test fails.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '12. strong password "Abcde123" passes the registration validator and '
+      'advances to step-2 without a registration POST',
+      (tester) async {
+        final (:container, :repo) = _makeContainerWithRepo();
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const Key('field-email')),
+          'anya@example.com',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-password')),
+          'Abcde123',
+        );
+        await tester.enterText(
+          find.byKey(const Key('field-confirm-password')),
+          'Abcde123',
+        );
+
+        await tester.ensureVisible(find.byKey(const Key('btn-submit-step-1')));
+        await tester.tap(find.byKey(const Key('btn-submit-step-1')));
+        await tester.pumpAndSettle();
+
+        // Navigation occurred — the password was accepted.
+        expect(
+          find.text('step-2'),
+          findsOneWidget,
+          reason:
+              '"Abcde123" meets all registration criteria; the step must advance',
+        );
+
+        // Draft holds the correct password value.
+        final draft = container.read(registerDraftProvider);
+        expect(draft?.password, equals('Abcde123'));
+
+        // No registration POST fired (same as other Step 1 valid-submit tests).
+        _assertNoRegisterPostFired(repo);
+      },
+    );
   });
 }

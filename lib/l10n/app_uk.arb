@@ -98,6 +98,18 @@
   "@errPasswordLength": {
     "description": "Validation error when the password field length is out of range."
   },
+  "errPasswordTooShort": "Пароль має містити щонайменше 8 символів",
+  "@errPasswordTooShort": {
+    "description": "Validation error for new-password creation when the value is shorter than 8 characters."
+  },
+  "errPasswordNoDigit": "Додайте хоча б одну цифру",
+  "@errPasswordNoDigit": {
+    "description": "Validation error for new-password creation when no digit character is present."
+  },
+  "errPasswordNoUppercase": "Додайте хоча б одну велику літеру",
+  "@errPasswordNoUppercase": {
+    "description": "Validation error for new-password creation when no uppercase letter is present."
+  },
   "registerTitle": "Реєстрація",
   "@registerTitle": {
     "description": "Title of the register screen."

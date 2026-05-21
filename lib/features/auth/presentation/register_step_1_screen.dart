@@ -448,7 +448,7 @@ class _PasswordFieldWithCriteriaState
             focusedErrorBorder: _kInputBorderFocusedError,
             isDense: true,
           ),
-          validator: (v) => validatePassword(v, l10n),
+          validator: (v) => validateNewPassword(v, l10n),
         ),
         PasswordCriteriaRow(
           key: const Key('password-criteria-row'),

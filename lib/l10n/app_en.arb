@@ -98,6 +98,18 @@
   "@errPasswordLength": {
     "description": "Validation error when the password field length is out of range."
   },
+  "errPasswordTooShort": "Password must be at least 8 characters",
+  "@errPasswordTooShort": {
+    "description": "Validation error for new-password creation when the value is shorter than 8 characters."
+  },
+  "errPasswordNoDigit": "Add at least one digit",
+  "@errPasswordNoDigit": {
+    "description": "Validation error for new-password creation when no digit character is present."
+  },
+  "errPasswordNoUppercase": "Add at least one uppercase letter",
+  "@errPasswordNoUppercase": {
+    "description": "Validation error for new-password creation when no uppercase letter is present."
+  },
   "registerTitle": "Register",
   "@registerTitle": {
     "description": "Title of the register screen."
