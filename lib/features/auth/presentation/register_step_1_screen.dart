@@ -269,7 +269,16 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           //    every step. Tap clears the in-progress draft (HIGH-1 from
           //    Phase 2.16 — discards in-flight credentials) BEFORE navigating
           //    back to the role-selection gate.
-          const SizedBox(height: AppSpacing.xxs),
+          // Visual-rhythm balance (no token maps cleanly): the gap *below* the
+          // back link inherits the _LoginLinkRow's ~9px top dead space — the
+          // 36px "Увійти" TextButton centres its 15px text — whereas the gap
+          // *above* sits under plain _TermsLine text with only ~3px descender
+          // slack. That ~6px asymmetry is closed by widening THIS top spacer
+          // from xxs(4) to 10 so the empty space directly above "← Назад"
+          // visually matches the empty space directly below it. Tap targets
+          // (back 40 / login 36) are untouched. Raw 10 = measured login-row
+          // top-dead-space delta; AppSpacing.xs(8)/sm(12) both miss it.
+          const SizedBox(height: 10),
           _BackToRoleLink(
             l10n: l10n,
             onTap: () {
