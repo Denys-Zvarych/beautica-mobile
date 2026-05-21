@@ -39,7 +39,10 @@ final class ErrorMapperInterceptor extends Interceptor {
         'Mapped ${err.type} / ${err.response?.statusCode} → ${failure.runtimeType}',
         name: 'network.error',
         level: 900, // WARNING
-        error: err,
+        // Sanitized: raw DioException is intentionally NOT passed — its
+        // toString() can include response.data which for /auth/verify-email
+        // carries OTP + email (mobile-security MS-LOG-01).
+        error: '${err.type} ${err.response?.statusCode}',
       );
     }
 

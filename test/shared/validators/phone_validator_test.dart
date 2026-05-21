@@ -95,6 +95,14 @@ void main() {
       expect(validatePhone('38501234567', l10n), equals('invalid_phone'));
     });
 
+    // Branch 8 cont. — bare "38" paste (no "0", no subscriber digits)
+    test('returns errPhoneInvalid for bare "38" prefix '
+        '(paste-guard against "338..." bug)', () {
+      // "38" hits startsWith('38') && !startsWith('380') → rejected early,
+      // not treated as a bare subscriber number.
+      expect(validatePhone('38', l10n), equals('invalid_phone'));
+    });
+
     // Branch 9 — valid 380-prefix without '+'
     test('returns null for 380-prefixed number without leading +', () {
       expect(validatePhone('380501234567', l10n), isNull);
