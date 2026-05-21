@@ -269,7 +269,7 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           //    every step. Tap clears the in-progress draft (HIGH-1 from
           //    Phase 2.16 — discards in-flight credentials) BEFORE navigating
           //    back to the role-selection gate.
-          const SizedBox(height: AppSpacing.xs),
+          const SizedBox(height: AppSpacing.xxs),
           _BackToRoleLink(
             l10n: l10n,
             onTap: () {
@@ -280,7 +280,7 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
               context.go(RouteNames.registerRole);
             },
           ),
-          const SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.xxs),
           _LoginLinkRow(
             l10n: l10n,
             onTap: () {
