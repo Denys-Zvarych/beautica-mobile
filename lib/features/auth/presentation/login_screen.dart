@@ -591,6 +591,9 @@ class _BrandRow extends StatelessWidget {
                 // 'B' text above the blur — crisp rendering.
                 const Center(
                   child: Text(
+                    // ignore: no_raw_ui_strings
+                    // Brand identity monogram — single-letter mark, not
+                    // localised copy. Exempt from l10n per mobile-backlog §5.
                     'B',
                     style: TextStyle(
                       color: Color(0xF2FFFFFF), // white 95%
@@ -609,6 +612,9 @@ class _BrandRow extends StatelessWidget {
 
         // BEAUTICA label
         const Text(
+          // ignore: no_raw_ui_strings
+          // Brand wordmark — stable identity string, not localised copy.
+          // Exempt from l10n per mobile-backlog §5.
           'BEAUTICA',
           style: TextStyle(
             color: Color(0xEBFFFFFF), // white 92%
