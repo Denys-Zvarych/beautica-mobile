@@ -569,5 +569,86 @@
   "registerDoneCtaSecondary": "Set up profile later",
   "@registerDoneCtaSecondary": {
     "description": "Secondary action link below the primary CTA on the registration-done screen (done-page.html .secondary-action a). Today this navigates to /home — Phase 4.x profile-setup will divert it once that screen exists."
+  },
+
+  "step2HeadlineLine1": "Personal",
+  "@step2HeadlineLine1": {
+    "description": "First line of the hero headline on the Step 2 Profile screen. Rendered in Manrope 700."
+  },
+  "step2HeadlineLine2": "details",
+  "@step2HeadlineLine2": {
+    "description": "Second line (italic Cormorant Garamond accent) of the hero headline on the Step 2 Profile screen."
+  },
+  "step2SubtextClient": "This information will be used to book services for you.",
+  "@step2SubtextClient": {
+    "description": "Muted sub-text below the Step 2 headline for the CLIENT role variant."
+  },
+  "step2SubtextMaster": "Clients will see your name and surname in your profile.",
+  "@step2SubtextMaster": {
+    "description": "Muted sub-text below the Step 2 headline for the INDEPENDENT_MASTER role variant."
+  },
+  "step2SubtextOwner": "Salon contact person and beauty space name.",
+  "@step2SubtextOwner": {
+    "description": "Muted sub-text below the Step 2 headline for the SALON_OWNER role variant."
+  },
+  "roleChipOwner": "Salon",
+  "@roleChipOwner": {
+    "description": "Role chip label for the SALON_OWNER role across the registration flow (short display label — 'Salon', NOT 'Salon Owner')."
+  },
+  "step2SubstepLabel": "Step 2.1 — Profile",
+  "@step2SubstepLabel": {
+    "description": "Uppercase label shown to the left of the two sub-step pill dots inside the Step 2 card. Indicates the user is on sub-step 2.1 (Profile)."
+  },
+  "step2FieldNameLabel": "First name",
+  "@step2FieldNameLabel": {
+    "description": "Uppercase field label above the first-name input on the Step 2 Profile screen."
+  },
+  "step2FieldSurnameLabel": "Last name",
+  "@step2FieldSurnameLabel": {
+    "description": "Uppercase field label above the last-name input on the Step 2 Profile screen."
+  },
+  "step2FieldPhoneLabel": "Phone",
+  "@step2FieldPhoneLabel": {
+    "description": "Uppercase field label above the phone input on the Step 2 Profile screen."
+  },
+  "step2FieldSalonLabel": "Salon name",
+  "@step2FieldSalonLabel": {
+    "description": "Uppercase field label above the salon-name input on the Step 2 Profile screen. Only shown for SALON_OWNER role."
+  },
+  "step2FieldNamePlaceholder": "Anya",
+  "@step2FieldNamePlaceholder": {
+    "description": "In-field placeholder for the first-name input on the Step 2 Profile screen."
+  },
+  "step2FieldSurnamePlaceholder": "Koval",
+  "@step2FieldSurnamePlaceholder": {
+    "description": "In-field placeholder for the last-name input on the Step 2 Profile screen."
+  },
+  "step2FieldPhonePlaceholder": "+380 __ ___ ____",
+  "@step2FieldPhonePlaceholder": {
+    "description": "In-field placeholder for the phone input on the Step 2 Profile screen. Shows the Ukrainian phone format mask."
+  },
+  "step2FieldSalonPlaceholder": "Salon Lumière",
+  "@step2FieldSalonPlaceholder": {
+    "description": "In-field placeholder for the salon-name input on the Step 2 Profile screen. Only shown for SALON_OWNER role."
+  },
+  "step2CtaContinue": "Continue",
+  "@step2CtaContinue": {
+    "description": "CTA button label on the Step 2 Profile screen. Advances the wizard to Step 3."
+  },
+  "step2SalonSectionLabel": "Salon details",
+  "@step2SalonSectionLabel": {
+    "description": "Section divider label separating personal fields from salon fields in the SALON_OWNER variant of Step 2."
+  },
+  "errPhoneInvalid": "Invalid phone format. Use +380 XX XXX XXXX",
+  "@errPhoneInvalid": {
+    "description": "Validation error shown when the phone field contains an unrecognised phone number."
+  },
+  "errSalonNameRequired": "Enter the salon name",
+  "@errSalonNameRequired": {
+    "description": "Validation error when the salon-name field is empty or too short. Used only for the SALON_OWNER role variant."
+  },
+  "errSalonNameTooLong": "Salon name must not exceed 100 characters",
+  "@errSalonNameTooLong": {
+    "description": "Validation error when the salon-name field exceeds 100 characters."
   }
 }

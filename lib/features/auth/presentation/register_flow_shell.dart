@@ -258,10 +258,10 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
       case RegistrationStep.account:
         return (l10n.registerStep1Headline, l10n.registerStep1HeadlineAccent);
       case RegistrationStep.details:
-        // Step 2 + 3 — Phase 2.17 / 2.19 own the final copy; reuse the
-        // Step 1 hero for now (matches the design's "Створіть акаунт"
-        // pattern; the per-step headline override lands with each phase).
-        return (l10n.registerStep1Headline, l10n.registerStep1HeadlineAccent);
+        // Phase 2.17 — Step 2 + 3 both use "Особисті / дані" headline per
+        // sign-up-step-2-profile.html. Step 3 (Phase 2.19) may override if
+        // the address screen design requires a different headline.
+        return (l10n.step2HeadlineLine1, l10n.step2HeadlineLine2);
       case RegistrationStep.verification:
         return (l10n.verificationHeadline, l10n.verificationHeadlineAccent);
       case RegistrationStep.done:
@@ -416,9 +416,11 @@ class _GlassCard extends StatelessWidget {
       child: Stack(
         children: [
           Positioned.fill(
-            child: BackdropFilter(
-              filter: _kBlur,
-              child: const DecoratedBox(decoration: _kGlassDecoration),
+            child: RepaintBoundary(
+              child: BackdropFilter(
+                filter: _kBlur,
+                child: const DecoratedBox(decoration: _kGlassDecoration),
+              ),
             ),
           ),
           Padding(

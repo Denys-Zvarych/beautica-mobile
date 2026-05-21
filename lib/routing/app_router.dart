@@ -29,6 +29,7 @@ import '../features/auth/presentation/done_screen.dart';
 import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/register_flow_shell.dart';
 import '../features/auth/presentation/register_step_1_screen.dart';
+import '../features/auth/presentation/register_step_2_screen.dart';
 import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
@@ -99,12 +100,9 @@ GoRouter appRouter(Ref ref) {
           ),
           GoRoute(
             path: RouteNames.registerStep2,
-            // Phase 2.17 will replace this placeholder with the real
-            // Step 2 (Profile) screen.
-            pageBuilder: (context, state) => _instantPage(
-              state,
-              const _StepPlaceholder('Step 2 — Phase 2.17'),
-            ),
+            // Phase 2.17 — real Step 2 (Profile) screen.
+            pageBuilder: (context, state) =>
+                _instantPage(state, const RegisterStep2Screen()),
           ),
           GoRoute(
             path: RouteNames.registerStep3,

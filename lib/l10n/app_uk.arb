@@ -569,5 +569,86 @@
   "registerDoneCtaSecondary": "Налаштувати профіль пізніше",
   "@registerDoneCtaSecondary": {
     "description": "Secondary action link below the primary CTA on the registration-done screen (done-page.html .secondary-action a). Today this navigates to /home — Phase 4.x profile-setup will divert it once that screen exists."
+  },
+
+  "step2HeadlineLine1": "Особисті",
+  "@step2HeadlineLine1": {
+    "description": "First line of the hero headline on the Step 2 Profile screen (sign-up-step-2-profile.html .headline — 'Особисті дані'). Rendered in Manrope 700."
+  },
+  "step2HeadlineLine2": "дані",
+  "@step2HeadlineLine2": {
+    "description": "Second line (italic Cormorant Garamond accent) of the hero headline on the Step 2 Profile screen (sign-up-step-2-profile.html .headline em — 'дані')."
+  },
+  "step2SubtextClient": "Ця інформація буде використовуватися для запису Вас на послугу.",
+  "@step2SubtextClient": {
+    "description": "Muted sub-text below the Step 2 headline for the CLIENT role variant (sign-up-step-2-profile.html .sub-text — client variant)."
+  },
+  "step2SubtextMaster": "Клієнти бачитимуть ваше ім'я та прізвище у профілі.",
+  "@step2SubtextMaster": {
+    "description": "Muted sub-text below the Step 2 headline for the INDEPENDENT_MASTER role variant (sign-up-step-2-profile.html .sub-text — master variant)."
+  },
+  "step2SubtextOwner": "Контактна особа салону та назва б'юті-простору.",
+  "@step2SubtextOwner": {
+    "description": "Muted sub-text below the Step 2 headline for the SALON_OWNER role variant (sign-up-step-2-profile.html .sub-text — owner variant)."
+  },
+  "roleChipOwner": "Салон",
+  "@roleChipOwner": {
+    "description": "Role chip label for the SALON_OWNER role across the registration flow and role selection (sign-up-step-2-profile.html .role-chip — owner variant shows 'Салон', NOT 'Власник салону'). Short display label only."
+  },
+  "step2SubstepLabel": "Крок 2.1 — Профіль",
+  "@step2SubstepLabel": {
+    "description": "Uppercase label shown to the left of the two sub-step pill dots inside the Step 2 card (sign-up-step-2-profile.html .substep-text concept). Indicates the user is on sub-step 2.1 (Profile) of the details collection flow."
+  },
+  "step2FieldNameLabel": "Ім'я",
+  "@step2FieldNameLabel": {
+    "description": "Uppercase field label above the first-name input on the Step 2 Profile screen (sign-up-step-2-profile.html label — 'Ім'я')."
+  },
+  "step2FieldSurnameLabel": "Прізвище",
+  "@step2FieldSurnameLabel": {
+    "description": "Uppercase field label above the last-name input on the Step 2 Profile screen (sign-up-step-2-profile.html label — 'Прізвище')."
+  },
+  "step2FieldPhoneLabel": "Телефон",
+  "@step2FieldPhoneLabel": {
+    "description": "Uppercase field label above the phone input on the Step 2 Profile screen (sign-up-step-2-profile.html label — 'Телефон')."
+  },
+  "step2FieldSalonLabel": "Назва салону",
+  "@step2FieldSalonLabel": {
+    "description": "Uppercase field label above the salon-name input on the Step 2 Profile screen (sign-up-step-2-profile.html label — 'Назва салону'). Only shown for SALON_OWNER role."
+  },
+  "step2FieldNamePlaceholder": "Аня",
+  "@step2FieldNamePlaceholder": {
+    "description": "In-field placeholder for the first-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Аня'). Transcribed verbatim from HTML."
+  },
+  "step2FieldSurnamePlaceholder": "Коваль",
+  "@step2FieldSurnamePlaceholder": {
+    "description": "In-field placeholder for the last-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Коваль'). Transcribed verbatim from HTML."
+  },
+  "step2FieldPhonePlaceholder": "+380 __ ___ ____",
+  "@step2FieldPhonePlaceholder": {
+    "description": "In-field placeholder for the phone input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — '+380 __ ___ ____'). Shows the Ukrainian phone format mask. Transcribed verbatim from HTML."
+  },
+  "step2FieldSalonPlaceholder": "Salon Lumière",
+  "@step2FieldSalonPlaceholder": {
+    "description": "In-field placeholder for the salon-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Salon Lumière'). Transcribed verbatim from HTML. Only shown for SALON_OWNER role."
+  },
+  "step2CtaContinue": "Продовжити",
+  "@step2CtaContinue": {
+    "description": "CTA button label on the Step 2 Profile screen (sign-up-step-2-profile.html .cta-btn — 'Продовжити'). Advances the wizard to Step 3."
+  },
+  "step2SalonSectionLabel": "Дані салону",
+  "@step2SalonSectionLabel": {
+    "description": "Section divider label separating personal fields from salon fields in the SALON_OWNER variant of Step 2 (sign-up-step-2-profile.html .field-section-label — 'Дані салону')."
+  },
+  "errPhoneInvalid": "Невірний формат телефону. Використовуйте +380 XX XXX XXXX",
+  "@errPhoneInvalid": {
+    "description": "Validation error shown when the phone field contains an unrecognised phone number. Accepts Ukrainian +380 format with 9-digit subscriber number."
+  },
+  "errSalonNameRequired": "Введіть назву салону",
+  "@errSalonNameRequired": {
+    "description": "Validation error when the salon-name field is empty or too short (less than 2 characters). Used only for the SALON_OWNER role variant."
+  },
+  "errSalonNameTooLong": "Назва салону не може перевищувати 100 символів",
+  "@errSalonNameTooLong": {
+    "description": "Validation error when the salon-name field exceeds 100 characters. Mirrors the backend JPA column length constraint."
   }
 }
