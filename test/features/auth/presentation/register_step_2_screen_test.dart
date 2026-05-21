@@ -149,19 +149,29 @@ void main() {
 
     tearDown(() => container.dispose());
 
-    testWidgets('renders 4 fields including salon-name and divider', (
-      tester,
-    ) async {
-      await tester.pumpWidget(_buildApp(router: router, container: container));
-      await tester.pumpAndSettle();
+    testWidgets(
+      'renders 4 fields including salon-name; no divider and no section label',
+      (tester) async {
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('field-name')), findsOneWidget);
-      expect(find.byKey(const Key('field-surname')), findsOneWidget);
-      expect(find.byKey(const Key('field-phone')), findsOneWidget);
-      expect(find.byKey(const Key('field-salon-name')), findsOneWidget);
-      expect(find.byKey(const Key('salon-section-divider')), findsOneWidget);
-      expect(find.byKey(const Key('salon-section-label')), findsOneWidget);
-    });
+        // Personal fields + salon-name field all present.
+        expect(find.byKey(const Key('field-name')), findsOneWidget);
+        expect(find.byKey(const Key('field-surname')), findsOneWidget);
+        expect(find.byKey(const Key('field-phone')), findsOneWidget);
+        expect(find.byKey(const Key('field-salon-name')), findsOneWidget);
+
+        // Divider and section-label are removed per design alignment.
+        expect(find.byKey(const Key('salon-section-divider')), findsNothing);
+        expect(find.byKey(const Key('salon-section-label')), findsNothing);
+
+        // Confirm the section label text is absent — not just the key.
+        expect(find.text('Дані салону'), findsNothing);
+        expect(find.text('ДАНІ САЛОНУ'), findsNothing);
+      },
+    );
   });
 
   // ── Test 4 — Validators ───────────────────────────────────────────────────
@@ -440,9 +450,11 @@ void main() {
     );
   });
 
-  // ── Test 8 — Sub-step indicator renders ──────────────────────────────────
+  // ── Test 8 — Sub-step indicator renders (dots-only, no visible label) ────
   group('SubStepIndicator', () {
-    testWidgets('renders two pill dots with first dot active', (tester) async {
+    testWidgets('renders two pill dots; no visible sub-step label text', (
+      tester,
+    ) async {
       final container = _containerWithRole(UserRole.client);
       addTearDown(container.dispose);
 
@@ -451,9 +463,17 @@ void main() {
       await tester.pumpWidget(_buildApp(router: router, container: container));
       await tester.pumpAndSettle();
 
+      // Dots present.
       expect(find.byKey(const Key('substep-indicator')), findsOneWidget);
       expect(find.byKey(const Key('substep-dot-0')), findsOneWidget);
       expect(find.byKey(const Key('substep-dot-1')), findsOneWidget);
+
+      // Visible label text is absent — design is dots-only.
+      expect(find.text('Крок 2.1 — Профіль'), findsNothing);
+      expect(find.text('КРОК 2.1 — ПРОФІЛЬ'), findsNothing);
+
+      // The label key is not rendered (dots-only widget no longer emits it).
+      expect(find.byKey(const Key('substep-label')), findsNothing);
     });
   });
 

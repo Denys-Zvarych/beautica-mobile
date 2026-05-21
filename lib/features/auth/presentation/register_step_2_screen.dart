@@ -9,7 +9,7 @@
 //
 // Role-conditional field matrix (LOCKED per spec + HTML):
 //   CLIENT / INDEPENDENT_MASTER:  Ім'я · Прізвище (two-column) · Телефон
-//   SALON_OWNER:                  Same three + divider + "Дані салону" + Назва салону
+//   SALON_OWNER:                  Same three + Назва салону
 //
 // On "Продовжити":
 //   1. Validate all visible fields.
@@ -121,19 +121,6 @@ const _kCtaTextStyle = TextStyle(
   letterSpacing: 0.3,
 );
 
-/// HTML: .field-section-label { color:rgba(184,154,122,0.7); font-size:10px;
-/// font-weight:700; letter-spacing:0.12em; text-transform:uppercase }.
-const _kSectionLabelStyle = TextStyle(
-  color: Color(0xB3B89A7A), // rgba(184,154,122,0.7)
-  fontSize: 10,
-  fontWeight: FontWeight.w700,
-  letterSpacing: 1.2, // 0.12em × 10px
-  height: 1,
-);
-
-/// HTML: .field-divider { background: rgba(255,255,255,0.08) }.
-const _kDividerColor = Color(0x14FFFFFF);
-
 // ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------
@@ -238,7 +225,7 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
   /// Returns the role-specific field widget tree.
   ///
   /// CLIENT / INDEPENDENT_MASTER: Ім'я + Прізвище (two-column) + Телефон.
-  /// SALON_OWNER: same three + divider + section label + Назва салону.
+  /// SALON_OWNER: same three + Назва салону (no divider, no section label).
   Widget _fieldsForRole(UserRole role, AppLocalizations l10n) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -272,22 +259,7 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
 
         // ── SALON_OWNER only ──────────────────────────────────────────────
         if (role == UserRole.salonOwner) ...[
-          const SizedBox(height: AppSpacing.xs),
-          // HTML: .field-divider { height:1px; background:rgba(255,255,255,0.08) }
-          const Divider(
-            key: Key('salon-section-divider'),
-            height: 1,
-            thickness: 1,
-            color: _kDividerColor,
-          ),
           const SizedBox(height: AppSpacing.sm),
-          // HTML: .field-section-label { "Дані салону" }
-          Text(
-            key: const Key('salon-section-label'),
-            l10n.step2SalonSectionLabel.toUpperCase(),
-            style: _kSectionLabelStyle,
-          ),
-          const SizedBox(height: AppSpacing.xs),
           _SalonNameField(
             controller: _salonNameController,
             focusNode: _salonNameFocusNode,
@@ -315,12 +287,8 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // ── Sub-step indicator (two pill dots, first active) ──────────
-          // HTML: .substep-row / .substep-dots
-          SubStepIndicator(
-            key: const Key('substep-indicator'),
-            activeIndex: 0,
-            label: l10n.step2SubstepLabel,
-          ),
+          // HTML: .substep-row / .substep-dots — dots only, no visible text.
+          const SubStepIndicator(key: Key('substep-indicator'), activeIndex: 0),
           const SizedBox(height: AppSpacing.sm),
 
           // ── Role-aware fields ─────────────────────────────────────────

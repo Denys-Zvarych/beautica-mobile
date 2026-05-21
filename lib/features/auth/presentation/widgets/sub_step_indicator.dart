@@ -1,22 +1,19 @@
-// Phase 2.17 — Sub-step indicator (two pill dots + optional label).
+// Phase 2.17 — Sub-step indicator (two pill dots).
 //
 // SOURCE OF TRUTH: sign-up-step-2-profile.html .substep-row / .substep-dots
 //
 // CSS reference:
-//   .substep-row    { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px }
-//   .substep-text   { font-size:10px; font-weight:600; color:rgba(255,255,255,0.45); letter-spacing:0.1em; text-transform:uppercase }
+//   .substep-row    { display:flex; align-items:center; margin-bottom:14px }
 //   .substep-dots   { display:flex; gap:6px }
 //   .substep-dot    { width:18px; height:3px; border-radius:2px; background:rgba(255,255,255,0.1) }
 //   .substep-dot.active { background: var(--accent) #b89a7a }
 //
-// The HTML variant mockups show the dots only (no text in .substep-text). The
-// phase doc specifies a text label ("Крок 2.1 — Профіль") alongside the dots.
-// Both are rendered: dots on the right, label on the left — matching the
-// `.substep-row { justify-content: space-between }` layout. When [label] is
-// null, only the dots row is rendered (centred-left).
+// The HTML variant mockups show dots only — no visible text label.
+// The [label] param is retained for screen-reader context only (attached via
+// [Semantics]); it does NOT render as a visible widget.
 //
 // Reused by RegisterStep3Screen (Phase 2.19) — pass a different [activeIndex]
-// and [label] to represent "Крок 2.2 — Адреса".
+// to represent the address sub-step.
 
 import 'package:flutter/material.dart';
 
@@ -45,15 +42,6 @@ const double _kDotHeight = 3;
 /// .substep-dots { gap: 6px }
 const double _kDotGap = 6;
 
-/// .substep-text style (uppercase, w600, white 45%)
-const TextStyle _kLabelStyle = TextStyle(
-  color: Color(0x73FFFFFF), // rgba(255,255,255,0.45)
-  fontSize: 10,
-  fontWeight: FontWeight.w600,
-  letterSpacing: 1.0, // 0.1em × 10px
-  height: 1,
-);
-
 // ---------------------------------------------------------------------------
 // Widget
 // ---------------------------------------------------------------------------
@@ -63,12 +51,11 @@ const TextStyle _kLabelStyle = TextStyle(
 /// [totalSteps] — total number of pill dots (default 2).
 /// [activeIndex] — 0-based index of the active (camel-coloured) dot. All
 ///   other dots are rendered inactive (white 10%).
-/// [label] — optional uppercase label shown to the left of the dots. When
-///   null, only the dots cluster is rendered.
+/// [label] — optional description attached as a [Semantics] label on the dots
+///   row for screen-reader context. No visible text is rendered.
 ///
 /// Keys:
 ///   Key('substep-dot-0') .. Key('substep-dot-N')  — one per dot
-///   Key('substep-label')                           — present when label != null
 class SubStepIndicator extends StatelessWidget {
   const SubStepIndicator({
     super.key,
@@ -83,7 +70,7 @@ class SubStepIndicator extends StatelessWidget {
   /// Zero-based index of the active (highlighted) dot.
   final int activeIndex;
 
-  /// Optional uppercase label rendered to the left of the dots cluster.
+  /// Optional description exposed to screen readers. Not rendered as visible text.
   final String? label;
 
   @override
@@ -109,16 +96,9 @@ class SubStepIndicator extends StatelessWidget {
       return Align(alignment: Alignment.centerLeft, child: dotsRow);
     }
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label!.toUpperCase(),
-          key: const Key('substep-label'),
-          style: _kLabelStyle,
-        ),
-        dotsRow,
-      ],
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Semantics(label: label, child: dotsRow),
     );
   }
 }

@@ -595,10 +595,6 @@
   "@roleChipOwner": {
     "description": "Role chip label for the SALON_OWNER role across the registration flow (short display label — 'Salon', NOT 'Salon Owner')."
   },
-  "step2SubstepLabel": "Step 2.1 — Profile",
-  "@step2SubstepLabel": {
-    "description": "Uppercase label shown to the left of the two sub-step pill dots inside the Step 2 card. Indicates the user is on sub-step 2.1 (Profile)."
-  },
   "step2FieldNameLabel": "First name",
   "@step2FieldNameLabel": {
     "description": "Uppercase field label above the first-name input on the Step 2 Profile screen."
@@ -634,10 +630,6 @@
   "step2CtaContinue": "Continue",
   "@step2CtaContinue": {
     "description": "CTA button label on the Step 2 Profile screen. Advances the wizard to Step 3."
-  },
-  "step2SalonSectionLabel": "Salon details",
-  "@step2SalonSectionLabel": {
-    "description": "Section divider label separating personal fields from salon fields in the SALON_OWNER variant of Step 2."
   },
   "errPhoneInvalid": "Invalid phone format. Use +380 XX XXX XXXX",
   "@errPhoneInvalid": {

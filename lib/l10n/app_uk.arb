@@ -595,10 +595,6 @@
   "@roleChipOwner": {
     "description": "Role chip label for the SALON_OWNER role across the registration flow and role selection (sign-up-step-2-profile.html .role-chip — owner variant shows 'Салон', NOT 'Власник салону'). Short display label only."
   },
-  "step2SubstepLabel": "Крок 2.1 — Профіль",
-  "@step2SubstepLabel": {
-    "description": "Uppercase label shown to the left of the two sub-step pill dots inside the Step 2 card (sign-up-step-2-profile.html .substep-text concept). Indicates the user is on sub-step 2.1 (Profile) of the details collection flow."
-  },
   "step2FieldNameLabel": "Ім'я",
   "@step2FieldNameLabel": {
     "description": "Uppercase field label above the first-name input on the Step 2 Profile screen (sign-up-step-2-profile.html label — 'Ім'я')."
@@ -634,10 +630,6 @@
   "step2CtaContinue": "Продовжити",
   "@step2CtaContinue": {
     "description": "CTA button label on the Step 2 Profile screen (sign-up-step-2-profile.html .cta-btn — 'Продовжити'). Advances the wizard to Step 3."
-  },
-  "step2SalonSectionLabel": "Дані салону",
-  "@step2SalonSectionLabel": {
-    "description": "Section divider label separating personal fields from salon fields in the SALON_OWNER variant of Step 2 (sign-up-step-2-profile.html .field-section-label — 'Дані салону')."
   },
   "errPhoneInvalid": "Невірний формат телефону. Використовуйте +380 XX XXX XXXX",
   "@errPhoneInvalid": {
