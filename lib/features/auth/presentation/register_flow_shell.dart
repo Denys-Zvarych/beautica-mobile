@@ -470,9 +470,22 @@ class _BackLink extends StatelessWidget {
           // padding it would collapse the hit area to ~28px, below 44px.
           minimumSize: const Size(88, 44),
         ),
-        // ignore: no_raw_ui_strings
-        // The "←" prefix is a decorative arrow; the localised text is in [label].
-        child: Text('← $label', style: _kBackLinkStyle),
+        // Icons.west is a Material icon (always paints). The Manrope UI font
+        // has no glyph for U+2190 (←), so the old Text('← $label') rendered
+        // a blank square. This mirrors the already-correct _BackToRoleLink
+        // pattern in register_step_1_screen.dart.
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.west,
+              size: 15,
+              color: BrandColors.camel.withValues(alpha: 0.85),
+            ),
+            const SizedBox(width: 6),
+            Text(label, style: _kBackLinkStyle),
+          ],
+        ),
       ),
     );
   }

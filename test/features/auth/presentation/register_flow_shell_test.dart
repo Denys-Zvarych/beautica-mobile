@@ -378,6 +378,53 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
+    // 4d. _BackLink renders Icons.west (not a '← ' Unicode glyph)
+    //
+    // The Manrope UI font has no glyph for U+2190 (←), so the old
+    // Text('← $label') rendered blank. The fix replaces it with an
+    // Icon(Icons.west) + Text Row — this test locks that contract.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '4d. back link at /register/step-2 renders Icon(Icons.west) and NOT '
+      'a raw "← " text prefix (fix for blank arrow on Manrope)',
+      (tester) async {
+        await _pumpShell(tester, initialLocation: RouteNames.registerStep2);
+
+        // The back-link button must exist.
+        expect(find.byKey(const Key('btn-back-step')), findsOneWidget);
+
+        // Must contain exactly one Icons.west icon widget.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('btn-back-step')),
+            matching: find.byWidgetPredicate(
+              (w) => w is Icon && w.icon == Icons.west,
+            ),
+          ),
+          findsOneWidget,
+          reason:
+              '_BackLink must use Icon(Icons.west) — not a Unicode "←" glyph',
+        );
+
+        // Must NOT contain any Text widget whose content starts with '← '
+        // (the broken old pattern).
+        final textsInButton = find.descendant(
+          of: find.byKey(const Key('btn-back-step')),
+          matching: find.byWidgetPredicate(
+            (w) => w is Text && (w.data?.startsWith('← ') ?? false),
+          ),
+        );
+        expect(
+          textsInButton,
+          findsNothing,
+          reason:
+              '_BackLink must not embed the "← " Unicode prefix in Text — '
+              'it rendered blank because Manrope has no U+2190 glyph',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // 5. Role-chip label per UserRole
     // -----------------------------------------------------------------------
     testWidgets('5a. role=client → role chip shows roleClient l10n string', (

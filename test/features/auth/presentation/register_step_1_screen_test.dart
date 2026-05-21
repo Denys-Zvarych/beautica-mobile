@@ -435,5 +435,89 @@ void main() {
         _assertNoRegisterPostFired(repo);
       },
     );
+
+    // -----------------------------------------------------------------------
+    // 9. btn-go-to-login navigates to /login (Issue 2 lock-in)
+    //
+    // Verifies the destination of the "Вже є акаунт? Увійти" link — it MUST
+    // go to RouteNames.login, NOT to RouteNames.registerRole. The adjacent
+    // btn-back-to-role link (test 8) goes to registerRole, so mis-wiring
+    // would make both links land on the same page.
+    // -----------------------------------------------------------------------
+    testWidgets('9. btn-go-to-login navigates to /login and resets the draft', (
+      tester,
+    ) async {
+      final (:container, :repo) = _makeContainerWithRepo();
+      addTearDown(container.dispose);
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(_buildApp(router: router, container: container));
+      await tester.pumpAndSettle();
+
+      // Scroll to make the login link visible (it lives below the form).
+      await tester.ensureVisible(find.byKey(const Key('btn-go-to-login')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-go-to-login')));
+      await tester.pumpAndSettle();
+
+      // (1) Navigated to /login.
+      expect(
+        router.routerDelegate.currentConfiguration.fullPath,
+        equals(RouteNames.login),
+        reason:
+            'btn-go-to-login must navigate to RouteNames.login, '
+            'not to registerRole or any other route',
+      );
+      expect(find.text('login'), findsOneWidget);
+
+      // (2) Draft was reset — the "log in instead" path is a full wizard
+      // exit, unlike the single-step btn-back-to-role.
+      expect(
+        container.read(registerDraftProvider),
+        isNull,
+        reason: 'btn-go-to-login must reset() the draft before navigating',
+      );
+
+      // (3) No registration POST was fired.
+      _assertNoRegisterPostFired(repo);
+    });
+
+    // -----------------------------------------------------------------------
+    // 10. btn-back-to-role destination is /register/role (not /login)
+    //
+    // Mirror assertion: the back link must NOT navigate to the login page.
+    // This complements test 8 (draft preservation) with an explicit
+    // destination check, ensuring the two adjacent links are never swapped.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '10. btn-back-to-role navigates to /register/role (not /login)',
+      (tester) async {
+        final (:container, :repo) = _makeContainerWithRepo();
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.ensureVisible(find.byKey(const Key('btn-back-to-role')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('btn-back-to-role')));
+        await tester.pumpAndSettle();
+
+        expect(
+          router.routerDelegate.currentConfiguration.fullPath,
+          equals(RouteNames.registerRole),
+          reason:
+              'btn-back-to-role must navigate to registerRole, not to /login',
+        );
+        expect(find.text('role-selection'), findsOneWidget);
+
+        _assertNoRegisterPostFired(repo);
+      },
+    );
   });
 }
