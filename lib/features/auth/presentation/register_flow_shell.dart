@@ -195,14 +195,14 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
           ),
           const SizedBox(height: 20),
           _GlassCard(child: widget.child),
-          const SizedBox(height: 18),
+          const SizedBox(height: AppSpacing.xs),
           if (step != RegistrationStep.account)
             _BackLink(
               step: step,
               label: l10n.registerBackStep,
               key: const Key('btn-back-step'),
             ),
-          const SizedBox(height: 24),
+          const SizedBox(height: AppSpacing.sm),
         ],
       ),
     );
@@ -461,7 +461,12 @@ class _BackLink extends StatelessWidget {
         },
         style: TextButton.styleFrom(
           foregroundColor: BrandColors.camel,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          // Trim visual dead space (vertical 6) while keeping the effective
+          // tap target at the a11y minimum 44px high via minimumSize. We do
+          // NOT use tapTargetSize.shrinkWrap here — with 13px text + 6px
+          // padding it would collapse the hit area to ~28px, below 44px.
+          minimumSize: const Size(88, 44),
         ),
         // ignore: no_raw_ui_strings
         // The "←" prefix is a decorative arrow; the localised text is in [label].
