@@ -683,9 +683,22 @@ class _BackToRoleLink extends StatelessWidget {
           minimumSize: const Size(0, 0),
           padding: const EdgeInsets.only(top: 14, bottom: 2),
         ),
-        // ignore: no_raw_ui_strings
-        // The "←" prefix is a decorative arrow; the localised text is in [label].
-        child: Text('← ${l10n.registerBackToRole}', style: _kBackToRoleStyle),
+        // The leading arrow is a Material [Icon] (not a unicode "←" glyph): the
+        // Manrope UI font has no fontFamilyFallback covering U+2190, so the
+        // textual arrow rendered blank. Icons.west is a bundled, thin
+        // leftward arrow that matches the back-link aesthetic and always paints.
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.west,
+              size: 15,
+              color: BrandColors.camel.withValues(alpha: 0.85),
+            ),
+            const SizedBox(width: 6),
+            Text(l10n.registerBackToRole, style: _kBackToRoleStyle),
+          ],
+        ),
       ),
     );
   }
@@ -717,22 +730,17 @@ class _LoginLinkRow extends StatelessWidget {
           style: TextButton.styleFrom(
             foregroundColor: BrandColors.camel,
             disabledForegroundColor: BrandColors.camel,
-            // A11y: keep the "Увійти" text exactly where it sits in the centred
-            // prompt row, but enlarge the tap area with vertical hit padding:
-            //   top    = 2   → reclaims 2px of the 12px gap above this row
-            //   bottom = 14  → extends DOWN into the card's existing bottom
-            //                  whitespace (this Row is the Column's last child,
-            //                  so nothing visible renders below it — the text
-            //                  position is unchanged)
-            // Combined with the back link's 2px bottom pad and the now-8px
-            // SizedBox between them, the visible gap below the back text stays
-            // 2 + 8 + 2 = 12 ✓, and the two HIT boxes stay 8px apart
-            // (ui-ux-pro-max `touch-spacing`). Effective hit area ≈ 13px text
-            // line + 2 + 14 ≈ 33px tall. shrinkWrap keeps the padding exact so
-            // Material's own box never re-inflates the row.
+            // A11y + alignment: symmetric vertical padding centres the "Увійти"
+            // text within its ~33px hit box (13px line + 8 + 8 = 33), so it
+            // shares the same vertical centre/baseline as the centred prompt
+            // "Вже є акаунт?". The total box height is unchanged from the prior
+            // 2 + 14 split, so the row height, the prompt position, and the gap
+            // above the row all stay put — only the text moves down into
+            // alignment. shrinkWrap keeps the padding exact so Material's own
+            // box never re-inflates the row (ui-ux-pro-max `touch-target-size`).
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             minimumSize: const Size(0, 0),
-            padding: const EdgeInsets.only(top: 2, bottom: 14),
+            padding: const EdgeInsets.symmetric(vertical: 8),
             textStyle: const TextStyle(
               fontWeight: FontWeight.w600,
               fontSize: 13,
