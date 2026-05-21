@@ -1,0 +1,361 @@
+// Phase 2.18 — Locality bottom-sheet picker.
+//
+// A generic modal bottom sheet that lists selectable locality items
+// (Oblast / City / CityDistrict) and returns the chosen one via
+// `Navigator.pop`. Mirrors the sheet behaviour described in
+// docs/signup-designs/sign-up-step-3-address.html step 5:
+//   - drag handle bar at the top,
+//   - debounced (200 ms) case-insensitive search on the localized name,
+//   - scrollable list of selectable rows,
+//   - empty state ("Нічого не знайдено") when the query matches nothing,
+//   - AsyncError state with a Retry button,
+//   - tap a row → Navigator.pop(context, item).
+//
+// Sheet height is clamped to 80% of the screen, espresso background, 16 px
+// top-corner radius, NO glassmorphism (the sheet competes with row press
+// feedback otherwise). All paint objects are hoisted; the search RegExp is
+// avoided in favour of a cheap lowercase substring match.
+
+import 'dart:async';
+
+import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/app_spacing.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+// `ProviderListenable` (the type accepted by `ref.watch`) is exported from the
+// misc barrel rather than the top-level flutter_riverpod barrel in 3.x.
+import 'package:flutter_riverpod/misc.dart';
+
+/// Opens the locality picker bottom sheet and resolves with the selected item,
+/// or null if the sheet was dismissed without a selection.
+///
+/// [provider] supplies the async list; [labelOf] extracts the searchable +
+/// displayed name from each item; [titleLabel] is the sheet header (reusing
+/// the row's label, e.g. "Місто"); [onRetry] is invoked when the user taps
+/// Retry in the error state (typically `ref.invalidate(provider)`).
+Future<T?> showLocalityPickerSheet<T>({
+  required BuildContext context,
+  required ProviderListenable<AsyncValue<List<T>>> provider,
+  required String Function(T) labelOf,
+  required String titleLabel,
+  required VoidCallback onRetry,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    barrierColor: const Color(0x99000000), // ~60% black scrim for legibility
+    builder: (_) => _LocalityPickerSheet<T>(
+      provider: provider,
+      labelOf: labelOf,
+      titleLabel: titleLabel,
+      onRetry: onRetry,
+    ),
+  );
+}
+
+class _LocalityPickerSheet<T> extends ConsumerStatefulWidget {
+  const _LocalityPickerSheet({
+    required this.provider,
+    required this.labelOf,
+    required this.titleLabel,
+    required this.onRetry,
+  });
+
+  final ProviderListenable<AsyncValue<List<T>>> provider;
+  final String Function(T) labelOf;
+  final String titleLabel;
+  final VoidCallback onRetry;
+
+  @override
+  ConsumerState<_LocalityPickerSheet<T>> createState() =>
+      _LocalityPickerSheetState<T>();
+}
+
+class _LocalityPickerSheetState<T>
+    extends ConsumerState<_LocalityPickerSheet<T>> {
+  static const _kSheetRadius = BorderRadius.vertical(top: Radius.circular(16));
+  static const _kHandleColor = Color(0x33FFFFFF);
+  static const _kSearchFill = Color(0x12FFFFFF);
+  static const _kSearchBorder = Color(0x1AFFFFFF);
+  static const _kSearchRadius = BorderRadius.all(Radius.circular(12));
+  static const _kTitleStyle = TextStyle(
+    fontSize: 17,
+    fontWeight: FontWeight.w700,
+    color: BrandColors.cream,
+  );
+  static const _kEmptyStyle = TextStyle(fontSize: 14, color: Color(0x80FFFFFF));
+  static const _kSearchDebounce = Duration(milliseconds: 200);
+
+  final TextEditingController _searchController = TextEditingController();
+
+  /// The committed (debounced) lowercase query used for filtering.
+  String _query = '';
+  Timer? _debounce;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String raw) {
+    _debounce?.cancel();
+    _debounce = Timer(_kSearchDebounce, () {
+      if (!mounted) return;
+      setState(() => _query = raw.trim().toLowerCase());
+    });
+  }
+
+  List<T> _filter(List<T> items) {
+    if (_query.isEmpty) return items;
+    return items
+        .where((item) => widget.labelOf(item).toLowerCase().contains(_query))
+        .toList(growable: false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final mediaQuery = MediaQuery.of(context);
+    final maxHeight = mediaQuery.size.height * 0.8;
+    final async = ref.watch(widget.provider);
+
+    return Padding(
+      // Lift the sheet above the on-screen keyboard while searching.
+      padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            color: BrandColors.espresso,
+            borderRadius: _kSheetRadius,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag handle.
+              const Padding(
+                padding: EdgeInsets.only(
+                  top: AppSpacing.sm,
+                  bottom: AppSpacing.xs,
+                ),
+                child: _DragHandle(color: _kHandleColor),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md,
+                  AppSpacing.xxs,
+                  AppSpacing.md,
+                  AppSpacing.sm,
+                ),
+                child: Text(widget.titleLabel, style: _kTitleStyle),
+              ),
+              // Search field.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md,
+                  0,
+                  AppSpacing.md,
+                  AppSpacing.sm,
+                ),
+                child: TextField(
+                  key: const Key('locality_picker_search'),
+                  controller: _searchController,
+                  onChanged: _onSearchChanged,
+                  autocorrect: false,
+                  textInputAction: TextInputAction.search,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: BrandColors.cream,
+                  ),
+                  cursorColor: BrandColors.camel,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    filled: true,
+                    fillColor: _kSearchFill,
+                    hintText: l10n.localitySearchHint,
+                    hintStyle: const TextStyle(color: Color(0x59FFFFFF)),
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      size: 20,
+                      color: Color(0x80FFFFFF),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.sm,
+                    ),
+                    enabledBorder: const OutlineInputBorder(
+                      borderRadius: _kSearchRadius,
+                      borderSide: BorderSide(color: _kSearchBorder),
+                    ),
+                    focusedBorder: const OutlineInputBorder(
+                      borderRadius: _kSearchRadius,
+                      borderSide: BorderSide(color: BrandColors.camel),
+                    ),
+                  ),
+                ),
+              ),
+              Flexible(
+                child: async.when(
+                  loading: () => const _SheetLoading(),
+                  error: (err, _) => _SheetError(
+                    failure: err,
+                    onRetry: widget.onRetry,
+                    retryLabel: l10n.localityRetry,
+                  ),
+                  data: (items) {
+                    final filtered = _filter(items);
+                    if (filtered.isEmpty) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(AppSpacing.xl),
+                          child: Text(
+                            l10n.localitySearchEmpty,
+                            key: const Key('locality_picker_empty'),
+                            style: _kEmptyStyle,
+                          ),
+                        ),
+                      );
+                    }
+                    return ListView.builder(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
+                        final item = filtered[index];
+                        return LocalityPickerTile(
+                          key: Key('locality_picker_tile_$index'),
+                          label: widget.labelOf(item),
+                          onTap: () => Navigator.of(context).pop(item),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A single selectable row inside the locality picker sheet.
+class LocalityPickerTile extends StatelessWidget {
+  const LocalityPickerTile({
+    required this.label,
+    required this.onTap,
+    super.key,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+
+  static const _kLabelStyle = TextStyle(fontSize: 15, color: BrandColors.cream);
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        splashColor: const Color(0x1AB89A7A),
+        highlightColor: const Color(0x0DB89A7A),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.md,
+          ),
+          child: Row(
+            children: [Expanded(child: Text(label, style: _kLabelStyle))],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DragHandle extends StatelessWidget {
+  const _DragHandle({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 40,
+      height: 4,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: const BorderRadius.all(Radius.circular(2)),
+      ),
+    );
+  }
+}
+
+class _SheetLoading extends StatelessWidget {
+  const _SheetLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.all(AppSpacing.xl),
+      child: Center(
+        child: SizedBox(
+          width: 28,
+          height: 28,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: BrandColors.camel,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetError extends StatelessWidget {
+  const _SheetError({
+    required this.failure,
+    required this.onRetry,
+    required this.retryLabel,
+  });
+
+  final Object failure;
+  final VoidCallback onRetry;
+  final String retryLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final message = failure is Failure
+        ? (failure as Failure).userMessage(context)
+        : AppLocalizations.of(context).errUnknown;
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Announce the error to screen readers (role=alert equivalent).
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              message,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, color: BrandColors.cream),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          TextButton(
+            key: const Key('locality_picker_retry'),
+            onPressed: onRetry,
+            style: TextButton.styleFrom(foregroundColor: BrandColors.camel),
+            child: Text(retryLabel),
+          ),
+        ],
+      ),
+    );
+  }
+}

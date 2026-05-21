@@ -654,5 +654,45 @@
   "errSalonNameTooLong": "Salon name must not exceed 100 characters",
   "@errSalonNameTooLong": {
     "description": "Validation error when the salon-name field exceeds 100 characters."
+  },
+  "localityOblastLabel": "Region",
+  "@localityOblastLabel": {
+    "description": "Label above the Oblast (region) tap-row in the locality cascade picker."
+  },
+  "localityCityLabel": "City",
+  "@localityCityLabel": {
+    "description": "Label above the City tap-row in the locality cascade picker."
+  },
+  "localityDistrictLabel": "District",
+  "@localityDistrictLabel": {
+    "description": "Label above the District tap-row in the locality cascade picker."
+  },
+  "localityOblastPlaceholder": "Select a region",
+  "@localityOblastPlaceholder": {
+    "description": "Placeholder shown inside the Oblast tap-row before a region is selected."
+  },
+  "localityCityPlaceholder": "Select a city",
+  "@localityCityPlaceholder": {
+    "description": "Placeholder shown inside the City tap-row before a city is selected."
+  },
+  "localityDistrictPlaceholder": "Select a district",
+  "@localityDistrictPlaceholder": {
+    "description": "Placeholder shown inside the District tap-row before a district is selected."
+  },
+  "localityDistrictNoneHelper": "Optional for cities without districts",
+  "@localityDistrictNoneHelper": {
+    "description": "Helper line shown below the disabled District tap-row when the selected city has no urban districts."
+  },
+  "localitySearchHint": "Search…",
+  "@localitySearchHint": {
+    "description": "Placeholder in the search field at the top of the locality picker bottom sheet."
+  },
+  "localitySearchEmpty": "Nothing found",
+  "@localitySearchEmpty": {
+    "description": "Empty-state message shown in the locality picker bottom sheet when the search query matches no items."
+  },
+  "localityRetry": "Retry",
+  "@localityRetry": {
+    "description": "Label on the Retry button shown in the locality picker bottom sheet when the underlying list request failed."
   }
 }

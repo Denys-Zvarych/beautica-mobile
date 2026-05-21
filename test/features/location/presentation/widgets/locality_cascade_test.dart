@@ -1,0 +1,310 @@
+// Phase 2.18 — Widget tests for [LocalityCascade] + the bottom-sheet picker.
+//
+// SOURCE OF TRUTH: docs/signup-designs/sign-up-step-3-address.html (picker-row
+// + sheet behaviour).
+//
+// Covered scenarios (6 minimum per spec Step 7):
+//   1. Initial state: only the Oblast row is enabled; City + District disabled.
+//   2. After an Oblast is selected: City unlocks; District still disabled.
+//   3. After a City WITH districts is selected: District unlocks.
+//   4. After a City WITHOUT districts: District is disabled + shows the helper
+//      line and is not tappable.
+//   5. The bottom sheet shows a search field; typing filters the list.
+//   6. Selecting a value pops the sheet and fires the callback.
+//
+// Strategy: override [locationRepositoryProvider] with a hand-written fake so
+// all three list providers resolve through it. A small stateful harness owns
+// the selection state and rebuilds the cascade on each callback, mirroring how
+// Phase 2.19's Step 3 screen will consume it.
+
+import 'package:beautica_mobile/features/location/data/location_repository.dart';
+import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/city_district.dart';
+import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+const _oblast = Oblast(id: 'o1', name: 'Львівська', katotthCode: 'UA46');
+const _cityWithDistricts = City(
+  id: 'c1',
+  oblastId: 'o1',
+  name: 'Львів',
+  katotthCode: 'UA4610',
+  hasDistricts: true,
+);
+const _cityNoDistricts = City(
+  id: 'c2',
+  oblastId: 'o1',
+  name: 'Дрогобич',
+  katotthCode: 'UA4620',
+  hasDistricts: false,
+);
+const _district = CityDistrict(
+  id: 'd1',
+  cityId: 'c1',
+  name: 'Галицький',
+  katotthCode: 'UA4610136',
+);
+
+// ---------------------------------------------------------------------------
+// Fake repository
+// ---------------------------------------------------------------------------
+
+class _FakeLocationRepository implements LocationRepository {
+  @override
+  Future<List<Oblast>> fetchOblasts() async => const [
+    _oblast,
+    Oblast(id: 'o2', name: 'Київська', katotthCode: 'UA32'),
+  ];
+
+  @override
+  Future<List<City>> fetchCities(String oblastId) async => const [
+    _cityWithDistricts,
+    _cityNoDistricts,
+  ];
+
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async => const [
+    _district,
+    CityDistrict(
+      id: 'd2',
+      cityId: 'c1',
+      name: 'Личаківський',
+      katotthCode: 'UA4610137',
+    ),
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Test harness — owns selection state and rebuilds the cascade.
+// ---------------------------------------------------------------------------
+
+class _CascadeHarness extends StatefulWidget {
+  const _CascadeHarness({this.initialCity, this.onDistrictSelected});
+
+  final City? initialCity;
+  final ValueChanged<CityDistrict?>? onDistrictSelected;
+
+  @override
+  State<_CascadeHarness> createState() => _CascadeHarnessState();
+}
+
+class _CascadeHarnessState extends State<_CascadeHarness> {
+  Oblast? _oblast;
+  City? _city;
+  CityDistrict? _district;
+
+  @override
+  void initState() {
+    super.initState();
+    // Allow seeding an already-selected oblast + city for tests 3/4/5/6 so the
+    // City and District rows start enabled without driving the sheet flow.
+    final city = widget.initialCity;
+    if (city != null) {
+      _oblast = const Oblast(id: 'o1', name: 'Львівська', katotthCode: 'UA46');
+      _city = city;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LocalityCascade(
+      selectedOblast: _oblast,
+      selectedCity: _city,
+      selectedDistrict: _district,
+      onOblast: (o) => setState(() => _oblast = o),
+      onCity: (c) => setState(() => _city = c),
+      onDistrict: (d) {
+        setState(() => _district = d);
+        widget.onDistrictSelected?.call(d);
+      },
+    );
+  }
+}
+
+Widget _wrap(Widget child) => ProviderScope(
+  overrides: [
+    locationRepositoryProvider.overrideWith((_) => _FakeLocationRepository()),
+  ],
+  child: MaterialApp(
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+    locale: const Locale('uk'),
+    home: Scaffold(
+      body: Padding(padding: const EdgeInsets.all(16), child: child),
+    ),
+  ),
+);
+
+// Finds the InkWell inside a LocalityTapRow keyed [rowKey] and reports whether
+// it has an onTap (i.e. the row is enabled / tappable).
+bool _rowEnabled(WidgetTester tester, Key rowKey) {
+  final ink = tester.widget<InkWell>(
+    find.descendant(
+      of: find.byKey(rowKey),
+      matching: find.byKey(const Key('locality_tap_row_ink')),
+    ),
+  );
+  return ink.onTap != null;
+}
+
+// Resolves localized strings from the live tree so assertions never hard-code
+// a UA literal (M2 — Key-less helper line is matched by its l10n value).
+AppLocalizations _l10n(WidgetTester tester) => AppLocalizations.of(
+  tester.element(find.byKey(const Key('locality_row_oblast'))),
+);
+
+// Reads the label text of the picker tile at [index] inside the open sheet.
+String _tileText(WidgetTester tester, int index) {
+  return tester
+      .widget<Text>(
+        find.descendant(
+          of: find.byKey(Key('locality_picker_tile_$index')),
+          matching: find.byType(Text),
+        ),
+      )
+      .data!;
+}
+
+void main() {
+  group('LocalityCascade', () {
+    testWidgets('1. initial: only Oblast enabled', (tester) async {
+      await tester.pumpWidget(_wrap(const _CascadeHarness()));
+      await tester.pump();
+
+      expect(_rowEnabled(tester, const Key('locality_row_oblast')), isTrue);
+      expect(_rowEnabled(tester, const Key('locality_row_city')), isFalse);
+      expect(_rowEnabled(tester, const Key('locality_row_district')), isFalse);
+    });
+
+    testWidgets('2. selecting an Oblast unlocks City (District stays locked)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_wrap(const _CascadeHarness()));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('locality_row_oblast')));
+      await tester.pumpAndSettle(); // open sheet + resolve list future
+
+      await tester.tap(find.text('Львівська'));
+      await tester.pumpAndSettle(); // pop sheet
+
+      expect(_rowEnabled(tester, const Key('locality_row_city')), isTrue);
+      expect(_rowEnabled(tester, const Key('locality_row_district')), isFalse);
+    });
+
+    testWidgets('3. selecting a City WITH districts unlocks District', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(const _CascadeHarness(initialCity: _cityWithDistricts)),
+      );
+      await tester.pump();
+
+      expect(_rowEnabled(tester, const Key('locality_row_district')), isTrue);
+      // No helper line in this state (matched via l10n, not a raw literal).
+      expect(find.text(_l10n(tester).localityDistrictNoneHelper), findsNothing);
+    });
+
+    testWidgets('4. City WITHOUT districts → District disabled + helper', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(const _CascadeHarness(initialCity: _cityNoDistricts)),
+      );
+      await tester.pump();
+
+      expect(_rowEnabled(tester, const Key('locality_row_district')), isFalse);
+      expect(
+        find.text(_l10n(tester).localityDistrictNoneHelper),
+        findsOneWidget,
+      );
+
+      // Tapping the disabled row must not open a sheet (no search field).
+      await tester.tap(
+        find.byKey(const Key('locality_row_district')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+      expect(find.byKey(const Key('locality_picker_search')), findsNothing);
+    });
+
+    testWidgets('5. sheet shows a search field that filters the list', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(const _CascadeHarness(initialCity: _cityWithDistricts)),
+      );
+      await tester.pump();
+
+      // Open the city picker (route + list future settle together).
+      await tester.tap(find.byKey(const Key('locality_row_city')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('locality_picker_search')), findsOneWidget);
+      // Both cities present before filtering (two tiles in the list).
+      expect(find.byKey(const Key('locality_picker_tile_0')), findsOneWidget);
+      expect(find.byKey(const Key('locality_picker_tile_1')), findsOneWidget);
+      // Within the sheet's tiles, both city names render.
+      expect(_tileText(tester, 0), 'Львів');
+      expect(_tileText(tester, 1), 'Дрогобич');
+
+      // Type a query that matches only Дрогобич. Explicit pump(Duration) here
+      // (not pumpAndSettle) because the 200ms search debounce Timer never
+      // "settles" on its own — we must advance virtual time past it.
+      await tester.enterText(
+        find.byKey(const Key('locality_picker_search')),
+        'Дрог',
+      );
+      await tester.pump(const Duration(milliseconds: 250));
+
+      // Filtering narrows the list to a single tile (Дрогобич).
+      expect(find.byKey(const Key('locality_picker_tile_0')), findsOneWidget);
+      expect(find.byKey(const Key('locality_picker_tile_1')), findsNothing);
+      expect(_tileText(tester, 0), 'Дрогобич');
+    });
+
+    testWidgets('6. selecting a value pops the sheet and fires callback', (
+      tester,
+    ) async {
+      CityDistrict? fired;
+      await tester.pumpWidget(
+        _wrap(
+          _CascadeHarness(
+            initialCity: _cityWithDistricts,
+            onDistrictSelected: (d) => fired = d,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('locality_row_district')));
+      await tester.pumpAndSettle(); // open sheet + resolve list future
+
+      expect(find.byKey(const Key('locality_picker_search')), findsOneWidget);
+
+      await tester.tap(find.text('Галицький'));
+      await tester.pumpAndSettle(); // pop animation completes
+
+      // Sheet dismissed.
+      expect(find.byKey(const Key('locality_picker_search')), findsNothing);
+      // Callback fired with the chosen district.
+      expect(fired, _district);
+      // Row now shows the selected value.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('locality_row_district')),
+          matching: find.text('Галицький'),
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+}

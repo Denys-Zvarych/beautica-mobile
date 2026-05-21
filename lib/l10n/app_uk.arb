@@ -654,5 +654,45 @@
   "errSalonNameTooLong": "Назва салону не може перевищувати 100 символів",
   "@errSalonNameTooLong": {
     "description": "Validation error when the salon-name field exceeds 100 characters. Mirrors the backend JPA column length constraint."
+  },
+  "localityOblastLabel": "Область",
+  "@localityOblastLabel": {
+    "description": "Label above the Oblast (region) tap-row in the locality cascade picker (sign-up-step-3-address.html .picker-group label — 'Область')."
+  },
+  "localityCityLabel": "Місто",
+  "@localityCityLabel": {
+    "description": "Label above the City tap-row in the locality cascade picker (sign-up-step-3-address.html — 'Місто')."
+  },
+  "localityDistrictLabel": "Район",
+  "@localityDistrictLabel": {
+    "description": "Label above the District tap-row in the locality cascade picker (sign-up-step-3-address.html — 'Район')."
+  },
+  "localityOblastPlaceholder": "Оберіть область",
+  "@localityOblastPlaceholder": {
+    "description": "Placeholder shown inside the Oblast tap-row before a region is selected."
+  },
+  "localityCityPlaceholder": "Оберіть місто",
+  "@localityCityPlaceholder": {
+    "description": "Placeholder shown inside the City tap-row before a city is selected (sign-up-step-3-address.html .picker-value — 'Оберіть місто')."
+  },
+  "localityDistrictPlaceholder": "Оберіть район",
+  "@localityDistrictPlaceholder": {
+    "description": "Placeholder shown inside the District tap-row before a district is selected (sign-up-step-3-address.html .picker-value — 'Оберіть район')."
+  },
+  "localityDistrictNoneHelper": "Не обов'язково для міст без районів",
+  "@localityDistrictNoneHelper": {
+    "description": "Helper line shown below the disabled District tap-row when the selected city has no urban districts (sign-up-step-3-address.html .picker-helper — \"Не обов'язково для міст без районів.\")."
+  },
+  "localitySearchHint": "Пошук…",
+  "@localitySearchHint": {
+    "description": "Placeholder in the search field at the top of the locality picker bottom sheet."
+  },
+  "localitySearchEmpty": "Нічого не знайдено",
+  "@localitySearchEmpty": {
+    "description": "Empty-state message shown in the locality picker bottom sheet when the search query matches no items (sign-up-step-3 design — 'Нічого не знайдено')."
+  },
+  "localityRetry": "Повторити",
+  "@localityRetry": {
+    "description": "Label on the Retry button shown in the locality picker bottom sheet when the underlying list request failed."
   }
 }
