@@ -298,13 +298,20 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           _LoginLinkRow(
             l10n: l10n,
             onTap: () {
-              // Security (Phase 2.16 HIGH-1) — wipe the in-progress draft
-              // (password fields included) before abandoning the wizard.
-              ref.read(registerDraftProvider.notifier).reset();
-              // Navigate unconditionally to login. The wizard nav stack is
-              // role→step1, so canPop() would land on role-selection, not the
-              // login page — go() guarantees the correct destination.
+              // Navigate to /login BEFORE nulling the draft. If reset() ran
+              // first, the still-mounted RegisterFlowShell's null-role guard
+              // would read role == null in didChangeDependencies, schedule a
+              // context.go('/register/role') post-frame callback, and that
+              // callback would win the race against this go() call —
+              // landing the user on role-selection instead of login.
+              // See register_flow_shell.dart didChangeDependencies for the
+              // guard that makes this robust even against timing edge-cases.
               context.go(RouteNames.login);
+              // Security (Phase 2.16 HIGH-1) — wipe the in-progress draft
+              // (incl. the plaintext password) when abandoning the wizard.
+              // reset() still runs synchronously in this handler so the draft
+              // is cleared before the user sees the login screen.
+              ref.read(registerDraftProvider.notifier).reset();
             },
           ),
         ],

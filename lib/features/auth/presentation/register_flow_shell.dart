@@ -144,11 +144,38 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
     // redirect is scheduled exactly once even if the shell rebuilds during
     // a transition. The [_redirectScheduled] flag is the single source of
     // truth for "have we already queued the bounce-back".
+    //
+    // Navigation-race guard (Phase 2.16 bug-fix): only bounce to
+    // role-selection when the user has no role AND is still on a wizard
+    // route. Inside a ShellRoute, `GoRouterState.of(context).matchedLocation`
+    // only reflects the current CHILD route of the shell (e.g. '/register')
+    // — it does NOT update to '/login' when the user navigates OUTSIDE the
+    // shell, because the shell's InheritedGoRouter is scoped to its own
+    // sub-tree. To get the authoritative full-app location we use
+    // `GoRouter.of(context).routerDelegate.currentConfiguration.fullPath`,
+    // which is always up-to-date at post-frame time (after go_router has
+    // committed the route change). This makes the check timing-independent:
+    //   • deep-link to /register with no role → fullPath == '/register' at
+    //     post-frame → stillInWizard → bounce fires correctly.
+    //   • intentional exit via "log in" → fullPath == '/login' at post-frame
+    //     → !stillInWizard → bounce is suppressed.
     final role = ref.read(registerDraftProvider.select((d) => d?.role));
     if (role == null && !_redirectScheduled) {
       _redirectScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        // Re-read the authoritative app-level route at fire time. By the
+        // time this post-frame callback runs, go_router has always committed
+        // its full route update (including navigations that exit the shell),
+        // so fullPath is authoritative and timing-race-free.
+        final fullPath = GoRouter.of(
+          context,
+        ).routerDelegate.currentConfiguration.fullPath;
+        final stillInWizard =
+            fullPath == RouteNames.register ||
+            fullPath == RouteNames.registerStep2 ||
+            fullPath == RouteNames.registerStep3;
+        if (!stillInWizard) return;
         context.go(RouteNames.registerRole);
       });
     }
@@ -161,9 +188,13 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
     // changes on every keystroke and would cause the whole shell to rebuild.
     final role = ref.watch(registerDraftProvider.select((d) => d?.role));
 
-    // Defensive: if no role is set (deep-link to /register without picking
-    // a role first), the redirect is already scheduled by didChangeDependencies
-    // — render a placeholder while the post-frame callback flushes.
+    // Defensive: if no role is set (deep-link to /register without picking a
+    // role first, OR the wizard is being exited via the "log in instead" link),
+    // render a placeholder while the post-frame callback resolves. The post-
+    // frame callback in didChangeDependencies will bounce to /register/role only
+    // if the live matchedLocation is still a wizard path when it fires — so
+    // this placeholder renders safely for one frame in both the deep-link and
+    // the intentional-exit cases.
     if (role == null) {
       return const AuthScaffold(child: SizedBox.shrink());
     }

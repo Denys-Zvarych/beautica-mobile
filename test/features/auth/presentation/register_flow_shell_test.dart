@@ -27,6 +27,7 @@ import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_flow_shell.dart';
+import 'package:beautica_mobile/features/auth/presentation/register_step_1_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/widgets/registration_progress.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -69,11 +70,20 @@ const _kStep3Body = Text('step-3-body', key: Key('step-3-body'));
 
 /// Builds the real production-shape ShellRoute graph (`/register`,
 /// `/register/step-2`, `/register/step-3`) wrapped in [RegisterFlowShell]
-/// plus a sibling `/register/role` target.
+/// plus sibling `/register/role` and `/login` targets.
+///
+/// The `/login` route is included so the navigation-race regression tests
+/// (tests R1 and R2) can verify that btn-go-to-login truly lands on `/login`
+/// and not on `/register/role`.
 GoRouter _makeShellRouter({required String initialLocation}) => GoRouter(
   initialLocation: initialLocation,
   redirect: (context, state) => null,
   routes: [
+    GoRoute(
+      path: RouteNames.login,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('login'))),
+    ),
     GoRoute(
       path: RouteNames.registerRole,
       builder: (context, state) =>
@@ -472,6 +482,181 @@ void main() {
           find.byKey(const Key('role-chip-label')),
         );
         expect(chipLabel.data, equals(l10n.roleIndependentMaster));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // R1. Navigation-race regression — "Вже є акаунт? Увійти" link exits to
+    //     /login (the bug).
+    //
+    // Root cause (confirmed by mobile-debugger): the old tap handler called
+    // reset() BEFORE context.go('/login'). reset() nulled the draft role;
+    // the still-mounted RegisterFlowShell's didChangeDependencies re-fired
+    // with role == null and scheduled a post-frame context.go('/register/role')
+    // that won the race against the intended '/login' navigation.
+    //
+    // Both fix parts are exercised here:
+    //   Part 1 — tap handler now calls context.go('/login') FIRST, then
+    //             reset() (register_step_1_screen.dart).
+    //   Part 2 — shell's didChangeDependencies only bounces when
+    //             matchedLocation is still a wizard route (register_flow_shell
+    //             .dart). After go('/login') the matchedLocation is '/login',
+    //             so the bounce is skipped even if reset() fires while the
+    //             shell is technically still in the tree for one more frame.
+    //
+    // This test uses the production router shape — ShellRoute + RegisterFlow
+    // Shell wrapping the real RegisterStep1Screen — so both guard layers are
+    // exercised, not just the tap-handler reorder.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'R1. btn-go-to-login inside RegisterFlowShell navigates to /login, '
+      'NOT to /register/role (navigation-race regression)',
+      (tester) async {
+        // Build a router that puts the REAL RegisterStep1Screen inside the
+        // REAL RegisterFlowShell shell, plus /login and /register/role
+        // siblings so we can assert the final destination.
+        final (:container, repo: _) = _makeContainerWithRepo(
+          role: UserRole.client,
+        );
+        addTearDown(container.dispose);
+
+        final router = GoRouter(
+          initialLocation: RouteNames.register,
+          redirect: (context, state) => null,
+          routes: [
+            GoRoute(
+              path: RouteNames.login,
+              builder: (context, state) =>
+                  const Scaffold(body: Center(child: Text('login'))),
+            ),
+            GoRoute(
+              path: RouteNames.registerRole,
+              builder: (context, state) =>
+                  const Scaffold(body: Center(child: Text('role-selection'))),
+            ),
+            ShellRoute(
+              builder: (context, state, child) =>
+                  RegisterFlowShell(child: child),
+              routes: [
+                GoRoute(
+                  path: RouteNames.register,
+                  // The real screen — passed bare, exactly as in production.
+                  // RegisterFlowShell (via AuthScaffold) owns the outer
+                  // Scaffold + SingleChildScrollView; the step body is the
+                  // bare widget placed inside the glass card. Wrapping with
+                  // an extra Scaffold would nest a Scaffold inside a scroll
+                  // viewport and trigger unbounded-height layout errors.
+                  builder: (context, state) => const RegisterStep1Screen(),
+                ),
+                GoRoute(
+                  path: RouteNames.registerStep2,
+                  builder: (context, state) =>
+                      const Center(child: Text('step-2')),
+                ),
+                GoRoute(
+                  path: RouteNames.registerStep3,
+                  builder: (context, state) =>
+                      const Center(child: Text('step-3')),
+                ),
+              ],
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        // Collect every location the router settles on so we can assert the
+        // wizard NEVER bounced to /register/role at any point after the tap.
+        final visited = <String>[];
+        router.routerDelegate.addListener(() {
+          visited.add(router.routerDelegate.currentConfiguration.fullPath);
+        });
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        // Scroll the login link into view (it lives below the form fields
+        // and may be below the default 800×600 test viewport fold).
+        await tester.ensureVisible(find.byKey(const Key('btn-go-to-login')));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('btn-go-to-login')));
+        // pumpAndSettle drains all post-frame callbacks including any that
+        // the shell's null-role guard might have (incorrectly) scheduled.
+        await tester.pumpAndSettle();
+
+        // (1) Final location is /login.
+        expect(
+          router.routerDelegate.currentConfiguration.fullPath,
+          equals(RouteNames.login),
+          reason:
+              'btn-go-to-login must navigate to RouteNames.login — '
+              'NOT to /register/role (navigation-race bug)',
+        );
+        expect(find.text('login'), findsOneWidget);
+
+        // (2) The router NEVER settled on /register/role after the tap.
+        final roleVisitsAfterTap = visited
+            .skipWhile((p) => p != RouteNames.register)
+            .where((p) => p == RouteNames.registerRole)
+            .length;
+        expect(
+          roleVisitsAfterTap,
+          equals(0),
+          reason:
+              'The shell null-role guard must NOT bounce to /register/role '
+              'when the user intentionally navigated to /login — '
+              'visited locations after /register: '
+              '${visited.skipWhile((p) => p != RouteNames.register).toList()}',
+        );
+
+        // (3) Draft was reset.
+        expect(
+          container.read(registerDraftProvider),
+          isNull,
+          reason: 'The draft must be wiped when the user leaves the wizard',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // R2. Deep-link guard preserved — null-role draft at /register still
+    //     bounces to /register/role.
+    //
+    // Verifies that the `stillInWizard` guard in didChangeDependencies does
+    // NOT break the legitimate deep-link protection: when the draft has no
+    // role AND the current location is a wizard route, the shell must still
+    // redirect to role-selection.
+    //
+    // This test uses the STUB body router (not the real screen) because the
+    // deep-link bounce fires from the shell's chrome layer, not the step body.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'R2. null-role draft at /register still bounces to /register/role '
+      '(deep-link guard preserved after stillInWizard fix)',
+      (tester) async {
+        // role: null → no draft role set → shell must redirect.
+        final (:container, repo: _) = _makeContainerWithRepo(role: null);
+        addTearDown(container.dispose);
+
+        final router = _makeShellRouter(initialLocation: RouteNames.register);
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        // The shell must have redirected to /register/role.
+        expect(
+          router.routerDelegate.currentConfiguration.fullPath,
+          equals(RouteNames.registerRole),
+          reason:
+              'The deep-link guard must still fire when role is null AND '
+              'the initial location is /register (a wizard route)',
+        );
+        expect(find.text('role-selection'), findsOneWidget);
       },
     );
   });
