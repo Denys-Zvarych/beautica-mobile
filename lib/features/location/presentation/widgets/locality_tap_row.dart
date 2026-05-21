@@ -30,6 +30,7 @@ class LocalityTapRow extends StatelessWidget {
     this.value,
     this.enabled = true,
     this.helper,
+    this.labelSuffix,
     super.key,
   });
 
@@ -51,6 +52,12 @@ class LocalityTapRow extends StatelessWidget {
 
   /// Optional helper line rendered below the row (disabled-with-helper state).
   final String? helper;
+
+  /// Optional inline widget rendered to the RIGHT of the [label] (same row as
+  /// the label text). Used by Phase 2.19 to append the CLIENT "— необов'язково"
+  /// optional tag and the "?" tip-icon to the Область label. Null on every
+  /// other row / screen.
+  final Widget? labelSuffix;
 
   // --- Hoisted paint objects (no per-build allocation) ----------------------
 
@@ -159,7 +166,21 @@ class LocalityTapRow extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-          child: Text(label, style: _kLabelStyle),
+          child: labelSuffix == null
+              ? Text(label, style: _kLabelStyle)
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        label,
+                        style: _kLabelStyle,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    labelSuffix!,
+                  ],
+                ),
         ),
         Semantics(
           button: enabled,

@@ -22,25 +22,34 @@ class TwoColumnRow extends StatelessWidget {
     required this.left,
     required this.right,
     this.gap = 12,
+    this.flexLeft = 1,
+    this.flexRight = 1,
   });
 
-  /// Left column widget — receives 50 % of available width.
+  /// Left column widget. Width = flexLeft / (flexLeft + flexRight).
   final Widget left;
 
-  /// Right column widget — receives 50 % of available width.
+  /// Right column widget. Width = flexRight / (flexLeft + flexRight).
   final Widget right;
 
   /// Horizontal gap between the two columns. Defaults to 12 dp (AppSpacing.sm).
   final double gap;
+
+  /// Flex weight of the left column (default 1 — equal width). Phase 2.19 sets
+  /// this to 2 for the Вулиця/Будинок row (HTML .row-2 { 2fr 1fr }).
+  final int flexLeft;
+
+  /// Flex weight of the right column (default 1 — equal width).
+  final int flexRight;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(child: left),
+        Expanded(flex: flexLeft, child: left),
         SizedBox(width: gap),
-        Expanded(child: right),
+        Expanded(flex: flexRight, child: right),
       ],
     );
   }

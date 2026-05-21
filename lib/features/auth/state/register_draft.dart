@@ -35,10 +35,15 @@ sealed class RegisterDraft with _$RegisterDraft {
     @Default('') String lastName,
     @Default('') String phone,
     @Default('') String salonName,
-    // Step 3 — Address
+    // Step 3 — Address.
+    // Locality IDs are backend UUIDs (String), NOT ints — they mirror the
+    // location domain models (Oblast/City/CityDistrict all use String ids).
+    // [oblastCode] holds the chosen oblast's UUID id (used to fetch cities and
+    // re-hydrate the picker on "← Назад"); [cityId] / [districtId] hold the
+    // chosen city / district UUIDs submitted to the profile/salon endpoints.
     String? oblastCode,
-    int? cityId,
-    int? districtId,
+    String? cityId,
+    String? districtId,
     @Default('') String street,
     @Default('') String buildingNo,
     @Default('') String locationNote,

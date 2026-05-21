@@ -694,5 +694,130 @@
   "localityRetry": "Retry",
   "@localityRetry": {
     "description": "Label on the Retry button shown in the locality picker bottom sheet when the underlying list request failed."
+  },
+
+  "step3HeadlineClientLine1": "Your",
+  "@step3HeadlineClientLine1": {
+    "description": "First line of the hero headline on the Step 3 Address screen, CLIENT variant. Rendered in Manrope 700."
+  },
+  "step3HeadlineClientLine2": "city",
+  "@step3HeadlineClientLine2": {
+    "description": "Second line (italic Cormorant Garamond accent) of the Step 3 hero headline, CLIENT variant."
+  },
+  "step3HeadlineMasterLine1": "Where you",
+  "@step3HeadlineMasterLine1": {
+    "description": "First line of the hero headline on the Step 3 Address screen, INDEPENDENT_MASTER variant. Rendered in Manrope 700."
+  },
+  "step3HeadlineMasterLine2": "work",
+  "@step3HeadlineMasterLine2": {
+    "description": "Second line (italic Cormorant Garamond accent) of the Step 3 hero headline, INDEPENDENT_MASTER variant."
+  },
+  "step3HeadlineOwnerLine1": "Salon",
+  "@step3HeadlineOwnerLine1": {
+    "description": "First line of the hero headline on the Step 3 Address screen, SALON_OWNER variant. Rendered in Manrope 700."
+  },
+  "step3HeadlineOwnerLine2": "address",
+  "@step3HeadlineOwnerLine2": {
+    "description": "Second line (italic Cormorant Garamond accent) of the Step 3 hero headline, SALON_OWNER variant."
+  },
+  "step3SubtextClient": "We'll show masters near you. You can skip and choose later.",
+  "@step3SubtextClient": {
+    "description": "Muted sub-text below the Step 3 headline for the CLIENT role variant."
+  },
+  "step3SubtextMaster": "Your workplace address — so clients can find you.",
+  "@step3SubtextMaster": {
+    "description": "Muted sub-text below the Step 3 headline for the INDEPENDENT_MASTER role variant."
+  },
+  "step3SubtextOwner": "Where your salon is located — the physical address for clients.",
+  "@step3SubtextOwner": {
+    "description": "Muted sub-text below the Step 3 headline for the SALON_OWNER role variant."
+  },
+  "localityLabelOptional": "— optional",
+  "@localityLabelOptional": {
+    "description": "Muted camel optional tag appended to each locality picker label for the CLIENT role only. Indicates the locality fields are skippable for clients."
+  },
+  "localityOblastTipClient": "Needed to find masters near you",
+  "@localityOblastTipClient": {
+    "description": "Tooltip text on the small circular '?' tip-icon next to the Oblast label, CLIENT variant. Shown on tap."
+  },
+  "localityOblastTipProvider": "Needed so clients can find you",
+  "@localityOblastTipProvider": {
+    "description": "Tooltip text on the small circular '?' tip-icon next to the Oblast label, INDEPENDENT_MASTER and SALON_OWNER variants. Shown on tap."
+  },
+  "localityOblastTipSemanticLabel": "Region hint",
+  "@localityOblastTipSemanticLabel": {
+    "description": "Screen-reader label for the icon-only '?' tip-icon button next to the Oblast label (accessibility — the visible glyph is just '?')."
+  },
+  "step3FieldStreetLabel": "Street",
+  "@step3FieldStreetLabel": {
+    "description": "Uppercase field label above the street input on the Step 3 Address screen. Shown for INDEPENDENT_MASTER and SALON_OWNER only."
+  },
+  "step3FieldBuildingLabel": "Building",
+  "@step3FieldBuildingLabel": {
+    "description": "Uppercase field label above the building-number input on the Step 3 Address screen. Shown for INDEPENDENT_MASTER and SALON_OWNER only."
+  },
+  "step3FieldNoteLabel": "Note",
+  "@step3FieldNoteLabel": {
+    "description": "Uppercase field label above the location-note textarea on the Step 3 Address screen. Shown for INDEPENDENT_MASTER and SALON_OWNER only."
+  },
+  "step3FieldStreetPlaceholder": "Khreshchatyk St.",
+  "@step3FieldStreetPlaceholder": {
+    "description": "In-field placeholder for the street input on the Step 3 Address screen."
+  },
+  "step3FieldBuildingPlaceholder": "12A",
+  "@step3FieldBuildingPlaceholder": {
+    "description": "In-field placeholder for the building-number input on the Step 3 Address screen."
+  },
+  "step3FieldNotePlaceholder": "Floor, intercom, etc.",
+  "@step3FieldNotePlaceholder": {
+    "description": "In-field placeholder for the location-note textarea on the Step 3 Address screen."
+  },
+  "step3CtaSkip": "Skip",
+  "@step3CtaSkip": {
+    "description": "Ghost CTA button on the Step 3 Address screen, CLIENT variant only. Skips saving locality and proceeds to verification."
+  },
+  "step3CtaSave": "Save",
+  "@step3CtaSave": {
+    "description": "Filled CTA button on the Step 3 Address screen, CLIENT variant. Saves the chosen locality and proceeds to verification."
+  },
+  "step3CtaSaveAndContinue": "Save and continue",
+  "@step3CtaSaveAndContinue": {
+    "description": "Single full-width filled CTA on the Step 3 Address screen for INDEPENDENT_MASTER and SALON_OWNER. Registers the account, saves the address, and proceeds to verification."
+  },
+  "step3ProfileSaveFallback": "Save your address later in your profile",
+  "@step3ProfileSaveFallback": {
+    "description": "Snackbar shown when the registration POST succeeded but the follow-up profile/salon locality save failed. The account exists and OTP was emailed, so navigation still proceeds to verification."
+  },
+  "errLocalityOblastRequired": "Choose a region",
+  "@errLocalityOblastRequired": {
+    "description": "Validation error shown to providers (MASTER/OWNER) when no oblast is selected on the Step 3 Address screen."
+  },
+  "errLocalityCityRequired": "Choose a city",
+  "@errLocalityCityRequired": {
+    "description": "Validation error shown to providers (MASTER/OWNER) when no city is selected on the Step 3 Address screen."
+  },
+  "errLocalityDistrictRequired": "Choose a district",
+  "@errLocalityDistrictRequired": {
+    "description": "Validation error shown to providers (MASTER/OWNER) when the selected city has districts but none is chosen on the Step 3 Address screen."
+  },
+  "errStreetRequired": "Enter a street",
+  "@errStreetRequired": {
+    "description": "Validation error when the street field is empty or shorter than 2 characters (MASTER/OWNER only)."
+  },
+  "errStreetTooLong": "Street name cannot exceed 120 characters",
+  "@errStreetTooLong": {
+    "description": "Validation error when the street field exceeds 120 characters. Mirrors the backend address column length constraint."
+  },
+  "errBuildingRequired": "Enter a building number",
+  "@errBuildingRequired": {
+    "description": "Validation error when the building-number field is empty (MASTER/OWNER only)."
+  },
+  "errBuildingTooLong": "Building number cannot exceed 20 characters",
+  "@errBuildingTooLong": {
+    "description": "Validation error when the building-number field exceeds 20 characters. Mirrors the backend address column length constraint."
+  },
+  "errLocationNoteTooLong": "Note cannot exceed 250 characters",
+  "@errLocationNoteTooLong": {
+    "description": "Validation error when the location-note textarea exceeds 250 characters."
   }
 }

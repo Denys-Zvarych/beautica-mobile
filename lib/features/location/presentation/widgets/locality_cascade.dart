@@ -37,6 +37,8 @@ class LocalityCascade extends ConsumerWidget {
     this.selectedCity,
     this.selectedDistrict,
     this.districtRequired = false,
+    this.showDistrictNoneHelper = true,
+    this.oblastLabelSuffix,
     super.key,
   });
 
@@ -68,6 +70,20 @@ class LocalityCascade extends ConsumerWidget {
   /// matches the phase-doc signature and Phase 2.19 can wire it without change.
   final bool districtRequired;
 
+  /// Whether to render the "Не обов'язково для міст без районів" helper line
+  /// under the District row when the selected city is a leaf (no districts).
+  ///
+  /// Defaults to `true` (the Phase 2.18 behaviour). The Phase 2.19 register
+  /// Step 3 design dropped this helper line, so that screen passes `false` —
+  /// the District row still switches to its disabled state, just without the
+  /// caption beneath it.
+  final bool showDistrictNoneHelper;
+
+  /// Optional inline widget appended to the RIGHT of the Область row label.
+  /// Phase 2.19 passes the CLIENT "— необов'язково" tag + the "?" tip-icon
+  /// here; null on every other consumer.
+  final Widget? oblastLabelSuffix;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
@@ -91,6 +107,7 @@ class LocalityCascade extends ConsumerWidget {
           label: l10n.localityOblastLabel,
           placeholder: l10n.localityOblastPlaceholder,
           value: oblast?.name,
+          labelSuffix: oblastLabelSuffix,
           onTap: () => _pickOblast(context, ref),
         ),
         const SizedBox(height: AppSpacing.md),
@@ -112,7 +129,9 @@ class LocalityCascade extends ConsumerWidget {
           placeholder: l10n.localityDistrictPlaceholder,
           value: selectedDistrict?.name,
           enabled: districtEnabled,
-          helper: showDistrictHelper ? l10n.localityDistrictNoneHelper : null,
+          helper: (showDistrictHelper && showDistrictNoneHelper)
+              ? l10n.localityDistrictNoneHelper
+              : null,
           onTap: () {
             final c = selectedCity;
             if (c != null && c.hasDistricts) _pickDistrict(context, ref, c);

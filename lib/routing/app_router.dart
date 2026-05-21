@@ -30,6 +30,7 @@ import '../features/auth/presentation/login_screen.dart';
 import '../features/auth/presentation/register_flow_shell.dart';
 import '../features/auth/presentation/register_step_1_screen.dart';
 import '../features/auth/presentation/register_step_2_screen.dart';
+import '../features/auth/presentation/register_step_3_screen.dart';
 import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
@@ -106,16 +107,22 @@ GoRouter appRouter(Ref ref) {
           ),
           GoRoute(
             path: RouteNames.registerStep3,
-            // Phase 2.19 will replace this placeholder with the real
-            // Step 3 (Address) screen.
-            pageBuilder: (context, state) => _instantPage(
-              state,
-              const _StepPlaceholder('Step 3 — Phase 2.19'),
-            ),
+            // Phase 2.19 — real Step 3 (Address / Locality) screen.
+            pageBuilder: (context, state) =>
+                _instantPage(state, const RegisterStep3Screen()),
           ),
         ],
       ),
       GoRoute(
+        // Phase 2.19 MEDIUM-2 (screenshot/FLAG_SECURE PII coverage):
+        // /verification renders OUTSIDE the RegisterFlowShell, so it is NOT
+        // covered by the shell's ScreenProtector lifecycle. It instead applies
+        // its own ScreenProtector.preventScreenshotOn/Off() in
+        // VerificationScreen.initState/dispose (both !kDebugMode-guarded). The
+        // three wizard steps (role-selection self-protects; /register,
+        // /register/step-2, /register/step-3 are inside the shell) are covered
+        // by RegisterFlowShell. Net effect: every PII-collecting auth route has
+        // screenshot suppression — no gap, no double-application.
         path: RouteNames.verification,
         pageBuilder: (context, state) {
           final email = (state.extra as String?) ?? '';
@@ -154,17 +161,4 @@ class _Placeholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       Scaffold(body: Center(child: Text(label)));
-}
-
-/// Placeholder rendered inside the wizard's glass card for Step 2 / Step 3
-/// until Phase 2.17 / 2.19 wire the real screens. The [label] is a variable
-/// (not a literal) so the `no_raw_ui_strings` lint stays green.
-class _StepPlaceholder extends StatelessWidget {
-  const _StepPlaceholder(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) =>
-      Center(child: Text(label, key: const Key('step-placeholder')));
 }

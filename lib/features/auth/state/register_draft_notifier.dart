@@ -70,8 +70,8 @@ class RegisterDraftNotifier extends _$RegisterDraftNotifier {
   /// Merges the Step 3 (Address) slice.
   void updateStep3({
     String? oblastCode,
-    int? cityId,
-    int? districtId,
+    String? cityId,
+    String? districtId,
     String street = '',
     String buildingNo = '',
     String locationNote = '',
@@ -86,6 +86,25 @@ class RegisterDraftNotifier extends _$RegisterDraftNotifier {
       buildingNo: buildingNo,
       locationNote: locationNote,
     );
+  }
+
+  /// Wipes the plaintext credential fields ([password] + [confirmPassword])
+  /// from the in-memory draft while leaving every other field intact.
+  ///
+  /// Security (Phase 2.19 MEDIUM-1) — the keepAlive draft retains the raw
+  /// password across navigation. Once the account has been registered the
+  /// password is no longer needed by the wizard (the OTP step works off the
+  /// email alone), so it must be cleared immediately after `register()`
+  /// succeeds — BEFORE navigating to `/verification` — to minimise the window
+  /// the plaintext credential lives in memory. The full [reset] still runs at
+  /// `/done`; this is the earlier, narrower wipe that keeps the rest of the
+  /// draft (email, name, locality) available for the verification step.
+  ///
+  /// No-op if the draft is `null`.
+  void clearCredentials() {
+    final current = state;
+    if (current == null) return;
+    state = current.copyWith(password: '', confirmPassword: '');
   }
 
   /// Clears the draft. Called on `/done` arrival or on logout.

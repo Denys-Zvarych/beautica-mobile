@@ -694,5 +694,130 @@
   "localityRetry": "Повторити",
   "@localityRetry": {
     "description": "Label on the Retry button shown in the locality picker bottom sheet when the underlying list request failed."
+  },
+
+  "step3HeadlineClientLine1": "Ваше",
+  "@step3HeadlineClientLine1": {
+    "description": "First line of the hero headline on the Step 3 Address screen, CLIENT variant (sign-up-step-3-address.html .headline — 'Ваше місто'). Rendered in Manrope 700."
+  },
+  "step3HeadlineClientLine2": "місто",
+  "@step3HeadlineClientLine2": {
+    "description": "Second line (italic Cormorant Garamond accent) of the Step 3 hero headline, CLIENT variant (sign-up-step-3-address.html .headline em — 'місто')."
+  },
+  "step3HeadlineMasterLine1": "Де ви",
+  "@step3HeadlineMasterLine1": {
+    "description": "First line of the hero headline on the Step 3 Address screen, INDEPENDENT_MASTER variant (sign-up-step-3-address.html .headline — 'Де ви працюєте'). Rendered in Manrope 700."
+  },
+  "step3HeadlineMasterLine2": "працюєте",
+  "@step3HeadlineMasterLine2": {
+    "description": "Second line (italic Cormorant Garamond accent) of the Step 3 hero headline, INDEPENDENT_MASTER variant (sign-up-step-3-address.html .headline em — 'працюєте')."
+  },
+  "step3HeadlineOwnerLine1": "Адреса",
+  "@step3HeadlineOwnerLine1": {
+    "description": "First line of the hero headline on the Step 3 Address screen, SALON_OWNER variant (sign-up-step-3-address.html .headline — 'Адреса салону'). Rendered in Manrope 700."
+  },
+  "step3HeadlineOwnerLine2": "салону",
+  "@step3HeadlineOwnerLine2": {
+    "description": "Second line (italic Cormorant Garamond accent) of the Step 3 hero headline, SALON_OWNER variant (sign-up-step-3-address.html .headline em — 'салону')."
+  },
+  "step3SubtextClient": "Покажемо майстрів поряд із вами. Можна пропустити та обрати пізніше.",
+  "@step3SubtextClient": {
+    "description": "Muted sub-text below the Step 3 headline for the CLIENT role variant (sign-up-step-3-address.html .sub-text — client variant)."
+  },
+  "step3SubtextMaster": "Адреса вашого робочого місця — щоб клієнти могли вас знайти.",
+  "@step3SubtextMaster": {
+    "description": "Muted sub-text below the Step 3 headline for the INDEPENDENT_MASTER role variant (sign-up-step-3-address.html .sub-text — master variant)."
+  },
+  "step3SubtextOwner": "Де знаходиться ваш салон — фізична адреса для клієнтів.",
+  "@step3SubtextOwner": {
+    "description": "Muted sub-text below the Step 3 headline for the SALON_OWNER role variant (sign-up-step-3-address.html .sub-text — owner variant)."
+  },
+  "localityLabelOptional": "— необов'язково",
+  "@localityLabelOptional": {
+    "description": "Muted camel optional tag appended to each locality picker label for the CLIENT role only (sign-up-step-3-address.html .label-optional — \"— необов'язково\"). Indicates the locality fields are skippable for clients."
+  },
+  "localityOblastTipClient": "Потрібно для пошуку майстрів поряд із вами",
+  "@localityOblastTipClient": {
+    "description": "Tooltip text on the small circular '?' tip-icon next to the Oblast label, CLIENT variant (sign-up-step-3-address.html .tip-icon title — client). Shown on tap."
+  },
+  "localityOblastTipProvider": "Потрібно щоб вас змогли знайти клієнти",
+  "@localityOblastTipProvider": {
+    "description": "Tooltip text on the small circular '?' tip-icon next to the Oblast label, INDEPENDENT_MASTER and SALON_OWNER variants (sign-up-step-3-address.html .tip-icon title — master/owner). Shown on tap."
+  },
+  "localityOblastTipSemanticLabel": "Підказка про область",
+  "@localityOblastTipSemanticLabel": {
+    "description": "Screen-reader label for the icon-only '?' tip-icon button next to the Oblast label (accessibility — the visible glyph is just '?')."
+  },
+  "step3FieldStreetLabel": "Вулиця",
+  "@step3FieldStreetLabel": {
+    "description": "Uppercase field label above the street input on the Step 3 Address screen (sign-up-step-3-address.html label — 'Вулиця'). Shown for INDEPENDENT_MASTER and SALON_OWNER only."
+  },
+  "step3FieldBuildingLabel": "Будинок",
+  "@step3FieldBuildingLabel": {
+    "description": "Uppercase field label above the building-number input on the Step 3 Address screen (sign-up-step-3-address.html label — 'Будинок'). Shown for INDEPENDENT_MASTER and SALON_OWNER only."
+  },
+  "step3FieldNoteLabel": "Примітка",
+  "@step3FieldNoteLabel": {
+    "description": "Uppercase field label above the location-note textarea on the Step 3 Address screen (sign-up-step-3-address.html label — 'Примітка'). Shown for INDEPENDENT_MASTER and SALON_OWNER only."
+  },
+  "step3FieldStreetPlaceholder": "вул. Хрещатик",
+  "@step3FieldStreetPlaceholder": {
+    "description": "In-field placeholder for the street input on the Step 3 Address screen (sign-up-step-3-address.html input placeholder — 'вул. Хрещатик'). Transcribed verbatim from HTML."
+  },
+  "step3FieldBuildingPlaceholder": "12А",
+  "@step3FieldBuildingPlaceholder": {
+    "description": "In-field placeholder for the building-number input on the Step 3 Address screen (sign-up-step-3-address.html input placeholder — '12А'). Transcribed verbatim from HTML."
+  },
+  "step3FieldNotePlaceholder": "Поверх, домофон тощо",
+  "@step3FieldNotePlaceholder": {
+    "description": "In-field placeholder for the location-note textarea on the Step 3 Address screen (sign-up-step-3-address.html textarea placeholder — 'Поверх, домофон тощо'). Transcribed verbatim from HTML."
+  },
+  "step3CtaSkip": "Пропустити",
+  "@step3CtaSkip": {
+    "description": "Ghost CTA button on the Step 3 Address screen, CLIENT variant only (sign-up-step-3-address.html .cta-ghost — 'Пропустити'). Skips saving locality and proceeds to verification."
+  },
+  "step3CtaSave": "Зберегти",
+  "@step3CtaSave": {
+    "description": "Filled CTA button on the Step 3 Address screen, CLIENT variant (sign-up-step-3-address.html .cta-btn — 'Зберегти'). Saves the chosen locality and proceeds to verification."
+  },
+  "step3CtaSaveAndContinue": "Зберегти і продовжити",
+  "@step3CtaSaveAndContinue": {
+    "description": "Single full-width filled CTA on the Step 3 Address screen for INDEPENDENT_MASTER and SALON_OWNER (sign-up-step-3-address.html .cta-btn — 'Зберегти і продовжити'). Registers the account, saves the address, and proceeds to verification."
+  },
+  "step3ProfileSaveFallback": "Збережіть адресу пізніше у профілі",
+  "@step3ProfileSaveFallback": {
+    "description": "Snackbar shown when the registration POST succeeded but the follow-up profile/salon locality save failed. The account exists and OTP was emailed, so navigation still proceeds to verification."
+  },
+  "errLocalityOblastRequired": "Оберіть область",
+  "@errLocalityOblastRequired": {
+    "description": "Validation error shown to providers (MASTER/OWNER) when no oblast is selected on the Step 3 Address screen."
+  },
+  "errLocalityCityRequired": "Оберіть місто",
+  "@errLocalityCityRequired": {
+    "description": "Validation error shown to providers (MASTER/OWNER) when no city is selected on the Step 3 Address screen."
+  },
+  "errLocalityDistrictRequired": "Оберіть район",
+  "@errLocalityDistrictRequired": {
+    "description": "Validation error shown to providers (MASTER/OWNER) when the selected city has districts but none is chosen on the Step 3 Address screen."
+  },
+  "errStreetRequired": "Вкажіть вулицю",
+  "@errStreetRequired": {
+    "description": "Validation error when the street field is empty or shorter than 2 characters (MASTER/OWNER only)."
+  },
+  "errStreetTooLong": "Назва вулиці не може перевищувати 120 символів",
+  "@errStreetTooLong": {
+    "description": "Validation error when the street field exceeds 120 characters. Mirrors the backend address column length constraint."
+  },
+  "errBuildingRequired": "Вкажіть номер будинку",
+  "@errBuildingRequired": {
+    "description": "Validation error when the building-number field is empty (MASTER/OWNER only)."
+  },
+  "errBuildingTooLong": "Номер будинку не може перевищувати 20 символів",
+  "@errBuildingTooLong": {
+    "description": "Validation error when the building-number field exceeds 20 characters. Mirrors the backend address column length constraint."
+  },
+  "errLocationNoteTooLong": "Примітка не може перевищувати 250 символів",
+  "@errLocationNoteTooLong": {
+    "description": "Validation error when the location-note textarea exceeds 250 characters."
   }
 }

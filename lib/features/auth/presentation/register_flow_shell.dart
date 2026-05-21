@@ -201,7 +201,7 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
 
     final location = GoRouterState.of(context).matchedLocation;
     final step = _stepForLocation(location);
-    final headline = _headlineFor(step, l10n);
+    final headline = _headlineFor(step, location, role, l10n);
     final activeLabel = _labelForLocation(location, l10n);
 
     return AuthScaffold(
@@ -281,17 +281,39 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
   /// Per-step headline copy (line 1 in Manrope 700, line 2 in Cormorant
   /// Garamond italic camel accent). Reads from l10n so UA / EN switch
   /// correctly.
+  ///
+  /// Both Step 2 and Step 3 map to [RegistrationStep.details], so the headline
+  /// is disambiguated by [location]:
+  ///   • /register/step-2 → "Особисті / дані" (role-agnostic, Phase 2.17).
+  ///   • /register/step-3 → per-role address headline (Phase 2.19):
+  ///       CLIENT → "Ваше / місто", MASTER → "Де ви / працюєте",
+  ///       OWNER  → "Адреса / салону".
   static (String, String) _headlineFor(
     RegistrationStep step,
+    String location,
+    UserRole role,
     AppLocalizations l10n,
   ) {
     switch (step) {
       case RegistrationStep.account:
         return (l10n.registerStep1Headline, l10n.registerStep1HeadlineAccent);
       case RegistrationStep.details:
-        // Phase 2.17 — Step 2 + 3 both use "Особисті / дані" headline per
-        // sign-up-step-2-profile.html. Step 3 (Phase 2.19) may override if
-        // the address screen design requires a different headline.
+        if (location == RouteNames.registerStep3) {
+          return switch (role) {
+            UserRole.client => (
+              l10n.step3HeadlineClientLine1,
+              l10n.step3HeadlineClientLine2,
+            ),
+            UserRole.salonOwner => (
+              l10n.step3HeadlineOwnerLine1,
+              l10n.step3HeadlineOwnerLine2,
+            ),
+            // INDEPENDENT_MASTER (and any salon staff roles that ever reach the
+            // wizard) use the "Де ви / працюєте" provider headline.
+            _ => (l10n.step3HeadlineMasterLine1, l10n.step3HeadlineMasterLine2),
+          };
+        }
+        // Step 2 — role-agnostic "Особисті / дані" headline (Phase 2.17).
         return (l10n.step2HeadlineLine1, l10n.step2HeadlineLine2);
       case RegistrationStep.verification:
         return (l10n.verificationHeadline, l10n.verificationHeadlineAccent);
