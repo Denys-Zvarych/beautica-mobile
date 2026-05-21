@@ -1,112 +1,45 @@
-// Phase 2.9 — Unit tests for the authRedirect pure function.
+// Phase 2.9 — Unit tests for the REAL authRedirect guard.
 //
-// authRedirect(AsyncValue<AuthSession>, GoRouterState) is pure: no side effects,
-// no providers, no widget tree needed.
+// HIGH-1 remediation: this file previously asserted against a hand-copied
+// `_locationRedirect` duplicate of the production logic, which could diverge
+// silently. That duplicate is DELETED. We now exercise the production
+// `authRedirectForLocation` (the @visibleForTesting pure seam that
+// `authRedirect` delegates to) directly, plus one real-`GoRouterState`
+// integration test through `authRedirect` itself.
 //
-// Because GoRouterState has an internal constructor (requires RouteConfiguration
-// which is not publicly constructible), we use a real GoRouter to pump a
-// redirecting navigation in a widget test and assert the resulting location.
-//
-// For the pure-function logic tests (which only need matchedLocation), we
-// test an extracted helper [_locationRedirect] that accepts a plain String
-// instead of a GoRouterState, which maps directly to authRedirect's logic.
+// `authRedirect(AsyncValue<AuthSession>, GoRouterState)` extracts
+// `state.matchedLocation` and forwards to `authRedirectForLocation`. Because
+// `GoRouterState` has an internal constructor (it needs a `RouteConfiguration`
+// that is not publicly constructible), the matrix tests target the pure
+// location-string seam; one widget test pumps a real `GoRouter` so the
+// `authRedirect` → `authRedirectForLocation` wiring is covered end-to-end.
 //
 // F4 — AuthNotifier.build() now returns SYNCHRONOUSLY with Unauthenticated,
 // so AsyncLoading should rarely (if ever) reach this guard at cold start.
-// The loading branch of authRedirect is retained as a defensive fallback —
-// e.g. if a future action method sets `state = AsyncLoading()` mid-flight.
-// The two loading-branch tests below still verify the contract of the pure
-// function; they no longer represent the dominant cold-start path.
+// The loading branch is retained as a defensive fallback (e.g. an action
+// method that sets `state = AsyncLoading()` mid-flight).
 //
-// Covered scenarios:
-//   1.  Anonymous user at / → redirected to /login.
-//   2.  Authenticated user at /login → redirected to /.
-//   3.  Loading user at /splash → stays on /splash (null). [retained, rare]
-//   4.  Loading user at / → redirected to /splash. [retained, rare]
-//   5.  Anonymous user at /login → stays on /login (null).
-//   6.  Settled anonymous user at /splash → redirected to /login.
-//   7.  Authenticated user at /splash → redirected to /.
-//   8.  Anonymous user at /verification → stays on /verification (null).
-//   9.  Anonymous user at /done → stays on /done (null).
-//   10. Authenticated user at /verification → redirected to /.
-//   11. Authenticated user at /done → redirected to /.
+// Covered scenarios (redirect matrix):
+//   - authenticated → protected → allow (null)
+//   - unauthenticated → protected → /login
+//   - loading → protected → /login; loading @ auth route → stay
+//   - authenticated @ auth route → /home
+//   - unauthenticated @ auth route → allow (null)
+//   - settled unauthenticated @ /splash → /login
+//   - AsyncError → treated as unauthenticated → /login
 
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/routing/auth_redirect.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 // ---------------------------------------------------------------------------
-// Testable pure-function extracted from authRedirect.
-//
-// authRedirect delegates the logic to this function, which accepts the
-// location string directly — no GoRouterState construction needed.
-// ---------------------------------------------------------------------------
-
-/// Mirrors the redirect logic of [authRedirect] but takes a [location] string
-/// directly, making it trivially testable without a GoRouterState.
-///
-/// Keep this helper in sync with [authRedirect] in lib/routing/auth_redirect.dart.
-/// If a new route is added requiring special handling, update both this helper
-/// and authRedirect — divergence is silent and will cause guard failures in
-/// production without failing the test suite.
-///
-/// Current production rules (Phase 2.9 + 2.11 + F4 corrected):
-///   isLoading → redirect to /login (microsecond-short window in F4).
-///   Unauthenticated + not on an auth route → redirect to /login.
-///   Unauthenticated on /splash (session settled) → redirect to /login.
-///   Authenticated + on an auth route (login/register/verification/done/splash)
-///     → redirect to /.
-///   Otherwise → null (stay).
-///
-/// Auth routes = /login, /register, /verification, /done. /splash is NOT an
-/// auth route — it is only valid while session.isLoading is true. Once the
-/// session settles, any unauthenticated user still on /splash must be forwarded
-/// to /login.
-///
-/// KEEP THIS IN SYNC with [authRedirect] in lib/routing/auth_redirect.dart.
-String? _locationRedirect(AsyncValue<AuthSession> session, String location) {
-  // Routes where an unauthenticated user may remain once session has settled.
-  // /splash is NOT included — it is only valid while session.isLoading is true.
-  // /verification and /done are part of the registration flow and are reachable
-  // before the session is established (the OTP step precedes a valid session).
-  // Phase 2.16 — the multi-step wizard adds /register/role +
-  // /register/step-2 + /register/step-3. They are all unauthenticated-only.
-  final isAtAuthRoute =
-      location == RouteNames.login ||
-      location == RouteNames.register ||
-      location == RouteNames.registerRole ||
-      location == RouteNames.registerStep2 ||
-      location == RouteNames.registerStep3 ||
-      location == RouteNames.verification ||
-      location == RouteNames.done;
-
-  // While loading, keep a user already on any auth route in place (the register
-  // flow flips authProvider to AsyncLoading mid-submit and must not bounce to
-  // /login); otherwise route to /login as the neutral cold-start landing pad.
-  if (session.isLoading) {
-    return isAtAuthRoute ? null : RouteNames.login;
-  }
-
-  final isAuthenticated = session.value is Authenticated;
-
-  final isAtSplash = location == RouteNames.splash;
-
-  // Settled unauthenticated user anywhere (including /splash) → /login.
-  if (!isAuthenticated && (!isAtAuthRoute || isAtSplash)) {
-    return RouteNames.login;
-  }
-
-  // Authenticated user sitting on an auth-only route or splash → send to home.
-  if (isAuthenticated && (isAtAuthRoute || isAtSplash)) return RouteNames.home;
-
-  return null;
-}
-
-// ---------------------------------------------------------------------------
-// Fixture
+// Fixtures
 // ---------------------------------------------------------------------------
 
 const _fakeUser = User(
@@ -128,46 +61,49 @@ const _unauthenticatedSession = AsyncData<AuthSession>(
 const _loadingSession = AsyncLoading<AuthSession>();
 
 // ---------------------------------------------------------------------------
-// Tests
+// Tests — pure seam (authRedirectForLocation)
 // ---------------------------------------------------------------------------
 
 void main() {
-  group('authRedirect logic', () {
+  group('authRedirectForLocation (production logic)', () {
     test('anonymous user at / is redirected to /login', () {
       expect(
-        _locationRedirect(_unauthenticatedSession, RouteNames.home),
+        authRedirectForLocation(_unauthenticatedSession, RouteNames.home),
         equals(RouteNames.login),
       );
     });
 
     test('authenticated user at /login is redirected to /', () {
       expect(
-        _locationRedirect(_authenticatedSession, RouteNames.login),
+        authRedirectForLocation(_authenticatedSession, RouteNames.login),
         equals(RouteNames.home),
       );
     });
 
     test('authenticated user at /register is redirected to /', () {
       expect(
-        _locationRedirect(_authenticatedSession, RouteNames.register),
+        authRedirectForLocation(_authenticatedSession, RouteNames.register),
         equals(RouteNames.home),
       );
     });
 
     test('authenticated user at /splash is redirected to /', () {
       expect(
-        _locationRedirect(_authenticatedSession, RouteNames.splash),
+        authRedirectForLocation(_authenticatedSession, RouteNames.splash),
         equals(RouteNames.home),
       );
     });
 
     test('loading session at /login stays on /login (null)', () {
-      expect(_locationRedirect(_loadingSession, RouteNames.login), isNull);
+      expect(
+        authRedirectForLocation(_loadingSession, RouteNames.login),
+        isNull,
+      );
     });
 
     test('loading session at / is redirected to /login', () {
       expect(
-        _locationRedirect(_loadingSession, RouteNames.home),
+        authRedirectForLocation(_loadingSession, RouteNames.home),
         equals(RouteNames.login),
       );
     });
@@ -178,7 +114,7 @@ void main() {
       // pad; if the background restore flips to Authenticated, the next
       // redirect pass forwards to /home.
       expect(
-        _locationRedirect(_loadingSession, RouteNames.splash),
+        authRedirectForLocation(_loadingSession, RouteNames.splash),
         equals(RouteNames.login),
       );
     });
@@ -189,35 +125,35 @@ void main() {
 
     test('loading session at /settings is redirected to /login', () {
       expect(
-        _locationRedirect(_loadingSession, RouteNames.settings),
+        authRedirectForLocation(_loadingSession, RouteNames.settings),
         equals(RouteNames.login),
       );
     });
 
     test('loading session at /register/step-3 stays (null)', () {
       expect(
-        _locationRedirect(_loadingSession, RouteNames.registerStep3),
+        authRedirectForLocation(_loadingSession, RouteNames.registerStep3),
         isNull,
       );
     });
 
     test('loading session at /verification stays (null)', () {
       expect(
-        _locationRedirect(_loadingSession, RouteNames.verification),
+        authRedirectForLocation(_loadingSession, RouteNames.verification),
         isNull,
       );
     });
 
     test('anonymous user at /login stays on /login (null)', () {
       expect(
-        _locationRedirect(_unauthenticatedSession, RouteNames.login),
+        authRedirectForLocation(_unauthenticatedSession, RouteNames.login),
         isNull,
       );
     });
 
     test('anonymous user at /register stays on /register (null)', () {
       expect(
-        _locationRedirect(_unauthenticatedSession, RouteNames.register),
+        authRedirectForLocation(_unauthenticatedSession, RouteNames.register),
         isNull,
       );
     });
@@ -226,25 +162,28 @@ void main() {
     // and the user is unauthenticated, the guard must forward them to /login.
     test('settled anonymous user at /splash is redirected to /login', () {
       expect(
-        _locationRedirect(_unauthenticatedSession, RouteNames.splash),
+        authRedirectForLocation(_unauthenticatedSession, RouteNames.splash),
         equals(RouteNames.login),
       );
     });
 
     test('authenticated user at / stays on / (null)', () {
-      expect(_locationRedirect(_authenticatedSession, RouteNames.home), isNull);
+      expect(
+        authRedirectForLocation(_authenticatedSession, RouteNames.home),
+        isNull,
+      );
     });
 
     test('authenticated user at /settings stays on /settings (null)', () {
       expect(
-        _locationRedirect(_authenticatedSession, RouteNames.settings),
+        authRedirectForLocation(_authenticatedSession, RouteNames.settings),
         isNull,
       );
     });
 
     test('anonymous user at /settings is redirected to /login', () {
       expect(
-        _locationRedirect(_unauthenticatedSession, RouteNames.settings),
+        authRedirectForLocation(_unauthenticatedSession, RouteNames.settings),
         equals(RouteNames.login),
       );
     });
@@ -257,41 +196,128 @@ void main() {
         StackTrace.empty,
       );
       expect(
-        _locationRedirect(errorSession, RouteNames.home),
+        authRedirectForLocation(errorSession, RouteNames.home),
         equals(RouteNames.login),
       );
     });
 
     // Phase 2.11 — /verification and /done are auth routes (reachable before
-    // a valid session is established). Tests mirror the production authRedirect
-    // behaviour added in Phase 2.11 (QA HIGH-1 fix).
+    // a valid session is established).
 
     test('anonymous user at /verification stays on /verification (null)', () {
       expect(
-        _locationRedirect(_unauthenticatedSession, RouteNames.verification),
+        authRedirectForLocation(
+          _unauthenticatedSession,
+          RouteNames.verification,
+        ),
         isNull,
       );
     });
 
     test('anonymous user at /done stays on /done (null)', () {
       expect(
-        _locationRedirect(_unauthenticatedSession, RouteNames.done),
+        authRedirectForLocation(_unauthenticatedSession, RouteNames.done),
         isNull,
       );
     });
 
-    test('authenticated user at /verification is redirected to /', () {
+    // Post-registration routes are NOT bounced for an authenticated user. The
+    // auto-login register flow returns an Authenticated session while the email
+    // is still unverified; the user must be able to remain on /verification (or
+    // /done) to finish the OTP step instead of being yanked to /home. This is
+    // the regression that broke CLIENT "Пропустити" on Step 3.
+    test('authenticated-but-unverified user at /verification stays (null)', () {
       expect(
-        _locationRedirect(_authenticatedSession, RouteNames.verification),
-        equals(RouteNames.home),
+        authRedirectForLocation(_authenticatedSession, RouteNames.verification),
+        isNull,
       );
     });
 
-    test('authenticated user at /done is redirected to /', () {
+    test('authenticated-but-unverified user at /done stays (null)', () {
       expect(
-        _locationRedirect(_authenticatedSession, RouteNames.done),
-        equals(RouteNames.home),
+        authRedirectForLocation(_authenticatedSession, RouteNames.done),
+        isNull,
       );
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Integration — REAL authRedirect(session, GoRouterState) wiring.
+  //
+  // Pumps a real GoRouter whose `redirect` calls the production `authRedirect`
+  // with a captured AsyncValue. This proves that authRedirect correctly reads
+  // `state.matchedLocation` and forwards to authRedirectForLocation — the seam
+  // the matrix tests above cannot reach (GoRouterState is not constructible).
+  // -------------------------------------------------------------------------
+  group('authRedirect (real GoRouterState wiring)', () {
+    Future<GoRouter> pumpRouterWith(
+      WidgetTester tester,
+      AsyncValue<AuthSession> session,
+      String initialLocation,
+    ) async {
+      final router = GoRouter(
+        initialLocation: initialLocation,
+        redirect: (context, state) => authRedirect(session, state),
+        routes: [
+          GoRoute(
+            path: RouteNames.splash,
+            builder: (c, s) => const _Probe('splash'),
+          ),
+          GoRoute(
+            path: RouteNames.login,
+            builder: (c, s) => const _Probe('login'),
+          ),
+          GoRoute(
+            path: RouteNames.home,
+            builder: (c, s) => const _Probe('home'),
+          ),
+          GoRoute(
+            path: RouteNames.settings,
+            builder: (c, s) => const _Probe('settings'),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pumpAndSettle();
+      return router;
+    }
+
+    testWidgets('unauthenticated → protected route lands on /login', (
+      tester,
+    ) async {
+      await pumpRouterWith(
+        tester,
+        _unauthenticatedSession,
+        RouteNames.settings,
+      );
+      expect(find.text('login'), findsOneWidget);
+      expect(find.text('settings'), findsNothing);
+    });
+
+    testWidgets('authenticated → protected route stays on the route', (
+      tester,
+    ) async {
+      await pumpRouterWith(tester, _authenticatedSession, RouteNames.settings);
+      expect(find.text('settings'), findsOneWidget);
+      expect(find.text('login'), findsNothing);
+    });
+
+    testWidgets('authenticated @ /login → redirected to /', (tester) async {
+      await pumpRouterWith(tester, _authenticatedSession, RouteNames.login);
+      expect(find.text('home'), findsOneWidget);
+    });
+  });
+}
+
+/// Minimal probe screen rendering its label so the resolved route can be
+/// asserted via [find.text].
+class _Probe extends StatelessWidget {
+  const _Probe(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) =>
+      Scaffold(body: Center(child: Text(label)));
 }

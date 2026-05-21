@@ -143,10 +143,10 @@ void main() {
     final handler = MockInterceptorHandler();
     final interceptor = RefreshInterceptor(ref, mainDio);
 
+    // M6 (MEDIUM-2): `onError` awaits `(_refreshing ??= _runRefresh()).future`
+    // and only then resolves/forwards the handler, so awaiting onError is the
+    // interceptor's actual completion signal — no timer sleep needed.
     await interceptor.onError(make401(_opts('/protected')), handler);
-    // M6: _runRefresh() spawns an async hop via Future(() async {...}); the delay
-    // waits for the Completer to resolve before assertions run.
-    await Future<void>.delayed(const Duration(milliseconds: 200));
 
     // Exactly one refresh call.
     verify(
@@ -242,10 +242,9 @@ void main() {
       final handler = MockInterceptorHandler();
       final interceptor = RefreshInterceptor(ref, mainDio);
 
+      // M6 (MEDIUM-2): awaiting onError is deterministic — it awaits the
+      // single-flight refresh future and only then calls logout()/handler.next.
       await interceptor.onError(make401(_opts('/protected')), handler);
-      // M6: _runRefresh() spawns an async hop via Future(() async {...}); the delay
-      // waits for the Completer to resolve before assertions run.
-      await Future<void>.delayed(const Duration(milliseconds: 200));
 
       // logout() must have been called on the auth notifier.
       expect(repo.logoutCallCount, equals(1));
@@ -298,19 +297,24 @@ void main() {
     );
 
     final ref = container.read(testRefProvider);
+    // Settle authProvider's cold-start background restore BEFORE running the
+    // interceptor. With a stored refresh token present, the background task
+    // (build() → _restoreSessionInBackground) writes `state` asynchronously;
+    // settling it here keeps that write inside the test rather than racing
+    // container disposal at tearDown (which would throw "Ref ... disposed").
+    await container.read(authProvider.future);
     final interceptor = RefreshInterceptor(ref, mainDio);
 
     final handlers = List.generate(3, (_) => MockInterceptorHandler());
+    // M6 (MEDIUM-2): Future.wait resolves only after all three onError calls
+    // complete — each awaits the shared single-flight Completer — so this is
+    // the deterministic completion signal. No trailing timer sleep needed.
     await Future.wait(
       List.generate(
         3,
         (i) => interceptor.onError(make401(_opts('/protected')), handlers[i]),
       ),
     );
-
-    // M6: _runRefresh() spawns an async hop via Future(() async {...}); the delay
-    // waits for the Completer to resolve before assertions run.
-    await Future<void>.delayed(const Duration(milliseconds: 300));
 
     verify(
       () => refreshDio.post<Map<String, dynamic>>(
@@ -343,10 +347,9 @@ void main() {
       final handler = MockInterceptorHandler();
       final interceptor = RefreshInterceptor(ref, mainDio);
 
+      // M6 (MEDIUM-2): awaiting onError is deterministic — the null-token path
+      // throws inside _runRefresh, the catch awaits logout(), then handler.next.
       await interceptor.onError(make401(_opts('/protected')), handler);
-      // M6: _runRefresh() spawns an async hop via Future(() async {...}); the delay
-      // waits for the Completer to resolve before assertions run.
-      await Future<void>.delayed(const Duration(milliseconds: 200));
 
       // logout() must be called (RefreshInterceptor calls
       // _ref.read(authProvider.notifier).logout() on any refresh failure).

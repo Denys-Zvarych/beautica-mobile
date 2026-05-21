@@ -12,11 +12,22 @@
 // Note: `test/` is excluded from the `no_raw_ui_strings` custom lint rule —
 // raw string literals in test find expressions are acceptable here.
 
+import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+
+import '../helpers/fakes/fake_auth_repository.dart';
+import '../helpers/fakes/fake_secure_storage.dart';
 
 void main() {
   group('appRouter smoke tests', () {
@@ -95,6 +106,129 @@ void main() {
       }
     });
   });
+
+  // -------------------------------------------------------------------------
+  // HIGH-2 — REAL appRouter redirect wiring.
+  //
+  // The smoke group above wires `redirect: (_, __) => null`, so the production
+  // `appRouter` redirect (which calls `authRedirect(ref.read(authProvider), …)`
+  // and listens via `AuthRefreshNotifier`) is never exercised. This group pumps
+  // the REAL `appRouterProvider` (read from a ProviderScope-overridden
+  // container) with `authProvider` stubbed to a settled session, then asserts
+  // that navigating to a protected route honours the production guard.
+  //
+  // We assert on the router's resolved URI rather than on rendered text — the
+  // real auth screens (LoginScreen/SplashScreen) run repeating animations, so
+  // `pumpAndSettle` would never quiesce; a bounded `pump` plus the
+  // currentConfiguration URI is the deterministic signal.
+  // -------------------------------------------------------------------------
+  group('appRouter real redirect wiring', () {
+    ProviderContainer makeContainer(AsyncValue<AuthSession> session) {
+      final container = ProviderContainer(
+        overrides: [
+          authProvider.overrideWith(() => _FixedAuthNotifier(session)),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    String currentLocation(GoRouter router) =>
+        router.routerDelegate.currentConfiguration.uri.toString();
+
+    testWidgets('unauthenticated user reaching a protected route lands on '
+        '/login', (tester) async {
+      final container = makeContainer(_unauthenticatedSession);
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      // Bounded pump — real auth screens animate, so do not pumpAndSettle.
+      await tester.pump();
+
+      // Attempt to reach a protected route; the production redirect must bounce
+      // an unauthenticated user to /login.
+      router.go(RouteNames.settings);
+      await tester.pump();
+
+      expect(currentLocation(router), equals(RouteNames.login));
+    });
+
+    testWidgets('authenticated user reaches the protected route', (
+      tester,
+    ) async {
+      final container = makeContainer(_authenticatedSession);
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      router.go(RouteNames.settings);
+      await tester.pump();
+
+      expect(currentLocation(router), equals(RouteNames.settings));
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Fixtures for the real-redirect-wiring group.
+// ---------------------------------------------------------------------------
+
+const _fakeUser = User(
+  id: 'u1',
+  email: 'test@example.com',
+  role: UserRole.independentMaster,
+  firstName: 'Test',
+  lastName: 'User',
+);
+
+const _authenticatedSession = AsyncData<AuthSession>(
+  AuthSession.authenticated(user: _fakeUser, accessToken: 'token'),
+);
+
+const _unauthenticatedSession = AsyncData<AuthSession>(
+  AuthSession.unauthenticated(),
+);
+
+/// [AuthNotifier] stub that immediately settles to a fixed [AsyncValue].
+/// Mirrors the `_FixedAuthNotifier` used across the auth test suite.
+class _FixedAuthNotifier extends AuthNotifier {
+  _FixedAuthNotifier(this._fixed);
+
+  final AsyncValue<AuthSession> _fixed;
+
+  @override
+  Future<AuthSession> build() async {
+    state = _fixed;
+    return _fixed.value ?? const AuthSession.unauthenticated();
+  }
+}
+
+/// [MaterialApp.router] wrapper for the real [appRouter] with l10n delegates.
+class _RouterApp extends StatelessWidget {
+  const _RouterApp({required this.router});
+
+  final GoRouter router;
+
+  @override
+  Widget build(BuildContext context) => MaterialApp.router(
+    routerConfig: router,
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+    locale: const Locale('uk', 'UA'),
+  );
 }
 
 /// Minimal [MaterialApp.router] wrapper that supplies l10n delegates needed

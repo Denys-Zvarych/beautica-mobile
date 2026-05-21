@@ -21,6 +21,7 @@
 // See test/routing/auth_redirect_test.dart.
 
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -32,25 +33,57 @@ import 'route_names.dart';
 ///
 /// [session] is the current value of [authProvider].
 /// [state] is the [GoRouterState] provided by [GoRouter].
-String? authRedirect(AsyncValue<AuthSession> session, GoRouterState state) {
-  final location = state.matchedLocation;
+///
+/// Thin adapter over [authRedirectForLocation] — it extracts
+/// [GoRouterState.matchedLocation] and delegates all decision logic. The split
+/// exists because [GoRouterState] has an internal constructor (it requires a
+/// [RouteConfiguration] that is not publicly constructible), so the pure
+/// decision logic cannot be unit-tested through this signature without standing
+/// up a full widget tree. See test/routing/auth_redirect_test.dart.
+String? authRedirect(AsyncValue<AuthSession> session, GoRouterState state) =>
+    authRedirectForLocation(session, state.matchedLocation);
 
-  // Routes where an unauthenticated user may remain once session has settled.
-  // /splash is NOT included — it is only valid while session.isLoading is true.
-  // /verification and /done are part of the registration flow and are reachable
-  // before the session is established (the OTP step precedes a valid session).
+/// Pure redirect decision over the resolved [location] string.
+///
+/// This is the single source of truth for the auth redirect matrix. [authRedirect]
+/// delegates to it after extracting the location from [GoRouterState], and tests
+/// exercise it directly (no GoRouterState construction needed).
+///
+/// Returns the redirect target path, or null to allow navigation to proceed.
+@visibleForTesting
+String? authRedirectForLocation(
+  AsyncValue<AuthSession> session,
+  String location,
+) {
+  // Post-registration routes — reachable by BOTH unauthenticated users (the
+  // verification-required backend flow: register() leaves the session
+  // Unauthenticated and the OTP step precedes a valid session) AND just-
+  // authenticated-but-unverified users (the auto-login register flow: register()
+  // returns an Authenticated session yet the user must still complete email
+  // verification). Critically, an Authenticated user on these routes must NOT be
+  // bounced to /home — that bounce is exactly the bug that prevented a CLIENT
+  // who taps "Пропустити" on Step 3 from landing on /verification when register
+  // auto-logs them in. These routes are therefore excluded from the
+  // "authenticated → /home" rule below.
+  final isAtPostRegisterRoute =
+      location == RouteNames.verification || location == RouteNames.done;
+
+  // Strict auth-only routes — valid only while unauthenticated. An authenticated
+  // user sitting on any of these is bounced to /home.
   //
   // Phase 2.16 — the multi-step wizard adds /register/role + /register/step-2
   // + /register/step-3. They are all unauthenticated-only and treated as the
   // same auth-route surface as /register.
-  final isAtAuthRoute =
+  final isAtUnauthOnlyRoute =
       location == RouteNames.login ||
       location == RouteNames.register ||
       location == RouteNames.registerRole ||
       location == RouteNames.registerStep2 ||
-      location == RouteNames.registerStep3 ||
-      location == RouteNames.verification ||
-      location == RouteNames.done;
+      location == RouteNames.registerStep3;
+
+  // Routes where an unauthenticated user may remain once session has settled.
+  // /splash is NOT included — it is only valid while session.isLoading is true.
+  final isAtAuthRoute = isAtUnauthOnlyRoute || isAtPostRegisterRoute;
 
   // While the session is resolving, do NOT yank a user off an auth route they
   // are already on. This matters for the registration wizard: register()
@@ -73,8 +106,12 @@ String? authRedirect(AsyncValue<AuthSession> session, GoRouterState state) {
     return RouteNames.login;
   }
 
-  // Authenticated user sitting on an auth-only route or splash → send to home.
-  if (isAuthenticated && (isAtAuthRoute || isAtSplash)) {
+  // Authenticated user sitting on a strict auth-only route or splash → send to
+  // home. Post-registration routes (/verification, /done) are deliberately
+  // excluded: a just-registered (auto-logged-in but email-unverified) user must
+  // be able to remain there to finish verification, instead of being yanked to
+  // /home before they can enter the OTP.
+  if (isAuthenticated && (isAtUnauthOnlyRoute || isAtSplash)) {
     return RouteNames.home;
   }
 
