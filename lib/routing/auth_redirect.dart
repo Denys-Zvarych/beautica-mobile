@@ -35,21 +35,6 @@ import 'route_names.dart';
 String? authRedirect(AsyncValue<AuthSession> session, GoRouterState state) {
   final location = state.matchedLocation;
 
-  // While the session is resolving (cold-start), route to /login. F4
-  // (corrected design): build() resolves the Future synchronously to
-  // Unauthenticated and the background restore mutates state when it settles,
-  // so this loading window is microseconds long. /login is the safe
-  // landing pad — if the background task later flips to Authenticated, the
-  // next redirect pass forwards to /home.
-  if (session.isLoading) {
-    if (location == RouteNames.login) {
-      return null;
-    }
-    return RouteNames.login;
-  }
-
-  final isAuthenticated = session.value is Authenticated;
-
   // Routes where an unauthenticated user may remain once session has settled.
   // /splash is NOT included — it is only valid while session.isLoading is true.
   // /verification and /done are part of the registration flow and are reachable
@@ -66,6 +51,20 @@ String? authRedirect(AsyncValue<AuthSession> session, GoRouterState state) {
       location == RouteNames.registerStep3 ||
       location == RouteNames.verification ||
       location == RouteNames.done;
+
+  // While the session is resolving, do NOT yank a user off an auth route they
+  // are already on. This matters for the registration wizard: register()
+  // briefly flips authProvider to AsyncLoading before settling to
+  // Unauthenticated/Authenticated, which fires the router's refreshListenable.
+  // Bouncing to /login during that microsecond window would abort the Step 3 →
+  // /verification navigation (the user would land on /login instead). Cold
+  // start (on /splash or a protected route) still routes to /login as the safe
+  // neutral landing pad. F4: this loading window is microseconds long.
+  if (session.isLoading) {
+    return isAtAuthRoute ? null : RouteNames.login;
+  }
+
+  final isAuthenticated = session.value is Authenticated;
 
   final isAtSplash = location == RouteNames.splash;
 

@@ -936,7 +936,10 @@ class _ClientCtaRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // HTML: .cta-split { grid-template-columns: 1fr 1.2fr } — Save slightly wider.
+    // Balanced split: equal width so the Ukrainian "Пропустити" (wider than
+    // "Зберегти") fits on a single line and the two CTAs read as a balanced
+    // pair. The previous 1:6 ratio starved the ghost button, wrapping its
+    // label to two lines.
     return Row(
       children: [
         Expanded(
@@ -947,7 +950,6 @@ class _ClientCtaRow extends StatelessWidget {
         ),
         const SizedBox(width: AppSpacing.xs),
         Expanded(
-          flex: 6, // ≈ 1.2 of the 1fr left column (5:6)
           child: _ProviderCta(
             submitting: submitting,
             label: l10n.step3CtaSave,
@@ -983,7 +985,17 @@ class _GhostButton extends StatelessWidget {
             onTap: onTap,
             child: SizedBox(
               height: 52,
-              child: Center(child: Text(label, style: _kGhostTextStyle)),
+              child: Center(
+                child: Text(
+                  label,
+                  // Keep "Пропустити" on a single line (no wrap) — balanced
+                  // against the Save CTA's single-line label.
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: _kGhostTextStyle,
+                ),
+              ),
             ),
           ),
         ),

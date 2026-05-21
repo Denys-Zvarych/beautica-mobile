@@ -11,10 +11,12 @@
 //   - AsyncError state with a Retry button,
 //   - tap a row → Navigator.pop(context, item).
 //
-// Sheet height is clamped to 80% of the screen, espresso background, 16 px
-// top-corner radius, NO glassmorphism (the sheet competes with row press
-// feedback otherwise). All paint objects are hoisted; the search RegExp is
-// avoided in favour of a cheap lowercase substring match.
+// Sheet height is clamped to 80% of the screen, Warm-Mocha gradient surface
+// (matching AuthGradientBackground — never a flat near-black fill, which reads
+// as pure black against the rest of the app), 16 px top-corner radius, with a
+// translucent white glass overlay for the Warm-Mocha surface treatment used
+// elsewhere. All paint objects are hoisted; the search RegExp is avoided in
+// favour of a cheap lowercase substring match.
 
 import 'dart:async';
 
@@ -77,6 +79,31 @@ class _LocalityPickerSheet<T> extends ConsumerStatefulWidget {
 class _LocalityPickerSheetState<T>
     extends ConsumerState<_LocalityPickerSheet<T>> {
   static const _kSheetRadius = BorderRadius.vertical(top: Radius.circular(16));
+
+  /// Warm-Mocha gradient surface — mirrors [AuthGradientBackground] so the
+  /// sheet sits on the same brand surface as the rest of the app instead of a
+  /// flat near-black fill (which read as pure black). Uses brand tokens only.
+  static const _kSheetDecoration = BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        BrandColors.mochaSurfaceTop, // upper-left: lighter mocha-brown
+        BrandColors.mochaSurfaceMid, // mid: dark espresso transition
+        BrandColors.espresso, // bottom-right: espresso bg
+      ],
+      stops: [0.0, 0.55, 1.0],
+    ),
+    borderRadius: _kSheetRadius,
+  );
+
+  /// Translucent white glass overlay — the Warm-Mocha glassmorphism surface
+  /// treatment used elsewhere (white ~6%), painted over the gradient.
+  static const _kSheetGlassOverlay = BoxDecoration(
+    color: Color(0x11FFFFFF),
+    borderRadius: _kSheetRadius,
+  );
+
   static const _kHandleColor = Color(0x33FFFFFF);
   static const _kSearchFill = Color(0x12FFFFFF);
   static const _kSearchBorder = Color(0x1AFFFFFF);
@@ -130,112 +157,114 @@ class _LocalityPickerSheetState<T>
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: maxHeight),
         child: DecoratedBox(
-          decoration: const BoxDecoration(
-            color: BrandColors.espresso,
-            borderRadius: _kSheetRadius,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Drag handle.
-              const Padding(
-                padding: EdgeInsets.only(
-                  top: AppSpacing.sm,
-                  bottom: AppSpacing.xs,
-                ),
-                child: _DragHandle(color: _kHandleColor),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.md,
-                  AppSpacing.xxs,
-                  AppSpacing.md,
-                  AppSpacing.sm,
-                ),
-                child: Text(widget.titleLabel, style: _kTitleStyle),
-              ),
-              // Search field.
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.md,
-                  0,
-                  AppSpacing.md,
-                  AppSpacing.sm,
-                ),
-                child: TextField(
-                  key: const Key('locality_picker_search'),
-                  controller: _searchController,
-                  onChanged: _onSearchChanged,
-                  autocorrect: false,
-                  textInputAction: TextInputAction.search,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    color: BrandColors.cream,
+          // Warm-Mocha gradient base, then a translucent white glass overlay —
+          // matches the app's surface treatment instead of a flat near-black.
+          decoration: _kSheetDecoration,
+          child: DecoratedBox(
+            decoration: _kSheetGlassOverlay,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Drag handle.
+                const Padding(
+                  padding: EdgeInsets.only(
+                    top: AppSpacing.sm,
+                    bottom: AppSpacing.xs,
                   ),
-                  cursorColor: BrandColors.camel,
-                  decoration: InputDecoration(
-                    isDense: true,
-                    filled: true,
-                    fillColor: _kSearchFill,
-                    hintText: l10n.localitySearchHint,
-                    hintStyle: const TextStyle(color: Color(0x59FFFFFF)),
-                    prefixIcon: const Icon(
-                      Icons.search_rounded,
-                      size: 20,
-                      color: Color(0x80FFFFFF),
+                  child: _DragHandle(color: _kHandleColor),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md,
+                    AppSpacing.xxs,
+                    AppSpacing.md,
+                    AppSpacing.sm,
+                  ),
+                  child: Text(widget.titleLabel, style: _kTitleStyle),
+                ),
+                // Search field.
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md,
+                    0,
+                    AppSpacing.md,
+                    AppSpacing.sm,
+                  ),
+                  child: TextField(
+                    key: const Key('locality_picker_search'),
+                    controller: _searchController,
+                    onChanged: _onSearchChanged,
+                    autocorrect: false,
+                    textInputAction: TextInputAction.search,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      color: BrandColors.cream,
                     ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      vertical: AppSpacing.sm,
-                    ),
-                    enabledBorder: const OutlineInputBorder(
-                      borderRadius: _kSearchRadius,
-                      borderSide: BorderSide(color: _kSearchBorder),
-                    ),
-                    focusedBorder: const OutlineInputBorder(
-                      borderRadius: _kSearchRadius,
-                      borderSide: BorderSide(color: BrandColors.camel),
+                    cursorColor: BrandColors.camel,
+                    decoration: InputDecoration(
+                      isDense: true,
+                      filled: true,
+                      fillColor: _kSearchFill,
+                      hintText: l10n.localitySearchHint,
+                      hintStyle: const TextStyle(color: Color(0x59FFFFFF)),
+                      prefixIcon: const Icon(
+                        Icons.search_rounded,
+                        size: 20,
+                        color: Color(0x80FFFFFF),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: AppSpacing.sm,
+                      ),
+                      enabledBorder: const OutlineInputBorder(
+                        borderRadius: _kSearchRadius,
+                        borderSide: BorderSide(color: _kSearchBorder),
+                      ),
+                      focusedBorder: const OutlineInputBorder(
+                        borderRadius: _kSearchRadius,
+                        borderSide: BorderSide(color: BrandColors.camel),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Flexible(
-                child: async.when(
-                  loading: () => const _SheetLoading(),
-                  error: (err, _) => _SheetError(
-                    failure: err,
-                    onRetry: widget.onRetry,
-                    retryLabel: l10n.localityRetry,
-                  ),
-                  data: (items) {
-                    final filtered = _filter(items);
-                    if (filtered.isEmpty) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(AppSpacing.xl),
-                          child: Text(
-                            l10n.localitySearchEmpty,
-                            key: const Key('locality_picker_empty'),
-                            style: _kEmptyStyle,
+                Flexible(
+                  child: async.when(
+                    loading: () => const _SheetLoading(),
+                    error: (err, _) => _SheetError(
+                      failure: err,
+                      onRetry: widget.onRetry,
+                      retryLabel: l10n.localityRetry,
+                    ),
+                    data: (items) {
+                      final filtered = _filter(items);
+                      if (filtered.isEmpty) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(AppSpacing.xl),
+                            child: Text(
+                              l10n.localitySearchEmpty,
+                              key: const Key('locality_picker_empty'),
+                              style: _kEmptyStyle,
+                            ),
                           ),
-                        ),
-                      );
-                    }
-                    return ListView.builder(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                      itemCount: filtered.length,
-                      itemBuilder: (context, index) {
-                        final item = filtered[index];
-                        return LocalityPickerTile(
-                          key: Key('locality_picker_tile_$index'),
-                          label: widget.labelOf(item),
-                          onTap: () => Navigator.of(context).pop(item),
                         );
-                      },
-                    );
-                  },
+                      }
+                      return ListView.builder(
+                        padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final item = filtered[index];
+                          return LocalityPickerTile(
+                            key: Key('locality_picker_tile_$index'),
+                            label: widget.labelOf(item),
+                            onTap: () => Navigator.of(context).pop(item),
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

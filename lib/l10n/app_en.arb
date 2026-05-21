@@ -146,7 +146,7 @@
   "@errNameRequired": {
     "description": "Validation error when a required name field is empty."
   },
-  "errNameTooLong": "Must not exceed 100 characters",
+  "errNameTooLong": "Max 100 characters",
   "@errNameTooLong": {
     "description": "Validation error when a name field exceeds 100 characters."
   },

@@ -352,13 +352,11 @@ void main() {
     });
 
     testWidgets(
-      '4b. back link at /register/step-3 navigates to /register (Step 1) — '
-      'source contract: both step-2 and step-3 map to '
-      'RegistrationStep.details and the switch arm targets `register`. '
-      'NOTE: the M-1 audit suggested step-3 → step-2, but the actual '
-      'source dispatches step-3 → /register. Test locks the source '
-      'behavior; if the wizard later differentiates step-2 vs step-3 '
-      'back-targets, update _BackLink and this assertion together.',
+      '4b. back link at /register/step-3 navigates to /register/step-2 '
+      '(Step 2) — source contract: both step-2 and step-3 map to '
+      'RegistrationStep.details, and _BackLink disambiguates within that '
+      'arm by current location: step-3 → step-2 (profile), step-2 → '
+      'register (account). This test locks the step-3 → step-2 target.',
       (tester) async {
         final (container: _, :router) = await _pumpShell(
           tester,
@@ -372,9 +370,9 @@ void main() {
 
         expect(
           router.routerDelegate.currentConfiguration.fullPath,
-          equals(RouteNames.register),
+          equals(RouteNames.registerStep2),
         );
-        expect(find.byKey(const Key('step-1-body')), findsOneWidget);
+        expect(find.byKey(const Key('step-2-body')), findsOneWidget);
       },
     );
 

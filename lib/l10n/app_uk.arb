@@ -146,7 +146,7 @@
   "@errNameRequired": {
     "description": "Validation error when a required name field is empty."
   },
-  "errNameTooLong": "Не може перевищувати 100 символів",
+  "errNameTooLong": "Максимум 100 символів",
   "@errNameTooLong": {
     "description": "Validation error when a name field exceeds 100 characters."
   },

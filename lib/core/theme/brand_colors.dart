@@ -60,4 +60,18 @@ abstract final class BrandColors {
   /// Replaces [cherry] for the auth surface only; [cherry] remains the booking
   /// status token. #A84040.
   static const Color errorRust = Color(0xFFA84040);
+
+  // ---------------------------------------------------------------------------
+  // Warm-Mocha surface gradient stops — the brand background gradient shared by
+  // [AuthGradientBackground] and modal surfaces (e.g. the locality picker
+  // sheet) so they all sit on the same Warm-Mocha surface rather than a flat
+  // near-black fill. Tokenised here so no raw gradient literals leak into
+  // widgets.
+  // ---------------------------------------------------------------------------
+
+  /// Upper-left gradient stop — lighter mocha-brown. #3A2615.
+  static const Color mochaSurfaceTop = Color(0xFF3A2615);
+
+  /// Mid gradient stop — dark espresso transition. #1E140A.
+  static const Color mochaSurfaceMid = Color(0xFF1E140A);
 }

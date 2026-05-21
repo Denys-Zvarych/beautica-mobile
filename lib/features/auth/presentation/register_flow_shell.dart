@@ -230,6 +230,7 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
           if (step != RegistrationStep.account)
             _BackLink(
               step: step,
+              location: location,
               label: l10n.registerBackStep,
               key: const Key('btn-back-step'),
             ),
@@ -496,9 +497,21 @@ class _GlassCard extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _BackLink extends StatelessWidget {
-  const _BackLink({super.key, required this.step, required this.label});
+  const _BackLink({
+    super.key,
+    required this.step,
+    required this.location,
+    required this.label,
+  });
 
   final RegistrationStep step;
+
+  /// The current matched route location. Needed because Step 2 and Step 3 both
+  /// collapse to [RegistrationStep.details], so the back target must be
+  /// disambiguated by route: Step 3 (/register/step-3) goes back to Step 2
+  /// (/register/step-2 — name/surname/phone); Step 2 goes back to Step 1.
+  final String location;
+
   final String label;
 
   @override
@@ -507,7 +520,11 @@ class _BackLink extends StatelessWidget {
       child: TextButton(
         onPressed: () {
           final target = switch (step) {
-            RegistrationStep.details => RouteNames.register,
+            // Step 3 → previous step is Step 2 (profile); Step 2 → Step 1.
+            RegistrationStep.details =>
+              location == RouteNames.registerStep3
+                  ? RouteNames.registerStep2
+                  : RouteNames.register,
             RegistrationStep.verification => RouteNames.registerStep3,
             RegistrationStep.done => RouteNames.verification,
             RegistrationStep.account => RouteNames.registerRole,

@@ -68,12 +68,6 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// KEEP THIS IN SYNC with [authRedirect] in lib/routing/auth_redirect.dart.
 String? _locationRedirect(AsyncValue<AuthSession> session, String location) {
-  if (session.isLoading) {
-    return location == RouteNames.login ? null : RouteNames.login;
-  }
-
-  final isAuthenticated = session.value is Authenticated;
-
   // Routes where an unauthenticated user may remain once session has settled.
   // /splash is NOT included — it is only valid while session.isLoading is true.
   // /verification and /done are part of the registration flow and are reachable
@@ -88,6 +82,15 @@ String? _locationRedirect(AsyncValue<AuthSession> session, String location) {
       location == RouteNames.registerStep3 ||
       location == RouteNames.verification ||
       location == RouteNames.done;
+
+  // While loading, keep a user already on any auth route in place (the register
+  // flow flips authProvider to AsyncLoading mid-submit and must not bounce to
+  // /login); otherwise route to /login as the neutral cold-start landing pad.
+  if (session.isLoading) {
+    return isAtAuthRoute ? null : RouteNames.login;
+  }
+
+  final isAuthenticated = session.value is Authenticated;
 
   final isAtSplash = location == RouteNames.splash;
 
@@ -177,6 +180,31 @@ void main() {
       expect(
         _locationRedirect(_loadingSession, RouteNames.splash),
         equals(RouteNames.login),
+      );
+    });
+
+    // Loading-branch reorder lock — while the session is AsyncLoading (the
+    // register flow flips authProvider to AsyncLoading mid-submit), auth-flow
+    // routes stay put (null) and protected routes still bounce to /login.
+
+    test('loading session at /settings is redirected to /login', () {
+      expect(
+        _locationRedirect(_loadingSession, RouteNames.settings),
+        equals(RouteNames.login),
+      );
+    });
+
+    test('loading session at /register/step-3 stays (null)', () {
+      expect(
+        _locationRedirect(_loadingSession, RouteNames.registerStep3),
+        isNull,
+      );
+    });
+
+    test('loading session at /verification stays (null)', () {
+      expect(
+        _locationRedirect(_loadingSession, RouteNames.verification),
+        isNull,
       );
     });
 
