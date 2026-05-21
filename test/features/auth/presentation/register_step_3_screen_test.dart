@@ -222,6 +222,29 @@ void main() {
     },
   );
 
+  // ── 1b. CLIENT skip-button label stays single-line (overflow guard) ───────
+  testWidgets(
+    '1b. CLIENT "Пропустити" ghost label renders with maxLines == 1',
+    (tester) async {
+      final container = _container(
+        role: UserRole.client,
+        authRepo: _MockAuthRepository(),
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_app(_makeRouter(), container));
+      await tester.pumpAndSettle();
+
+      // The ghost CTA label must never wrap to two lines in the split row.
+      final skipText = tester.widget<Text>(
+        find.descendant(
+          of: find.byKey(const Key('btn-skip-step3')),
+          matching: find.byType(Text),
+        ),
+      );
+      expect(skipText.maxLines, 1);
+    },
+  );
+
   // ── 2. MASTER layout ──────────────────────────────────────────────────────
   testWidgets('2. MASTER renders 3 picker rows + address fields + single CTA', (
     tester,
@@ -372,7 +395,8 @@ void main() {
       () => masterRepo.updateLocality(
         cityId: 'c1',
         districtId: 'd1',
-        street: any(named: 'street'),
+        // Pin the trimmed street to lock the screen→repo arg mapping (M4).
+        street: 'вул. Тестова',
         buildingNo: any(named: 'buildingNo'),
         locationNote: any(named: 'locationNote'),
       ),

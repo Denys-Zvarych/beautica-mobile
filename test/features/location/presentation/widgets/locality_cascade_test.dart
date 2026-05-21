@@ -161,12 +161,16 @@ AppLocalizations _l10n(WidgetTester tester) => AppLocalizations.of(
   tester.element(find.byKey(const Key('locality_row_oblast'))),
 );
 
-// Reads the label text of the picker tile at [index] inside the open sheet.
-String _tileText(WidgetTester tester, int index) {
+// Reads the label text of the picker tile keyed by the item's [id] inside the
+// open sheet. Tiles are keyed by the item's stable UUID
+// (ValueKey('locality_picker_tile_<id>')) — homonymous settlements share a
+// `nameUk`, so the key derives from `id`, not the displayed label. We resolve
+// by id, never by index, and assert the rendered label separately.
+String _tileText(WidgetTester tester, String id) {
   return tester
       .widget<Text>(
         find.descendant(
-          of: find.byKey(Key('locality_picker_tile_$index')),
+          of: find.byKey(ValueKey('locality_picker_tile_$id')),
           matching: find.byType(Text),
         ),
       )
@@ -249,12 +253,20 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('locality_picker_search')), findsOneWidget);
-      // Both cities present before filtering (two tiles in the list).
-      expect(find.byKey(const Key('locality_picker_tile_0')), findsOneWidget);
-      expect(find.byKey(const Key('locality_picker_tile_1')), findsOneWidget);
+      // Both cities present before filtering (two tiles in the list). Tiles are
+      // keyed by the item's stable UUID (ValueKey('locality_picker_tile_<id>'));
+      // resolve them via the fixture .id field, never a raw UA literal.
+      expect(
+        find.byKey(ValueKey('locality_picker_tile_${_cityWithDistricts.id}')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ValueKey('locality_picker_tile_${_cityNoDistricts.id}')),
+        findsOneWidget,
+      );
       // Within the sheet's tiles, both city names render.
-      expect(_tileText(tester, 0), 'Львів');
-      expect(_tileText(tester, 1), 'Дрогобич');
+      expect(_tileText(tester, _cityWithDistricts.id), 'Львів');
+      expect(_tileText(tester, _cityNoDistricts.id), 'Дрогобич');
 
       // Type a query that matches only Дрогобич. Explicit pump(Duration) here
       // (not pumpAndSettle) because the 200ms search debounce Timer never
@@ -266,9 +278,15 @@ void main() {
       await tester.pump(const Duration(milliseconds: 250));
 
       // Filtering narrows the list to a single tile (Дрогобич).
-      expect(find.byKey(const Key('locality_picker_tile_0')), findsOneWidget);
-      expect(find.byKey(const Key('locality_picker_tile_1')), findsNothing);
-      expect(_tileText(tester, 0), 'Дрогобич');
+      expect(
+        find.byKey(ValueKey('locality_picker_tile_${_cityNoDistricts.id}')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(ValueKey('locality_picker_tile_${_cityWithDistricts.id}')),
+        findsNothing,
+      );
+      expect(_tileText(tester, _cityNoDistricts.id), 'Дрогобич');
     });
 
     testWidgets('6. selecting a value pops the sheet and fires callback', (

@@ -34,13 +34,15 @@ import 'package:flutter_riverpod/misc.dart';
 /// or null if the sheet was dismissed without a selection.
 ///
 /// [provider] supplies the async list; [labelOf] extracts the searchable +
-/// displayed name from each item; [titleLabel] is the sheet header (reusing
-/// the row's label, e.g. "Місто"); [onRetry] is invoked when the user taps
-/// Retry in the error state (typically `ref.invalidate(provider)`).
+/// displayed name from each item; [idOf] extracts the item's stable UUID
+/// (used only for tile keys — never displayed); [titleLabel] is the sheet
+/// header (reusing the row's label, e.g. "Місто"); [onRetry] is invoked when
+/// the user taps Retry in the error state (typically `ref.invalidate(provider)`).
 Future<T?> showLocalityPickerSheet<T>({
   required BuildContext context,
   required ProviderListenable<AsyncValue<List<T>>> provider,
   required String Function(T) labelOf,
+  required String Function(T) idOf,
   required String titleLabel,
   required VoidCallback onRetry,
 }) {
@@ -52,6 +54,7 @@ Future<T?> showLocalityPickerSheet<T>({
     builder: (_) => _LocalityPickerSheet<T>(
       provider: provider,
       labelOf: labelOf,
+      idOf: idOf,
       titleLabel: titleLabel,
       onRetry: onRetry,
     ),
@@ -62,12 +65,14 @@ class _LocalityPickerSheet<T> extends ConsumerStatefulWidget {
   const _LocalityPickerSheet({
     required this.provider,
     required this.labelOf,
+    required this.idOf,
     required this.titleLabel,
     required this.onRetry,
   });
 
   final ProviderListenable<AsyncValue<List<T>>> provider;
   final String Function(T) labelOf;
+  final String Function(T) idOf;
   final String titleLabel;
   final VoidCallback onRetry;
 
@@ -122,6 +127,14 @@ class _LocalityPickerSheetState<T>
   String _query = '';
   Timer? _debounce;
 
+  // --- Memoized filter -------------------------------------------------------
+  // The keyboard slide-open drives many rebuilds (viewInsets animation) with an
+  // unchanged query; cache the O(n) substring scan and recompute only when the
+  // source list identity OR the committed query changes.
+  List<T>? _filterCache;
+  List<T>? _filterCacheItems;
+  String? _filterCacheQuery;
+
   @override
   void dispose() {
     _debounce?.cancel();
@@ -138,10 +151,24 @@ class _LocalityPickerSheetState<T>
   }
 
   List<T> _filter(List<T> items) {
-    if (_query.isEmpty) return items;
-    return items
-        .where((item) => widget.labelOf(item).toLowerCase().contains(_query))
-        .toList(growable: false);
+    // Serve the cached result while neither the source list identity nor the
+    // committed query has changed (avoids re-scanning during keyboard anim).
+    if (identical(items, _filterCacheItems) &&
+        _query == _filterCacheQuery &&
+        _filterCache != null) {
+      return _filterCache!;
+    }
+    final result = _query.isEmpty
+        ? items
+        : items
+              .where(
+                (item) => widget.labelOf(item).toLowerCase().contains(_query),
+              )
+              .toList(growable: false);
+    _filterCacheItems = items;
+    _filterCacheQuery = _query;
+    _filterCache = result;
+    return result;
   }
 
   @override
@@ -248,17 +275,28 @@ class _LocalityPickerSheetState<T>
                           ),
                         );
                       }
-                      return ListView.builder(
-                        padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                        itemCount: filtered.length,
-                        itemBuilder: (context, index) {
-                          final item = filtered[index];
-                          return LocalityPickerTile(
-                            key: Key('locality_picker_tile_$index'),
-                            label: widget.labelOf(item),
-                            onTap: () => Navigator.of(context).pop(item),
-                          );
-                        },
+                      // Isolate fling-scroll repaints from the gradient + glass
+                      // layers behind the list (those never change on scroll).
+                      return RepaintBoundary(
+                        child: ListView.builder(
+                          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                          itemCount: filtered.length,
+                          itemBuilder: (context, index) {
+                            final item = filtered[index];
+                            final label = widget.labelOf(item);
+                            // Key off the item's stable UUID — unique within the
+                            // list (homonymous settlements share a `nameUk`, which
+                            // would collide on a label-derived key) and not
+                            // user-facing. Stable across filtered reorder too.
+                            return LocalityPickerTile(
+                              key: ValueKey(
+                                'locality_picker_tile_${widget.idOf(item)}',
+                              ),
+                              label: label,
+                              onTap: () => Navigator.of(context).pop(item),
+                            );
+                          },
+                        ),
                       );
                     },
                   ),
@@ -299,7 +337,16 @@ class LocalityPickerTile extends StatelessWidget {
             vertical: AppSpacing.md,
           ),
           child: Row(
-            children: [Expanded(child: Text(label, style: _kLabelStyle))],
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _kLabelStyle,
+                ),
+              ),
+            ],
           ),
         ),
       ),

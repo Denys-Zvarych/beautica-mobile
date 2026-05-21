@@ -171,8 +171,14 @@ void main() {
       await tester.tap(find.byKey(const Key('locality_row_oblast')));
       await tester.pumpAndSettle();
 
-      // Both oblasts present, no empty state yet.
-      expect(find.byKey(const Key('locality_picker_tile_0')), findsOneWidget);
+      // Both oblasts present, no empty state yet. Tiles are keyed by the item's
+      // stable UUID (ValueKey('locality_picker_tile_<id>')) — homonymous
+      // settlements share a `nameUk`, so the key must derive from `id`, not the
+      // label; resolve it via the fixture id rather than a raw literal.
+      expect(
+        find.byKey(ValueKey('locality_picker_tile_${_oblast.id}')),
+        findsOneWidget,
+      );
       expect(find.byKey(const Key('locality_picker_empty')), findsNothing);
 
       // Type a query no oblast matches; wait past the 200 ms debounce.
@@ -192,7 +198,10 @@ void main() {
         _l10n(tester).localitySearchEmpty,
       );
       // No tiles remain.
-      expect(find.byKey(const Key('locality_picker_tile_0')), findsNothing);
+      expect(
+        find.byKey(ValueKey('locality_picker_tile_${_oblast.id}')),
+        findsNothing,
+      );
     });
 
     testWidgets(
@@ -223,10 +232,42 @@ void main() {
         // Provider was re-invoked (call count climbed) and data now renders.
         expect(repo.oblastCalls, 2);
         expect(find.byKey(const Key('locality_picker_retry')), findsNothing);
-        expect(find.byKey(const Key('locality_picker_tile_0')), findsOneWidget);
-        expect(find.text('Львівська'), findsOneWidget);
+        expect(
+          find.byKey(ValueKey('locality_picker_tile_${_oblast.id}')),
+          findsOneWidget,
+        );
+        expect(find.text(_oblast.name), findsOneWidget);
       },
     );
+  });
+
+  group('Warm-Mocha gradient surface (issue-1 regression guard)', () {
+    testWidgets('sheet surface paints a LinearGradient, never a flat color', (
+      tester,
+    ) async {
+      final repo = _CountingLocationRepository();
+      await tester.pumpWidget(_wrap(const _CascadeHarness(), repo));
+      await tester.pump();
+
+      // Open the oblast picker so the sheet (and its surface) is mounted.
+      await tester.tap(find.byKey(const Key('locality_row_oblast')));
+      await tester.pumpAndSettle();
+
+      // At least one DecoratedBox in the mounted sheet must carry a
+      // BoxDecoration whose `gradient` is a LinearGradient — locking the
+      // "reads as pure black" regression where it was a flat near-black fill.
+      final gradientBoxes = tester
+          .widgetList<DecoratedBox>(find.byType(DecoratedBox))
+          .where((box) {
+            final d = box.decoration;
+            return d is BoxDecoration && d.gradient is LinearGradient;
+          });
+      expect(
+        gradientBoxes,
+        isNotEmpty,
+        reason: 'picker surface must use a LinearGradient, not a flat color',
+      );
+    });
   });
 
   group('keepAlive memoization — no refetch on reopen (AC#4)', () {

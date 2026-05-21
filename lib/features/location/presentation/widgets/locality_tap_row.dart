@@ -96,6 +96,19 @@ class LocalityTapRow extends StatelessWidget {
     color: _kHelperColor,
   );
 
+  // Hoisted row decorations — selected by [_isFilled] so `build()` allocates
+  // neither the BoxDecoration nor the Border.all on every rebuild.
+  static const _kFilledDecoration = BoxDecoration(
+    color: _kFilledFill,
+    borderRadius: _kRowRadius,
+    border: Border.fromBorderSide(BorderSide(color: _kFilledBorder)),
+  );
+  static const _kEmptyDecoration = BoxDecoration(
+    color: _kRowFill,
+    borderRadius: _kRowRadius,
+    border: Border.fromBorderSide(BorderSide(color: _kRowBorder)),
+  );
+
   bool get _isFilled => value != null && value!.isNotEmpty;
 
   @override
@@ -112,13 +125,7 @@ class LocalityTapRow extends StatelessWidget {
             onTap: enabled ? onTap : null,
             borderRadius: _kRowRadius,
             child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: _isFilled ? _kFilledFill : _kRowFill,
-                borderRadius: _kRowRadius,
-                border: Border.all(
-                  color: _isFilled ? _kFilledBorder : _kRowBorder,
-                ),
-              ),
+              decoration: _isFilled ? _kFilledDecoration : _kEmptyDecoration,
               child: SizedBox(
                 height: _kRowHeight,
                 child: Row(

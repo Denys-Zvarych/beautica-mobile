@@ -147,6 +147,7 @@ class LocalityCascade extends ConsumerWidget {
       context: context,
       provider: oblastListProvider,
       labelOf: (o) => o.name,
+      idOf: (o) => o.id,
       titleLabel: l10n.localityOblastLabel,
       onRetry: () => ref.invalidate(oblastListProvider),
     );
@@ -169,6 +170,7 @@ class LocalityCascade extends ConsumerWidget {
       context: context,
       provider: provider,
       labelOf: (c) => c.name,
+      idOf: (c) => c.id,
       titleLabel: l10n.localityCityLabel,
       onRetry: () => ref.invalidate(provider),
     );
@@ -190,6 +192,7 @@ class LocalityCascade extends ConsumerWidget {
       context: context,
       provider: provider,
       labelOf: (d) => d.name,
+      idOf: (d) => d.id,
       titleLabel: l10n.localityDistrictLabel,
       onRetry: () => ref.invalidate(provider),
     );
