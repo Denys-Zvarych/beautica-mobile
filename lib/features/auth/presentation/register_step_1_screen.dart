@@ -29,6 +29,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
@@ -268,7 +269,7 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           //    every step. Tap clears the in-progress draft (HIGH-1 from
           //    Phase 2.16 — discards in-flight credentials) BEFORE navigating
           //    back to the role-selection gate.
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.xs),
           _BackToRoleLink(
             l10n: l10n,
             onTap: () {
@@ -279,7 +280,7 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
               context.go(RouteNames.registerRole);
             },
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: AppSpacing.sm),
           _LoginLinkRow(
             l10n: l10n,
             onTap: () {
@@ -648,7 +649,13 @@ class _BackToRoleLink extends StatelessWidget {
         onPressed: onTap,
         style: TextButton.styleFrom(
           foregroundColor: BrandColors.camel,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          // Trim visual dead space (vertical 6) while keeping the effective
+          // tap target at the a11y minimum 44px high via minimumSize. We do
+          // NOT use tapTargetSize.shrinkWrap here — with 13px text + 6px
+          // padding it would collapse the hit area to ~28px, below 44px.
+          // Mirrors register_flow_shell.dart's _BackLink (commit d01571b).
+          minimumSize: const Size(88, 44),
         ),
         // ignore: no_raw_ui_strings
         // The "←" prefix is a decorative arrow; the localised text is in [label].
