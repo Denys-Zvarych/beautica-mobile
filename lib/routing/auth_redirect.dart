@@ -74,12 +74,19 @@ String? authRedirectForLocation(
   // Phase 2.16 — the multi-step wizard adds /register/role + /register/step-2
   // + /register/step-3. They are all unauthenticated-only and treated as the
   // same auth-route surface as /register.
+  //
+  // Phase 2.13 — the forgot-password flow (/forgot-password + /reset-password)
+  // is likewise unauthenticated-only. /reset-password is reached via the
+  // emailed deep link with a `?token=` query param; matchedLocation strips the
+  // query string, so it matches RouteNames.resetPassword here.
   final isAtUnauthOnlyRoute =
       location == RouteNames.login ||
       location == RouteNames.register ||
       location == RouteNames.registerRole ||
       location == RouteNames.registerStep2 ||
-      location == RouteNames.registerStep3;
+      location == RouteNames.registerStep3 ||
+      location == RouteNames.forgotPassword ||
+      location == RouteNames.resetPassword;
 
   // Routes where an unauthenticated user may remain once session has settled.
   // /splash is NOT included — it is only valid while session.isLoading is true.

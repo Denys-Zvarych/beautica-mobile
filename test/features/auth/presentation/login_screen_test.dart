@@ -60,6 +60,12 @@ GoRouter _makeRouter() => GoRouter(
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text('home'))),
     ),
+    // Phase 2.13 — the login "Забули пароль?" link navigates here.
+    GoRoute(
+      path: RouteNames.forgotPassword,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('forgot-password'))),
+    ),
   ],
 );
 
@@ -711,6 +717,42 @@ void main() {
             'Line 1 of the login headline must contain "Welcome to" as the '
             'root TextSpan text',
       );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 12 — Phase 2.13: "Забули пароль?" link navigates to /forgot-password
+    // -----------------------------------------------------------------------
+    testWidgets('12. forgot-password link navigates to /forgot-password', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byKey(const Key('btn-forgot-password')));
+      await tester.tap(find.byKey(const Key('btn-forgot-password')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('forgot-password'), findsOneWidget);
+      // No login attempt was made by tapping the link.
+      expect(repo.loginCalls, isEmpty);
     });
   });
 }

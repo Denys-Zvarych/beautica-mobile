@@ -52,6 +52,21 @@ final class FakeAuthRepository implements AuthRepository {
   ///                  (e.g. [ResendThrottledFailure]).
   Object? resendVerificationResult;
 
+  /// Return value for the next [requestPasswordReset] call.
+  ///
+  /// Accepted values:
+  ///   - `null`     → generic success (no return value).
+  ///   - `Failure`  → thrown to simulate a transport / server error.
+  Object? requestPasswordResetResult;
+
+  /// Return value for the next [confirmPasswordReset] call.
+  ///
+  /// Accepted values:
+  ///   - `null`     → success (no return value).
+  ///   - `Failure`  → thrown to simulate a backend error
+  ///                  (e.g. [ResetTokenInvalidFailure]).
+  Object? confirmPasswordResetResult;
+
   // ---------------------------------------------------------------------------
   // Captured calls (for assertion in tests)
   // ---------------------------------------------------------------------------
@@ -79,6 +94,13 @@ final class FakeAuthRepository implements AuthRepository {
   /// Captured arguments for each [resendVerificationCode] call.
   /// Tests can assert `resendCalls.first.email` (backlog row 164).
   final List<({String email})> resendCalls = [];
+
+  /// Captured arguments for each [requestPasswordReset] call.
+  final List<({String email})> requestPasswordResetCalls = [];
+
+  /// Captured arguments for each [confirmPasswordReset] call.
+  final List<({String token, String newPassword})> confirmPasswordResetCalls =
+      [];
 
   // ---------------------------------------------------------------------------
   // AuthRepository
@@ -181,6 +203,23 @@ final class FakeAuthRepository implements AuthRepository {
   Future<void> resendVerificationCode({required String email}) async {
     resendCalls.add((email: email));
     final result = resendVerificationResult;
+    if (result is Failure) throw result;
+  }
+
+  @override
+  Future<void> requestPasswordReset(String email) async {
+    requestPasswordResetCalls.add((email: email));
+    final result = requestPasswordResetResult;
+    if (result is Failure) throw result;
+  }
+
+  @override
+  Future<void> confirmPasswordReset({
+    required String token,
+    required String newPassword,
+  }) async {
+    confirmPasswordResetCalls.add((token: token, newPassword: newPassword));
+    final result = confirmPasswordResetResult;
     if (result is Failure) throw result;
   }
 }

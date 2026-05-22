@@ -17,4 +17,10 @@ const Set<String> kAuthPaths = {
   // redaction rule must be in place before the first real Dio call is made.
   '/auth/verify-email',
   '/auth/resend-verification',
+  // Phase 2.13 — password-reset flow (backend Phase 11.2 / 11.3). Both are
+  // UNAUTHENTICATED endpoints, so AuthInterceptor must NOT inject a bearer
+  // token, and LoggingInterceptor must redact the request body (the email
+  // and the single-use reset token are PII / sensitive).
+  '/auth/forgot-password',
+  '/auth/reset-password',
 };

@@ -26,7 +26,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../features/auth/presentation/auth_notifier.dart';
 import '../features/auth/presentation/done_screen.dart';
+import '../features/auth/presentation/forgot_password_request_screen.dart';
 import '../features/auth/presentation/login_screen.dart';
+import '../features/auth/presentation/reset_password_screen.dart';
 import '../features/auth/presentation/register_flow_shell.dart';
 import '../features/auth/presentation/register_step_1_screen.dart';
 import '../features/auth/presentation/register_step_2_screen.dart';
@@ -86,6 +88,26 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.registerRole,
         pageBuilder: (context, state) =>
             _instantPage(state, const RoleSelectionScreen()),
+      ),
+      // Phase 2.13 — forgot-password flow. Both routes render outside the
+      // RegisterFlowShell and apply their own ScreenProtector lifecycle
+      // (email + reset token are PII).
+      GoRoute(
+        path: RouteNames.forgotPassword,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const ForgotPasswordRequestScreen()),
+      ),
+      GoRoute(
+        // The single-use reset token arrives as the `token` query parameter
+        // from the emailed deep link (`/reset-password?token=...`). It is
+        // never typed by the user. A missing/empty token still loads the
+        // screen — the first reset attempt then surfaces the invalid-link
+        // state via the backend's generic 400.
+        path: RouteNames.resetPassword,
+        pageBuilder: (context, state) {
+          final token = state.uri.queryParameters['token'] ?? '';
+          return _instantPage(state, ResetPasswordScreen(token: token));
+        },
       ),
       // Phase 2.16 — Wizard ShellRoute. The three /register* paths share
       // the RegisterFlowShell chrome (brand row + role chip + 4-pill

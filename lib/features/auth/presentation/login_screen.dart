@@ -433,15 +433,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
 
                           // ── Forgot password link — right-aligned, camel.
                           // login-page.html:334 `.forgot-link`: camel @ 0.8
-                          // opacity, 11.5px, w500. Backend flow is a future
-                          // phase; the link must render in its NORMAL (not
-                          // disabled/greyed) visual state per parity directive
-                          // #2, so onPressed is a harmless no-op.
+                          // opacity, 11.5px, w500. Phase 2.13 — now functional:
+                          // navigates to the forgot-password request flow. Use
+                          // push (not go) so the user can swipe / tap back to
+                          // login. Disabled while a login is in flight to avoid
+                          // navigating mid-submit.
                           Align(
                             alignment: Alignment.centerRight,
                             child: TextButton(
                               key: const Key('btn-forgot-password'),
-                              onPressed: () {},
+                              onPressed: isLoading
+                                  ? null
+                                  : () =>
+                                        context.push(RouteNames.forgotPassword),
                               style: TextButton.styleFrom(
                                 foregroundColor: BrandColors.camel.withValues(
                                   alpha: 0.8,

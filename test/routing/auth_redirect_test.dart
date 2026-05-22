@@ -239,6 +239,52 @@ void main() {
         isNull,
       );
     });
+
+    // Phase 2.13 — the forgot-password flow (/forgot-password +
+    // /reset-password) is unauthenticated-only (auth_redirect.dart:78-89).
+    // /reset-password is reached via the emailed deep link with a `?token=`
+    // query param; matchedLocation strips the query string, so the guard sees
+    // the bare RouteNames.resetPassword path here.
+
+    test('authenticated user at /forgot-password is redirected to /', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.forgotPassword,
+        ),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('authenticated user at /reset-password is redirected to /', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.resetPassword,
+        ),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('anonymous user at /forgot-password stays (null)', () {
+      expect(
+        authRedirectForLocation(
+          _unauthenticatedSession,
+          RouteNames.forgotPassword,
+        ),
+        isNull,
+      );
+    });
+
+    test('anonymous user at /reset-password stays (null)', () {
+      expect(
+        authRedirectForLocation(
+          _unauthenticatedSession,
+          RouteNames.resetPassword,
+        ),
+        isNull,
+      );
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -275,6 +321,14 @@ void main() {
             path: RouteNames.settings,
             builder: (c, s) => const _Probe('settings'),
           ),
+          GoRoute(
+            path: RouteNames.forgotPassword,
+            builder: (c, s) => const _Probe('forgot-password'),
+          ),
+          GoRoute(
+            path: RouteNames.resetPassword,
+            builder: (c, s) => const _Probe('reset-password'),
+          ),
         ],
       );
       addTearDown(router.dispose);
@@ -306,6 +360,58 @@ void main() {
     testWidgets('authenticated @ /login → redirected to /', (tester) async {
       await pumpRouterWith(tester, _authenticatedSession, RouteNames.login);
       expect(find.text('home'), findsOneWidget);
+    });
+
+    // Phase 2.13 — forgot-password flow guard wiring through real GoRouterState.
+
+    testWidgets('authenticated @ /forgot-password → redirected to /', (
+      tester,
+    ) async {
+      await pumpRouterWith(
+        tester,
+        _authenticatedSession,
+        RouteNames.forgotPassword,
+      );
+      expect(find.text('home'), findsOneWidget);
+      expect(find.text('forgot-password'), findsNothing);
+    });
+
+    testWidgets('authenticated @ /reset-password → redirected to /', (
+      tester,
+    ) async {
+      // The router strips the `?token=...` query string before matchedLocation,
+      // so navigating with a token still resolves to RouteNames.resetPassword.
+      await pumpRouterWith(
+        tester,
+        _authenticatedSession,
+        '${RouteNames.resetPassword}?token=x',
+      );
+      expect(find.text('home'), findsOneWidget);
+      expect(find.text('reset-password'), findsNothing);
+    });
+
+    testWidgets('anonymous @ /forgot-password stays on the route', (
+      tester,
+    ) async {
+      await pumpRouterWith(
+        tester,
+        _unauthenticatedSession,
+        RouteNames.forgotPassword,
+      );
+      expect(find.text('forgot-password'), findsOneWidget);
+      expect(find.text('login'), findsNothing);
+    });
+
+    testWidgets('anonymous @ /reset-password stays on the route', (
+      tester,
+    ) async {
+      await pumpRouterWith(
+        tester,
+        _unauthenticatedSession,
+        '${RouteNames.resetPassword}?token=x',
+      );
+      expect(find.text('reset-password'), findsOneWidget);
+      expect(find.text('login'), findsNothing);
     });
   });
 }

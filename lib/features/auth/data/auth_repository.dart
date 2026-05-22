@@ -122,4 +122,38 @@ abstract interface class AuthRepository {
   /// - [NetworkFailure] — connectivity issues.
   /// - [UnknownFailure] — any other unexpected error.
   Future<void> resendVerificationCode({required String email});
+
+  /// Requests a password-reset link for [email] (backend Phase 11.2).
+  ///
+  /// `POST /auth/forgot-password` ALWAYS returns a generic 200 regardless of
+  /// whether the account exists (anti-enumeration). This method therefore
+  /// resolves with no value on the happy path; the UI shows the same generic
+  /// confirmation either way. A real failure (network / 5xx / malformed)
+  /// still surfaces so the screen can offer a retry.
+  ///
+  /// Throws:
+  /// - [NetworkFailure] — connectivity issues.
+  /// - [ServerFailure] — 5xx.
+  /// - [ValidationFailure] — 400 bean-validation (e.g. blank/invalid email),
+  ///   though the client validates the email locally first.
+  /// - [UnknownFailure] — any other unexpected error.
+  Future<void> requestPasswordReset(String email);
+
+  /// Confirms a password reset with the single-use [token] from the emailed
+  /// deep link and the user's chosen [newPassword] (backend Phase 11.3).
+  ///
+  /// `POST /auth/reset-password`. On success the backend updates the password
+  /// and revokes all sessions but does NOT issue a session — the caller routes
+  /// to the login screen (no auto-login by design).
+  ///
+  /// Throws:
+  /// - [ResetTokenInvalidFailure] — the backend's generic 400 for an invalid,
+  ///   used, or expired token. The screen renders its invalid-link state.
+  /// - [NetworkFailure] — connectivity issues.
+  /// - [ServerFailure] — 5xx.
+  /// - [UnknownFailure] — any other unexpected error.
+  Future<void> confirmPasswordReset({
+    required String token,
+    required String newPassword,
+  });
 }

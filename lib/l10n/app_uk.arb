@@ -823,5 +823,135 @@
   "errLocationNoteTooLong": "Примітка не може перевищувати 250 символів",
   "@errLocationNoteTooLong": {
     "description": "Validation error when the location-note textarea exceeds 250 characters."
+  },
+
+  "forgotPasswordHeadline": "Забули",
+  "@forgotPasswordHeadline": {
+    "description": "Forgot-password request screen hero headline, line 1 (forgot-password-request.html .headline). Manrope 700."
+  },
+  "forgotPasswordHeadlineAccent": "пароль?",
+  "@forgotPasswordHeadlineAccent": {
+    "description": "Forgot-password request screen hero accent (forgot-password-request.html .headline em). Cormorant Garamond italic, camel."
+  },
+  "forgotPasswordSubText": "Введіть пошту вашого акаунту — ми надішлемо посилання для відновлення доступу.",
+  "@forgotPasswordSubText": {
+    "description": "Sub-text under the forgot-password request headline (forgot-password-request.html .sub-text)."
+  },
+  "forgotPasswordEmailLabel": "Електронна пошта",
+  "@forgotPasswordEmailLabel": {
+    "description": "Uppercase label above the email field on the forgot-password request screen."
+  },
+  "forgotPasswordEmailPlaceholder": "anya@example.com",
+  "@forgotPasswordEmailPlaceholder": {
+    "description": "Placeholder for the email field on the forgot-password request screen."
+  },
+  "forgotPasswordEmailHelper": "Перевірте, що це та сама пошта, з якою ви реєструвались.",
+  "@forgotPasswordEmailHelper": {
+    "description": "Helper note under the email field on the forgot-password request screen (forgot-password-request.html .helper-note)."
+  },
+  "forgotPasswordSubmit": "Надіслати посилання",
+  "@forgotPasswordSubmit": {
+    "description": "CTA on the forgot-password request screen (forgot-password-request.html .cta-btn)."
+  },
+  "forgotPasswordBackToLogin": "Повернутись до входу",
+  "@forgotPasswordBackToLogin": {
+    "description": "Bottom back-to-login link on the forgot-password request screen (forgot-password-request.html .back-row a)."
+  },
+  "forgotPasswordConfirmHeadline": "Перевірте",
+  "@forgotPasswordConfirmHeadline": {
+    "description": "Confirmation-state hero headline line 1 (forgot-password-request.html state B .headline). Manrope 700."
+  },
+  "forgotPasswordConfirmHeadlineAccent": "вашу пошту",
+  "@forgotPasswordConfirmHeadlineAccent": {
+    "description": "Confirmation-state hero accent (forgot-password-request.html state B .headline em). Cormorant Garamond italic, camel."
+  },
+  "forgotPasswordConfirmTitle": "Посилання надіслано",
+  "@forgotPasswordConfirmTitle": {
+    "description": "Generic anti-enumeration confirmation title (forgot-password-request.html .confirm-title)."
+  },
+  "forgotPasswordConfirmDesc": "Якщо обліковий запис із такою поштою існує, ми надіслали на нього посилання для скидання пароля.",
+  "@forgotPasswordConfirmDesc": {
+    "description": "Generic anti-enumeration confirmation body — identical whether or not the account exists (forgot-password-request.html .confirm-desc)."
+  },
+  "forgotPasswordConfirmHint": "Не бачите листа? Перевірте папку «Спам». Посилання дійсне протягом 60 хвилин.",
+  "@forgotPasswordConfirmHint": {
+    "description": "Spam-folder + 60-minute validity hint block on the confirmation state (forgot-password-request.html .hint-block p)."
+  },
+  "forgotPasswordResendPrompt": "Не отримали лист?",
+  "@forgotPasswordResendPrompt": {
+    "description": "Resend prompt text on the confirmation state (forgot-password-request.html .resend-text)."
+  },
+  "forgotPasswordResendLink": "Надіслати ще раз",
+  "@forgotPasswordResendLink": {
+    "description": "Resend link on the confirmation state (forgot-password-request.html .resend-link)."
+  },
+
+  "resetPasswordHeadline": "Новий",
+  "@resetPasswordHeadline": {
+    "description": "Reset-password form hero headline line 1 (forgot-password-reset.html state A .headline). Manrope 700."
+  },
+  "resetPasswordHeadlineAccent": "пароль",
+  "@resetPasswordHeadlineAccent": {
+    "description": "Reset-password form hero accent (forgot-password-reset.html state A .headline em). Cormorant Garamond italic, camel."
+  },
+  "resetPasswordSubText": "Створіть надійний пароль для вашого акаунту. Він замінить старий одразу після збереження.",
+  "@resetPasswordSubText": {
+    "description": "Sub-text under the reset-password form headline (forgot-password-reset.html .sub-text)."
+  },
+  "resetPasswordNewLabel": "Новий пароль",
+  "@resetPasswordNewLabel": {
+    "description": "Uppercase label above the new-password field (forgot-password-reset.html state A first label)."
+  },
+  "resetPasswordNewPlaceholder": "Мінімум 8 символів",
+  "@resetPasswordNewPlaceholder": {
+    "description": "Placeholder for the new-password field (forgot-password-reset.html state A new-password input)."
+  },
+  "resetPasswordConfirmLabel": "Повторіть пароль",
+  "@resetPasswordConfirmLabel": {
+    "description": "Uppercase label above the confirm-password field (forgot-password-reset.html state A second label)."
+  },
+  "resetPasswordConfirmPlaceholder": "Повторіть пароль",
+  "@resetPasswordConfirmPlaceholder": {
+    "description": "Placeholder for the confirm-password field (forgot-password-reset.html state A confirm input)."
+  },
+  "resetPasswordSubmit": "Зберегти пароль",
+  "@resetPasswordSubmit": {
+    "description": "CTA on the reset-password form (forgot-password-reset.html state A .cta-btn)."
+  },
+  "resetPasswordBackToLogin": "Повернутись до входу",
+  "@resetPasswordBackToLogin": {
+    "description": "Bottom back-to-login link on the reset-password screen (forgot-password-reset.html .back-row a)."
+  },
+  "resetPasswordSuccessTitle": "Пароль оновлено",
+  "@resetPasswordSuccessTitle": {
+    "description": "Success-state title after a password reset (forgot-password-reset.html state B .state-title)."
+  },
+  "resetPasswordSuccessSub": "Готово",
+  "@resetPasswordSuccessSub": {
+    "description": "Success-state italic sub-line (forgot-password-reset.html state B .state-sub). Cormorant Garamond italic, camel."
+  },
+  "resetPasswordSuccessDesc": "Ваш пароль успішно змінено. Тепер увійдіть до акаунту з новим паролем.",
+  "@resetPasswordSuccessDesc": {
+    "description": "Success-state body copy (forgot-password-reset.html state B .state-desc)."
+  },
+  "resetPasswordSuccessCta": "Увійти",
+  "@resetPasswordSuccessCta": {
+    "description": "Success-state CTA to the login screen (forgot-password-reset.html state B .cta-btn)."
+  },
+  "resetPasswordInvalidTitle": "Посилання недійсне або застаріле",
+  "@resetPasswordInvalidTitle": {
+    "description": "Invalid/expired-token state title (forgot-password-reset.html state C .state-title)."
+  },
+  "resetPasswordInvalidDesc": "Це посилання вже використано чи минув строк його дії (60 хвилин). Запросіть нове посилання для скидання пароля.",
+  "@resetPasswordInvalidDesc": {
+    "description": "Invalid/expired-token state body copy (forgot-password-reset.html state C .state-desc)."
+  },
+  "resetPasswordInvalidCta": "Запросити нове посилання",
+  "@resetPasswordInvalidCta": {
+    "description": "Invalid/expired-token state recovery CTA back to the forgot-password request screen (forgot-password-reset.html state C .cta-btn)."
+  },
+  "resetErrTokenInvalid": "Посилання недійсне або застаріле. Запросіть нове.",
+  "@resetErrTokenInvalid": {
+    "description": "userMessage for ResetTokenInvalidFailure (generic backend 400 for invalid/used/expired reset token)."
   }
 }

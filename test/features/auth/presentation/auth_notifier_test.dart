@@ -960,4 +960,141 @@ void main() {
       },
     );
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 2.13 — requestPasswordReset
+  // -------------------------------------------------------------------------
+
+  group('requestPasswordReset', () {
+    test(
+      'success: resolves without throwing or mutating session state',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(() => repo.requestPasswordReset(any())).thenAnswer((_) async {});
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+        final stateBefore = container.read(authProvider).value;
+
+        await expectLater(
+          () => container
+              .read(authProvider.notifier)
+              .requestPasswordReset('anya@example.com'),
+          returnsNormally,
+        );
+
+        // Must not mutate the auth session — it is a side-effect-only call.
+        expect(container.read(authProvider).value, equals(stateBefore));
+        verify(() => repo.requestPasswordReset('anya@example.com')).called(1);
+      },
+    );
+
+    test('rethrows a Failure from the repository', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.requestPasswordReset(any()),
+      ).thenThrow(const NetworkFailure());
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await expectLater(
+        () => container
+            .read(authProvider.notifier)
+            .requestPasswordReset('anya@example.com'),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 2.13 — confirmPasswordReset
+  // -------------------------------------------------------------------------
+
+  group('confirmPasswordReset', () {
+    test(
+      'success: resolves without mutating session (NO auto-login)',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(
+          () => repo.confirmPasswordReset(
+            token: any(named: 'token'),
+            newPassword: any(named: 'newPassword'),
+          ),
+        ).thenAnswer((_) async {});
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+        final stateBefore = container.read(authProvider).value;
+
+        await expectLater(
+          () => container
+              .read(authProvider.notifier)
+              .confirmPasswordReset(
+                token: 'raw-token',
+                newPassword: 'NewSecret123',
+              ),
+          returnsNormally,
+        );
+
+        // No session is issued on reset by design — state is unchanged and no
+        // refresh token is written to storage.
+        expect(container.read(authProvider).value, equals(stateBefore));
+        expect(await storage.readRefreshToken(), isNull);
+      },
+    );
+
+    test('rethrows ResetTokenInvalidFailure on generic 400', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.confirmPasswordReset(
+          token: any(named: 'token'),
+          newPassword: any(named: 'newPassword'),
+        ),
+      ).thenThrow(const ResetTokenInvalidFailure());
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await expectLater(
+        () => container
+            .read(authProvider.notifier)
+            .confirmPasswordReset(
+              token: 'expired',
+              newPassword: 'NewSecret123',
+            ),
+        throwsA(isA<ResetTokenInvalidFailure>()),
+      );
+    });
+
+    test('rethrows a generic Failure (network) unchanged', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.confirmPasswordReset(
+          token: any(named: 'token'),
+          newPassword: any(named: 'newPassword'),
+        ),
+      ).thenThrow(const NetworkFailure());
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await expectLater(
+        () => container
+            .read(authProvider.notifier)
+            .confirmPasswordReset(token: 't', newPassword: 'NewSecret123'),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+  });
 }

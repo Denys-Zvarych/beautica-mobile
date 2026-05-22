@@ -25,7 +25,9 @@
 //   5. kAuthPaths contains /auth/register/independent-master.
 //   6. kAuthPaths contains /auth/verify-email (OTP redaction — Phase 2.11).
 //   7. kAuthPaths contains /auth/resend-verification (OTP redaction — Phase 2.11).
-//   8. kAuthPaths has exactly 7 entries — no undocumented extras.
+//   8. kAuthPaths contains /auth/forgot-password (email PII redaction — Phase 2.13).
+//   9. kAuthPaths contains /auth/reset-password (token + password redaction — Phase 2.13).
+//  10. kAuthPaths has exactly 9 entries — no undocumented extras.
 
 import 'package:beautica_mobile/core/network/auth_paths.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -85,14 +87,43 @@ void main() {
       },
     );
 
+    test(
+      '8. contains /auth/forgot-password (email PII must not be logged)',
+      () {
+        expect(
+          kAuthPaths,
+          contains('/auth/forgot-password'),
+          reason:
+              'AuthInterceptor must NOT attach a bearer token to this '
+              'unauthenticated endpoint, and LoggingInterceptor must redact '
+              'the request body (the email is PII).',
+        );
+      },
+    );
+
+    test(
+      '9. contains /auth/reset-password (token + new password must not be logged)',
+      () {
+        expect(
+          kAuthPaths,
+          contains('/auth/reset-password'),
+          reason:
+              'AuthInterceptor must NOT attach a bearer token to this '
+              'unauthenticated endpoint, and LoggingInterceptor must redact '
+              'the request body (the single-use reset token + new password '
+              'are sensitive).',
+        );
+      },
+    );
+
     // -----------------------------------------------------------------------
-    // Test 8: exact cardinality — catches undocumented additions/removals
+    // Test 10: exact cardinality — catches undocumented additions/removals
     // -----------------------------------------------------------------------
 
-    test('8. has exactly 7 entries — no undocumented paths', () {
+    test('10. has exactly 9 entries — no undocumented paths', () {
       expect(
         kAuthPaths.length,
-        equals(7),
+        equals(9),
         reason:
             'A path was added to or removed from kAuthPaths without a '
             'corresponding test update. Update this test and confirm the '

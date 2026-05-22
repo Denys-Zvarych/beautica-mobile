@@ -823,5 +823,135 @@
   "errLocationNoteTooLong": "Note cannot exceed 250 characters",
   "@errLocationNoteTooLong": {
     "description": "Validation error when the location-note textarea exceeds 250 characters."
+  },
+
+  "forgotPasswordHeadline": "Forgot",
+  "@forgotPasswordHeadline": {
+    "description": "Forgot-password request screen hero headline, line 1 (forgot-password-request.html .headline). Manrope 700."
+  },
+  "forgotPasswordHeadlineAccent": "password?",
+  "@forgotPasswordHeadlineAccent": {
+    "description": "Forgot-password request screen hero accent (forgot-password-request.html .headline em). Cormorant Garamond italic, camel."
+  },
+  "forgotPasswordSubText": "Enter your account email — we'll send you a link to recover access.",
+  "@forgotPasswordSubText": {
+    "description": "Sub-text under the forgot-password request headline (forgot-password-request.html .sub-text)."
+  },
+  "forgotPasswordEmailLabel": "Email",
+  "@forgotPasswordEmailLabel": {
+    "description": "Uppercase label above the email field on the forgot-password request screen."
+  },
+  "forgotPasswordEmailPlaceholder": "anya@example.com",
+  "@forgotPasswordEmailPlaceholder": {
+    "description": "Placeholder for the email field on the forgot-password request screen."
+  },
+  "forgotPasswordEmailHelper": "Make sure this is the email you registered with.",
+  "@forgotPasswordEmailHelper": {
+    "description": "Helper note under the email field on the forgot-password request screen (forgot-password-request.html .helper-note)."
+  },
+  "forgotPasswordSubmit": "Send link",
+  "@forgotPasswordSubmit": {
+    "description": "CTA on the forgot-password request screen (forgot-password-request.html .cta-btn)."
+  },
+  "forgotPasswordBackToLogin": "Back to sign in",
+  "@forgotPasswordBackToLogin": {
+    "description": "Bottom back-to-login link on the forgot-password request screen (forgot-password-request.html .back-row a)."
+  },
+  "forgotPasswordConfirmHeadline": "Check",
+  "@forgotPasswordConfirmHeadline": {
+    "description": "Confirmation-state hero headline line 1 (forgot-password-request.html state B .headline). Manrope 700."
+  },
+  "forgotPasswordConfirmHeadlineAccent": "your email",
+  "@forgotPasswordConfirmHeadlineAccent": {
+    "description": "Confirmation-state hero accent (forgot-password-request.html state B .headline em). Cormorant Garamond italic, camel."
+  },
+  "forgotPasswordConfirmTitle": "Link sent",
+  "@forgotPasswordConfirmTitle": {
+    "description": "Generic anti-enumeration confirmation title (forgot-password-request.html .confirm-title)."
+  },
+  "forgotPasswordConfirmDesc": "If an account exists for this email, we've sent it a password reset link.",
+  "@forgotPasswordConfirmDesc": {
+    "description": "Generic anti-enumeration confirmation body — identical whether or not the account exists (forgot-password-request.html .confirm-desc)."
+  },
+  "forgotPasswordConfirmHint": "Don't see the email? Check your Spam folder. The link is valid for 60 minutes.",
+  "@forgotPasswordConfirmHint": {
+    "description": "Spam-folder + 60-minute validity hint block on the confirmation state (forgot-password-request.html .hint-block p)."
+  },
+  "forgotPasswordResendPrompt": "Didn't get the email?",
+  "@forgotPasswordResendPrompt": {
+    "description": "Resend prompt text on the confirmation state (forgot-password-request.html .resend-text)."
+  },
+  "forgotPasswordResendLink": "Resend",
+  "@forgotPasswordResendLink": {
+    "description": "Resend link on the confirmation state (forgot-password-request.html .resend-link)."
+  },
+
+  "resetPasswordHeadline": "New",
+  "@resetPasswordHeadline": {
+    "description": "Reset-password form hero headline line 1 (forgot-password-reset.html state A .headline). Manrope 700."
+  },
+  "resetPasswordHeadlineAccent": "password",
+  "@resetPasswordHeadlineAccent": {
+    "description": "Reset-password form hero accent (forgot-password-reset.html state A .headline em). Cormorant Garamond italic, camel."
+  },
+  "resetPasswordSubText": "Create a strong password for your account. It will replace the old one as soon as you save.",
+  "@resetPasswordSubText": {
+    "description": "Sub-text under the reset-password form headline (forgot-password-reset.html .sub-text)."
+  },
+  "resetPasswordNewLabel": "New password",
+  "@resetPasswordNewLabel": {
+    "description": "Uppercase label above the new-password field (forgot-password-reset.html state A first label)."
+  },
+  "resetPasswordNewPlaceholder": "At least 8 characters",
+  "@resetPasswordNewPlaceholder": {
+    "description": "Placeholder for the new-password field (forgot-password-reset.html state A new-password input)."
+  },
+  "resetPasswordConfirmLabel": "Repeat password",
+  "@resetPasswordConfirmLabel": {
+    "description": "Uppercase label above the confirm-password field (forgot-password-reset.html state A second label)."
+  },
+  "resetPasswordConfirmPlaceholder": "Repeat password",
+  "@resetPasswordConfirmPlaceholder": {
+    "description": "Placeholder for the confirm-password field (forgot-password-reset.html state A confirm input)."
+  },
+  "resetPasswordSubmit": "Save password",
+  "@resetPasswordSubmit": {
+    "description": "CTA on the reset-password form (forgot-password-reset.html state A .cta-btn)."
+  },
+  "resetPasswordBackToLogin": "Back to sign in",
+  "@resetPasswordBackToLogin": {
+    "description": "Bottom back-to-login link on the reset-password screen (forgot-password-reset.html .back-row a)."
+  },
+  "resetPasswordSuccessTitle": "Password updated",
+  "@resetPasswordSuccessTitle": {
+    "description": "Success-state title after a password reset (forgot-password-reset.html state B .state-title)."
+  },
+  "resetPasswordSuccessSub": "Done",
+  "@resetPasswordSuccessSub": {
+    "description": "Success-state italic sub-line (forgot-password-reset.html state B .state-sub). Cormorant Garamond italic, camel."
+  },
+  "resetPasswordSuccessDesc": "Your password has been changed. Now sign in to your account with the new password.",
+  "@resetPasswordSuccessDesc": {
+    "description": "Success-state body copy (forgot-password-reset.html state B .state-desc)."
+  },
+  "resetPasswordSuccessCta": "Sign in",
+  "@resetPasswordSuccessCta": {
+    "description": "Success-state CTA to the login screen (forgot-password-reset.html state B .cta-btn)."
+  },
+  "resetPasswordInvalidTitle": "Link invalid or expired",
+  "@resetPasswordInvalidTitle": {
+    "description": "Invalid/expired-token state title (forgot-password-reset.html state C .state-title)."
+  },
+  "resetPasswordInvalidDesc": "This link has already been used or has expired (60 minutes). Request a new password reset link.",
+  "@resetPasswordInvalidDesc": {
+    "description": "Invalid/expired-token state body copy (forgot-password-reset.html state C .state-desc)."
+  },
+  "resetPasswordInvalidCta": "Request new link",
+  "@resetPasswordInvalidCta": {
+    "description": "Invalid/expired-token state recovery CTA back to the forgot-password request screen (forgot-password-reset.html state C .cta-btn)."
+  },
+  "resetErrTokenInvalid": "The link is invalid or expired. Request a new one.",
+  "@resetErrTokenInvalid": {
+    "description": "userMessage for ResetTokenInvalidFailure (generic backend 400 for invalid/used/expired reset token)."
   }
 }

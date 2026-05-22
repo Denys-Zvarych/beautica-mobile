@@ -333,6 +333,75 @@ class AuthNotifier extends _$AuthNotifier {
     }
   }
 
+  /// Requests a password-reset link for [email] (backend Phase 11.2).
+  ///
+  /// Does NOT mutate [state] — the request only triggers a backend side-effect
+  /// and always resolves generically (anti-enumeration). The calling screen
+  /// wraps this in `try/catch` so it can surface a real transport error inline
+  /// while still showing the generic confirmation on success.
+  ///
+  /// Throws whatever [AuthRepository.requestPasswordReset] throws.
+  Future<void> requestPasswordReset(String email) async {
+    try {
+      await ref.read(authRepositoryProvider).requestPasswordReset(email);
+      if (kDebugMode) {
+        log(
+          'requestPasswordReset dispatched for ${maskEmail(email)}',
+          name: 'auth.reset',
+          level: 800,
+        );
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'requestPasswordReset failed for ${maskEmail(email)}',
+          name: 'auth.reset',
+          level: 900,
+          error: e,
+          stackTrace: st,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// Confirms a password reset with the single-use [token] and [newPassword]
+  /// (backend Phase 11.3).
+  ///
+  /// Does NOT mutate [state] and does NOT auto-login — by design the backend
+  /// issues no session on reset and the caller routes the user to the login
+  /// screen. The calling screen wraps this in `try/catch` so it can branch on
+  /// [ResetTokenInvalidFailure] (render the invalid-link state) vs. a generic
+  /// retryable error.
+  ///
+  /// Throws whatever [AuthRepository.confirmPasswordReset] throws.
+  Future<void> confirmPasswordReset({
+    required String token,
+    required String newPassword,
+  }) async {
+    try {
+      await ref
+          .read(authRepositoryProvider)
+          .confirmPasswordReset(token: token, newPassword: newPassword);
+      if (kDebugMode) {
+        log('confirmPasswordReset success', name: 'auth.reset', level: 800);
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'confirmPasswordReset failed',
+          name: 'auth.reset',
+          level: 900,
+          // Sanitised — never pass the raw exception (its toString may carry
+          // the token / new password from the request body).
+          error: e is Failure ? e.runtimeType.toString() : 'non-Failure error',
+          stackTrace: st,
+        );
+      }
+      rethrow;
+    }
+  }
+
   /// Updates the in-memory access token without re-fetching the user profile.
   ///
   /// Called by [RefreshInterceptor] after a silent token refresh so that

@@ -318,6 +318,89 @@ final class HttpAuthRepository implements AuthRepository {
   }
 
   // ---------------------------------------------------------------------------
+  // Password reset — backend Phase 11.2 (request) + 11.3 (confirm)
+  // ---------------------------------------------------------------------------
+
+  /// Posts to `POST /auth/forgot-password`.
+  ///
+  /// Backend Phase 11.2 contract (locked): ALWAYS returns a generic 200 with
+  /// `{success:true, data:null, message:"If an account exists…"}` regardless
+  /// of whether the email is known — anti-enumeration. The body carries no
+  /// data the mobile layer needs, so this returns `void`. Only genuine
+  /// transport / server errors propagate (so the screen can offer a retry).
+  ///
+  /// SECURITY: the request body (`{email}`) is redacted by [LoggingInterceptor]
+  /// because `/auth/forgot-password` is in [kAuthPaths]. The debug log here
+  /// carries only the Dio exception type + status — never the raw exception
+  /// (its `toString()` includes the request body / email).
+  @override
+  Future<void> requestPasswordReset(String email) async {
+    try {
+      await _dio.post<Map<String, dynamic>>(
+        '/auth/forgot-password',
+        data: {'email': email},
+      );
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'requestPasswordReset failed: ${e.type} ${e.response?.statusCode}',
+          name: 'auth.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  /// Posts to `POST /auth/reset-password`.
+  ///
+  /// Backend Phase 11.3 contract (locked):
+  ///   Request:  `{"token": "<raw token>", "newPassword": "..."}`
+  ///   Success:  generic 200, NO session issued (no auto-login by design).
+  ///   400:      a single byte-identical generic envelope for invalid / used /
+  ///             expired tokens (no oracle). [ErrorMapperInterceptor] maps the
+  ///             400 to a [ValidationFailure] with empty `fieldErrors`; here we
+  ///             translate that into the dedicated [ResetTokenInvalidFailure]
+  ///             so the screen renders its "link invalid or expired" state.
+  ///
+  /// SECURITY: the request body carries the single-use reset token + the new
+  /// password — both PII. `/auth/reset-password` is in [kAuthPaths] so the
+  /// body is redacted by [LoggingInterceptor]; the debug log here is sanitised
+  /// to the Dio type + status only.
+  @override
+  Future<void> confirmPasswordReset({
+    required String token,
+    required String newPassword,
+  }) async {
+    try {
+      await _dio.post<Map<String, dynamic>>(
+        '/auth/reset-password',
+        data: {'token': token, 'newPassword': newPassword},
+      );
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'confirmPasswordReset failed: ${e.type} ${e.response?.statusCode}',
+          name: 'auth.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      final failure = _mapDioException(e);
+      // The backend returns a generic 400 for invalid / used / expired tokens.
+      // The interceptor surfaces that as a ValidationFailure (no field errors);
+      // re-map it to the dedicated invalid-token failure the screen renders as
+      // its recovery state. Other failures (network / 5xx / unknown) pass
+      // through unchanged so the screen shows a generic retryable error.
+      if (failure is ValidationFailure) {
+        throw ResetTokenInvalidFailure(cause: failure.cause);
+      }
+      throw failure;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
 

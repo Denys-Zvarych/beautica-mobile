@@ -1166,4 +1166,205 @@ void main() {
       );
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Group 13 — requestPasswordReset (backend Phase 11.2)
+  //
+  // Contract:
+  //   Request:  POST /auth/forgot-password  {email}
+  //   Success:  ALWAYS generic 200 (anti-enumeration) → repository returns void.
+  //   Genuine transport/server errors still propagate as typed Failures.
+  // -------------------------------------------------------------------------
+
+  group('requestPasswordReset', () {
+    test('success → request body carries {email}, completes void', () async {
+      Map<String, dynamic>? capturedBody;
+
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/forgot-password',
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((invocation) async {
+        capturedBody =
+            invocation.namedArguments[const Symbol('data')]
+                as Map<String, dynamic>;
+        return Response(
+          requestOptions: _fakeOptions('/auth/forgot-password'),
+          statusCode: 200,
+          data: {
+            'success': true,
+            'data': null,
+            'message': 'If an account exists for that email, a reset link…',
+          },
+        );
+      });
+
+      await repository.requestPasswordReset('master@beautica.test');
+
+      expect(capturedBody, isNotNull);
+      expect(capturedBody!['email'], equals('master@beautica.test'));
+      // Only the email is sent — nothing else.
+      expect(capturedBody!.length, equals(1));
+    });
+
+    test('network error → throws NetworkFailure', () async {
+      const failure = NetworkFailure();
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/forgot-password',
+          data: any(named: 'data'),
+        ),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 503));
+
+      await expectLater(
+        () => repository.requestPasswordReset('x@x.com'),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test('raw DioException → throws UnknownFailure', () async {
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/forgot-password',
+          data: any(named: 'data'),
+        ),
+      ).thenThrow(_rawDioException());
+
+      await expectLater(
+        () => repository.requestPasswordReset('x@x.com'),
+        throwsA(isA<UnknownFailure>()),
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 14 — confirmPasswordReset (backend Phase 11.3)
+  //
+  // Contract:
+  //   Request:  POST /auth/reset-password  {token, newPassword}
+  //   Success:  generic 200, NO session → repository returns void.
+  //   400:      generic envelope for invalid/used/expired token → the
+  //             interceptor surfaces a ValidationFailure (no field errors),
+  //             which the repository re-maps to ResetTokenInvalidFailure.
+  // -------------------------------------------------------------------------
+
+  group('confirmPasswordReset', () {
+    test(
+      'success → body carries {token, newPassword}, completes void',
+      () async {
+        Map<String, dynamic>? capturedBody;
+
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/reset-password',
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((invocation) async {
+          capturedBody =
+              invocation.namedArguments[const Symbol('data')]
+                  as Map<String, dynamic>;
+          return Response(
+            requestOptions: _fakeOptions('/auth/reset-password'),
+            statusCode: 200,
+            data: {
+              'success': true,
+              'data': null,
+              'message': 'Password has been reset. Please sign in.',
+            },
+          );
+        });
+
+        await repository.confirmPasswordReset(
+          token: 'raw-reset-token',
+          newPassword: 'NewSecret123',
+        );
+
+        expect(capturedBody, isNotNull);
+        expect(capturedBody!['token'], equals('raw-reset-token'));
+        expect(capturedBody!['newPassword'], equals('NewSecret123'));
+        expect(capturedBody!.length, equals(2));
+      },
+    );
+
+    test(
+      'generic 400 (ValidationFailure from interceptor) → throws ResetTokenInvalidFailure',
+      () async {
+        // The backend returns a generic 400 with no `errors` map for an
+        // invalid/used/expired token; ErrorMapperInterceptor maps that to a
+        // ValidationFailure with empty fieldErrors.
+        const failure = ValidationFailure(fieldErrors: {});
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/reset-password',
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(_dioWithFailure(failure, statusCode: 400));
+
+        await expectLater(
+          () => repository.confirmPasswordReset(
+            token: 'expired-token',
+            newPassword: 'NewSecret123',
+          ),
+          throwsA(isA<ResetTokenInvalidFailure>()),
+        );
+      },
+    );
+
+    test('network error → throws NetworkFailure (not re-mapped)', () async {
+      const failure = NetworkFailure();
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/reset-password',
+          data: any(named: 'data'),
+        ),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 503));
+
+      await expectLater(
+        () => repository.confirmPasswordReset(
+          token: 't',
+          newPassword: 'NewSecret123',
+        ),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test(
+      '5xx → throws ServerFailure (not re-mapped to token-invalid)',
+      () async {
+        const failure = ServerFailure(statusCode: 500);
+        when(
+          () => mockDio.post<Map<String, dynamic>>(
+            '/auth/reset-password',
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(_dioWithFailure(failure, statusCode: 500));
+
+        await expectLater(
+          () => repository.confirmPasswordReset(
+            token: 't',
+            newPassword: 'NewSecret123',
+          ),
+          throwsA(isA<ServerFailure>()),
+        );
+      },
+    );
+
+    test('raw DioException → throws UnknownFailure', () async {
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/reset-password',
+          data: any(named: 'data'),
+        ),
+      ).thenThrow(_rawDioException());
+
+      await expectLater(
+        () => repository.confirmPasswordReset(
+          token: 't',
+          newPassword: 'NewSecret123',
+        ),
+        throwsA(isA<UnknownFailure>()),
+      );
+    });
+  });
 }

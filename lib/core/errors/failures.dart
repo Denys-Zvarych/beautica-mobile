@@ -189,3 +189,23 @@ final class ResendThrottledFailure extends Failure {
     ctx,
   ).verificationErrResendThrottled(retryAfterSeconds);
 }
+
+/// Emitted when `POST /auth/reset-password` returns the backend's generic
+/// 400 for an invalid, used, or expired reset token (backend Phase 11.3).
+///
+/// The backend deliberately returns a single, byte-identical generic 400
+/// envelope (`{success:false, data:null, message:"Invalid or expired reset
+/// token"}`) for all three cases so the endpoint cannot be used as a
+/// token-probing oracle. There are therefore NO field errors and NO sub-code
+/// to distinguish them — the [ErrorMapperInterceptor] maps the 400 to a
+/// [ValidationFailure] with empty `fieldErrors`, and
+/// [HttpAuthRepository.confirmPasswordReset] re-throws it as this dedicated
+/// failure so the reset screen can render its "link invalid or expired"
+/// state with a recovery CTA.
+final class ResetTokenInvalidFailure extends Failure {
+  const ResetTokenInvalidFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).resetErrTokenInvalid;
+}
