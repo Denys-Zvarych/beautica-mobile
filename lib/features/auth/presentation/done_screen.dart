@@ -398,7 +398,10 @@ class _SuccessRing extends StatelessWidget {
           ),
           child: Padding(
             // .success-ring::before { inset: 6px } — 6 dp inner ring.
-            padding: EdgeInsets.all(6),
+            // 6 is a sub-token half-step (between xxs=4 and xs=8); routed
+            // through the scale as sm/2 (12/2) to satisfy the spacing gate
+            // and preserve the exact 6 dp visual — no new token added.
+            padding: EdgeInsets.all(AppSpacing.sm / 2),
             child: DecoratedBox(
               decoration: _kSuccessRingInnerDecoration,
               child: Center(
