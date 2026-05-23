@@ -326,6 +326,64 @@ assert(
 
 ---
 
+## LOW — `passwordRules()` labels are raw string literals not covered by l10n (Phase 2.13)
+
+**File:** `lib/features/auth/presentation/widgets/password_checklist.dart:39–46`
+
+**Finding:** Rule labels `'Від $minLength до 128 символів'`, `'Хоча б одна цифра'`, `'Хоча б одна велика літера'` and the `Semantics` label `'Вимоги до пароля'` (line 67) are raw Ukrainian string literals passed directly to the widget tree. They are rendered to users and will not switch to English when EN locale is active. The build-time lint rule (`no_raw_ui_strings`) does not fire on `PasswordRule.label` because the label is not a direct `Text(...)` call-site argument.
+
+**Fix:** Add l10n keys (`passwordRuleLength`, `passwordRuleDigit`, `passwordRuleUppercase`, `passwordChecklistSemantics`) to `app_uk.arb` and `app_en.arb`; regenerate; pass `AppLocalizations` into `passwordRules({int minLength = 8, required AppLocalizations l10n})`.
+
+**Pattern:** M11 (raw UI string literal bypassing lint).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.13 forgot/reset password QA audit
+
+---
+
+## LOW — No unit tests for `passwordRules()` predicate boundaries (Phase 2.13)
+
+**File:** `lib/features/auth/presentation/widgets/password_checklist.dart:39–49`
+`test/features/auth/presentation/reset_password_screen_test.dart`
+
+**Finding:** Test 5 (PasswordChecklist icon flip) verifies only the length rule by typing `'password'` (8 chars, no digit, no uppercase). The digit predicate (`_hasDigit`) and uppercase predicate (`_hasUppercase`) have no unit tests. A regression removing Cyrillic uppercase from `[A-ZА-ЯІЇЄ]` or breaking the digit regex would leave all 9 reset-password widget tests green.
+
+**Fix (next iteration):** Add a unit test group `passwordRules predicates` covering: (a) length boundary 7 vs 8 chars; (b) digit absent vs present; (c) Latin uppercase absent vs present; (d) Cyrillic uppercase absent vs present (`'пароль'` vs `'Пароль'`).
+
+**Pattern:** M3-adjacent (predicate boundary coverage gap on a security-sensitive validator).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.13 forgot/reset password QA audit
+
+---
+
+## LOW — Loading state not independently asserted on ForgotPassword/ResetPassword screens (Phase 2.13)
+
+**File:** `test/features/auth/presentation/forgot_password_request_screen_test.dart`
+`test/features/auth/presentation/reset_password_screen_test.dart`
+
+**Finding:** Neither test file asserts the in-flight loading state (`NeumorphicButton(loading: true)`) because `FakeAuthRepository` resolves synchronously and `pumpAndSettle()` advances past it. The `_submitting = true` branch in both screens is rendered but never observed in tests.
+
+**Fix (next iteration):** Introduce a `FakeAuthRepository.requestPasswordResetCompleter` / `confirmPasswordResetCompleter` that holds a `Completer<void>`, return `completer.future` from the fake method, pump once (not `pumpAndSettle`), assert `loading` indicator present, then complete the completer and `pumpAndSettle`.
+
+**Pattern:** M3 (loading UI state untested).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.13 forgot/reset password QA audit
+
+---
+
+## LOW — ResetPasswordScreen visibility-toggle key is locale-coupled in test (Phase 2.13)
+
+**File:** `test/features/auth/presentation/reset_password_screen_test.dart:364–368`
+
+**Finding:** Test 9 constructs `ValueKey<String>('${l10n.resetPasswordNewLabel}_toggle')` at test runtime to locate the visibility toggle buttons. If the `resetPasswordNewLabel` ARB value changes, the key lookup breaks without a compile-time error.
+
+**Fix:** Define the two toggle keys as `const` values in the source widget (`'reset_password_toggle'`, `'reset_confirm_toggle'`) and pass them explicitly to `NeumorphicTextField`'s toggle button. Update test 9 to use those const keys.
+
+**Pattern:** M2 (locale-coupled widget finder — indirectly; the coupling is to an l10n value used to derive a key rather than to use a key directly).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.13 forgot/reset password QA audit
+
+---
+
 ## LOW — Test 7b missing MASVS security property assertions (Phase 2.11)
 
 **File:** `test/features/auth/presentation/verification_screen_test.dart` — Test 7b

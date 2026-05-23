@@ -146,6 +146,9 @@ class NeumorphicTextField extends StatefulWidget {
     this.onSubmitted,
     this.onChanged,
     this.enabled = true,
+    this.enableSuggestions,
+    this.autocorrect,
+    this.enableIMEPersonalizedLearning,
   });
 
   final String label;
@@ -164,6 +167,17 @@ class NeumorphicTextField extends StatefulWidget {
   final ValueChanged<String>? onSubmitted;
   final ValueChanged<String>? onChanged;
   final bool enabled;
+
+  /// Override keyboard suggestions. When [obscureToggle] is true, defaults to
+  /// `false` (MASVS-PLATFORM MS-8 — prevents IME from learning password input).
+  final bool? enableSuggestions;
+
+  /// Override autocorrect. When [obscureToggle] is true, defaults to `false`.
+  final bool? autocorrect;
+
+  /// Override IME personalised learning. When [obscureToggle] is true, defaults
+  /// to `false` (MASVS-PLATFORM MS-8).
+  final bool? enableIMEPersonalizedLearning;
 
   @override
   State<NeumorphicTextField> createState() => _NeumorphicTextFieldState();
@@ -230,6 +244,19 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
                     keyboardType: widget.keyboardType,
                     textInputAction: widget.textInputAction,
                     obscureText: widget.obscureToggle && _obscured,
+                    // MASVS-PLATFORM MS-8: when this is a password field
+                    // (obscureToggle:true), suppress IME learning, suggestions,
+                    // and autocorrect by default to prevent keyboard apps from
+                    // reading the input stream. Callers may override explicitly.
+                    enableSuggestions: widget.obscureToggle
+                        ? (widget.enableSuggestions ?? false)
+                        : (widget.enableSuggestions ?? true),
+                    autocorrect: widget.obscureToggle
+                        ? (widget.autocorrect ?? false)
+                        : (widget.autocorrect ?? true),
+                    enableIMEPersonalizedLearning: widget.obscureToggle
+                        ? (widget.enableIMEPersonalizedLearning ?? false)
+                        : (widget.enableIMEPersonalizedLearning ?? true),
                     maxLength: widget.maxLength,
                     inputFormatters: widget.inputFormatters,
                     autofillHints: widget.autofillHints,
