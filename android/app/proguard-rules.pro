@@ -21,6 +21,10 @@
     com.google.gson.JsonElement toJson();
 }
 
+# flutter_native_splash — MethodChannel handler reached via Flutter native bridge (Phase 2.15)
+-keep class net.jonhanson.flutter_native_splash.** { *; }
+-keepclassmembers class net.jonhanson.flutter_native_splash.** { *; }
+
 # Dio — keep response type adapters
 -keep class retrofit2.** { *; }
 -keep class okhttp3.** { *; }

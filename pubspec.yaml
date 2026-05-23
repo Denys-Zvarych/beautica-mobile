@@ -65,6 +65,11 @@ dependencies:
   # SVG rendering — used for the logo asset on auth screens.
   flutter_svg: ^2.0.16
 
+  # Native splash screen — preserves the branded warm-taupe splash through
+  # Flutter engine startup; `FlutterNativeSplash.remove()` is called from
+  # SplashScreen.initState() to hand off to the Phase 2.10 animation. Phase 2.15.
+  flutter_native_splash: ^2.4.4
+
   # Logging — dart:developer log() is the official channel; no extra package.
   cupertino_icons: ^1.0.8
 
@@ -122,6 +127,32 @@ flutter_launcher_icons:
   # the key is omitted; passing `false` is a schema-cast error (expects Map).
 
 # Flutter section — enables Material icons + l10n codegen (`flutter gen-l10n`).
+# Native splash configuration — read by `dart run flutter_native_splash:create`.
+# Phase 2.15. Background: VelvetTouch warm taupe #E6DDD0 (= BrandColors.base),
+# NOT the stale espresso #0D0906 from the phase-doc draft.
+# Strategy: Option A — logo shown at scale-1.0 rest pose; Flutter-side animation
+# becomes a no-op on logo scale (spinner fade-in preserved unchanged).
+flutter_native_splash:
+  color: "#E6DDD0"                                # VelvetTouch warm taupe — matches BrandColors.base
+  image: "assets/branding/splash_logo.png"        # 1024×1024, transparent bg
+  color_dark: "#E6DDD0"                           # light-only design system; always warm taupe
+  image_dark: "assets/branding/splash_logo.png"
+
+  android: true
+  ios: true
+  web: false
+
+  # Android 12+ SplashScreen API (windowSplashScreenAnimatedIcon).
+  android_12:
+    image: "assets/branding/splash_logo_android12.png"   # 1152×1152, logo in 768×768 safe zone
+    color: "#E6DDD0"
+    icon_background_color: "#E6DDD0"                     # no white circle behind logo on API 31+
+
+  android_gravity: center
+  fullscreen: true
+
+  ios_content_mode: center
+
 flutter:
   uses-material-design: true
   generate: true

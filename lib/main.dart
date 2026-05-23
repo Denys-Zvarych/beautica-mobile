@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -17,10 +18,23 @@ import 'routing/app_router.dart';
 /// Phase 1.4 — replaced [MaterialApp] with [MaterialApp.router] wired to
 /// [appRouterProvider] via [ConsumerWidget]; the app boots to
 /// [RouteNames.splash].
+/// Phase 2.15 — [FlutterNativeSplash.preserve] keeps the branded warm-taupe
+/// native splash on screen while the engine starts up. [SplashScreen.initState]
+/// calls [FlutterNativeSplash.remove] on the first Flutter frame so the
+/// Phase 2.10 animation picks up seamlessly.
 Future<void> main() async {
   // Required before accessing any binding instance from main() — without it
   // SchedulerBinding.instance below hangs on Mali-G52 / this Flutter combo.
-  WidgetsFlutterBinding.ensureInitialized();
+  // Phase 2.15: capture the binding so it can be passed to FlutterNativeSplash.
+  final binding = WidgetsFlutterBinding.ensureInitialized();
+
+  // Phase 2.15 — preserve the native splash through Flutter engine startup.
+  // The native splash (warm taupe #E6DDD0 bg + Beautica B mark) remains visible
+  // until SplashScreen.initState calls FlutterNativeSplash.remove(). This
+  // eliminates the blank white frame / "F" flutter logo that would otherwise
+  // appear between the OS launch window and the first Flutter frame.
+  FlutterNativeSplash.preserve(widgetsBinding: binding);
+
   GoogleFonts.config.allowRuntimeFetching = kDebugMode;
 
   // 2026-05-20 — Portrait-only orientation lock for the whole app.

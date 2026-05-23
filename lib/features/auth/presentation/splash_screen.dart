@@ -12,12 +12,24 @@
 // No user interaction is expected here; there is intentionally no retry or
 // skip button.
 //
-// Animation: logo scale (0.5→1.0) + opacity (0→1) over 800 ms using
-// [Curves.easeOutBack]. The progress indicator fades in after the logo
-// animation completes. Both animations are skipped when the OS
-// [MediaQueryData.disableAnimations] flag is set (reduced-motion support).
+// Phase 2.15 — Native-splash handoff (Option A — "Single continuous animation"):
+//   The native splash (warm taupe #E6DDD0 bg + Beautica B mark at scale 1.0)
+//   is preserved by [FlutterNativeSplash.preserve] in main() and dismissed here
+//   via [FlutterNativeSplash.remove] on the first Flutter post-frame callback.
+//   Because the native splash already shows the logo at its rest (scale 1.0)
+//   pose, the _logoScale Tween now runs 1.0→1.0 (effectively a no-op for the
+//   logo), eliminating any geometry jump at the handoff. The opacity fade and
+//   the spinner fade-in are preserved unchanged.
+//   Reduced-motion: the native splash itself is OS-owned and cannot be skipped,
+//   but the Flutter-side animation respects [MediaQueryData.disableAnimations].
+//
+// Animation (post-Phase 2.15): logo opacity (0→1) over 800 ms [Curves.easeOut];
+// logo scale is a no-op (1.0→1.0) preserving the Phase 2.10 architecture without
+// removing the controller. Progress indicator fades in after the controller
+// completes. Both animations skipped on reduced-motion.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../core/theme/app_spacing.dart';
@@ -52,8 +64,11 @@ class _SplashScreenState extends State<SplashScreen>
       duration: const Duration(milliseconds: 800),
     );
 
+    // Phase 2.15 Option A: begin changed from 0.5 → 1.0 (no-op scale).
+    // The native splash already shows the logo at rest (1.0) so removing the
+    // 0.5→1.0 bounce here prevents a geometry jump at the handoff.
     _logoScale = Tween<double>(
-      begin: 0.5,
+      begin: 1.0,
       end: 1.0,
     ).animate(CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOutBack));
 
@@ -70,8 +85,12 @@ class _SplashScreenState extends State<SplashScreen>
       }
     });
 
+    // Phase 2.15 — dismiss native splash on first Flutter frame, synchronised
+    // with the start of the Phase 2.10 animation. FlutterNativeSplash.remove()
+    // is idempotent and safe even if preserve() was not called (debug mode).
     // Defer reduced-motion check to post-frame so MediaQuery is available.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      FlutterNativeSplash.remove();
       if (!mounted) return;
       if (MediaQuery.of(context).disableAnimations) {
         _logoCtrl.value = 1.0;
@@ -91,8 +110,8 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Warm Mocha palette — must match the shared AuthGradientBackground
-      // (espresso #0D0906), not the legacy navy midnight.
+      // VelvetTouch palette — warm taupe #E6DDD0 (= BrandColors.base).
+      // Must match the native splash color in pubspec.yaml flutter_native_splash.color.
       backgroundColor: BrandColors.base,
       body: Stack(
         children: [
