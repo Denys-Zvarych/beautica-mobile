@@ -113,7 +113,7 @@ flutter_launcher_icons:
   image_path_android: "assets/branding/launcher_icon_source.png"
   image_path_ios: "assets/branding/launcher_icon_source.png"
   # Android 8+ adaptive icon layers (mandatory since target API 26+).
-  adaptive_icon_background: "#0D0906"
+  adaptive_icon_background: "#6A4A28"
   adaptive_icon_foreground: "assets/branding/launcher_icon_foreground.png"
   # Android 13+ themed icons (monochrome silhouette tinted by user's wallpaper).
   adaptive_icon_monochrome: "assets/branding/launcher_icon_monochrome.png"
