@@ -23,10 +23,12 @@
 //   Reduced-motion: the native splash itself is OS-owned and cannot be skipped,
 //   but the Flutter-side animation respects [MediaQueryData.disableAnimations].
 //
-// Animation (post-Phase 2.15): logo opacity (0→1) over 800 ms [Curves.easeOut];
-// logo scale is a no-op (1.0→1.0) preserving the Phase 2.10 architecture without
-// removing the controller. Progress indicator fades in after the controller
-// completes. Both animations skipped on reduced-motion.
+// Animation (post-Phase 2.15 / P1-STARTUP-2 fix): both _logoOpacity and _logoScale
+// are now no-ops (1.0→1.0). The native splash already shows the logo at full opacity
+// and rest scale, so starting at 0.0 would cause a 1-frame (~16 ms) invisible-logo
+// flash at the native→Flutter handoff. The controller only drives spinner timing now.
+// Progress indicator fades in after the controller completes.
+// Both animations skipped on reduced-motion.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
@@ -72,7 +74,12 @@ class _SplashScreenState extends State<SplashScreen>
       end: 1.0,
     ).animate(CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOutBack));
 
-    _logoOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+    // P1-STARTUP-2 (perf MEDIUM, Phase 2.20 audit): begin changed 0.0 → 1.0.
+    // The native splash shows the logo at opacity 1.0 already. Starting at 0.0
+    // causes a 1-frame (~16 ms) invisible-logo flash at the native→Flutter
+    // handoff. Both _logoOpacity and _logoScale are now no-ops (1.0→1.0);
+    // the controller drives only spinner-reveal timing.
+    _logoOpacity = Tween<double>(begin: 1.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _logoCtrl,
         curve: const Interval(0.0, 0.6, curve: Curves.easeOut),

@@ -74,6 +74,10 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   @override
   void initState() {
     super.initState();
+    // MASVS-PLATFORM MS6 (MEDIUM-2, Phase 2.20 audit): FLAG_SECURE takes effect
+    // at onWindowFocusChanged, not at the Dart frame boundary. This is the same
+    // accepted one-frame gap on all PII auth screens in this codebase.
+    // preventScreenshotOn/Off pairing is the minimum achievable with ScreenProtector.
     if (!kDebugMode) ScreenProtector.preventScreenshotOn();
   }
 

@@ -29,6 +29,38 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!--
+                Android App Links for security-token deep-links (MS-MEDIUM-1, Phase 2.20 audit).
+                Scoped to /invite/accept and /reset-password on the production Railway domain.
+                android:autoVerify="true" prevents a competing app from registering the same
+                URL scheme and intercepting the single-use token from an emailed link.
+
+                IMPORTANT — the autoVerify handshake REQUIRES a
+                /.well-known/assetlinks.json file to be published on the production domain
+                (https://beautica-backend-production.up.railway.app/.well-known/assetlinks.json).
+                Until the backend team publishes that file, these links will open as ordinary
+                browser links rather than directly in the app; this intent-filter is safe to
+                ship now and causes no regression for users.
+                Action item for backend-dev: publish assetlinks.json (Phase 2.20 backlog).
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="beautica-backend-production.up.railway.app"
+                    android:pathPrefix="/invite/accept" />
+            </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="beautica-backend-production.up.railway.app"
+                    android:pathPrefix="/reset-password" />
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

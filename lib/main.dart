@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,9 +21,12 @@ import 'routing/app_router.dart';
 /// [appRouterProvider] via [ConsumerWidget]; the app boots to
 /// [RouteNames.splash].
 /// Phase 2.15 — [FlutterNativeSplash.preserve] keeps the branded warm-taupe
-/// native splash on screen while the engine starts up. [SplashScreen.initState]
-/// calls [FlutterNativeSplash.remove] on the first Flutter frame so the
-/// Phase 2.10 animation picks up seamlessly.
+/// native splash on screen while the engine starts up. [FlutterNativeSplash.remove]
+/// is called synchronously in [main] after [runApp] (not in [SplashScreen.initState])
+/// because the F4 auth-redirect design bypasses `/splash` on cold start —
+/// [SplashScreen.initState] would never fire, leaving [deferFirstFrame] unreleased.
+/// [SplashScreen.initState] retains a redundant [remove] call as an idempotent
+/// safety net for the cases where `/splash` is navigated to directly.
 Future<void> main() async {
   // Required before accessing any binding instance from main() — without it
   // SchedulerBinding.instance below hangs on Mali-G52 / this Flutter combo.
@@ -30,24 +35,35 @@ Future<void> main() async {
 
   // Phase 2.15 — preserve the native splash through Flutter engine startup.
   // The native splash (warm taupe #E6DDD0 bg + Beautica B mark) remains visible
-  // until SplashScreen.initState calls FlutterNativeSplash.remove(). This
+  // until FlutterNativeSplash.remove() is called below (after runApp). This
   // eliminates the blank white frame / "F" flutter logo that would otherwise
   // appear between the OS launch window and the first Flutter frame.
+  // Phase 2.15 fix: remove() is called synchronously after runApp() (not in
+  // SplashScreen.initState) because the F4 auth-redirect design bypasses /splash
+  // on cold start, so SplashScreen.initState never fires.
   FlutterNativeSplash.preserve(widgetsBinding: binding);
 
   GoogleFonts.config.allowRuntimeFetching = kDebugMode;
 
-  // 2026-05-20 — Portrait-only orientation lock for the whole app.
-  // The Android manifest and iOS Info.plist also lock orientation
-  // (defense-in-depth — defends against OS-level forced-rotation
-  // accessibility settings). This Dart call additionally pins the engine's
-  // preferred orientation list so any in-app orientation change request
-  // (e.g. from a third-party plugin) cannot accidentally rotate the UI.
-  await SystemChrome.setPreferredOrientations(const [
-    DeviceOrientation.portraitUp,
-  ]);
-
   runApp(const ProviderScope(child: BeauticaApp()));
+
+  // Phase 2.15 fix — release the native splash so the first Flutter frame
+  // can render. Must be called after runApp() and synchronously (not in a
+  // postFrameCallback) because deferFirstFrame() prevents any frame from
+  // scheduling until allowFirstFrame() is called.
+  // SplashScreen.initState also calls remove() as a safety net (idempotent).
+  FlutterNativeSplash.remove();
+
+  // P1-STARTUP-1 (perf MEDIUM, Phase 2.20 audit): moved from before runApp().
+  // The Android manifest and iOS Info.plist lock orientation at OS level
+  // (defence-in-depth). This Dart call additionally pins the preferred
+  // orientation for runtime requests (e.g. from third-party plugins).
+  // Fire-and-forget: the lock takes effect within one frame, not at launch,
+  // so awaiting here would add a blocking platform-channel round-trip
+  // (5–20 ms) to the cold-start critical path for no user-visible benefit.
+  unawaited(
+    SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]),
+  );
 }
 
 class BeauticaApp extends ConsumerWidget {
