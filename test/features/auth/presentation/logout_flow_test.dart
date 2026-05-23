@@ -435,8 +435,12 @@ void main() {
         await tester.pumpAndSettle();
 
         // Tap the "Sign in" link on Step 1.
-        await tester.ensureVisible(find.byKey(const Key('btn-go-to-login')));
-        await tester.tap(find.byKey(const Key('btn-go-to-login')));
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('step1_login_link')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey<String>('step1_login_link')),
+        );
         await tester.pumpAndSettle();
 
         // Draft is cleared.
@@ -511,9 +515,9 @@ void main() {
 
       // Tap the "Sign in" link on the role-selection screen.
       await tester.ensureVisible(
-        find.byKey(const Key('btn-go-to-login-from-intent')),
+        find.byKey(const ValueKey<String>('role_login_link')),
       );
-      await tester.tap(find.byKey(const Key('btn-go-to-login-from-intent')));
+      await tester.tap(find.byKey(const ValueKey<String>('role_login_link')));
       await tester.pumpAndSettle();
 
       // Draft is cleared.

@@ -28,25 +28,10 @@
         </trust-anchors>
     </domain-config>
 
-    <!-- Local development: allow cleartext HTTP to known local addresses.
-         In this project the Android emulator runs on the Windows 11 host while
-         the Spring Boot backend runs on the Ubuntu VM (VirtualBox).
-         From the emulator, 10.0.2.2 reaches the Windows host loopback — NOT
-         the Ubuntu VM. Use the Ubuntu VM's host-only adapter IP instead.
-         The typical VirtualBox host-only adapter IP for the Ubuntu VM is
-         192.168.56.101; verify with `ip addr show` on the VM side and update
-         this list if your setup uses a different address. -->
-    <domain-config cleartextTrafficPermitted="true">
-        <!-- Android AVD loopback to the Windows host (kept for reference) -->
-        <domain includeSubdomains="false">10.0.2.2</domain>
-        <!-- Ubuntu VM host-only adapter IP — adjust to match your VirtualBox
-             network settings if different (verify with `ip addr show` on the VM). -->
-        <domain includeSubdomains="false">192.168.56.101</domain>
-        <!-- localhost for unit/integration test runners -->
-        <domain includeSubdomains="false">localhost</domain>
-    </domain-config>
-
-    <!-- Debug builds: also trust user-installed CA certificates (e.g. Charles, mitmproxy) -->
+    <!-- Debug builds: also trust user-installed CA certificates (e.g. Charles, mitmproxy).
+         Cleartext dev addresses (10.0.2.2, 192.168.56.101, localhost) are NOT listed here —
+         they live in src/debug/res/xml/network_security_config.xml which overrides this file
+         for debug/debuggable builds only. -->
     <debug-overrides>
         <trust-anchors>
             <certificates src="system" />

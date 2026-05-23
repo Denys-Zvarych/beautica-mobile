@@ -45,8 +45,12 @@ List<PasswordRule> passwordRules({int minLength = 8}) => <PasswordRule>[
   const PasswordRule('Хоча б одна велика літера', _hasUppercase),
 ];
 
-bool _hasDigit(String v) => v.contains(RegExp(r'\d'));
-bool _hasUppercase(String v) => v.contains(RegExp(r'[A-ZА-ЯІЇЄ]'));
+// Module-level compiled patterns — constructed once, not on every keystroke.
+final RegExp _digitPattern = RegExp(r'\d');
+final RegExp _uppercasePattern = RegExp(r'[A-ZА-ЯІЇЄ]');
+
+bool _hasDigit(String v) => v.contains(_digitPattern);
+bool _hasUppercase(String v) => v.contains(_uppercasePattern);
 
 /// Live requirement checklist. Each rule shows a check (met) or cross (unmet)
 /// icon alongside its label, so the state is conveyed by icon + text, not by

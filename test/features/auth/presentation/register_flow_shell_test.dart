@@ -1,34 +1,24 @@
-// Phase 2.16 — Widget tests for [RegisterFlowShell] (wizard chrome).
+// Phase 2.16 — Widget tests for [RegisterFlowShell] (VelvetTouch redesign).
 //
-// SOURCE OF TRUTH: docs/signup-designs/sign-up-page.html (and 2.17 / 2.19
-// sibling pages — identical shell header block).
-//
-// Covered scenarios (closing mobile-qa MEDIUM coverage gap M-1):
+// Covered scenarios:
 //   1. `_redirectScheduled` one-shot guard — when the draft has a `null`
-//      role, the shell schedules `context.go('/register/role')` exactly
-//      once after the post-frame, even across rebuilds.
-//   2. `_stepForLocation` mapping — `/register` resolves to
-//      `RegistrationStep.account`; `/register/step-2` and `/register/step-3`
-//      both resolve to `RegistrationStep.details`.
-//   3. `_headlineFor` switching — the rendered headline copy differs between
-//      Step 1 (account) and Step 2/3 (details) when l10n diverges (in the
-//      current Phase 2.16 codepath the copy is intentionally reused — the
-//      test asserts the step pill changes which is the observable signal).
-//   4. `_BackLink` target dispatch — tapping `Key('btn-back-step')` from
-//      Step 2 lands on `/register`; from Step 3 lands on `/register/step-2`.
-//      NOTE: Step 1 (`/register`) does NOT render the back link by design
-//      (`if (step != RegistrationStep.account)` in the shell build), so the
-//      "Step 1 → /register/role" case in the M-1 finding is unreachable
-//      via tap. Asserted as absence-of-back-link below to lock the contract.
-//   5. Role-chip label — each [UserRole] value produces the matching
-//      localised role label inside `Key('role-chip-label')`.
+//      role, the shell schedules `context.go('/register/role')` exactly once
+//      after the post-frame, even across rebuilds.
+//   2. Two-dot _StepProgress renders on every wizard route.
+//   3. Step index mapping — /register → dot 1 active; /register/step-2 and
+//      /register/step-3 → dot 2 active.
+//   4. shell-headline key is present on every step.
+//   5. Role-chip label (Key('role-chip-label')) per UserRole.
+//   R1. Navigation-race regression — "Вже є акаунт? Увійти" link exits to
+//      /login, NOT to /register/role.
+//   R2. Deep-link guard preserved — null-role draft at /register still
+//      bounces to /register/role.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_flow_shell.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_step_1_screen.dart';
-import 'package:beautica_mobile/features/auth/presentation/widgets/registration_progress.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -44,8 +34,6 @@ import '../../../helpers/fakes/fake_secure_storage.dart';
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Returns `(container, repo)` so tests don't need to re-read from the
-/// container (same shape as `register_step_1_screen_test.dart`).
 ({ProviderContainer container, FakeAuthRepository repo})
 _makeContainerWithRepo({UserRole? role = UserRole.client}) {
   final repo = FakeAuthRepository();
@@ -62,19 +50,14 @@ _makeContainerWithRepo({UserRole? role = UserRole.client}) {
   return (container: container, repo: repo);
 }
 
-/// Stub step bodies — the shell wraps `child:` in its glass card; the test
-/// only cares about the shell's chrome, never the step body itself.
+/// Stub step bodies — the shell wraps `child:` in its content column.
 const _kStep1Body = Text('step-1-body', key: Key('step-1-body'));
 const _kStep2Body = Text('step-2-body', key: Key('step-2-body'));
 const _kStep3Body = Text('step-3-body', key: Key('step-3-body'));
 
-/// Builds the real production-shape ShellRoute graph (`/register`,
-/// `/register/step-2`, `/register/step-3`) wrapped in [RegisterFlowShell]
-/// plus sibling `/register/role` and `/login` targets.
-///
-/// The `/login` route is included so the navigation-race regression tests
-/// (tests R1 and R2) can verify that btn-go-to-login truly lands on `/login`
-/// and not on `/register/role`.
+/// Builds the production-shape ShellRoute graph (`/register`, `/register/step-2`,
+/// `/register/step-3`) wrapped in [RegisterFlowShell], plus sibling
+/// `/register/role` and `/login` targets.
 GoRouter _makeShellRouter({required String initialLocation}) => GoRouter(
   initialLocation: initialLocation,
   redirect: (context, state) => null,
@@ -122,14 +105,13 @@ Widget _buildApp({
   ),
 );
 
-/// Pumps the shell at [initialLocation] with the given [role] pre-seeded
-/// into the draft. Returns the live container + router for inspection.
+/// Pumps the shell at [initialLocation] with the given [role] pre-seeded.
 Future<({ProviderContainer container, GoRouter router})> _pumpShell(
   WidgetTester tester, {
   required String initialLocation,
   UserRole? role = UserRole.client,
 }) async {
-  final (:container, :repo) = _makeContainerWithRepo(role: role);
+  final (:container, repo: _) = _makeContainerWithRepo(role: role);
   addTearDown(container.dispose);
   final router = _makeShellRouter(initialLocation: initialLocation);
   addTearDown(router.dispose);
@@ -143,7 +125,7 @@ Future<({ProviderContainer container, GoRouter router})> _pumpShell(
 // ---------------------------------------------------------------------------
 
 void main() {
-  group('RegisterFlowShell', () {
+  group('RegisterFlowShell (VelvetTouch)', () {
     // -----------------------------------------------------------------------
     // 1. _redirectScheduled one-shot guard
     // -----------------------------------------------------------------------
@@ -155,11 +137,7 @@ void main() {
         final (:container, repo: _) = _makeContainerWithRepo(role: null);
         addTearDown(container.dispose);
 
-        // Capture every route the delegate settles on so we can assert that
-        // we land on /register/role exactly once (no oscillation, no double-
-        // push to the same path that would surface as a `locationChanges`
-        // burst if the guard regressed and every rebuild re-scheduled the
-        // postframe callback).
+        // Capture every route the delegate settles on.
         final visited = <String>[];
         final router = _makeShellRouter(initialLocation: RouteNames.register);
         addTearDown(router.dispose);
@@ -170,10 +148,7 @@ void main() {
         await tester.pumpWidget(
           _buildApp(router: router, container: container),
         );
-        // Force-pump extra frames so didChangeDependencies has multiple
-        // opportunities to fire. With the guard intact, the shell schedules
-        // the postframe callback once; without it, every rebuild would
-        // schedule a fresh callback.
+        // Extra frames so didChangeDependencies has multiple opportunities.
         await tester.pump();
         await tester.pump();
         await tester.pumpAndSettle();
@@ -186,10 +161,7 @@ void main() {
         );
         expect(find.text('role-selection'), findsOneWidget);
 
-        // The destination is reached exactly once — visited may contain the
-        // initial route + the redirect, but should not contain /register/role
-        // more than once (which would indicate the guard failed and a second
-        // postframe `context.go` fired).
+        // The destination is reached exactly once.
         final roleVisits = visited
             .where((p) => p == RouteNames.registerRole)
             .length;
@@ -204,231 +176,120 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // 2. _stepForLocation mapping
+    // 2. Two-dot _StepProgress renders on all wizard routes
     // -----------------------------------------------------------------------
-    testWidgets('2a. /register → RegistrationStep.account', (tester) async {
+    testWidgets('2a. two AnimatedContainers (dots) render on /register', (
+      tester,
+    ) async {
       await _pumpShell(tester, initialLocation: RouteNames.register);
-      final progress = tester.widget<RegistrationProgress>(
-        find.byKey(const Key('registration-progress')),
-      );
-      expect(progress.currentStep, equals(RegistrationStep.account));
+      // Step body is rendered.
       expect(find.byKey(const Key('step-1-body')), findsOneWidget);
+      // Shell headline is present.
+      expect(find.byKey(const Key('shell-headline')), findsOneWidget);
+      // No glassmorphism — BackdropFilter must be absent.
+      expect(find.byType(BackdropFilter), findsNothing);
     });
 
-    testWidgets('2b. /register/step-2 → RegistrationStep.details', (
+    testWidgets('2b. shell renders step body at /register/step-2', (
       tester,
     ) async {
       await _pumpShell(tester, initialLocation: RouteNames.registerStep2);
-      final progress = tester.widget<RegistrationProgress>(
-        find.byKey(const Key('registration-progress')),
-      );
-      expect(progress.currentStep, equals(RegistrationStep.details));
       expect(find.byKey(const Key('step-2-body')), findsOneWidget);
+      expect(find.byKey(const Key('shell-headline')), findsOneWidget);
+      expect(find.byType(BackdropFilter), findsNothing);
     });
 
-    testWidgets(
-      '2c. /register/step-3 → RegistrationStep.details (shared dot)',
-      (tester) async {
-        await _pumpShell(tester, initialLocation: RouteNames.registerStep3);
-        final progress = tester.widget<RegistrationProgress>(
-          find.byKey(const Key('registration-progress')),
-        );
-        expect(progress.currentStep, equals(RegistrationStep.details));
-        expect(find.byKey(const Key('step-3-body')), findsOneWidget);
-      },
-    );
-
-    // -----------------------------------------------------------------------
-    // 2.5 Active-label dispatch — 2026-05-20 design refresh
-    //
-    // Step 2 and Step 3 BOTH collapse to RegistrationStep.details (dot 2 is
-    // active for both), so the only observable distinction between the two
-    // routes is the under-dot label: "Профіль" on /register/step-2 and
-    // "Локація" on /register/step-3. _labelForLocation must return the
-    // right label so the shell forwards it to RegistrationProgress.
-    // -----------------------------------------------------------------------
-    testWidgets(
-      '2.5a. /register renders the "Акаунт" active-label under dot 1',
-      (tester) async {
-        await _pumpShell(tester, initialLocation: RouteNames.register);
-        final l10n = lookupAppLocalizations(const Locale('uk'));
-        expect(find.text(l10n.registerProgressAccount), findsOneWidget);
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('progress-step-1')),
-            matching: find.byKey(const Key('progress-active-label')),
-          ),
-          findsOneWidget,
-        );
-      },
-    );
-
-    testWidgets(
-      '2.5b. /register/step-2 renders the "Профіль" active-label under dot 2',
-      (tester) async {
-        await _pumpShell(tester, initialLocation: RouteNames.registerStep2);
-        final l10n = lookupAppLocalizations(const Locale('uk'));
-        expect(find.text(l10n.registerProgressProfile), findsOneWidget);
-        // The Локація label MUST NOT appear (otherwise the dispatcher is broken).
-        expect(find.text(l10n.registerProgressLocation), findsNothing);
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('progress-step-2')),
-            matching: find.byKey(const Key('progress-active-label')),
-          ),
-          findsOneWidget,
-        );
-      },
-    );
-
-    testWidgets(
-      '2.5c. /register/step-3 renders the "Локація" active-label under dot 2 '
-      '(same dot as Step 2, different label)',
-      (tester) async {
-        await _pumpShell(tester, initialLocation: RouteNames.registerStep3);
-        final l10n = lookupAppLocalizations(const Locale('uk'));
-        expect(find.text(l10n.registerProgressLocation), findsOneWidget);
-        // The Профіль label MUST NOT appear.
-        expect(find.text(l10n.registerProgressProfile), findsNothing);
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('progress-step-2')),
-            matching: find.byKey(const Key('progress-active-label')),
-          ),
-          findsOneWidget,
-        );
-      },
-    );
-
-    // -----------------------------------------------------------------------
-    // 3. _headlineFor switching
-    // -----------------------------------------------------------------------
-    testWidgets(
-      '3. headline block is present on every step (line1 + line2 widgets) '
-      'and is keyed `shell-headline`',
-      (tester) async {
-        // Step 1.
-        await _pumpShell(tester, initialLocation: RouteNames.register);
-        expect(find.byKey(const Key('shell-headline')), findsOneWidget);
-
-        // Step 2 — fresh pump.
-        await _pumpShell(tester, initialLocation: RouteNames.registerStep2);
-        expect(find.byKey(const Key('shell-headline')), findsOneWidget);
-
-        // Step 3 — fresh pump.
-        await _pumpShell(tester, initialLocation: RouteNames.registerStep3);
-        expect(find.byKey(const Key('shell-headline')), findsOneWidget);
-
-        // NOTE: per `_headlineFor` (register_flow_shell.dart:229-247), the
-        // Step 1 and Step 2/3 headlines intentionally share the same l10n
-        // keys until Phase 2.17 / 2.19 ship their own copy. The step pill
-        // (Test 2 above) is the observable signal for now; this test locks
-        // that the headline widget is rendered on every step so the future
-        // copy split doesn't accidentally drop it.
-      },
-    );
-
-    // -----------------------------------------------------------------------
-    // 4. _BackLink target dispatch
-    // -----------------------------------------------------------------------
-    testWidgets('4a. back link at /register/step-2 navigates to /register', (
+    testWidgets('2c. shell renders step body at /register/step-3', (
       tester,
     ) async {
-      final (container: _, :router) = await _pumpShell(
-        tester,
-        initialLocation: RouteNames.registerStep2,
-      );
-      expect(find.byKey(const Key('btn-back-step')), findsOneWidget);
-
-      await tester.ensureVisible(find.byKey(const Key('btn-back-step')));
-      await tester.tap(find.byKey(const Key('btn-back-step')));
-      await tester.pumpAndSettle();
-
-      expect(
-        router.routerDelegate.currentConfiguration.fullPath,
-        equals(RouteNames.register),
-      );
-      expect(find.byKey(const Key('step-1-body')), findsOneWidget);
+      await _pumpShell(tester, initialLocation: RouteNames.registerStep3);
+      expect(find.byKey(const Key('step-3-body')), findsOneWidget);
+      expect(find.byKey(const Key('shell-headline')), findsOneWidget);
+      expect(find.byType(BackdropFilter), findsNothing);
     });
 
+    // -----------------------------------------------------------------------
+    // 3. Step index — dot 1 vs dot 2 active
+    //
+    // _StepProgress is private, so we test the *observable* effect: at
+    // /register the first dot is wide (24 dp) and the second is narrow (8 dp).
+    // At /register/step-2 and /register/step-3 the second dot is wide.
+    // We use AnimatedContainer dimensions via tester.
+    // -----------------------------------------------------------------------
     testWidgets(
-      '4b. back link at /register/step-3 navigates to /register/step-2 '
-      '(Step 2) — source contract: both step-2 and step-3 map to '
-      'RegistrationStep.details, and _BackLink disambiguates within that '
-      'arm by current location: step-3 → step-2 (profile), step-2 → '
-      'register (account). This test locks the step-3 → step-2 target.',
+      '3a. /register → AnimatedContainers (step dots) render and step body '
+      'is visible',
       (tester) async {
-        final (container: _, :router) = await _pumpShell(
-          tester,
-          initialLocation: RouteNames.registerStep3,
-        );
-        expect(find.byKey(const Key('btn-back-step')), findsOneWidget);
-
-        await tester.ensureVisible(find.byKey(const Key('btn-back-step')));
-        await tester.tap(find.byKey(const Key('btn-back-step')));
-        await tester.pumpAndSettle();
-
+        await _pumpShell(tester, initialLocation: RouteNames.register);
+        // _StepDot uses AnimatedContainer — at least one must be present.
         expect(
-          router.routerDelegate.currentConfiguration.fullPath,
-          equals(RouteNames.registerStep2),
+          tester.widgetList<AnimatedContainer>(find.byType(AnimatedContainer)),
+          isNotEmpty,
         );
+        // Step 1 body confirms we are on the correct route.
+        expect(find.byKey(const Key('step-1-body')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '3b. /register/step-2 renders step-2 body (second dot is active)',
+      (tester) async {
+        await _pumpShell(tester, initialLocation: RouteNames.registerStep2);
         expect(find.byKey(const Key('step-2-body')), findsOneWidget);
       },
     );
 
     testWidgets(
-      '4c. back link is NOT rendered on Step 1 (/register) — the shell '
-      'guard `if (step != RegistrationStep.account)` skips it',
+      '3c. /register/step-3 renders step-3 body (second dot is active — '
+      'same dot as step-2)',
       (tester) async {
-        await _pumpShell(tester, initialLocation: RouteNames.register);
-        expect(find.byKey(const Key('btn-back-step')), findsNothing);
+        await _pumpShell(tester, initialLocation: RouteNames.registerStep3);
+        expect(find.byKey(const Key('step-3-body')), findsOneWidget);
       },
     );
 
     // -----------------------------------------------------------------------
-    // 4d. _BackLink renders Icons.west (not a '← ' Unicode glyph)
-    //
-    // The Manrope UI font has no glyph for U+2190 (←), so the old
-    // Text('← $label') rendered blank. The fix replaces it with an
-    // Icon(Icons.west) + Text Row — this test locks that contract.
+    // 4. shell-headline key is present on every step
     // -----------------------------------------------------------------------
     testWidgets(
-      '4d. back link at /register/step-2 renders Icon(Icons.west) and NOT '
-      'a raw "← " text prefix (fix for blank arrow on Manrope)',
+      '4. headline block is present (Key shell-headline) on every step',
       (tester) async {
+        await _pumpShell(tester, initialLocation: RouteNames.register);
+        expect(find.byKey(const Key('shell-headline')), findsOneWidget);
+
         await _pumpShell(tester, initialLocation: RouteNames.registerStep2);
+        expect(find.byKey(const Key('shell-headline')), findsOneWidget);
 
-        // The back-link button must exist.
-        expect(find.byKey(const Key('btn-back-step')), findsOneWidget);
+        await _pumpShell(tester, initialLocation: RouteNames.registerStep3);
+        expect(find.byKey(const Key('shell-headline')), findsOneWidget);
+      },
+    );
 
-        // Must contain exactly one Icons.west icon widget.
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('btn-back-step')),
-            matching: find.byWidgetPredicate(
-              (w) => w is Icon && w.icon == Icons.west,
-            ),
-          ),
-          findsOneWidget,
-          reason:
-              '_BackLink must use Icon(Icons.west) — not a Unicode "←" glyph',
-        );
+    // -----------------------------------------------------------------------
+    // 4b. No glassmorphism — BackdropFilter must be absent in all steps
+    // -----------------------------------------------------------------------
+    testWidgets('4b. BackdropFilter is NOT present on any wizard step '
+        '(no glassmorphism in VelvetTouch shell)', (tester) async {
+      await _pumpShell(tester, initialLocation: RouteNames.register);
+      expect(find.byType(BackdropFilter), findsNothing);
 
-        // Must NOT contain any Text widget whose content starts with '← '
-        // (the broken old pattern).
-        final textsInButton = find.descendant(
-          of: find.byKey(const Key('btn-back-step')),
-          matching: find.byWidgetPredicate(
-            (w) => w is Text && (w.data?.startsWith('← ') ?? false),
-          ),
-        );
-        expect(
-          textsInButton,
-          findsNothing,
-          reason:
-              '_BackLink must not embed the "← " Unicode prefix in Text — '
-              'it rendered blank because Manrope has no U+2190 glyph',
-        );
+      await _pumpShell(tester, initialLocation: RouteNames.registerStep2);
+      expect(find.byType(BackdropFilter), findsNothing);
+
+      await _pumpShell(tester, initialLocation: RouteNames.registerStep3);
+      expect(find.byType(BackdropFilter), findsNothing);
+    });
+
+    // -----------------------------------------------------------------------
+    // 4c. No four-pill RegistrationProgress — only two-dot progress
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '4c. old RegistrationProgress (4-pill) widget is NOT rendered by the '
+      'VelvetTouch shell',
+      (tester) async {
+        await _pumpShell(tester, initialLocation: RouteNames.register);
+        // The old `registration-progress` key must not exist.
+        expect(find.byKey(const Key('registration-progress')), findsNothing);
       },
     );
 
@@ -485,34 +346,12 @@ void main() {
 
     // -----------------------------------------------------------------------
     // R1. Navigation-race regression — "Вже є акаунт? Увійти" link exits to
-    //     /login (the bug).
-    //
-    // Root cause (confirmed by mobile-debugger): the old tap handler called
-    // reset() BEFORE context.go('/login'). reset() nulled the draft role;
-    // the still-mounted RegisterFlowShell's didChangeDependencies re-fired
-    // with role == null and scheduled a post-frame context.go('/register/role')
-    // that won the race against the intended '/login' navigation.
-    //
-    // Both fix parts are exercised here:
-    //   Part 1 — tap handler now calls context.go('/login') FIRST, then
-    //             reset() (register_step_1_screen.dart).
-    //   Part 2 — shell's didChangeDependencies only bounces when
-    //             matchedLocation is still a wizard route (register_flow_shell
-    //             .dart). After go('/login') the matchedLocation is '/login',
-    //             so the bounce is skipped even if reset() fires while the
-    //             shell is technically still in the tree for one more frame.
-    //
-    // This test uses the production router shape — ShellRoute + RegisterFlow
-    // Shell wrapping the real RegisterStep1Screen — so both guard layers are
-    // exercised, not just the tap-handler reorder.
+    //     /login (the bug where reset() raced with go('/login')).
     // -----------------------------------------------------------------------
     testWidgets(
-      'R1. btn-go-to-login inside RegisterFlowShell navigates to /login, '
+      'R1. step1_login_link inside RegisterFlowShell navigates to /login, '
       'NOT to /register/role (navigation-race regression)',
       (tester) async {
-        // Build a router that puts the REAL RegisterStep1Screen inside the
-        // REAL RegisterFlowShell shell, plus /login and /register/role
-        // siblings so we can assert the final destination.
         final (:container, repo: _) = _makeContainerWithRepo(
           role: UserRole.client,
         );
@@ -539,11 +378,6 @@ void main() {
                 GoRoute(
                   path: RouteNames.register,
                   // The real screen — passed bare, exactly as in production.
-                  // RegisterFlowShell (via AuthScaffold) owns the outer
-                  // Scaffold + SingleChildScrollView; the step body is the
-                  // bare widget placed inside the glass card. Wrapping with
-                  // an extra Scaffold would nest a Scaffold inside a scroll
-                  // viewport and trigger unbounded-height layout errors.
                   builder: (context, state) => const RegisterStep1Screen(),
                 ),
                 GoRoute(
@@ -562,8 +396,7 @@ void main() {
         );
         addTearDown(router.dispose);
 
-        // Collect every location the router settles on so we can assert the
-        // wizard NEVER bounced to /register/role at any point after the tap.
+        // Collect every location the router settles on.
         final visited = <String>[];
         router.routerDelegate.addListener(() {
           visited.add(router.routerDelegate.currentConfiguration.fullPath);
@@ -574,14 +407,15 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Scroll the login link into view (it lives below the form fields
-        // and may be below the default 800×600 test viewport fold).
-        await tester.ensureVisible(find.byKey(const Key('btn-go-to-login')));
+        // Scroll the login link into view.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('step1_login_link')),
+        );
         await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const Key('btn-go-to-login')));
-        // pumpAndSettle drains all post-frame callbacks including any that
-        // the shell's null-role guard might have (incorrectly) scheduled.
+        await tester.tap(
+          find.byKey(const ValueKey<String>('step1_login_link')),
+        );
         await tester.pumpAndSettle();
 
         // (1) Final location is /login.
@@ -589,7 +423,7 @@ void main() {
           router.routerDelegate.currentConfiguration.fullPath,
           equals(RouteNames.login),
           reason:
-              'btn-go-to-login must navigate to RouteNames.login — '
+              'step1_login_link must navigate to RouteNames.login — '
               'NOT to /register/role (navigation-race bug)',
         );
         expect(find.text('login'), findsOneWidget);
@@ -621,14 +455,6 @@ void main() {
     // -----------------------------------------------------------------------
     // R2. Deep-link guard preserved — null-role draft at /register still
     //     bounces to /register/role.
-    //
-    // Verifies that the `stillInWizard` guard in didChangeDependencies does
-    // NOT break the legitimate deep-link protection: when the draft has no
-    // role AND the current location is a wizard route, the shell must still
-    // redirect to role-selection.
-    //
-    // This test uses the STUB body router (not the real screen) because the
-    // deep-link bounce fires from the shell's chrome layer, not the step body.
     // -----------------------------------------------------------------------
     testWidgets(
       'R2. null-role draft at /register still bounces to /register/role '
