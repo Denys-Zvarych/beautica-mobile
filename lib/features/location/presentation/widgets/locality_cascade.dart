@@ -15,7 +15,7 @@
 // notified through the [onOblast] / [onCity] / [onDistrict] callbacks. It does
 // NOT touch register_draft — wiring into the wizard happens in Phase 2.19.
 
-import 'package:beautica_mobile/core/theme/app_spacing.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -122,7 +122,7 @@ class LocalityCascade extends ConsumerWidget {
           errorText: oblastError,
           onTap: () => _pickOblast(context, ref),
         ),
-        const SizedBox(height: AppSpacing.md),
+        const SizedBox(height: VelvetSpacing.md),
         LocalityTapRow(
           key: const Key('locality_row_city'),
           label: l10n.localityCityLabel,
@@ -135,7 +135,7 @@ class LocalityCascade extends ConsumerWidget {
             if (o != null) _pickCity(context, ref, o);
           },
         ),
-        const SizedBox(height: AppSpacing.md),
+        const SizedBox(height: VelvetSpacing.md),
         LocalityTapRow(
           key: const Key('locality_row_district'),
           label: l10n.localityDistrictLabel,

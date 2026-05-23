@@ -509,13 +509,15 @@ void main() {
     await _pick(tester, const Key('locality_row_city'), 'Дрогобич'); // leaf
 
     // District row is disabled (not tappable) for a leaf city.
-    final ink = tester.widget<InkWell>(
+    // Phase 2.18: LocalityTapRow uses IgnorePointer(ignoring: !enabled)
+    // instead of InkWell(onTap: null) — check the IgnorePointer state.
+    final ip = tester.widget<IgnorePointer>(
       find.descendant(
         of: find.byKey(const Key('locality_row_district')),
-        matching: find.byKey(const Key('locality_tap_row_ink')),
+        matching: find.byType(IgnorePointer),
       ),
     );
-    expect(ink.onTap, isNull);
+    expect(ip.ignoring, isTrue);
 
     // Defect 5 — the explanatory helper caption is shown so users understand
     // WHY the District field is disabled.

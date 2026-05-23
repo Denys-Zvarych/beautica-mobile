@@ -17,6 +17,7 @@
 // the selection state and rebuilds the cascade on each callback, mirroring how
 // Phase 2.19's Step 3 screen will consume it.
 
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
@@ -143,16 +144,17 @@ Widget _wrap(Widget child) => ProviderScope(
   ),
 );
 
-// Finds the InkWell inside a LocalityTapRow keyed [rowKey] and reports whether
-// it has an onTap (i.e. the row is enabled / tappable).
+// Reports whether the LocalityTapRow keyed [rowKey] is currently interactive.
+// The VelvetTouch redesign replaced the InkWell(key:…) pattern with
+// IgnorePointer(ignoring: !enabled) — check its `ignoring` property instead.
 bool _rowEnabled(WidgetTester tester, Key rowKey) {
-  final ink = tester.widget<InkWell>(
+  final ip = tester.widget<IgnorePointer>(
     find.descendant(
       of: find.byKey(rowKey),
-      matching: find.byKey(const Key('locality_tap_row_ink')),
+      matching: find.byType(IgnorePointer),
     ),
   );
-  return ink.onTap != null;
+  return !ip.ignoring;
 }
 
 // Resolves localized strings from the live tree so assertions never hard-code
@@ -324,5 +326,72 @@ void main() {
         findsOneWidget,
       );
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // VelvetTouch structural regression guard — NeumorphicInset presence
+  // ---------------------------------------------------------------------------
+  // Ensures that each LocalityTapRow contains exactly one NeumorphicInset.
+  // Without this, replacing NeumorphicInset with a plain Container would go
+  // undetected by the interaction tests above (they only probe enabled state
+  // and tap behaviour). This locks the VelvetTouch neumorphic treatment.
+  group('VelvetTouch NeumorphicInset presence (structural regression guard)', () {
+    testWidgets(
+      'each tap-row contains exactly one NeumorphicInset (enabled + disabled)',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrap(const _CascadeHarness(initialCity: _cityWithDistricts)),
+        );
+        await tester.pump();
+
+        // All three rows are rendered (oblast enabled, city enabled because
+        // initialCity seeds an oblast, district enabled because the seeded city
+        // hasDistricts == true). Each must host exactly one NeumorphicInset.
+        for (final rowKey in [
+          const Key('locality_row_oblast'),
+          const Key('locality_row_city'),
+          const Key('locality_row_district'),
+        ]) {
+          expect(
+            find.descendant(
+              of: find.byKey(rowKey),
+              matching: find.byType(NeumorphicInset),
+            ),
+            findsOneWidget,
+            reason: '$rowKey must contain exactly one NeumorphicInset',
+          );
+        }
+      },
+    );
+
+    testWidgets(
+      'disabled tap-row still contains its NeumorphicInset (opacity + IgnorePointer wrap)',
+      (tester) async {
+        // Initial state: no oblast selected → city + district rows are disabled.
+        await tester.pumpWidget(_wrap(const _CascadeHarness()));
+        await tester.pump();
+
+        // Disabled rows must still render their NeumorphicInset (the row is
+        // dimmed via Opacity + blocked via IgnorePointer, but structurally
+        // unchanged — no conditional removal of NeumorphicInset).
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('locality_row_city')),
+            matching: find.byType(NeumorphicInset),
+          ),
+          findsOneWidget,
+          reason: 'disabled city row must still contain its NeumorphicInset',
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('locality_row_district')),
+            matching: find.byType(NeumorphicInset),
+          ),
+          findsOneWidget,
+          reason:
+              'disabled district row must still contain its NeumorphicInset',
+        );
+      },
+    );
   });
 }

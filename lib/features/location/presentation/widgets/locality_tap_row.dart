@@ -1,27 +1,35 @@
-// Phase 2.18 — LocalityTapRow.
+// Phase 2.18 — LocalityTapRow (VelvetTouch redesign).
 //
-// The tap-row that replaces a native <select> in the locality cascade. Mirrors
-// `.picker-row` from docs/signup-designs/sign-up-step-3-address.html across its
-// three visual states:
-//   - empty    : placeholder text (white 18%), camel chevron, grey pin.
-//   - filled   : value text (cream 92%), camel border tint, camel pin.
-//   - disabled : 45% opacity, no chevron, IgnorePointer + helper line below.
+// The tap-row that replaces a native <select> in the locality cascade.
+// Transcribed from the `_PickerRow` class in:
+//   docs/signup-designs/VelvetTouchDesign/lib/screens/address_screen.dart
 //
-// Layout: a label sits ABOVE the row (matching the HTML `.picker-group label`),
-// the row itself carries the leading pin, the stacked value, and the trailing
-// chevron. All paddings come from [AppSpacing]; all repeated paint objects are
-// hoisted to `static const` so `build()` allocates nothing.
+// Visual states:
+//   - empty    : placeholder text (BrandColors.placeholder), muted pin.
+//   - filled   : value text (VelvetText.input()), accent pin.
+//   - disabled : 45% opacity via Opacity; IgnorePointer blocks touches; no chevron.
+//
+// Layout: a label (with optional right-aligned suffix) sits ABOVE the row,
+// the row itself is a NeumorphicInset containing a leading icon, the stacked
+// value/placeholder, and a trailing chevron (when enabled). All repeated paint
+// objects are hoisted to module-level `final` so `build()` allocates nothing.
 
-import 'package:beautica_mobile/core/theme/app_spacing.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:flutter/material.dart';
+
+// --- Module-level hoisted text styles (zero per-build allocation) -----------
+
+final _hintStyle = VelvetText.input().copyWith(color: BrandColors.placeholder);
 
 /// A single tap-to-open row in the locality cascade.
 ///
-/// Renders a [label] above an interactive row that shows either [value]
-/// (filled) or [placeholder] (empty). Tapping fires [onTap] unless [enabled]
-/// is false. When [helper] is non-null it is rendered below the row (used for
-/// the "city has no districts" disabled state).
+/// Renders a [label] above an interactive [NeumorphicInset] well that shows
+/// either [value] (filled) or [placeholder] (empty). Tapping fires [onTap]
+/// unless [enabled] is false. When [helper] is non-null it is rendered below
+/// the row (used for the "city has no districts" disabled state).
 class LocalityTapRow extends StatelessWidget {
   const LocalityTapRow({
     required this.label,
@@ -47,132 +55,67 @@ class LocalityTapRow extends StatelessWidget {
   /// Invoked when the row is tapped. Ignored entirely when [enabled] is false.
   final VoidCallback onTap;
 
-  /// Whether the row is interactive. When false the row is dimmed, wrapped in
-  /// an [IgnorePointer], and the chevron is hidden.
+  /// Whether the row is interactive. When false the row is dimmed (45% opacity),
+  /// wrapped in an [IgnorePointer], and the chevron is hidden.
   final bool enabled;
 
   /// Optional helper line rendered below the row (disabled-with-helper state).
   final String? helper;
 
-  /// Optional inline error rendered below the row in the rust error colour.
-  /// Used by Phase 2.19 to attach a per-level locality validation message to
-  /// the specific failing row (e.g. "Оберіть місто" under the City row) rather
-  /// than once below the whole cascade. Takes precedence over [helper].
+  /// Optional inline error rendered below the row in the error colour.
+  /// Takes precedence over [helper].
   final String? errorText;
 
   /// Optional inline widget rendered to the RIGHT of the [label] (same row as
   /// the label text). Used by Phase 2.19 to append the CLIENT "— необов'язково"
-  /// optional tag and the "?" tip-icon to the Область label. Null on every
-  /// other row / screen.
+  /// tag and the "?" tip-icon to the Область label. Null on every other row.
   final Widget? labelSuffix;
-
-  // --- Hoisted paint objects (no per-build allocation) ----------------------
-
-  static const _kRowHeight = 52.0;
-  static const _kIconBoxWidth = 40.0;
-  static const _kRowRadius = BorderRadius.all(Radius.circular(12));
-  static const _kRowFill = Color(0x12FFFFFF); // white ~7%
-  static const _kRowBorder = Color(0x1AFFFFFF); // white ~10%
-  static const _kFilledFill = Color(0x0AB89A7A); // camel ~4%
-  static const _kFilledBorder = Color(0x52B89A7A); // camel ~32%
-  static const _kPlaceholderColor = Color(0x2EFFFFFF); // white ~18%
-  static const _kValueColor = Color(0xEBF5EDE0); // cream ~92%
-  static const _kIconEmptyColor = Color(0x40FFFFFF); // white ~25%
-  static const _kChevronColor = Color(0x52B89A7A); // camel ~32%
-  static const _kHelperColor = Color(0x52FFFFFF); // white ~32%
-
-  static const _kLabelStyle = TextStyle(
-    fontSize: 13,
-    fontWeight: FontWeight.w500,
-    color: BrandColors.muted,
-    letterSpacing: 0.2,
-  );
-  static const _kPlaceholderStyle = TextStyle(
-    fontSize: 14,
-    fontWeight: FontWeight.w400,
-    color: _kPlaceholderColor,
-  );
-  static const _kValueStyle = TextStyle(
-    fontSize: 14,
-    fontWeight: FontWeight.w500,
-    color: _kValueColor,
-  );
-  static const _kHelperStyle = TextStyle(
-    fontSize: 11,
-    height: 1.45,
-    color: _kHelperColor,
-  );
-  static const _kErrorStyle = TextStyle(
-    fontSize: 11,
-    height: 1.4,
-    color: BrandColors.error,
-  );
-
-  // Hoisted row decorations — selected by [_isFilled] so `build()` allocates
-  // neither the BoxDecoration nor the Border.all on every rebuild.
-  static const _kFilledDecoration = BoxDecoration(
-    color: _kFilledFill,
-    borderRadius: _kRowRadius,
-    border: Border.fromBorderSide(BorderSide(color: _kFilledBorder)),
-  );
-  static const _kEmptyDecoration = BoxDecoration(
-    color: _kRowFill,
-    borderRadius: _kRowRadius,
-    border: Border.fromBorderSide(BorderSide(color: _kRowBorder)),
-  );
 
   bool get _isFilled => value != null && value!.isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
-    final row = Opacity(
-      opacity: enabled ? 1.0 : 0.45,
-      child: IgnorePointer(
-        ignoring: !enabled,
-        child: Material(
-          color: Colors.transparent,
-          borderRadius: _kRowRadius,
-          child: InkWell(
-            key: const Key('locality_tap_row_ink'),
+    final bool isEmpty = !_isFilled;
+    final String display = isEmpty ? placeholder : value!;
+
+    final row = IgnorePointer(
+      ignoring: !enabled,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.45,
+        child: Semantics(
+          button: enabled,
+          enabled: enabled,
+          label: label,
+          value: display,
+          child: GestureDetector(
             onTap: enabled ? onTap : null,
-            borderRadius: _kRowRadius,
-            child: DecoratedBox(
-              decoration: _isFilled ? _kFilledDecoration : _kEmptyDecoration,
+            child: NeumorphicInset(
               child: SizedBox(
-                height: _kRowHeight,
+                height: VelvetSizes.field,
                 child: Row(
                   children: [
-                    SizedBox(
-                      width: _kIconBoxWidth,
-                      child: Icon(
-                        Icons.place_outlined,
-                        size: 18,
-                        color: _isFilled
-                            ? BrandColors.accent
-                            : _kIconEmptyColor,
-                      ),
+                    const SizedBox(width: VelvetSpacing.md),
+                    Icon(
+                      Icons.place_outlined,
+                      size: 20,
+                      color: isEmpty ? BrandColors.muted : BrandColors.accent,
                     ),
+                    const SizedBox(width: VelvetSpacing.sm),
                     Expanded(
                       child: Text(
-                        _isFilled ? value! : placeholder,
+                        display,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: _isFilled ? _kValueStyle : _kPlaceholderStyle,
+                        style: isEmpty ? _hintStyle : VelvetText.input(),
                       ),
                     ),
                     if (enabled)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: AppSpacing.sm,
-                        ),
-                        child: Icon(
-                          Icons.chevron_right_rounded,
-                          size: 20,
-                          color: _kChevronColor,
-                        ),
-                      )
-                    else
-                      const SizedBox(width: AppSpacing.sm),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: BrandColors.muted,
+                        size: 20,
+                      ),
+                    const SizedBox(width: VelvetSpacing.sm),
                   ],
                 ),
               ),
@@ -186,16 +129,16 @@ class LocalityTapRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+          padding: const EdgeInsets.only(left: 6, bottom: VelvetSpacing.xs),
           child: labelSuffix == null
-              ? Text(label, style: _kLabelStyle)
+              ? Text(label, style: VelvetText.label())
               : Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Flexible(
                       child: Text(
                         label,
-                        style: _kLabelStyle,
+                        style: VelvetText.label(),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -203,38 +146,24 @@ class LocalityTapRow extends StatelessWidget {
                   ],
                 ),
         ),
-        Semantics(
-          button: enabled,
-          enabled: enabled,
-          label: label,
-          value: _isFilled ? value : placeholder,
-          child: row,
-        ),
-        // Error takes precedence over the helper line (error-placement: a
-        // single message below the related field). When an error is present the
-        // helper is suppressed to avoid stacking two captions.
+        row,
+        // Error takes precedence over the helper line.
         if (errorText != null)
           Padding(
-            padding: const EdgeInsets.only(
-              top: AppSpacing.xxs,
-              left: AppSpacing.xxs,
-            ),
+            padding: const EdgeInsets.only(top: VelvetSpacing.xs, left: 6),
             child: Semantics(
               liveRegion: true,
               child: Text(
                 errorText!,
-                key: const Key('locality_tap_row_error'),
-                style: _kErrorStyle,
+                key: const ValueKey<String>('locality_tap_row_error'),
+                style: VelvetText.feedback(BrandColors.error),
               ),
             ),
           )
         else if (helper != null)
           Padding(
-            padding: const EdgeInsets.only(
-              top: AppSpacing.xxs,
-              left: AppSpacing.xxs,
-            ),
-            child: Text(helper!, style: _kHelperStyle),
+            padding: const EdgeInsets.only(top: VelvetSpacing.xs, left: 6),
+            child: Text(helper!, style: VelvetText.feedback(BrandColors.muted)),
           ),
       ],
     );

@@ -15,6 +15,7 @@
 //     AsyncError → Retry → data path).
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
@@ -241,33 +242,49 @@ void main() {
     );
   });
 
-  group('Warm-Mocha gradient surface (issue-1 regression guard)', () {
-    testWidgets('sheet surface paints a LinearGradient, never a flat color', (
-      tester,
-    ) async {
-      final repo = _CountingLocationRepository();
-      await tester.pumpWidget(_wrap(const _CascadeHarness(), repo));
-      await tester.pump();
+  group('VelvetTouch warm-taupe surface (issue-1 regression guard)', () {
+    testWidgets(
+      'sheet surface uses BrandColors.base flat fill — no gradient, no glass',
+      (tester) async {
+        final repo = _CountingLocationRepository();
+        await tester.pumpWidget(_wrap(const _CascadeHarness(), repo));
+        await tester.pump();
 
-      // Open the oblast picker so the sheet (and its surface) is mounted.
-      await tester.tap(find.byKey(const Key('locality_row_oblast')));
-      await tester.pumpAndSettle();
+        // Open the oblast picker so the sheet (and its surface) is mounted.
+        await tester.tap(find.byKey(const Key('locality_row_oblast')));
+        await tester.pumpAndSettle();
 
-      // At least one DecoratedBox in the mounted sheet must carry a
-      // BoxDecoration whose `gradient` is a LinearGradient — locking the
-      // "reads as pure black" regression where it was a flat near-black fill.
-      final gradientBoxes = tester
-          .widgetList<DecoratedBox>(find.byType(DecoratedBox))
-          .where((box) {
-            final d = box.decoration;
-            return d is BoxDecoration && d.gradient is LinearGradient;
-          });
-      expect(
-        gradientBoxes,
-        isNotEmpty,
-        reason: 'picker surface must use a LinearGradient, not a flat color',
-      );
-    });
+        // The VelvetTouch redesign uses a flat BrandColors.base fill instead of
+        // the old dark gradient + glass overlay.  Lock the new treatment:
+        //   (a) at least one DecoratedBox in the sheet must carry BrandColors.base
+        //       as its solid fill colour.
+        //   (b) no DecoratedBox in the tree must carry a LinearGradient (that
+        //       would signal a regression back to the old glassmorphism surface).
+        final decoratedBoxes = tester.widgetList<DecoratedBox>(
+          find.byType(DecoratedBox),
+        );
+
+        final hasBaseFill = decoratedBoxes.any((box) {
+          final d = box.decoration;
+          return d is BoxDecoration && d.color == BrandColors.base;
+        });
+        expect(
+          hasBaseFill,
+          isTrue,
+          reason: 'picker surface must use BrandColors.base flat fill',
+        );
+
+        final hasGradient = decoratedBoxes.any((box) {
+          final d = box.decoration;
+          return d is BoxDecoration && d.gradient is LinearGradient;
+        });
+        expect(
+          hasGradient,
+          isFalse,
+          reason: 'picker surface must NOT use a LinearGradient (VelvetTouch)',
+        );
+      },
+    );
   });
 
   group('sheet shape + dismiss affordances (Defects 1 & 6)', () {
