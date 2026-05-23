@@ -1,27 +1,36 @@
-// Phase 2.19 — Widget tests for [RegisterStep3Screen].
+// Phase 2.19 — Widget tests for [RegisterStep3Screen] — VelvetTouch redesign.
 //
-// SOURCE OF TRUTH: docs/signup-designs/sign-up-step-3-address.html.
+// Design source of truth:
+//   docs/signup-designs/VelvetTouchDesign/lib/screens/address_screen.dart
 //
-// Covered scenarios:
+// Key changes from the glassmorphism version (Phase 2.19):
+//   - Route builder: RegisterStep3Screen now wraps its own AuthScaffold
+//     (Scaffold + scroll). The harness GoRoute passes it directly.
+//   - Key renames:
+//       Key('field-street')            → ValueKey<String>('address_street')
+//       Key('field-building')          → ValueKey<String>('address_building')
+//       Key('field-note')              → ValueKey<String>('address_note')
+//       Key('btn-skip-step3')          → ValueKey<String>('address_skip')
+//       Key('btn-save-step3')          → ValueKey<String>('address_submit')  (CLIENT)
+//       Key('btn-save-continue-step3') → ValueKey<String>('address_submit')  (MASTER/OWNER)
+//   - Skip affordance is now a GestureDetector (was InkWell).
+//   - Layout: SubStepIndicator is nested inside a NeumorphicCard (Test 1b probe
+//     path updated).
+//
+// Covered scenarios (unchanged):
 //   1. CLIENT renders 3 picker rows + split CTA, NO street/building/note.
+//   1b. CLIENT "Пропустити" link renders with maxLines == 1.
 //   2. MASTER renders 3 picker rows + street/building/note + single CTA.
 //   3. OWNER renders 3 picker rows + street/building/note + single CTA.
 //   4. CLIENT "Пропустити" → register → /verification (no provider save).
 //   5. MASTER full submit → register, stash locality in draft → /verification.
-//      The provider save is DEFERRED to VerificationScreen (Defect 8): no
-//      updateLocality call happens on Step 3 (no token yet → it would 401).
 //   6. OWNER full submit → register, stash salon locality → /verification.
-//   7. City-without-districts → District disabled; submit OK, draft districtId
-//      stays null.
+//   7. City-without-districts → District disabled; submit OK; draft districtId null.
 //   8. City-with-districts, district unpicked → submit blocked; "Оберіть район"
-//      renders under the DISTRICT row (Defect 7 per-row error placement).
-//   9. (Defect 2) CLIENT Save→(validation/register error)→Skip proves the
-//      _submitting flag resets so the CTAs are not stuck disabled.
-//
-// Strategy: override authRepositoryProvider (register), locationRepositoryProvider
-// (cascade). masterRepositoryProvider / salonRepositoryProvider are still
-// overridable but are NOT invoked on Step 3 anymore — the save moved to
-// verification. The draft is pre-seeded with Step 1/2 data.
+//      under the DISTRICT row.
+//   9. (Defect 2) CLIENT Save error → Skip proves _submitting resets.
+//   10. Register failure → snackbar, no profile-save, no navigate.
+//   11. Successful register clears draft password before /verification.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
@@ -106,13 +115,9 @@ GoRouter _makeRouter() => GoRouter(
   routes: [
     GoRoute(
       path: RouteNames.registerStep3,
-      // Scaffold so SnackBars + TextFormFields find their ancestors.
-      builder: (context, state) => const Scaffold(
-        body: SingleChildScrollView(
-          padding: EdgeInsets.all(16),
-          child: RegisterStep3Screen(),
-        ),
-      ),
+      // Phase 2.19: RegisterStep3Screen now provides its own AuthScaffold
+      // (Scaffold + scroll). No outer wrapper needed in the test harness.
+      builder: (context, state) => const RegisterStep3Screen(),
     ),
     GoRoute(
       path: RouteNames.verification,
@@ -215,40 +220,51 @@ void main() {
       expect(find.byKey(const Key('locality_row_city')), findsOneWidget);
       expect(find.byKey(const Key('locality_row_district')), findsOneWidget);
 
-      // Split CTA — both ghost + filled present.
-      expect(find.byKey(const Key('btn-skip-step3')), findsOneWidget);
-      expect(find.byKey(const Key('btn-save-step3')), findsOneWidget);
+      // Phase 2.19 keys: CLIENT split CTA.
+      expect(
+        find.byKey(const ValueKey<String>('address_skip')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('address_submit')),
+        findsOneWidget,
+      );
 
       // No address fields for CLIENT.
-      expect(find.byKey(const Key('field-street')), findsNothing);
-      expect(find.byKey(const Key('field-building')), findsNothing);
-      expect(find.byKey(const Key('field-note')), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('address_street')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('address_building')),
+        findsNothing,
+      );
+      expect(find.byKey(const ValueKey<String>('address_note')), findsNothing);
       expect(find.byKey(const Key('step3-address-divider')), findsNothing);
     },
   );
 
   // ── 1b. CLIENT skip-button label stays single-line (overflow guard) ───────
-  testWidgets(
-    '1b. CLIENT "Пропустити" ghost label renders with maxLines == 1',
-    (tester) async {
-      final container = _container(
-        role: UserRole.client,
-        authRepo: _MockAuthRepository(),
-      );
-      addTearDown(container.dispose);
-      await tester.pumpWidget(_app(_makeRouter(), container));
-      await tester.pumpAndSettle();
+  testWidgets('1b. CLIENT "Пропустити" link renders with maxLines == 1', (
+    tester,
+  ) async {
+    final container = _container(
+      role: UserRole.client,
+      authRepo: _MockAuthRepository(),
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(_app(_makeRouter(), container));
+    await tester.pumpAndSettle();
 
-      // The ghost CTA label must never wrap to two lines in the split row.
-      final skipText = tester.widget<Text>(
-        find.descendant(
-          of: find.byKey(const Key('btn-skip-step3')),
-          matching: find.byType(Text),
-        ),
-      );
-      expect(skipText.maxLines, 1);
-    },
-  );
+    // Phase 2.19: skip affordance is a GestureDetector wrapping a Text.
+    final skipText = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('address_skip')),
+        matching: find.byType(Text),
+      ),
+    );
+    expect(skipText.maxLines, 1);
+  });
 
   // ── 2. MASTER layout ──────────────────────────────────────────────────────
   testWidgets('2. MASTER renders 3 picker rows + address fields + single CTA', (
@@ -263,14 +279,23 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('locality_row_oblast')), findsOneWidget);
-    expect(find.byKey(const Key('field-street')), findsOneWidget);
-    expect(find.byKey(const Key('field-building')), findsOneWidget);
-    expect(find.byKey(const Key('field-note')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('address_street')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('address_building')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey<String>('address_note')), findsOneWidget);
     expect(find.byKey(const Key('step3-address-divider')), findsOneWidget);
 
     // Single CTA, no split.
-    expect(find.byKey(const Key('btn-save-continue-step3')), findsOneWidget);
-    expect(find.byKey(const Key('btn-skip-step3')), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('address_submit')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey<String>('address_skip')), findsNothing);
   });
 
   // ── 3. OWNER layout ───────────────────────────────────────────────────────
@@ -285,11 +310,20 @@ void main() {
     await tester.pumpWidget(_app(_makeRouter(), container));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('field-street')), findsOneWidget);
-    expect(find.byKey(const Key('field-building')), findsOneWidget);
-    expect(find.byKey(const Key('field-note')), findsOneWidget);
-    expect(find.byKey(const Key('btn-save-continue-step3')), findsOneWidget);
-    expect(find.byKey(const Key('btn-skip-step3')), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('address_street')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('address_building')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey<String>('address_note')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('address_submit')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey<String>('address_skip')), findsNothing);
   });
 
   // ── 4. CLIENT skip → register without profile-save → /verification ────────
@@ -317,7 +351,7 @@ void main() {
     await tester.pumpWidget(_app(_makeRouter(), container));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('btn-skip-step3')));
+    await tester.tap(find.byKey(const ValueKey<String>('address_skip')));
     await tester.pumpAndSettle();
 
     verify(
@@ -336,9 +370,8 @@ void main() {
   });
 
   // ── 5. MASTER full submit → register, stash locality, navigate ────────────
-  // Defect 8 — the provider save is DEFERRED to VerificationScreen, so Step 3
-  // must NOT call updateLocality (no session token yet). It must register,
-  // stash the locality/address in the draft, and navigate.
+  // Defect 8 — provider save is DEFERRED to VerificationScreen, so Step 3
+  // must NOT call updateLocality.
   testWidgets('5. MASTER submit → register, stash draft locality, navigates', (
     tester,
   ) async {
@@ -372,13 +405,16 @@ void main() {
     await _pick(tester, const Key('locality_row_city'), 'Львів');
     await _pick(tester, const Key('locality_row_district'), 'Галицький');
     await tester.enterText(
-      find.byKey(const Key('field-street')),
+      find.byKey(const ValueKey<String>('address_street')),
       'вул. Тестова',
     );
-    await tester.enterText(find.byKey(const Key('field-building')), '12А');
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('address_building')),
+      '12А',
+    );
     await tester.pumpAndSettle();
 
-    await _tap(tester, const Key('btn-save-continue-step3'));
+    await _tap(tester, const ValueKey<String>('address_submit'));
 
     verify(
       () => authRepo.registerIndependentMaster(
@@ -392,7 +428,7 @@ void main() {
         phone: any(named: 'phone'),
       ),
     ).called(1);
-    // The auth-required save MUST NOT run on Step 3 (Defect 8).
+    // Auth-required save MUST NOT run on Step 3 (Defect 8).
     verifyNever(
       () => masterRepo.updateLocality(
         cityId: any(named: 'cityId'),
@@ -402,8 +438,7 @@ void main() {
         locationNote: any(named: 'locationNote'),
       ),
     );
-    // The locality/address is stashed in the keepAlive draft for the
-    // post-verification save.
+    // Locality/address stashed in the keepAlive draft for post-verification save.
     final draft = container.read(registerDraftProvider)!;
     expect(draft.cityId, 'c1');
     expect(draft.districtId, 'd1');
@@ -412,8 +447,8 @@ void main() {
   });
 
   // ── 6. OWNER full submit → register, stash salon locality, navigate ───────
-  // Defect 8 — POST /salons is deferred to VerificationScreen; Step 3 must not
-  // call salon.create.
+  // POST /salons deferred to VerificationScreen; Step 3 must not call
+  // salon.create.
   testWidgets('6. OWNER submit → register, stash draft locality, navigates', (
     tester,
   ) async {
@@ -447,13 +482,16 @@ void main() {
     await _pick(tester, const Key('locality_row_city'), 'Львів');
     await _pick(tester, const Key('locality_row_district'), 'Галицький');
     await tester.enterText(
-      find.byKey(const Key('field-street')),
+      find.byKey(const ValueKey<String>('address_street')),
       'вул. Тестова',
     );
-    await tester.enterText(find.byKey(const Key('field-building')), '8');
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('address_building')),
+      '8',
+    );
     await tester.pumpAndSettle();
 
-    await _tap(tester, const Key('btn-save-continue-step3'));
+    await _tap(tester, const ValueKey<String>('address_submit'));
 
     verify(
       () => authRepo.registerIndependentMaster(
@@ -508,9 +546,7 @@ void main() {
     await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
     await _pick(tester, const Key('locality_row_city'), 'Дрогобич'); // leaf
 
-    // District row is disabled (not tappable) for a leaf city.
-    // Phase 2.18: LocalityTapRow uses IgnorePointer(ignoring: !enabled)
-    // instead of InkWell(onTap: null) — check the IgnorePointer state.
+    // District row is disabled for a leaf city.
     final ip = tester.widget<IgnorePointer>(
       find.descendant(
         of: find.byKey(const Key('locality_row_district')),
@@ -519,24 +555,24 @@ void main() {
     );
     expect(ip.ignoring, isTrue);
 
-    // Defect 5 — the explanatory helper caption is shown so users understand
-    // WHY the District field is disabled.
+    // Defect 5 — explanatory helper caption.
     final l10n = AppLocalizations.of(
       tester.element(find.byKey(const Key('locality-cascade'))),
     );
     expect(find.text(l10n.localityDistrictNoneHelper), findsOneWidget);
 
     await tester.enterText(
-      find.byKey(const Key('field-street')),
+      find.byKey(const ValueKey<String>('address_street')),
       'вул. Тестова',
     );
-    await tester.enterText(find.byKey(const Key('field-building')), '5');
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('address_building')),
+      '5',
+    );
     await tester.pumpAndSettle();
 
-    await _tap(tester, const Key('btn-save-continue-step3'));
+    await _tap(tester, const ValueKey<String>('address_submit'));
 
-    // Save is deferred to verification; the draft carries the leaf city with a
-    // null district.
     final draft = container.read(registerDraftProvider)!;
     expect(draft.cityId, 'c2');
     expect(draft.districtId, isNull);
@@ -572,19 +608,21 @@ void main() {
       'Львів',
     ); // has districts
     await tester.enterText(
-      find.byKey(const Key('field-street')),
+      find.byKey(const ValueKey<String>('address_street')),
       'вул. Тестова',
     );
-    await tester.enterText(find.byKey(const Key('field-building')), '12');
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('address_building')),
+      '12',
+    );
     await tester.pumpAndSettle();
 
-    await _tap(tester, const Key('btn-save-continue-step3'));
+    await _tap(tester, const ValueKey<String>('address_submit'));
 
     final l10n = AppLocalizations.of(
       tester.element(find.byKey(const Key('locality-cascade'))),
     );
-    // Defect 7 — the "Оберіть район" error must render under the DISTRICT row
-    // specifically (per-row placement), not once below the whole cascade.
+    // Defect 7 — the "Оберіть район" error must render under the DISTRICT row.
     final districtError = find.descendant(
       of: find.byKey(const Key('locality_row_district')),
       matching: find.byKey(const Key('locality_tap_row_error')),
@@ -594,7 +632,7 @@ void main() {
       tester.widget<Text>(districtError).data,
       l10n.errLocalityDistrictRequired,
     );
-    // The error is NOT attached to the oblast/city rows.
+    // Error is NOT attached to the oblast/city rows.
     expect(
       find.descendant(
         of: find.byKey(const Key('locality_row_oblast')),
@@ -609,7 +647,6 @@ void main() {
       ),
       findsNothing,
     );
-    // Register must NOT have been called.
     verifyNever(
       () => authRepo.registerIndependentMaster(
         email: any(named: 'email'),
@@ -626,10 +663,8 @@ void main() {
   });
 
   // ── 9. (Defect 2) CLIENT Save→register error→Skip — _submitting resets ────
-  // If register throws between setState(submitting=true) and the success path,
-  // the finally block must reset _submitting so BOTH CTAs re-enable. We prove
-  // it by failing the first Save (register returns null → snackbar), then
-  // succeeding on Skip (which would be inert if _submitting were stuck true).
+  // Proves the finally block re-enables both CTAs even on a register failure.
+  // GestureDetector.onTap is checked (was InkWell.onTap in the old version).
   testWidgets('9. CLIENT Save error then Skip — CTAs not stuck disabled', (
     tester,
   ) async {
@@ -648,7 +683,7 @@ void main() {
       ),
     ).thenAnswer((_) async {
       call++;
-      // First Save fails (account NOT created); second (Skip) succeeds.
+      // First Save fails; second (Skip) succeeds.
       if (call == 1) throw const NetworkFailure();
       return const RegisterResult.verificationRequired(email: 'a@b.com');
     });
@@ -659,19 +694,28 @@ void main() {
     await tester.pumpAndSettle();
 
     // First tap Save → register fails → error snackbar, still on Step 3.
-    await _tap(tester, const Key('btn-save-step3'));
+    await _tap(tester, const ValueKey<String>('address_submit'));
     expect(find.byKey(const Key('step3-snackbar')), findsOneWidget);
     expect(find.textContaining('verification:'), findsNothing);
 
-    // The Skip ghost button must be re-enabled (onTap non-null) — proves
+    // Phase 2.19: skip is a GestureDetector; onTap must be non-null to prove
     // _submitting reset in the finally block.
-    final skipInk = tester.widget<InkWell>(
-      find.byKey(const Key('btn-skip-step3')),
+    final skipGestureDetector = tester.widget<GestureDetector>(
+      find.byKey(const ValueKey<String>('address_skip')),
     );
-    expect(skipInk.onTap, isNotNull);
+    expect(skipGestureDetector.onTap, isNotNull);
+
+    // Dismiss the error snackbar so its overlay no longer obscures the pinned
+    // bottomBar skip button (the snackbar renders above the scaffold content in
+    // the test viewport at the same Y coordinate as bottomBar).
+    final scaffoldMessenger = tester.state<ScaffoldMessengerState>(
+      find.byType(ScaffoldMessenger),
+    );
+    scaffoldMessenger.clearSnackBars();
+    await tester.pumpAndSettle();
 
     // Tapping Skip now succeeds and navigates.
-    await _tap(tester, const Key('btn-skip-step3'));
+    await _tap(tester, const ValueKey<String>('address_skip'));
     expect(find.text('verification:a@b.com'), findsOneWidget);
   });
 
@@ -681,8 +725,6 @@ void main() {
     (tester) async {
       final authRepo = _MockAuthRepository();
       final masterRepo = _MockMasterRepository();
-      // register() returns null when registerIndependentMaster throws — the
-      // AsyncNotifier captures the Failure as AsyncError.
       when(
         () => authRepo.registerIndependentMaster(
           email: any(named: 'email'),
@@ -709,17 +751,18 @@ void main() {
       await _pick(tester, const Key('locality_row_city'), 'Львів');
       await _pick(tester, const Key('locality_row_district'), 'Галицький');
       await tester.enterText(
-        find.byKey(const Key('field-street')),
+        find.byKey(const ValueKey<String>('address_street')),
         'вул. Тестова',
       );
-      await tester.enterText(find.byKey(const Key('field-building')), '12');
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('address_building')),
+        '12',
+      );
       await tester.pumpAndSettle();
 
-      await _tap(tester, const Key('btn-save-continue-step3'));
+      await _tap(tester, const ValueKey<String>('address_submit'));
 
-      // Error snackbar surfaced.
       expect(find.byKey(const Key('step3-snackbar')), findsOneWidget);
-      // Profile-save MUST NOT have run (account was not created).
       verifyNever(
         () => masterRepo.updateLocality(
           cityId: any(named: 'cityId'),
@@ -729,7 +772,6 @@ void main() {
           locationNote: any(named: 'locationNote'),
         ),
       );
-      // Did NOT navigate to /verification.
       expect(find.textContaining('verification:'), findsNothing);
     },
   );
@@ -772,7 +814,7 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      // Sanity: the seeded draft holds the plaintext password before submit.
+      // Sanity: seeded draft holds the plaintext password before submit.
       expect(
         container.read(registerDraftProvider)!.password,
         equals('Password1!'),
@@ -785,18 +827,18 @@ void main() {
       await _pick(tester, const Key('locality_row_city'), 'Львів');
       await _pick(tester, const Key('locality_row_district'), 'Галицький');
       await tester.enterText(
-        find.byKey(const Key('field-street')),
+        find.byKey(const ValueKey<String>('address_street')),
         'вул. Тестова',
       );
-      await tester.enterText(find.byKey(const Key('field-building')), '12');
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('address_building')),
+        '12',
+      );
       await tester.pumpAndSettle();
 
-      await _tap(tester, const Key('btn-save-continue-step3'));
+      await _tap(tester, const ValueKey<String>('address_submit'));
 
-      // Reached the verification step…
       expect(find.text('verification:a@b.com'), findsOneWidget);
-      // …and the credential fields were wiped from the keepAlive draft, while
-      // the rest of the draft (email) survives for the OTP step.
       final draft = container.read(registerDraftProvider);
       expect(draft, isNotNull);
       expect(draft!.password, isEmpty);

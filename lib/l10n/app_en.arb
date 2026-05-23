@@ -792,6 +792,10 @@
   "@step3FieldNotePlaceholder": {
     "description": "In-field placeholder for the location-note textarea on the Step 3 Address screen."
   },
+  "step3FieldNoteHelper": "Optional. Floor, intercom code, landmarks.",
+  "@step3FieldNoteHelper": {
+    "description": "Helper text below the location-note field on the Step 3 Address screen, INDEPENDENT_MASTER and SALON_OWNER only (VelvetTouch redesign)."
+  },
   "step3CtaSkip": "Skip",
   "@step3CtaSkip": {
     "description": "Ghost CTA button on the Step 3 Address screen, CLIENT variant only. Skips saving locality and proceeds to verification."

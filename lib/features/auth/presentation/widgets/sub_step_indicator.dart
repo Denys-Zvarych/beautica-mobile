@@ -29,9 +29,11 @@ const _kActiveDot = BoxDecoration(
   borderRadius: BorderRadius.all(Radius.circular(2)),
 );
 
-/// .substep-dot { background: rgba(255,255,255,0.1) }.
+/// VelvetTouch light background — warm taupe muted hairline.
+/// Replaces the dark-mode rgba(255,255,255,0.1) literal that was invisible on
+/// the light [BrandColors.base] (#E6DDD0) background (VelvetTouch redesign).
 const _kInactiveDot = BoxDecoration(
-  color: Color(0x1AFFFFFF), // rgba(255,255,255,0.1)
+  color: BrandColors.faint,
   borderRadius: BorderRadius.all(Radius.circular(2)),
 );
 

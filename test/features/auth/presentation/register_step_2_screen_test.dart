@@ -536,9 +536,7 @@ void main() {
         // Format error (errPhoneInvalid) must be visible, not the empty-field
         // required message.
         final l10n = AppLocalizations.of(
-          tester.element(
-            find.byKey(const ValueKey<String>('step2_phone')),
-          ),
+          tester.element(find.byKey(const ValueKey<String>('step2_phone'))),
         );
         expect(find.text(l10n.errPhoneInvalid), findsOneWidget);
         expect(find.text(l10n.registerPhoneRequired), findsNothing);
@@ -592,8 +590,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final phoneFinder =
-            find.byKey(const ValueKey<String>('step2_phone'));
+        final phoneFinder = find.byKey(const ValueKey<String>('step2_phone'));
 
         // 1. Trigger a format error: submit with "+" (non-empty, fails format).
         await tester.enterText(phoneFinder, '+');

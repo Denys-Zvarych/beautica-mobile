@@ -1,17 +1,7 @@
-// Phase 2.19 — Registration wizard Step 3 (Address / Locality).
+// Phase 2.19 — Registration wizard Step 3 (Address / Locality) — VelvetTouch redesign.
 //
-// SOURCE OF TRUTH: docs/signup-designs/sign-up-step-3-address.html.
-// Every element is transcribed literally — three role variants are folded into
-// one screen, branched on the draft's role:
-//
-//   CLIENT             → 3 locality rows (each label carries a muted
-//                        "— необов'язково" tag; Область has a "?" tip-icon),
-//                        NO street/building/note, split CTA [Пропустити | Зберегти].
-//   INDEPENDENT_MASTER → 3 locality rows (Область has a "?" tip-icon), divider,
-//                        Вулиця + Будинок (two-column) + Примітка textarea,
-//                        single CTA "Зберегти і продовжити".
-//   SALON_OWNER        → identical to MASTER (headline reframes to "Адреса
-//                        салону" in the shell).
+// Design source of truth:
+//   docs/signup-designs/VelvetTouchDesign/lib/screens/address_screen.dart
 //
 // This screen renders ONLY the card body — the outer chrome (brand row, role
 // chip, per-role hero headline, 4-dot progress, back link, glass card wrapper)
@@ -19,26 +9,33 @@
 // the card body (the HTML places it directly under the headline; the shell does
 // not render sub-text, so the screen owns it for Step 3).
 //
-// Submit flow (phase doc Step 3):
-//   1. Validate per role.
-//   2. Write the Step 3 slice (locality + address) into registerDraftProvider.
+// Role variants:
+//   CLIENT             → 3 locality rows (optional, tip-icon on Oblast),
+//                        NO street/building/note,
+//                        bottomBar: NeumorphicButton ("Зберегти") + GestureDetector skip link.
+//   INDEPENDENT_MASTER → 3 locality rows (required, tip-icon on Oblast), divider,
+//                        Вулиця + Будинок (two-column) + Примітка,
+//                        bottomBar: NeumorphicButton ("Зберегти і продовжити").
+//   SALON_OWNER        → identical to MASTER (headline reframes to "Адреса салону"
+//                        in the shell).
+//
+// Submit flow (unchanged from glassmorphism version):
+//   1. Validate per role (manual errorText, no Form).
+//   2. Write the Step 3 slice into registerDraftProvider.
 //   3. register(draft) → POST /auth/register/<role>.
-//   4. Navigate to /verification (carrying the email via `extra`).
+//   4. Navigate to /verification carrying the email via `extra`.
 //
-// The role-aware profile/salon save deliberately does NOT run on this screen.
-// register() returns VerificationRequired with NO access token, so the
-// auth-required PATCH /independent-masters/me and POST /salons calls would 401
-// and the address would be silently lost (Defect 8). The locality + address
-// slice is stashed in the keepAlive draft and persisted by VerificationScreen
-// AFTER OTP verification issues a session:
-//   CLIENT             → locality rides along in the register body; nothing
-//                        extra to save (and "Пропустити" nulls it out).
-//   INDEPENDENT_MASTER → masterRepository.updateLocality(...) post-verification.
-//   SALON_OWNER        → salonRepository.create(SalonCreateDto(...)) post-verif.
+// Profile/salon save deliberately does NOT run here (Defect 8 fix): register()
+// returns VerificationRequired with no access token. Address is stashed in the
+// keepAlive draft and saved by VerificationScreen after OTP issues a session.
 //
-// Design tokens (ARCHITECTURE-mobile.md § 9 — locked): input radius 12, input
-// fill white 7%, CTA height 52, CTA radius 14, CTA gradient #4A2E10→#6A4A28→
-// #8A6840.
+// VelvetTouch constraints (no glassmorphism, no BackdropFilter):
+//   - Background: BrandColors.base (#E6DDD0) via AuthScaffold.
+//   - Fields:     NeumorphicTextField.
+//   - CTA:        NeumorphicButton pinned to AuthScaffold.bottomBar.
+//   - Skip link:  GestureDetector + VelvetText.link() (CLIENT only).
+//   - Colors:     BrandColors.* only — no raw Color(0xFF…) dark literals.
+//   - Spacing:    VelvetSpacing.* only — no raw dp literals.
 
 import 'dart:developer';
 
@@ -49,15 +46,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/failures.dart';
-import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/brand_colors.dart';
+import '../../../core/theme/velvet_geometry.dart';
+import '../../../core/theme/velvet_text.dart';
+import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/validators/building_validator.dart';
 import '../../../shared/validators/locality_validator.dart';
 import '../../../shared/validators/location_note_validator.dart';
 import '../../../shared/validators/street_validator.dart';
-import '../../../shared/widgets/auth_field_label.dart';
 import '../../location/domain/city.dart';
 import '../../location/domain/city_district.dart';
 import '../../location/domain/oblast.dart';
@@ -66,124 +64,30 @@ import '../domain/register_result.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_notifier.dart';
+import 'widgets/auth_scaffold.dart';
 import 'widgets/sub_step_indicator.dart';
-import 'widgets/two_column_row.dart';
 
 // ---------------------------------------------------------------------------
-// Pre-allocated static constants — never constructed inside build() (perf P2).
+// Pre-allocated constants — tip icon (VelvetTouch light palette)
 // ---------------------------------------------------------------------------
 
-/// HTML: input { border-radius: 12px }.
-const _kInputRadius = BorderRadius.all(Radius.circular(12));
+/// Tip-icon ring colour — camel accent at 40% opacity on light taupe.
+/// `BrandColors.accent` is 0xFFB89A7A; 40% opacity → 0x66B89A7A.
+const _kTipBorder = Color(0x66B89A7A);
 
-/// HTML: .cta-btn / .cta-ghost { border-radius: 14px }.
-const _kCtaRadius = BorderRadius.all(Radius.circular(14));
-
-const _kInputBorderDefault = OutlineInputBorder(
-  borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: Color(0x1AFFFFFF), width: 1),
-);
-
-const _kInputBorderFocused = OutlineInputBorder(
-  borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: Color(0x5CB89A7A), width: 1.5),
-);
-
-const _kInputBorderError = OutlineInputBorder(
-  borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: BrandColors.error, width: 1),
-);
-
-const _kInputBorderFocusedError = OutlineInputBorder(
-  borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: BrandColors.error, width: 1.5),
-);
-
-/// HTML: input { background: rgba(255,255,255,0.07) }.
-const _kInputFill = Color(0x12FFFFFF);
-
-/// HTML: .input-icon { color: rgba(255,255,255,0.25) }.
-const _kFieldIconColor = Color(0x40FFFFFF);
-
-const _kFieldTextStyle = TextStyle(color: BrandColors.white, fontSize: 14);
-
-const _kFieldHintStyle = TextStyle(
-  color: Color(0x2EFFFFFF), // rgba(255,255,255,0.18)
-  fontSize: 14,
-);
-
-const _kErrorStyle = TextStyle(
-  color: BrandColors.error,
-  fontSize: 11,
-  height: 1.4,
-);
-
-/// HTML: .sub-text { color: rgba(255,255,255,0.32); font-size: 12px }.
-const _kSubTextStyle = TextStyle(
-  color: Color(0x52FFFFFF),
-  fontSize: 12,
-  height: 1.5,
-);
-
-/// HTML: .field-divider { background: rgba(255,255,255,0.08) }.
-const _kDividerColor = Color(0x14FFFFFF);
-
-/// CTA gradient: linear-gradient(135deg, #4a2e10 0%, #6a4a28 60%, #8a6840 100%).
-const _kCtaGradient = LinearGradient(
-  begin: Alignment.topLeft,
-  end: Alignment.bottomRight,
-  colors: [Color(0xFF4A2E10), Color(0xFF6A4A28), Color(0xFF8A6840)],
-  stops: [0.0, 0.6, 1.0],
-);
-
-const _kCtaDecoration = BoxDecoration(
-  gradient: _kCtaGradient,
-  borderRadius: _kCtaRadius,
-  boxShadow: [
-    // HTML: box-shadow: 0 4px 24px var(--cta-shadow) rgba(58,36,12,0.68).
-    BoxShadow(color: Color(0xAD3A240C), blurRadius: 24, offset: Offset(0, 4)),
-  ],
-);
-
-const _kCtaTextStyle = TextStyle(
-  color: Colors.white,
-  fontSize: 15,
-  fontWeight: FontWeight.w600,
-  letterSpacing: 0.3,
-);
-
-/// HTML: .cta-ghost { background: rgba(184,154,122,0.06); border: 1px solid
-/// rgba(184,154,122,0.42); color: var(--accent) }.
-const _kGhostDecoration = BoxDecoration(
-  color: Color(0x0FB89A7A), // rgba(184,154,122,0.06)
-  borderRadius: _kCtaRadius,
-  border: Border.fromBorderSide(
-    BorderSide(color: Color(0x6BB89A7A), width: 1), // 0.42 alpha
-  ),
-);
-
-const _kGhostTextStyle = TextStyle(
-  color: BrandColors.accent,
-  fontSize: 14,
-  fontWeight: FontWeight.w600,
-  letterSpacing: 0.3,
-);
-
-/// HTML label .label-optional { color: rgba(184,154,122,0.55); font-size: 9px }.
-const _kOptionalTagStyle = TextStyle(
-  color: Color(0x8CB89A7A), // rgba(184,154,122,0.55)
-  fontSize: 11,
-  fontWeight: FontWeight.w600,
-  letterSpacing: 0.3,
-);
-
-/// HTML .tip-icon { border: 1px solid rgba(184,154,122,0.4); color: accent }.
-const _kTipBorder = Color(0x66B89A7A); // rgba(184,154,122,0.4)
 const _kTipTextStyle = TextStyle(
   color: BrandColors.accent,
   fontSize: 10,
   fontWeight: FontWeight.w700,
   height: 1,
+);
+
+/// Optional-tag style for the oblast label (CLIENT only) — muted camel.
+const _kOptionalTagStyle = TextStyle(
+  color: Color(0x8CB89A7A), // rgba(184,154,122,0.55) — same as old dark version
+  fontSize: 11,
+  fontWeight: FontWeight.w600,
+  letterSpacing: 0.3,
 );
 
 // ---------------------------------------------------------------------------
@@ -192,7 +96,9 @@ const _kTipTextStyle = TextStyle(
 
 /// Step 3 of the multi-step registration wizard — Address / Locality.
 ///
-/// Renders the card body only; [RegisterFlowShell] owns the outer chrome.
+/// Provides its own [AuthScaffold] (Scaffold + scroll + back button + bottom
+/// CTA bar). [RegisterFlowShell] owns the outer header, role chip, hero
+/// headline, and 4-dot progress — this screen must NOT duplicate those.
 class RegisterStep3Screen extends ConsumerStatefulWidget {
   const RegisterStep3Screen({super.key});
 
@@ -202,32 +108,32 @@ class RegisterStep3Screen extends ConsumerStatefulWidget {
 }
 
 class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
-  final _formKey = GlobalKey<FormState>();
+  final TextEditingController _streetController = TextEditingController();
+  final TextEditingController _buildingController = TextEditingController();
+  final TextEditingController _noteController = TextEditingController();
 
-  final _streetController = TextEditingController();
-  final _buildingController = TextEditingController();
-  final _noteController = TextEditingController();
+  final FocusNode _streetFocusNode = FocusNode();
+  final FocusNode _buildingFocusNode = FocusNode();
+  final FocusNode _noteFocusNode = FocusNode();
 
-  final _streetFocusNode = FocusNode();
-  final _buildingFocusNode = FocusNode();
-  final _noteFocusNode = FocusNode();
-
-  // Local selection mirror — holds the full domain objects (not just ids) so
-  // the cascade can render names and so we can read City.hasDistricts for
-  // per-role validation. Mirrored into the draft on submit.
+  // Local selection mirror — holds full domain objects so the cascade can
+  // render names and so we can read City.hasDistricts for per-role validation.
+  // Mirrored into the draft on submit.
   Oblast? _oblast;
   City? _city;
   CityDistrict? _district;
 
-  /// True while register + profile-save is in flight. Disables both CTAs and
-  /// shows a spinner (UX: loading-buttons, submit-feedback).
+  /// True while register + navigate is in flight. Passed as null to
+  /// NeumorphicButton.onPressed and to GestureDetector.onTap to disable them.
   bool _submitting = false;
 
-  /// Set when the provider tapped submit with an unsatisfied locality — drives
-  /// the inline locality error message under the FAILING row (the cascade has
-  /// no FormField hook). Carries the level so the message attaches to the
-  /// matching row (Defect 7), not once below the whole cascade.
+  /// Set when provider submits with an unsatisfied locality — routes to the
+  /// failing cascade row only (Defect 7 per-row error placement).
   LocalityValidationError? _localityError;
+
+  /// Inline errors for the address fields (manual, not Form-based).
+  String? _streetError;
+  String? _buildingError;
 
   @override
   void dispose() {
@@ -244,7 +150,6 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
 
   void _onOblast(Oblast? o) => setState(() {
     _oblast = o;
-    // Changing oblast invalidates downstream selections.
     _city = null;
     _district = null;
     _localityError = null;
@@ -261,53 +166,52 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
     _localityError = null;
   });
 
-  // ── Submit ──────────────────────────────────────────────────────────────
+  // ── Submit helpers ─────────────────────────────────────────────────────────
 
-  /// Whether the currently selected city subdivides into districts. False when
-  /// no city is chosen or the city is a leaf.
+  /// Whether the currently selected city subdivides into districts.
   bool get _cityHasDistricts => _city?.hasDistricts ?? false;
 
   /// CLIENT "Зберегти" / provider "Зберегти і продовжити".
   Future<void> _submit(AppLocalizations l10n, UserRole role) async {
     if (_submitting) return;
 
-    final isProvider = role != UserRole.client;
+    final bool isProvider = role != UserRole.client;
 
-    // Provider locality + address validation.
     if (isProvider) {
-      final localityErr = validateProviderLocality(
+      final LocalityValidationError? localityErr = validateProviderLocality(
         oblastCode: _oblast?.id,
         cityId: _city?.id,
         districtId: _district?.id,
         cityHasDistricts: _cityHasDistricts,
         l10n: l10n,
       );
-      final fieldsValid = _formKey.currentState?.validate() ?? false;
-      if (localityErr != null || !fieldsValid) {
-        setState(() => _localityError = localityErr);
-        // Focus the first invalid text field (UX: focus-management) once
-        // locality is satisfied.
+      final String? streetErr = validateStreet(_streetController.text, l10n);
+      final String? buildingErr = validateBuilding(
+        _buildingController.text,
+        l10n,
+      );
+
+      if (localityErr != null || streetErr != null || buildingErr != null) {
+        setState(() {
+          _localityError = localityErr;
+          _streetError = streetErr;
+          _buildingError = buildingErr;
+        });
+        // Focus the first invalid address field once locality is satisfied.
         if (localityErr == null) {
-          // (locality satisfied — fall through to address-field focusing below)
-          if (validateStreet(_streetController.text, l10n) != null) {
+          if (streetErr != null) {
             _streetFocusNode.requestFocus();
-          } else if (validateBuilding(_buildingController.text, l10n) != null) {
+          } else if (buildingErr != null) {
             _buildingFocusNode.requestFocus();
           }
         }
         return;
       }
     }
-    // CLIENT "Зберегти" is always valid — a partial / empty selection is
-    // tolerated and simply persists whatever (if anything) was chosen.
+    // CLIENT "Зберегти" is always valid — a partial/empty selection is
+    // tolerated and persists whatever was chosen.
 
-    await _runRegisterAndSave(
-      l10n: l10n,
-      role: role,
-      // CLIENT "Зберегти" persists the chosen locality (if any) via the register
-      // body; providers persist via the dedicated profile/salon save.
-      skipLocality: false,
-    );
+    await _runRegisterAndSave(l10n: l10n, role: role, skipLocality: false);
   }
 
   /// CLIENT "Пропустити" — null out locality, register, navigate, no save.
@@ -315,7 +219,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
     if (_submitting) return;
     assert(
       role == UserRole.client,
-      'Пропустити CTA must never be shown to MASTER/OWNER',
+      'Skip CTA must never be shown to MASTER/OWNER',
     );
     await _runRegisterAndSave(l10n: l10n, role: role, skipLocality: true);
   }
@@ -324,16 +228,12 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
   ///
   /// [skipLocality] true for CLIENT "Пропустити": locality is nulled out.
   ///
-  /// Defect 8 — the role-aware profile/salon save (PATCH /independent-masters/me
-  /// and POST /salons) is AUTH-REQUIRED, but `register()` returns
-  /// [VerificationRequired] with NO access token, so calling those endpoints
-  /// here always 401'd and the address was silently lost. The Step 3 locality +
-  /// address are stashed in the keepAlive draft; the actual provider save now
-  /// runs in [VerificationScreen] AFTER OTP verification issues a session.
+  /// Defect 8 — profile/salon save deferred to VerificationScreen after OTP
+  /// issues a session (POST /independent-masters/me and POST /salons need a
+  /// valid access token; register() returns VerificationRequired with none).
   ///
-  /// Defect 2 — the body is wrapped in try/finally so `_submitting` is ALWAYS
-  /// reset even on a throw/early-return, otherwise both CTAs (incl. the CLIENT
-  /// "Пропустити" ghost button) could stick permanently disabled.
+  /// Defect 2 — try/finally guarantees _submitting resets even on a throw /
+  /// early return so both CTAs never stick permanently disabled.
   Future<void> _runRegisterAndSave({
     required AppLocalizations l10n,
     required UserRole role,
@@ -341,7 +241,6 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
   }) async {
     final draftNotifier = ref.read(registerDraftProvider.notifier);
 
-    // Write the Step 3 slice. For skip, force every locality field to null.
     if (skipLocality) {
       draftNotifier.updateStep3();
     } else {
@@ -356,7 +255,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
     }
 
     final draft = ref.read(registerDraftProvider);
-    if (draft == null) return; // defensive — guard should prevent this
+    if (draft == null) return; // guard: router guard should prevent this
 
     setState(() => _submitting = true);
 
@@ -385,8 +284,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
 
       if (!mounted) return;
 
-      // register() returns null only when an AsyncError was captured — surface
-      // it and stop (the account was NOT created).
+      // register() returns null only when an AsyncError was captured.
       if (result == null) {
         final error = ref.read(authProvider).error;
         _showSnackBar(
@@ -395,23 +293,17 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
         return;
       }
 
-      // Security (MEDIUM-1) — the account now exists, so the plaintext password
-      // is no longer needed by the wizard (the OTP step keys off the email).
-      // Wipe it from the keepAlive draft immediately, BEFORE navigation, so the
-      // credential's in-memory lifetime is minimal. The full reset still runs
-      // at /done; this is the earlier, narrower clear. The locality/address
-      // slice stays in the draft so the post-verification save can read it.
+      // Security (MEDIUM-1) — wipe plaintext password from the keepAlive draft
+      // immediately after registration, before navigation. The locality/address
+      // slice stays in the draft for the post-verification save.
       draftNotifier.clearCredentials();
 
-      // 2. Navigate to verification, carrying the email for the OTP screen.
-      //    The provider profile/salon save deliberately does NOT run here — see
-      //    the method doc (Defect 8); it runs post-verification once a session
-      //    token exists.
+      // 2. Navigate to verification carrying the email for the OTP screen.
       final email = result is VerificationRequired ? result.email : draft.email;
       if (!mounted) return;
       context.go(RouteNames.verification, extra: email);
     } finally {
-      // Defect 2 — always re-enable the CTAs, even on a throw or early return.
+      // Defect 2 — always re-enable CTAs.
       if (mounted) setState(() => _submitting = false);
     }
   }
@@ -428,7 +320,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
       );
   }
 
-  // ── Build ──────────────────────────────────────────────────────────────
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -437,29 +329,38 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
         ref.watch(registerDraftProvider.select((d) => d?.role)) ??
         UserRole.client;
 
-    final isClient = role == UserRole.client;
-    final isProvider = !isClient;
+    final bool isClient = role == UserRole.client;
+    final bool isProvider = !isClient;
 
-    return Form(
-      key: _formKey,
+    return AuthScaffold(
+      showBack: true,
+      bottomBar: _buildBottomBar(isClient, l10n, role),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // ── Role-aware sub-text (HTML places it under the headline) ──────
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.md),
-            child: Text(
-              _subTextFor(role, l10n),
-              key: const Key('step3-subtext'),
-              style: _kSubTextStyle,
+        children: <Widget>[
+          // ── Role-aware sub-text (shell owns the headline; screen owns context)
+          Text(
+            _subTextFor(role, l10n),
+            key: const Key('step3-subtext'),
+            style: VelvetText.body(),
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+
+          // ── Sub-step indicator — two dots, second active, in NeumorphicCard ─
+          const NeumorphicCard(
+            padding: EdgeInsets.symmetric(
+              horizontal: VelvetSpacing.md,
+              vertical: VelvetSpacing.sm,
+            ),
+            shadows: VelvetShadows.extrudedSmall,
+            child: SubStepIndicator(
+              key: Key('substep-indicator'),
+              activeIndex: 1,
             ),
           ),
+          const SizedBox(height: VelvetSpacing.lg),
 
-          // ── Sub-step indicator (two pill dots, second active) ────────────
-          const SubStepIndicator(key: Key('substep-indicator'), activeIndex: 1),
-          const SizedBox(height: AppSpacing.md),
-
-          // ── Locality cascade with per-role labels ────────────────────────
+          // ── Locality cascade ───────────────────────────────────────────────
           _LocalityBlock(
             isClient: isClient,
             oblast: _oblast,
@@ -472,61 +373,121 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
             l10n: l10n,
           ),
 
-          // ── Provider-only address fields ─────────────────────────────────
-          if (isProvider) ...[
-            const SizedBox(height: AppSpacing.md),
-            // HTML: .field-divider — divider then fields directly (NO header).
+          // ── Provider-only address fields ───────────────────────────────────
+          if (isProvider) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.md),
             const Divider(
               key: Key('step3-address-divider'),
+              color: BrandColors.faint,
               height: 1,
               thickness: 1,
-              color: _kDividerColor,
             ),
-            const SizedBox(height: AppSpacing.md),
-            TwoColumnRow(
-              gap: AppSpacing.xs,
-              // HTML: .row-2 { grid-template-columns: 2fr 1fr } — street wider.
-              flexLeft: 2,
-              flexRight: 1,
-              left: _StreetField(
-                controller: _streetController,
-                focusNode: _streetFocusNode,
-                nextFocusNode: _buildingFocusNode,
-                l10n: l10n,
-              ),
-              right: _BuildingField(
-                controller: _buildingController,
-                focusNode: _buildingFocusNode,
-                nextFocusNode: _noteFocusNode,
-                l10n: l10n,
-              ),
+            const SizedBox(height: VelvetSpacing.md),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Expanded(
+                  flex: 2,
+                  child: NeumorphicTextField(
+                    key: const ValueKey<String>('address_street'),
+                    label: l10n.step3FieldStreetLabel,
+                    controller: _streetController,
+                    hintText: l10n.step3FieldStreetPlaceholder,
+                    keyboardType: TextInputType.streetAddress,
+                    textInputAction: TextInputAction.next,
+                    maxLength: kStreetMaxLength,
+                    prefixIcon: const Icon(Icons.signpost_outlined),
+                    focusNode: _streetFocusNode,
+                    onSubmitted: (_) => _buildingFocusNode.requestFocus(),
+                    errorText: _streetError,
+                    onChanged: (_) => setState(() => _streetError = null),
+                    inputFormatters: <TextInputFormatter>[
+                      LengthLimitingTextInputFormatter(kStreetMaxLength),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: VelvetSpacing.md),
+                Expanded(
+                  child: NeumorphicTextField(
+                    key: const ValueKey<String>('address_building'),
+                    label: l10n.step3FieldBuildingLabel,
+                    controller: _buildingController,
+                    hintText: l10n.step3FieldBuildingPlaceholder,
+                    textInputAction: TextInputAction.next,
+                    maxLength: kBuildingMaxLength,
+                    prefixIcon: const Icon(Icons.home_outlined),
+                    focusNode: _buildingFocusNode,
+                    onSubmitted: (_) => _noteFocusNode.requestFocus(),
+                    errorText: _buildingError,
+                    onChanged: (_) => setState(() => _buildingError = null),
+                    inputFormatters: <TextInputFormatter>[
+                      LengthLimitingTextInputFormatter(kBuildingMaxLength),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: AppSpacing.sm),
-            _NoteField(
+            const SizedBox(height: VelvetSpacing.md),
+            NeumorphicTextField(
+              key: const ValueKey<String>('address_note'),
+              label: l10n.step3FieldNoteLabel,
               controller: _noteController,
+              hintText: l10n.step3FieldNotePlaceholder,
+              textInputAction: TextInputAction.done,
+              maxLength: kLocationNoteMaxLength,
+              prefixIcon: const Icon(Icons.sticky_note_2_outlined),
               focusNode: _noteFocusNode,
-              l10n: l10n,
+              helperText: l10n.step3FieldNoteHelper,
+              inputFormatters: <TextInputFormatter>[
+                LengthLimitingTextInputFormatter(kLocationNoteMaxLength),
+              ],
             ),
           ],
 
-          const SizedBox(height: AppSpacing.md),
-
-          // ── CTA(s) ────────────────────────────────────────────────────────
-          if (isClient)
-            _ClientCtaRow(
-              submitting: _submitting,
-              onSkip: () => _skip(l10n, role),
-              onSave: () => _submit(l10n, role),
-              l10n: l10n,
-            )
-          else
-            _ProviderCta(
-              submitting: _submitting,
-              label: l10n.step3CtaSaveAndContinue,
-              onTap: () => _submit(l10n, role),
-            ),
+          const SizedBox(height: VelvetSpacing.md),
         ],
       ),
+    );
+  }
+
+  Widget _buildBottomBar(bool isClient, AppLocalizations l10n, UserRole role) {
+    if (isClient) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          NeumorphicButton(
+            key: const ValueKey<String>('address_submit'),
+            label: l10n.step3CtaSave,
+            onPressed: _submitting ? null : () => _submit(l10n, role),
+          ),
+          const SizedBox(height: VelvetSpacing.sm),
+          Semantics(
+            button: true,
+            label: l10n.step3CtaSkip,
+            child: GestureDetector(
+              key: const ValueKey<String>('address_skip'),
+              onTap: _submitting ? null : () => _skip(l10n, role),
+              behavior: HitTestBehavior.opaque,
+              child: SizedBox(
+                height: VelvetSizes.field,
+                child: Center(
+                  child: Text(
+                    l10n.step3CtaSkip,
+                    style: VelvetText.link(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    return NeumorphicButton(
+      key: const ValueKey<String>('address_submit'),
+      label: l10n.step3CtaSaveAndContinue,
+      onPressed: _submitting ? null : () => _submit(l10n, role),
     );
   }
 
@@ -569,8 +530,8 @@ class _LocalityBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     // Defect 7 — route the single first-unsatisfied message to the FAILING
     // row only, so e.g. "Оберіть місто" renders under the City row instead of
-    // once below the whole cascade (which placed it under the District row).
-    final err = localityError;
+    // once below the whole cascade.
+    final LocalityValidationError? err = localityError;
     return LocalityCascade(
       key: const Key('locality-cascade'),
       selectedOblast: oblast,
@@ -583,19 +544,17 @@ class _LocalityBlock extends StatelessWidget {
       oblastError: err?.level == LocalityLevel.oblast ? err!.message : null,
       cityError: err?.level == LocalityLevel.city ? err!.message : null,
       districtError: err?.level == LocalityLevel.district ? err!.message : null,
-      // Defect 5 — re-enable the "Не обов'язково для міст без районів" caption
-      // on the District row for leaf cities so users understand WHY the field
-      // is disabled (backend has districts only for ~17 large cities).
+      // Defect 5 — explanatory helper caption on the disabled District row for
+      // leaf cities so users understand why the field is disabled.
       showDistrictNoneHelper: true,
-      // HTML: the Область label carries (CLIENT only) a muted optional tag,
-      // and (all roles) a "?" tip-icon. Appended inline to the row label.
+      // HTML: Oblast label carries CLIENT optional tag + "?" tip-icon.
       oblastLabelSuffix: _OblastLabelSuffix(isClient: isClient, l10n: l10n),
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// _OblastLabelSuffix — CLIENT optional tag + "?" tip-icon, appended inline
+// _OblastLabelSuffix — CLIENT optional tag + "?" tip-icon
 // ---------------------------------------------------------------------------
 
 class _OblastLabelSuffix extends StatelessWidget {
@@ -608,8 +567,8 @@ class _OblastLabelSuffix extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
-      children: [
-        if (isClient) ...[
+      children: <Widget>[
+        if (isClient) ...<Widget>[
           const SizedBox(width: 5),
           Text(l10n.localityLabelOptional, style: _kOptionalTagStyle),
         ],
@@ -626,7 +585,7 @@ class _OblastLabelSuffix extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// _TipIcon — circular "?" affordance, tap shows a tooltip (icon-only a11y)
+// _TipIcon — circular "?" affordance, tap shows a tooltip (a11y)
 // ---------------------------------------------------------------------------
 
 class _TipIcon extends StatelessWidget {
@@ -637,9 +596,6 @@ class _TipIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Tooltip with triggerMode.tap makes the hint reachable on touch devices
-    // (HTML `title` is hover-only; mobile needs tap). Wrapped in a 44x44 hit
-    // target via Semantics + a sized tap region (touch-target rule).
     return Tooltip(
       message: tooltip,
       triggerMode: TooltipTriggerMode.tap,
@@ -663,360 +619,11 @@ class _TipIcon extends StatelessWidget {
               ),
               child: const Text(
                 // ignore: no_raw_ui_strings
-                // Single-glyph affordance marker (a literal question mark) —
-                // exempt from l10n per mobile-backlog §5 (same class as the
-                // brand monogram). The meaning is carried by [semanticLabel]
-                // and the localised [tooltip].
+                // Single-glyph affordance marker — exempt from l10n (same as
+                // brand monogram). Meaning is carried by [semanticLabel] and
+                // the localised [tooltip].
                 '?',
                 style: _kTipTextStyle,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// _StreetField — "Вулиця"
-// ---------------------------------------------------------------------------
-
-class _StreetField extends StatelessWidget {
-  const _StreetField({
-    required this.controller,
-    required this.focusNode,
-    required this.nextFocusNode,
-    required this.l10n,
-  });
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final FocusNode nextFocusNode;
-  final AppLocalizations l10n;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AuthFieldLabel(l10n.step3FieldStreetLabel),
-        TextFormField(
-          key: const Key('field-street'),
-          controller: controller,
-          focusNode: focusNode,
-          textInputAction: TextInputAction.next,
-          keyboardType: TextInputType.streetAddress,
-          textCapitalization: TextCapitalization.words,
-          style: _kFieldTextStyle,
-          inputFormatters: [LengthLimitingTextInputFormatter(kStreetMaxLength)],
-          decoration: InputDecoration(
-            hintText: l10n.step3FieldStreetPlaceholder,
-            hintStyle: _kFieldHintStyle,
-            filled: true,
-            fillColor: _kInputFill,
-            prefixIcon: const Icon(
-              Icons.signpost_outlined,
-              size: 15,
-              color: _kFieldIconColor,
-            ),
-            prefixIconConstraints: const BoxConstraints(
-              minWidth: 38,
-              minHeight: 46,
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 14,
-              horizontal: AppSpacing.sm,
-            ),
-            border: _kInputBorderDefault,
-            enabledBorder: _kInputBorderDefault,
-            focusedBorder: _kInputBorderFocused,
-            errorBorder: _kInputBorderError,
-            focusedErrorBorder: _kInputBorderFocusedError,
-            errorStyle: _kErrorStyle,
-          ),
-          onFieldSubmitted: (_) => nextFocusNode.requestFocus(),
-          validator: (v) => validateStreet(v, l10n),
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// _BuildingField — "Будинок"
-// ---------------------------------------------------------------------------
-
-class _BuildingField extends StatelessWidget {
-  const _BuildingField({
-    required this.controller,
-    required this.focusNode,
-    required this.nextFocusNode,
-    required this.l10n,
-  });
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final FocusNode nextFocusNode;
-  final AppLocalizations l10n;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AuthFieldLabel(l10n.step3FieldBuildingLabel),
-        TextFormField(
-          key: const Key('field-building'),
-          controller: controller,
-          focusNode: focusNode,
-          textInputAction: TextInputAction.next,
-          keyboardType: TextInputType.text,
-          style: _kFieldTextStyle,
-          inputFormatters: [
-            LengthLimitingTextInputFormatter(kBuildingMaxLength),
-          ],
-          decoration: InputDecoration(
-            hintText: l10n.step3FieldBuildingPlaceholder,
-            hintStyle: _kFieldHintStyle,
-            filled: true,
-            fillColor: _kInputFill,
-            prefixIcon: const Icon(
-              Icons.home_outlined,
-              size: 15,
-              color: _kFieldIconColor,
-            ),
-            prefixIconConstraints: const BoxConstraints(
-              minWidth: 38,
-              minHeight: 46,
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 14,
-              horizontal: AppSpacing.sm,
-            ),
-            border: _kInputBorderDefault,
-            enabledBorder: _kInputBorderDefault,
-            focusedBorder: _kInputBorderFocused,
-            errorBorder: _kInputBorderError,
-            focusedErrorBorder: _kInputBorderFocusedError,
-            errorStyle: _kErrorStyle,
-          ),
-          onFieldSubmitted: (_) => nextFocusNode.requestFocus(),
-          validator: (v) => validateBuilding(v, l10n),
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// _NoteField — "Примітка" (3-row textarea, optional, capped at 250)
-// ---------------------------------------------------------------------------
-
-class _NoteField extends StatelessWidget {
-  const _NoteField({
-    required this.controller,
-    required this.focusNode,
-    required this.l10n,
-  });
-
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final AppLocalizations l10n;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AuthFieldLabel(l10n.step3FieldNoteLabel),
-        TextFormField(
-          key: const Key('field-note'),
-          controller: controller,
-          focusNode: focusNode,
-          // HTML: textarea — 3 visible rows.
-          minLines: 3,
-          maxLines: 3,
-          textInputAction: TextInputAction.newline,
-          keyboardType: TextInputType.multiline,
-          style: _kFieldTextStyle,
-          inputFormatters: [
-            LengthLimitingTextInputFormatter(kLocationNoteMaxLength),
-          ],
-          decoration: InputDecoration(
-            hintText: l10n.step3FieldNotePlaceholder,
-            hintStyle: _kFieldHintStyle,
-            filled: true,
-            fillColor: _kInputFill,
-            contentPadding: const EdgeInsets.symmetric(
-              vertical: 11,
-              horizontal: AppSpacing.sm,
-            ),
-            border: _kInputBorderDefault,
-            enabledBorder: _kInputBorderDefault,
-            focusedBorder: _kInputBorderFocused,
-            errorBorder: _kInputBorderError,
-            focusedErrorBorder: _kInputBorderFocusedError,
-            errorStyle: _kErrorStyle,
-          ),
-          validator: (v) => validateLocationNote(v, l10n),
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// _ClientCtaRow — split [ghost Пропустити | filled Зберегти]
-// ---------------------------------------------------------------------------
-
-class _ClientCtaRow extends StatelessWidget {
-  const _ClientCtaRow({
-    required this.submitting,
-    required this.onSkip,
-    required this.onSave,
-    required this.l10n,
-  });
-
-  final bool submitting;
-  final VoidCallback onSkip;
-  final VoidCallback onSave;
-  final AppLocalizations l10n;
-
-  @override
-  Widget build(BuildContext context) {
-    // Balanced split: equal width so the Ukrainian "Пропустити" (wider than
-    // "Зберегти") fits on a single line and the two CTAs read as a balanced
-    // pair. The previous 1:6 ratio starved the ghost button, wrapping its
-    // label to two lines.
-    return Row(
-      children: [
-        Expanded(
-          child: _GhostButton(
-            label: l10n.step3CtaSkip,
-            onTap: submitting ? null : onSkip,
-          ),
-        ),
-        const SizedBox(width: AppSpacing.xs),
-        Expanded(
-          child: _ProviderCta(
-            submitting: submitting,
-            label: l10n.step3CtaSave,
-            onTap: onSave,
-            buttonKey: const Key('btn-save-step3'),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// _GhostButton — camel-bordered ghost CTA (CLIENT "Пропустити")
-// ---------------------------------------------------------------------------
-
-class _GhostButton extends StatelessWidget {
-  const _GhostButton({required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: _kGhostDecoration,
-      child: ClipRRect(
-        borderRadius: _kCtaRadius,
-        child: Material(
-          type: MaterialType.transparency,
-          child: InkWell(
-            key: const Key('btn-skip-step3'),
-            onTap: onTap,
-            child: SizedBox(
-              height: 52,
-              child: Center(
-                child: Text(
-                  label,
-                  // Keep "Пропустити" on a single line (no wrap) — balanced
-                  // against the Save CTA's single-line label.
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: _kGhostTextStyle,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// _ProviderCta — gradient CTA with loading spinner (provider single + CLIENT save)
-// ---------------------------------------------------------------------------
-
-class _ProviderCta extends StatelessWidget {
-  const _ProviderCta({
-    required this.submitting,
-    required this.label,
-    required this.onTap,
-    this.buttonKey = const Key('btn-save-continue-step3'),
-  });
-
-  final bool submitting;
-  final String label;
-  final VoidCallback onTap;
-  final Key buttonKey;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: _kCtaDecoration,
-      child: ClipRRect(
-        borderRadius: _kCtaRadius,
-        child: Material(
-          type: MaterialType.transparency,
-          child: InkWell(
-            key: buttonKey,
-            // Disabled while submitting — prevents double submission.
-            onTap: submitting ? null : onTap,
-            child: SizedBox(
-              height: 52,
-              child: Center(
-                child: submitting
-                    ? const SizedBox(
-                        key: Key('step3-cta-spinner'),
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                            Colors.white,
-                          ),
-                        ),
-                      )
-                    : Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: _kCtaTextStyle,
-                            ),
-                          ),
-                          const SizedBox(width: AppSpacing.xs),
-                          const Icon(
-                            Icons.arrow_forward,
-                            color: Colors.white,
-                            size: 18,
-                            semanticLabel: null,
-                          ),
-                        ],
-                      ),
               ),
             ),
           ),

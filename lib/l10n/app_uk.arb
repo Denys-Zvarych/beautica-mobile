@@ -792,6 +792,10 @@
   "@step3FieldNotePlaceholder": {
     "description": "In-field placeholder for the location-note textarea on the Step 3 Address screen (sign-up-step-3-address.html textarea placeholder — 'Поверх, домофон тощо'). Transcribed verbatim from HTML."
   },
+  "step3FieldNoteHelper": "Необов'язково. Поверх, код домофону, орієнтири.",
+  "@step3FieldNoteHelper": {
+    "description": "Helper text below the location-note field on the Step 3 Address screen, INDEPENDENT_MASTER and SALON_OWNER only (VelvetTouch — transcribed from docs/signup-designs/VelvetTouchDesign/lib/screens/address_screen.dart). Mirrors the HTML design note helper."
+  },
   "step3CtaSkip": "Пропустити",
   "@step3CtaSkip": {
     "description": "Ghost CTA button on the Step 3 Address screen, CLIENT variant only (sign-up-step-3-address.html .cta-ghost — 'Пропустити'). Skips saving locality and proceeds to verification."
