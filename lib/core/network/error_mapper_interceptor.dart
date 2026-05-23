@@ -106,8 +106,9 @@ final class ErrorMapperInterceptor extends Interceptor {
       // HTTP 409 Conflict — email already registered during sign-up (or any
       // other resource-conflict). Map to ServerFailure so the screen surfaces
       // the generic "server error" copy rather than the opaque errUnknown.
-      if (statusCode == 409)
+      if (statusCode == 409) {
         return ServerFailure(statusCode: statusCode, cause: err);
+      }
       if (statusCode == 400 || statusCode == 422) {
         return ValidationFailure(
           fieldErrors: _extractFieldErrors(err),

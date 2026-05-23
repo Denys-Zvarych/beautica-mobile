@@ -222,66 +222,66 @@ void main() {
         // RouteNames constants so the test catches constant/path mismatches.
         final router = GoRouter(
           initialLocation: RouteNames.splash,
-          redirect: (_, __) => null,
+          redirect: (_, _) => null,
           routes: <RouteBase>[
             GoRoute(
               path: RouteNames.splash,
-              builder: (_, __) => const _Probe('splash'),
+              builder: (_, _) => const _Probe('splash'),
             ),
             GoRoute(
               path: RouteNames.login,
-              builder: (_, __) => const _Probe('login'),
+              builder: (_, _) => const _Probe('login'),
             ),
             GoRoute(
               path: RouteNames.acceptInvite,
-              builder: (_, __) => const _Probe('accept-invite'),
+              builder: (_, _) => const _Probe('accept-invite'),
             ),
             GoRoute(
               path: RouteNames.registerRole,
-              builder: (_, __) => const _Probe('register-role'),
+              builder: (_, _) => const _Probe('register-role'),
             ),
             GoRoute(
               path: RouteNames.forgotPassword,
-              builder: (_, __) => const _Probe('forgot-password'),
+              builder: (_, _) => const _Probe('forgot-password'),
             ),
             GoRoute(
               path: RouteNames.resetPassword,
-              builder: (_, __) => const _Probe('reset-password'),
+              builder: (_, _) => const _Probe('reset-password'),
             ),
             // ShellRoute mirrors the production nesting; the test only checks
             // that routes resolve — shell chrome is not rendered here.
             ShellRoute(
-              builder: (_, __, child) => child,
+              builder: (_, _, child) => child,
               routes: <RouteBase>[
                 GoRoute(
                   path: RouteNames.register,
-                  builder: (_, __) => const _Probe('register-step-1'),
+                  builder: (_, _) => const _Probe('register-step-1'),
                 ),
                 GoRoute(
                   path: RouteNames.registerStep2,
-                  builder: (_, __) => const _Probe('register-step-2'),
+                  builder: (_, _) => const _Probe('register-step-2'),
                 ),
                 GoRoute(
                   path: RouteNames.registerStep3,
-                  builder: (_, __) => const _Probe('register-step-3'),
+                  builder: (_, _) => const _Probe('register-step-3'),
                 ),
               ],
             ),
             GoRoute(
               path: RouteNames.verification,
-              builder: (_, __) => const _Probe('verification'),
+              builder: (_, _) => const _Probe('verification'),
             ),
             GoRoute(
               path: RouteNames.done,
-              builder: (_, __) => const _Probe('done'),
+              builder: (_, _) => const _Probe('done'),
             ),
             GoRoute(
               path: RouteNames.home,
-              builder: (_, __) => const _Probe('home'),
+              builder: (_, _) => const _Probe('home'),
             ),
             GoRoute(
               path: RouteNames.settings,
-              builder: (_, __) => const _Probe('settings'),
+              builder: (_, _) => const _Probe('settings'),
             ),
           ],
         );
@@ -386,11 +386,11 @@ void main() {
           ),
           GoRoute(
             path: RouteNames.home,
-            builder: (_, __) => const _Probe('home'),
+            builder: (_, _) => const _Probe('home'),
           ),
           GoRoute(
             path: RouteNames.login,
-            builder: (_, __) => const _Probe('login'),
+            builder: (_, _) => const _Probe('login'),
           ),
         ],
       );
@@ -489,26 +489,26 @@ void main() {
 
         final router = GoRouter(
           initialLocation: RouteNames.registerStep2,
-          redirect: (_, __) => null,
+          redirect: (_, _) => null,
           routes: <RouteBase>[
             GoRoute(
               path: RouteNames.register,
-              builder: (_, __) => const _Probe('step-1'),
+              builder: (_, _) => const _Probe('step-1'),
             ),
             GoRoute(
               path: RouteNames.registerRole,
-              builder: (_, __) => const _Probe('role-selection'),
+              builder: (_, _) => const _Probe('role-selection'),
             ),
             ShellRoute(
-              builder: (_, __, child) => child,
+              builder: (_, _, child) => child,
               routes: <RouteBase>[
                 GoRoute(
                   path: RouteNames.registerStep2,
-                  builder: (_, __) => const RegisterStep2Screen(),
+                  builder: (_, _) => const RegisterStep2Screen(),
                 ),
                 GoRoute(
                   path: RouteNames.registerStep3,
-                  builder: (_, __) => const _Probe('step-3'),
+                  builder: (_, _) => const _Probe('step-3'),
                 ),
               ],
             ),
@@ -588,26 +588,26 @@ void main() {
 
       final router = GoRouter(
         initialLocation: RouteNames.registerStep3,
-        redirect: (_, __) => null,
+        redirect: (_, _) => null,
         routes: <RouteBase>[
           GoRoute(
             path: RouteNames.register,
-            builder: (_, __) => const _Probe('step-1'),
+            builder: (_, _) => const _Probe('step-1'),
           ),
           GoRoute(
             path: RouteNames.registerRole,
-            builder: (_, __) => const _Probe('role-selection'),
+            builder: (_, _) => const _Probe('role-selection'),
           ),
           ShellRoute(
-            builder: (_, __, child) => child,
+            builder: (_, _, child) => child,
             routes: <RouteBase>[
               GoRoute(
                 path: RouteNames.registerStep2,
-                builder: (_, __) => const _Probe('step-2'),
+                builder: (_, _) => const _Probe('step-2'),
               ),
               GoRoute(
                 path: RouteNames.registerStep3,
-                builder: (_, __) => const RegisterStep3Screen(),
+                builder: (_, _) => const RegisterStep3Screen(),
               ),
             ],
           ),
@@ -666,15 +666,15 @@ void main() {
         // Navigate directly to /forgot-password from /login so the GoRouter
         // history has /login as the previous entry — context.pop() will land there.
         initialLocation: RouteNames.login,
-        redirect: (_, __) => null,
+        redirect: (_, _) => null,
         routes: <RouteBase>[
           GoRoute(
             path: RouteNames.login,
-            builder: (_, __) => const _Probe('login'),
+            builder: (_, _) => const _Probe('login'),
           ),
           GoRoute(
             path: RouteNames.forgotPassword,
-            builder: (_, __) => const ForgotPasswordRequestScreen(),
+            builder: (_, _) => const ForgotPasswordRequestScreen(),
           ),
         ],
       );
@@ -697,7 +697,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Navigate to /forgot-password (push from /login).
-      router.push(RouteNames.forgotPassword);
+      unawaited(router.push(RouteNames.forgotPassword));
       await tester.pumpAndSettle();
 
       // The ForgotPasswordRequestScreen is now on screen — tap back.
@@ -734,11 +734,11 @@ void main() {
 
         final router = GoRouter(
           initialLocation: RouteNames.login,
-          redirect: (_, __) => null,
+          redirect: (_, _) => null,
           routes: <RouteBase>[
             GoRoute(
               path: RouteNames.login,
-              builder: (_, __) => const _Probe('login'),
+              builder: (_, _) => const _Probe('login'),
             ),
             GoRoute(
               path: RouteNames.resetPassword,
@@ -768,7 +768,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Navigate to /reset-password (push from /login, simulating deep-link).
-        router.push('${RouteNames.resetPassword}?token=test-token');
+        unawaited(router.push('${RouteNames.resetPassword}?token=test-token'));
         await tester.pumpAndSettle();
 
         // Tap back (AuthScaffold renders the back button in the form state).
@@ -803,7 +803,7 @@ class _ContainerListenable extends ChangeNotifier {
   _ContainerListenable(ProviderContainer container) {
     container.listen<AsyncValue<AuthSession>>(
       authProvider,
-      (_, __) => notifyListeners(),
+      (_, _) => notifyListeners(),
     );
   }
 }

@@ -765,7 +765,7 @@ void main() {
 
         // 129 chars: 'A' (uppercase) + '1' (digit) + 127 lowercase 'a's.
         // Satisfies all 3 checklist predicates but exceeds the 128-char hard limit.
-        final overlong = 'A1' + 'a' * 127; // 2 + 127 = 129 chars
+        final overlong = 'A1${'a' * 127}'; // 2 + 127 = 129 chars
         assert(overlong.length == 129);
 
         await tester.enterText(
