@@ -4,8 +4,8 @@
 // [password] string synchronously and renders a colour-coded indicator.
 //
 // Strength levels and colours:
-//   Weak   (1 segment lit) — BrandColors.cherry  (#F95738)
-//   Medium (2 segments lit) — BrandColors.sand    (#EE964B)
+//   Weak   (1 segment lit) — BrandColors.error  (#B0452F)
+//   Medium (2 segments lit) — BrandColors.accent (#B89A7A)
 //   Strong (3 segments lit) — green (#2E9E5B)
 //
 // Rules:
@@ -97,8 +97,8 @@ class PasswordStrengthIndicator extends StatelessWidget {
       PasswordStrength.strong => 3,
     };
     final activeColor = switch (strength) {
-      PasswordStrength.weak => BrandColors.cherry,
-      PasswordStrength.medium => BrandColors.sand,
+      PasswordStrength.weak => BrandColors.error,
+      PasswordStrength.medium => BrandColors.accent,
       PasswordStrength.strong => const Color(0xFF2E9E5B),
     };
     final label = switch (strength) {

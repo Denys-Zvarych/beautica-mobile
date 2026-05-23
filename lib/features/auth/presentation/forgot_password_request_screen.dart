@@ -81,11 +81,11 @@ const _kInputBorderFocused = OutlineInputBorder(
 );
 const _kInputBorderError = OutlineInputBorder(
   borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: BrandColors.errorRust, width: 1),
+  borderSide: BorderSide(color: BrandColors.error, width: 1),
 );
 const _kInputBorderFocusedError = OutlineInputBorder(
   borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: BrandColors.errorRust, width: 1.5),
+  borderSide: BorderSide(color: BrandColors.error, width: 1.5),
 );
 
 /// forgot-password-request.html --cta-grad.
@@ -116,7 +116,7 @@ const _kCtaTextStyle = TextStyle(
 );
 
 const _kFieldIconColor = Color(0x40FFFFFF); // white ~25%
-const _kFieldTextStyle = TextStyle(color: BrandColors.cream, fontSize: 16);
+const _kFieldTextStyle = TextStyle(color: BrandColors.white, fontSize: 16);
 
 /// .helper-note { font-size: 11px; color: rgba(255,255,255,0.28) }.
 const _kHelperNoteStyle = TextStyle(
@@ -374,7 +374,7 @@ class _RequestCard extends StatelessWidget {
                   style: const TextStyle(
                     fontFamily: 'Manrope',
                     fontSize: 12.5,
-                    color: BrandColors.errorRust,
+                    color: BrandColors.error,
                     height: 1.4,
                   ),
                 ),
@@ -411,7 +411,7 @@ class _RequestCard extends StatelessWidget {
         filled: true,
         fillColor: const Color(0x12FFFFFF),
         hintStyle: const TextStyle(color: Color(0x2EFFFFFF)),
-        errorStyle: const TextStyle(color: BrandColors.errorRust, fontSize: 12),
+        errorStyle: const TextStyle(color: BrandColors.error, fontSize: 12),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 14,
           vertical: 12,
@@ -500,7 +500,7 @@ class _HintBlock extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // .hint-block svg — info circle, camel.
-          const Icon(Icons.info_outline, size: 16, color: BrandColors.camel),
+          const Icon(Icons.info_outline, size: 16, color: BrandColors.accent),
           const SizedBox(width: 9),
           Expanded(
             child: Text(l10n.forgotPasswordConfirmHint, style: _kHintTextStyle),
@@ -546,7 +546,7 @@ class _ResendRow extends StatelessWidget {
                 fontFamily: 'Manrope',
                 fontSize: 12.5,
                 fontWeight: FontWeight.w600,
-                color: BrandColors.camel,
+                color: BrandColors.accent,
               ),
             ),
           ),
@@ -579,7 +579,11 @@ class _LockEmblem extends StatelessWidget {
         ),
       ),
       alignment: Alignment.center,
-      child: const Icon(Icons.lock_outline, size: 28, color: BrandColors.camel),
+      child: const Icon(
+        Icons.lock_outline,
+        size: 28,
+        color: BrandColors.accent,
+      ),
     );
   }
 }
@@ -610,7 +614,11 @@ class _EnvelopeRing extends StatelessWidget {
         ],
       ),
       alignment: Alignment.center,
-      child: const Icon(Icons.mail_outline, size: 32, color: BrandColors.camel),
+      child: const Icon(
+        Icons.mail_outline,
+        size: 32,
+        color: BrandColors.accent,
+      ),
     );
   }
 }
@@ -644,7 +652,7 @@ class _Headline extends StatelessWidget {
   // .headline em { Cormorant Garamond italic; font-size 1.15em; camel }.
   static final _kAccentStyle = GoogleFonts.cormorantGaramond(
     textStyle: const TextStyle(
-      color: BrandColors.camel,
+      color: BrandColors.accent,
       fontSize: 34,
       fontStyle: FontStyle.italic,
       fontWeight: FontWeight.w400,
@@ -828,7 +836,7 @@ class _MochaCtaButton extends StatelessWidget {
                             child: CircularProgressIndicator.adaptive(
                               strokeWidth: 2,
                               valueColor: AlwaysStoppedAnimation<Color>(
-                                BrandColors.cream,
+                                BrandColors.white,
                               ),
                             ),
                           )
@@ -873,7 +881,7 @@ class _BackToLoginLink extends StatelessWidget {
       child: TextButton(
         onPressed: onTap,
         style: TextButton.styleFrom(
-          foregroundColor: BrandColors.camel,
+          foregroundColor: BrandColors.accent,
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
         ),
@@ -883,7 +891,7 @@ class _BackToLoginLink extends StatelessWidget {
             Icon(
               Icons.west,
               size: 15,
-              color: BrandColors.camel.withValues(alpha: 0.85),
+              color: BrandColors.accent.withValues(alpha: 0.85),
             ),
             const SizedBox(width: 6),
             Text(
@@ -892,7 +900,7 @@ class _BackToLoginLink extends StatelessWidget {
                 fontFamily: 'Manrope',
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: BrandColors.camel,
+                color: BrandColors.accent,
               ),
             ),
           ],

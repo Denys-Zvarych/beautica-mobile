@@ -307,10 +307,10 @@ class _RoleCard extends StatelessWidget {
 
   /// Trailing radio dot — selected (camel fill + camel border).
   static const _kRadioDecorSelected = BoxDecoration(
-    color: BrandColors.camel,
+    color: BrandColors.accent,
     shape: BoxShape.circle,
     border: Border.fromBorderSide(
-      BorderSide(color: BrandColors.camel, width: 1.5),
+      BorderSide(color: BrandColors.accent, width: 1.5),
     ),
   );
 
@@ -381,7 +381,7 @@ class _RoleCard extends StatelessWidget {
                   child: AuthRoleIcon(
                     glyph: option.glyph,
                     color: isSelected
-                        ? BrandColors.camel
+                        ? BrandColors.accent
                         : _kGlyphColorUnselected,
                   ),
                 ),
@@ -570,7 +570,7 @@ class _HeadlineBlock extends StatelessWidget {
 
   static final _kAccentStyle = GoogleFonts.cormorantGaramond(
     textStyle: const TextStyle(
-      color: BrandColors.camel,
+      color: BrandColors.accent,
       fontSize: 34,
       fontStyle: FontStyle.italic,
       fontWeight: FontWeight.w400,
@@ -631,8 +631,8 @@ class _LoginLinkRow extends StatelessWidget {
           key: const Key('btn-go-to-login-from-intent'),
           onPressed: onTap,
           style: TextButton.styleFrom(
-            foregroundColor: BrandColors.camel,
-            disabledForegroundColor: BrandColors.camel,
+            foregroundColor: BrandColors.accent,
+            disabledForegroundColor: BrandColors.accent,
             padding: const EdgeInsets.symmetric(horizontal: 8),
             textStyle: const TextStyle(
               fontWeight: FontWeight.w600,

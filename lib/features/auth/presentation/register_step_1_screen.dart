@@ -46,7 +46,7 @@ import '../state/register_draft_notifier.dart';
 /// .back-row a { font-size: 13px; color: var(--accent); font-weight: 600;
 /// opacity: 0.85 }.
 final _kBackToRoleStyle = TextStyle(
-  color: BrandColors.camel.withValues(alpha: 0.85),
+  color: BrandColors.accent.withValues(alpha: 0.85),
   fontSize: 13,
   fontWeight: FontWeight.w600,
 );
@@ -73,12 +73,12 @@ const _kInputBorderFocused = OutlineInputBorder(
 
 const _kInputBorderError = OutlineInputBorder(
   borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: BrandColors.errorRust, width: 1),
+  borderSide: BorderSide(color: BrandColors.error, width: 1),
 );
 
 const _kInputBorderFocusedError = OutlineInputBorder(
   borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: BrandColors.errorRust, width: 1.5),
+  borderSide: BorderSide(color: BrandColors.error, width: 1.5),
 );
 
 /// .cta-grad: linear-gradient(135deg, #4a2e10 0%, #6a4a28 60%, #8a6840 100%).
@@ -102,7 +102,7 @@ const _kCtaDecoration = BoxDecoration(
 );
 
 const _kFieldIconColor = Color(0x40FFFFFF); // white ~25%
-const _kFieldTextStyle = TextStyle(color: BrandColors.cream, fontSize: 16);
+const _kFieldTextStyle = TextStyle(color: BrandColors.white, fontSize: 16);
 
 const _kCtaTextStyle = TextStyle(
   color: Colors.white,
@@ -118,7 +118,7 @@ const _kTermsBase = TextStyle(
 );
 const _kTermsLink = TextStyle(
   fontSize: 10.5,
-  color: BrandColors.camel,
+  color: BrandColors.accent,
   fontWeight: FontWeight.w500,
   height: 1.65,
 );
@@ -330,7 +330,7 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
     filled: true,
     fillColor: const Color(0x12FFFFFF),
     hintStyle: const TextStyle(color: Color(0x2EFFFFFF)),
-    errorStyle: const TextStyle(color: BrandColors.errorRust, fontSize: 11),
+    errorStyle: const TextStyle(color: BrandColors.error, fontSize: 11),
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     border: _kInputBorderDefault,
     enabledBorder: _kInputBorderDefault,
@@ -440,10 +440,7 @@ class _PasswordFieldWithCriteriaState
             filled: true,
             fillColor: const Color(0x12FFFFFF),
             hintStyle: const TextStyle(color: Color(0x2EFFFFFF)),
-            errorStyle: const TextStyle(
-              color: BrandColors.errorRust,
-              fontSize: 11,
-            ),
+            errorStyle: const TextStyle(color: BrandColors.error, fontSize: 11),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 14,
               vertical: 12,
@@ -525,7 +522,7 @@ class _ConfirmPasswordFieldState extends State<_ConfirmPasswordField> {
         filled: true,
         fillColor: const Color(0x12FFFFFF),
         hintStyle: const TextStyle(color: Color(0x2EFFFFFF)),
-        errorStyle: const TextStyle(color: BrandColors.errorRust, fontSize: 11),
+        errorStyle: const TextStyle(color: BrandColors.error, fontSize: 11),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 14,
           vertical: 12,
@@ -686,7 +683,7 @@ class _BackToRoleLink extends StatelessWidget {
         key: const Key('btn-back-to-role'),
         onPressed: onTap,
         style: TextButton.styleFrom(
-          foregroundColor: BrandColors.camel,
+          foregroundColor: BrandColors.accent,
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           minimumSize: const Size(0, 0),
           padding: const EdgeInsets.only(top: 14, bottom: 2),
@@ -701,7 +698,7 @@ class _BackToRoleLink extends StatelessWidget {
             Icon(
               Icons.west,
               size: 15,
-              color: BrandColors.camel.withValues(alpha: 0.85),
+              color: BrandColors.accent.withValues(alpha: 0.85),
             ),
             const SizedBox(width: 6),
             Text(l10n.registerBackToRole, style: _kBackToRoleStyle),
@@ -736,8 +733,8 @@ class _LoginLinkRow extends StatelessWidget {
           key: const Key('btn-go-to-login'),
           onPressed: onTap,
           style: TextButton.styleFrom(
-            foregroundColor: BrandColors.camel,
-            disabledForegroundColor: BrandColors.camel,
+            foregroundColor: BrandColors.accent,
+            disabledForegroundColor: BrandColors.accent,
             // A11y + alignment: symmetric vertical padding centres the "Увійти"
             // text within its ~33px hit box (13px line + 8 + 8 = 33), so it
             // shares the same vertical centre/baseline as the centred prompt

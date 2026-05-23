@@ -189,7 +189,7 @@ class _ProgItem extends StatelessWidget {
   /// .prog-item.active .prog-num { background: var(--accent);
   ///                               box-shadow: 0 0 0 4px rgba(184,154,122,0.14) }.
   static const _kActiveCircle = BoxDecoration(
-    color: BrandColors.camel,
+    color: BrandColors.accent,
     shape: BoxShape.circle,
     boxShadow: [
       BoxShadow(
@@ -318,7 +318,7 @@ class _ActiveLabel extends StatelessWidget {
       fontStyle: FontStyle.italic,
       fontWeight: FontWeight.w600,
       fontSize: 14,
-      color: BrandColors.camel,
+      color: BrandColors.accent,
       height: 1,
       letterSpacing: 0.14, // 0.01em × 14px
     ),
@@ -406,7 +406,7 @@ class _CheckmarkPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = BrandColors.camel
+      ..color = BrandColors.accent
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.6
       ..strokeJoin = StrokeJoin.round

@@ -429,7 +429,7 @@ class _SuccessCheckPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = BrandColors.camel
+      ..color = BrandColors.accent
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.5
       ..strokeJoin = StrokeJoin.round
@@ -479,7 +479,7 @@ class _Greeting extends StatelessWidget {
   /// italic; font-weight: 600; font-size: 22; letter-spacing: 0.01em }
   static final _kSubtitleStyle = GoogleFonts.cormorantGaramond(
     textStyle: const TextStyle(
-      color: BrandColors.camel,
+      color: BrandColors.accent,
       fontSize: 22,
       fontStyle: FontStyle.italic,
       fontWeight: FontWeight.w600,
@@ -654,7 +654,7 @@ class _ChipUserIconPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = BrandColors.camel
+      ..color = BrandColors.accent
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5
       ..strokeJoin = StrokeJoin.round
@@ -687,7 +687,7 @@ class _ChipMailIconPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = BrandColors.camel
+      ..color = BrandColors.accent
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5
       ..strokeJoin = StrokeJoin.round
@@ -728,7 +728,7 @@ class _ChipClockIconPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = BrandColors.camel
+      ..color = BrandColors.accent
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5
       ..strokeJoin = StrokeJoin.round

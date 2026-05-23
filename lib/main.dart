@@ -10,15 +10,13 @@ import 'routing/app_router.dart';
 
 /// Beautica mobile entry point.
 ///
-/// Phase 1.1 — wires [ProviderScope] (Riverpod root) and the Material 3
-/// theme factories ([lightTheme], [darkTheme]) seeded from the brand
-/// palette. Phase 1.2 adds the Manrope type scale (see `app_theme.dart`)
-/// and pins [GoogleFonts.config.allowRuntimeFetching] to debug-only —
-/// release builds must rely on the cached/bundled font (Phase 11 will
-/// move Manrope into `assets/fonts/` for fully offline release builds).
+/// Phase 1.1 — wires [ProviderScope] (Riverpod root) and the VelvetTouch
+/// Material 3 theme factory ([velvetTheme]) seeded from [BrandColors.seed].
+/// Light-only: the neumorphic design language requires a single warm-taupe
+/// base and is incompatible with a dark-mode surface.
 /// Phase 1.4 — replaced [MaterialApp] with [MaterialApp.router] wired to
-/// [appRouterProvider] via [ConsumerWidget]; the [_BootstrapHome] counter
-/// scaffold has been removed and the app now boots to [RouteNames.splash].
+/// [appRouterProvider] via [ConsumerWidget]; the app boots to
+/// [RouteNames.splash].
 Future<void> main() async {
   // Required before accessing any binding instance from main() — without it
   // SchedulerBinding.instance below hangs on Mali-G52 / this Flutter combo.
@@ -52,9 +50,8 @@ class BeauticaApp extends ConsumerWidget {
       // already attached.
       onGenerateTitle: (ctx) => AppLocalizations.of(ctx).appTitle,
       debugShowCheckedModeBanner: false,
-      theme: lightTheme(),
-      darkTheme: darkTheme(),
-      themeMode: ThemeMode.system,
+      theme: velvetTheme(),
+      themeMode: ThemeMode.light,
       // Localization wiring (Phase 1.3). Carried unchanged from MaterialApp.
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,

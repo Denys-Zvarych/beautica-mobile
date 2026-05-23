@@ -25,7 +25,7 @@ import '../../../../core/theme/brand_colors.dart';
 
 /// .substep-dot.active { background: var(--accent) #b89a7a }.
 const _kActiveDot = BoxDecoration(
-  color: BrandColors.camel,
+  color: BrandColors.accent,
   borderRadius: BorderRadius.all(Radius.circular(2)),
 );
 

@@ -63,14 +63,14 @@ const _kRoleChipDecoration = BoxDecoration(
 );
 
 const _kRoleChipTextStyle = TextStyle(
-  color: BrandColors.camel,
+  color: BrandColors.accent,
   fontSize: 11,
   fontWeight: FontWeight.w600,
   letterSpacing: 0.44,
 );
 
 const _kBackLinkStyle = TextStyle(
-  color: BrandColors.camel,
+  color: BrandColors.accent,
   fontSize: 13,
   fontWeight: FontWeight.w600,
 );
@@ -390,7 +390,7 @@ class _RoleChip extends StatelessWidget {
               const Icon(
                 Icons.person_outline,
                 size: 12,
-                color: BrandColors.camel,
+                color: BrandColors.accent,
                 semanticLabel: null,
               ),
               const SizedBox(width: 6),
@@ -428,7 +428,7 @@ class _HeadlineBlock extends StatelessWidget {
 
   static final _kLine2Style = GoogleFonts.cormorantGaramond(
     textStyle: const TextStyle(
-      color: BrandColors.camel,
+      color: BrandColors.accent,
       fontSize: 34,
       fontStyle: FontStyle.italic,
       fontWeight: FontWeight.w400,
@@ -532,7 +532,7 @@ class _BackLink extends StatelessWidget {
           context.go(target);
         },
         style: TextButton.styleFrom(
-          foregroundColor: BrandColors.camel,
+          foregroundColor: BrandColors.accent,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           // Trim visual dead space (vertical 6) while keeping the effective
           // tap target at the a11y minimum 44px high via minimumSize. We do
@@ -550,7 +550,7 @@ class _BackLink extends StatelessWidget {
             Icon(
               Icons.west,
               size: 15,
-              color: BrandColors.camel.withValues(alpha: 0.85),
+              color: BrandColors.accent.withValues(alpha: 0.85),
             ),
             const SizedBox(width: 6),
             Text(label, style: _kBackLinkStyle),

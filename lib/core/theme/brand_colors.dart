@@ -1,77 +1,75 @@
 import 'package:flutter/material.dart';
 
-/// Beautica brand palette — locked in `ARCHITECTURE-mobile.md` § 9.
+/// Beautica brand palette — VelvetTouch design system (2026-05-23).
 ///
-/// Sourced from the Coolors "Sunset" palette:
-/// https://coolors.co/0d3b66-faf0ca-f4d35e-ee964b-f95738
+/// Transcribed verbatim from the approved preview app in
+/// `docs/signup-designs/VelvetTouchDesign/lib/theme/velvet_tokens.dart`.
+/// Only the outer class name was kept as [BrandColors] for source
+/// compatibility with existing call sites; every constant name and hex
+/// value is a 1:1 copy of [VelvetColors] from the design source.
 ///
-/// [midnight] is the Material 3 `ColorScheme.fromSeed` seed; [bliss] is the
-/// locked secondary applied via `copyWith`. The full theme wire-up lands in
-/// Phase 1.1 — this stub only exposes the constants so downstream features
-/// can already reference them.
+/// Light-mode neumorphic ("soft UI") palette: a single warm-taupe base
+/// tone with depth communicated exclusively through paired light/dark
+/// shadows. Color is reserved for the camel/mocha accent family and for
+/// semantic feedback (always paired with icon + text).
 abstract final class BrandColors {
-  /// Primary identity — body text, dark surfaces, app-bar background.
-  static const Color midnight = Color(0xFF0D3B66);
+  /// Page + surface base — all neumorphic surfaces share this exact warm
+  /// taupe tone. Never pure white so both highlight and shadow read clearly.
+  static const Color base = Color(0xFFE6DDD0);
 
-  /// Accent / CTA fill — labels rendered in [midnight] only.
-  static const Color bliss = Color(0xFFF4D35E);
+  /// Primary camel accent — CTA gradient base, focus rings, active states.
+  static const Color accent = Color(0xFFB89A7A);
 
-  /// Warm light surface tint — light card backgrounds.
-  static const Color sunshine = Color(0xFFFAF0CA);
+  /// Deeper mocha — dark end of the CTA gradient and pressed accents.
+  static const Color accentDeep = Color(0xFF6A4A28);
 
-  /// Warning / muted state — soft conflicts, calendar exceptions.
-  static const Color sand = Color(0xFFEE964B);
+  /// Latte mid-tone — light end of the CTA gradient.
+  static const Color accentLatte = Color(0xFF8A6840);
 
-  /// Error / cancellation — validation, declined bookings.
-  static const Color cherry = Color(0xFFF95738);
+  /// Slightly lifted camel — logo mark only.
+  static const Color accentLogo = Color(0xFFC4A988);
 
-  /// Material 3 seed color for `ColorScheme.fromSeed`.
-  static const Color seed = midnight;
+  /// Primary text — warm espresso brown, ~7:1 on [base], WCAG AA+.
+  static const Color text = Color(0xFF4A3322);
 
-  /// Dark input field background — slightly lighter than [midnight] to give
-  /// form fields a subtle lifted appearance on the gradient auth screens.
-  static const Color darkSurface = Color(0xFF0A2540);
+  /// Secondary / body-supporting text (warm coffee brown).
+  static const Color textSecondary = Color(0xFF6E5743);
 
-  // ---------------------------------------------------------------------------
-  // Warm Mocha palette — auth screens (Phase 2.x visual redesign)
-  // Reference: docs/signup-designs/*.html
-  // ---------------------------------------------------------------------------
+  /// Muted labels (field labels). Use at >= 12 px bold.
+  static const Color muted = Color(0xFF9A8367);
 
-  /// Espresso — deepest background / phone shell. Replaces the old navy
-  /// gradient on all auth screens. #0D0906.
-  static const Color espresso = Color(0xFF0D0906);
+  /// Input placeholder text.
+  static const Color placeholder = Color(0xFFAD9A82);
 
-  /// Mocha — CTA gradient seed / primary warm tone. #6A4A28.
-  static const Color mocha = Color(0xFF6A4A28);
+  /// Faint hairlines / disabled glyphs.
+  static const Color faint = Color(0xFFBCAB95);
 
-  /// Latte — CTA gradient highlight (brightest stop). #8A6840.
-  static const Color latte = Color(0xFF8A6840);
-
-  /// Camel — accent: selected state borders, focus rings, checkmarks. #B89A7A.
-  static const Color camel = Color(0xFFB89A7A);
-
-  /// Cream — primary on-dark text colour. #F5EDE0.
-  static const Color cream = Color(0xFFF5EDE0);
-
-  /// Ash — muted / dividers / secondary labels. #D4B896.
-  static const Color ash = Color(0xFFD4B896);
-
-  /// Error rust — validation errors and cancellation states on mocha screens.
-  /// Replaces [cherry] for the auth surface only; [cherry] remains the booking
-  /// status token. #A84040.
-  static const Color errorRust = Color(0xFFA84040);
+  /// Cream — text/glyphs that sit on the camel/mocha CTA fill.
+  static const Color white = Color(0xFFF5EDE0);
 
   // ---------------------------------------------------------------------------
-  // Warm-Mocha surface gradient stops — the brand background gradient shared by
-  // [AuthGradientBackground] and modal surfaces (e.g. the locality picker
-  // sheet) so they all sit on the same Warm-Mocha surface rather than a flat
-  // near-black fill. Tokenised here so no raw gradient literals leak into
-  // widgets.
+  // Neumorphic shadow tones (on the warm-taupe base)
   // ---------------------------------------------------------------------------
 
-  /// Upper-left gradient stop — lighter mocha-brown. #3A2615.
-  static const Color mochaSurfaceTop = Color(0xFF3A2615);
+  /// Warm highlight — top-left lift. Creamy near-white, stays warm family.
+  static const Color shadowLightStrong = Color(0xFFFFFBF4);
 
-  /// Mid gradient stop — dark espresso transition. #1E140A.
-  static const Color mochaSurfaceMid = Color(0xFF1E140A);
+  /// Warm taupe-brown card shadow — bottom-right recess.
+  static const Color shadowDarkCard = Color(0xFFC4B49E);
+
+  /// Warm taupe-brown button shadow — slightly deeper than the card.
+  static const Color shadowDarkButton = Color(0xFFC0AF98);
+
+  // ---------------------------------------------------------------------------
+  // Semantic feedback (both >=4.5:1 on [base]; always paired with icon+text)
+  // ---------------------------------------------------------------------------
+
+  /// Error state — validation failures, cancellation.
+  static const Color error = Color(0xFFB0452F);
+
+  /// Success state — positive confirmation.
+  static const Color success = Color(0xFF5C7A4A);
+
+  /// Material 3 seed — used for [ColorScheme.fromSeed].
+  static const Color seed = accentDeep;
 }

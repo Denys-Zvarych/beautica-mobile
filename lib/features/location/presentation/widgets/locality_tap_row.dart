@@ -84,7 +84,7 @@ class LocalityTapRow extends StatelessWidget {
   static const _kLabelStyle = TextStyle(
     fontSize: 13,
     fontWeight: FontWeight.w500,
-    color: BrandColors.ash,
+    color: BrandColors.muted,
     letterSpacing: 0.2,
   );
   static const _kPlaceholderStyle = TextStyle(
@@ -105,7 +105,7 @@ class LocalityTapRow extends StatelessWidget {
   static const _kErrorStyle = TextStyle(
     fontSize: 11,
     height: 1.4,
-    color: BrandColors.errorRust,
+    color: BrandColors.error,
   );
 
   // Hoisted row decorations — selected by [_isFilled] so `build()` allocates
@@ -147,7 +147,9 @@ class LocalityTapRow extends StatelessWidget {
                       child: Icon(
                         Icons.place_outlined,
                         size: 18,
-                        color: _isFilled ? BrandColors.camel : _kIconEmptyColor,
+                        color: _isFilled
+                            ? BrandColors.accent
+                            : _kIconEmptyColor,
                       ),
                     ),
                     Expanded(

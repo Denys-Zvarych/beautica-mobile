@@ -94,7 +94,7 @@ class _SplashScreenState extends State<SplashScreen>
     return Scaffold(
       // Warm Mocha palette — must match the shared AuthGradientBackground
       // (espresso #0D0906), not the legacy navy midnight.
-      backgroundColor: BrandColors.espresso,
+      backgroundColor: BrandColors.base,
       body: Stack(
         children: [
           // PERF: RepaintBoundary hoists the gradient layer so the logo
@@ -133,7 +133,7 @@ class _SplashScreenState extends State<SplashScreen>
                   opacity: _showSpinner ? 1.0 : 0.0,
                   duration: const Duration(milliseconds: 200),
                   child: const CircularProgressIndicator(
-                    color: BrandColors.camel,
+                    color: BrandColors.accent,
                     strokeWidth: 2,
                   ),
                 ),

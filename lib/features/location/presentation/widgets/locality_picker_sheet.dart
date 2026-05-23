@@ -91,15 +91,17 @@ class _LocalityPickerSheetState<T>
 
   /// Warm-Mocha gradient surface — mirrors [AuthGradientBackground] so the
   /// sheet sits on the same brand surface as the rest of the app instead of a
-  /// flat near-black fill (which read as pure black). Uses brand tokens only.
+  /// flat near-black fill. Raw hex literals used because the old
+  /// mochaSurfaceTop/mochaSurfaceMid tokens were removed in the VelvetTouch
+  /// migration (Phase 1.1). This surface will be redesigned in Phase 13.x.
   static const _kSheetDecoration = BoxDecoration(
     gradient: LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
       colors: [
-        BrandColors.mochaSurfaceTop, // upper-left: lighter mocha-brown
-        BrandColors.mochaSurfaceMid, // mid: dark espresso transition
-        BrandColors.espresso, // bottom-right: espresso bg
+        Color(0xFF3A2615), // mochaSurfaceTop — upper-left: lighter mocha-brown
+        Color(0xFF1E140A), // mochaSurfaceMid — mid: dark espresso transition
+        Color(0xFF0D0906), // espresso — bottom-right bg
       ],
       stops: [0.0, 0.55, 1.0],
     ),
@@ -120,7 +122,7 @@ class _LocalityPickerSheetState<T>
   static const _kTitleStyle = TextStyle(
     fontSize: 17,
     fontWeight: FontWeight.w700,
-    color: BrandColors.cream,
+    color: BrandColors.white,
   );
   static const _kEmptyStyle = TextStyle(fontSize: 14, color: Color(0x80FFFFFF));
   static const _kSearchDebounce = Duration(milliseconds: 200);
@@ -229,7 +231,7 @@ class _LocalityPickerSheetState<T>
                           key: const Key('locality_picker_close'),
                           icon: const Icon(Icons.close_rounded),
                           iconSize: 20,
-                          color: BrandColors.camel,
+                          color: BrandColors.accent,
                           tooltip: l10n.localityPickerClose,
                           // 44×44 hit target (touch-target-size); visual glyph 20.
                           constraints: const BoxConstraints(
@@ -257,9 +259,9 @@ class _LocalityPickerSheetState<T>
                       textInputAction: TextInputAction.search,
                       style: const TextStyle(
                         fontSize: 15,
-                        color: BrandColors.cream,
+                        color: BrandColors.white,
                       ),
-                      cursorColor: BrandColors.camel,
+                      cursorColor: BrandColors.accent,
                       decoration: InputDecoration(
                         isDense: true,
                         filled: true,
@@ -280,7 +282,7 @@ class _LocalityPickerSheetState<T>
                         ),
                         focusedBorder: const OutlineInputBorder(
                           borderRadius: _kSearchRadius,
-                          borderSide: BorderSide(color: BrandColors.camel),
+                          borderSide: BorderSide(color: BrandColors.accent),
                         ),
                       ),
                     ),
@@ -356,7 +358,7 @@ class LocalityPickerTile extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
-  static const _kLabelStyle = TextStyle(fontSize: 15, color: BrandColors.cream);
+  static const _kLabelStyle = TextStyle(fontSize: 15, color: BrandColors.white);
 
   @override
   Widget build(BuildContext context) {
@@ -420,7 +422,7 @@ class _SheetLoading extends StatelessWidget {
           height: 28,
           child: CircularProgressIndicator(
             strokeWidth: 2.5,
-            color: BrandColors.camel,
+            color: BrandColors.accent,
           ),
         ),
       ),
@@ -455,14 +457,14 @@ class _SheetError extends StatelessWidget {
             child: Text(
               message,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 14, color: BrandColors.cream),
+              style: const TextStyle(fontSize: 14, color: BrandColors.white),
             ),
           ),
           const SizedBox(height: AppSpacing.md),
           TextButton(
             key: const Key('locality_picker_retry'),
             onPressed: onRetry,
-            style: TextButton.styleFrom(foregroundColor: BrandColors.camel),
+            style: TextButton.styleFrom(foregroundColor: BrandColors.accent),
             child: Text(retryLabel),
           ),
         ],

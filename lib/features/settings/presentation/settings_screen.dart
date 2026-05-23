@@ -74,7 +74,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         backgroundColor: const Color(0xFF1A110A),
         title: Text(
           l10n.logout,
-          style: const TextStyle(color: BrandColors.cream),
+          style: const TextStyle(color: BrandColors.white),
         ),
         content: Text(
           l10n.logoutConfirm,
@@ -86,7 +86,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onPressed: () => ctx.pop(false),
             child: Text(
               l10n.cancel,
-              style: const TextStyle(color: BrandColors.camel),
+              style: const TextStyle(color: BrandColors.accent),
             ),
           ),
           TextButton(
@@ -94,7 +94,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onPressed: () => ctx.pop(true),
             child: Text(
               l10n.logout,
-              style: const TextStyle(color: BrandColors.camel),
+              style: const TextStyle(color: BrandColors.accent),
             ),
           ),
         ],
@@ -124,7 +124,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final l10n = AppLocalizations.of(context);
 
     return Scaffold(
-      backgroundColor: BrandColors.espresso,
+      backgroundColor: BrandColors.base,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
@@ -144,7 +144,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             letterSpacing: 1.6,
           ),
         ),
-        iconTheme: const IconThemeData(color: BrandColors.cream),
+        iconTheme: const IconThemeData(color: BrandColors.white),
       ),
       body: Stack(
         children: [
@@ -234,15 +234,15 @@ class _WarmMochaListTile extends StatelessWidget {
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: BrandColors.camel,
+                              color: BrandColors.accent,
                             ),
                           )
-                        : Icon(icon, color: BrandColors.camel, size: 20),
+                        : Icon(icon, color: BrandColors.accent, size: 20),
                     const SizedBox(width: 14),
                     Text(
                       label,
                       style: const TextStyle(
-                        color: BrandColors.cream,
+                        color: BrandColors.white,
                         fontSize: 15,
                         fontWeight: FontWeight.w500,
                       ),

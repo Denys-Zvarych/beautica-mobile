@@ -91,12 +91,12 @@ const _kInputBorderFocused = OutlineInputBorder(
 
 const _kInputBorderError = OutlineInputBorder(
   borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: BrandColors.errorRust, width: 1),
+  borderSide: BorderSide(color: BrandColors.error, width: 1),
 );
 
 const _kInputBorderFocusedError = OutlineInputBorder(
   borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: BrandColors.errorRust, width: 1.5),
+  borderSide: BorderSide(color: BrandColors.error, width: 1.5),
 );
 
 /// HTML: input { background: rgba(255,255,255,0.07) }.
@@ -105,7 +105,7 @@ const _kInputFill = Color(0x12FFFFFF);
 /// HTML: .input-icon { color: rgba(255,255,255,0.25) }.
 const _kFieldIconColor = Color(0x40FFFFFF);
 
-const _kFieldTextStyle = TextStyle(color: BrandColors.cream, fontSize: 14);
+const _kFieldTextStyle = TextStyle(color: BrandColors.white, fontSize: 14);
 
 const _kFieldHintStyle = TextStyle(
   color: Color(0x2EFFFFFF), // rgba(255,255,255,0.18)
@@ -113,7 +113,7 @@ const _kFieldHintStyle = TextStyle(
 );
 
 const _kErrorStyle = TextStyle(
-  color: BrandColors.errorRust,
+  color: BrandColors.error,
   fontSize: 11,
   height: 1.4,
 );
@@ -163,7 +163,7 @@ const _kGhostDecoration = BoxDecoration(
 );
 
 const _kGhostTextStyle = TextStyle(
-  color: BrandColors.camel,
+  color: BrandColors.accent,
   fontSize: 14,
   fontWeight: FontWeight.w600,
   letterSpacing: 0.3,
@@ -180,7 +180,7 @@ const _kOptionalTagStyle = TextStyle(
 /// HTML .tip-icon { border: 1px solid rgba(184,154,122,0.4); color: accent }.
 const _kTipBorder = Color(0x66B89A7A); // rgba(184,154,122,0.4)
 const _kTipTextStyle = TextStyle(
-  color: BrandColors.camel,
+  color: BrandColors.accent,
   fontSize: 10,
   fontWeight: FontWeight.w700,
   height: 1,

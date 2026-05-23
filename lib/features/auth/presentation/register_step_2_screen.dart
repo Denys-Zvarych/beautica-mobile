@@ -67,12 +67,12 @@ const _kInputBorderFocused = OutlineInputBorder(
 
 const _kInputBorderError = OutlineInputBorder(
   borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: BrandColors.errorRust, width: 1),
+  borderSide: BorderSide(color: BrandColors.error, width: 1),
 );
 
 const _kInputBorderFocusedError = OutlineInputBorder(
   borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: BrandColors.errorRust, width: 1.5),
+  borderSide: BorderSide(color: BrandColors.error, width: 1.5),
 );
 
 /// HTML: input { background: rgba(255,255,255,0.07) }.
@@ -82,7 +82,7 @@ const _kInputFill = Color(0x12FFFFFF);
 const _kFieldIconColor = Color(0x40FFFFFF);
 
 const _kFieldTextStyle = TextStyle(
-  color: BrandColors.cream,
+  color: BrandColors.white,
   fontSize: 14, // HTML: font-size: 14px
 );
 
@@ -92,7 +92,7 @@ const _kFieldHintStyle = TextStyle(
 );
 
 const _kErrorStyle = TextStyle(
-  color: BrandColors.errorRust,
+  color: BrandColors.error,
   fontSize: 11,
   height: 1.4,
 );

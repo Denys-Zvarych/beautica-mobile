@@ -79,13 +79,13 @@ const _kInputBorderFocused = OutlineInputBorder(
 /// Error input border — errorRust solid.
 const _kInputBorderError = OutlineInputBorder(
   borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: BrandColors.errorRust, width: 1),
+  borderSide: BorderSide(color: BrandColors.error, width: 1),
 );
 
 /// Focused-error input border — errorRust 1.5 px.
 const _kInputBorderFocusedError = OutlineInputBorder(
   borderRadius: _kInputRadius,
-  borderSide: BorderSide(color: BrandColors.errorRust, width: 1.5),
+  borderSide: BorderSide(color: BrandColors.error, width: 1.5),
 );
 
 /// CTA gradient — literal hex from login-page.html
@@ -267,7 +267,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: BrandColors.errorRust,
+        backgroundColor: BrandColors.error,
         behavior: SnackBarBehavior.floating,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.all(Radius.circular(AppSpacing.sm)),
@@ -293,9 +293,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     filled: true,
     fillColor: const Color(0x12FFFFFF), // white 7%
     labelStyle: const TextStyle(color: Color(0x6BFFFFFF)),
-    floatingLabelStyle: const TextStyle(color: BrandColors.camel),
+    floatingLabelStyle: const TextStyle(color: BrandColors.accent),
     errorStyle: const TextStyle(
-      color: BrandColors.errorRust,
+      color: BrandColors.error,
       fontSize: 13,
     ), // increased from 12
     contentPadding: const EdgeInsets.symmetric(
@@ -362,7 +362,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             keyboardType: TextInputType.emailAddress,
                             textInputAction: TextInputAction.next,
                             style: const TextStyle(
-                              color: BrandColors.cream,
+                              color: BrandColors.white,
                               fontSize: 16, // increased from 15
                             ),
                             decoration: _fieldDecor(
@@ -397,7 +397,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                             autocorrect: false,
                             textInputAction: TextInputAction.done,
                             style: const TextStyle(
-                              color: BrandColors.cream,
+                              color: BrandColors.white,
                               fontSize: 16, // increased from 15
                             ),
                             decoration: _fieldDecor(
@@ -447,10 +447,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                                   : () =>
                                         context.push(RouteNames.forgotPassword),
                               style: TextButton.styleFrom(
-                                foregroundColor: BrandColors.camel.withValues(
+                                foregroundColor: BrandColors.accent.withValues(
                                   alpha: 0.8,
                                 ),
-                                disabledForegroundColor: BrandColors.camel
+                                disabledForegroundColor: BrandColors.accent
                                     .withValues(alpha: 0.8),
                                 padding: const EdgeInsets.symmetric(
                                   vertical: AppSpacing.xxs,
@@ -531,7 +531,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
               ? null
               : () => context.push(RouteNames.registerRole),
           style: TextButton.styleFrom(
-            foregroundColor: BrandColors.camel,
+            foregroundColor: BrandColors.accent,
             // Compact tap padding keeps the line tight while still meeting the
             // 48 dp touch target via the button's default minimum height.
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
@@ -653,7 +653,7 @@ class _HeadlineBlock extends StatelessWidget {
   // visual presence at regular weight; bold italic competes with the headline.
   static final _kAccentStyle = GoogleFonts.cormorantGaramond(
     textStyle: const TextStyle(
-      color: BrandColors.camel,
+      color: BrandColors.accent,
       fontSize: 34, // 1.15× of 30 (increased from 32)
       fontStyle: FontStyle.italic,
       fontWeight: FontWeight.w400,
@@ -884,7 +884,7 @@ class _MochaCtaButton extends StatelessWidget {
                   child: Align(
                     child: isLoading
                         ? const CircularProgressIndicator(
-                            color: BrandColors.cream,
+                            color: BrandColors.white,
                             strokeWidth: 2,
                           )
                         // login-page.html .cta-btn { display: flex; gap: 8px }

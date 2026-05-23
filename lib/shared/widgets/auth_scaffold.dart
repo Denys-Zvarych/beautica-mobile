@@ -51,7 +51,7 @@ class AuthScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: BrandColors.espresso,
+      backgroundColor: BrandColors.base,
       body: Stack(
         children: [
           // PERF: Belt-and-braces — AuthGradientBackground also wraps itself

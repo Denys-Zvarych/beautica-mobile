@@ -165,7 +165,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     fontStyle: FontStyle.italic,
     fontWeight: FontWeight.w600,
     fontSize: 29.9, // 1.15 × 26
-    color: BrandColors.camel,
+    color: BrandColors.accent,
     height: 1.22,
   );
 
@@ -711,7 +711,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
         style: const TextStyle(
           fontFamily: 'Manrope',
           fontSize: 12,
-          color: BrandColors.errorRust,
+          color: BrandColors.error,
           height: 1.4,
         ),
       ),
@@ -752,7 +752,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
                     fontFamily: 'Manrope',
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: BrandColors.camel,
+                    color: BrandColors.accent,
                   ),
                 ),
               ),
@@ -823,7 +823,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
                             child: CircularProgressIndicator.adaptive(
                               strokeWidth: 2,
                               valueColor: AlwaysStoppedAnimation<Color>(
-                                BrandColors.cream,
+                                BrandColors.white,
                               ),
                             ),
                           )
@@ -881,7 +881,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
               Icon(
                 Icons.west,
                 size: 15,
-                color: BrandColors.camel.withValues(alpha: 0.85),
+                color: BrandColors.accent.withValues(alpha: 0.85),
               ),
               const SizedBox(width: 6),
               Text(
@@ -891,7 +891,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
                   fontFamily: 'Manrope',
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: BrandColors.camel,
+                  color: BrandColors.accent,
                 ),
               ),
             ],
@@ -1029,7 +1029,7 @@ class _OtpBoxState extends State<_OtpBox> {
             fontWeight: FontWeight.w700,
             // Filled: camel; unfilled: white 90%
             color: widget.isFilled
-                ? BrandColors.camel
+                ? BrandColors.accent
                 : const Color(0xE6FFFFFF),
           ),
           // No floating label — box itself is the affordance.
@@ -1081,7 +1081,7 @@ class _EnvelopeIconPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = BrandColors.camel
+      ..color = BrandColors.accent
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.6
       ..strokeJoin = StrokeJoin.round
