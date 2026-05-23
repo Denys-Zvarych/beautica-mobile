@@ -334,6 +334,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
 
     return AuthScaffold(
       showBack: true,
+      onBack: () => context.go(RouteNames.registerStep2),
       bottomBar: _buildBottomBar(isClient, l10n, role),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

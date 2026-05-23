@@ -178,6 +178,7 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
 
     return AuthScaffold(
       showBack: true,
+      onBack: () => context.go(RouteNames.register),
       bottomBar: NeumorphicButton(
         key: const ValueKey<String>('step2_submit'),
         label: l10n.step2CtaContinue,

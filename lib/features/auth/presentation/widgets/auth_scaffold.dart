@@ -12,11 +12,22 @@ class AuthScaffold extends StatelessWidget {
     super.key,
     required this.child,
     this.showBack = true,
+    this.onBack,
     this.bottomBar,
   });
 
   final Widget child;
   final bool showBack;
+
+  /// Called when the user taps the back affordance.
+  ///
+  /// Defaults to [Navigator.maybePop] when null, which is correct for screens
+  /// that arrive via [GoRouter.push] (e.g. /forgot-password, /reset-password).
+  ///
+  /// Wizard screens that arrive via [GoRouter.go] MUST supply an explicit
+  /// callback (e.g. `onBack: () => context.go(RouteNames.register)`) because
+  /// [context.go] replaces the stack, leaving [maybePop] with nothing to pop.
+  final VoidCallback? onBack;
 
   /// Pinned to the bottom (above the safe area) — used for the primary CTA so
   /// it never scrolls away.
@@ -53,7 +64,7 @@ class AuthScaffold extends StatelessWidget {
                       child: NeumorphicIconButton(
                         icon: Icons.arrow_back_ios_new_rounded,
                         semanticLabel: 'Назад',
-                        onTap: () => Navigator.of(context).maybePop(),
+                        onTap: onBack ?? () => Navigator.of(context).maybePop(),
                       ),
                     ),
                 ],
