@@ -64,6 +64,7 @@ import '../domain/register_result.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_notifier.dart';
+import 'register_flow_shell.dart';
 import 'widgets/auth_scaffold.dart';
 import 'widgets/sub_step_indicator.dart';
 
@@ -339,6 +340,17 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          // ── Brand header + wizard chrome ─────────────────────────────────
+          const VelvetHeader(),
+          WizardStepChrome(
+            step: 2,
+            headline: switch (role) {
+              UserRole.client => l10n.registerStep3ShellHeadlineClient,
+              UserRole.salonOwner => l10n.registerStep3ShellHeadlineOwner,
+              _ => l10n.registerStep3ShellHeadlineMaster,
+            },
+          ),
+
           // ── Role-aware sub-text (shell owns the headline; screen owns context)
           Text(
             _subTextFor(role, l10n),

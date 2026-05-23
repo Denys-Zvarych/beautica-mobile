@@ -405,12 +405,8 @@ void main() {
           routes: [
             GoRoute(
               path: RouteNames.register,
-              builder: (context, state) => const Scaffold(
-                body: SingleChildScrollView(
-                  padding: EdgeInsets.all(16),
-                  child: RegisterStep1Screen(),
-                ),
-              ),
+              // RegisterStep1Screen now returns its own AuthScaffold — no wrapper.
+              builder: (context, state) => const RegisterStep1Screen(),
             ),
             GoRoute(
               path: RouteNames.login,

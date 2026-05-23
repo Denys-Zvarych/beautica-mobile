@@ -20,7 +20,6 @@ import 'package:screen_protector/screen_protector.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
-import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../domain/user_role.dart';
@@ -103,9 +102,7 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    // PERF rule M8: only watch the role slice — the rest of the draft
-    // changes on every keystroke and would cause the whole shell to rebuild.
+    // PERF rule M8: only watch the role slice.
     final role = ref.watch(registerDraftProvider.select((d) => d?.role));
 
     // Defensive: if no role is set (deep-link to /register without picking a
@@ -115,81 +112,85 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
       return const AuthScaffold(child: SizedBox.shrink());
     }
 
-    final location = GoRouterState.of(context).matchedLocation;
-    final currentStep = _stepIndex(location);
+    // Each step screen provides its own AuthScaffold + chrome via
+    // WizardStepChrome. The shell acts only as a screen-protector wrapper.
+    return widget.child;
+  }
+}
 
-    return AuthScaffold(
-      showBack: false,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          const VelvetHeader(),
-          // Role chip — neumorphic inset pill.
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: VelvetSpacing.md,
-                vertical: VelvetSpacing.xs,
-              ),
-              decoration: BoxDecoration(
-                color: BrandColors.base,
-                borderRadius: BorderRadius.circular(VelvetRadii.field),
-                boxShadow: VelvetShadows.extrudedSmall,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Icon(role.icon, size: 16, color: BrandColors.accent),
-                  const SizedBox(width: VelvetSpacing.xs),
-                  Text(
-                    role.label(l10n),
-                    key: const Key('role-chip-label'),
-                    style: VelvetText.label(),
-                  ),
-                ],
-              ),
+// ---------------------------------------------------------------------------
+// WizardStepChrome — shared header chrome for each wizard step screen.
+// Each step screen embeds this at the top of its AuthScaffold content Column.
+// ---------------------------------------------------------------------------
+
+/// Shared chrome for wizard steps: role chip + headline + two-dot progress.
+///
+/// Used at the top of each step screen's [AuthScaffold] content column so
+/// that each screen owns its own [Scaffold] (no nested Scaffold) while still
+/// rendering the consistent registration wizard header.
+class WizardStepChrome extends ConsumerWidget {
+  const WizardStepChrome({
+    super.key,
+    required this.step,
+    required this.headline,
+  });
+
+  /// The current wizard step (1 or 2). Step 3 passes 2 (maps to dot 2).
+  final int step;
+
+  /// The hero headline string for this step.
+  final String headline;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final role =
+        ref.watch(registerDraftProvider.select((d) => d?.role)) ??
+        UserRole.client;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        // Role chip — neumorphic extruded pill.
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: VelvetSpacing.md,
+              vertical: VelvetSpacing.xs,
+            ),
+            decoration: BoxDecoration(
+              color: BrandColors.base,
+              borderRadius: BorderRadius.circular(VelvetRadii.field),
+              boxShadow: VelvetShadows.extrudedSmall,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(role.icon, size: 16, color: BrandColors.accent),
+                const SizedBox(width: VelvetSpacing.xs),
+                Text(
+                  role.label(l10n),
+                  key: const Key('role-chip-label'),
+                  style: VelvetText.label(),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: VelvetSpacing.md),
-          Text(
-            _shellHeadline(location, role, l10n),
-            key: const Key('shell-headline'),
-            style: VelvetText.heading(),
-          ),
-          const SizedBox(height: VelvetSpacing.sm),
-          // Two-dot step progress indicator.
-          _StepProgress(currentStep: currentStep, totalSteps: 2),
-          const SizedBox(height: VelvetSpacing.lg),
-          // Step content from ShellRoute child.
-          widget.child,
-        ],
-      ),
+        ),
+        const SizedBox(height: VelvetSpacing.sm),
+        // Headline.
+        Text(
+          headline,
+          key: const Key('shell-headline'),
+          style: VelvetText.heading(),
+        ),
+        const SizedBox(height: VelvetSpacing.md),
+        // Two-dot step progress.
+        _StepProgress(currentStep: step, totalSteps: 2),
+        const SizedBox(height: VelvetSpacing.lg),
+      ],
     );
-  }
-
-  static int _stepIndex(String location) {
-    if (location == RouteNames.registerStep2) return 2;
-    if (location == RouteNames.registerStep3) return 2;
-    return 1;
-  }
-
-  static String _shellHeadline(
-    String location,
-    UserRole role,
-    AppLocalizations l10n,
-  ) {
-    if (location == RouteNames.registerStep2) {
-      return l10n.registerStep2ShellHeadline;
-    }
-    if (location == RouteNames.registerStep3) {
-      return switch (role) {
-        UserRole.client => l10n.registerStep3ShellHeadlineClient,
-        UserRole.salonOwner => l10n.registerStep3ShellHeadlineOwner,
-        _ => l10n.registerStep3ShellHeadlineMaster,
-      };
-    }
-    return l10n.registerHeadline; // /register (step 1): 'Створення акаунту'
   }
 }
 
@@ -222,6 +223,9 @@ class _StepDot extends StatelessWidget {
 
   final bool active;
 
+  // Pre-allocated constant — avoids a BorderRadius allocation on every build().
+  static const BorderRadius _radius = BorderRadius.all(Radius.circular(4));
+
   @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
@@ -231,7 +235,7 @@ class _StepDot extends StatelessWidget {
         height: 8,
         decoration: BoxDecoration(
           color: active ? BrandColors.accent : BrandColors.faint,
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: _radius,
         ),
       ),
     );

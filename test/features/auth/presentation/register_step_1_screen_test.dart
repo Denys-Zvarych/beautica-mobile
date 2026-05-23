@@ -18,6 +18,12 @@
 //  10. step1_back navigates to /register/role (not /login).
 //  11. Weak password "asd" shows errPasswordTooShort and does NOT advance.
 //  12. Strong password "Abcde123" passes the validator and advances to step-2.
+//  13. Password with no digit shows errPasswordNoDigit and does NOT advance
+//      (validateNewPassword gate — Phase 2.16 _submit() change).
+//  14. Password with no uppercase shows errPasswordNoUppercase and does NOT
+//      advance (validateNewPassword gate — Phase 2.16 _submit() change).
+//  15. Terms Text.rich renders all four l10n segments (prefix, terms link,
+//      conjunction, privacy link) — Phase 2.16 terms redesign.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -44,15 +50,9 @@ GoRouter _makeRouter() => GoRouter(
   routes: [
     GoRoute(
       path: RouteNames.register,
-      // RegisterStep1Screen returns a Column (not a Scaffold) — it lives
-      // inside RegisterFlowShell in production. The test substitutes a minimal
-      // Scaffold with a scroll view so NeumorphicTextField can lay out.
-      builder: (context, state) => const Scaffold(
-        body: SingleChildScrollView(
-          padding: EdgeInsets.all(16),
-          child: Column(children: <Widget>[RegisterStep1Screen()]),
-        ),
-      ),
+      // RegisterStep1Screen now returns its own AuthScaffold (full Scaffold).
+      // Place it directly as the route widget — no wrapper needed.
+      builder: (context, state) => const RegisterStep1Screen(),
     ),
     GoRoute(
       path: RouteNames.registerStep2,
@@ -620,6 +620,280 @@ void main() {
         expect(draft?.password, equals('Abcde123'));
 
         _assertNoRegisterPostFired(repo);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // 13. No-digit password — validateNewPassword gate (Phase 2.16)
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '13. password with no digit shows errPasswordNoDigit and does NOT '
+      'advance (validateNewPassword gate)',
+      (tester) async {
+        final (:container, :repo) = _makeContainerWithRepo();
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step1_email')),
+          'anya@example.com',
+        );
+        // "ABCDEFGH" — 8 chars, has uppercase, but NO digit.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step1_password')),
+          'ABCDEFGH',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step1_confirm')),
+          'ABCDEFGH',
+        );
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('step1_submit')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
+        await tester.pump();
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        expect(
+          find.text(l10n.errPasswordNoDigit),
+          findsOneWidget,
+          reason:
+              '"ABCDEFGH" has no digit — the validateNewPassword gate must '
+              'show errPasswordNoDigit and block navigation to step-2',
+        );
+        expect(
+          find.text('step-2'),
+          findsNothing,
+          reason: 'Navigation must be blocked when password has no digit',
+        );
+
+        _assertNoRegisterPostFired(repo);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // 14. No-uppercase password — validateNewPassword gate (Phase 2.16)
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '14. password with no uppercase shows errPasswordNoUppercase and does '
+      'NOT advance (validateNewPassword gate)',
+      (tester) async {
+        final (:container, :repo) = _makeContainerWithRepo();
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step1_email')),
+          'anya@example.com',
+        );
+        // "abcdefg1" — 8 chars, has digit, but NO uppercase letter.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step1_password')),
+          'abcdefg1',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step1_confirm')),
+          'abcdefg1',
+        );
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('step1_submit')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
+        await tester.pump();
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        expect(
+          find.text(l10n.errPasswordNoUppercase),
+          findsOneWidget,
+          reason:
+              '"abcdefg1" has no uppercase — the validateNewPassword gate must '
+              'show errPasswordNoUppercase and block navigation to step-2',
+        );
+        expect(
+          find.text('step-2'),
+          findsNothing,
+          reason: 'Navigation must be blocked when password has no uppercase',
+        );
+
+        _assertNoRegisterPostFired(repo);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // 16. Over-max-128 password — validateNewPassword gate (Phase 2.16)
+    //
+    // The live PasswordChecklist shows only 3 rows (min-8, digit, uppercase).
+    // The max-128 rule has NO checklist row — it is enforced by maxLength on
+    // the TextField AND by validateNewPassword() in _submit(). This test
+    // verifies that a 129-char password (which satisfies all 3 visible
+    // checklist rows) is still blocked by the hard gate in _submit() with
+    // errPasswordLength, and that navigation does NOT advance.
+    //
+    // Because NeumorphicTextField has maxLength: 128, tester.enterText() is
+    // clamped to 128 chars. We bypass this by locating the inner TextField
+    // and setting its controller's text directly before tapping submit —
+    // exactly as the _submit() hard gate would see it if the maxLength were
+    // absent or circumvented.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '16. 129-char password satisfies all checklist rows but is blocked by '
+      'validateNewPassword (errPasswordLength) and does NOT advance',
+      (tester) async {
+        final (:container, :repo) = _makeContainerWithRepo();
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        // 129 chars: 'A' (uppercase) + '1' (digit) + 127 lowercase 'a's.
+        // Satisfies all 3 checklist predicates but exceeds the 128-char hard limit.
+        final overlong = 'A1' + 'a' * 127; // 2 + 127 = 129 chars
+        assert(overlong.length == 129);
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step1_email')),
+          'anya@example.com',
+        );
+
+        // Locate the inner TextField inside the password NeumorphicTextField
+        // (the first TextField child under the step1_password key) and set
+        // its controller text directly, bypassing the maxLength clamp.
+        final pwTextField = tester.widget<TextField>(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('step1_password')),
+            matching: find.byType(TextField),
+          ),
+        );
+        pwTextField.controller!.text = overlong;
+        await tester.pump(); // let the onChanged listener fire
+
+        final confirmTextField = tester.widget<TextField>(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('step1_confirm')),
+            matching: find.byType(TextField),
+          ),
+        );
+        confirmTextField.controller!.text = overlong;
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('step1_submit')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
+        await tester.pump();
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        expect(
+          find.text(l10n.errPasswordLength),
+          findsOneWidget,
+          reason:
+              'A 129-char password passes all 3 checklist rows but must be '
+              'blocked by the validateNewPassword hard gate with '
+              'errPasswordLength — the checklist has no max-128 row so '
+              'this tests the gate that the UI cannot communicate live.',
+        );
+        expect(
+          find.text('step-2'),
+          findsNothing,
+          reason:
+              'Navigation must be blocked when password exceeds 128 chars',
+        );
+
+        _assertNoRegisterPostFired(repo);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // 15. Terms Text.rich — all four l10n segments present (Phase 2.16)
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '15. terms Text.rich renders all four l10n segments: prefix, terms '
+      'link, conjunction, privacy link',
+      (tester) async {
+        final container = _makeContainer();
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+
+        // The terms line is a single Text.rich that produces one RichText
+        // widget. find.textContaining on the full paragraph can match the whole
+        // RichText for multiple substrings. We instead locate the single
+        // RichText that contains all four segments and assert each is present
+        // within its combined plaintext, extracted by visiting the InlineSpan
+        // tree. This avoids false-positives from other Text.rich widgets in the
+        // screen that might share short substrings like " та ".
+        final richTexts = tester.widgetList<RichText>(find.byType(RichText));
+
+        // Build a combined plain string from every RichText in the tree, then
+        // find the one paragraph that contains the terms prefix. That is the
+        // terms line.
+        String extractText(InlineSpan span) {
+          if (span is TextSpan) {
+            final buf = StringBuffer(span.text ?? '');
+            if (span.children != null) {
+              for (final child in span.children!) {
+                buf.write(extractText(child));
+              }
+            }
+            return buf.toString();
+          }
+          return '';
+        }
+
+        final termsParagraph = richTexts
+            .map((rt) => extractText(rt.text))
+            .firstWhere(
+              (text) => text.contains(l10n.registerTermsPrefix),
+              orElse: () => '',
+            );
+
+        expect(
+          termsParagraph,
+          isNotEmpty,
+          reason: 'A RichText containing registerTermsPrefix must be present',
+        );
+        expect(
+          termsParagraph.contains(l10n.registerTermsTerms),
+          isTrue,
+          reason:
+              'registerTermsTerms link segment must be in the terms paragraph',
+        );
+        expect(
+          termsParagraph.contains(l10n.registerTermsConjunction.trim()),
+          isTrue,
+          reason: 'registerTermsConjunction must be in the terms paragraph',
+        );
+        expect(
+          termsParagraph.contains(l10n.registerTermsPrivacy),
+          isTrue,
+          reason:
+              'registerTermsPrivacy link segment must be in the terms paragraph',
+        );
       },
     );
   });

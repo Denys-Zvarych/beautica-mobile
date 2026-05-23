@@ -27,9 +27,15 @@ class PasswordRule {
   final bool Function(String value) test;
 }
 
-/// Register / reset password policy surfaced live: 8–128 chars, >=1 digit,
-/// >=1 uppercase. ([minLength] is overridable for the invite path, which
-/// requires 12–128.)
+/// Register / reset password policy surfaced live: >=minLength chars, >=1
+/// digit, >=1 uppercase. ([minLength] defaults to 8; the invite path passes
+/// 12.)
+///
+/// Note: the maximum length (128 chars) is NOT checked here. It is enforced
+/// by `maxLength: 128` on the [NeumorphicTextField] wrapping the password
+/// field, which truncates input at the OS level before any predicate runs.
+/// The hard submit gate uses `validateNewPassword()` (password_validator.dart)
+/// which independently asserts `v.length <= 128`.
 ///
 /// The backend `@StrongPassword` policy ALSO rejects common passwords, but a
 /// phone cannot check that list live without a network round-trip — so the
@@ -38,8 +44,8 @@ class PasswordRule {
 /// submit; showing a fake live check for it would mislead the user.
 List<PasswordRule> passwordRules({int minLength = 8}) => <PasswordRule>[
   PasswordRule(
-    'Від $minLength до 128 символів',
-    (String v) => v.length >= minLength && v.length <= 128,
+    'Щонайменше $minLength символів',
+    (String v) => v.length >= minLength,
   ),
   const PasswordRule('Хоча б одна цифра', _hasDigit),
   const PasswordRule('Хоча б одна велика літера', _hasUppercase),

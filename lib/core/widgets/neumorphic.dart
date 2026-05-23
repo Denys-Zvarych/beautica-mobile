@@ -508,12 +508,15 @@ class NeumorphicTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Widget content = Padding(
-      padding: const EdgeInsets.all(VelvetSpacing.md + 2),
+      padding: const EdgeInsets.symmetric(
+        horizontal: VelvetSpacing.md,
+        vertical: VelvetSpacing.sm,
+      ),
       child: Row(
         children: <Widget>[
           Container(
-            height: 52,
-            width: 52,
+            height: 44,
+            width: 44,
             decoration: BoxDecoration(
               color: BrandColors.base,
               borderRadius: BorderRadius.circular(VelvetRadii.field),

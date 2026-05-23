@@ -35,6 +35,7 @@ import '../../../routing/route_names.dart';
 import '../../../shared/validators/phone_validator.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
+import 'register_flow_shell.dart';
 import 'widgets/auth_scaffold.dart';
 
 // ---------------------------------------------------------------------------
@@ -187,6 +188,10 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
+          // ── Brand header + wizard chrome ───────────────────────────────
+          const VelvetHeader(),
+          WizardStepChrome(step: 2, headline: l10n.registerStep2ShellHeadline),
+
           // ── Name row (Ім'я + Прізвище side-by-side) ─────────────────────
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,

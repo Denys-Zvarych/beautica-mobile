@@ -198,12 +198,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             textAlign: TextAlign.center,
           ),
 
-          const SizedBox(height: VelvetSpacing.xs),
+          const SizedBox(height: VelvetSpacing.sm),
 
           // ── Sub-text
           Text(
             l10n.loginSubText,
-            style: VelvetText.body(),
+            style: VelvetText.feedback(BrandColors.textSecondary),
             textAlign: TextAlign.center,
           ),
 

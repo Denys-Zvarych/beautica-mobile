@@ -29,7 +29,10 @@ import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/validators/email_validator.dart';
+import '../../../shared/validators/password_validator.dart';
 import '../state/register_draft_notifier.dart';
+import 'register_flow_shell.dart';
+import 'widgets/auth_scaffold.dart';
 import 'widgets/password_checklist.dart';
 
 // ---------------------------------------------------------------------------
@@ -84,11 +87,13 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
     final l10n = AppLocalizations.of(context);
 
     final emailErr = validateEmail(_emailController.text.trim(), l10n);
-    final pwErr = _passwordController.text.isEmpty
-        ? l10n.errPasswordRequired
-        : (_passwordController.text.length < 8
-              ? l10n.errPasswordTooShort
-              : null);
+
+    // Validate password via the shared strict validator (validateNewPassword)
+    // so the submit gate is always the same function as the backend-aligned
+    // policy — min 8, max 128, ≥1 digit, ≥1 uppercase. The live checklist rows
+    // still use _rules for real-time UX feedback; this call is the hard gate.
+    final pwErr = validateNewPassword(_passwordController.text, l10n);
+
     final confirmErr =
         _confirmPasswordController.text != _passwordController.text
         ? l10n.errPasswordsMismatch
@@ -130,157 +135,176 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        // ── Email ──────────────────────────────────────────────────────────
-        NeumorphicTextField(
-          key: const ValueKey<String>('step1_email'),
-          label: l10n.loginEmailLabel,
-          controller: _emailController,
-          hintText: 'ви@beautica.ua',
-          keyboardType: TextInputType.emailAddress,
-          textInputAction: TextInputAction.next,
-          maxLength: 255,
-          prefixIcon: const Icon(Icons.alternate_email_rounded),
-          autofillHints: const <String>[AutofillHints.email],
-          errorText: _emailError,
-          onChanged: (_) {
-            if (_emailError != null) setState(() => _emailError = null);
-          },
-        ),
-        const SizedBox(height: VelvetSpacing.md),
+    return AuthScaffold(
+      showBack: true,
+      onBack: () => context.go(RouteNames.registerRole),
+      bottomBar: NeumorphicButton(
+        key: const ValueKey<String>('step1_submit'),
+        label: l10n.registerContinue,
+        onPressed: _submit,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          // ── Brand header + wizard chrome ───────────────────────────────
+          const VelvetHeader(),
+          WizardStepChrome(step: 1, headline: l10n.registerHeadline),
 
-        // ── Password ───────────────────────────────────────────────────────
-        NeumorphicTextField(
-          key: const ValueKey<String>('step1_password'),
-          label: l10n.loginPasswordLabel,
-          controller: _passwordController,
-          hintText: '••••••••',
-          obscureToggle: true,
-          enableSuggestions: false,
-          autocorrect: false,
-          enableIMEPersonalizedLearning: false,
-          maxLength: 128,
-          textInputAction: TextInputAction.next,
-          prefixIcon: const Icon(Icons.lock_outline_rounded),
-          autofillHints: const <String>[AutofillHints.newPassword],
-          errorText: _passwordError,
-          onChanged: (v) => setState(() {
-            _passwordValue = v;
-            if (_passwordError != null) _passwordError = null;
-          }),
-        ),
-        const SizedBox(height: VelvetSpacing.sm),
-
-        // ── Password checklist ─────────────────────────────────────────────
-        PasswordChecklist(value: _passwordValue, rules: _rules),
-        const SizedBox(height: VelvetSpacing.md),
-
-        // ── Confirm password ───────────────────────────────────────────────
-        NeumorphicTextField(
-          key: const ValueKey<String>('step1_confirm'),
-          label: l10n.registerConfirmPasswordLabel,
-          controller: _confirmPasswordController,
-          hintText: '••••••••',
-          obscureToggle: true,
-          enableSuggestions: false,
-          autocorrect: false,
-          enableIMEPersonalizedLearning: false,
-          maxLength: 128,
-          textInputAction: TextInputAction.done,
-          prefixIcon: const Icon(Icons.lock_outline_rounded),
-          autofillHints: const <String>[AutofillHints.newPassword],
-          errorText: _confirmError,
-          onChanged: (_) {
-            if (_confirmError != null) setState(() => _confirmError = null);
-          },
-          onSubmitted: (_) => _submit(),
-        ),
-        const SizedBox(height: VelvetSpacing.xl),
-
-        // ── CTA ────────────────────────────────────────────────────────────
-        NeumorphicButton(
-          key: const ValueKey<String>('step1_submit'),
-          label: l10n.registerContinue,
-          onPressed: _submit,
-        ),
-        const SizedBox(height: VelvetSpacing.md),
-
-        // ── Terms line ─────────────────────────────────────────────────────
-        Text(
-          l10n.registerTermsPrefix,
-          style: VelvetText.feedback(BrandColors.muted),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: VelvetSpacing.lg),
-
-        // ── ← Back to role select ──────────────────────────────────────────
-        Center(
-          child: GestureDetector(
-            key: const ValueKey<String>('step1_back'),
-            onTap: () {
-              // Going back one wizard step PRESERVES the draft (incl. role) so
-              // the role-selection screen re-highlights the chosen role and keeps
-              // Continue enabled. Do NOT reset() here.
-              context.go(RouteNames.registerRole);
+          // ── Email ──────────────────────────────────────────────────────
+          NeumorphicTextField(
+            key: const ValueKey<String>('step1_email'),
+            label: l10n.loginEmailLabel,
+            controller: _emailController,
+            hintText: 'ви@beautica.ua',
+            keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
+            maxLength: 255,
+            prefixIcon: const Icon(Icons.alternate_email_rounded),
+            autofillHints: const <String>[AutofillHints.email],
+            errorText: _emailError,
+            onChanged: (_) {
+              if (_emailError != null) setState(() => _emailError = null);
             },
-            child: Padding(
-              padding: const EdgeInsets.all(VelvetSpacing.xs),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  const Icon(
-                    Icons.arrow_back_ios_new_rounded,
-                    size: 14,
-                    color: BrandColors.accentDeep,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(l10n.registerBackToRole, style: VelvetText.link()),
-                ],
-              ),
-            ),
           ),
-        ),
-        const SizedBox(height: VelvetSpacing.sm),
+          const SizedBox(height: VelvetSpacing.sm),
 
-        // ── "Вже є акаунт? Увійти" ─────────────────────────────────────────
-        Center(
-          child: GestureDetector(
-            key: const ValueKey<String>('step1_login_link'),
-            onTap: () {
-              // Navigate to /login BEFORE nulling the draft. If reset() ran
-              // first, the still-mounted RegisterFlowShell's null-role guard
-              // would read role == null in didChangeDependencies, schedule a
-              // context.go('/register/role') post-frame callback, and that
-              // callback would win the race against this go() call —
-              // landing the user on role-selection instead of login.
-              context.go(RouteNames.login);
-              // Security (Phase 2.16 HIGH-1) — wipe the in-progress draft
-              // (incl. the plaintext password) when abandoning the wizard.
-              ref.read(registerDraftProvider.notifier).reset();
+          // ── Password ───────────────────────────────────────────────────
+          NeumorphicTextField(
+            key: const ValueKey<String>('step1_password'),
+            label: l10n.loginPasswordLabel,
+            controller: _passwordController,
+            hintText: '••••••••',
+            obscureToggle: true,
+            enableSuggestions: false,
+            autocorrect: false,
+            enableIMEPersonalizedLearning: false,
+            maxLength: 128,
+            textInputAction: TextInputAction.next,
+            prefixIcon: const Icon(Icons.lock_outline_rounded),
+            autofillHints: const <String>[AutofillHints.newPassword],
+            errorText: _passwordError,
+            onChanged: (v) => setState(() {
+              _passwordValue = v;
+              if (_passwordError != null) _passwordError = null;
+            }),
+          ),
+          const SizedBox(height: VelvetSpacing.xs),
+
+          // ── Password checklist ─────────────────────────────────────────
+          PasswordChecklist(value: _passwordValue, rules: _rules),
+          const SizedBox(height: VelvetSpacing.sm),
+
+          // ── Confirm password ───────────────────────────────────────────
+          NeumorphicTextField(
+            key: const ValueKey<String>('step1_confirm'),
+            label: l10n.registerConfirmPasswordLabel,
+            controller: _confirmPasswordController,
+            hintText: '••••••••',
+            obscureToggle: true,
+            enableSuggestions: false,
+            autocorrect: false,
+            enableIMEPersonalizedLearning: false,
+            maxLength: 128,
+            textInputAction: TextInputAction.done,
+            prefixIcon: const Icon(Icons.lock_outline_rounded),
+            autofillHints: const <String>[AutofillHints.newPassword],
+            errorText: _confirmError,
+            onChanged: (_) {
+              if (_confirmError != null) setState(() => _confirmError = null);
             },
-            child: Padding(
-              padding: const EdgeInsets.all(VelvetSpacing.xs),
-              child: Text.rich(
+            onSubmitted: (_) => _submit(),
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+
+          // ── Terms line (full rich text) ────────────────────────────────
+          Text.rich(
+            TextSpan(
+              style: VelvetText.feedback(BrandColors.muted),
+              children: <InlineSpan>[
+                TextSpan(text: l10n.registerTermsPrefix),
+                const TextSpan(text: ' '),
                 TextSpan(
-                  children: <TextSpan>[
-                    TextSpan(
-                      text: l10n.registerHaveAccount,
-                      style: VelvetText.body(),
+                  text: l10n.registerTermsTerms,
+                  style: VelvetText.link().copyWith(fontSize: 13),
+                ),
+                TextSpan(text: l10n.registerTermsConjunction),
+                TextSpan(
+                  text: l10n.registerTermsPrivacy,
+                  style: VelvetText.link().copyWith(fontSize: 13),
+                ),
+              ],
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: VelvetSpacing.sm),
+
+          // ── ← Back to role select ──────────────────────────────────────
+          Center(
+            child: GestureDetector(
+              key: const ValueKey<String>('step1_back'),
+              onTap: () {
+                // Going back preserves the draft (incl. role) so role-selection
+                // screen re-highlights the chosen role. Do NOT reset() here.
+                context.go(RouteNames.registerRole);
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(VelvetSpacing.xs),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      size: 14,
+                      color: BrandColors.accentDeep,
                     ),
-                    const TextSpan(text: ' '),
-                    TextSpan(
-                      text: l10n.registerSignIn,
-                      style: VelvetText.link(),
-                    ),
+                    const SizedBox(width: 4),
+                    Text(l10n.registerBackToRole, style: VelvetText.link()),
                   ],
                 ),
               ),
             ),
           ),
-        ),
-      ],
+          const SizedBox(height: VelvetSpacing.xs),
+
+          // ── "Вже є акаунт? Увійти" ─────────────────────────────────────
+          Center(
+            child: GestureDetector(
+              key: const ValueKey<String>('step1_login_link'),
+              onTap: () {
+                // Navigate to /login BEFORE nulling the draft. If reset() ran
+                // first, the still-mounted RegisterFlowShell's null-role guard
+                // would read role == null in didChangeDependencies, schedule a
+                // context.go('/register/role') post-frame callback, and that
+                // callback would win the race against this go() call —
+                // landing the user on role-selection instead of login.
+                context.go(RouteNames.login);
+                // Security (Phase 2.16 HIGH-1) — wipe the in-progress draft
+                // (incl. the plaintext password) when abandoning the wizard.
+                ref.read(registerDraftProvider.notifier).reset();
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(VelvetSpacing.xs),
+                child: Text.rich(
+                  TextSpan(
+                    children: <InlineSpan>[
+                      TextSpan(
+                        text: l10n.registerHaveAccount,
+                        style: VelvetText.body(),
+                      ),
+                      const TextSpan(text: ' '),
+                      TextSpan(
+                        text: l10n.registerSignIn,
+                        style: VelvetText.link(),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.sm),
+        ],
+      ),
     );
   }
 }

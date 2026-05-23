@@ -87,9 +87,9 @@ class _RoleSelectionScreenState extends ConsumerState<RoleSelectionScreen> {
             style: VelvetText.heading(),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: VelvetSpacing.xs),
+          const SizedBox(height: VelvetSpacing.sm),
           Text(l10n.registerSubText, style: VelvetText.body()),
-          const SizedBox(height: VelvetSpacing.xl),
+          const SizedBox(height: VelvetSpacing.md),
           NeumorphicTile(
             key: const ValueKey<String>('role_client'),
             icon: Icons.spa_rounded,
@@ -98,7 +98,7 @@ class _RoleSelectionScreenState extends ConsumerState<RoleSelectionScreen> {
             selected: _selectedRole == UserRole.client,
             onTap: () => setState(() => _selectedRole = UserRole.client),
           ),
-          const SizedBox(height: VelvetSpacing.md),
+          const SizedBox(height: VelvetSpacing.sm),
           NeumorphicTile(
             key: const ValueKey<String>('role_salon_owner'),
             icon: Icons.storefront_rounded,
@@ -107,7 +107,7 @@ class _RoleSelectionScreenState extends ConsumerState<RoleSelectionScreen> {
             selected: _selectedRole == UserRole.salonOwner,
             onTap: () => setState(() => _selectedRole = UserRole.salonOwner),
           ),
-          const SizedBox(height: VelvetSpacing.md),
+          const SizedBox(height: VelvetSpacing.sm),
           NeumorphicTile(
             key: const ValueKey<String>('role_master'),
             icon: Icons.auto_awesome_rounded,
@@ -117,7 +117,7 @@ class _RoleSelectionScreenState extends ConsumerState<RoleSelectionScreen> {
             onTap: () =>
                 setState(() => _selectedRole = UserRole.independentMaster),
           ),
-          const SizedBox(height: VelvetSpacing.xl),
+          const SizedBox(height: VelvetSpacing.md),
           // "Вже є акаунт? Увійти" login link.
           Center(
             child: GestureDetector(

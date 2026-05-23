@@ -50,14 +50,14 @@ _makeContainerWithRepo({UserRole? role = UserRole.client}) {
   return (container: container, repo: repo);
 }
 
-/// Stub step bodies — the shell wraps `child:` in its content column.
-const _kStep1Body = Text('step-1-body', key: Key('step-1-body'));
-const _kStep2Body = Text('step-2-body', key: Key('step-2-body'));
-const _kStep3Body = Text('step-3-body', key: Key('step-3-body'));
-
 /// Builds the production-shape ShellRoute graph (`/register`, `/register/step-2`,
 /// `/register/step-3`) wrapped in [RegisterFlowShell], plus sibling
 /// `/register/role` and `/login` targets.
+///
+/// Each inner route embeds [WizardStepChrome] so that `Key('shell-headline')`
+/// and `Key('role-chip-label')` are present in the widget tree — matching the
+/// post-refactor architecture where the chrome lives inside the child, not the
+/// shell itself.
 GoRouter _makeShellRouter({required String initialLocation}) => GoRouter(
   initialLocation: initialLocation,
   redirect: (context, state) => null,
@@ -77,15 +77,55 @@ GoRouter _makeShellRouter({required String initialLocation}) => GoRouter(
       routes: [
         GoRoute(
           path: RouteNames.register,
-          builder: (context, state) => _kStep1Body,
+          builder: (context, state) {
+            final l10n = AppLocalizations.of(context);
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                WizardStepChrome(step: 1, headline: l10n.registerHeadline),
+                const Text('step-1-body', key: Key('step-1-body')),
+              ],
+            );
+          },
         ),
         GoRoute(
           path: RouteNames.registerStep2,
-          builder: (context, state) => _kStep2Body,
+          builder: (context, state) {
+            final l10n = AppLocalizations.of(context);
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                WizardStepChrome(
+                  step: 2,
+                  headline: l10n.registerStep2ShellHeadline,
+                ),
+                const Text('step-2-body', key: Key('step-2-body')),
+              ],
+            );
+          },
         ),
         GoRoute(
           path: RouteNames.registerStep3,
-          builder: (context, state) => _kStep3Body,
+          builder: (context, state) => Consumer(
+            builder: (ctx, ref, _) {
+              final l10n = AppLocalizations.of(ctx);
+              final role =
+                  ref.watch(registerDraftProvider.select((d) => d?.role)) ??
+                  UserRole.client;
+              final headline = switch (role) {
+                UserRole.client => l10n.registerStep3ShellHeadlineClient,
+                UserRole.salonOwner => l10n.registerStep3ShellHeadlineOwner,
+                _ => l10n.registerStep3ShellHeadlineMaster,
+              };
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  WizardStepChrome(step: 2, headline: headline),
+                  const Text('step-3-body', key: Key('step-3-body')),
+                ],
+              );
+            },
+          ),
         ),
       ],
     ),
