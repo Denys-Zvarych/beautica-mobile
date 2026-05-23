@@ -1,4 +1,4 @@
-// Phase 2.12 — Widget tests for DoneScreen.
+// Phase 2.12 — Widget tests for DoneScreen (VelvetTouch redesign).
 //
 // Tests use a minimal GoRouter (initial route = /done → DoneScreen) so that
 // `context.go(...)` inside the widget can navigate to /home for the two CTA
@@ -6,19 +6,16 @@
 // can read [currentUserProvider] for the personalised greeting + chips.
 //
 // Covered scenarios:
-//   1. Renders the 4-dot progress with the "Готово" active label under dot 4.
-//   2. Renders the personalised greeting with the authenticated user's first
-//      name ("Вітаємо, Анна!").
-//   3. Falls back to "Вітаємо, друже!" when the User has no first name.
-//   4. Renders the 3 summary chips with role / email / ready label.
-//   5. Tapping btn-go-to-app navigates to /home.
-//   6. Tapping btn-setup-later navigates to /home.
-//   7. Mounting /done resets the in-flight registration draft (HIGH-1
-//      regression — duplicates logout_flow_test coverage on the production
-//      screen surface, kept here so the contract sits next to the screen it
-//      protects).
-//   8. ScreenProtector is never invoked in widget tests (release-only path
-//      guarded by `!kDebugMode`).
+//   1. Personalised greeting renders with the authenticated user's first name.
+//   2. Falls back to the l10n placeholder when User has no first name.
+//   3. Three summary chips render (done_chip_role / done_chip_email /
+//      done_chip_ready) with the expected label text.
+//   4. Role chip shows the role-derived label from UserRoleL10n.
+//   5. Tapping done_to_app navigates to /home.
+//   6. Tapping done_setup_later navigates to /home.
+//   7. Mounting /done resets the in-flight registration draft (HIGH-1 regression).
+//   8. ScreenProtector is never invoked in widget tests (removed from screen;
+//      pump must complete without MissingPluginException).
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -26,7 +23,6 @@ import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/done_screen.dart';
-import 'package:beautica_mobile/features/auth/presentation/widgets/registration_progress.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -65,12 +61,11 @@ const _testTokens = AuthTokens(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Builds a minimal GoRouter with the DoneScreen at /done and a /home
-/// scaffold that the two CTAs navigate to.
+/// Builds a minimal GoRouter with DoneScreen at /done and a /home placeholder.
 GoRouter _makeRouter() => GoRouter(
   initialLocation: RouteNames.done,
   redirect: (context, state) => null,
-  routes: [
+  routes: <RouteBase>[
     GoRoute(
       path: RouteNames.done,
       builder: (context, state) => const DoneScreen(),
@@ -83,12 +78,10 @@ GoRouter _makeRouter() => GoRouter(
   ],
 );
 
-/// Pumps the DoneScreen inside a UncontrolledProviderScope so that callers
-/// can pre-seed and later read the [registerDraftProvider] across the test.
+/// Pumps the DoneScreen inside a UncontrolledProviderScope.
 ///
-/// When [authenticatedUser] is non-null, the FakeAuthRepository is wired to
-/// resolve cold-start refresh into an Authenticated session — that's how
-/// [currentUserProvider] picks up the user the screen renders.
+/// When [authenticatedUser] is non-null the FakeAuthRepository is seeded so
+/// [currentUserProvider] resolves to that user.
 Future<ProviderContainer> _pumpDoneScreen(
   WidgetTester tester, {
   User? authenticatedUser,
@@ -98,9 +91,6 @@ Future<ProviderContainer> _pumpDoneScreen(
   final repo = FakeAuthRepository();
 
   if (authenticatedUser != null) {
-    // Seed the secure-storage refresh token so AuthNotifier's background
-    // restore picks up the session, then point the fake repo at our test
-    // user + tokens.
     await storage.writeRefreshToken('seeded-refresh-token');
     repo
       ..refreshResult = _testTokens
@@ -127,19 +117,16 @@ Future<ProviderContainer> _pumpDoneScreen(
     ),
   );
 
-  // Drain the AuthNotifier background restore so the screen sees the
-  // settled Authenticated session (when seeded). The DoneScreen's own
-  // post-frame draft-reset callback also fires during pumpAndSettle.
+  // Drain AuthNotifier background restore + done screen post-frame callback.
   await tester.pumpAndSettle();
 
   return container;
 }
 
-/// Convenience: looks up the AppLocalizations for the rendered uk locale.
+/// Convenience: resolves AppLocalizations for the rendered uk locale.
 AppLocalizations _l10n(WidgetTester tester) {
-  return AppLocalizations.of(
-    tester.element(find.byKey(const Key('brand-row'))),
-  );
+  // The VelvetHeader is always present — use its element as the context anchor.
+  return AppLocalizations.of(tester.element(find.byType(DoneScreen)));
 }
 
 // ---------------------------------------------------------------------------
@@ -147,45 +134,12 @@ AppLocalizations _l10n(WidgetTester tester) {
 // ---------------------------------------------------------------------------
 
 void main() {
-  group('DoneScreen', () {
+  group('DoneScreen (VelvetTouch)', () {
     // -----------------------------------------------------------------------
-    // Test 1 — 4-dot progress renders with "Готово" under dot 4
-    // -----------------------------------------------------------------------
-    testWidgets('1. renders RegistrationProgress with currentStep=done and the '
-        '"Готово" active label under dot 4', (tester) async {
-      final router = _makeRouter();
-      addTearDown(router.dispose);
-
-      await _pumpDoneScreen(
-        tester,
-        authenticatedUser: _userWithName,
-        router: router,
-      );
-
-      // The shared widget is mounted.
-      final progress = tester.widget<RegistrationProgress>(
-        find.byKey(const Key('registration-progress')),
-      );
-      expect(progress.currentStep, equals(RegistrationStep.done));
-      expect(
-        progress.activeStepLabel,
-        equals(_l10n(tester).registerProgressDone),
-      );
-
-      // The active label text is rendered exactly once under dot 4.
-      expect(find.byKey(const Key('progress-active-label')), findsOneWidget);
-
-      // All four progress dots are present.
-      for (var i = 1; i <= 4; i++) {
-        expect(find.byKey(Key('progress-step-$i')), findsOneWidget);
-      }
-    });
-
-    // -----------------------------------------------------------------------
-    // Test 2 — Personalised greeting renders the user's first name
+    // Test 1 — Personalised greeting renders the user's first name
     // -----------------------------------------------------------------------
     testWidgets(
-      '2. renders "Вітаємо, {firstName}!" with the authenticated user\'s '
+      '1. renders "Вітаємо, {firstName}!" with the authenticated user\'s '
       'first name',
       (tester) async {
         final router = _makeRouter();
@@ -205,11 +159,10 @@ void main() {
           equals(_l10n(tester).registerDoneGreeting('Анна')),
           reason:
               'greeting must interpolate User.firstName from the '
-              'authenticated session — fallback is reserved for the '
-              'no-name case',
+              'authenticated session',
         );
 
-        // The italic-camel subtitle is the second visible line.
+        // Italic-camel subtitle is present.
         final subtitle = tester.widget<Text>(
           find.byKey(const Key('done-subtitle')),
         );
@@ -218,10 +171,10 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // Test 3 — Fallback greeting when User has no first name
+    // Test 2 — Fallback greeting when User has no first name
     // -----------------------------------------------------------------------
     testWidgets(
-      '3. falls back to the localised placeholder when User.firstName is null',
+      '2. falls back to the localised placeholder when User.firstName is null',
       (tester) async {
         final router = _makeRouter();
         addTearDown(router.dispose);
@@ -240,17 +193,18 @@ void main() {
           greeting.data,
           equals(l10n.registerDoneGreeting(l10n.registerDoneGreetingFallback)),
           reason:
-              'when User.firstName is null/empty the greeting must use the '
-              'registerDoneGreetingFallback placeholder',
+              'when User.firstName is null/empty the greeting must use '
+              'the registerDoneGreetingFallback placeholder',
         );
       },
     );
 
     // -----------------------------------------------------------------------
-    // Test 4 — Three summary chips render with role / email / ready labels
+    // Test 3 — Three summary chips are rendered
     // -----------------------------------------------------------------------
     testWidgets(
-      '4. renders 3 summary chips with role / email / ready-fast text',
+      '3. renders exactly 3 summary chips (done_chip_role, done_chip_email, '
+      'done_chip_ready)',
       (tester) async {
         final router = _makeRouter();
         addTearDown(router.dispose);
@@ -261,35 +215,61 @@ void main() {
           router: router,
         );
 
-        // All three chip keys resolve.
-        expect(find.byKey(const Key('done-chip-role')), findsOneWidget);
-        expect(find.byKey(const Key('done-chip-email')), findsOneWidget);
-        expect(find.byKey(const Key('done-chip-ready')), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('done_chip_role')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('done_chip_email')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('done_chip_ready')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 4 — Role chip shows the user's role label
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '4. role chip displays the role label derived from UserRoleL10n',
+      (tester) async {
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _userWithName,
+          router: router,
+        );
 
         final l10n = _l10n(tester);
 
-        // Role chip displays the user's role label (Client for _userWithName).
+        // _userWithName has UserRole.client → l10n.roleClient.
         expect(
           find.descendant(
-            of: find.byKey(const Key('done-chip-role')),
+            of: find.byKey(const ValueKey<String>('done_chip_role')),
             matching: find.text(l10n.roleClient),
           ),
           findsOneWidget,
+          reason: 'role chip must display the localised role label',
         );
 
-        // Email chip displays the user's email.
+        // Email-verified chip displays the l10n string.
         expect(
           find.descendant(
-            of: find.byKey(const Key('done-chip-email')),
-            matching: find.text(_userWithName.email),
+            of: find.byKey(const ValueKey<String>('done_chip_email')),
+            matching: find.text(l10n.registerDoneChipEmailVerified),
           ),
           findsOneWidget,
         );
 
-        // Ready-fast chip displays the marketing line.
+        // Ready chip displays the marketing line.
         expect(
           find.descendant(
-            of: find.byKey(const Key('done-chip-ready')),
+            of: find.byKey(const ValueKey<String>('done_chip_ready')),
             matching: find.text(l10n.registerDoneChipReadyFast),
           ),
           findsOneWidget,
@@ -300,7 +280,7 @@ void main() {
     // -----------------------------------------------------------------------
     // Test 5 — Primary CTA navigates to /home
     // -----------------------------------------------------------------------
-    testWidgets('5. tapping btn-go-to-app navigates the router to /home', (
+    testWidgets('5. tapping done_to_app navigates the router to /home', (
       tester,
     ) async {
       final router = _makeRouter();
@@ -312,30 +292,29 @@ void main() {
         router: router,
       );
 
-      // Sanity — the home route is not yet visible.
       expect(find.text('home-route'), findsNothing);
 
-      // Scroll the CTA into the test viewport before tapping (800×600).
-      await tester.ensureVisible(find.byKey(const Key('btn-go-to-app')));
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('done_to_app')),
+      );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('btn-go-to-app')));
+      await tester.tap(find.byKey(const ValueKey<String>('done_to_app')));
       await tester.pumpAndSettle();
 
       expect(
         find.text('home-route'),
         findsOneWidget,
-        reason:
-            'btn-go-to-app must call context.go(RouteNames.home) — the '
-            'router lands on the /home placeholder scaffold',
+        reason: 'done_to_app must call context.go(RouteNames.home)',
       );
     });
 
     // -----------------------------------------------------------------------
     // Test 6 — Secondary link navigates to /home
     // -----------------------------------------------------------------------
-    testWidgets('6. tapping btn-setup-later navigates the router to /home '
-        '(Phase 4.x will divert this to /profile-setup)', (tester) async {
+    testWidgets('6. tapping done_setup_later navigates the router to /home', (
+      tester,
+    ) async {
       final router = _makeRouter();
       addTearDown(router.dispose);
 
@@ -347,18 +326,18 @@ void main() {
 
       expect(find.text('home-route'), findsNothing);
 
-      await tester.ensureVisible(find.byKey(const Key('btn-setup-later')));
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('done_setup_later')),
+      );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('btn-setup-later')));
+      await tester.tap(find.byKey(const ValueKey<String>('done_setup_later')));
       await tester.pumpAndSettle();
 
       expect(
         find.text('home-route'),
         findsOneWidget,
-        reason:
-            'btn-setup-later must call context.go(RouteNames.home) until '
-            'Phase 4.x adds a profile-setup screen',
+        reason: 'done_setup_later must call context.go(RouteNames.home)',
       );
     });
 
@@ -404,9 +383,7 @@ void main() {
             ),
           ),
         );
-        // First frame mounts DoneScreen; the post-frame callback fires
-        // ref.read(registerDraftProvider.notifier).reset(). One pump drains
-        // the microtask queue.
+        // First frame mounts DoneScreen; addPostFrameCallback fires on pump.
         await tester.pump();
 
         expect(
@@ -421,16 +398,14 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // Test 8 — ScreenProtector is not invoked in widget tests
+    // Test 8 — Screen pumps cleanly without platform-channel exceptions
     //
-    // The screen-protector plugin only fires in release builds via the
-    // `!kDebugMode` guard. In widget tests kDebugMode is true, so the
-    // method-channel call (which would throw MissingPluginException without
-    // a mock binding) is skipped. The check below verifies the screen pumps
-    // cleanly without us having to register a plugin mock.
+    // ScreenProtector has been removed from DoneScreen (post-auth screen
+    // carries no sensitive data). The test verifies no exceptions are thrown
+    // during a full pump-and-settle cycle.
     // -----------------------------------------------------------------------
-    testWidgets('8. ScreenProtector is not invoked under kDebugMode (no '
-        'MissingPluginException from the platform channel)', (tester) async {
+    testWidgets('8. DoneScreen pumps without any exception (no ScreenProtector '
+        'platform-channel call)', (tester) async {
       final router = _makeRouter();
       addTearDown(router.dispose);
 
@@ -440,16 +415,12 @@ void main() {
         router: router,
       );
 
-      // If ScreenProtector.preventScreenshotOn had been called, the
-      // platform channel would have logged a MissingPluginException and
-      // the pump above would have thrown. Reaching this expect means the
-      // !kDebugMode guard suppressed the call.
       expect(
         tester.takeException(),
         isNull,
         reason:
-            'ScreenProtector must be guarded by !kDebugMode so widget '
-            'tests do not hit the platform channel',
+            'DoneScreen must pump cleanly — no platform channel calls '
+            'that require a mock binding',
       );
     });
   });

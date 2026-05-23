@@ -298,6 +298,34 @@ assert(
 
 ---
 
+## LOW — DoneScreen: no test for currentUserProvider returning null at render time (Phase 2.12)
+
+**File:** `test/features/auth/presentation/done_screen_test.dart`
+
+**Finding:** All 8 tests seed `authenticatedUser` (T1–T6, T8) or focus on the draft-reset contract (T7). No test pumps `/done` with `currentUserProvider` resolving to `null` (auth restore not yet complete). In that state, `firstName` falls back to `registerDoneGreetingFallback` and the role chip label falls back to `l10n.registerDoneChipRoleClient`. Both code paths exist in the source but are exercised only as incidental side-effects of T2 (which has `User.firstName == null` but a non-null user). A future refactor of the null-guard in `build()` could silently break the fallback.
+
+**Fix (next iteration):** Add a test that pumps `/done` with `authRepositoryProvider` overridden to return a repo whose `getMe()` never resolves (or overrides `currentUserProvider` directly with `null`), then asserts the greeting uses the fallback placeholder and the role chip renders the `registerDoneChipRoleClient` text.
+
+**Pattern:** M3 (coverage — null-user fallback state not independently tested).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.12 registration done screen QA audit
+
+---
+
+## LOW — DoneScreen: independentMaster role chip label not exercised in chip assertion (Phase 2.12)
+
+**File:** `test/features/auth/presentation/done_screen_test.dart`
+
+**Finding:** Test 4 asserts the role chip label for `UserRole.client` (`l10n.roleClient`). The fixture `_userWithoutName` has `UserRole.independentMaster` but is used only in T2 (greeting fallback), where no chip label assertion is made. A regression in `UserRoleL10n.label()` for `independentMaster` (or `salonOwner`) would not be caught.
+
+**Fix (next iteration):** Add a test that pumps `/done` with `authenticatedUser: _userWithoutName` (or a dedicated `_userIM` fixture with `UserRole.independentMaster`) and asserts `find.descendant(of: find.byKey(ValueKey('done_chip_role')), matching: find.text(l10n.roleIndependentMaster))` finds one widget.
+
+**Pattern:** M3 (coverage — role-label branch for non-client roles untested in chip).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.12 registration done screen QA audit
+
+---
+
 ## LOW — Test 7b missing MASVS security property assertions (Phase 2.11)
 
 **File:** `test/features/auth/presentation/verification_screen_test.dart` — Test 7b
