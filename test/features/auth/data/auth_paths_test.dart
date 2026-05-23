@@ -27,7 +27,7 @@
 //   7. kAuthPaths contains /auth/resend-verification (OTP redaction — Phase 2.11).
 //   8. kAuthPaths contains /auth/forgot-password (email PII redaction — Phase 2.13).
 //   9. kAuthPaths contains /auth/reset-password (token + password redaction — Phase 2.13).
-//  10. kAuthPaths has exactly 9 entries — no undocumented extras.
+//  10. kAuthPaths has exactly 11 entries — no undocumented extras.
 
 import 'package:beautica_mobile/core/network/auth_paths.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -120,10 +120,10 @@ void main() {
     // Test 10: exact cardinality — catches undocumented additions/removals
     // -----------------------------------------------------------------------
 
-    test('10. has exactly 9 entries — no undocumented paths', () {
+    test('10. has exactly 11 entries — no undocumented paths', () {
       expect(
         kAuthPaths.length,
-        equals(9),
+        equals(11),
         reason:
             'A path was added to or removed from kAuthPaths without a '
             'corresponding test update. Update this test and confirm the '

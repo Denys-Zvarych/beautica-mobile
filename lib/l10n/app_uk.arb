@@ -973,5 +973,71 @@
   "resetErrTokenInvalid": "Посилання недійсне або застаріле. Запросіть нове.",
   "@resetErrTokenInvalid": {
     "description": "userMessage for ResetTokenInvalidFailure (generic backend 400 for invalid/used/expired reset token)."
+  },
+  "inviteHeading": "Вас запрошено",
+  "@inviteHeading": {
+    "description": "Main heading on the accept-invite screen."
+  },
+  "inviteSubtitle": "Завершіть налаштування акаунту, щоб приєднатися до команди салону.",
+  "@inviteSubtitle": {
+    "description": "Sub-heading on the accept-invite screen."
+  },
+  "inviteEmailLabel": "Запрошена пошта",
+  "@inviteEmailLabel": {
+    "description": "Read-only label for the invited email row in the invite preview card."
+  },
+  "inviteRoleLabel": "Роль",
+  "@inviteRoleLabel": {
+    "description": "Read-only label for the role row in the invite preview card."
+  },
+  "inviteExpiresLabel": "Дійсне ще",
+  "@inviteExpiresLabel": {
+    "description": "Read-only label for the expiry row in the invite preview card."
+  },
+  "inviteExpiresValue": "{hours} год",
+  "@inviteExpiresValue": {
+    "description": "Formatted expiry value shown in the invite preview card.",
+    "placeholders": {
+      "hours": {
+        "type": "int",
+        "example": "48"
+      }
+    }
+  },
+  "invitePasswordLabel": "Пароль",
+  "@invitePasswordLabel": {
+    "description": "Label for the password field on the accept-invite screen."
+  },
+  "inviteFirstNameLabel": "Ім'я",
+  "@inviteFirstNameLabel": {
+    "description": "Label for the first-name field on the accept-invite screen."
+  },
+  "inviteLastNameLabel": "Прізвище",
+  "@inviteLastNameLabel": {
+    "description": "Label for the last-name field on the accept-invite screen."
+  },
+  "invitePhoneLabel": "Телефон",
+  "@invitePhoneLabel": {
+    "description": "Label for the optional phone field on the accept-invite screen."
+  },
+  "invitePhoneHelper": "Необов'язково.",
+  "@invitePhoneHelper": {
+    "description": "Helper text below the phone field indicating it is optional."
+  },
+  "inviteAcceptCta": "Приєднатися",
+  "@inviteAcceptCta": {
+    "description": "CTA button label on the accept-invite screen."
+  },
+  "inviteInvalidError": "Запрошення недійсне або прострочено.",
+  "@inviteInvalidError": {
+    "description": "Banner message shown when the invite token is invalid or expired (AsyncError state)."
+  },
+  "inviteExpiredError": "Термін дії запрошення вичерпано.",
+  "@inviteExpiredError": {
+    "description": "Inline error shown when expiresInHours reaches zero."
+  },
+  "inviteSuccessSnackbar": "Вас успішно приєднано до команди!",
+  "@inviteSuccessSnackbar": {
+    "description": "Snackbar message shown after a successful invite acceptance (router then forwards to home)."
   }
 }

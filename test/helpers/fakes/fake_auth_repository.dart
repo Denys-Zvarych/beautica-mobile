@@ -7,6 +7,7 @@
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
+import 'package:beautica_mobile/features/auth/domain/invite_details.dart';
 import 'package:beautica_mobile/features/auth/domain/register_result.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -67,6 +68,22 @@ final class FakeAuthRepository implements AuthRepository {
   ///                  (e.g. [ResetTokenInvalidFailure]).
   Object? confirmPasswordResetResult;
 
+  /// Return value for the next [validateInvite] call.
+  ///
+  /// Accepted values:
+  ///   - `null`          → success with [_defaultInvite].
+  ///   - [InviteDetails] → success with these specific values.
+  ///   - [Failure]       → thrown to simulate an invalid/expired token.
+  Object? validateInviteResult;
+
+  /// Return value for the next [acceptInvite] call.
+  ///
+  /// Accepted values:
+  ///   - `null`               → success with default user + tokens.
+  ///   - `(User, AuthTokens)` → success with these specific values.
+  ///   - [Failure]            → thrown to simulate a backend error.
+  Object? acceptInviteResult;
+
   // ---------------------------------------------------------------------------
   // Captured calls (for assertion in tests)
   // ---------------------------------------------------------------------------
@@ -102,9 +119,30 @@ final class FakeAuthRepository implements AuthRepository {
   final List<({String token, String newPassword})> confirmPasswordResetCalls =
       [];
 
+  /// Captured [token] values for each [validateInvite] call.
+  final List<String> validateInviteCalls = [];
+
+  /// Captured arguments for each [acceptInvite] call.
+  final List<
+    ({
+      String token,
+      String password,
+      String firstName,
+      String lastName,
+      String? phoneNumber,
+    })
+  >
+  acceptInviteCalls = [];
+
   // ---------------------------------------------------------------------------
   // AuthRepository
   // ---------------------------------------------------------------------------
+
+  static final _defaultInvite = InviteDetails(
+    email: 'invited@salon.ua',
+    role: UserRole.salonMaster,
+    expiresAt: DateTime.now().add(const Duration(hours: 48)),
+  );
 
   static const _defaultUser = User(
     id: 'u1',
@@ -221,5 +259,35 @@ final class FakeAuthRepository implements AuthRepository {
     confirmPasswordResetCalls.add((token: token, newPassword: newPassword));
     final result = confirmPasswordResetResult;
     if (result is Failure) throw result;
+  }
+
+  @override
+  Future<InviteDetails> validateInvite({required String token}) async {
+    validateInviteCalls.add(token);
+    final result = validateInviteResult;
+    if (result is Failure) throw result;
+    if (result is InviteDetails) return result;
+    return _defaultInvite;
+  }
+
+  @override
+  Future<(User, AuthTokens)> acceptInvite({
+    required String token,
+    required String password,
+    required String firstName,
+    required String lastName,
+    String? phoneNumber,
+  }) async {
+    acceptInviteCalls.add((
+      token: token,
+      password: password,
+      firstName: firstName,
+      lastName: lastName,
+      phoneNumber: phoneNumber,
+    ));
+    final result = acceptInviteResult;
+    if (result is Failure) throw result;
+    if (result is (User, AuthTokens)) return result;
+    return (_defaultUser, _defaultTokens);
   }
 }

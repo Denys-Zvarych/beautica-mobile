@@ -34,6 +34,11 @@ abstract final class RouteNames {
   /// link works the moment app-link handling is registered.
   static const String resetPassword = '/reset-password';
 
+  // Phase 2.20 — accept-invite deep link. The invite token arrives as the
+  // `token` query parameter from the emailed link (`/invite/accept?token=...`).
+  // Unauthenticated users may land here directly; the router guard allows it.
+  static const String acceptInvite = '/invite/accept';
+
   // Phase 2.11 — email verification; receives email via GoRouterState.extra.
   static const String verification = '/verification';
   // Phase 2.12 — registration done screen (placeholder: redirects to home).

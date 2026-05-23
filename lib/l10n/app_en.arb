@@ -973,5 +973,71 @@
   "resetErrTokenInvalid": "The link is invalid or expired. Request a new one.",
   "@resetErrTokenInvalid": {
     "description": "userMessage for ResetTokenInvalidFailure (generic backend 400 for invalid/used/expired reset token)."
+  },
+  "inviteHeading": "You're invited",
+  "@inviteHeading": {
+    "description": "Main heading on the accept-invite screen."
+  },
+  "inviteSubtitle": "Complete your account setup to join the salon team.",
+  "@inviteSubtitle": {
+    "description": "Sub-heading on the accept-invite screen."
+  },
+  "inviteEmailLabel": "Invited email",
+  "@inviteEmailLabel": {
+    "description": "Read-only label for the invited email row in the invite preview card."
+  },
+  "inviteRoleLabel": "Role",
+  "@inviteRoleLabel": {
+    "description": "Read-only label for the role row in the invite preview card."
+  },
+  "inviteExpiresLabel": "Expires in",
+  "@inviteExpiresLabel": {
+    "description": "Read-only label for the expiry row in the invite preview card."
+  },
+  "inviteExpiresValue": "{hours} h",
+  "@inviteExpiresValue": {
+    "description": "Formatted expiry value shown in the invite preview card.",
+    "placeholders": {
+      "hours": {
+        "type": "int",
+        "example": "48"
+      }
+    }
+  },
+  "invitePasswordLabel": "Password",
+  "@invitePasswordLabel": {
+    "description": "Label for the password field on the accept-invite screen."
+  },
+  "inviteFirstNameLabel": "First name",
+  "@inviteFirstNameLabel": {
+    "description": "Label for the first-name field on the accept-invite screen."
+  },
+  "inviteLastNameLabel": "Last name",
+  "@inviteLastNameLabel": {
+    "description": "Label for the last-name field on the accept-invite screen."
+  },
+  "invitePhoneLabel": "Phone",
+  "@invitePhoneLabel": {
+    "description": "Label for the optional phone field on the accept-invite screen."
+  },
+  "invitePhoneHelper": "Optional.",
+  "@invitePhoneHelper": {
+    "description": "Helper text below the phone field indicating it is optional."
+  },
+  "inviteAcceptCta": "Join",
+  "@inviteAcceptCta": {
+    "description": "CTA button label on the accept-invite screen."
+  },
+  "inviteInvalidError": "Invite is invalid or has expired.",
+  "@inviteInvalidError": {
+    "description": "Banner message shown when the invite token is invalid or expired (AsyncError state)."
+  },
+  "inviteExpiredError": "Invite has expired.",
+  "@inviteExpiredError": {
+    "description": "Inline error shown when expiresInHours reaches zero."
+  },
+  "inviteSuccessSnackbar": "You've successfully joined the team!",
+  "@inviteSuccessSnackbar": {
+    "description": "Snackbar message shown after a successful invite acceptance (router then forwards to home)."
   }
 }

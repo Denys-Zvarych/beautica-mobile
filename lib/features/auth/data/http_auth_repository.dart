@@ -23,6 +23,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../domain/auth_tokens.dart';
+import '../domain/invite_details.dart';
 import '../domain/register_result.dart';
 import '../domain/user.dart';
 import '../domain/user_role.dart';
@@ -397,6 +398,109 @@ final class HttpAuthRepository implements AuthRepository {
         throw ResetTokenInvalidFailure(cause: failure.cause);
       }
       throw failure;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Invite flow — backend Phase 2.20
+  // ---------------------------------------------------------------------------
+
+  /// Validates an invite token against `GET /auth/invite/validate?token=<token>`.
+  ///
+  /// Backend response (inside the standard ApiResponse envelope):
+  ///   `{ "invitedEmail": "...", "role": "SALON_ADMIN|SALON_MASTER",
+  ///      "expiresAt": "2025-01-01T12:00:00Z" }`
+  ///
+  /// Maps 400 / 404 → [ValidationFailure] so the screen can render its
+  /// invalid-token state without branching on raw status codes.
+  @override
+  Future<InviteDetails> validateInvite({required String token}) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/auth/invite/validate',
+        queryParameters: <String, dynamic>{'token': token},
+      );
+      final data = response.data!['data'] as Map<String, dynamic>;
+      final roleRaw = data['role'] as String;
+      final UserRole role;
+      try {
+        role = UserRole.fromWire(roleRaw);
+      } catch (_) {
+        throw const UnknownFailure(cause: 'invite validate: unknown role');
+      }
+      return InviteDetails(
+        email: data['invitedEmail'] as String,
+        role: role,
+        expiresAt: DateTime.parse(data['expiresAt'] as String),
+      );
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'validateInvite failed: ${e.type} ${e.response?.statusCode}',
+          name: 'auth.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      final failure = _mapDioException(e);
+      // 400 / 404 from the backend mean "invalid or expired invite" — both
+      // surface as ValidationFailure (the interceptor maps 400 to Validation
+      // and 404 to NotFound; we normalise both to ValidationFailure here so
+      // the notifier and screen only need to handle one type).
+      if (failure is NotFoundFailure) {
+        throw ValidationFailure(
+          fieldErrors: const <String, String>{},
+          cause: failure.cause,
+        );
+      }
+      throw failure;
+    }
+  }
+
+  /// Accepts an invite via `POST /auth/invite/accept`.
+  ///
+  /// Backend request body: `{ token, password, firstName, lastName,
+  ///   phoneNumber? }`. The response envelope is identical to `/auth/login`:
+  ///   `{ "data": { "user": {...}, "accessToken": "...", "refreshToken": "..." } }`
+  ///
+  /// SECURITY: the request body carries the single-use invite token plus
+  /// the new password — both are PII. `/auth/invite/accept` is redacted by
+  /// [LoggingInterceptor] (it starts with `/auth/`). Debug logs here are
+  /// sanitised to Dio type + status only.
+  @override
+  Future<(User, AuthTokens)> acceptInvite({
+    required String token,
+    required String password,
+    required String firstName,
+    required String lastName,
+    String? phoneNumber,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        'token': token,
+        'password': password,
+        'firstName': firstName,
+        'lastName': lastName,
+      };
+      final trimmedPhone = phoneNumber?.trim();
+      if (trimmedPhone != null && trimmedPhone.isNotEmpty) {
+        body['phoneNumber'] = trimmedPhone;
+      }
+      final response = await _dio.post<Map<String, dynamic>>(
+        '/auth/invite/accept',
+        data: body,
+      );
+      return _parseUserAndTokens(response.data!);
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'acceptInvite failed: ${e.type} ${e.response?.statusCode}',
+          name: 'auth.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
     }
   }
 

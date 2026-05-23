@@ -23,4 +23,10 @@ const Set<String> kAuthPaths = {
   // and the single-use reset token are PII / sensitive).
   '/auth/forgot-password',
   '/auth/reset-password',
+  // Phase 2.20 — invite flow. Both endpoints carry the single-use invite token
+  // and (for accept) the plaintext password. LoggingInterceptor must redact
+  // their bodies; AuthInterceptor must not inject an access token (these are
+  // unauthenticated endpoints).
+  '/auth/invite/validate',
+  '/auth/invite/accept',
 };

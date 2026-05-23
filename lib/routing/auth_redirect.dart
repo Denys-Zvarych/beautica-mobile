@@ -79,6 +79,12 @@ String? authRedirectForLocation(
   // is likewise unauthenticated-only. /reset-password is reached via the
   // emailed deep link with a `?token=` query param; matchedLocation strips the
   // query string, so it matches RouteNames.resetPassword here.
+  //
+  // Phase 2.20 — /invite/accept is unauthenticated-only. It is reached from
+  // the emailed invite deep link (`/invite/accept?token=...`). Once the user
+  // successfully accepts the invite they are transitioned to Authenticated and
+  // the guard's "authenticated + unauthOnlyRoute → /home" rule forwards them
+  // to the home shell automatically.
   final isAtUnauthOnlyRoute =
       location == RouteNames.login ||
       location == RouteNames.register ||
@@ -86,7 +92,8 @@ String? authRedirectForLocation(
       location == RouteNames.registerStep2 ||
       location == RouteNames.registerStep3 ||
       location == RouteNames.forgotPassword ||
-      location == RouteNames.resetPassword;
+      location == RouteNames.resetPassword ||
+      location == RouteNames.acceptInvite;
 
   // Routes where an unauthenticated user may remain once session has settled.
   // /splash is NOT included — it is only valid while session.isLoading is true.

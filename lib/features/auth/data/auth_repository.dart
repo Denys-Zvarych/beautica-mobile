@@ -8,6 +8,7 @@
 // platform packages. This keeps the interface a pure-Dart declaration.
 
 import '../domain/auth_tokens.dart';
+import '../domain/invite_details.dart';
 import '../domain/register_result.dart';
 import '../domain/user.dart';
 import '../domain/user_role.dart';
@@ -155,5 +156,37 @@ abstract interface class AuthRepository {
   Future<void> confirmPasswordReset({
     required String token,
     required String newPassword,
+  });
+
+  /// Validates an invite token and returns the pre-filled [InviteDetails].
+  ///
+  /// `GET /auth/invite/validate?token=<token>`. Called immediately on screen
+  /// arrival to pre-populate the read-only invite preview (email, role, expiry)
+  /// before the user fills in their profile.
+  ///
+  /// Throws:
+  /// - [ValidationFailure] — the token is invalid or expired (400/404).
+  /// - [NetworkFailure] — connectivity issues.
+  /// - [UnknownFailure] — any other unexpected error.
+  Future<InviteDetails> validateInvite({required String token});
+
+  /// Accepts an invite by completing account setup with [password], [firstName],
+  /// [lastName] and optional [phoneNumber].
+  ///
+  /// `POST /auth/invite/accept`. On success the backend creates the account and
+  /// issues a full session (identical shape to `/auth/login`). The caller
+  /// persists the refresh token and transitions to [Authenticated].
+  ///
+  /// Throws:
+  /// - [ValidationFailure] — password too weak, duplicate email, expired token, etc.
+  /// - [NetworkFailure] — connectivity issues.
+  /// - [ServerFailure] — 5xx.
+  /// - [UnknownFailure] — any other unexpected error.
+  Future<(User, AuthTokens)> acceptInvite({
+    required String token,
+    required String password,
+    required String firstName,
+    required String lastName,
+    String? phoneNumber,
   });
 }

@@ -285,6 +285,34 @@ void main() {
         isNull,
       );
     });
+
+    // Phase 2.20 — /invite/accept is an unauthenticated-only route. An
+    // anonymous user arriving via the emailed deep link must stay on the
+    // screen; an already-authenticated user must be bounced to /.
+
+    test('authenticated user at /invite/accept is redirected to /', () {
+      expect(
+        authRedirectForLocation(_authenticatedSession, RouteNames.acceptInvite),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('anonymous user at /invite/accept stays (null)', () {
+      expect(
+        authRedirectForLocation(
+          _unauthenticatedSession,
+          RouteNames.acceptInvite,
+        ),
+        isNull,
+      );
+    });
+
+    test('loading session at /invite/accept stays (null)', () {
+      expect(
+        authRedirectForLocation(_loadingSession, RouteNames.acceptInvite),
+        isNull,
+      );
+    });
   });
 
   // -------------------------------------------------------------------------

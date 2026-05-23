@@ -402,6 +402,43 @@ class AuthNotifier extends _$AuthNotifier {
     }
   }
 
+  /// Accepts an invite by completing profile setup. On success, persists the
+  /// refresh token and transitions to [Authenticated] — the router redirect picks
+  /// up the state change and routes to home.
+  ///
+  /// On failure, state becomes [AsyncError] with the typed [Failure] — the
+  /// calling screen's `.when(error:)` handler (or try/catch) displays it.
+  Future<void> acceptInvite({
+    required String token,
+    required String password,
+    required String firstName,
+    required String lastName,
+    String? phoneNumber,
+  }) async {
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async {
+      final (user, tokens) = await ref
+          .read(authRepositoryProvider)
+          .acceptInvite(
+            token: token,
+            password: password,
+            firstName: firstName,
+            lastName: lastName,
+            phoneNumber: phoneNumber,
+          );
+      await ref
+          .read(secureStorageProvider)
+          .writeRefreshToken(tokens.refreshToken);
+      if (kDebugMode) {
+        log('Invite accepted: user ${user.id}', name: 'auth', level: 800);
+      }
+      return AuthSession.authenticated(
+        user: user,
+        accessToken: tokens.accessToken,
+      );
+    });
+  }
+
   /// Updates the in-memory access token without re-fetching the user profile.
   ///
   /// Called by [RefreshInterceptor] after a silent token refresh so that

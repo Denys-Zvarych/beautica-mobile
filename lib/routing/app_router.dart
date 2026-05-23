@@ -24,6 +24,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../features/auth/presentation/accept_invite_screen.dart';
 import '../features/auth/presentation/auth_notifier.dart';
 import '../features/auth/presentation/done_screen.dart';
 import '../features/auth/presentation/forgot_password_request_screen.dart';
@@ -83,6 +84,17 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.login,
         pageBuilder: (context, state) =>
             _instantPage(state, const LoginScreen()),
+      ),
+      // Phase 2.20 — accept-invite deep link. The single-use token arrives as
+      // the `token` query parameter from the emailed link. A missing/empty
+      // token still loads the screen — the backend's 400/404 on validation
+      // then renders the invalid-invite state via AsyncError.
+      GoRoute(
+        path: RouteNames.acceptInvite,
+        pageBuilder: (context, state) {
+          final token = state.uri.queryParameters['token'] ?? '';
+          return _instantPage(state, AcceptInviteScreen(token: token));
+        },
       ),
       GoRoute(
         path: RouteNames.registerRole,
