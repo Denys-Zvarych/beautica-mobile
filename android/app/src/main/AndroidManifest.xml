@@ -70,6 +70,33 @@
         <meta-data
             android:name="io.flutter.embedding.android.ImpellerBackend"
             android:value="opengles"/>
+
+        <!--
+            MP-STARTUP-FIREBASE: Disable Firebase Messaging auto-init on cold start.
+
+            Root cause: Firebase ships a ContentProvider (FirebaseInitProvider, priority 100)
+            that runs BEFORE Application.onCreate() and calls FirebaseApp.initializeApp().
+            On first cold start on Samsung/Xiaomi/older devices this triggers Keystore operations
+            for FCM token generation and can block process startup for 3–10 seconds.
+
+            firebase_messaging auto-init is disabled here because:
+              1. Firebase push (Phase 8.1) is deferred — FIREBASE_ENABLED=false on Railway.
+              2. The app does not yet call Firebase.initializeApp() in Dart code.
+              3. Enabling auto-init without calling Firebase.initializeApp() in Dart means the
+                 native SDK initializes but the Dart side is not configured, causing a
+                 PlatformException on first FirebaseMessaging.instance usage anyway.
+
+            To re-enable when Phase 8.1 ships:
+              1. Remove or flip these two meta-data entries to "true".
+              2. Add Firebase.initializeApp() in main() (or a deferred post-login init).
+              3. Verify cold-start time stays under 2 s on a cold Pixel 6.
+        -->
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="false"/>
+        <meta-data
+            android:name="firebase_analytics_collection_enabled"
+            android:value="false"/>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

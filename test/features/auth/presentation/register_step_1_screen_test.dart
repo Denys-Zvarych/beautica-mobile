@@ -813,8 +813,7 @@ void main() {
         expect(
           find.text('step-2'),
           findsNothing,
-          reason:
-              'Navigation must be blocked when password exceeds 128 chars',
+          reason: 'Navigation must be blocked when password exceeds 128 chars',
         );
 
         _assertNoRegisterPostFired(repo);

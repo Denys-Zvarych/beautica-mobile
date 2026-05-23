@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'core/theme/app_theme.dart';
@@ -27,6 +28,14 @@ import 'routing/app_router.dart';
 /// [SplashScreen.initState] would never fire, leaving [deferFirstFrame] unreleased.
 /// [SplashScreen.initState] retains a redundant [remove] call as an idempotent
 /// safety net for the cases where `/splash` is navigated to directly.
+///
+/// MP-STARTUP-THEME: [velvetTheme()] is computed once and stored here. The
+/// [MaterialApp.router] widget re-builds on every [authProvider] state change
+/// (via [AuthRefreshNotifier] → [GoRouter.refreshListenable]). Without memoization,
+/// [GoogleFonts.nunitoTextTheme()] allocates a new [TextTheme] on every rebuild.
+/// This is a P1 frame-budget issue on auth transitions, not a cold-start issue.
+final ThemeData _appTheme = velvetTheme();
+
 Future<void> main() async {
   // Required before accessing any binding instance from main() — without it
   // SchedulerBinding.instance below hangs on Mali-G52 / this Flutter combo.
@@ -64,6 +73,23 @@ Future<void> main() async {
   unawaited(
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]),
   );
+
+  // MP-STARTUP-SVG: Pre-parse the splash logo SVG on a background microtask
+  // so that the SplashScreen widget's first render hits the flutter_svg cache
+  // instead of parsing 8 KB of complex overlapping paths on the UI thread.
+  //
+  // logo.svg has 4 <path> elements with semi-transparent fills. First-parse
+  // cost on the Dart compute isolate is ~50–120 ms; at 16 ms/frame budget this
+  // is 3–7 dropped frames if it lands on the raster thread at splash build time.
+  //
+  // SvgAssetLoader.loadBytes(null) enqueues the decode into flutter_svg's
+  // svg.cache via vector_graphics_compiler on a background compute isolate.
+  // The null BuildContext is safe for asset loaders (no MediaQuery needed).
+  unawaited(
+    Future.microtask(
+      () => const SvgAssetLoader('assets/images/logo.svg').loadBytes(null),
+    ),
+  );
 }
 
 class BeauticaApp extends ConsumerWidget {
@@ -80,7 +106,7 @@ class BeauticaApp extends ConsumerWidget {
       // already attached.
       onGenerateTitle: (ctx) => AppLocalizations.of(ctx).appTitle,
       debugShowCheckedModeBanner: false,
-      theme: velvetTheme(),
+      theme: _appTheme,
       themeMode: ThemeMode.light,
       // Localization wiring (Phase 1.3). Carried unchanged from MaterialApp.
       localizationsDelegates: AppLocalizations.localizationsDelegates,

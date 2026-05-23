@@ -425,3 +425,73 @@ assert(
 **Added:** 2026-05-23 | **Audit:** design-parity + form-size batch QA audit
 
 ---
+
+## LOW — widget_test.dart boot smoke test does not assert rendered route identity (mobile-qa startup-perf fix audit)
+
+**File:** `test/widget_test.dart` — `BeauticaApp boots without crashing`
+
+**Finding:** The existing smoke test asserts `findsAtLeastNWidgets(1)` on `Scaffold` which is satisfied by either `SplashScreen` or `LoginScreen`. It cannot distinguish which screen is actually rendered on first pump. If the auth redirect logic fires in unexpected order and lands on a wrong route, the smoke test remains green. Route-identity assertions are covered in `test/routing/app_router_test.dart` for the isolated GoRouter, but not for the full `BeauticaApp` widget tree.
+
+**Fix (next iteration):** After `authProvider` settles to `Unauthenticated` (via the `FakeSecureStorage` empty state), assert the router's `currentConfiguration.uri.toString()` equals `RouteNames.login`. Requires reading `appRouterProvider` from an `UncontrolledProviderScope` container to access the router instance.
+
+**Pattern:** M3 (coverage — loaded/routed state identity not asserted in the top-level smoke test).
+
+**Added:** 2026-05-24 | **Audit:** startup-performance fix (MP-STARTUP-THEME, MP-STARTUP-SVG, MP-STARTUP-FIREBASE)
+
+---
+
+## LOW — SVG pre-warm microtask in main() is not observable from widget tests (mobile-qa startup-perf fix audit)
+
+**File:** `lib/main.dart` — `unawaited(Future.microtask(() => const SvgAssetLoader('assets/images/logo.svg').loadBytes(null)))`
+
+**Finding:** The SVG pre-warm is a fire-and-forget microtask. `flutter_test` has no mechanism to assert that `SvgAssetLoader.loadBytes` was called (it is not a mockable provider; it goes directly to flutter_svg internals). The correctness of the pre-warm path is therefore untestable at the unit/widget layer. The only regression risk is: (1) the asset path changes without updating this call; (2) `SvgAssetLoader` is replaced with a different loader class. Neither would be caught by any existing test.
+
+**Fix (next iteration):** Add an integration test in `integration_test/` that (a) cold-launches the app, (b) navigates to `SplashScreen`, and (c) asserts `find.byType(SvgPicture)` renders within the first frame (i.e. the cache was warm). Alternatively, extract the pre-warm path into an injectable `SvgPrewarmService` that can be mocked.
+
+**Pattern:** M3-adjacent (fire-and-forget startup side-effect with no test seam).
+
+**Added:** 2026-05-24 | **Audit:** startup-performance fix (MP-STARTUP-SVG)
+
+---
+
+## LOW — Firebase auto-init disable (AndroidManifest) has no automated regression guard (mobile-qa startup-perf fix audit)
+
+**File:** `android/app/src/main/AndroidManifest.xml` — `firebase_messaging_auto_init_enabled` and `firebase_analytics_collection_enabled` meta-data entries
+
+**Finding:** The two `meta-data` entries that disable Firebase auto-init on cold start cannot be asserted by `flutter_test`. If they are accidentally removed (e.g. a manifest merge during a `firebase_messaging` package upgrade), cold-start regressions (3–10 s on Samsung/Xiaomi) would not be caught by CI. The only guard is code review.
+
+**Fix (next iteration):** Add a Gradle unit test or a shell-script CI step that greps the merged `AndroidManifest.xml` (output of `./gradlew processDebugManifest`) for both `firebase_messaging_auto_init_enabled` = `false` and `firebase_analytics_collection_enabled` = `false`, failing the build if either is missing or set to `true`. This gives CI-level protection against manifest-merge regressions.
+
+**Pattern:** M3-adjacent (startup regression path with no automated test gate — Android manifest, not Dart).
+
+**Added:** 2026-05-24 | **Audit:** startup-performance fix (MP-STARTUP-FIREBASE)
+
+---
+
+## LOW — SplashScreen 800 ms AnimationController drives no-op tweens (mobile-perf startup-perf fix audit)
+
+**File:** `lib/features/auth/presentation/splash_screen.dart` — `_SplashScreenState._logoCtrl` (800 ms duration)
+
+**Finding:** Both `_logoScale` and `_logoOpacity` are 1.0→1.0 no-op tweens (Phase 2.15 Option A fix). The `AnimationController`, `SingleTickerProviderStateMixin`, `FadeTransition`, and `AnimatedBuilder` widgets exist solely to delay the spinner reveal by 800 ms. This keeps a `Ticker` alive for 800 ms per splash view and allocates two `Tween<double>` + `CurvedAnimation` objects unnecessarily.
+
+**Fix (next iteration):** Replace the controller-based delay with `Future.delayed(const Duration(milliseconds: 800), () { if (mounted) setState(() => _showSpinner = true); })` in `initState`. Remove `SingleTickerProviderStateMixin`, `_logoCtrl`, `_logoScale`, `_logoOpacity`, and the `AnimatedBuilder`/`FadeTransition` wrapper. Keep `SvgPicture.asset` unwrapped (no transform needed). Minor memory + ticker saving.
+
+**Pattern:** MP-adjacent (unnecessary animation infrastructure for a pure timing delay).
+
+**Added:** 2026-05-24 | **Audit:** startup-performance fix (MP-STARTUP-SPLASH)
+
+---
+
+## LOW — cityListProvider / districtListProvider are keepAlive family providers — potential unbounded memory growth (mobile-perf startup-perf fix audit)
+
+**File:** `lib/features/location/` — `cityListProvider` and `districtListProvider` (keepAlive: true, AutoDisposeNotifier family)
+
+**Finding:** Both providers are `keepAlive: true` family providers keyed by oblast/city ID. Every unique key selected by the user is retained for the process lifetime. With the locality picker used across many sessions (especially by power users or testers cycling through oblasts), the retained map grows to O(unique_selections). At current Phase 2.18 usage (single selection per wizard step), impact is negligible. Once the master profile, settings, or booking flow allows re-selection, this can grow.
+
+**Fix (next iteration):** Switch to `autoDispose` (remove `keepAlive: true`) and cache the last N results in a `Map<String, List<...>>` inside `locationRepositoryProvider` (LRU with N=5). This bounds memory to O(N) while preserving UX responsiveness for recently-visited oblasts.
+
+**Pattern:** MP-adjacent (unbounded keepAlive family provider — deferred until multi-screen usage materialises).
+
+**Added:** 2026-05-24 | **Audit:** startup-performance fix (MP-STARTUP-LOCATION)
+
+---
