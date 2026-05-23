@@ -135,3 +135,67 @@ expect(repo.verifyEmailCalls.first.email, equals(_testEmail));
 **Added:** 2026-05-17 | **Audit:** Phase 2.11 backlog fix pass re-audit
 
 ---
+
+## LOW — VelvetLogo compact-size test uses an indirect Container height filter (M4-adjacent)
+
+**File:** `test/core/widgets/neumorphic_test.dart` — VelvetLogo group, test 2
+
+**Finding:** The `compact: true` assertion locates pillow Containers by filtering for square aspect ratio and height > 40 px, then compares sorted heights. This is correct but fragile if any other square Container enters the widget tree (e.g., a prefix icon or future pillow variant). A `Key` added to the pillow Container in the source (`Key('velvet_logo_pillow')`) would make the assertion direct.
+
+**Fix (next iteration):** Add `key: const Key('velvet_logo_pillow')` to the pillow `Container` in `VelvetLogo.build`. Update the test to `tester.getSize(find.byKey(Key('velvet_logo_pillow')))` and compare directly.
+
+**Pattern:** M4-adjacent (indirect assertion on a render-budget dimension).
+
+**Added:** 2026-05-23 | **Audit:** Phase 1.6 neumorphic widget library QA audit
+
+---
+
+## LOW — NeumorphicTextField missing enableInteractiveSelection: false when obscured (mobile-security)
+
+**File:** `lib/core/widgets/neumorphic.dart` — `_NeumorphicTextFieldState` (inner TextField)
+
+**Finding:** When `obscureToggle: true` and `_obscured == true`, the inner `TextField` does not set `enableInteractiveSelection: false`. On some Android OEM keyboards the long-press context menu on an obscured field offers "Select All" and may reveal content via the clipboard path. Defense-in-depth only — no direct exploit path today.
+
+**Fix (next iteration):** Pass `enableInteractiveSelection: !_obscured` to the inner `TextField`. Restore to `true` when `_obscured == false` so revealed-password fields remain normally selectable.
+
+**Pattern:** MS-adjacent (MASVS-PLATFORM, context menu hardening on password fields).
+
+**Added:** 2026-05-23 | **Audit:** Phase 1.6 neumorphic widget library security audit
+
+---
+
+## LOW — NeumorphicTextField autofillHints passthrough lacks obscureToggle pairing assert (mobile-security)
+
+**File:** `lib/core/widgets/neumorphic.dart` — `NeumorphicTextField` constructor
+
+**Finding:** `autofillHints` is an unguarded passthrough. A caller could pass `AutofillHints.password` on a field without `obscureToggle: true`, silently exposing password content in the OS suggestion strip above the keyboard. No current call site does this (zero call sites outside the definition file as of Phase 1.6).
+
+**Fix (next iteration):** Add a debug `assert` before any call site wires this widget to live auth screens:
+```dart
+assert(
+  autofillHints == null ||
+  obscureToggle ||
+  !autofillHints!.any((h) => h == AutofillHints.password || h == AutofillHints.newPassword),
+  'Use obscureToggle: true when passing password autofillHints',
+);
+```
+
+**Pattern:** MS-adjacent (MASVS-PLATFORM, autofill contract).
+
+**Added:** 2026-05-23 | **Audit:** Phase 1.6 neumorphic widget library security audit
+
+---
+
+## LOW — _InsetShadowPainter.paint() allocates Paint + RRect objects per repaint (mobile-perf)
+
+**File:** `lib/core/widgets/neumorphic.dart` — `_InsetShadowPainter.paint()` (~line 50–74)
+
+**Finding:** Three `Paint` objects and one `RRect` are allocated on-stack on every `paint()` call. `shouldRepaint` correctly returns `false` when `radius` is unchanged (auth screens — never changes at runtime), so the painter does not repaint at steady state. GC churn is effectively zero in practice. No action required unless profiling shows allocation pressure on a screen with many inset fields.
+
+**Fix (next iteration):** Hoist the three `Paint` instances to `final` fields on the painter class, initialized once in the constructor. The `RRect` can remain local (it depends on `size` which varies).
+
+**Pattern:** MP-adjacent (GC allocation, zero steady-state impact).
+
+**Added:** 2026-05-23 | **Audit:** Phase 1.6 neumorphic widget library perf audit
+
+---

@@ -7,7 +7,8 @@
 //
 // Covered scenarios:
 //   1. Widget renders without error (smoke test) — Scaffold + Stack present.
-//   2. AuthGradientBackground is rendered as the bottom Stack layer.
+//   2. (Removed — AuthGradientBackground was deleted in Phase 1.6; splash bg
+//      is now BrandColors.base via scaffoldBackgroundColor.)
 //   3. On first pump, CircularProgressIndicator opacity is 0 (_showSpinner=false).
 //   4. After logo animation completes, CircularProgressIndicator appears
 //      (_showSpinner flips to true when AnimationController.status == completed).
@@ -21,7 +22,6 @@
 //   assets/images/logo.svg resolves without any mock. No additional setup
 //   is required.
 
-import 'package:beautica_mobile/features/auth/presentation/auth_gradient_background.dart';
 import 'package:beautica_mobile/features/auth/presentation/splash_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -45,18 +45,6 @@ void main() {
 
       expect(find.byType(SplashScreen), findsOneWidget);
       // No exception thrown — rendering succeeded.
-    });
-
-    // -------------------------------------------------------------------------
-    // Test 2 — AuthGradientBackground is the bottom Stack layer
-    // -------------------------------------------------------------------------
-    testWidgets('2. AuthGradientBackground is rendered inside the Stack', (
-      tester,
-    ) async {
-      await tester.pumpWidget(_buildApp());
-      await tester.pump();
-
-      expect(find.byType(AuthGradientBackground), findsOneWidget);
     });
 
     // -------------------------------------------------------------------------

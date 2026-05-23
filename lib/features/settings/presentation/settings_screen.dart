@@ -27,7 +27,6 @@ import 'package:go_router/go_router.dart';
 import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/theme/brand_colors.dart';
-import '../../../features/auth/presentation/auth_gradient_background.dart';
 import '../../../features/auth/presentation/auth_notifier.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
@@ -148,11 +147,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
       body: Stack(
         children: [
-          // PERF: RepaintBoundary keeps the gradient layer in its own
-          // composited layer; ListView scrolls and ScaffoldMessenger toasts
-          // would otherwise invalidate it. AuthGradientBackground also wraps
-          // itself; Flutter coalesces the duplicate boundary.
-          const RepaintBoundary(child: AuthGradientBackground()),
           SafeArea(
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

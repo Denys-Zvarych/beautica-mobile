@@ -26,7 +26,6 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/brand_colors.dart';
-import '../../features/auth/presentation/auth_gradient_background.dart';
 
 /// Shared outer scaffold for the auth screens (login + register).
 ///
@@ -54,12 +53,6 @@ class AuthScaffold extends StatelessWidget {
       backgroundColor: BrandColors.base,
       body: Stack(
         children: [
-          // PERF: Belt-and-braces — AuthGradientBackground also wraps itself
-          // in a RepaintBoundary internally. Wrapping again at the call site
-          // guarantees the layer is hoisted even if a future refactor inside
-          // AuthGradientBackground removes the inner boundary. Flutter
-          // coalesces adjacent RepaintBoundary widgets, so this is free.
-          const RepaintBoundary(child: AuthGradientBackground()),
           SafeArea(
             child: LayoutBuilder(
               builder: (ctx, c) => SingleChildScrollView(
