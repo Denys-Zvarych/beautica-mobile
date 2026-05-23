@@ -426,6 +426,14 @@
   "@registerPhoneHint": {
     "description": "Hint text showing the Ukrainian phone number format pattern in the registration phone field."
   },
+  "registerPhoneRequired": "Please enter your phone number",
+  "@registerPhoneRequired": {
+    "description": "Inline validation error on the Step 2 phone field when the field is empty and the user has touched it (touched-driven inline error, not Form validator)."
+  },
+  "step2SalonNameHelper": "Displayed to clients in your profile.",
+  "@step2SalonNameHelper": {
+    "description": "Helper text below the salon-name field on the Step 2 Profile screen (VelvetTouch). Shown only for SALON_OWNER role."
+  },
   "registerPasswordPlaceholder": "At least 8 characters",
   "@registerPasswordPlaceholder": {
     "description": "In-field placeholder for the password input on the registration details screen (sign-up-page.html input placeholder)."

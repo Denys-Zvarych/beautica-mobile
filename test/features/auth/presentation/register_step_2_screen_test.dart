@@ -1,15 +1,24 @@
-// Phase 2.17 — Widget tests for [RegisterStep2Screen].
+// Phase 2.17 — Widget tests for [RegisterStep2Screen] — VelvetTouch redesign.
 //
-// SOURCE OF TRUTH: docs/signup-designs/sign-up-step-2-profile.html.
+// Design source: docs/signup-designs/VelvetTouchDesign/lib/screens/sign_up_screen.dart
+// (profile-fields section only).
 //
-// Covered scenarios (6 minimum per spec Step 7):
-//   1. CLIENT variant renders 3 fields (name/surname/phone), NO salon section.
-//   2. MASTER variant renders 3 fields (name/surname/phone), NO salon section.
-//   3. OWNER variant renders 4 fields including "field-salon-name".
-//   4. Validators trip on empty + invalid input (each field).
-//   5. Valid submit writes draft + navigates to /register/step-3.
-//   6. Returning to Step 2 via "← Назад" preserves draft (initState re-seeds).
-//   7. Non-OWNER valid submit calls updateStep2 with salonName='' (default branch).
+// Key changes from the glassmorphism version:
+//   - Field keys updated: step2_first_name, step2_last_name, step2_phone,
+//     step2_salon_name, step2_submit (ValueKey<String>).
+//   - No Form/TextFormField — validation is inline (phone touched-driven).
+//   - No SubStepIndicator, no sub-step dots (shell owns progress).
+//   - No BackdropFilter, no glassmorphism in the widget tree.
+//   - AuthScaffold owns the Scaffold — router must NOT add a second Scaffold.
+//
+// Covered scenarios (7 tests):
+//   1. CLIENT: firstName, lastName, phone fields present; salon_name absent.
+//   2. SALON_OWNER: all four fields present.
+//   3. Phone required validation fires after _phoneTouched (inline error).
+//   4. Pre-fill from draft in initState.
+//   5. Navigates to registerStep3 on valid submit (phone non-empty).
+//   6. updateStep2 called with correct args on submit.
+//   7. No BackdropFilter in the widget tree.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_step_2_screen.dart';
@@ -25,19 +34,16 @@ import 'package:go_router/go_router.dart';
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Builds a router for the test. The Step-2 route renders [RegisterStep2Screen]
+/// directly — no outer Scaffold wrapper because [AuthScaffold] owns the
+/// Scaffold internally.
 GoRouter _makeRouter({String stepThreeLabel = 'step-3'}) => GoRouter(
   initialLocation: RouteNames.registerStep2,
   redirect: (context, state) => null,
-  routes: [
+  routes: <RouteBase>[
     GoRoute(
       path: RouteNames.registerStep2,
-      // Minimal Scaffold so TextFormFields can find a Material ancestor.
-      builder: (context, state) => const Scaffold(
-        body: SingleChildScrollView(
-          padding: EdgeInsets.all(16),
-          child: RegisterStep2Screen(),
-        ),
-      ),
+      builder: (context, state) => const RegisterStep2Screen(),
     ),
     GoRoute(
       path: RouteNames.registerStep3,
@@ -57,8 +63,8 @@ GoRouter _makeRouter({String stepThreeLabel = 'step-3'}) => GoRouter(
   ],
 );
 
-/// Builds the test app with a [ProviderContainer] that has [registerDraftProvider]
-/// pre-seeded with [role].
+/// Wraps the app under test in [UncontrolledProviderScope] and the minimal
+/// localisation + routing delegates.
 Widget _buildApp({
   required GoRouter router,
   required ProviderContainer container,
@@ -72,7 +78,7 @@ Widget _buildApp({
   ),
 );
 
-/// Returns a fresh [ProviderContainer] with the draft pre-seeded for [role].
+/// Creates a fresh [ProviderContainer] with the draft pre-seeded for [role].
 ProviderContainer _containerWithRole(UserRole role) {
   final container = ProviderContainer();
   container.read(registerDraftProvider.notifier).start(role);
@@ -96,20 +102,32 @@ void main() {
 
     tearDown(() => container.dispose());
 
-    testWidgets('renders 3 fields and NO salon section', (tester) async {
-      await tester.pumpWidget(_buildApp(router: router, container: container));
-      await tester.pumpAndSettle();
+    testWidgets(
+      'renders firstName, lastName, phone fields; salon_name absent',
+      (tester) async {
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
 
-      // All three personal fields present.
-      expect(find.byKey(const Key('field-name')), findsOneWidget);
-      expect(find.byKey(const Key('field-surname')), findsOneWidget);
-      expect(find.byKey(const Key('field-phone')), findsOneWidget);
-
-      // Salon-specific widgets absent.
-      expect(find.byKey(const Key('field-salon-name')), findsNothing);
-      expect(find.byKey(const Key('salon-section-divider')), findsNothing);
-      expect(find.byKey(const Key('salon-section-label')), findsNothing);
-    });
+        expect(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('step2_salon_name')),
+          findsNothing,
+        );
+      },
+    );
   });
 
   // ── Test 2 — INDEPENDENT_MASTER variant ──────────────────────────────────
@@ -124,20 +142,35 @@ void main() {
 
     tearDown(() => container.dispose());
 
-    testWidgets('renders 3 fields and NO salon section', (tester) async {
-      await tester.pumpWidget(_buildApp(router: router, container: container));
-      await tester.pumpAndSettle();
+    testWidgets(
+      'renders firstName, lastName, phone fields; salon_name absent',
+      (tester) async {
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('field-name')), findsOneWidget);
-      expect(find.byKey(const Key('field-surname')), findsOneWidget);
-      expect(find.byKey(const Key('field-phone')), findsOneWidget);
-
-      expect(find.byKey(const Key('field-salon-name')), findsNothing);
-      expect(find.byKey(const Key('salon-section-divider')), findsNothing);
-    });
+        expect(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('step2_salon_name')),
+          findsNothing,
+        );
+      },
+    );
   });
 
-  // ── Test 3 — SALON_OWNER variant ─────────────────────────────────────────
+  // ── Test 2b — SALON_OWNER variant ────────────────────────────────────────
   group('SALON_OWNER variant', () {
     late ProviderContainer container;
     late GoRouter router;
@@ -149,144 +182,33 @@ void main() {
 
     tearDown(() => container.dispose());
 
-    testWidgets(
-      'renders 4 fields including salon-name; no divider and no section label',
-      (tester) async {
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        // Personal fields + salon-name field all present.
-        expect(find.byKey(const Key('field-name')), findsOneWidget);
-        expect(find.byKey(const Key('field-surname')), findsOneWidget);
-        expect(find.byKey(const Key('field-phone')), findsOneWidget);
-        expect(find.byKey(const Key('field-salon-name')), findsOneWidget);
-
-        // Divider and section-label are removed per design alignment.
-        expect(find.byKey(const Key('salon-section-divider')), findsNothing);
-        expect(find.byKey(const Key('salon-section-label')), findsNothing);
-
-        // Confirm the section label text is absent — not just the key.
-        expect(find.text('Дані салону'), findsNothing);
-        expect(find.text('ДАНІ САЛОНУ'), findsNothing);
-      },
-    );
-  });
-
-  // ── Test 4 — Validators ───────────────────────────────────────────────────
-  group('Validators', () {
-    late ProviderContainer container;
-    late GoRouter router;
-
-    setUp(() {
-      container = _containerWithRole(UserRole.salonOwner);
-      router = _makeRouter();
-    });
-
-    tearDown(() => container.dispose());
-
-    // Test 4a — all-empty submit: fields stay visible, navigation does NOT occur,
-    //           and the salon-name required error text is rendered.
-    testWidgets(
-      '4a: empty submit — step-3 not reached and errSalonNameRequired shown',
-      (tester) async {
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        // Tap CTA without filling any field.
-        await tester.tap(find.byKey(const Key('btn-continue-step2')));
-        await tester.pumpAndSettle();
-
-        // (a) key fields still present — navigation did NOT occur.
-        expect(find.byKey(const Key('field-name')), findsOneWidget);
-        expect(find.byKey(const Key('field-salon-name')), findsOneWidget);
-        // step-3 marker is absent.
-        expect(find.text('step-3'), findsNothing);
-
-        // (b) salon-name required error is rendered.
-        // ARB key errSalonNameRequired = "Введіть назву салону"
-        expect(find.text('Введіть назву салону'), findsOneWidget);
-      },
-    );
-
-    // Test 4b — invalid phone submit: navigation blocked, phone error rendered.
-    testWidgets(
-      '4b: invalid phone — step-3 not reached and errPhoneInvalid shown',
-      (tester) async {
-        await tester.pumpWidget(
-          _buildApp(router: router, container: container),
-        );
-        await tester.pumpAndSettle();
-
-        // Fill name and surname; enter an invalid phone; fill salon name.
-        await tester.enterText(find.byKey(const Key('field-name')), 'Марія');
-        await tester.enterText(
-          find.byKey(const Key('field-surname')),
-          'Лазаренко',
-        );
-        await tester.enterText(find.byKey(const Key('field-phone')), '123');
-        await tester.enterText(
-          find.byKey(const Key('field-salon-name')),
-          'Lumière',
-        );
-
-        await tester.tap(find.byKey(const Key('btn-continue-step2')));
-        await tester.pumpAndSettle();
-
-        // (a) field-phone still present; navigation did NOT occur.
-        expect(find.byKey(const Key('field-phone')), findsOneWidget);
-        expect(find.byKey(const Key('field-name')), findsOneWidget);
-        expect(find.text('step-3'), findsNothing);
-
-        // (b) phone validation error is rendered. Resolve via the l10n key so
-        // the assertion survives copy changes (Defect 4 shortened the string).
-        final l10n = AppLocalizations.of(
-          tester.element(find.byKey(const Key('field-phone'))),
-        );
-        expect(find.text(l10n.errPhoneInvalid), findsOneWidget);
-      },
-    );
-
-    testWidgets('trips on salon name too short (< 2 chars) for OWNER', (
-      tester,
-    ) async {
+    testWidgets('renders all four fields', (tester) async {
       await tester.pumpWidget(_buildApp(router: router, container: container));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byKey(const Key('field-name')), 'Марія');
-      await tester.enterText(
-        find.byKey(const Key('field-surname')),
-        'Лазаренко',
+      expect(
+        find.byKey(const ValueKey<String>('step2_first_name')),
+        findsOneWidget,
       );
-      await tester.enterText(
-        find.byKey(const Key('field-phone')),
-        '+380501112233',
+      expect(
+        find.byKey(const ValueKey<String>('step2_last_name')),
+        findsOneWidget,
       );
-      await tester.enterText(find.byKey(const Key('field-salon-name')), 'X');
-
-      await tester.tap(find.byKey(const Key('btn-continue-step2')));
-      await tester.pumpAndSettle();
-
-      // Still on step-2 (validation failure).
-      expect(find.byKey(const Key('field-name')), findsOneWidget);
-      // step-3 marker is absent.
-      expect(find.text('step-3'), findsNothing);
-      // salon-name required error is rendered (1 char treated as too short).
-      expect(find.text('Введіть назву салону'), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('step2_phone')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('step2_salon_name')),
+        findsOneWidget,
+      );
     });
   });
 
-  // ── Test 5 — Valid submit → draft written + navigation ───────────────────
-  group('Valid submit', () {
+  // ── Test 3 — Phone required inline error after touch ─────────────────────
+  group('Phone required validation', () {
     testWidgets(
-      'CLIENT: writes draft with salonName="" and navigates to /register/step-3',
+      'shows registerPhoneRequired after tapping submit with empty phone',
       (tester) async {
         final container = _containerWithRole(UserRole.client);
         addTearDown(container.dispose);
-
         final router = _makeRouter();
 
         await tester.pumpWidget(
@@ -294,39 +216,27 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await tester.enterText(find.byKey(const Key('field-name')), 'Аня');
-        await tester.enterText(
-          find.byKey(const Key('field-surname')),
-          'Коваль',
-        );
-        await tester.enterText(
-          find.byKey(const Key('field-phone')),
-          '+380671234567',
-        );
-
-        await tester.tap(find.byKey(const Key('btn-continue-step2')));
+        // Tap submit without entering a phone number.
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
         await tester.pumpAndSettle();
 
-        // ── Verify draft was written ──
-        final draft = container.read(registerDraftProvider);
-        expect(draft, isNotNull);
-        expect(draft!.firstName, equals('Аня'));
-        expect(draft.lastName, equals('Коваль'));
-        expect(draft.phone, equals('+380671234567'));
-        // updateStep2 salonName='' default branch exercised for non-owner.
-        expect(draft.salonName, equals(''));
+        // Error is surfaced via the inline NeumorphicTextField errorText.
+        // Resolve via l10n key so the assertion survives copy changes.
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('step2_phone'))),
+        );
+        expect(find.text(l10n.registerPhoneRequired), findsOneWidget);
 
-        // ── Verify navigation ──
-        expect(find.text('step-3'), findsOneWidget);
+        // Navigation did NOT occur.
+        expect(find.text('step-3'), findsNothing);
       },
     );
 
     testWidgets(
-      'OWNER: writes draft with salonName and navigates to /register/step-3',
+      'error shown when phone field touched with valid chars then cleared',
       (tester) async {
-        final container = _containerWithRole(UserRole.salonOwner);
+        final container = _containerWithRole(UserRole.client);
         addTearDown(container.dispose);
-
         final router = _makeRouter();
 
         await tester.pumpWidget(
@@ -334,44 +244,34 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await tester.enterText(find.byKey(const Key('field-name')), 'Марія');
-        await tester.enterText(
-          find.byKey(const Key('field-surname')),
-          'Лазаренко',
-        );
-        await tester.enterText(
-          find.byKey(const Key('field-phone')),
-          '+380501112233',
-        );
-        await tester.enterText(
-          find.byKey(const Key('field-salon-name')),
-          'Salon Lumière',
-        );
+        final phoneFinder = find.byKey(const ValueKey<String>('step2_phone'));
 
-        await tester.tap(find.byKey(const Key('btn-continue-step2')));
+        // Enter a valid phone character (passes the formatter) — sets
+        // _phoneTouched=true and _phoneValue='+'.
+        await tester.enterText(phoneFinder, '+');
         await tester.pumpAndSettle();
 
-        final draft = container.read(registerDraftProvider);
-        expect(draft, isNotNull);
-        expect(draft!.firstName, equals('Марія'));
-        expect(draft.salonName, equals('Salon Lumière'));
+        // Clear the field — sets _phoneValue='' (still touched).
+        await tester.enterText(phoneFinder, '');
+        await tester.pumpAndSettle();
 
-        expect(find.text('step-3'), findsOneWidget);
+        // _phoneTouched=true, _phoneValue='' → _phoneError is non-null.
+        final l10n = AppLocalizations.of(tester.element(phoneFinder));
+        expect(find.text(l10n.registerPhoneRequired), findsOneWidget);
       },
     );
   });
 
-  // ── Test 6 — "← Назад" preserves draft ──────────────────────────────────
-  group('Back navigation preserves draft', () {
-    testWidgets('returning to step-2 re-seeds controllers from draft', (
+  // ── Test 4 — Pre-fill from draft in initState ────────────────────────────
+  group('Pre-fill from draft', () {
+    testWidgets('initState seeds controllers from existing draft', (
       tester,
     ) async {
-      // Pre-seed the draft with Step 2 data as if the user filled the form
-      // and then came back from Step 3.
       final container = _containerWithRole(UserRole.independentMaster);
       addTearDown(container.dispose);
 
-      // Write Step 2 data into draft directly (simulating a completed submit).
+      // Write Step 2 data into the draft directly (simulates returning from
+      // Step 3 via the back button).
       container
           .read(registerDraftProvider.notifier)
           .updateStep2(
@@ -381,42 +281,37 @@ void main() {
           );
 
       final router = _makeRouter();
-
       await tester.pumpWidget(_buildApp(router: router, container: container));
       await tester.pumpAndSettle();
 
-      // Screen mounts with draft data — controllers should be pre-filled.
-      final nameField = tester.widget<EditableText>(
-        find.descendant(
-          of: find.byKey(const Key('field-name')),
-          matching: find.byType(EditableText),
-        ),
+      // Controllers should be pre-filled from the draft.
+      final nameEditables = find.descendant(
+        of: find.byKey(const ValueKey<String>('step2_first_name')),
+        matching: find.byType(EditableText),
       );
-      final surnameField = tester.widget<EditableText>(
-        find.descendant(
-          of: find.byKey(const Key('field-surname')),
-          matching: find.byType(EditableText),
-        ),
+      final surnameEditables = find.descendant(
+        of: find.byKey(const ValueKey<String>('step2_last_name')),
+        matching: find.byType(EditableText),
       );
 
-      expect(nameField.controller.text, equals('Оля'));
-      expect(surnameField.controller.text, equals('Тимченко'));
-
-      // Draft is unchanged (no reset was called).
-      final draft = container.read(registerDraftProvider);
-      expect(draft?.firstName, equals('Оля'));
-      expect(draft?.lastName, equals('Тимченко'));
+      expect(
+        tester.widget<EditableText>(nameEditables).controller.text,
+        equals('Оля'),
+      );
+      expect(
+        tester.widget<EditableText>(surnameEditables).controller.text,
+        equals('Тимченко'),
+      );
     });
   });
 
-  // ── Test 7 — salonName='' default branch for INDEPENDENT_MASTER ──────────
-  group('updateStep2 salonName default branch', () {
+  // ── Test 5 — Valid submit navigates to registerStep3 ─────────────────────
+  group('Valid submit', () {
     testWidgets(
-      'MASTER valid submit: updateStep2 called with salonName empty string',
+      'CLIENT: navigates to /register/step-3 when phone is non-empty',
       (tester) async {
-        final container = _containerWithRole(UserRole.independentMaster);
+        final container = _containerWithRole(UserRole.client);
         addTearDown(container.dispose);
-
         final router = _makeRouter();
 
         await tester.pumpWidget(
@@ -424,69 +319,300 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await tester.enterText(find.byKey(const Key('field-name')), 'Оля');
         await tester.enterText(
-          find.byKey(const Key('field-surname')),
-          'Тимченко',
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Аня',
         );
         await tester.enterText(
-          find.byKey(const Key('field-phone')),
-          '+380672345678',
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Коваль',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380671234567',
         );
 
-        await tester.tap(find.byKey(const Key('btn-continue-step2')));
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
         await tester.pumpAndSettle();
 
-        final draft = container.read(registerDraftProvider);
-        expect(draft, isNotNull);
-        // updateStep2's optional salonName parameter defaults to '' — this is
-        // the branch the spec requires a test to exercise explicitly.
-        expect(draft!.salonName, equals(''));
-        // Confirms navigation completed.
+        expect(find.text('step-3'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'OWNER: navigates to /register/step-3 when phone and salon name filled',
+      (tester) async {
+        final container = _containerWithRole(UserRole.salonOwner);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Марія',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Лазаренко',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380501112233',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_salon_name')),
+          'Salon Lumière',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
         expect(find.text('step-3'), findsOneWidget);
       },
     );
   });
 
-  // ── Test 8 — Sub-step indicator renders (dots-only, no visible label) ────
-  group('SubStepIndicator', () {
-    testWidgets('renders two pill dots; no visible sub-step label text', (
+  // ── Test 6 — updateStep2 called with correct args ────────────────────────
+  group('updateStep2 args', () {
+    testWidgets(
+      'CLIENT: draft has correct firstName, lastName, phone; salonName is ""',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Аня',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Коваль',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380671234567',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        final draft = container.read(registerDraftProvider);
+        expect(draft, isNotNull);
+        expect(draft!.firstName, equals('Аня'));
+        expect(draft.lastName, equals('Коваль'));
+        expect(draft.phone, equals('+380671234567'));
+        // Non-owner: salonName must be '' (exercises the optional default branch).
+        expect(draft.salonName, equals(''));
+      },
+    );
+
+    testWidgets('OWNER: draft has correct salonName from field', (
       tester,
     ) async {
-      final container = _containerWithRole(UserRole.client);
+      final container = _containerWithRole(UserRole.salonOwner);
       addTearDown(container.dispose);
-
       final router = _makeRouter();
 
       await tester.pumpWidget(_buildApp(router: router, container: container));
       await tester.pumpAndSettle();
 
-      // Dots present.
-      expect(find.byKey(const Key('substep-indicator')), findsOneWidget);
-      expect(find.byKey(const Key('substep-dot-0')), findsOneWidget);
-      expect(find.byKey(const Key('substep-dot-1')), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step2_first_name')),
+        'Марія',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step2_last_name')),
+        'Лазаренко',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step2_phone')),
+        '+380501112233',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step2_salon_name')),
+        'Salon Lumière',
+      );
 
-      // Visible label text is absent — design is dots-only.
-      expect(find.text('Крок 2.1 — Профіль'), findsNothing);
-      expect(find.text('КРОК 2.1 — ПРОФІЛЬ'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+      await tester.pumpAndSettle();
 
-      // The label key is not rendered (dots-only widget no longer emits it).
-      expect(find.byKey(const Key('substep-label')), findsNothing);
+      final draft = container.read(registerDraftProvider);
+      expect(draft, isNotNull);
+      expect(draft!.salonName, equals('Salon Lumière'));
+    });
+
+    testWidgets('INDEPENDENT_MASTER: salonName is "" on submit', (
+      tester,
+    ) async {
+      final container = _containerWithRole(UserRole.independentMaster);
+      addTearDown(container.dispose);
+      final router = _makeRouter();
+
+      await tester.pumpWidget(_buildApp(router: router, container: container));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step2_first_name')),
+        'Оля',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step2_last_name')),
+        'Тимченко',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step2_phone')),
+        '+380672345678',
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+      await tester.pumpAndSettle();
+
+      final draft = container.read(registerDraftProvider);
+      expect(draft, isNotNull);
+      expect(draft!.salonName, equals(''));
+      expect(find.text('step-3'), findsOneWidget);
     });
   });
 
-  // ── Test 9 — CTA button present ──────────────────────────────────────────
-  group('CTA button', () {
-    testWidgets('btn-continue-step2 is present and tappable', (tester) async {
+  // ── Test 7 — No BackdropFilter in tree ───────────────────────────────────
+  group('VelvetTouch design constraints', () {
+    testWidgets('no BackdropFilter widget exists in the tree', (tester) async {
       final container = _containerWithRole(UserRole.client);
       addTearDown(container.dispose);
-
       final router = _makeRouter();
 
       await tester.pumpWidget(_buildApp(router: router, container: container));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('btn-continue-step2')), findsOneWidget);
+      expect(find.byType(BackdropFilter), findsNothing);
     });
+  });
+
+  // ── M-REG-PHONE-FORMAT-1 / M-REG-PHONE-FORMAT-2 regression tests ──────────
+  //
+  // Security agent MEDIUM-1 fix: validatePhone() rejects structurally invalid
+  // numbers (e.g. "+" alone). These tests verify:
+  //   FORMAT-1 — "+" only → blocked (errPhoneInvalid shown, no navigation).
+  //   FORMAT-2 — "+380501234567" → proceeds (no error, navigates to step-3).
+  //
+  // Also covers the _phoneFormatError-cleared-on-edit path: after a format
+  // error is set by submit, typing in the phone field must clear the error.
+  group('Phone format validation (M-REG-PHONE-FORMAT regression)', () {
+    testWidgets(
+      'M-REG-PHONE-FORMAT-1: "+" only blocks submit and shows errPhoneInvalid',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        // Enter "+" — passes the empty guard but fails validatePhone.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+',
+        );
+
+        // Tap submit.
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        // Navigation must be blocked.
+        expect(find.text('step-3'), findsNothing);
+
+        // Format error (errPhoneInvalid) must be visible, not the empty-field
+        // required message.
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('step2_phone')),
+          ),
+        );
+        expect(find.text(l10n.errPhoneInvalid), findsOneWidget);
+        expect(find.text(l10n.registerPhoneRequired), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'M-REG-PHONE-FORMAT-2: "+380501234567" passes validation and navigates',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        // Resolve l10n before navigation removes the Step 2 widgets from the
+        // tree.
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('step2_phone'))),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380501234567',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        // No phone error was rendered before navigation.
+        expect(find.text(l10n.errPhoneInvalid), findsNothing);
+        expect(find.text(l10n.registerPhoneRequired), findsNothing);
+
+        // Navigation to step-3 occurred.
+        expect(find.text('step-3'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'format error cleared when user edits phone field after failed submit',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        final phoneFinder =
+            find.byKey(const ValueKey<String>('step2_phone'));
+
+        // 1. Trigger a format error: submit with "+" (non-empty, fails format).
+        await tester.enterText(phoneFinder, '+');
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(tester.element(phoneFinder));
+        expect(find.text(l10n.errPhoneInvalid), findsOneWidget);
+
+        // 2. User edits the field — _phoneFormatError must be cleared
+        //    immediately on onChanged, before the next submit.
+        await tester.enterText(phoneFinder, '+380');
+        await tester.pumpAndSettle();
+
+        // Format error is gone; the required error is also absent (field is
+        // non-empty).
+        expect(find.text(l10n.errPhoneInvalid), findsNothing);
+        expect(find.text(l10n.registerPhoneRequired), findsNothing);
+      },
+    );
   });
 }

@@ -184,6 +184,12 @@ class NeumorphicTextField extends StatefulWidget {
 }
 
 class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
+  // Phase 2.17 fix P1-1: hoisted to avoid a .copyWith() allocation per build.
+  // VelvetText.input() already carries FontWeight.w600 — omit it here.
+  static final TextStyle _hintStyle = VelvetText.input().copyWith(
+    color: BrandColors.placeholder,
+  );
+
   late final FocusNode _focusNode;
   bool _obscured = true;
   bool _focused = false;
@@ -269,10 +275,7 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
                       isCollapsed: true,
                       border: InputBorder.none,
                       hintText: widget.hintText,
-                      hintStyle: VelvetText.input().copyWith(
-                        color: BrandColors.placeholder,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      hintStyle: _hintStyle,
                       contentPadding: EdgeInsets.symmetric(
                         horizontal: widget.prefixIcon == null
                             ? VelvetSpacing.md
@@ -368,105 +371,113 @@ class _NeumorphicButtonState extends State<NeumorphicButton> {
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      enabled: _enabled,
-      label: widget.label,
-      child: GestureDetector(
-        onTapDown: _enabled ? (_) => setState(() => _pressed = true) : null,
-        onTapCancel: _enabled ? () => setState(() => _pressed = false) : null,
-        onTapUp: _enabled
-            ? (_) {
-                setState(() => _pressed = false);
-                widget.onPressed!.call();
-              }
-            : null,
-        child: AnimatedScale(
-          scale: _pressed ? 0.97 : 1,
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOut,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            height: VelvetSizes.cta,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: <Color>[
-                  BrandColors.accentLatte,
-                  BrandColors.accentDeep,
-                ],
+    // Phase 2.17 fix P1-2: isolate press-animation repaints from parent scroll.
+    return RepaintBoundary(
+      child: Semantics(
+        button: true,
+        enabled: _enabled,
+        label: widget.label,
+        child: GestureDetector(
+          onTapDown: _enabled ? (_) => setState(() => _pressed = true) : null,
+          onTapCancel: _enabled ? () => setState(() => _pressed = false) : null,
+          onTapUp: _enabled
+              ? (_) {
+                  setState(() => _pressed = false);
+                  widget.onPressed!.call();
+                }
+              : null,
+          child: AnimatedScale(
+            scale: _pressed ? 0.97 : 1,
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              height: VelvetSizes.cta,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: <Color>[
+                    BrandColors.accentLatte,
+                    BrandColors.accentDeep,
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(VelvetRadii.button),
+                boxShadow: _pressed || !_enabled
+                    ? null
+                    : VelvetShadows.extrudedButtonAccent,
               ),
-              borderRadius: BorderRadius.circular(VelvetRadii.button),
-              boxShadow: _pressed || !_enabled
-                  ? null
-                  : VelvetShadows.extrudedButtonAccent,
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(VelvetRadii.button),
-              child: Stack(
-                children: <Widget>[
-                  // Label / spinner layer.
-                  Center(
-                    child: widget.loading
-                        ? SizedBox(
-                            height: 22,
-                            width: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.4,
-                              color: BrandColors.white.withValues(
-                                alpha: _enabled ? 1.0 : 0.55,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(VelvetRadii.button),
+                child: Stack(
+                  children: <Widget>[
+                    // Label / spinner layer.
+                    Center(
+                      child: widget.loading
+                          ? SizedBox(
+                              height: 22,
+                              width: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                                color: BrandColors.white.withValues(
+                                  alpha: _enabled ? 1.0 : 0.55,
+                                ),
                               ),
+                            )
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: <Widget>[
+                                if (widget.icon != null) ...<Widget>[
+                                  Icon(
+                                    widget.icon,
+                                    color: BrandColors.white.withValues(
+                                      alpha: _enabled ? 1.0 : 0.55,
+                                    ),
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: VelvetSpacing.sm),
+                                ],
+                                // Phase 2.17 fix P1-3: zero-allocation on enabled
+                                // path — VelvetText.cta() already carries
+                                // color: BrandColors.white so no copyWith needed.
+                                Text(
+                                  widget.label,
+                                  style: _enabled
+                                      ? VelvetText.cta()
+                                      : VelvetText.cta().copyWith(
+                                          color: BrandColors.white.withValues(
+                                            alpha: 0.55,
+                                          ),
+                                        ),
+                                ),
+                              ],
                             ),
-                          )
-                        : Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              if (widget.icon != null) ...<Widget>[
-                                Icon(
-                                  widget.icon,
-                                  color: BrandColors.white.withValues(
-                                    alpha: _enabled ? 1.0 : 0.55,
-                                  ),
-                                  size: 20,
-                                ),
-                                const SizedBox(width: VelvetSpacing.sm),
-                              ],
-                              Text(
-                                widget.label,
-                                style: VelvetText.cta().copyWith(
-                                  color: BrandColors.white.withValues(
-                                    alpha: _enabled ? 1.0 : 0.55,
-                                  ),
-                                ),
+                    ),
+                    // Inner bevel overlay — white sheen top-left → transparent
+                    // mid → dark veil bottom-right. Only visible in the resting
+                    // enabled state; hidden when pressed so the flat look sells
+                    // the "depressed" feel.
+                    if (!_pressed && _enabled)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: <Color>[
+                                  Colors.white.withValues(alpha: 0.28),
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.14),
+                                ],
+                                stops: const <double>[0.0, 0.45, 1.0],
                               ),
-                            ],
-                          ),
-                  ),
-                  // Inner bevel overlay — white sheen top-left → transparent
-                  // mid → dark veil bottom-right. Only visible in the resting
-                  // enabled state; hidden when pressed so the flat look sells
-                  // the "depressed" feel.
-                  if (!_pressed && _enabled)
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: <Color>[
-                                Colors.white.withValues(alpha: 0.28),
-                                Colors.transparent,
-                                Colors.black.withValues(alpha: 0.14),
-                              ],
-                              stops: const <double>[0.0, 0.45, 1.0],
                             ),
                           ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
