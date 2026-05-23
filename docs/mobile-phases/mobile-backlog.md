@@ -283,3 +283,31 @@ assert(
 **Added:** 2026-05-23 | **Audit:** Phase 2.5 login screen QA audit
 
 ---
+
+## LOW — Test 3 countdown text content not asserted (Phase 2.11)
+
+**File:** `test/features/auth/presentation/verification_screen_test.dart` — Test 3
+
+**Finding:** Test 3 asserts that `verify_resend` key is present before and after the cooldown, but does not assert that the countdown text (`verificationResendTimer(N)`) is rendered mid-cooldown. The GestureDetector key is always present; only the child text changes. A regression where the countdown text silently stops rendering would pass the test.
+
+**Fix:** After tapping resend and pumping 1 second (cooldown = 29), assert `tester.widgetList<Text>(find.byType(Text)).any((t) => t.data == l10n.verificationResendTimer('29 с'))`.
+
+**Pattern:** M3 (coverage — UI state transition not fully verified).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.11 email verification screen QA audit
+
+---
+
+## LOW — Test 7b missing MASVS security property assertions (Phase 2.11)
+
+**File:** `test/features/auth/presentation/verification_screen_test.dart` — Test 7b
+
+**Finding:** Test 7b asserts `keyboardType`, `maxLength`, and `showCursor` but does not assert `enableSuggestions == false`, `autocorrect == false`, or `enableIMEPersonalizedLearning == false`. These three are the MASVS-PLATFORM properties set in the source to prevent IME training on OTP digits. A regression removing any of them would go undetected.
+
+**Fix:** Add three `expect` calls to test 7b for the three security properties.
+
+**Pattern:** M5-adjacent (secure storage discipline — OTP keyboard hardening).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.11 email verification screen QA audit
+
+---

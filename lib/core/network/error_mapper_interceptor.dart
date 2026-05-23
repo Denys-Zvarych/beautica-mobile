@@ -159,7 +159,11 @@ final class ErrorMapperInterceptor extends Interceptor {
         final data = body['data'];
         if (data is Map<String, dynamic>) {
           final raw = data['retryAfterSeconds'];
-          if (raw is int) return raw < 0 ? 0 : raw;
+          // Clamp to [0, 2^31] to prevent a rogue server from pinning the
+          // resend cooldown to a multi-year value (MASVS-PLATFORM).
+          if (raw is int) {
+            return raw.clamp(0, 1 << 31);
+          }
           if (raw is num) return raw.toInt().clamp(0, 1 << 31);
         }
       }
