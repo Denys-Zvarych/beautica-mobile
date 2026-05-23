@@ -2,14 +2,14 @@
 //
 // A generic modal bottom sheet that lists selectable locality items
 // (Oblast / City / CityDistrict) and returns the chosen one via
-// `Navigator.pop`. Mirrors the sheet behaviour described in
+// `context.pop(item)` (go_router). Mirrors the sheet behaviour described in
 // docs/signup-designs/sign-up-step-3-address.html step 5:
 //   - drag handle bar at the top,
 //   - debounced (200 ms) case-insensitive search on the localized name,
 //   - scrollable list of selectable rows,
 //   - empty state ("Нічого не знайдено") when the query matches nothing,
 //   - AsyncError state with a Retry button,
-//   - tap a row → Navigator.pop(context, item).
+//   - tap a row → context.pop(item).
 //
 // Sheet height is clamped to 80% of the screen. Surface = BrandColors.base
 // (warm taupe), 16 px top-corner radius — VelvetTouch neumorphic treatment.
@@ -26,6 +26,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 // `ProviderListenable` (the type accepted by `ref.watch`) is exported from the
 // misc barrel rather than the top-level flutter_riverpod barrel in 3.x.
 import 'package:flutter_riverpod/misc.dart';
@@ -219,7 +220,7 @@ class _LocalityPickerSheetState<T>
                           minWidth: 44,
                           minHeight: 44,
                         ),
-                        onPressed: () => Navigator.of(context).pop(),
+                        onPressed: () => context.pop(),
                       ),
                     ],
                   ),
@@ -307,7 +308,7 @@ class _LocalityPickerSheetState<T>
                                 'locality_picker_tile_${widget.idOf(item)}',
                               ),
                               label: label,
-                              onTap: () => Navigator.of(context).pop(item),
+                              onTap: () => context.pop(item),
                             );
                           },
                         ),

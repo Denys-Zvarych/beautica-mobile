@@ -27,6 +27,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -130,19 +131,34 @@ class _CascadeHarnessState extends State<_CascadeHarness> {
   }
 }
 
-Widget _wrap(Widget child) => ProviderScope(
-  overrides: [
-    locationRepositoryProvider.overrideWith((_) => _FakeLocationRepository()),
-  ],
-  child: MaterialApp(
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
-    supportedLocales: AppLocalizations.supportedLocales,
-    locale: const Locale('uk'),
-    home: Scaffold(
-      body: Padding(padding: const EdgeInsets.all(16), child: child),
+Widget _wrap(Widget child) {
+  // GoRouter is required so the picker sheet's context.pop() call (go_router)
+  // resolves the InheritedGoRouter. A single '/' route is sufficient — the
+  // cascade tests never navigate away from the home scaffold.
+  final router = GoRouter(
+    initialLocation: '/',
+    routes: [
+      GoRoute(
+        path: '/',
+        builder: (_, _) => Scaffold(
+          body: Padding(padding: const EdgeInsets.all(16), child: child),
+        ),
+      ),
+    ],
+  );
+
+  return ProviderScope(
+    overrides: [
+      locationRepositoryProvider.overrideWith((_) => _FakeLocationRepository()),
+    ],
+    child: MaterialApp.router(
+      routerConfig: router,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      locale: const Locale('uk'),
     ),
-  ),
-);
+  );
+}
 
 // Reports whether the LocalityTapRow keyed [rowKey] is currently interactive.
 // The VelvetTouch redesign replaced the InkWell(key:…) pattern with

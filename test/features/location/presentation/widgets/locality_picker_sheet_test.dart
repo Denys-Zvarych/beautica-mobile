@@ -25,6 +25,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -136,22 +137,37 @@ class _CascadeHarnessState extends State<_CascadeHarness> {
   }
 }
 
-Widget _wrap(Widget child, _CountingLocationRepository repo) => ProviderScope(
-  overrides: [locationRepositoryProvider.overrideWith((_) => repo)],
-  // Disable Riverpod's automatic failed-build retry so an AsyncError stays put
-  // through pumpAndSettle. Without this, the keepAlive providers silently
-  // re-run after a backoff delay and we'd never observe the error state (and
-  // the call counts would drift). Production keeps the default retry.
-  retry: (_, _) => null,
-  child: MaterialApp(
-    localizationsDelegates: AppLocalizations.localizationsDelegates,
-    supportedLocales: AppLocalizations.supportedLocales,
-    locale: const Locale('uk'),
-    home: Scaffold(
-      body: Padding(padding: const EdgeInsets.all(16), child: child),
+Widget _wrap(Widget child, _CountingLocationRepository repo) {
+  // GoRouter is required so the bottom-sheet's context.pop() call (go_router)
+  // can resolve the InheritedGoRouter. The router itself has a single route —
+  // the test harness never navigates away, so the route table is minimal.
+  final router = GoRouter(
+    initialLocation: '/',
+    routes: [
+      GoRoute(
+        path: '/',
+        builder: (_, _) => Scaffold(
+          body: Padding(padding: const EdgeInsets.all(16), child: child),
+        ),
+      ),
+    ],
+  );
+
+  return ProviderScope(
+    overrides: [locationRepositoryProvider.overrideWith((_) => repo)],
+    // Disable Riverpod's automatic failed-build retry so an AsyncError stays put
+    // through pumpAndSettle. Without this, the keepAlive providers silently
+    // re-run after a backoff delay and we'd never observe the error state (and
+    // the call counts would drift). Production keeps the default retry.
+    retry: (_, _) => null,
+    child: MaterialApp.router(
+      routerConfig: router,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      locale: const Locale('uk'),
     ),
-  ),
-);
+  );
+}
 
 /// Resolves the localized strings from any element currently in the tree, so
 /// assertions never hard-code a UA literal.

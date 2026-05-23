@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -21,8 +22,8 @@ class AuthScaffold extends StatelessWidget {
 
   /// Called when the user taps the back affordance.
   ///
-  /// Defaults to [Navigator.maybePop] when null, which is correct for screens
-  /// that arrive via [GoRouter.push] (e.g. /forgot-password, /reset-password).
+  /// Defaults to [GoRouter.pop] (`context.pop()`) when null, which is correct
+  /// for screens that arrive via [GoRouter.push] (e.g. /forgot-password, /reset-password).
   ///
   /// Wizard screens that arrive via [GoRouter.go] MUST supply an explicit
   /// callback (e.g. `onBack: () => context.go(RouteNames.register)`) because
@@ -65,7 +66,7 @@ class AuthScaffold extends StatelessWidget {
                         key: const ValueKey<String>('auth_scaffold_back'),
                         icon: Icons.arrow_back_ios_new_rounded,
                         semanticLabel: 'Назад',
-                        onTap: onBack ?? () => Navigator.of(context).maybePop(),
+                        onTap: onBack ?? () => context.pop(),
                       ),
                     ),
                 ],
