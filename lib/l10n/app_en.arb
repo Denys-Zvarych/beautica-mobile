@@ -62,11 +62,11 @@
   "@loginSubmit": {
     "description": "Label for the submit button on the login screen."
   },
-  "loginNoAccount": "Don't have an account yet?",
+  "loginNoAccount": "No account?",
   "@loginNoAccount": {
     "description": "Prompt text shown before the create account link (login-page.html .register-row)."
   },
-  "loginCreateAccount": "Sign up",
+  "loginCreateAccount": "Register",
   "@loginCreateAccount": {
     "description": "Link label to navigate to the register screen (login-page.html .register-row a)."
   },
@@ -290,7 +290,7 @@
   "@hidePasswordSemanticLabel": {
     "description": "Accessibility semantic label for the hide-password icon button (eye-off icon in password field)."
   },
-  "loginHeadline": "Welcome back!",
+  "loginHeadline": "Welcome to premium\nBeauty Service",
   "@loginHeadline": {
     "description": "Large headline on the login screen (Warm Mocha redesign)."
   },
@@ -298,7 +298,7 @@
   "@loginHeadlineAccent": {
     "description": "Italic serif accent line below the main login headline."
   },
-  "loginSubText": "Sign in to your account to continue",
+  "loginSubText": "Log in to manage your bookings and services.",
   "@loginSubText": {
     "description": "Muted sub-text below the login headline describing the action."
   },
@@ -314,7 +314,7 @@
   "@loginUnverifiedAction": {
     "description": "Link label in the EMAIL_NOT_VERIFIED banner that takes the user to the verification screen."
   },
-  "registerHeadline": "Welcome!",
+  "registerHeadline": "Create account",
   "@registerHeadline": {
     "description": "Large headline on the role selection step of the register screen."
   },
@@ -322,23 +322,23 @@
   "@registerHeadlineAccent": {
     "description": "Italic serif accent line on the role selection step of the register screen."
   },
-  "registerSubText": "Choose your role so we can tailor the app just for you.",
+  "registerSubText": "Choose your account type — it defines your space in Beautica.",
   "@registerSubText": {
     "description": "Muted sub-text below the role selection headline."
   },
-  "intentClientDesc": "Find beauty professionals and book appointments",
+  "intentClientDesc": "I look for and book beauty services",
   "@intentClientDesc": {
     "description": "Short description line shown on the Client role card (Warm Mocha redesign)."
   },
-  "intentSalonDesc": "Manage your salon, team, and bookings",
+  "intentSalonDesc": "I manage a salon and team of masters",
   "@intentSalonDesc": {
     "description": "Short description line shown on the Salon Owner role card (Warm Mocha redesign)."
   },
-  "intentIndependentDesc": "Work independently and accept clients",
+  "intentIndependentDesc": "I work independently — my own schedule and services",
   "@intentIndependentDesc": {
     "description": "Short description line shown on the Independent Master role card (Warm Mocha redesign)."
   },
-  "registerContinue": "Continue",
+  "registerContinue": "Next",
   "@registerContinue": {
     "description": "CTA button label on the role selection step of the register screen."
   },
@@ -474,7 +474,7 @@
   "@verificationTitle": {
     "description": "Title of the email verification screen."
   },
-  "verificationHeadline": "Check your",
+  "verificationHeadline": "Confirm your email",
   "@verificationHeadline": {
     "description": "Main headline line 1 on the email verification screen (verification-page.html .headline)."
   },
@@ -490,11 +490,11 @@
   "@verificationCardDesc": {
     "description": "Card description before the masked email address (verification-page.html .card-desc)."
   },
-  "verificationResendPrompt": "Didn't receive it?",
+  "verificationResendPrompt": "Didn't receive a code?",
   "@verificationResendPrompt": {
     "description": "Leading prompt in the resend row shown while the countdown is active (verification-page.html .resend-text)."
   },
-  "verificationResendTimer": "Resend in {time}",
+  "verificationResendTimer": "Resend ({time})",
   "@verificationResendTimer": {
     "description": "Countdown timer text shown while the resend cooldown is active (verification-page.html .timer).",
     "placeholders": {
@@ -504,7 +504,7 @@
       }
     }
   },
-  "verificationResendBtn": "Resend code",
+  "verificationResendBtn": "Resend",
   "@verificationResendBtn": {
     "description": "Resend code link shown when the countdown reaches zero (verification-page.html .resend-link)."
   },
@@ -655,7 +655,7 @@
   "@step2FieldSalonPlaceholder": {
     "description": "In-field placeholder for the salon-name input on the Step 2 Profile screen. Only shown for SALON_OWNER role."
   },
-  "step2CtaContinue": "Continue",
+  "step2CtaContinue": "Next",
   "@step2CtaContinue": {
     "description": "CTA button label on the Step 2 Profile screen. Advances the wizard to Step 3."
   },
@@ -845,7 +845,7 @@
     "description": "Validation error when the location-note textarea exceeds 250 characters."
   },
 
-  "forgotPasswordHeadline": "Forgot",
+  "forgotPasswordHeadline": "Password recovery",
   "@forgotPasswordHeadline": {
     "description": "Forgot-password request screen hero headline, line 1 (forgot-password-request.html .headline). Manrope 700."
   },
@@ -853,7 +853,7 @@
   "@forgotPasswordHeadlineAccent": {
     "description": "Forgot-password request screen hero accent (forgot-password-request.html .headline em). Cormorant Garamond italic, camel."
   },
-  "forgotPasswordSubText": "Enter your account email — we'll send you a link to recover access.",
+  "forgotPasswordSubText": "Enter your account email — we'll send a reset link.",
   "@forgotPasswordSubText": {
     "description": "Sub-text under the forgot-password request headline (forgot-password-request.html .sub-text)."
   },
@@ -873,7 +873,7 @@
   "@forgotPasswordSubmit": {
     "description": "CTA on the forgot-password request screen (forgot-password-request.html .cta-btn)."
   },
-  "forgotPasswordBackToLogin": "Back to sign in",
+  "forgotPasswordBackToLogin": "Back to login",
   "@forgotPasswordBackToLogin": {
     "description": "Bottom back-to-login link on the forgot-password request screen (forgot-password-request.html .back-row a)."
   },
@@ -885,11 +885,11 @@
   "@forgotPasswordConfirmHeadlineAccent": {
     "description": "Confirmation-state hero accent (forgot-password-request.html state B .headline em). Cormorant Garamond italic, camel."
   },
-  "forgotPasswordConfirmTitle": "Link sent",
+  "forgotPasswordConfirmTitle": "Check your email",
   "@forgotPasswordConfirmTitle": {
     "description": "Generic anti-enumeration confirmation title (forgot-password-request.html .confirm-title)."
   },
-  "forgotPasswordConfirmDesc": "If an account exists for this email, we've sent it a password reset link.",
+  "forgotPasswordConfirmDesc": "If an account with that address exists, we sent a password reset link. Check your spam folder too.",
   "@forgotPasswordConfirmDesc": {
     "description": "Generic anti-enumeration confirmation body — identical whether or not the account exists (forgot-password-request.html .confirm-desc)."
   },
@@ -901,12 +901,12 @@
   "@forgotPasswordResendPrompt": {
     "description": "Resend prompt text on the confirmation state (forgot-password-request.html .resend-text)."
   },
-  "forgotPasswordResendLink": "Resend",
+  "forgotPasswordResendLink": "I have a link",
   "@forgotPasswordResendLink": {
     "description": "Resend link on the confirmation state (forgot-password-request.html .resend-link)."
   },
 
-  "resetPasswordHeadline": "New",
+  "resetPasswordHeadline": "New password",
   "@resetPasswordHeadline": {
     "description": "Reset-password form hero headline line 1 (forgot-password-reset.html state A .headline). Manrope 700."
   },
@@ -914,7 +914,7 @@
   "@resetPasswordHeadlineAccent": {
     "description": "Reset-password form hero accent (forgot-password-reset.html state A .headline em). Cormorant Garamond italic, camel."
   },
-  "resetPasswordSubText": "Create a strong password for your account. It will replace the old one as soon as you save.",
+  "resetPasswordSubText": "Choose a strong password. It will replace the previous one.",
   "@resetPasswordSubText": {
     "description": "Sub-text under the reset-password form headline (forgot-password-reset.html .sub-text)."
   },
@@ -926,7 +926,7 @@
   "@resetPasswordNewPlaceholder": {
     "description": "Placeholder for the new-password field (forgot-password-reset.html state A new-password input)."
   },
-  "resetPasswordConfirmLabel": "Repeat password",
+  "resetPasswordConfirmLabel": "Confirm password",
   "@resetPasswordConfirmLabel": {
     "description": "Uppercase label above the confirm-password field (forgot-password-reset.html state A second label)."
   },
@@ -950,7 +950,7 @@
   "@resetPasswordSuccessSub": {
     "description": "Success-state italic sub-line (forgot-password-reset.html state B .state-sub). Cormorant Garamond italic, camel."
   },
-  "resetPasswordSuccessDesc": "Your password has been changed. Now sign in to your account with the new password.",
+  "resetPasswordSuccessDesc": "Now log in with your new password.",
   "@resetPasswordSuccessDesc": {
     "description": "Success-state body copy (forgot-password-reset.html state B .state-desc)."
   },
@@ -1039,5 +1039,30 @@
   "inviteSuccessSnackbar": "You've successfully joined the team!",
   "@inviteSuccessSnackbar": {
     "description": "Snackbar message shown after a successful invite acceptance (router then forwards to home)."
+  },
+
+  "roleSelectHeadline": "Welcome to premium\nBeauty Service",
+  "@roleSelectHeadline": {
+    "description": "Centered hero heading on the role-selection screen (design source: VelvetTouchDesign/role_select_screen.dart). English brand copy — verbatim from approved design."
+  },
+
+  "registerStep2ShellHeadline": "Personal details",
+  "@registerStep2ShellHeadline": {
+    "description": "Wizard shell headline shown when the current step is /register/step-2 (design: VelvetTouchDesign/sign_up_screen.dart profile section)."
+  },
+
+  "registerStep3ShellHeadlineClient": "Your area",
+  "@registerStep3ShellHeadlineClient": {
+    "description": "Wizard shell headline for CLIENT role on /register/step-3 (design: VelvetTouchDesign/address_screen.dart _headline CLIENT)."
+  },
+
+  "registerStep3ShellHeadlineMaster": "Where do you work",
+  "@registerStep3ShellHeadlineMaster": {
+    "description": "Wizard shell headline for INDEPENDENT_MASTER role on /register/step-3 (design: VelvetTouchDesign/address_screen.dart _headline MASTER)."
+  },
+
+  "registerStep3ShellHeadlineOwner": "Salon address",
+  "@registerStep3ShellHeadlineOwner": {
+    "description": "Wizard shell headline for SALON_OWNER role on /register/step-3 (design: VelvetTouchDesign/address_screen.dart _headline OWNER)."
   }
 }

@@ -475,8 +475,8 @@ class _OtpCell extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
-      height: 56,
-      width: 46,
+      height: 50,
+      width: 41,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: BrandColors.base,

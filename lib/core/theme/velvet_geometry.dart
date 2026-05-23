@@ -31,8 +31,8 @@ abstract final class VelvetSpacing {
 /// Transcribed verbatim from
 /// `docs/signup-designs/VelvetTouchDesign/lib/theme/velvet_tokens.dart`.
 abstract final class VelvetSizes {
-  static const double field = 54;
-  static const double cta = 54;
+  static const double field = 49;
+  static const double cta = 49;
   static const double logoTile = 78;
 }
 

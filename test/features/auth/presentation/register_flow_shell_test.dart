@@ -483,5 +483,84 @@ void main() {
         expect(find.text('role-selection'), findsOneWidget);
       },
     );
+
+    // -----------------------------------------------------------------------
+    // shell headline per step (GAP 2 — design-parity)
+    // -----------------------------------------------------------------------
+    group('shell headline per step', () {
+      testWidgets(
+        'headline at /register is registerHeadline ("Створення акаунту")',
+        (tester) async {
+          await _pumpShell(
+            tester,
+            initialLocation: RouteNames.register,
+            role: UserRole.client,
+          );
+          final l10n = lookupAppLocalizations(const Locale('uk'));
+          final headline = tester.widget<Text>(
+            find.byKey(const Key('shell-headline')),
+          );
+          expect(headline.data, equals(l10n.registerHeadline));
+        },
+      );
+
+      testWidgets('headline at /register/step-2 is registerStep2ShellHeadline '
+          '("Особисті дані")', (tester) async {
+        await _pumpShell(
+          tester,
+          initialLocation: RouteNames.registerStep2,
+          role: UserRole.client,
+        );
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        final headline = tester.widget<Text>(
+          find.byKey(const Key('shell-headline')),
+        );
+        expect(headline.data, equals(l10n.registerStep2ShellHeadline));
+      });
+
+      testWidgets('headline at /register/step-3 with role=client is '
+          'registerStep3ShellHeadlineClient ("Ваш район")', (tester) async {
+        await _pumpShell(
+          tester,
+          initialLocation: RouteNames.registerStep3,
+          role: UserRole.client,
+        );
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        final headline = tester.widget<Text>(
+          find.byKey(const Key('shell-headline')),
+        );
+        expect(headline.data, equals(l10n.registerStep3ShellHeadlineClient));
+      });
+
+      testWidgets('headline at /register/step-3 with role=independentMaster is '
+          'registerStep3ShellHeadlineMaster ("Де ви працюєте")', (
+        tester,
+      ) async {
+        await _pumpShell(
+          tester,
+          initialLocation: RouteNames.registerStep3,
+          role: UserRole.independentMaster,
+        );
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        final headline = tester.widget<Text>(
+          find.byKey(const Key('shell-headline')),
+        );
+        expect(headline.data, equals(l10n.registerStep3ShellHeadlineMaster));
+      });
+
+      testWidgets('headline at /register/step-3 with role=salonOwner is '
+          'registerStep3ShellHeadlineOwner ("Адреса салону")', (tester) async {
+        await _pumpShell(
+          tester,
+          initialLocation: RouteNames.registerStep3,
+          role: UserRole.salonOwner,
+        );
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        final headline = tester.widget<Text>(
+          find.byKey(const Key('shell-headline')),
+        );
+        expect(headline.data, equals(l10n.registerStep3ShellHeadlineOwner));
+      });
+    });
   });
 }

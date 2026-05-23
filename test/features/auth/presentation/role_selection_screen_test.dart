@@ -323,5 +323,23 @@ void main() {
         expect(container.read(registerDraftProvider), isNull);
       },
     );
+
+    // -----------------------------------------------------------------------
+    // 7. Heading text assertions (GAP 1 — design-parity)
+    // -----------------------------------------------------------------------
+    testWidgets('7. roleSelectHeadline text is present; old heading absent; '
+        'registerSubText is present', (tester) async {
+      await _pumpRoleSelection(tester);
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+
+      // The approved VelvetTouch heading must be visible.
+      expect(find.text(l10n.roleSelectHeadline), findsOneWidget);
+
+      // Regression guard — the old heading must not appear.
+      expect(find.text('Ласкаво просимо!'), findsNothing);
+
+      // The updated sub-text below the heading must be present.
+      expect(find.text(l10n.registerSubText), findsOneWidget);
+    });
   });
 }

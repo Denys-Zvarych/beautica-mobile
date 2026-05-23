@@ -82,7 +82,11 @@ class _RoleSelectionScreenState extends ConsumerState<RoleSelectionScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           const VelvetHeader(),
-          Text(l10n.registerHeadline, style: VelvetText.heading()),
+          Text(
+            l10n.roleSelectHeadline,
+            style: VelvetText.heading(),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: VelvetSpacing.xs),
           Text(l10n.registerSubText, style: VelvetText.body()),
           const SizedBox(height: VelvetSpacing.xl),

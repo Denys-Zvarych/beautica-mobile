@@ -23,6 +23,7 @@ import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
+import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
 import 'user_role_l10n.dart';
 import 'widgets/auth_scaffold.dart';
@@ -152,7 +153,7 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
           ),
           const SizedBox(height: VelvetSpacing.md),
           Text(
-            l10n.registerHeadline,
+            _shellHeadline(location, role, l10n),
             key: const Key('shell-headline'),
             style: VelvetText.heading(),
           ),
@@ -171,6 +172,24 @@ class _RegisterFlowShellState extends ConsumerState<RegisterFlowShell> {
     if (location == RouteNames.registerStep2) return 2;
     if (location == RouteNames.registerStep3) return 2;
     return 1;
+  }
+
+  static String _shellHeadline(
+    String location,
+    UserRole role,
+    AppLocalizations l10n,
+  ) {
+    if (location == RouteNames.registerStep2) {
+      return l10n.registerStep2ShellHeadline;
+    }
+    if (location == RouteNames.registerStep3) {
+      return switch (role) {
+        UserRole.client => l10n.registerStep3ShellHeadlineClient,
+        UserRole.salonOwner => l10n.registerStep3ShellHeadlineOwner,
+        _ => l10n.registerStep3ShellHeadlineMaster,
+      };
+    }
+    return l10n.registerHeadline; // /register (step 1): 'Створення акаунту'
   }
 }
 

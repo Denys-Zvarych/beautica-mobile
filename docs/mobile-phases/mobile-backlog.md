@@ -397,3 +397,31 @@ assert(
 **Added:** 2026-05-23 | **Audit:** Phase 2.11 email verification screen QA audit
 
 ---
+
+## LOW — `neumorphic_test.dart` harness SizedBox heights hardcode stale VelvetSizes.field value (mobile-qa design-parity batch)
+
+**File:** `test/core/widgets/neumorphic_test.dart:207,230`
+
+**Finding:** Two test-harness `SizedBox(height: 54, ...)` widgets hardcode the old `VelvetSizes.field` value (`54`). `VelvetSizes.field` was reduced from `54` to `49` in this batch. These SizedBoxes are stub children (not assertions on the token), so they do not cause false failures. No test asserts `VelvetSizes.field == 49`, meaning the `54 → 49` geometry change has no regression guard. A future accidental reversion to `54` would leave all widget tests green.
+
+**Fix:** Replace the two literal heights with `VelvetSizes.field` and add a unit test: `test('VelvetSizes.field equals 49', () => expect(VelvetSizes.field, equals(49.0)))` and same for `VelvetSizes.cta`.
+
+**Pattern:** M4-adjacent (indirect assertion; token value change unguarded).
+
+**Added:** 2026-05-23 | **Audit:** design-parity + form-size batch QA audit
+
+---
+
+## LOW — `@registerHeadline.description` stale after role-selection heading key change (mobile-qa design-parity batch)
+
+**File:** `lib/l10n/app_uk.arb:319`, `lib/l10n/app_en.arb:319`
+
+**Finding:** Both ARB files describe `registerHeadline` as "Large headline on the role selection step of the register screen." After the batch change, `registerHeadline` is now the Step 1 wizard shell headline (`/register`), not the role-selection screen. The role-selection screen now uses `roleSelectHeadline`. The description is stale and will mislead future contributors.
+
+**Fix:** Update both descriptions to: "Wizard shell headline on Step 1 of the registration wizard (/register — credentials step)."
+
+**Pattern:** Documentation accuracy gap (ARB description mismatch with actual usage site).
+
+**Added:** 2026-05-23 | **Audit:** design-parity + form-size batch QA audit
+
+---
