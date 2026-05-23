@@ -101,44 +101,45 @@ void main() {
       );
     });
 
-    testWidgets('BeauticaApp applies the VelvetTouch colorScheme (M3 + base surface)', (
-      tester,
-    ) async {
-      await tester.pumpWidget(_makeApp());
-      await tester.pump();
+    testWidgets(
+      'BeauticaApp applies the VelvetTouch colorScheme (M3 + base surface)',
+      (tester) async {
+        await tester.pumpWidget(_makeApp());
+        await tester.pump();
 
-      final BuildContext ctx = tester.element(find.byType(Scaffold).first);
-      final ThemeData applied = Theme.of(ctx);
+        final BuildContext ctx = tester.element(find.byType(Scaffold).first);
+        final ThemeData applied = Theme.of(ctx);
 
-      // Surface must be the VelvetTouch warm-taupe base.
-      expect(
-        applied.colorScheme.surface,
-        BrandColors.base,
-        reason:
-            'MP-STARTUP-THEME: BeauticaApp colorScheme.surface must be '
-            'BrandColors.base (#E6DDD0). A regression in velvetTheme() or '
-            'an accidental darkTheme swap would change this value.',
-      );
+        // Surface must be the VelvetTouch warm-taupe base.
+        expect(
+          applied.colorScheme.surface,
+          BrandColors.base,
+          reason:
+              'MP-STARTUP-THEME: BeauticaApp colorScheme.surface must be '
+              'BrandColors.base (#E6DDD0). A regression in velvetTheme() or '
+              'an accidental darkTheme swap would change this value.',
+        );
 
-      // Material 3 flag must be active.
-      expect(
-        applied.useMaterial3,
-        isTrue,
-        reason:
-            'MP-STARTUP-THEME: BeauticaApp must use Material 3. useMaterial3 '
-            'must not be silently reverted to false.',
-      );
+        // Material 3 flag must be active.
+        expect(
+          applied.useMaterial3,
+          isTrue,
+          reason:
+              'MP-STARTUP-THEME: BeauticaApp must use Material 3. useMaterial3 '
+              'must not be silently reverted to false.',
+        );
 
-      // Scaffold background must also be the warm-taupe base.
-      expect(
-        applied.scaffoldBackgroundColor,
-        BrandColors.base,
-        reason:
-            'MP-STARTUP-THEME: scaffoldBackgroundColor must be BrandColors.base. '
-            'This ensures the neumorphic soft-shadow effect renders on the '
-            'correct background.',
-      );
-    });
+        // Scaffold background must also be the warm-taupe base.
+        expect(
+          applied.scaffoldBackgroundColor,
+          BrandColors.base,
+          reason:
+              'MP-STARTUP-THEME: scaffoldBackgroundColor must be BrandColors.base. '
+              'This ensures the neumorphic soft-shadow effect renders on the '
+              'correct background.',
+        );
+      },
+    );
 
     testWidgets('BeauticaApp applied theme equals velvetTheme() output', (
       tester,
@@ -169,29 +170,23 @@ void main() {
             'MP-STARTUP-THEME: The applied theme primary color must match '
             'velvetTheme() — regression guard for seed color changes.',
       );
-      expect(
-        applied.scaffoldBackgroundColor,
-        expected.scaffoldBackgroundColor,
-      );
+      expect(applied.scaffoldBackgroundColor, expected.scaffoldBackgroundColor);
     });
 
-    testWidgets(
-      'BeauticaApp does not show the debug banner',
-      (tester) async {
-        await tester.pumpWidget(_makeApp());
-        await tester.pump();
+    testWidgets('BeauticaApp does not show the debug banner', (tester) async {
+      await tester.pumpWidget(_makeApp());
+      await tester.pump();
 
-        // The debug banner is a CheckedModeBanner widget. If
-        // debugShowCheckedModeBanner is accidentally flipped to true, this
-        // assertion catches it before a release build.
-        expect(
-          find.byType(CheckedModeBanner),
-          findsNothing,
-          reason:
-              'debugShowCheckedModeBanner must be false. The debug banner '
-              'must never appear in production builds.',
-        );
-      },
-    );
+      // The debug banner is a CheckedModeBanner widget. If
+      // debugShowCheckedModeBanner is accidentally flipped to true, this
+      // assertion catches it before a release build.
+      expect(
+        find.byType(CheckedModeBanner),
+        findsNothing,
+        reason:
+            'debugShowCheckedModeBanner must be false. The debug banner '
+            'must never appear in production builds.',
+      );
+    });
   });
 }

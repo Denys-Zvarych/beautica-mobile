@@ -258,6 +258,16 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
     final draft = ref.read(registerDraftProvider);
     if (draft == null) return; // guard: router guard should prevent this
 
+    // Already-registered guard — clearCredentials() wipes draft.password to ''
+    // after the first successful submit. If the user navigates back from the
+    // verification screen and re-taps "Зберегти", skip the duplicate register()
+    // call and go straight to verification (Phase 2.19 fix, bug #1).
+    if (draft.password.isEmpty) {
+      if (!mounted) return;
+      context.go(RouteNames.verification, extra: draft.email);
+      return;
+    }
+
     setState(() => _submitting = true);
 
     try {
@@ -316,7 +326,11 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
         SnackBar(
           key: const Key('step3-snackbar'),
           content: Text(message),
+          backgroundColor: BrandColors.error,
           behavior: SnackBarBehavior.floating,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(VelvetRadii.field)),
+          ),
         ),
       );
   }

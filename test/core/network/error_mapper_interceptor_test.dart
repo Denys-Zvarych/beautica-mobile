@@ -16,7 +16,7 @@
 //   5. DioExceptionType.connectionTimeout → NetworkFailure
 //   6. DioExceptionType.connectionError → NetworkFailure
 //   7. DioExceptionType.receiveTimeout → NetworkFailure
-//   8. HTTP 409 (unknown status) → UnknownFailure
+//   8. HTTP 409 Conflict → ServerFailure(statusCode: 409)
 //   9. HTTP 422 with field errors → ValidationFailure (SECURITY M3)
 //  10. Field error value > 200 chars → truncated to 200 (SECURITY M1)
 
@@ -147,9 +147,11 @@ void main() {
       expect(failure.statusCode, 503);
     });
 
-    test('HTTP 409 (unmapped status) → UnknownFailure', () {
+    test('HTTP 409 Conflict → ServerFailure(statusCode: 409)', () {
       final rejected = _captureRejected(_httpError(409));
-      expect(rejected.error, isA<UnknownFailure>());
+      expect(rejected.error, isA<ServerFailure>());
+      final failure = rejected.error as ServerFailure;
+      expect(failure.statusCode, 409);
     });
 
     test('HTTP 403 (unmapped status) → UnknownFailure', () {

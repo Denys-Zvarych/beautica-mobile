@@ -28,7 +28,7 @@
 //   'forgot_email'         — email NeumorphicTextField
 //   'forgot_submit'        — send CTA (form state)
 //   'forgot_preview_reset' — "У мене є посилання" CTA (sent state)
-//   'forgot_back_login'    — back-to-login GestureDetector (sent state)
+//   'auth_scaffold_back'   — top-left back button (AuthScaffold, all states)
 
 import 'dart:developer';
 
@@ -143,6 +143,7 @@ class _ForgotPasswordRequestScreenState
 
     return AuthScaffold(
       showBack: true,
+      onBack: _backToLogin,
       bottomBar: _linkSent
           ? null
           : NeumorphicButton(
@@ -231,20 +232,6 @@ class _ForgotPasswordRequestScreenState
           key: const ValueKey<String>('forgot_preview_reset'),
           label: l10n.forgotPasswordResendLink,
           onPressed: () => context.go(RouteNames.resetPassword),
-        ),
-        const SizedBox(height: VelvetSpacing.md),
-        Center(
-          child: GestureDetector(
-            key: const ValueKey<String>('forgot_back_login'),
-            onTap: _backToLogin,
-            child: Padding(
-              padding: const EdgeInsets.all(VelvetSpacing.xs),
-              child: Text(
-                l10n.forgotPasswordBackToLogin,
-                style: VelvetText.link(),
-              ),
-            ),
-          ),
         ),
       ],
     );

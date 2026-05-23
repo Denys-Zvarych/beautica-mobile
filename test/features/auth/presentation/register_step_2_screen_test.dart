@@ -498,6 +498,67 @@ void main() {
     });
   });
 
+  // ── Back-nav dedup — auth_scaffold_back on Step 2 ────────────────────────
+  //
+  // GROUP A regression: Step 2 now delegates back-navigation entirely to
+  // AuthScaffold (key 'auth_scaffold_back'). The old bottom-row duplicate was
+  // removed. Tapping auth_scaffold_back must navigate to /register (Step 1)
+  // and PRESERVE the draft (the in-progress wizard state must survive
+  // stepping back one step).
+  group('Back-nav dedup (GROUP A regression)', () {
+    testWidgets(
+      'auth_scaffold_back is present on Step 2 and navigates to /register '
+      '(Step 1), preserving the draft',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        // Sanity — draft has role set (from _containerWithRole).
+        expect(
+          container.read(registerDraftProvider),
+          isNotNull,
+          reason: 'Draft must be seeded before the back-nav test',
+        );
+
+        expect(
+          find.byKey(const ValueKey<String>('auth_scaffold_back')),
+          findsOneWidget,
+          reason:
+              'Step 2 wraps its own AuthScaffold — auth_scaffold_back must '
+              'be rendered',
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('auth_scaffold_back')),
+        );
+        await tester.pumpAndSettle();
+
+        // Navigated to /register (Step 1).
+        expect(
+          router.routerDelegate.currentConfiguration.fullPath,
+          equals(RouteNames.register),
+          reason:
+              'auth_scaffold_back on Step 2 must navigate to /register (Step 1)',
+        );
+        expect(find.text('step-1'), findsOneWidget);
+
+        // Draft is preserved — role must still be set.
+        expect(
+          container.read(registerDraftProvider),
+          isNotNull,
+          reason:
+              'Tapping auth_scaffold_back on Step 2 must NOT reset() the draft',
+        );
+      },
+    );
+  });
+
   // ── M-REG-PHONE-FORMAT-1 / M-REG-PHONE-FORMAT-2 regression tests ──────────
   //
   // Security agent MEDIUM-1 fix: validatePhone() rejects structurally invalid

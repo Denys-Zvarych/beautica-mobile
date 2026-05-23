@@ -72,7 +72,8 @@ class _RoleSelectionScreenState extends ConsumerState<RoleSelectionScreen> {
     final l10n = AppLocalizations.of(context);
 
     return AuthScaffold(
-      showBack: false,
+      showBack: true,
+      onBack: () => context.go(RouteNames.login),
       bottomBar: NeumorphicButton(
         key: const ValueKey<String>('role_continue'),
         label: l10n.registerContinue,

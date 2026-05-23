@@ -62,6 +62,7 @@ class AuthScaffold extends StatelessWidget {
                       top: VelvetSpacing.md,
                       left: VelvetSpacing.lg,
                       child: NeumorphicIconButton(
+                        key: const ValueKey<String>('auth_scaffold_back'),
                         icon: Icons.arrow_back_ios_new_rounded,
                         semanticLabel: 'Назад',
                         onTap: onBack ?? () => Navigator.of(context).maybePop(),

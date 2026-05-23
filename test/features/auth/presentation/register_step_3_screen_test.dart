@@ -846,4 +846,172 @@ void main() {
       expect(draft.email, equals('a@b.com'));
     },
   );
+
+  // ── 12. auth_scaffold_back navigates to /register/step-2 (GROUP A) ────────
+  //
+  // GROUP A regression: Step 3 now delegates back-navigation entirely to
+  // AuthScaffold (key 'auth_scaffold_back'). There is no separate bottom-row
+  // back affordance. Tapping auth_scaffold_back must navigate to
+  // /register/step-2 and MUST NOT fire the register POST.
+  testWidgets('12. auth_scaffold_back is present on Step 3 and navigates to '
+      '/register/step-2 without firing the register POST', (tester) async {
+    final authRepo = _MockAuthRepository();
+
+    // Step-2 stub in the router.
+    final router = GoRouter(
+      initialLocation: RouteNames.registerStep3,
+      redirect: (context, state) => null,
+      routes: [
+        GoRoute(
+          path: RouteNames.registerStep3,
+          builder: (context, state) => const RegisterStep3Screen(),
+        ),
+        GoRoute(
+          path: RouteNames.registerStep2,
+          builder: (context, state) =>
+              const Scaffold(body: Center(child: Text('step-2'))),
+        ),
+        GoRoute(
+          path: RouteNames.verification,
+          builder: (context, state) =>
+              const Scaffold(body: Center(child: Text('verification'))),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    final container = _container(
+      role: UserRole.independentMaster,
+      authRepo: authRepo,
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_app(router, container));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('auth_scaffold_back')),
+      findsOneWidget,
+      reason:
+          'Step 3 wraps its own AuthScaffold — auth_scaffold_back must be '
+          'rendered',
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('auth_scaffold_back')));
+    await tester.pumpAndSettle();
+
+    expect(
+      router.routerDelegate.currentConfiguration.fullPath,
+      equals(RouteNames.registerStep2),
+      reason: 'auth_scaffold_back on Step 3 must navigate to /register/step-2',
+    );
+    expect(find.text('step-2'), findsOneWidget);
+
+    // No registration POST must fire on a back-tap.
+    verifyNever(
+      () => authRepo.registerIndependentMaster(
+        email: any(named: 'email'),
+        password: any(named: 'password'),
+        firstName: any(named: 'firstName'),
+        lastName: any(named: 'lastName'),
+        role: any(named: 'role'),
+        businessName: any(named: 'businessName'),
+        address: any(named: 'address'),
+        phone: any(named: 'phone'),
+      ),
+    );
+  });
+
+  // ── 13. Already-registered guard (draft.password.isEmpty → /verification) ──
+  //
+  // Phase 2.19 bug fix: if the user successfully registered, navigated to the
+  // verification screen, then pressed back and re-tapped "Зберегти і продовжити",
+  // the screen must skip the duplicate register() call and go directly to
+  // /verification using the email already stored in the draft.
+  //
+  // The guard is triggered by draft.password being empty (set by
+  // clearCredentials() after the first successful register call).
+  testWidgets(
+    '13. already-registered guard: when draft.password is empty, tapping '
+    'submit skips register() and navigates straight to /verification',
+    (tester) async {
+      final authRepo = _MockAuthRepository();
+
+      final router = GoRouter(
+        initialLocation: RouteNames.registerStep3,
+        redirect: (context, state) => null,
+        routes: [
+          GoRoute(
+            path: RouteNames.registerStep3,
+            builder: (context, state) => const RegisterStep3Screen(),
+          ),
+          GoRoute(
+            path: RouteNames.verification,
+            builder: (context, state) {
+              final email = (state.extra as String?) ?? '';
+              return Scaffold(body: Center(child: Text('verification:$email')));
+            },
+          ),
+          GoRoute(
+            path: RouteNames.registerStep2,
+            builder: (context, state) =>
+                const Scaffold(body: Center(child: Text('step-2'))),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      final container = _container(role: UserRole.client, authRepo: authRepo);
+      addTearDown(container.dispose);
+
+      // Simulate "already registered" state: clear credentials from the draft
+      // as clearCredentials() does after a successful register call.
+      container.read(registerDraftProvider.notifier).clearCredentials();
+
+      // Confirm the guard condition: password is now empty.
+      expect(
+        container.read(registerDraftProvider)!.password,
+        isEmpty,
+        reason:
+            'Pre-condition: draft.password must be empty to trigger the '
+            'already-registered guard',
+      );
+      expect(
+        container.read(registerDraftProvider)!.email,
+        equals('a@b.com'),
+        reason:
+            'Pre-condition: draft.email must be preserved after '
+            'clearCredentials()',
+      );
+
+      await tester.pumpWidget(_app(router, container));
+      await tester.pumpAndSettle();
+
+      // Tap the submit button (CLIENT variant: "Зберегти").
+      await _tap(tester, const ValueKey<String>('address_submit'));
+
+      // The register POST must NOT be called — the guard short-circuits.
+      verifyNever(
+        () => authRepo.registerIndependentMaster(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          role: any(named: 'role'),
+          businessName: any(named: 'businessName'),
+          address: any(named: 'address'),
+          phone: any(named: 'phone'),
+        ),
+      );
+
+      // Navigation must go to /verification using the email from the draft.
+      expect(
+        find.text('verification:a@b.com'),
+        findsOneWidget,
+        reason:
+            'already-registered guard must navigate to /verification with the '
+            'email from the draft (no second register POST)',
+      );
+    },
+  );
 }

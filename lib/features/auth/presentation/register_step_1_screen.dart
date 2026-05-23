@@ -238,34 +238,6 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           ),
           const SizedBox(height: VelvetSpacing.sm),
 
-          // ── ← Back to role select ──────────────────────────────────────
-          Center(
-            child: GestureDetector(
-              key: const ValueKey<String>('step1_back'),
-              onTap: () {
-                // Going back preserves the draft (incl. role) so role-selection
-                // screen re-highlights the chosen role. Do NOT reset() here.
-                context.go(RouteNames.registerRole);
-              },
-              child: Padding(
-                padding: const EdgeInsets.all(VelvetSpacing.xs),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    const Icon(
-                      Icons.arrow_back_ios_new_rounded,
-                      size: 14,
-                      color: BrandColors.accentDeep,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(l10n.registerBackToRole, style: VelvetText.link()),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: VelvetSpacing.xs),
-
           // ── "Вже є акаунт? Увійти" ─────────────────────────────────────
           Center(
             child: GestureDetector(

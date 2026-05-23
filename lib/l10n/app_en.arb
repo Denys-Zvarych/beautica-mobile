@@ -374,10 +374,6 @@
   "@registerProgressDone": {
     "description": "Active label under dot 4 of the 4-dot wizard progress indicator on the registration-done screen."
   },
-  "registerBackToRole": "Back",
-  "@registerBackToRole": {
-    "description": "Bottom-of-card back link on the Step 1 credentials screen that returns to the role-selection screen (2026-05-20 design refresh)."
-  },
   "registerStep1HeadlineAccent": "account",
   "@registerStep1HeadlineAccent": {
     "description": "Italic Cormorant Garamond accent on the Step 1 credentials screen headline (sign-up-page.html .headline em — 'Create an account')."
@@ -872,10 +868,6 @@
   "forgotPasswordSubmit": "Send link",
   "@forgotPasswordSubmit": {
     "description": "CTA on the forgot-password request screen (forgot-password-request.html .cta-btn)."
-  },
-  "forgotPasswordBackToLogin": "Back to login",
-  "@forgotPasswordBackToLogin": {
-    "description": "Bottom back-to-login link on the forgot-password request screen (forgot-password-request.html .back-row a)."
   },
   "forgotPasswordConfirmHeadline": "Check",
   "@forgotPasswordConfirmHeadline": {

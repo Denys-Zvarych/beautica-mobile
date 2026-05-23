@@ -495,3 +495,46 @@ assert(
 **Added:** 2026-05-24 | **Audit:** startup-performance fix (MP-STARTUP-LOCATION)
 
 ---
+
+## LOW — auth_paths.dart comment should document that /auth/register covers CLIENT + SALON_OWNER (mobile-security debug-fix audit)
+
+**File:** `lib/core/network/auth_paths.dart` — `kAuthPaths` const (lines 11–12)
+
+**Finding:** The comment on `kAuthPaths` says "registration bodies" but does not specify that `/auth/register` covers both CLIENT and SALON_OWNER roles (they share the same path). A future developer adding a new role might add a distinct path without realising the existing entry already covers both roles. The runtime behaviour is correct; only the documentation is incomplete.
+
+**Fix:** Add a note: `// Covers CLIENT + SALON_OWNER (same path). INDEPENDENT_MASTER uses /auth/register/independent-master.`
+
+**Pattern:** MS5-adjacent (logging redaction coverage audit — documentation hygiene only, no exploit path).
+
+**Added:** 2026-05-24 | **Audit:** debug-fix security audit (MS-LOG-01-adjacent)
+
+---
+
+## LOW — HTTP 409 mapped to ServerFailure produces generic "Server error" copy for email-already-registered conflict (mobile-perf debug-fix audit)
+
+**File:** `lib/core/network/error_mapper_interceptor.dart` — 409 branch (line 109)
+`lib/core/errors/failures.dart` — no `ConflictFailure` class exists
+
+**Finding:** `HTTP 409 → ServerFailure(statusCode: 409)`. `ServerFailure.userMessage()` returns `errServer` ("Помилка сервера. Спробуйте пізніше."). For the email-already-registered case the user sees a generic server-error snackbar rather than "Ця електронна адреса вже зареєстрована." This is better than the previous `UnknownFailure` but still semantically misleading. The user may attempt registration again, causing a second 409 round trip.
+
+**Fix (next iteration):** Add `ConflictFailure` to `failures.dart` with `userMessage()` returning a new `errEmailAlreadyRegistered` / `errConflict` l10n key. Update `ErrorMapperInterceptor` line 109 to emit `ConflictFailure`. Update `RegisterStep3Screen._showSnackBar` call site to handle `ConflictFailure` explicitly if needed.
+
+**Pattern:** MP-adjacent (user-triggered network round-trip on misleading copy — deferred until registration UX polish pass).
+
+**Added:** 2026-05-24 | **Audit:** debug-fix perf audit (interceptor_409_user_message_mismatch)
+
+---
+
+## LOW — OTP TTL gap on already-registered guard back-nav path (mobile-security debug-fix audit)
+
+**File:** `lib/features/auth/presentation/register_step_3_screen.dart` — `_runRegisterAndSave` guard (lines 265–268)
+
+**Finding:** When `draft.password.isEmpty` (already registered), the guard navigates to `/verification` with the stale `draft.email`. If the user spent > 15 minutes on the back-navigated Step 3 screen, the previously-issued OTP has expired. The user lands on verification unable to verify and must tap "resend" — no clear in-app explanation. This is a UX gap only; the backend correctly blocks expired OTPs and the resend flow handles recovery.
+
+**Fix (next iteration):** Show a brief inline message on the verification screen if the OTP is known to be stale (e.g. derived from the time since `clearCredentials()` was called, or on the first INVALID_CODE / CODE_EXPIRED response).
+
+**Pattern:** UX-adjacent (post-registration back-nav edge case — low frequency, recovery path exists).
+
+**Added:** 2026-05-24 | **Audit:** debug-fix security audit (INFO-MASVS-AUTH-guard-otp-ttl)
+
+---

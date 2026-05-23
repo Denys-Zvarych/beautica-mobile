@@ -12,6 +12,7 @@
 //      and router does not advance.
 //   5. Preselection from an existing draft (returning via Step 1 back link).
 //   6. Login link navigates to /login and resets the draft.
+//   8. auth_scaffold_back is present and tapping it navigates to /login.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -321,6 +322,41 @@ void main() {
 
         // Draft was reset.
         expect(container.read(registerDraftProvider), isNull);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // 8. auth_scaffold_back present and navigates to /login
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '8. auth_scaffold_back button is present on the role-selection screen '
+      'and tapping it navigates to /login',
+      (tester) async {
+        final (:container, :router) = await _pumpRoleSelection(tester);
+
+        // The top-left back button must be rendered.
+        expect(
+          find.byKey(const ValueKey<String>('auth_scaffold_back')),
+          findsOneWidget,
+          reason:
+              'RoleSelectionScreen now passes showBack: true — the '
+              'auth_scaffold_back button must be present',
+        );
+
+        // Tapping it goes to /login.
+        await tester.tap(
+          find.byKey(const ValueKey<String>('auth_scaffold_back')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          router.routerDelegate.currentConfiguration.fullPath,
+          equals(RouteNames.login),
+          reason:
+              'auth_scaffold_back on the role-selection screen must navigate '
+              'to /login',
+        );
+        expect(find.text('login'), findsOneWidget);
       },
     );
 

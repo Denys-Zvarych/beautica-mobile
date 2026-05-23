@@ -374,10 +374,6 @@
   "@registerProgressDone": {
     "description": "Active label under dot 4 of the 4-dot wizard progress indicator on the registration-done screen (done-page.html .prog-label-under)."
   },
-  "registerBackToRole": "Назад",
-  "@registerBackToRole": {
-    "description": "Bottom-of-card back link on the Step 1 credentials screen that returns to the role-selection screen (sign-up-page.html .back-row a, 2026-05-20 design refresh)."
-  },
   "registerStep1HeadlineAccent": "акаунт",
   "@registerStep1HeadlineAccent": {
     "description": "Italic Cormorant Garamond accent on the Step 1 credentials screen headline (sign-up-page.html .headline em — 'Створіть акаунт')."
@@ -872,10 +868,6 @@
   "forgotPasswordSubmit": "Надіслати посилання",
   "@forgotPasswordSubmit": {
     "description": "CTA on the forgot-password request screen (forgot-password-request.html .cta-btn)."
-  },
-  "forgotPasswordBackToLogin": "Повернутися до входу",
-  "@forgotPasswordBackToLogin": {
-    "description": "Bottom back-to-login link on the forgot-password request screen (forgot-password-request.html .back-row a)."
   },
   "forgotPasswordConfirmHeadline": "Перевірте",
   "@forgotPasswordConfirmHeadline": {

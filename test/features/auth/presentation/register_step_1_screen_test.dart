@@ -13,9 +13,9 @@
 //   6. Draft persists when stepping out and back in (initState pre-fills
 //      controllers from the draft).
 //   7. Step 1 does NOT call AuthNotifier.register (deferred to Step 3).
-//   8. btn back (step1_back) PRESERVES the draft and navigates to /register/role.
+//   8. top-left back button (auth_scaffold_back) PRESERVES the draft and navigates to /register/role.
 //   9. Login link (step1_login_link) navigates to /login and resets draft.
-//  10. step1_back navigates to /register/role (not /login).
+//  10. auth_scaffold_back navigates to /register/role (not /login).
 //  11. Weak password "asd" shows errPasswordTooShort and does NOT advance.
 //  12. Strong password "Abcde123" passes the validator and advances to step-2.
 //  13. Password with no digit shows errPasswordNoDigit and does NOT advance
@@ -390,11 +390,10 @@ void main() {
       },
     );
 
-    testWidgets('8. tapping step1_back PRESERVES the draft (role survives) AND '
-        'navigates to /register/role — the back link goes one wizard step back, '
-        'so the role-selection screen can re-highlight the chosen role', (
-      tester,
-    ) async {
+    testWidgets('8. tapping auth_scaffold_back PRESERVES the draft (role '
+        'survives) AND navigates to /register/role — the top-left back button '
+        'goes one wizard step back so the role-selection screen can '
+        're-highlight the chosen role', (tester) async {
       final (:container, :repo) = _makeContainerWithRepo();
       addTearDown(container.dispose);
       final router = _makeRouter();
@@ -403,7 +402,7 @@ void main() {
       await tester.pumpWidget(_buildApp(router: router, container: container));
       await tester.pumpAndSettle();
 
-      // Pre-seed credentials so we can verify the back link does NOT wipe them.
+      // Pre-seed credentials so we can verify the back button does NOT wipe them.
       container
           .read(registerDraftProvider.notifier)
           .updateStep1(
@@ -417,12 +416,10 @@ void main() {
       expect(beforeTap.email, equals('pre-fill@example.com'));
       expect(beforeTap.password, equals('PrePass1'));
 
-      // Scroll the back link into view and tap it.
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('step1_back')),
+      // Tap the top-left back button.
+      await tester.tap(
+        find.byKey(const ValueKey<String>('auth_scaffold_back')),
       );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey<String>('step1_back')));
       await tester.pumpAndSettle();
 
       // (1) Draft is PRESERVED — going one wizard step back must keep the
@@ -493,33 +490,36 @@ void main() {
       },
     );
 
-    testWidgets('10. step1_back navigates to /register/role (not /login)', (
-      tester,
-    ) async {
-      final (:container, :repo) = _makeContainerWithRepo();
-      addTearDown(container.dispose);
-      final router = _makeRouter();
-      addTearDown(router.dispose);
+    testWidgets(
+      '10. auth_scaffold_back navigates to /register/role (not /login)',
+      (tester) async {
+        final (:container, :repo) = _makeContainerWithRepo();
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+        addTearDown(router.dispose);
 
-      await tester.pumpWidget(_buildApp(router: router, container: container));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
 
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('step1_back')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey<String>('step1_back')));
-      await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('auth_scaffold_back')),
+        );
+        await tester.pumpAndSettle();
 
-      expect(
-        router.routerDelegate.currentConfiguration.fullPath,
-        equals(RouteNames.registerRole),
-        reason: 'step1_back must navigate to registerRole, not to /login',
-      );
-      expect(find.text('role-selection'), findsOneWidget);
+        expect(
+          router.routerDelegate.currentConfiguration.fullPath,
+          equals(RouteNames.registerRole),
+          reason:
+              'auth_scaffold_back on Step 1 must navigate to registerRole, '
+              'not to /login',
+        );
+        expect(find.text('role-selection'), findsOneWidget);
 
-      _assertNoRegisterPostFired(repo);
-    });
+        _assertNoRegisterPostFired(repo);
+      },
+    );
 
     testWidgets(
       '11. weak password "asd" shows errPasswordTooShort and does NOT advance '

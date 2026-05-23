@@ -10,8 +10,8 @@
 //   - Confirmation state no longer has a "resend" link — instead it has a
 //     "У мене є посилання" preview CTA (key 'forgot_preview_reset') that
 //     navigates to /reset-password.
-//   - The back-to-login affordance (key 'forgot_back_login') now lives in the
-//     SENT state, not the form state. Test 4 reaches the sent state first.
+//   - The back-to-login affordance is now the top-left AuthScaffold button
+//     (key 'auth_scaffold_back'). Test 4 reaches the sent state first.
 //   - Email validation is now inline (_inlineError → NeumorphicTextField
 //     errorText) rather than Form + GlobalKey, so test 1 checks that the
 //     inline email error text appears and the email field is still present.
@@ -132,7 +132,7 @@ void main() {
           findsOneWidget,
         );
         expect(
-          find.byKey(const ValueKey<String>('forgot_back_login')),
+          find.byKey(const ValueKey<String>('auth_scaffold_back')),
           findsOneWidget,
         );
       },
@@ -174,33 +174,33 @@ void main() {
       },
     );
 
-    testWidgets('4. back-to-login link (in sent state) navigates to /login', (
-      WidgetTester tester,
-    ) async {
-      final FakeAuthRepository repo = FakeAuthRepository();
-      await _pump(tester, repo);
+    testWidgets(
+      '4. top-left back button (auth_scaffold_back, sent state) navigates to /login',
+      (WidgetTester tester) async {
+        final FakeAuthRepository repo = FakeAuthRepository();
+        await _pump(tester, repo);
 
-      // Reach the sent state first.
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('forgot_email')),
-        'anya@example.com',
-      );
-      await tester.pump();
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('forgot_submit')),
-      );
-      await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
-      await tester.pumpAndSettle();
+        // Reach the sent state first.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('forgot_email')),
+          'anya@example.com',
+        );
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('forgot_submit')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
+        await tester.pumpAndSettle();
 
-      // Now tap the back-to-login link.
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('forgot_back_login')),
-      );
-      await tester.tap(find.byKey(const ValueKey<String>('forgot_back_login')));
-      await tester.pumpAndSettle();
+        // Now tap the top-left back button.
+        await tester.tap(
+          find.byKey(const ValueKey<String>('auth_scaffold_back')),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.text('login'), findsOneWidget);
-    });
+        expect(find.text('login'), findsOneWidget);
+      },
+    );
 
     // MEDIUM — anti-enumeration negative half. A genuine transport failure must
     // NOT masquerade as the generic confirmation success. The repo throws a
@@ -240,10 +240,9 @@ void main() {
           find.byKey(const ValueKey<String>('forgot_preview_reset')),
           findsNothing,
         );
-        expect(
-          find.byKey(const ValueKey<String>('forgot_back_login')),
-          findsNothing,
-        );
+        // The top-left back button is always present (AuthScaffold.showBack:
+        // true), so we only assert the confirmation-specific preview CTA is
+        // absent — not the scaffold-level back affordance.
       },
     );
 

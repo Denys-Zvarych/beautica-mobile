@@ -10,6 +10,7 @@
 //                                         → NetworkFailure
 //   HTTP 401          → UnauthorizedFailure
 //   HTTP 404          → NotFoundFailure
+//   HTTP 409          → ServerFailure(statusCode: 409)
 //   HTTP 400          → ValidationFailure (field errors extracted from body)
 //   HTTP 500–599      → ServerFailure(statusCode: ...)
 //   anything else     → UnknownFailure(cause: err)
@@ -102,6 +103,11 @@ final class ErrorMapperInterceptor extends Interceptor {
 
       if (statusCode == 401) return UnauthorizedFailure(cause: err);
       if (statusCode == 404) return NotFoundFailure(cause: err);
+      // HTTP 409 Conflict — email already registered during sign-up (or any
+      // other resource-conflict). Map to ServerFailure so the screen surfaces
+      // the generic "server error" copy rather than the opaque errUnknown.
+      if (statusCode == 409)
+        return ServerFailure(statusCode: statusCode, cause: err);
       if (statusCode == 400 || statusCode == 422) {
         return ValidationFailure(
           fieldErrors: _extractFieldErrors(err),
