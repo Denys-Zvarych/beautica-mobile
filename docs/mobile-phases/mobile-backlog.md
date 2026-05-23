@@ -199,3 +199,87 @@ assert(
 **Added:** 2026-05-23 | **Audit:** Phase 1.6 neumorphic widget library perf audit
 
 ---
+
+## LOW — NeumorphicButton missing RepaintBoundary (mobile-perf Phase 2.5)
+
+**File:** `lib/core/widgets/neumorphic.dart` — `_NeumorphicButtonState.build()` root return (~line 343)
+
+**Finding:** `NeumorphicButton`'s press animation (`AnimatedScale` + `AnimatedContainer`) fires on every tap-down/up/cancel, invalidating the raster layer for the entire parent subtree. On the login screen this means the `_LoginScreenState` layer is re-composited on each button press. Rare interaction so frame budget not blown, but the fix is one line.
+
+**Fix:** Wrap the outermost `Semantics` return of `_NeumorphicButtonState.build()` in a `RepaintBoundary`. Mirrors the fix already applied to `NeumorphicInset` in Phase 1.6.
+
+**Pattern:** MP-adjacent (compositing layer isolation).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.5 login screen perf audit
+
+---
+
+## LOW — VelvetText.input().copyWith() double allocation per keystroke (mobile-perf Phase 2.5)
+
+**File:** `lib/core/widgets/neumorphic.dart` — `_NeumorphicTextFieldState.build()` (~line 238 + 245)
+
+**Finding:** `VelvetText.input()` is called twice per build: once for `style` and once for `hintStyle` via `.copyWith(...)`. `GoogleFonts` caches the base style but `.copyWith()` always allocates a new `TextStyle`. With 2 fields on the login screen and `onChanged` + `FocusNode` rebuilds, this is ~4 allocations per keystroke. Acceptable for now; escalates if used in list contexts.
+
+**Fix (next polish sprint):** Cache `static final _hintStyle = VelvetText.input().copyWith(color: BrandColors.placeholder)` as a module-level constant, or hoist into `VelvetText` as a dedicated `inputHint()` factory.
+
+**Pattern:** MP-adjacent (GoogleFonts TextStyle allocation in build()).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.5 login screen perf audit
+
+---
+
+## LOW — UnauthorizedFailure.cause.toString() pattern must be scrubbed before crash reporter (mobile-security Phase 2.5)
+
+**File:** `lib/features/auth/presentation/login_screen.dart` (~line 146)
+
+**Finding:** `e.cause?.toString().contains('EMAIL_NOT_VERIFIED')` calls `DioException.toString()` which includes the full response body. Safe today (no crash reporter integrated). Becomes HIGH the moment Sentry/Crashlytics is added without a custom scrubber.
+
+**Fix (before crash reporter integration):** Add a `serverCode` getter on `UnauthorizedFailure` that reads `(cause as DioException).response?.data?['code']` as a typed enum; match `AuthErrorCode.emailNotVerified` instead of `toString()`.
+
+**Pattern:** MS-adjacent (MASVS-CODE, data scrubbing for future crash reporter).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.5 login screen security audit
+
+---
+
+## LOW — AuthBanner action GestureDetector has no Key (mobile-qa Phase 2.5)
+
+**File:** `lib/features/auth/presentation/widgets/auth_scaffold.dart` — `AuthBanner` action `GestureDetector` (~line 123)
+
+**Finding:** Tests that need to tap the action must use `find.text(l10n.loginUnverifiedAction)`, coupling the test to the localised string. If a second `AuthBanner` appears on screen, the finder becomes ambiguous.
+
+**Fix:** Add `key: const ValueKey<String>('auth_banner_action')` to the `GestureDetector` in `AuthBanner`. Update Test 11 to use `find.byKey(...)`.
+
+**Pattern:** M2 (locale-coupled widget finder).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.5 login screen QA audit
+
+---
+
+## LOW — NeumorphicTextField hintText uses raw string literal (mobile-qa Phase 2.5)
+
+**File:** `lib/features/auth/presentation/login_screen.dart` — email `NeumorphicTextField` (~line 239)
+
+**Finding:** `hintText: 'olena.kovalenko@gmail.com'` is a raw string literal shown to users when field is empty. Should be `l10n.loginEmailHint`.
+
+**Fix:** Add `loginEmailHint` key to `app_uk.arb` and `app_en.arb`, regenerate, replace literal.
+
+**Pattern:** M11 (raw UI string literal in production widget code).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.5 login screen QA audit
+
+---
+
+## LOW — Test 3 missing authRepositoryProvider override (mobile-qa Phase 2.5)
+
+**File:** `test/features/auth/presentation/login_screen_test.dart` — Test 3
+
+**Finding:** `_LoadingAuthNotifier` overrides `authProvider` but `authRepositoryProvider` is not overridden. Safe today because `_LoadingAuthNotifier.build()` never reads the repo.
+
+**Fix:** Add `authRepositoryProvider.overrideWith((_) => FakeAuthRepository())` to Test 3 overrides.
+
+**Pattern:** M1 (provider lifecycle / isolation hygiene).
+
+**Added:** 2026-05-23 | **Audit:** Phase 2.5 login screen QA audit
+
+---

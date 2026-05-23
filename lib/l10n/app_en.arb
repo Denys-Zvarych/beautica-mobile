@@ -306,6 +306,14 @@
   "@loginForgotPassword": {
     "description": "Right-aligned link text for the forgot-password flow on the login screen."
   },
+  "loginUnverifiedMessage": "Email not yet verified. Enter the code to complete sign-in.",
+  "@loginUnverifiedMessage": {
+    "description": "Inline banner message shown when the user tries to log in with an unverified email."
+  },
+  "loginUnverifiedAction": "Verify email",
+  "@loginUnverifiedAction": {
+    "description": "Link label in the EMAIL_NOT_VERIFIED banner that takes the user to the verification screen."
+  },
   "registerHeadline": "Welcome!",
   "@registerHeadline": {
     "description": "Large headline on the role selection step of the register screen."
