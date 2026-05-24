@@ -257,8 +257,9 @@ final class HttpAuthRepository implements AuthRepository {
   ///   Request:  `{"email": "...", "code": "123456"}`  — wire field is `code`,
   ///             not `otp`. The mobile param name stays `otp` to match the
   ///             HTML mockup vocabulary; only the body field is `code`.
-  ///   Success:  `ApiResponse<AuthResponse>` envelope with `data.{user,
-  ///             accessToken, refreshToken}` — identical shape to /auth/login.
+  ///   Success:  `ApiResponse<AuthResponse>` flat envelope with `data.{userId,
+  ///             email, role, accessToken, refreshToken, tokenType}` — identical
+  ///             shape to /auth/login.
   ///   400:      `{success:false, data:{code:"INVALID_CODE"|"CODE_EXPIRED"|
   ///             "ALREADY_VERIFIED"}}` — mapped to [VerificationFailure] by
   ///             [ErrorMapperInterceptor] before reaching this catch block.
@@ -461,7 +462,8 @@ final class HttpAuthRepository implements AuthRepository {
   ///
   /// Backend request body: `{ token, password, firstName, lastName,
   ///   phoneNumber? }`. The response envelope is identical to `/auth/login`:
-  ///   `{ "data": { "user": {...}, "accessToken": "...", "refreshToken": "..." } }`
+  ///   `{ "data": { "userId": "...", "email": "...", "role": "...",
+  ///     "accessToken": "...", "refreshToken": "...", "tokenType": "Bearer" } }`
   ///
   /// SECURITY: the request body carries the single-use invite token plus
   /// the new password — both are PII. `/auth/invite/accept` is redacted by
@@ -508,11 +510,21 @@ final class HttpAuthRepository implements AuthRepository {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  /// Extracts the `{ user, accessToken, refreshToken }` shape from the backend
-  /// envelope and returns the domain tuple.
+  /// Extracts the flat `AuthResponse` shape from the backend envelope and
+  /// returns the domain tuple.
+  ///
+  /// The backend serialises [AuthResponse] flat — `userId`, `email`, `role`,
+  /// `accessToken` and `refreshToken` are all siblings at the top level of
+  /// `data`. There is no nested `user` object.
   (User, AuthTokens) _parseUserAndTokens(Map<String, dynamic> envelope) {
     final data = envelope['data'] as Map<String, dynamic>;
-    final user = User.fromJson(data['user'] as Map<String, dynamic>);
+    // Build User from flat AuthResponse fields.
+    // Backend uses 'userId' not 'id'; firstName/lastName are not in AuthResponse.
+    final user = User(
+      id: data['userId'] as String,
+      email: data['email'] as String,
+      role: UserRole.fromWire(data['role'] as String),
+    );
     final tokens = AuthTokens(
       accessToken: data['accessToken'] as String,
       refreshToken: data['refreshToken'] as String,
@@ -526,13 +538,16 @@ final class HttpAuthRepository implements AuthRepository {
   /// The backend currently returns a verification-required envelope by
   /// default:
   ///   { "success": true, "data": { "message": "...", "email": "..." } }
-  /// Legacy / future auto-login responses carry the full session payload:
-  ///   { "success": true, "data": { "user": {...}, "accessToken": "...",
-  ///     "refreshToken": "..." } }
+  /// Auto-login responses (when email verification is not required) carry the
+  /// flat [AuthResponse] session payload detected by the presence of
+  /// `accessToken`:
+  ///   { "success": true, "data": { "userId": "...", "email": "...",
+  ///     "role": "...", "accessToken": "...", "refreshToken": "...",
+  ///     "tokenType": "Bearer" } }
   ///
   /// Anything else (no `data`, or a `data` block missing both `email` and
-  /// `user`) is genuinely wrong — we throw [UnknownFailure] so the screen
-  /// surfaces a snackbar instead of crashing with a generic cast error.
+  /// `accessToken`) is genuinely wrong — we throw [UnknownFailure] so the
+  /// screen surfaces a snackbar instead of crashing with a generic cast error.
   RegisterResult _parseRegisterResult(Map<String, dynamic> envelope) {
     final data = envelope['data'];
     if (data is! Map<String, dynamic>) {
@@ -540,8 +555,10 @@ final class HttpAuthRepository implements AuthRepository {
         cause: 'register response missing "data" object',
       );
     }
-    // Auto-login (legacy) path — full session in the body.
-    if (data['user'] is Map<String, dynamic>) {
+    // Auto-login path — detected by the presence of accessToken in the flat
+    // AuthResponse. The old nested `data['user']` check is no longer valid
+    // because the backend serialises a flat shape (no nested user object).
+    if (data['accessToken'] is String) {
       final (user, tokens) = _parseUserAndTokens(envelope);
       return RegisterResult.authenticated(user: user, tokens: tokens);
     }

@@ -695,7 +695,8 @@ void main() {
         expect(
           actionTextFinder,
           findsOneWidget,
-          reason: 'verificationGoToLogin action label must be visible before tap',
+          reason:
+              'verificationGoToLogin action label must be visible before tap',
         );
 
         // Tap the action label — this triggers context.go(RouteNames.login).
@@ -827,7 +828,8 @@ void main() {
 
         // Step 2: reconfigure repo so resend returns a throttle error.
         repo
-          ..verifyEmailResult = null // no further verify calls expected
+          ..verifyEmailResult =
+              null // no further verify calls expected
           ..resendVerificationResult = const ResendThrottledFailure(
             retryAfterSeconds: 30,
           );

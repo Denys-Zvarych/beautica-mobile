@@ -65,6 +65,11 @@ DioException _rawDioException() => DioException(
 );
 
 /// Fixture backend envelope for a login / register response.
+///
+/// Shape mirrors the flat [AuthResponse] the backend serialises:
+///   { userId, email, role, accessToken, refreshToken, tokenType }
+/// There is no nested `user` object — the session data is at the top level
+/// of `data`.
 Map<String, dynamic> _loginEnvelope({
   String userId = 'usr-1',
   String role = 'INDEPENDENT_MASTER',
@@ -72,15 +77,12 @@ Map<String, dynamic> _loginEnvelope({
   'success': true,
   'message': 'OK',
   'data': {
-    'user': {
-      'id': userId,
-      'email': 'master@beautica.test',
-      'role': role,
-      'firstName': 'Іванна',
-      'lastName': 'Коваль',
-    },
+    'userId': userId,
+    'email': 'master@beautica.test',
+    'role': role,
     'accessToken': 'access.jwt.token',
     'refreshToken': 'refresh.jwt.token',
+    'tokenType': 'Bearer',
   },
 };
 
@@ -154,8 +156,10 @@ void main() {
         expect(user.id, 'usr-1');
         expect(user.email, 'master@beautica.test');
         expect(user.role, UserRole.independentMaster);
-        expect(user.firstName, 'Іванна');
-        expect(user.lastName, 'Коваль');
+        // AuthResponse is flat — firstName/lastName are not part of the login
+        // response; they come from GET /users/me separately.
+        expect(user.firstName, isNull);
+        expect(user.lastName, isNull);
         expect(tokens.accessToken, 'access.jwt.token');
         expect(tokens.refreshToken, 'refresh.jwt.token');
       },

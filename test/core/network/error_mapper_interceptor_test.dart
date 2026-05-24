@@ -436,73 +436,64 @@ void main() {
 
     // ---- Retry-After header path (RFC 7231 §7.1.3) ----
 
-    test(
-      '429 with Retry-After: 60 header → ResendThrottledFailure(60) '
-      '(header takes precedence over absent body)',
-      () {
-        final rejected = _captureRejected(
-          _httpErrorWithRetryAfterHeader('60'),
-        );
+    test('429 with Retry-After: 60 header → ResendThrottledFailure(60) '
+        '(header takes precedence over absent body)', () {
+      final rejected = _captureRejected(_httpErrorWithRetryAfterHeader('60'));
 
-        expect(rejected.error, isA<ResendThrottledFailure>());
-        expect(
-          (rejected.error as ResendThrottledFailure).retryAfterSeconds,
-          equals(60),
-          reason:
-              'Retry-After header value must be parsed and returned when no '
-              'JSON body is present',
-        );
-      },
-    );
+      expect(rejected.error, isA<ResendThrottledFailure>());
+      expect(
+        (rejected.error as ResendThrottledFailure).retryAfterSeconds,
+        equals(60),
+        reason:
+            'Retry-After header value must be parsed and returned when no '
+            'JSON body is present',
+      );
+    });
 
-    test(
-      '429 with Retry-After: 30 header AND data.retryAfterSeconds: 99 → '
-      'header wins (RFC 7231 resolution order)',
-      () {
-        final opts = _opts(path: '/auth/resend-verification');
-        final rejected = _captureRejected(
-          DioException(
+    test('429 with Retry-After: 30 header AND data.retryAfterSeconds: 99 → '
+        'header wins (RFC 7231 resolution order)', () {
+      final opts = _opts(path: '/auth/resend-verification');
+      final rejected = _captureRejected(
+        DioException(
+          requestOptions: opts,
+          response: Response<dynamic>(
             requestOptions: opts,
-            response: Response<dynamic>(
-              requestOptions: opts,
-              statusCode: 429,
-              data: {
-                'success': false,
-                'data': {'retryAfterSeconds': 99},
-              },
-              headers: Headers.fromMap({'retry-after': ['30']}),
-            ),
-            type: DioExceptionType.badResponse,
+            statusCode: 429,
+            data: {
+              'success': false,
+              'data': {'retryAfterSeconds': 99},
+            },
+            headers: Headers.fromMap({
+              'retry-after': ['30'],
+            }),
           ),
-        );
+          type: DioExceptionType.badResponse,
+        ),
+      );
 
-        expect(rejected.error, isA<ResendThrottledFailure>());
-        expect(
-          (rejected.error as ResendThrottledFailure).retryAfterSeconds,
-          equals(30),
-          reason:
-              'When both Retry-After header and data.retryAfterSeconds are '
-              'present, the header must win (resolution order rule 1)',
-        );
-      },
-    );
+      expect(rejected.error, isA<ResendThrottledFailure>());
+      expect(
+        (rejected.error as ResendThrottledFailure).retryAfterSeconds,
+        equals(30),
+        reason:
+            'When both Retry-After header and data.retryAfterSeconds are '
+            'present, the header must win (resolution order rule 1)',
+      );
+    });
 
-    test(
-      '429 with Retry-After header containing leading/trailing whitespace '
-      '→ parsed correctly after trim()',
-      () {
-        final rejected = _captureRejected(
-          _httpErrorWithRetryAfterHeader('  45  '),
-        );
+    test('429 with Retry-After header containing leading/trailing whitespace '
+        '→ parsed correctly after trim()', () {
+      final rejected = _captureRejected(
+        _httpErrorWithRetryAfterHeader('  45  '),
+      );
 
-        expect(rejected.error, isA<ResendThrottledFailure>());
-        expect(
-          (rejected.error as ResendThrottledFailure).retryAfterSeconds,
-          equals(45),
-          reason: 'trim() must be applied before int.tryParse',
-        );
-      },
-    );
+      expect(rejected.error, isA<ResendThrottledFailure>());
+      expect(
+        (rejected.error as ResendThrottledFailure).retryAfterSeconds,
+        equals(45),
+        reason: 'trim() must be applied before int.tryParse',
+      );
+    });
 
     test(
       '429 with non-integer Retry-After header (HTTP-date form) falls back to '
