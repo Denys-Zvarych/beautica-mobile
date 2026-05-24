@@ -188,8 +188,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          // ── Logo pillow + wordmark (identical position on every auth screen).
-          const VelvetHeader(),
+          // ── Logo pillow + wordmark — vertically aligned with wizard icon tiles.
+          // No top offset (VelvetHeader.topSpacing removed); SizedBox.lg matches
+          // the gap used by role_selection, step_1, step_2, step_3, verification.
+          const Center(child: VelvetLogo(compact: true)),
+          const SizedBox(height: VelvetSpacing.lg),
 
           // ── Heading
           Text(

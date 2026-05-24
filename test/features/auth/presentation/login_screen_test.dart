@@ -28,6 +28,7 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
@@ -639,6 +640,64 @@ void main() {
         );
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Test 12 — VelvetLogo present; VelvetHeader absent (layout regression)
+    //
+    // Phase 2.x replaced `VelvetHeader()` on the login screen with
+    // `Center(child: VelvetLogo(compact: true))` so the logo sits at the same
+    // vertical position as the icon tiles on the register/wizard screens.
+    // -----------------------------------------------------------------------
+    testWidgets('12. VelvetLogo(compact) is present and VelvetHeader is absent '
+        '(layout parity with wizard icon tiles)', (tester) async {
+      final repo = FakeAuthRepository();
+      final storage = FakeSecureStorage();
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The compact VelvetLogo must be rendered exactly once.
+      expect(
+        find.byType(VelvetLogo),
+        findsOneWidget,
+        reason:
+            'LoginScreen must render VelvetLogo(compact: true) after '
+            'VelvetHeader was replaced in the Phase 2.x layout alignment.',
+      );
+
+      // VelvetHeader must NOT be in the tree — it carries extra topSpacing
+      // (VelvetSpacing.sm) that offset the logo below the wizard icon tiles.
+      expect(
+        find.byType(VelvetHeader),
+        findsNothing,
+        reason:
+            'VelvetHeader must be absent — it was replaced with '
+            'Center(child: VelvetLogo(compact: true)) + SizedBox(lg) '
+            'so the logo aligns with icon tiles on all other auth screens.',
+      );
+
+      // VelvetLogo must render the wordmark text.
+      expect(
+        find.text('beautica'),
+        findsOneWidget,
+        reason: 'VelvetLogo must render the "beautica" wordmark text.',
+      );
+    });
   });
 }
 
