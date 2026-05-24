@@ -85,6 +85,16 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   /// Inline error message shown below the OTP row.
   String? _inlineError;
 
+  /// Optional label for the action button inside the inline error banner.
+  ///
+  /// Set to non-null (together with [_inlineErrorAction]) when the error
+  /// carries a recovery action — e.g. "Увійти" after INVALID_CODE so the user
+  /// can navigate to login instead of retrying the consumed OTP.
+  String? _inlineErrorActionLabel;
+
+  /// Callback for the action button inside the inline error banner.
+  VoidCallback? _inlineErrorAction;
+
   /// True once OTP verification has succeeded and a session token exists.
   ///
   /// Defect 8 — the provider profile/salon save (auth-required) runs HERE,
@@ -146,8 +156,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       context.go(RouteNames.done);
     } catch (e) {
       if (!mounted) return;
-      final message = _errorMessage(e, l10n);
-      setState(() => _inlineError = message);
+      _setInlineError(e, l10n);
     }
   }
 
@@ -218,9 +227,14 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
 
       if (!mounted) return _kResendCooldownSeconds;
 
-      // Success path — safely clear the OTP and the inline error.
+      // Success path — safely clear the OTP and the inline error (including
+      // any recovery action from a previous INVALID_CODE / throttle banner).
       _codeController.clear();
-      setState(() => _inlineError = null);
+      setState(() {
+        _inlineError = null;
+        _inlineErrorActionLabel = null;
+        _inlineErrorAction = null;
+      });
 
       if (kDebugMode) {
         log('Resend code dispatched', name: 'auth.verification', level: 800);
@@ -229,23 +243,60 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       return _kResendCooldownSeconds;
     } on ResendThrottledFailure catch (throttle) {
       if (!mounted) return throttle.retryAfterSeconds;
-      setState(() => _inlineError = throttle.userMessage(context));
+      // Throttle errors have no recovery action — clear any stale action from a
+      // previous INVALID_CODE banner to avoid a dangling "Увійти" button.
+      setState(() {
+        _inlineError = throttle.userMessage(context);
+        _inlineErrorActionLabel = null;
+        _inlineErrorAction = null;
+      });
       return throttle.retryAfterSeconds;
     } catch (e) {
       if (!mounted) return null;
-      setState(() => _inlineError = _errorMessage(e, l10n));
+      _setInlineError(e, l10n);
       return null; // No cooldown on generic error — allow immediate retry.
     }
   }
 
-  String _errorMessage(Object? error, AppLocalizations l10n) {
-    if (error is UnimplementedError) {
-      return l10n.verificationServiceUnavailable;
+  /// Sets [_inlineError], [_inlineErrorActionLabel], and [_inlineErrorAction]
+  /// based on [error].
+  ///
+  /// For [VerificationFailure] with [VerificationErrorCode.invalidCode]:
+  ///   - Shows "Невірний або вже використаний код. Спробуйте увійти."
+  ///   - Adds an "Увійти" action that navigates to the login screen so the user
+  ///     can log in if the account was already verified (the backend returns the
+  ///     same INVALID_CODE for a consumed code as for a genuinely wrong one).
+  ///
+  /// For [VerificationFailure] with [VerificationErrorCode.alreadyVerified]:
+  ///   - Shows "Цей акаунт вже підтверджено. Увійдіть." with the same action.
+  ///
+  /// All other failures show their [Failure.userMessage] with no action.
+  void _setInlineError(Object? error, AppLocalizations l10n) {
+    String message;
+    String? actionLabel;
+    VoidCallback? action;
+
+    if (error is VerificationFailure &&
+        (error.code == VerificationErrorCode.invalidCode ||
+            error.code == VerificationErrorCode.alreadyVerified)) {
+      message = error.code == VerificationErrorCode.alreadyVerified
+          ? l10n.verificationErrAlreadyVerified
+          : l10n.verificationErrInvalidCodeWithLoginHint;
+      actionLabel = l10n.verificationGoToLogin;
+      action = () => context.go(RouteNames.login);
+    } else if (error is UnimplementedError) {
+      message = l10n.verificationServiceUnavailable;
+    } else if (error is Failure) {
+      message = error.userMessage(context);
+    } else {
+      message = l10n.verificationServiceUnavailable;
     }
-    if (error is Failure) {
-      return error.userMessage(context);
-    }
-    return l10n.verificationServiceUnavailable;
+
+    setState(() {
+      _inlineError = message;
+      _inlineErrorActionLabel = actionLabel;
+      _inlineErrorAction = action;
+    });
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
@@ -330,12 +381,17 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           // ── Resend row — owns its own cooldown timer (Fix B / MEDIUM-2) ────
           _ResendRow(onResend: _resend),
           // ── Inline error banner ───────────────────────────────────────────
+          // [_inlineErrorActionLabel] and [_inlineErrorAction] are non-null when
+          // the error includes a recovery CTA (e.g. "Увійти" for INVALID_CODE /
+          // ALREADY_VERIFIED so the user can navigate to login directly).
           if (_inlineError != null) ...<Widget>[
             const SizedBox(height: VelvetSpacing.md),
             AuthBanner(
               icon: Icons.error_outline_rounded,
               color: BrandColors.error,
               message: _inlineError!,
+              actionLabel: _inlineErrorActionLabel,
+              onAction: _inlineErrorAction,
             ),
           ],
         ],

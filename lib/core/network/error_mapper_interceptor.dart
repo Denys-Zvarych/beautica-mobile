@@ -154,35 +154,64 @@ final class ErrorMapperInterceptor extends Interceptor {
     return null;
   }
 
-  /// Extracts `data.retryAfterSeconds` from the throttle envelope.
+  /// Extracts the resend-cooldown seconds from the 429 response.
   ///
-  /// Falls back to `0` if the body is malformed — the screen still shows the
-  /// throttle copy and the user can manually retry once the existing
-  /// countdown finishes.
+  /// Resolution order (first non-null result wins):
+  ///   1. `Retry-After` HTTP response header (RFC 7231 — authoritative).
+  ///   2. `data.retryAfterSeconds` in the JSON body envelope (backend Phase 1.6
+  ///      secondary field; present alongside the header for clients that can't
+  ///      read raw headers through a Dio response).
+  ///
+  /// Falls back to `0` when both sources are absent or malformed — the screen
+  /// still shows the throttle banner and the user can manually retry.
+  ///
+  /// All values are clamped to [0, 2^31] to prevent a rogue server from
+  /// pinning the resend cooldown to a multi-year value (MASVS-PLATFORM).
   int _extractRetryAfterSeconds(DioException err) {
+    const kMaxCooldown = 1 << 31;
+
+    // 1. Retry-After header (RFC 7231 §7.1.3 — integer seconds form only;
+    //    HTTP-date form is intentionally not parsed here since the backend
+    //    always emits an integer).
+    try {
+      final headerRaw = err.response?.headers.value('retry-after');
+      if (headerRaw != null) {
+        final parsed = int.tryParse(headerRaw.trim());
+        if (parsed != null && parsed >= 0) {
+          return parsed.clamp(0, kMaxCooldown);
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        log(
+          'Failed to parse Retry-After header: $e',
+          name: 'network.error',
+          level: 900,
+        );
+      }
+    }
+
+    // 2. JSON body fallback: {data: {retryAfterSeconds: N}}.
     try {
       final body = err.response?.data;
       if (body is Map<String, dynamic>) {
         final data = body['data'];
         if (data is Map<String, dynamic>) {
           final raw = data['retryAfterSeconds'];
-          // Clamp to [0, 2^31] to prevent a rogue server from pinning the
-          // resend cooldown to a multi-year value (MASVS-PLATFORM).
-          if (raw is int) {
-            return raw.clamp(0, 1 << 31);
-          }
-          if (raw is num) return raw.toInt().clamp(0, 1 << 31);
+          if (raw is int) return raw.clamp(0, kMaxCooldown);
+          if (raw is num) return raw.toInt().clamp(0, kMaxCooldown);
         }
       }
     } catch (e) {
       if (kDebugMode) {
         log(
-          'Failed to parse retry-after-seconds from response: $e',
+          'Failed to parse retry-after-seconds from response body: $e',
           name: 'network.error',
           level: 900,
         );
       }
     }
+
     return 0;
   }
 

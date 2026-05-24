@@ -534,6 +534,14 @@
   "@verificationErrInvalidCode": {
     "description": "Inline error shown when the backend returns INVALID_CODE for POST /auth/verify-email (wrong digits OR non-existent email; backend uses the same code to prevent enumeration)."
   },
+  "verificationErrInvalidCodeWithLoginHint": "Невірний або вже використаний код. Якщо пошту вже підтверджено — увійдіть до акаунту.",
+  "@verificationErrInvalidCodeWithLoginHint": {
+    "description": "Inline error shown for INVALID_CODE on the verify-email screen. The backend returns INVALID_CODE both for a wrong code and for a code that was already consumed (account already verified). This copy is less alarming than the plain invalidCode message and includes a hint to log in."
+  },
+  "verificationGoToLogin": "Увійти до акаунту",
+  "@verificationGoToLogin": {
+    "description": "Action label inside the inline error banner on the verification screen for INVALID_CODE and ALREADY_VERIFIED errors. Tapping navigates to the login screen."
+  },
   "verificationErrCodeExpired": "Термін дії коду минув. Надішліть код повторно.",
   "@verificationErrCodeExpired": {
     "description": "Inline error shown when the backend returns CODE_EXPIRED for POST /auth/verify-email (OTP older than 15 min)."

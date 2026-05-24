@@ -408,6 +408,139 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('ErrorMapperInterceptor — resend-verification 429 throttle', () {
+    // -------------------------------------------------------------------------
+    // Helper — builds a 429 DioException with a real Retry-After response header
+    // so that the header-first resolution path in _extractRetryAfterSeconds is
+    // exercised. The JSON body is intentionally absent to prove the header path
+    // fires in isolation (RFC 7231 §7.1.3 — integer seconds form).
+    // -------------------------------------------------------------------------
+    DioException _httpErrorWithRetryAfterHeader(
+      String retryAfterValue, {
+      String path = '/auth/resend-verification',
+      dynamic body,
+    }) {
+      final opts = _opts(path: path);
+      return DioException(
+        requestOptions: opts,
+        response: Response<dynamic>(
+          requestOptions: opts,
+          statusCode: 429,
+          data: body,
+          headers: Headers.fromMap({
+            'retry-after': [retryAfterValue],
+          }),
+        ),
+        type: DioExceptionType.badResponse,
+      );
+    }
+
+    // ---- Retry-After header path (RFC 7231 §7.1.3) ----
+
+    test(
+      '429 with Retry-After: 60 header → ResendThrottledFailure(60) '
+      '(header takes precedence over absent body)',
+      () {
+        final rejected = _captureRejected(
+          _httpErrorWithRetryAfterHeader('60'),
+        );
+
+        expect(rejected.error, isA<ResendThrottledFailure>());
+        expect(
+          (rejected.error as ResendThrottledFailure).retryAfterSeconds,
+          equals(60),
+          reason:
+              'Retry-After header value must be parsed and returned when no '
+              'JSON body is present',
+        );
+      },
+    );
+
+    test(
+      '429 with Retry-After: 30 header AND data.retryAfterSeconds: 99 → '
+      'header wins (RFC 7231 resolution order)',
+      () {
+        final opts = _opts(path: '/auth/resend-verification');
+        final rejected = _captureRejected(
+          DioException(
+            requestOptions: opts,
+            response: Response<dynamic>(
+              requestOptions: opts,
+              statusCode: 429,
+              data: {
+                'success': false,
+                'data': {'retryAfterSeconds': 99},
+              },
+              headers: Headers.fromMap({'retry-after': ['30']}),
+            ),
+            type: DioExceptionType.badResponse,
+          ),
+        );
+
+        expect(rejected.error, isA<ResendThrottledFailure>());
+        expect(
+          (rejected.error as ResendThrottledFailure).retryAfterSeconds,
+          equals(30),
+          reason:
+              'When both Retry-After header and data.retryAfterSeconds are '
+              'present, the header must win (resolution order rule 1)',
+        );
+      },
+    );
+
+    test(
+      '429 with Retry-After header containing leading/trailing whitespace '
+      '→ parsed correctly after trim()',
+      () {
+        final rejected = _captureRejected(
+          _httpErrorWithRetryAfterHeader('  45  '),
+        );
+
+        expect(rejected.error, isA<ResendThrottledFailure>());
+        expect(
+          (rejected.error as ResendThrottledFailure).retryAfterSeconds,
+          equals(45),
+          reason: 'trim() must be applied before int.tryParse',
+        );
+      },
+    );
+
+    test(
+      '429 with non-integer Retry-After header (HTTP-date form) falls back to '
+      'data.retryAfterSeconds in the JSON body',
+      () {
+        final opts = _opts(path: '/auth/resend-verification');
+        final rejected = _captureRejected(
+          DioException(
+            requestOptions: opts,
+            response: Response<dynamic>(
+              requestOptions: opts,
+              statusCode: 429,
+              data: {
+                'success': false,
+                'data': {'retryAfterSeconds': 77},
+              },
+              headers: Headers.fromMap({
+                'retry-after': ['Mon, 01 Jan 2040 00:00:00 GMT'],
+              }),
+            ),
+            type: DioExceptionType.badResponse,
+          ),
+        );
+
+        // HTTP-date form is intentionally not parsed — falls through to body.
+        expect(rejected.error, isA<ResendThrottledFailure>());
+        expect(
+          (rejected.error as ResendThrottledFailure).retryAfterSeconds,
+          equals(77),
+          reason:
+              'HTTP-date Retry-After is not supported; must fall back to the '
+              'data.retryAfterSeconds JSON field',
+        );
+      },
+    );
+
+    // ---- JSON body path (existing tests — unchanged) ----
+
     test(
       '429 with data.retryAfterSeconds → ResendThrottledFailure with value',
       () {

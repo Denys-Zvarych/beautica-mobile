@@ -24,6 +24,10 @@
 //   4b.  Verify success persists refresh token and arrives at home.
 //   5.   Verify failure (VerificationFailure.invalidCode) shows inline copy.
 //   5b.  AuthBanner appears when _inlineError is set.
+//   5c-nav. INVALID_CODE banner renders verificationGoToLogin action label.
+//   5d.  Tapping verificationGoToLogin action navigates to /login (INVALID_CODE).
+//   5e.  ALREADY_VERIFIED banner also renders and navigates to /login.
+//   5f.  ResendThrottledFailure clears the ghost "Увійти" action (no stale CTA).
 //   6.   Back link navigates to /register/step-3.
 //   7.   No BackdropFilter on screen (VelvetTouch has no glassmorphism).
 //   7b.  Hidden OTP TextField has correct keyboard / security settings.
@@ -62,7 +66,7 @@ import '../../../helpers/fakes/fake_secure_storage.dart';
 const _testEmail = 'anya@example.com';
 
 /// Builds a minimal GoRouter with the verification screen at /verification.
-/// Includes /register/step-3, /done, and /home as navigation targets.
+/// Includes /register/step-3, /done, /home, and /login as navigation targets.
 GoRouter _makeRouter({String email = _testEmail}) => GoRouter(
   initialLocation: RouteNames.verification,
   redirect: (context, state) => null,
@@ -90,6 +94,11 @@ GoRouter _makeRouter({String email = _testEmail}) => GoRouter(
       path: RouteNames.home,
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text('home'))),
+    ),
+    GoRoute(
+      path: RouteNames.login,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('login'))),
     ),
   ],
 );
@@ -537,13 +546,17 @@ void main() {
       final l10n = AppLocalizations.of(
         tester.element(find.byKey(const ValueKey<String>('verify_submit'))),
       );
+      // The screen shows the richer hint (with login action) for INVALID_CODE
+      // because the backend returns the same code for both "wrong code" and
+      // "already consumed code" (anti-enumeration). The simpler
+      // verificationErrInvalidCode is no longer used for this error path.
       expect(
         tester
             .widgetList<Text>(find.byType(Text))
-            .any((t) => t.data == l10n.verificationErrInvalidCode),
+            .any((t) => t.data == l10n.verificationErrInvalidCodeWithLoginHint),
         isTrue,
         reason:
-            'Expected an inline error Text matching verificationErrInvalidCode. '
+            'Expected an inline error Text matching verificationErrInvalidCodeWithLoginHint. '
             'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
       );
     });
@@ -585,6 +598,256 @@ void main() {
           findsOneWidget,
           reason:
               'An AuthBanner must appear after a failed verify sets _inlineError',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 5c-nav — INVALID_CODE banner "Увійти до акаунту" action label
+    //               is rendered inside the AuthBanner.
+    //               Regression guard: _inlineErrorActionLabel is wired to
+    //               AuthBanner.actionLabel for INVALID_CODE / ALREADY_VERIFIED.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '5c-nav. INVALID_CODE banner renders verificationGoToLogin action label '
+      'inside AuthBanner',
+      (tester) async {
+        final repo = FakeAuthRepository()
+          ..verifyEmailResult = const VerificationFailure(
+            code: VerificationErrorCode.invalidCode,
+          );
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        await _fillOtp(tester, '000000');
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // AuthBanner must be present.
+        expect(find.byType(AuthBanner), findsOneWidget);
+
+        // The action label text must appear inside the tree.
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AuthBanner)),
+        );
+        expect(
+          tester
+              .widgetList<Text>(find.byType(Text))
+              .any((t) => t.data == l10n.verificationGoToLogin),
+          isTrue,
+          reason:
+              'AuthBanner must render the verificationGoToLogin action label '
+              '("Увійти до акаунту") when INVALID_CODE error is set. '
+              'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 5d — Tapping the "Увійти до акаунту" action inside the AuthBanner
+    //           navigates to /login.
+    //           This is the primary regression guard for the INVALID_CODE →
+    //           login navigation UX fix. Without this test a refactor that
+    //           silently removes context.go(RouteNames.login) from
+    //           _setInlineError would go undetected.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '5d. tapping verificationGoToLogin action in INVALID_CODE banner '
+      'navigates to /login',
+      (tester) async {
+        final repo = FakeAuthRepository()
+          ..verifyEmailResult = const VerificationFailure(
+            code: VerificationErrorCode.invalidCode,
+          );
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        // Submit a wrong OTP to trigger the INVALID_CODE banner.
+        await _fillOtp(tester, '000000');
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // Confirm the banner and action label are present before tapping.
+        expect(find.byType(AuthBanner), findsOneWidget);
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AuthBanner)),
+        );
+        final actionLabel = l10n.verificationGoToLogin;
+        final actionTextFinder = find.text(actionLabel);
+        expect(
+          actionTextFinder,
+          findsOneWidget,
+          reason: 'verificationGoToLogin action label must be visible before tap',
+        );
+
+        // Tap the action label — this triggers context.go(RouteNames.login).
+        await tester.tap(actionTextFinder);
+        await tester.pumpAndSettle();
+
+        // Navigation must land on the login stub route.
+        expect(
+          find.text('login'),
+          findsOneWidget,
+          reason:
+              'Tapping the verificationGoToLogin action must navigate to '
+              '/login (RouteNames.login)',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 5e — ALREADY_VERIFIED banner also renders the "Увійти до акаунту"
+    //           action label and tapping it navigates to /login.
+    //           Both INVALID_CODE and ALREADY_VERIFIED share the same UX path
+    //           in _setInlineError; both must be guarded independently.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '5e. ALREADY_VERIFIED banner renders verificationGoToLogin action and '
+      'tapping it navigates to /login',
+      (tester) async {
+        final repo = FakeAuthRepository()
+          ..verifyEmailResult = const VerificationFailure(
+            code: VerificationErrorCode.alreadyVerified,
+          );
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        await _fillOtp(tester, '111111');
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(find.byType(AuthBanner), findsOneWidget);
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AuthBanner)),
+        );
+
+        // Must show the alreadyVerified copy (not invalidCode copy).
+        expect(
+          tester
+              .widgetList<Text>(find.byType(Text))
+              .any((t) => t.data == l10n.verificationErrAlreadyVerified),
+          isTrue,
+          reason: 'verificationErrAlreadyVerified copy must be shown',
+        );
+
+        // The action label must be present.
+        final actionLabel = l10n.verificationGoToLogin;
+        expect(
+          find.text(actionLabel),
+          findsOneWidget,
+          reason:
+              'verificationGoToLogin must appear inside the banner for '
+              'ALREADY_VERIFIED (same UX path as INVALID_CODE)',
+        );
+
+        // Tap → must navigate to /login.
+        await tester.tap(find.text(actionLabel));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('login'),
+          findsOneWidget,
+          reason:
+              'Tapping the verificationGoToLogin action for ALREADY_VERIFIED '
+              'must navigate to /login',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 5f — ResendThrottledFailure banner does NOT render the
+    //           "Увійти до акаунту" action (no ghost "Увійти" persisting).
+    //           Regression guard for the fix that clears _inlineErrorActionLabel
+    //           in the ResendThrottledFailure catch branch of _resend().
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '5f. ResendThrottledFailure banner has no verificationGoToLogin action '
+      '(ghost action is cleared by the throttle catch branch)',
+      (tester) async {
+        // Trigger an INVALID_CODE first to set the "Увійти" action, then
+        // trigger a throttled resend — the throttle catch must clear the action.
+        final repo = FakeAuthRepository()
+          ..verifyEmailResult = const VerificationFailure(
+            code: VerificationErrorCode.invalidCode,
+          );
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        // Step 1: failed submit → INVALID_CODE banner + "Увійти" action.
+        await _fillOtp(tester, '000000');
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AuthBanner)),
+        );
+
+        // Confirm the action IS present after the INVALID_CODE error.
+        expect(
+          find.text(l10n.verificationGoToLogin),
+          findsOneWidget,
+          reason: 'sanity: action label must appear after INVALID_CODE',
+        );
+
+        // Step 2: reconfigure repo so resend returns a throttle error.
+        repo
+          ..verifyEmailResult = null // no further verify calls expected
+          ..resendVerificationResult = const ResendThrottledFailure(
+            retryAfterSeconds: 30,
+          );
+
+        // Tap resend — triggers the throttle path.
+        await tester.tap(find.byKey(const ValueKey<String>('verify_resend')));
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // The throttle banner must now be shown ...
+        expect(find.byType(AuthBanner), findsOneWidget);
+
+        // ... and the "Увійти до акаунту" action must be GONE.
+        expect(
+          find.text(l10n.verificationGoToLogin),
+          findsNothing,
+          reason:
+              'The verificationGoToLogin action must be cleared when the '
+              'throttle catch branch replaces the banner — no ghost "Увійти"',
         );
       },
     );
