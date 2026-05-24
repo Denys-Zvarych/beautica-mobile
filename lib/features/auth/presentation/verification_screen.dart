@@ -508,9 +508,21 @@ class _ResendRowState extends State<_ResendRow> {
 
   Future<void> _handleTap() async {
     if (_cooldown > 0) return;
-    final seconds = await widget.onResend();
+    // Optimistic update — start the countdown immediately so the button
+    // disables and the user gets instant visual feedback rather than seeing
+    // "0 с" (no countdown) while the network request is in-flight.
+    _startCooldown(_kResendCooldownSeconds);
+    final int? serverSeconds = await widget.onResend();
     if (!mounted) return;
-    if (seconds != null && seconds > 0) _startCooldown(seconds);
+    if (serverSeconds == null) {
+      // Generic error — cancel the cooldown and let the user retry immediately.
+      _timer?.cancel();
+      setState(() => _cooldown = 0);
+    } else if (serverSeconds != _kResendCooldownSeconds) {
+      // Server returned a different cooldown (e.g. throttle retry-after).
+      _startCooldown(serverSeconds);
+    }
+    // serverSeconds == _kResendCooldownSeconds: timer already running — no change.
   }
 
   @override

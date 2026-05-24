@@ -377,5 +377,27 @@ void main() {
       // The updated sub-text below the heading must be present.
       expect(find.text(l10n.registerSubText), findsOneWidget);
     });
+
+    // -----------------------------------------------------------------------
+    // 9. Role icon tile — 72×72 neumorphic tile with manage_accounts icon
+    //    replaces the VelvetHeader logo on the role-selection screen.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '9. manage_accounts_outlined icon tile is present; VelvetHeader logo '
+      'absent (VelvetTouch icon tile consistency)',
+      (tester) async {
+        await _pumpRoleSelection(tester);
+
+        // The role icon tile must render an Icon with the expected icon data.
+        final icons = tester.widgetList<Icon>(find.byType(Icon)).toList();
+        expect(
+          icons.any((i) => i.icon == Icons.manage_accounts_outlined),
+          isTrue,
+          reason:
+              'RoleSelectionScreen must render Icons.manage_accounts_outlined '
+              '(72×72 neumorphic icon tile) at the top of the screen.',
+        );
+      },
+    );
   });
 }

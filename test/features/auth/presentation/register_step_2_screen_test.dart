@@ -723,4 +723,29 @@ void main() {
       },
     );
   });
+
+  // ── Contact-info icon tile (Phase 2.x icon standardisation) ───────────────
+  group('Contact-info icon tile', () {
+    testWidgets('person_outline_rounded icon tile renders at top of Step 2 '
+        '(VelvetTouch icon tile consistency — no VelvetHeader logo)', (
+      tester,
+    ) async {
+      final container = _containerWithRole(UserRole.client);
+      addTearDown(container.dispose);
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(_buildApp(router: router, container: container));
+      await tester.pumpAndSettle();
+
+      final icons = tester.widgetList<Icon>(find.byType(Icon)).toList();
+      expect(
+        icons.any((i) => i.icon == Icons.person_outline_rounded),
+        isTrue,
+        reason:
+            'RegisterStep2Screen must render Icons.person_outline_rounded '
+            '(72×72 neumorphic icon tile) at the top of the screen.',
+      );
+    });
+  });
 }

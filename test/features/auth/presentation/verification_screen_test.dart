@@ -30,6 +30,11 @@
 //   8.   NeumorphicButton is disabled (onPressed null) while authProvider
 //        is AsyncLoading.
 
+// ---------------------------------------------------------------------------
+// Covered scenarios (updated):
+//   3-opt. Countdown starts IMMEDIATELY on tap — before API returns (optimistic).
+// ---------------------------------------------------------------------------
+
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -370,6 +375,55 @@ void main() {
               'verify_resend must reappear once the server-mandated cooldown '
               'has fully elapsed',
         );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 3-opt — Countdown starts IMMEDIATELY after tap, BEFORE the API
+    //              call completes (optimistic update — fixes the "0 с right
+    //              away" visual regression).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '3-opt. countdown starts optimistically on tap — resend link disabled '
+      'before API call completes',
+      (tester) async {
+        // A Completer that never completes during this test lets us freeze the
+        // API mid-flight and assert on the intermediate UI state.
+        final completer = Completer<void>();
+        final repo = FakeAuthRepository()..resendDelay = completer.future;
+        final router = _makeRouter();
+        addTearDown(() {
+          // Resolve before the test tears down to let the provider dispose
+          // cleanly (avoids "incomplete future" errors in teardown).
+          if (!completer.isCompleted) completer.complete();
+          router.dispose();
+        });
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        // Tap resend (cooldown == 0 → link is active).
+        await tester.tap(find.byKey(const ValueKey<String>('verify_resend')));
+        // ONE pump: _handleTap runs synchronously up to its first await;
+        // _startCooldown(30) fires BEFORE the async API call → setState scheduled.
+        await tester.pump();
+
+        // The countdown must already be started (optimistic) — the link is
+        // disabled even though the API call is still in-flight.
+        final gesture = tester.widget<GestureDetector>(
+          find.byKey(const ValueKey<String>('verify_resend')),
+        );
+        expect(
+          gesture.onTap,
+          isNull,
+          reason:
+              'Resend GestureDetector.onTap must be null immediately after tap '
+              '(optimistic countdown) even while the API call is in-flight.',
+        );
+
+        // Cleanup — resolve the completer, drain timers/microtasks.
+        completer.complete();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
       },
     );
 

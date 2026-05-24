@@ -30,6 +30,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
@@ -179,8 +180,24 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          // ── Brand header + wizard chrome ───────────────────────────────
-          const VelvetHeader(),
+          // ── Contact-info icon tile (72×72 neumorphic) + wizard chrome ───
+          Center(
+            child: Container(
+              height: 72,
+              width: 72,
+              decoration: BoxDecoration(
+                color: BrandColors.base,
+                borderRadius: BorderRadius.circular(VelvetRadii.logoTile),
+                boxShadow: VelvetShadows.extrudedSmall,
+              ),
+              child: const Icon(
+                Icons.person_outline_rounded,
+                color: BrandColors.accent,
+                size: 30,
+              ),
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.lg),
           WizardStepChrome(step: 2, headline: l10n.registerStep2ShellHeadline),
 
           // ── Name row (Ім'я + Прізвище side-by-side) ─────────────────────

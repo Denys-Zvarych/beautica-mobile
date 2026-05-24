@@ -53,6 +53,12 @@ final class FakeAuthRepository implements AuthRepository {
   ///                  (e.g. [ResendThrottledFailure]).
   Object? resendVerificationResult;
 
+  /// When non-null, [resendVerificationCode] awaits this future before
+  /// inspecting [resendVerificationResult]. Set to a non-completing Future
+  /// (e.g. `Completer<void>().future`) to block the call indefinitely in
+  /// tests that need to inspect the optimistic intermediate UI state.
+  Future<void>? resendDelay;
+
   /// Return value for the next [requestPasswordReset] call.
   ///
   /// Accepted values:
@@ -240,6 +246,7 @@ final class FakeAuthRepository implements AuthRepository {
   @override
   Future<void> resendVerificationCode({required String email}) async {
     resendCalls.add((email: email));
+    if (resendDelay != null) await resendDelay!;
     final result = resendVerificationResult;
     if (result is Failure) throw result;
   }

@@ -1066,4 +1066,29 @@ void main() {
       );
     },
   );
+
+  // ── Location icon tile (Phase 2.x icon standardisation) ───────────────────
+  testWidgets('location_on_outlined icon tile renders at top of Step 3 '
+      '(VelvetTouch icon tile consistency — no VelvetHeader logo)', (
+    tester,
+  ) async {
+    final container = _container(
+      role: UserRole.client,
+      authRepo: _MockAuthRepository(),
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_app(_makeRouter(), container));
+    await tester.pump(); // addPostFrameCallback flush
+    await tester.pumpAndSettle();
+
+    final icons = tester.widgetList<Icon>(find.byType(Icon)).toList();
+    expect(
+      icons.any((i) => i.icon == Icons.location_on_outlined),
+      isTrue,
+      reason:
+          'RegisterStep3Screen must render Icons.location_on_outlined '
+          '(72×72 neumorphic icon tile) at the top of the screen.',
+    );
+  });
 }

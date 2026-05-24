@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:screen_protector/screen_protector.dart';
 
+import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
@@ -82,7 +83,24 @@ class _RoleSelectionScreenState extends ConsumerState<RoleSelectionScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          const VelvetHeader(),
+          // ── Role icon tile (72×72 neumorphic, same chrome as other auth screens)
+          Center(
+            child: Container(
+              height: 72,
+              width: 72,
+              decoration: BoxDecoration(
+                color: BrandColors.base,
+                borderRadius: BorderRadius.circular(VelvetRadii.logoTile),
+                boxShadow: VelvetShadows.extrudedSmall,
+              ),
+              child: const Icon(
+                Icons.manage_accounts_outlined,
+                color: BrandColors.accent,
+                size: 30,
+              ),
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.lg),
           Text(
             l10n.roleSelectHeadline,
             style: VelvetText.heading(),

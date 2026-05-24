@@ -366,8 +366,24 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          // ── Brand header + wizard chrome ─────────────────────────────────
-          const VelvetHeader(),
+          // ── Location icon tile (72×72 neumorphic) + wizard chrome ─────────
+          Center(
+            child: Container(
+              height: 72,
+              width: 72,
+              decoration: BoxDecoration(
+                color: BrandColors.base,
+                borderRadius: BorderRadius.circular(VelvetRadii.logoTile),
+                boxShadow: VelvetShadows.extrudedSmall,
+              ),
+              child: const Icon(
+                Icons.location_on_outlined,
+                color: BrandColors.accent,
+                size: 30,
+              ),
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.lg),
           WizardStepChrome(
             step: 2,
             headline: switch (role) {
