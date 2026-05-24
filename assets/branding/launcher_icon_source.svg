@@ -1,6 +1,6 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- VelvetTouch redesign (2026-05-23): mocha #6A4A28 bg + camel #B89A7A B mark.
-       Bloom arcs retained as a lighter camel accent layer. Full-bleed source for
+  <!-- VelvetTouch redesign (2026-05-23): taupe #E6DDD0 bg + camel #B89A7A B mark.
+       Bloom arcs retained as a camel accent layer. Full-bleed source for
        legacy Android densities and iOS App Store icon. -->
   <defs>
     <linearGradient id="camelGrad" x1="0" y1="0" x2="1" y2="1">
@@ -8,7 +8,7 @@
       <stop offset="100%" stop-color="#a8855f"/>
     </linearGradient>
   </defs>
-  <rect width="1024" height="1024" rx="240" fill="#6A4A28"/>
+  <rect width="1024" height="1024" rx="240" fill="#E6DDD0"/>
   <!-- Integrated mark, scaled 1.18 and recentred to canvas centre -->
   <g transform="translate(15 12) translate(512 512) scale(1.18) translate(-512 -512)">
     <g fill="none" stroke="url(#camelGrad)" stroke-linecap="round">

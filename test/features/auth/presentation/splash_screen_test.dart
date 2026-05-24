@@ -7,8 +7,7 @@
 //
 // Covered scenarios:
 //   1. Widget renders without error (smoke test) — Scaffold + Stack present.
-//   2. (Removed — AuthGradientBackground was deleted in Phase 1.6; splash bg
-//      is now BrandColors.base via scaffoldBackgroundColor.)
+//   2. VelvetLogo is present in the tree (SVG→VelvetLogo migration regression).
 //   3. On first pump, CircularProgressIndicator opacity is 0 (_showSpinner=false).
 //   4. After logo animation completes, CircularProgressIndicator appears
 //      (_showSpinner flips to true when AnimationController.status == completed).
@@ -24,18 +23,18 @@
 //  10. Phase 2.15 regression — FlutterNativeSplash.remove() does not throw in the
 //      widget-test environment; the post-frame callback runs clean.
 //
-// Note on SvgPicture.asset:
-//   flutter_test loads the real asset bundle from the project root, so
-//   assets/images/logo.svg resolves without any mock. No additional setup
-//   is required.
+// Note on VelvetLogo:
+//   VelvetLogo is a pure-Dart widget (no asset loading, no SVG, no external
+//   file). flutter_test requires no asset bundle setup and no mock for it.
 //
-// Note on FlutterNativeSplash.remove() (Tests 1, 8, 9, 10):
+// Note on FlutterNativeSplash.remove() (Tests 1, 2, 8, 9, 10):
 //   In the flutter_test environment the native-splash platform channel is not
 //   initialised, so FlutterNativeSplash.remove() is a documented no-op — it
 //   does not throw. Tests verify it remains a no-op by asserting no exception
 //   escapes after the post-frame callback fires.
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/presentation/splash_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -59,6 +58,32 @@ void main() {
 
       expect(find.byType(SplashScreen), findsOneWidget);
       // No exception thrown — rendering succeeded.
+    });
+
+    // -------------------------------------------------------------------------
+    // Test 2 — VelvetLogo is rendered (SVG→VelvetLogo migration regression)
+    //
+    // Phase 2.15 removed the SvgPicture-based logo and replaced it with the
+    // pure-Dart VelvetLogo widget. This test asserts the widget is present in
+    // the tree so that a future reversion would be caught immediately.
+    // -------------------------------------------------------------------------
+    testWidgets('2. VelvetLogo widget is present in the tree', (tester) async {
+      await tester.pumpWidget(_buildApp());
+      await tester.pump();
+
+      expect(
+        find.byType(VelvetLogo),
+        findsOneWidget,
+        reason:
+            'SplashScreen must render exactly one VelvetLogo. '
+            'A regression to SvgPicture or any other widget would fail this test.',
+      );
+      // Verify the full-size (non-compact) logo is used on the splash.
+      expect(
+        tester.widget<VelvetLogo>(find.byType(VelvetLogo)).compact,
+        isFalse,
+        reason: 'SplashScreen uses the full-size logo (compact: false).',
+      );
     });
 
     // -------------------------------------------------------------------------
@@ -215,8 +240,8 @@ void main() {
         // callback fires (so the animation controller is still at value 0.0).
         await tester.pump(Duration.zero);
 
-        // Locate the Transform widget that applies _logoScale. It wraps an
-        // SvgPicture.asset inside an AnimatedBuilder.
+        // Locate the Transform widget that applies _logoScale. It wraps a
+        // VelvetLogo inside an AnimatedBuilder.
         final transformWidgets = tester.widgetList<Transform>(
           find.byType(Transform),
         );

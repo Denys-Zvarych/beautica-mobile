@@ -32,10 +32,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/brand_colors.dart';
+import '../../../core/widgets/neumorphic.dart';
 
 /// Cold-start parking screen shown while the auth session resolves.
 ///
@@ -138,11 +138,7 @@ class _SplashScreenState extends State<SplashScreen>
                     animation: _logoScale,
                     builder: (_, child) =>
                         Transform.scale(scale: _logoScale.value, child: child),
-                    child: SvgPicture.asset(
-                      'assets/images/logo.svg',
-                      width: 200,
-                      semanticsLabel: 'Beautica',
-                    ),
+                    child: const VelvetLogo(),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xxl),

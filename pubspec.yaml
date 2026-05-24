@@ -62,9 +62,6 @@ dependencies:
   # task-switcher screenshots and screen recording (MS-4).
   screen_protector: ^1.5.1
 
-  # SVG rendering — used for the logo asset on auth screens.
-  flutter_svg: ^2.0.16
-
   # Native splash screen — preserves the branded warm-taupe splash through
   # Flutter engine startup; `FlutterNativeSplash.remove()` is called from
   # SplashScreen.initState() to hand off to the Phase 2.10 animation. Phase 2.15.
@@ -118,7 +115,7 @@ flutter_launcher_icons:
   image_path_android: "assets/branding/launcher_icon_source.png"
   image_path_ios: "assets/branding/launcher_icon_source.png"
   # Android 8+ adaptive icon layers (mandatory since target API 26+).
-  adaptive_icon_background: "#6A4A28"
+  adaptive_icon_background: "#E6DDD0"
   adaptive_icon_foreground: "assets/branding/launcher_icon_foreground.png"
   # Android 13+ themed icons (monochrome silhouette tinted by user's wallpaper).
   adaptive_icon_monochrome: "assets/branding/launcher_icon_monochrome.png"
@@ -157,5 +154,4 @@ flutter:
   uses-material-design: true
   generate: true
   assets:
-    - assets/images/
     - assets/branding/
