@@ -12,7 +12,7 @@
 // Role variants:
 //   CLIENT             → 3 locality rows (optional, tip-icon on Oblast),
 //                        NO street/building/note,
-//                        bottomBar: NeumorphicButton ("Зберегти") + GestureDetector skip link.
+//                        bottomBar: NeumorphicButton ("Далі") + GestureDetector skip link.
 //   INDEPENDENT_MASTER → 3 locality rows (required, tip-icon on Oblast), divider,
 //                        Вулиця + Будинок (two-column) + Примітка,
 //                        bottomBar: NeumorphicButton ("Зберегти і продовжити").
@@ -184,7 +184,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
   /// Whether the currently selected city subdivides into districts.
   bool get _cityHasDistricts => _city?.hasDistricts ?? false;
 
-  /// CLIENT "Зберегти" / provider "Зберегти і продовжити".
+  /// CLIENT "Далі" / provider "Зберегти і продовжити".
   Future<void> _submit(AppLocalizations l10n, UserRole role) async {
     if (_submitting) return;
 
@@ -221,7 +221,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
         return;
       }
     }
-    // CLIENT "Зберегти" is always valid — a partial/empty selection is
+    // CLIENT "Далі" is always valid — a partial/empty selection is
     // tolerated and persists whatever was chosen.
 
     await _runRegisterAndSave(l10n: l10n, role: role, skipLocality: false);
@@ -272,7 +272,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
 
     // Already-registered guard — clearCredentials() wipes draft.password to ''
     // after the first successful submit. If the user navigates back from the
-    // verification screen and re-taps "Зберегти", skip the duplicate register()
+    // verification screen and re-taps "Далі", skip the duplicate register()
     // call and go straight to verification (Phase 2.19 fix, bug #1).
     if (draft.password.isEmpty) {
       if (!mounted) return;
@@ -482,7 +482,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
         children: <Widget>[
           NeumorphicButton(
             key: const ValueKey<String>('address_submit'),
-            label: l10n.step3CtaSave,
+            label: l10n.step2CtaContinue,
             onPressed: _submitting ? null : () => _submit(l10n, role),
           ),
           const SizedBox(height: VelvetSpacing.sm),

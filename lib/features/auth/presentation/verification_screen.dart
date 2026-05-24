@@ -41,7 +41,6 @@ import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_notifier.dart';
 import 'widgets/auth_scaffold.dart';
-import 'widgets/registration_progress.dart';
 
 // ---------------------------------------------------------------------------
 // Cooldown duration after a successful resend (seconds).
@@ -279,7 +278,6 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          const VelvetHeader(),
           // ── Email icon tile ───────────────────────────────────────────────
           Center(
             child: Container(
@@ -338,13 +336,6 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
               message: _inlineError!,
             ),
           ],
-          const SizedBox(height: VelvetSpacing.lg),
-          // ── Registration progress ─────────────────────────────────────────
-          RegistrationProgress(
-            key: const Key('registration-progress'),
-            currentStep: RegistrationStep.verification,
-            activeStepLabel: l10n.registerProgressVerification,
-          ),
         ],
       ),
     );
@@ -529,6 +520,7 @@ class _ResendRowState extends State<_ResendRow> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
         Text(l10n.verificationResendPrompt, style: VelvetText.body()),
+        const SizedBox(width: VelvetSpacing.xs),
         GestureDetector(
           key: const ValueKey<String>('verify_resend'),
           onTap: _cooldown > 0 ? null : _handleTap,

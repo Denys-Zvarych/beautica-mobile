@@ -29,7 +29,6 @@
 //   7b.  Hidden OTP TextField has correct keyboard / security settings.
 //   8.   NeumorphicButton is disabled (onPressed null) while authProvider
 //        is AsyncLoading.
-//   9.   Verification copy renders as a progress-active-label.
 
 import 'dart:async';
 
@@ -775,28 +774,6 @@ void main() {
         );
       },
     );
-
-    // -----------------------------------------------------------------------
-    // Test 9 — Verification copy renders as a progress-active-label.
-    // -----------------------------------------------------------------------
-    testWidgets('9. Verification copy renders as a progress-active-label', (
-      tester,
-    ) async {
-      final repo = FakeAuthRepository();
-      final router = _makeRouter();
-      addTearDown(router.dispose);
-
-      await _pumpVerification(tester, repo: repo, router: router);
-
-      expect(find.byKey(const Key('progress-active-label')), findsOneWidget);
-      final label = tester.widget<Text>(
-        find.byKey(const Key('progress-active-label')),
-      );
-      final l10n = AppLocalizations.of(
-        tester.element(find.byKey(const Key('progress-active-label'))),
-      );
-      expect(label.data, equals(l10n.registerProgressVerification));
-    });
   });
 }
 
