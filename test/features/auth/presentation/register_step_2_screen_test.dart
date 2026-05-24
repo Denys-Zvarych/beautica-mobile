@@ -1,4 +1,7 @@
-// Phase 2.17 — Widget tests for [RegisterStep2Screen] — VelvetTouch redesign.
+// Phase 2.21 — Widget tests for [RegisterStep2Screen] — VelvetTouch redesign.
+// (Updated from Phase 2.17: phone field now uses UaPhoneInputFormatter — entered
+// phone text is auto-formatted to "+380 XX XXX XX XX". Draft.phone assertions
+// and format-validation tests updated accordingly.)
 //
 // Design source: docs/signup-designs/VelvetTouchDesign/lib/screens/sign_up_screen.dart
 // (profile-fields section only).
@@ -246,12 +249,14 @@ void main() {
 
         final phoneFinder = find.byKey(const ValueKey<String>('step2_phone'));
 
-        // Enter a valid phone character (passes the formatter) — sets
-        // _phoneTouched=true and _phoneValue='+'.
-        await tester.enterText(phoneFinder, '+');
+        // Enter '067' — UaPhoneInputFormatter produces '+380 67' (non-empty),
+        // triggering onChanged with a non-empty value → sets _phoneTouched=true
+        // and _phoneValue='+380 67'.
+        await tester.enterText(phoneFinder, '067');
         await tester.pumpAndSettle();
 
-        // Clear the field — sets _phoneValue='' (still touched).
+        // Clear the field — formatter returns empty → onChanged('')
+        // → _phoneValue='' (still touched).
         await tester.enterText(phoneFinder, '');
         await tester.pumpAndSettle();
 
@@ -410,7 +415,8 @@ void main() {
         expect(draft, isNotNull);
         expect(draft!.firstName, equals('Аня'));
         expect(draft.lastName, equals('Коваль'));
-        expect(draft.phone, equals('+380671234567'));
+        // UaPhoneInputFormatter reformats the entered value to the masked form.
+        expect(draft.phone, equals('+380 67 123 45 67'));
         // Non-owner: salonName must be '' (exercises the optional default branch).
         expect(draft.salonName, equals(''));
       },
@@ -562,15 +568,23 @@ void main() {
   // ── M-REG-PHONE-FORMAT-1 / M-REG-PHONE-FORMAT-2 regression tests ──────────
   //
   // Security agent MEDIUM-1 fix: validatePhone() rejects structurally invalid
-  // numbers (e.g. "+" alone). These tests verify:
-  //   FORMAT-1 — "+" only → blocked (errPhoneInvalid shown, no navigation).
+  // numbers (partial phone with fewer than 9 subscriber digits). These tests
+  // verify:
+  //   FORMAT-1 — partial input (2 subscriber digits) → blocked (errPhoneInvalid
+  //              shown, no navigation).
   //   FORMAT-2 — "+380501234567" → proceeds (no error, navigates to step-3).
+  //
+  // Note: "+" alone is now stripped to empty by UaPhoneInputFormatter, so it
+  // triggers the required-field guard (registerPhoneRequired), not errPhoneInvalid.
+  // FORMAT-1 now uses a partial number ('067' → '+380 67', 2 subscriber digits)
+  // which passes the empty guard but fails validatePhone's 9-digit check.
   //
   // Also covers the _phoneFormatError-cleared-on-edit path: after a format
   // error is set by submit, typing in the phone field must clear the error.
   group('Phone format validation (M-REG-PHONE-FORMAT regression)', () {
     testWidgets(
-      'M-REG-PHONE-FORMAT-1: "+" only blocks submit and shows errPhoneInvalid',
+      'M-REG-PHONE-FORMAT-1: partial "067" (→ "+380 67") blocks submit and '
+      'shows errPhoneInvalid',
       (tester) async {
         final container = _containerWithRole(UserRole.client);
         addTearDown(container.dispose);
@@ -581,10 +595,12 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Enter "+" — passes the empty guard but fails validatePhone.
+        // Enter a partial UA number (only 2 subscriber digits after the local
+        // prefix) — formatter produces '+380 67'. This passes the empty guard
+        // but has only 2 subscriber digits, which validatePhone rejects.
         await tester.enterText(
           find.byKey(const ValueKey<String>('step2_phone')),
-          '+',
+          '067',
         );
 
         // Tap submit.
@@ -601,6 +617,39 @@ void main() {
         );
         expect(find.text(l10n.errPhoneInvalid), findsOneWidget);
         expect(find.text(l10n.registerPhoneRequired), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'M-REG-PHONE-FORMAT-1b: "+" alone is stripped to empty by formatter → '
+      'shows registerPhoneRequired (not errPhoneInvalid)',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        // "+" has no digits → formatter returns empty string.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('step-3'), findsNothing);
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('step2_phone'))),
+        );
+        // Empty guard fires — required error shown.
+        expect(find.text(l10n.registerPhoneRequired), findsOneWidget);
+        expect(find.text(l10n.errPhoneInvalid), findsNothing);
       },
     );
 
@@ -653,8 +702,9 @@ void main() {
 
         final phoneFinder = find.byKey(const ValueKey<String>('step2_phone'));
 
-        // 1. Trigger a format error: submit with "+" (non-empty, fails format).
-        await tester.enterText(phoneFinder, '+');
+        // 1. Trigger a format error: submit with '067' (partial — 2 subscriber
+        //    digits after the local-prefix strip → '+380 67' → not 9 digits).
+        await tester.enterText(phoneFinder, '067');
         await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
         await tester.pumpAndSettle();
 
@@ -663,11 +713,11 @@ void main() {
 
         // 2. User edits the field — _phoneFormatError must be cleared
         //    immediately on onChanged, before the next submit.
-        await tester.enterText(phoneFinder, '+380');
+        await tester.enterText(phoneFinder, '0671234567');
         await tester.pumpAndSettle();
 
         // Format error is gone; the required error is also absent (field is
-        // non-empty).
+        // non-empty and a full number).
         expect(find.text(l10n.errPhoneInvalid), findsNothing);
         expect(find.text(l10n.registerPhoneRequired), findsNothing);
       },

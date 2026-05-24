@@ -1,4 +1,6 @@
-// Phase 2.17 — Registration wizard Step 2 (Profile) — VelvetTouch redesign.
+// Phase 2.21 — Registration wizard Step 2 (Profile) — VelvetTouch redesign.
+// (Updated from Phase 2.17: phone field uses UaPhoneInputFormatter for real-time
+// +380 XX XXX XX XX mask instead of FilteringTextInputFormatter.)
 //
 // Design source of truth:
 //   docs/signup-designs/VelvetTouchDesign/lib/screens/sign_up_screen.dart
@@ -32,23 +34,12 @@ import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
+import '../../../shared/formatters/ua_phone_input_formatter.dart';
 import '../../../shared/validators/phone_validator.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
 import 'register_flow_shell.dart';
 import 'widgets/auth_scaffold.dart';
-
-// ---------------------------------------------------------------------------
-// Module-level constants — never constructed inside build().
-// Phase 2.16 fix P1-1: RegExp hoisted to avoid per-frame allocation.
-// ---------------------------------------------------------------------------
-
-/// Allows only digits, +, spaces, hyphens, and parentheses — UA phone charset.
-final RegExp _phoneInputPattern = RegExp(r'[+\d\s\-()]');
-
-/// Pre-built formatter derived from the hoisted pattern.
-final FilteringTextInputFormatter _phoneFormatter =
-    FilteringTextInputFormatter.allow(_phoneInputPattern);
 
 // ---------------------------------------------------------------------------
 // Screen
@@ -237,11 +228,12 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
             textInputAction: isOwner
                 ? TextInputAction.next
                 : TextInputAction.done,
-            maxLength: 20,
+            maxLength: 17,
             prefixIcon: const Icon(Icons.phone_outlined),
-            autofillHints: const <String>[AutofillHints.telephoneNumber],
             errorText: _phoneError,
-            inputFormatters: <TextInputFormatter>[_phoneFormatter],
+            inputFormatters: const <TextInputFormatter>[
+              UaPhoneInputFormatter(),
+            ],
             autocorrect: false,
             onChanged: (String v) => setState(() {
               _phoneValue = v;

@@ -26,6 +26,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../shared/formatters/ua_phone_input_formatter.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
@@ -280,12 +281,12 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
             hintText: '+380 XX XXX XX XX',
             keyboardType: TextInputType.phone,
             textInputAction: TextInputAction.done,
-            maxLength: 20,
+            maxLength: 17,
             prefixIcon: const Icon(Icons.phone_outlined),
             helperText: l10n.invitePhoneHelper,
             enabled: !_loading,
-            inputFormatters: <TextInputFormatter>[
-              FilteringTextInputFormatter.allow(RegExp(r'[\+\d\s\-\(\)]')),
+            inputFormatters: const <TextInputFormatter>[
+              UaPhoneInputFormatter(),
             ],
             onSubmitted: (!_loading && _formValid) ? (_) => _accept() : null,
           ),
