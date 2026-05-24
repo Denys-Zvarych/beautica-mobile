@@ -153,5 +153,7 @@ flutter_native_splash:
 flutter:
   uses-material-design: true
   generate: true
-  assets:
-    - assets/branding/
+  # assets/branding/ is intentionally NOT listed here — those files are
+  # build-time inputs for flutter_launcher_icons and flutter_native_splash
+  # only and are never loaded via Image.asset() at runtime.
+  # Add runtime-referenced assets here when needed (e.g. - assets/images/).
