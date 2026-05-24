@@ -66,7 +66,6 @@ import '../state/register_draft_notifier.dart';
 import 'auth_notifier.dart';
 import 'register_flow_shell.dart';
 import 'widgets/auth_scaffold.dart';
-import 'widgets/sub_step_indicator.dart';
 
 // ---------------------------------------------------------------------------
 // Pre-allocated constants — tip icon (VelvetTouch light palette)
@@ -371,21 +370,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
             key: const Key('step3-subtext'),
             style: VelvetText.body(),
           ),
-          const SizedBox(height: VelvetSpacing.md),
-
-          // ── Sub-step indicator — two dots, second active, in NeumorphicCard ─
-          const NeumorphicCard(
-            padding: EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.md,
-              vertical: VelvetSpacing.sm,
-            ),
-            shadows: VelvetShadows.extrudedSmall,
-            child: SubStepIndicator(
-              key: Key('substep-indicator'),
-              activeIndex: 1,
-            ),
-          ),
-          const SizedBox(height: VelvetSpacing.lg),
+          const SizedBox(height: VelvetSpacing.sm),
 
           // ── Locality cascade ───────────────────────────────────────────────
           _LocalityBlock(

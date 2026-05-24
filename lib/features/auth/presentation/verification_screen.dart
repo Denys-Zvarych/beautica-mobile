@@ -254,8 +254,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final authState = ref.watch(authProvider);
-    final isLoading = authState.isLoading;
+    final isLoading = ref.watch(authProvider.select((s) => s.isLoading));
     final maskedEmail = maskEmail(widget.email);
 
     // Fix A (MEDIUM-1): ValueListenableBuilder scopes OTP-cell AND submit-button
@@ -263,16 +262,49 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     // never calls setState on a keystroke.
     return AuthScaffold(
       showBack: true,
-      bottomBar: ValueListenableBuilder<TextEditingValue>(
-        valueListenable: _codeController,
-        builder: (context, value, child) => NeumorphicButton(
-          key: const ValueKey<String>('verify_submit'),
-          label: l10n.verificationConfirmBtn,
-          loading: isLoading,
-          onPressed: (value.text.length == _kOtpLength && !isLoading)
-              ? _submit
-              : null,
-        ),
+      bottomBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _codeController,
+            builder:
+                (BuildContext context, TextEditingValue value, Widget? child) =>
+                    NeumorphicButton(
+                      key: const ValueKey<String>('verify_submit'),
+                      label: l10n.verificationConfirmBtn,
+                      loading: isLoading,
+                      onPressed:
+                          (value.text.length == _kOtpLength && !isLoading)
+                          ? _submit
+                          : null,
+                    ),
+          ),
+          Semantics(
+            button: true,
+            label: l10n.verificationBackBtn,
+            child: GestureDetector(
+              key: const Key('btn-back'),
+              onTap: () => context.go(RouteNames.registerStep3),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.sm),
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Icon(
+                        Icons.west,
+                        size: 15,
+                        color: BrandColors.accent.withValues(alpha: 0.85),
+                      ),
+                      const SizedBox(width: VelvetSpacing.xs + 2),
+                      Text(l10n.verificationBackBtn, style: VelvetText.link()),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -343,31 +375,6 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
             currentStep: RegistrationStep.verification,
             activeStepLabel: l10n.registerProgressVerification,
           ),
-          const SizedBox(height: VelvetSpacing.md),
-          // ── Back link ────────────────────────────────────────────────────
-          Center(
-            child: GestureDetector(
-              key: const Key('btn-back'),
-              onTap: () => context.go(RouteNames.registerStep3),
-              child: Semantics(
-                button: true,
-                label: l10n.verificationBackBtn,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Icon(
-                      Icons.west,
-                      size: 15,
-                      color: BrandColors.accent.withValues(alpha: 0.85),
-                    ),
-                    const SizedBox(width: VelvetSpacing.sm - 2),
-                    Text(l10n.verificationBackBtn, style: VelvetText.link()),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: VelvetSpacing.lg),
         ],
       ),
     );
