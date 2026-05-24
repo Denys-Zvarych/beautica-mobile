@@ -106,7 +106,10 @@ final class ErrorMapperInterceptor extends Interceptor {
         // sub-code into a typed field so login_screen.dart can branch on
         // `e.emailNotVerified` instead of probing `e.cause?.toString()`.
         final bool emailNotVerified = _extractEmailNotVerified(err);
-        return UnauthorizedFailure(cause: err, emailNotVerified: emailNotVerified);
+        return UnauthorizedFailure(
+          cause: err,
+          emailNotVerified: emailNotVerified,
+        );
       }
       if (statusCode == 404) return NotFoundFailure(cause: err);
       // HTTP 409 Conflict — email already registered during sign-up (or any

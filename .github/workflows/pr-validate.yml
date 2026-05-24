@@ -88,12 +88,45 @@ jobs:
       - name: Test
         run: flutter test --coverage --reporter=expanded
 
+      # Decode the release keystore from the base64 secret.
+      # Skipped silently on forks / branches where the secret is absent.
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.BEAUTICA_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode \
+              > "$GITHUB_WORKSPACE/beautica-release.jks"
+            echo "Keystore decoded ✅"
+          else
+            echo "BEAUTICA_KEYSTORE_BASE64 not set — skipping release signing"
+          fi
+
       - name: Build APK (debug)
         env:
           BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app/api/v1
         run: |
           flutter build apk --debug \
             --dart-define=BEAUTICA_BASE_URL="$BEAUTICA_BASE_URL"
+
+      - name: Build APK (release)
+        env:
+          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app/api/v1
+          BEAUTICA_KEYSTORE_PATH: ${{ github.workspace }}/beautica-release.jks
+          BEAUTICA_KEYSTORE_PASSWORD: ${{ secrets.BEAUTICA_KEYSTORE_PASSWORD }}
+          BEAUTICA_KEY_ALIAS: ${{ secrets.BEAUTICA_KEY_ALIAS }}
+          BEAUTICA_KEY_PASSWORD: ${{ secrets.BEAUTICA_KEY_PASSWORD }}
+        run: |
+          flutter build apk --release \
+            --dart-define=BEAUTICA_BASE_URL="$BEAUTICA_BASE_URL"
+
+      - name: Upload release APK artifact
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: beautica-release-${{ github.event.pull_request.number || github.run_number }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
 
       - name: Upload APK artifact
         if: success()

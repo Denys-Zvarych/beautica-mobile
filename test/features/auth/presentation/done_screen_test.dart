@@ -453,34 +453,31 @@ void main() {
     //           Complements test 4 (client role); ensures all role-chip paths
     //           through UserRoleL10n.label() are exercised in the suite.
     // -----------------------------------------------------------------------
-    testWidgets(
-      '10. independentMaster role chip shows the roleIndependentMaster '
-      'localised label',
-      (tester) async {
-        final router = _makeRouter();
-        addTearDown(router.dispose);
+    testWidgets('10. independentMaster role chip shows the roleIndependentMaster '
+        'localised label', (tester) async {
+      final router = _makeRouter();
+      addTearDown(router.dispose);
 
-        // _userWithoutName has UserRole.independentMaster.
-        await _pumpDoneScreen(
-          tester,
-          authenticatedUser: _userWithoutName,
-          router: router,
-        );
+      // _userWithoutName has UserRole.independentMaster.
+      await _pumpDoneScreen(
+        tester,
+        authenticatedUser: _userWithoutName,
+        router: router,
+      );
 
-        final l10n = _l10n(tester);
+      final l10n = _l10n(tester);
 
-        expect(
-          find.descendant(
-            of: find.byKey(const ValueKey<String>('done_chip_role')),
-            matching: find.text(l10n.roleIndependentMaster),
-          ),
-          findsOneWidget,
-          reason:
-              'For UserRole.independentMaster the role chip must show '
-              'l10n.roleIndependentMaster — not null, empty, or any other label.',
-        );
-      },
-    );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('done_chip_role')),
+          matching: find.text(l10n.roleIndependentMaster),
+        ),
+        findsOneWidget,
+        reason:
+            'For UserRole.independentMaster the role chip must show '
+            'l10n.roleIndependentMaster — not null, empty, or any other label.',
+      );
+    });
 
     // -----------------------------------------------------------------------
     // Test 8 — Screen pumps cleanly without platform-channel exceptions
