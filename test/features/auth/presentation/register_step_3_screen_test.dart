@@ -99,6 +99,16 @@ class _FakeLocationRepository implements LocationRepository {
   ];
 }
 
+class _SpyLocationRepository extends _FakeLocationRepository {
+  int fetchOblastsCallCount = 0;
+
+  @override
+  Future<List<Oblast>> fetchOblasts() {
+    fetchOblastsCallCount++;
+    return super.fetchOblasts();
+  }
+}
+
 class _MockAuthRepository extends Mock implements AuthRepository {}
 
 class _MockMasterRepository extends Mock implements MasterRepository {}
@@ -1011,6 +1021,48 @@ void main() {
         reason:
             'already-registered guard must navigate to /verification with the '
             'email from the draft (no second register POST)',
+      );
+    },
+  );
+
+  // ── 14. initState prefetch — oblastListProvider is read on first frame ────
+  testWidgets(
+    '14. oblastListProvider is read on first frame (initState prefetch)',
+    (tester) async {
+      final spy = _SpyLocationRepository();
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => _MockAuthRepository()),
+          locationRepositoryProvider.overrideWith((_) => spy),
+        ],
+      );
+      final notifier = container.read(registerDraftProvider.notifier)
+        ..start(UserRole.client);
+      notifier.updateStep1(
+        email: 'a@b.com',
+        password: 'Password1!',
+        confirmPassword: 'Password1!',
+      );
+      notifier.updateStep2(
+        firstName: 'Аня',
+        lastName: 'Коваль',
+        phone: '+380501112233',
+        salonName: '',
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_app(_makeRouter(), container));
+      // Flush the addPostFrameCallback queue first.
+      await tester.pump();
+      // Let the fetchOblasts Future resolve.
+      await tester.pumpAndSettle();
+
+      expect(
+        spy.fetchOblastsCallCount,
+        greaterThanOrEqualTo(1),
+        reason:
+            'initState addPostFrameCallback must read oblastListProvider '
+            'which calls fetchOblasts() to warm the cache on first mount',
       );
     },
   );

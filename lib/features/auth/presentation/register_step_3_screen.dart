@@ -60,6 +60,7 @@ import '../../location/domain/city.dart';
 import '../../location/domain/city_district.dart';
 import '../../location/domain/oblast.dart';
 import '../../location/presentation/widgets/locality_cascade.dart';
+import '../../location/state/location_providers.dart';
 import '../domain/register_result.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
@@ -134,6 +135,18 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
   /// Inline errors for the address fields (manual, not Form-based).
   String? _streetError;
   String? _buildingError;
+
+  @override
+  void initState() {
+    super.initState();
+    // Eagerly warm the oblast cache so the picker sheet opens instantly on the
+    // first tap.  The provider is keepAlive:true — this read kicks off the HTTP
+    // fetch; the result is memoized for the lifetime of the app.  We fire after
+    // the first frame so the widget tree is fully mounted before we touch `ref`.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(oblastListProvider);
+    });
+  }
 
   @override
   void dispose() {
