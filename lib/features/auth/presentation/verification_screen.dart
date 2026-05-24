@@ -15,7 +15,7 @@
 //   ValueKey('verify_code_input') — hidden TextField (single entry for all 6 digits)
 //   ValueKey('verify_submit')     — NeumorphicButton CTA
 //   ValueKey('verify_resend')     — GestureDetector resend link
-//   Key('btn-back')               — back link GestureDetector (kept for Test 6)
+//   ValueKey('auth_scaffold_back') — top-left back button (AuthScaffold overlay, Test 6)
 
 import 'dart:async';
 import 'dart:developer';
@@ -262,49 +262,19 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     // never calls setState on a keystroke.
     return AuthScaffold(
       showBack: true,
-      bottomBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: _codeController,
-            builder:
-                (BuildContext context, TextEditingValue value, Widget? child) =>
-                    NeumorphicButton(
-                      key: const ValueKey<String>('verify_submit'),
-                      label: l10n.verificationConfirmBtn,
-                      loading: isLoading,
-                      onPressed:
-                          (value.text.length == _kOtpLength && !isLoading)
-                          ? _submit
-                          : null,
-                    ),
-          ),
-          Semantics(
-            button: true,
-            label: l10n.verificationBackBtn,
-            child: GestureDetector(
-              key: const Key('btn-back'),
-              onTap: () => context.go(RouteNames.registerStep3),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.sm),
-                child: Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Icon(
-                        Icons.west,
-                        size: 15,
-                        color: BrandColors.accent.withValues(alpha: 0.85),
-                      ),
-                      const SizedBox(width: VelvetSpacing.xs + 2),
-                      Text(l10n.verificationBackBtn, style: VelvetText.link()),
-                    ],
-                  ),
+      onBack: () => context.go(RouteNames.registerStep3),
+      bottomBar: ValueListenableBuilder<TextEditingValue>(
+        valueListenable: _codeController,
+        builder:
+            (BuildContext context, TextEditingValue value, Widget? child) =>
+                NeumorphicButton(
+                  key: const ValueKey<String>('verify_submit'),
+                  label: l10n.verificationConfirmBtn,
+                  loading: isLoading,
+                  onPressed: (value.text.length == _kOtpLength && !isLoading)
+                      ? _submit
+                      : null,
                 ),
-              ),
-            ),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

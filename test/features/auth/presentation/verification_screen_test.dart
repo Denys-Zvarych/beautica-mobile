@@ -12,7 +12,7 @@
 //   ValueKey('verify_code_input') — hidden TextField (single entry)
 //   ValueKey('verify_submit')     — NeumorphicButton CTA
 //   ValueKey('verify_resend')     — GestureDetector resend link
-//   Key('btn-back')               — back link (unchanged)
+//   ValueKey('auth_scaffold_back') — top-left back button (AuthScaffold overlay, Test 6)
 //
 // Covered scenarios:
 //   1.   All 6 digits filled → NeumorphicButton.onPressed is non-null.
@@ -631,19 +631,21 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 6 — Back link navigates to /register/step-3.
+    // Test 6 — Top-left back button navigates to /register/step-3.
     // -----------------------------------------------------------------------
-    testWidgets('6. back link navigates to /register/step-3', (tester) async {
+    testWidgets('6. top-left back button navigates to /register/step-3', (
+      tester,
+    ) async {
       final repo = FakeAuthRepository();
       final router = _makeRouter();
       addTearDown(router.dispose);
 
       await _pumpVerification(tester, repo: repo, router: router);
 
-      await tester.ensureVisible(find.byKey(const Key('btn-back')));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('btn-back')));
+      // auth_scaffold_back is always visible (Positioned overlay, not scrollable).
+      await tester.tap(
+        find.byKey(const ValueKey<String>('auth_scaffold_back')),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('register-step-3'), findsOneWidget);
