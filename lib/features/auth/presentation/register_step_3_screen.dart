@@ -15,7 +15,7 @@
 //                        bottomBar: NeumorphicButton ("Далі") + GestureDetector skip link.
 //   INDEPENDENT_MASTER → 3 locality rows (required, tip-icon on Oblast), divider,
 //                        Вулиця + Будинок (two-column) + Примітка,
-//                        bottomBar: NeumorphicButton ("Зберегти і продовжити").
+//                        bottomBar: NeumorphicButton ("Далі").
 //   SALON_OWNER        → identical to MASTER (headline reframes to "Адреса салону"
 //                        in the shell).
 //
@@ -184,7 +184,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
   /// Whether the currently selected city subdivides into districts.
   bool get _cityHasDistricts => _city?.hasDistricts ?? false;
 
-  /// CLIENT "Далі" / provider "Зберегти і продовжити".
+  /// Both CLIENT and provider CTAs use "Далі".
   Future<void> _submit(AppLocalizations l10n, UserRole role) async {
     if (_submitting) return;
 
@@ -511,7 +511,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
     }
     return NeumorphicButton(
       key: const ValueKey<String>('address_submit'),
-      label: l10n.step3CtaSaveAndContinue,
+      label: l10n.step2CtaContinue,
       onPressed: _submitting ? null : () => _submit(l10n, role),
     );
   }
