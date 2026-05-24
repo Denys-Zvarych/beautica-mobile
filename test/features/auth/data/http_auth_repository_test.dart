@@ -388,9 +388,9 @@ void main() {
 
   group('me', () {
     test('7. success → returns User with correct role', () async {
-      when(() => mockDio.get<Map<String, dynamic>>('/user/me')).thenAnswer(
+      when(() => mockDio.get<Map<String, dynamic>>('/users/me')).thenAnswer(
         (_) async => Response(
-          requestOptions: _fakeOptions('/user/me'),
+          requestOptions: _fakeOptions('/users/me'),
           statusCode: 200,
           data: _meEnvelope(),
         ),
@@ -401,12 +401,16 @@ void main() {
       expect(user.id, 'usr-1');
       expect(user.role, UserRole.independentMaster);
       expect(user.email, 'master@beautica.test');
+
+      // Verify the correct path was called exactly once — guards against future
+      // typos in the URL literal (regression for the /user/me → /users/me fix).
+      verify(() => mockDio.get<Map<String, dynamic>>('/users/me')).called(1);
     });
 
     test('8. 401 DioException → re-throws UnauthorizedFailure', () async {
       const failure = UnauthorizedFailure();
       when(
-        () => mockDio.get<Map<String, dynamic>>('/user/me'),
+        () => mockDio.get<Map<String, dynamic>>('/users/me'),
       ).thenThrow(_dioWithFailure(failure, statusCode: 401));
 
       await expectLater(
@@ -414,6 +418,35 @@ void main() {
         throwsA(isA<UnauthorizedFailure>()),
       );
     });
+
+    // -------------------------------------------------------------------------
+    // M3 / MEDIUM: me() is called on every cold start via restoreSession().
+    // NetworkFailure (no connectivity) and UnknownFailure (raw Dio error) are
+    // real production scenarios — untested before this fix.
+    // -------------------------------------------------------------------------
+
+    test('9. network error on /users/me → re-throws NetworkFailure', () async {
+      const failure = NetworkFailure();
+      when(
+        () => mockDio.get<Map<String, dynamic>>('/users/me'),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 503));
+
+      await expectLater(() => repository.me(), throwsA(isA<NetworkFailure>()));
+    });
+
+    test(
+      '10. raw DioException on /users/me (no attached Failure) → throws UnknownFailure',
+      () async {
+        when(
+          () => mockDio.get<Map<String, dynamic>>('/users/me'),
+        ).thenThrow(_rawDioException());
+
+        await expectLater(
+          () => repository.me(),
+          throwsA(isA<UnknownFailure>()),
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------

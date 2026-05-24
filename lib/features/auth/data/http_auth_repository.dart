@@ -220,7 +220,7 @@ final class HttpAuthRepository implements AuthRepository {
   @override
   Future<User> me() async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>('/user/me');
+      final response = await _dio.get<Map<String, dynamic>>('/users/me');
       final data = response.data!['data'] as Map<String, dynamic>;
       return User.fromJson(data);
     } on DioException catch (e, st) {

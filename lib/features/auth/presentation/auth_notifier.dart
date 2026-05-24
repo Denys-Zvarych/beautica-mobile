@@ -115,7 +115,7 @@ class AuthNotifier extends _$AuthNotifier {
 
       // Temporarily promote state to Authenticated with the new access token
       // BEFORE calling repo.me(). This lets AuthInterceptor inject the Bearer
-      // header on /user/me — without it the request would be unauthenticated
+      // header on /users/me — without it the request would be unauthenticated
       // (401), and RefreshInterceptor would issue a redundant second refresh.
       // The sentinel user is replaced immediately once me() resolves.
       state = AsyncData(
