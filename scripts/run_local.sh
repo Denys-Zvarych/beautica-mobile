@@ -20,6 +20,14 @@
 set -euo pipefail
 
 MODE="${1:-debug}"
+# Whitelist guard — prevent flag injection via an unrecognized MODE argument.
+case "$MODE" in
+  debug|profile|release) ;;
+  *)
+    echo "Usage: $0 [debug|profile|release]" >&2
+    exit 1
+    ;;
+esac
 BASE_URL="${BEAUTICA_BASE_URL:-http://10.0.2.2:8080/api/v1}"
 
 cd "$(dirname "$0")/.."

@@ -33,9 +33,10 @@ dependencies:
   # Secure storage — Android Keystore-backed; refresh-token home.
   flutter_secure_storage: ^10.2.0
 
-  # Push notifications — Firebase init lands in Phase 8.1; deps reserved here.
-  firebase_core: ^4.9.0
-  firebase_messaging: ^16.2.2
+  # Push notifications — Firebase deps removed until Phase 8.1 FCM init ships
+  # (Perf MEDIUM-1 2026-05-24: both packages added ~5-7 MB to the release APK
+  # while unused; no Firebase.initializeApp() call, no google-services.json).
+  # Re-add firebase_core ^4.9.0 + firebase_messaging ^16.2.2 in Phase 8.1.
 
   # Design system — Manrope via google_fonts (full Cyrillic glyph set).
   google_fonts: ^8.1.0

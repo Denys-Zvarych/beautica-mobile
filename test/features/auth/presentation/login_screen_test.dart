@@ -730,8 +730,14 @@ class _LoadingAuthNotifier extends AuthNotifier {
   }
 }
 
-/// Returns [UnauthorizedFailure] with cause "EMAIL_NOT_VERIFIED" — triggers
+/// Returns [UnauthorizedFailure] with [emailNotVerified] = true — triggers
 /// the inline [AuthBanner] path instead of the SnackBar.
+///
+/// MEDIUM-2 (mobile-security 2026-05-24): the screen now checks
+/// `e.emailNotVerified` (a typed field set by ErrorMapperInterceptor) instead
+/// of the fragile `e.cause?.toString().contains('EMAIL_NOT_VERIFIED')` probe.
+/// The test must therefore set `emailNotVerified: true`, not put the string in
+/// `cause`.
 class _UnverifiedAuthNotifier extends AuthNotifier {
   @override
   Future<AuthSession> build() async => const AuthSession.unauthenticated();
@@ -739,7 +745,7 @@ class _UnverifiedAuthNotifier extends AuthNotifier {
   @override
   Future<void> login(String email, String password) async {
     state = const AsyncError(
-      UnauthorizedFailure(cause: 'EMAIL_NOT_VERIFIED'),
+      UnauthorizedFailure(emailNotVerified: true),
       StackTrace.empty,
     );
   }

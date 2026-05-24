@@ -7,6 +7,10 @@
 // REST API. Uses the singleton [dioProvider] Dio instance which carries the
 // full interceptor chain (Auth → Log → ErrorMapper → Refresh).
 //
+// HIGH-1 (mobile-security 2026-05-24): refresh() sends X-No-Retry: true so
+// RefreshInterceptor cannot re-intercept a failed /auth/refresh 401 and issue
+// a second refresh with the same expired token (double-refresh loop).
+//
 // Backend response envelope for all endpoints:
 //   { "success": bool, "data": T, "message": String }
 //
@@ -178,9 +182,15 @@ final class HttpAuthRepository implements AuthRepository {
 
     _pendingRefresh = Completer<AuthTokens>();
     try {
+      // HIGH-1 (mobile-security 2026-05-24): X-No-Retry prevents
+      // RefreshInterceptor from re-intercepting a 401 response from
+      // /auth/refresh and issuing a redundant second refresh with the
+      // same already-expired token. The header is checked by
+      // RefreshInterceptor.onError() before attempting any refresh.
       final response = await _dio.post<Map<String, dynamic>>(
         '/auth/refresh',
         data: {'refreshToken': refreshToken},
+        options: Options(headers: {'X-No-Retry': 'true'}),
       );
       final data = response.data!['data'] as Map<String, dynamic>;
       final result = AuthTokens(

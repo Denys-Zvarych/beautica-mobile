@@ -22,10 +22,15 @@
 //   - Use AsyncValue.guard() so any Failure is captured in AsyncError — the
 //     screen's .when(error:) handler surfaces it to the user.
 //
-// Security invariants (mobile-security MS-1 / MS-2):
+// Security invariants (mobile-security MS-1 / MS-2 / HIGH-1):
 //   - Only the refresh token is written to SecureStorage.
 //   - The access token lives exclusively in the [Authenticated] state in memory.
 //   - Never pass the access token to writeRefreshToken — they are different keys.
+//   - HttpAuthRepository.refresh() sends X-No-Retry: true so RefreshInterceptor
+//     cannot intercept a failed cold-start refresh and loop (HIGH-1 fix).
+//   - After repo.refresh() succeeds, state is immediately set to Authenticated
+//     (sentinel user) so AuthInterceptor injects the Bearer token into the
+//     subsequent repo.me() call — preventing a RefreshInterceptor loop on me().
 
 import 'dart:async';
 import 'dart:developer';
@@ -37,6 +42,7 @@ import '../../../core/errors/failures.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../../../shared/util/mask_email.dart';
 import '../data/auth_repository_provider.dart';
+import '../domain/user.dart';
 import '../domain/auth_session.dart';
 import '../domain/register_result.dart';
 import '../domain/user_role.dart';
@@ -98,20 +104,29 @@ class AuthNotifier extends _$AuthNotifier {
 
     try {
       final repo = ref.read(authRepositoryProvider);
-      // F3 piggy-back — timeout lowered from 20 s to 6 s. Splash is no longer
-      // blocked on this call (F4) so a snappier "you're logged out" UX is the
-      // goal; 6 s comfortably covers a slow mobile network round-trip while
-      // still surfacing dead-server scenarios quickly.
-      final tokens = await repo
-          .refresh(rt)
-          .timeout(
-            const Duration(seconds: 6),
-            onTimeout: () =>
-                throw const NetworkFailure(cause: 'refresh timed out'),
-          );
-      // Persist the rotated refresh token before loading the profile.
+
+      // HIGH-1 (mobile-security 2026-05-24): repo.refresh() is used (not
+      // cleanDio directly) to preserve the repository abstraction for tests.
+      // HttpAuthRepository.refresh() sends X-No-Retry: true on the Dio call so
+      // RefreshInterceptor cannot re-intercept a 401 from /auth/refresh and
+      // issue a second refresh with the same already-expired token.
+      final tokens = await repo.refresh(rt);
       await storage.writeRefreshToken(tokens.refreshToken);
+
+      // Temporarily promote state to Authenticated with the new access token
+      // BEFORE calling repo.me(). This lets AuthInterceptor inject the Bearer
+      // header on /user/me — without it the request would be unauthenticated
+      // (401), and RefreshInterceptor would issue a redundant second refresh.
+      // The sentinel user is replaced immediately once me() resolves.
+      state = AsyncData(
+        AuthSession.authenticated(
+          user: const User(id: '', email: '', role: UserRole.client),
+          accessToken: tokens.accessToken,
+        ),
+      );
+
       final user = await repo.me();
+
       if (kDebugMode) {
         log(
           'Cold start: session restored for user ${user.id}',

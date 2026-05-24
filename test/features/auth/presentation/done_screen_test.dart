@@ -398,6 +398,91 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
+    // Test 9 — currentUserProvider null at render time: DoneScreen must not
+    //          crash and must render the fallback greeting + client role label.
+    //          Covers the branch `user?.firstName` == null AND `user?.role` == null
+    //          in the build method (e.g. session expired between verification
+    //          and navigation to /done, or deep-link edge case).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '9. no authenticated user: DoneScreen renders fallback greeting and '
+      'client role label without crashing',
+      (tester) async {
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        // Pump with no authenticatedUser → authProvider stays Unauthenticated
+        // → currentUserProvider returns null.
+        await _pumpDoneScreen(tester, router: router);
+
+        final l10n = _l10n(tester);
+
+        // Fallback greeting must be used (not a crash or empty string).
+        final greeting = tester.widget<Text>(
+          find.byKey(const Key('done-greeting')),
+        );
+        expect(
+          greeting.data,
+          equals(l10n.registerDoneGreeting(l10n.registerDoneGreetingFallback)),
+          reason:
+              'When currentUserProvider returns null the greeting must use '
+              'the registerDoneGreetingFallback placeholder (no crash).',
+        );
+
+        // Role chip must show the fallback client label (not null or empty).
+        final roleChip = find.byKey(const ValueKey<String>('done_chip_role'));
+        expect(roleChip, findsOneWidget);
+        expect(
+          find.descendant(
+            of: roleChip,
+            matching: find.text(l10n.registerDoneChipRoleClient),
+          ),
+          findsOneWidget,
+          reason:
+              'When user is null the role chip must fall back to '
+              'registerDoneChipRoleClient — not crash or show empty text.',
+        );
+
+        // No exception was thrown during render.
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 10 — independentMaster role chip label is explicitly asserted.
+    //           Complements test 4 (client role); ensures all role-chip paths
+    //           through UserRoleL10n.label() are exercised in the suite.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '10. independentMaster role chip shows the roleIndependentMaster '
+      'localised label',
+      (tester) async {
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        // _userWithoutName has UserRole.independentMaster.
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _userWithoutName,
+          router: router,
+        );
+
+        final l10n = _l10n(tester);
+
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('done_chip_role')),
+            matching: find.text(l10n.roleIndependentMaster),
+          ),
+          findsOneWidget,
+          reason:
+              'For UserRole.independentMaster the role chip must show '
+              'l10n.roleIndependentMaster — not null, empty, or any other label.',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // Test 8 — Screen pumps cleanly without platform-channel exceptions
     //
     // ScreenProtector has been removed from DoneScreen (post-auth screen

@@ -146,8 +146,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       },
       error: (e, _) {
         // EMAIL_NOT_VERIFIED: show inline banner instead of SnackBar.
-        if (e is UnauthorizedFailure &&
-            e.cause?.toString().contains('EMAIL_NOT_VERIFIED') == true) {
+        // MEDIUM-2 (mobile-security 2026-05-24): use the typed `emailNotVerified`
+        // field set by ErrorMapperInterceptor — never probe `cause.toString()` for
+        // the sub-code because that couples UI to the internal DioException shape.
+        if (e is UnauthorizedFailure && e.emailNotVerified) {
           setState(() {
             _showUnverified = true;
             _unverifiedEmail = email;

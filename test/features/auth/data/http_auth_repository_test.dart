@@ -358,10 +358,13 @@ void main() {
 
   group('refresh', () {
     test('6. success → returns AuthTokens with new token pair', () async {
+      // HIGH-1 fix: refresh() now passes options: Options(headers: {'X-No-Retry': 'true'})
+      // so the mock must also match the `options` named arg.
       when(
         () => mockDio.post<Map<String, dynamic>>(
           '/auth/refresh',
           data: any(named: 'data'),
+          options: any(named: 'options'),
         ),
       ).thenAnswer(
         (_) async => Response(
@@ -455,10 +458,12 @@ void main() {
       '9. 401 on /auth/refresh → throws UnauthorizedFailure via Completer error branch',
       () async {
         const failure = UnauthorizedFailure();
+        // HIGH-1 fix: refresh() passes options: Options(headers: {'X-No-Retry': 'true'}).
         when(
           () => mockDio.post<Map<String, dynamic>>(
             '/auth/refresh',
             data: any(named: 'data'),
+            options: any(named: 'options'),
           ),
         ).thenThrow(_dioWithFailure(failure, statusCode: 401));
 

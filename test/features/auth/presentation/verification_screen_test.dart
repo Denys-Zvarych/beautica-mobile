@@ -1029,6 +1029,112 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
+    // Test 9 — Email masking: the screen renders the masked form of the
+    //          passed email, not the raw address (MASVS-STORAGE MS-2 /
+    //          privacy guard — only the first char + domain are shown).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '9. email passed to screen is rendered in masked form (a***@example.com)',
+      (tester) async {
+        // A distinctive email that makes masking verifiable.
+        const email = 'oksana@beautica.ua';
+        const masked = 'o***@beautica.ua';
+
+        final repo = FakeAuthRepository();
+        final router = _makeRouter(email: email);
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        // The masked form must be visible somewhere in the tree.
+        expect(
+          find.textContaining(masked),
+          findsOneWidget,
+          reason:
+              'VerificationScreen must display the masked email ($masked), '
+              'not the raw address ($email). '
+              'maskEmail("$email") should return "$masked".',
+        );
+
+        // The raw (unmasked) full email must NOT be visible as-is.
+        // (The masked version contains the domain, so a simple text match
+        // on the raw form would also match "o***@beautica.ua" — therefore
+        // we look for the raw local part "oksana" which must not appear.)
+        expect(
+          find.textContaining('oksana@'),
+          findsNothing,
+          reason:
+              'The raw local part of the email must not appear unmasked on screen.',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 10 — Generic resend failure (non-throttle): OTP is preserved,
+    //           inline error shown, and resend link is immediately re-enabled
+    //           (no cooldown — user can retry right away).
+    //           Covers the catch(e) → _setInlineError + return null branch in
+    //           _ResendRow._handleTap, which resets _cooldown to 0.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '10. generic resend failure: OTP preserved, error shown, resend re-enabled immediately',
+      (tester) async {
+        const genericError = NetworkFailure();
+        final repo = FakeAuthRepository()
+          ..resendVerificationResult = genericError;
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        // Enter 6 digits — they must survive the resend failure.
+        await _fillOtp(tester, '987654');
+        await tester.pump();
+
+        // Tap resend (cooldown == 0 initially → link is active).
+        await tester.tap(find.byKey(const ValueKey<String>('verify_resend')));
+        // Wait for async resend to complete.
+        await tester.pump(); // begin async
+        await tester.pump(); // microtasks
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // OTP digits must be preserved — they were NOT cleared on failure.
+        final field = tester.widget<TextField>(
+          find.byKey(const ValueKey<String>('verify_code_input')),
+        );
+        expect(
+          field.controller?.text,
+          equals('987654'),
+          reason:
+              'OTP input must be preserved after a generic resend failure '
+              '(only cleared on success — M-Sec-1 invariant).',
+        );
+
+        // The inline error banner must appear (generic NetworkFailure copy).
+        expect(
+          find.byType(AuthBanner),
+          findsOneWidget,
+          reason:
+              'An AuthBanner must appear after a generic resend failure '
+              '(non-throttle path → _setInlineError).',
+        );
+
+        // The resend GestureDetector must be re-enabled immediately
+        // (_cooldown resets to 0 on generic failure → onTap is non-null).
+        final gesture = tester.widget<GestureDetector>(
+          find.byKey(const ValueKey<String>('verify_resend')),
+        );
+        expect(
+          gesture.onTap,
+          isNotNull,
+          reason:
+              'verify_resend must be immediately re-enabled after a generic '
+              'resend failure (no cooldown — user can retry right away).',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // Test 8 — NeumorphicButton is disabled (onPressed null) while
     //          authProvider is AsyncLoading.
     //          The old AnimatedOpacity + InkWell approach no longer applies;

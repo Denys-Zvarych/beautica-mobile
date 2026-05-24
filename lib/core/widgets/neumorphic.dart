@@ -263,6 +263,14 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
                     enableIMEPersonalizedLearning: widget.obscureToggle
                         ? (widget.enableIMEPersonalizedLearning ?? false)
                         : (widget.enableIMEPersonalizedLearning ?? true),
+                    // MASVS-STORAGE MS-2: disable text selection on obscured
+                    // fields so users cannot copy the visible ciphertext dots
+                    // into a clipboard snoop. Callers that need selection (e.g.
+                    // a "show password" toggle already visible) pass
+                    // enableInteractiveSelection explicitly.
+                    enableInteractiveSelection: widget.obscureToggle
+                        ? (widget.obscureToggle && _obscured ? false : true)
+                        : true,
                     maxLength: widget.maxLength,
                     inputFormatters: widget.inputFormatters,
                     autofillHints: widget.autofillHints,

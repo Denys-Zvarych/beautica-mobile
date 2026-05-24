@@ -101,7 +101,13 @@ final class ErrorMapperInterceptor extends Interceptor {
         );
       }
 
-      if (statusCode == 401) return UnauthorizedFailure(cause: err);
+      if (statusCode == 401) {
+        // MEDIUM-2 (mobile-security 2026-05-24): decode the EMAIL_NOT_VERIFIED
+        // sub-code into a typed field so login_screen.dart can branch on
+        // `e.emailNotVerified` instead of probing `e.cause?.toString()`.
+        final bool emailNotVerified = _extractEmailNotVerified(err);
+        return UnauthorizedFailure(cause: err, emailNotVerified: emailNotVerified);
+      }
       if (statusCode == 404) return NotFoundFailure(cause: err);
       // HTTP 409 Conflict — email already registered during sign-up (or any
       // other resource-conflict). Map to ServerFailure so the screen surfaces
@@ -121,6 +127,35 @@ final class ErrorMapperInterceptor extends Interceptor {
     }
 
     return UnknownFailure(cause: err);
+  }
+
+  /// Returns `true` when the 401 response body contains the `EMAIL_NOT_VERIFIED`
+  /// sub-code (i.e. the account exists but OTP has not been completed).
+  ///
+  /// Expected backend envelope shape:
+  /// ```json
+  /// { "success": false, "data": { "code": "EMAIL_NOT_VERIFIED" } }
+  /// ```
+  /// Returns `false` on any other 401 shape (wrong credentials, expired token,
+  /// malformed body) so that the fallback generic-unauthorized handling applies.
+  bool _extractEmailNotVerified(DioException err) {
+    try {
+      final body = err.response?.data;
+      if (body is Map<String, dynamic>) {
+        final data = body['data'];
+        if (data is Map<String, dynamic>) {
+          return data['code'] == 'EMAIL_NOT_VERIFIED';
+        }
+        // Backend may also put the code at top-level message or errors.
+        final message = body['message'];
+        if (message is String) {
+          return message.contains('EMAIL_NOT_VERIFIED');
+        }
+      }
+    } catch (_) {
+      // Swallow parse errors — fall back to false.
+    }
+    return false;
   }
 
   /// Extracts the typed `data.code` string from the verify-email envelope
