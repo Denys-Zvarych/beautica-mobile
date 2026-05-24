@@ -125,7 +125,8 @@ Future<ProviderContainer> _pumpDoneScreen(
 
 /// Convenience: resolves AppLocalizations for the rendered uk locale.
 AppLocalizations _l10n(WidgetTester tester) {
-  // The VelvetHeader is always present — use its element as the context anchor.
+  // DoneScreen has no VelvetHeader (intentionally omitted — post-auth screen).
+  // Anchor on DoneScreen itself, which is always in the tree.
   return AppLocalizations.of(tester.element(find.byType(DoneScreen)));
 }
 
@@ -173,31 +174,32 @@ void main() {
     // -----------------------------------------------------------------------
     // Test 2 — Fallback greeting when User has no first name
     // -----------------------------------------------------------------------
-    testWidgets(
-      '2. falls back to the localised placeholder when User.firstName is null',
-      (tester) async {
-        final router = _makeRouter();
-        addTearDown(router.dispose);
+    testWidgets('2. falls back to email username when User.firstName is null', (
+      tester,
+    ) async {
+      final router = _makeRouter();
+      addTearDown(router.dispose);
 
-        await _pumpDoneScreen(
-          tester,
-          authenticatedUser: _userWithoutName,
-          router: router,
-        );
+      await _pumpDoneScreen(
+        tester,
+        authenticatedUser: _userWithoutName,
+        router: router,
+      );
 
-        final greeting = tester.widget<Text>(
-          find.byKey(const Key('done-greeting')),
-        );
-        final l10n = _l10n(tester);
-        expect(
-          greeting.data,
-          equals(l10n.registerDoneGreeting(l10n.registerDoneGreetingFallback)),
-          reason:
-              'when User.firstName is null/empty the greeting must use '
-              'the registerDoneGreetingFallback placeholder',
-        );
-      },
-    );
+      final greeting = tester.widget<Text>(
+        find.byKey(const Key('done-greeting')),
+      );
+      final l10n = _l10n(tester);
+      // When firstName is null/empty the screen derives the display name
+      // from email.split('@').first ('noname' from 'noname@beautica.test').
+      expect(
+        greeting.data,
+        equals(l10n.registerDoneGreeting('noname')),
+        reason:
+            'when User.firstName is null/empty the greeting must use '
+            'the email username prefix as the display name',
+      );
+    });
 
     // -----------------------------------------------------------------------
     // Test 3 — Three summary chips are rendered

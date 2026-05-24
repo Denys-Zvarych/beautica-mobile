@@ -6,6 +6,7 @@
 // Design: light-mode neumorphic (VelvetTouch). Warm-taupe base #E6DDD0.
 // No glassmorphism, no BackdropFilter, no painter check mark.
 // Camel check via Icon(Icons.check_rounded). Chips via NeumorphicInset pills.
+// VelvetHeader (logo + wordmark) intentionally omitted — done screen is post-auth.
 //
 // Security:
 //   - Registration draft is reset in a post-frame callback (Phase 2.16 HIGH-1).
@@ -71,7 +72,7 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
 
     final firstName = (user?.firstName?.trim().isNotEmpty ?? false)
         ? user!.firstName!.trim()
-        : l10n.registerDoneGreetingFallback;
+        : (user?.email.split('@').first ?? l10n.registerDoneGreetingFallback);
     final roleLabel = user?.role.label(l10n) ?? l10n.registerDoneChipRoleClient;
     final roleIcon = user?.role.icon ?? Icons.person_outline_rounded;
 
@@ -102,33 +103,25 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          const VelvetHeader(),
+          // Top breathing room in place of the logo header.
+          const SizedBox(height: VelvetSpacing.xl),
 
-          // Double-circle extruded medallion — replaces the old SVG check ring.
+          // Single-tile icon — matches the pattern used by VerificationScreen.
           Center(
             child: Container(
-              height: 96,
-              width: 96,
+              height: 72,
+              width: 72,
               decoration: const BoxDecoration(
                 color: BrandColors.base,
-                shape: BoxShape.circle,
-                boxShadow: VelvetShadows.extrudedCard,
-              ),
-              child: Center(
-                child: Container(
-                  height: 64,
-                  width: 64,
-                  decoration: const BoxDecoration(
-                    color: BrandColors.base,
-                    shape: BoxShape.circle,
-                    boxShadow: VelvetShadows.extrudedSmall,
-                  ),
-                  child: const Icon(
-                    Icons.check_rounded,
-                    color: BrandColors.accent,
-                    size: 34,
-                  ),
+                borderRadius: BorderRadius.all(
+                  Radius.circular(VelvetRadii.logoTile),
                 ),
+                boxShadow: VelvetShadows.extrudedSmall,
+              ),
+              child: const Icon(
+                Icons.check_rounded,
+                color: BrandColors.accent,
+                size: 30,
               ),
             ),
           ),
@@ -160,7 +153,7 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
             padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
             child: Text(
               l10n.registerDoneDesc,
-              style: VelvetText.body(),
+              style: VelvetText.body().copyWith(fontSize: 13),
               textAlign: TextAlign.center,
             ),
           ),
