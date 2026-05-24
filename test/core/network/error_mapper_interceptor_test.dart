@@ -414,7 +414,7 @@ void main() {
     // exercised. The JSON body is intentionally absent to prove the header path
     // fires in isolation (RFC 7231 §7.1.3 — integer seconds form).
     // -------------------------------------------------------------------------
-    DioException _httpErrorWithRetryAfterHeader(
+    DioException httpErrorWithRetryAfterHeader(
       String retryAfterValue, {
       String path = '/auth/resend-verification',
       dynamic body,
@@ -438,7 +438,7 @@ void main() {
 
     test('429 with Retry-After: 60 header → ResendThrottledFailure(60) '
         '(header takes precedence over absent body)', () {
-      final rejected = _captureRejected(_httpErrorWithRetryAfterHeader('60'));
+      final rejected = _captureRejected(httpErrorWithRetryAfterHeader('60'));
 
       expect(rejected.error, isA<ResendThrottledFailure>());
       expect(
@@ -484,7 +484,7 @@ void main() {
     test('429 with Retry-After header containing leading/trailing whitespace '
         '→ parsed correctly after trim()', () {
       final rejected = _captureRejected(
-        _httpErrorWithRetryAfterHeader('  45  '),
+        httpErrorWithRetryAfterHeader('  45  '),
       );
 
       expect(rejected.error, isA<ResendThrottledFailure>());
