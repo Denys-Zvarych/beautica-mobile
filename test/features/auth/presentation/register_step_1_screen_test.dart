@@ -24,6 +24,10 @@
 //      advance (validateNewPassword gate — Phase 2.16 _submit() change).
 //  15. Terms Text.rich renders all four l10n segments (prefix, terms link,
 //      conjunction, privacy link) — Phase 2.16 terms redesign.
+//  16. key_outlined icon tile is present at the top of the screen (72×72
+//      neumorphic, VelvetTouch icon tile consistency).
+//  17. 129-char password satisfies all checklist rows but is blocked by
+//      validateNewPassword (errPasswordLength) — max-128 hard gate.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -734,7 +738,34 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // 16. Over-max-128 password — validateNewPassword gate (Phase 2.16)
+    // 16. Credentials icon tile (key_outlined, 72×72 neumorphic)
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '16. key_outlined icon tile is present (VelvetTouch icon tile consistency)',
+      (tester) async {
+        final container = _makeContainer();
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        final icons = tester.widgetList<Icon>(find.byType(Icon)).toList();
+        expect(
+          icons.any((i) => i.icon == Icons.key_outlined),
+          isTrue,
+          reason:
+              'RegisterStep1Screen must render Icons.key_outlined (72×72 '
+              'neumorphic icon tile) at the top of the screen.',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // 17. Over-max-128 password — validateNewPassword gate (Phase 2.16)
     //
     // The live PasswordChecklist shows only 3 rows (min-8, digit, uppercase).
     // The max-128 rule has NO checklist row — it is enforced by maxLength on
@@ -750,7 +781,7 @@ void main() {
     // absent or circumvented.
     // -----------------------------------------------------------------------
     testWidgets(
-      '16. 129-char password satisfies all checklist rows but is blocked by '
+      '17. 129-char password satisfies all checklist rows but is blocked by '
       'validateNewPassword (errPasswordLength) and does NOT advance',
       (tester) async {
         final (:container, :repo) = _makeContainerWithRepo();

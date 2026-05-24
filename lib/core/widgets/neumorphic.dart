@@ -574,7 +574,7 @@ class VelvetLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final double tile = compact ? 64 : VelvetSizes.logoTile;
+    final double tile = compact ? 72 : VelvetSizes.logoTile;
     return Semantics(
       label: 'beautica',
       image: true,

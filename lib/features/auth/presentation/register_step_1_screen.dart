@@ -146,8 +146,26 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          // ── Brand header + wizard chrome ───────────────────────────────
-          const VelvetHeader(),
+          // ── Credentials icon tile (72×72 neumorphic) ──────────────────
+          Center(
+            child: Container(
+              height: 72,
+              width: 72,
+              decoration: const BoxDecoration(
+                color: BrandColors.base,
+                borderRadius: BorderRadius.all(
+                  Radius.circular(VelvetRadii.logoTile),
+                ),
+                boxShadow: VelvetShadows.extrudedSmall,
+              ),
+              child: const Icon(
+                Icons.key_outlined,
+                color: BrandColors.accent,
+                size: 30,
+              ),
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.lg),
           WizardStepChrome(step: 1, headline: l10n.registerHeadline),
 
           // ── Email ──────────────────────────────────────────────────────

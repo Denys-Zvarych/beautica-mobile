@@ -88,9 +88,11 @@ class _RoleSelectionScreenState extends ConsumerState<RoleSelectionScreen> {
             child: Container(
               height: 72,
               width: 72,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: BrandColors.base,
-                borderRadius: BorderRadius.circular(VelvetRadii.logoTile),
+                borderRadius: BorderRadius.all(
+                  Radius.circular(VelvetRadii.logoTile),
+                ),
                 boxShadow: VelvetShadows.extrudedSmall,
               ),
               child: const Icon(

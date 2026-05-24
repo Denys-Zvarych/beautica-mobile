@@ -471,7 +471,7 @@ void main() {
 
       // The compact pillow Container is shorter than the standard one.
       // We locate each Container that is a direct child of the logo column by
-      // comparing their render heights; compact tile is 64 px, default is 80+.
+      // comparing their render heights; compact tile is 72 px, default is 80+.
       final Iterable<Element> containers = find
           .byType(Container)
           .evaluate()
@@ -487,7 +487,7 @@ void main() {
       }).toList()..sort();
 
       expect(heights.length, greaterThanOrEqualTo(2));
-      // Compact pillow (64) must be strictly smaller than the normal pillow.
+      // Compact pillow (72) must be strictly smaller than the normal pillow.
       expect(heights.first, lessThan(heights.last));
     });
   });
