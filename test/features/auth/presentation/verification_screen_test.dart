@@ -226,10 +226,10 @@ void main() {
 
       await _pumpVerification(tester, repo: repo, router: router);
 
-      // Resend is hidden initially (no cooldown started — btn appears immediately
-      // since _cooldown starts at 0; screen only starts a cooldown after resend
-      // action, not on init). So the link IS visible from the start.
-      // The link text shows "Надіслати знову" when _cooldown == 0.
+      // Resend GestureDetector is always in the tree — even during the initial
+      // 30s mount cooldown (screen starts a cooldown on init, matching the
+      // server-side cooldown from the registration code send).
+      // The key is present regardless of cooldown state.
       expect(
         find.byKey(const ValueKey<String>('verify_resend')),
         findsOneWidget,
@@ -286,7 +286,9 @@ void main() {
         );
         expect(fieldBefore.controller?.text, equals('654321'));
 
-        // Tap the resend link (cooldown = 0 initially → link is active).
+        // Drain the initial 30s mount cooldown so the resend link is active.
+        await tester.pump(const Duration(seconds: 31));
+        // Tap the resend link — cooldown is now 0, link is active.
         await tester.tap(find.byKey(const ValueKey<String>('verify_resend')));
         await tester.pump(); // begin async
         await tester.pump(); // microtasks
@@ -331,7 +333,9 @@ void main() {
         await _fillOtp(tester, '654321');
         await tester.pump();
 
-        // Tap resend (cooldown == 0 initially → link is active).
+        // Drain the initial 30s mount cooldown so the resend link is active.
+        await tester.pump(const Duration(seconds: 31));
+        // Tap resend — cooldown is now 0, link is active.
         await tester.tap(find.byKey(const ValueKey<String>('verify_resend')));
         // Cannot pumpAndSettle: the throttle catch restarts the periodic
         // timer, which fires setState every second.
@@ -834,7 +838,9 @@ void main() {
             retryAfterSeconds: 30,
           );
 
-        // Tap resend — triggers the throttle path.
+        // Drain the initial 30s mount cooldown so the resend link is active.
+        await tester.pump(const Duration(seconds: 31));
+        // Tap resend — cooldown is now 0, triggers the throttle path.
         await tester.tap(find.byKey(const ValueKey<String>('verify_resend')));
         await tester.pump();
         await tester.pump();
@@ -928,7 +934,9 @@ void main() {
 
       await _pumpVerification(tester, repo: repo, router: router);
 
-      // Tap resend (cooldown = 0 initially → link is active).
+      // Drain the initial 30s mount cooldown so the resend link is active.
+      await tester.pump(const Duration(seconds: 31));
+      // Tap resend — cooldown is now 0, link is active.
       await tester.tap(find.byKey(const ValueKey<String>('verify_resend')));
       await tester.pump(); // begin async
       await tester.pump(); // microtasks
@@ -1091,7 +1099,9 @@ void main() {
         await _fillOtp(tester, '987654');
         await tester.pump();
 
-        // Tap resend (cooldown == 0 initially → link is active).
+        // Drain the initial 30s mount cooldown so the resend link is active.
+        await tester.pump(const Duration(seconds: 31));
+        // Tap resend — cooldown is now 0, link is active.
         await tester.tap(find.byKey(const ValueKey<String>('verify_resend')));
         // Wait for async resend to complete.
         await tester.pump(); // begin async

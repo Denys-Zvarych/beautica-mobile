@@ -379,7 +379,10 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           ),
           const SizedBox(height: VelvetSpacing.xl),
           // ── Resend row — owns its own cooldown timer (Fix B / MEDIUM-2) ────
-          _ResendRow(onResend: _resend),
+          _ResendRow(
+            onResend: _resend,
+            initialCooldown: _kResendCooldownSeconds,
+          ),
           // ── Inline error banner ───────────────────────────────────────────
           // [_inlineErrorActionLabel] and [_inlineErrorAction] are non-null when
           // the error includes a recovery CTA (e.g. "Увійти" for INVALID_CODE /
@@ -533,12 +536,21 @@ class _OtpCell extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ResendRow extends StatefulWidget {
-  const _ResendRow({required this.onResend});
+  const _ResendRow({required this.onResend, this.initialCooldown = 0});
 
   /// Called when the user taps the resend link. Returns cooldown seconds to
   /// display (30 for success, server value for throttle, null for generic
   /// error / no cooldown).
   final Future<int?> Function() onResend;
+
+  /// Cooldown (in seconds) to start immediately on mount.
+  ///
+  /// Pass [_kResendCooldownSeconds] when the screen loads right after
+  /// registration so the button is disabled for the same window as the
+  /// backend's initial server-side cooldown, preventing a spurious throttle
+  /// on a first-tap that arrives while the server window has only a few
+  /// seconds left.
+  final int initialCooldown;
 
   @override
   State<_ResendRow> createState() => _ResendRowState();
@@ -547,6 +559,14 @@ class _ResendRow extends StatefulWidget {
 class _ResendRowState extends State<_ResendRow> {
   int _cooldown = 0;
   Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialCooldown > 0) {
+      _startCooldown(widget.initialCooldown);
+    }
+  }
 
   @override
   void dispose() {
