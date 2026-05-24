@@ -42,17 +42,19 @@ android {
     // local smoke testing without credentials.
     val keystorePath = System.getenv("BEAUTICA_KEYSTORE_PATH")
     val keystorePassword = System.getenv("BEAUTICA_KEYSTORE_PASSWORD")
-    val keyAlias = System.getenv("BEAUTICA_KEY_ALIAS")
-    val keyPassword = System.getenv("BEAUTICA_KEY_PASSWORD")
+    // Use distinct names (storeKey*) to avoid shadowing the Kotlin DSL
+    // properties `keyAlias` / `keyPassword` inside signingConfigs.create {}.
+    val storeKeyAlias = System.getenv("BEAUTICA_KEY_ALIAS")
+    val storeKeyPassword = System.getenv("BEAUTICA_KEY_PASSWORD")
 
     if (keystorePath != null && keystorePassword != null &&
-        keyAlias != null && keyPassword != null) {
+        storeKeyAlias != null && storeKeyPassword != null) {
         signingConfigs {
             create("release") {
                 storeFile = file(keystorePath)
                 storePassword = keystorePassword
-                keyAlias = keyAlias
-                keyPassword = keyPassword
+                keyAlias = storeKeyAlias
+                keyPassword = storeKeyPassword
             }
         }
     }
