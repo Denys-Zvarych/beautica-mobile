@@ -23,6 +23,8 @@ import 'package:flutter/material.dart';
 // --- Module-level hoisted text styles (zero per-build allocation) -----------
 
 final _hintStyle = VelvetText.input().copyWith(color: BrandColors.placeholder);
+final TextStyle _tapRowErrorStyle = VelvetText.feedback(BrandColors.error);
+final TextStyle _tapRowMutedStyle = VelvetText.feedback(BrandColors.muted);
 
 /// A single tap-to-open row in the locality cascade.
 ///
@@ -156,14 +158,14 @@ class LocalityTapRow extends StatelessWidget {
               child: Text(
                 errorText!,
                 key: const ValueKey<String>('locality_tap_row_error'),
-                style: VelvetText.feedback(BrandColors.error),
+                style: _tapRowErrorStyle,
               ),
             ),
           )
         else if (helper != null)
           Padding(
             padding: const EdgeInsets.only(top: VelvetSpacing.xs, left: 6),
-            child: Text(helper!, style: VelvetText.feedback(BrandColors.muted)),
+            child: Text(helper!, style: _tapRowMutedStyle),
           ),
       ],
     );

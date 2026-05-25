@@ -1,22 +1,21 @@
 // Widget tests for SplashScreen.
 //
 // SplashScreen was converted from StatelessWidget to StatefulWidget in the
-// auth-screen redesign. It now owns an AnimationController
-// (SingleTickerProviderStateMixin) and an _showSpinner bool that gates the
-// CircularProgressIndicator. Zero test coverage existed before this file.
+// auth-screen redesign. It now owns a `_showSpinner` bool that gates the
+// CircularProgressIndicator, driven by a cancellable `Timer`.
+// Zero test coverage existed before this file.
 //
 // Covered scenarios:
 //   1. Widget renders without error (smoke test) — Scaffold + Stack present.
 //   2. VelvetLogo is present in the tree (SVG→VelvetLogo migration regression).
 //   3. On first pump, CircularProgressIndicator opacity is 0 (_showSpinner=false).
-//   4. After logo animation completes, CircularProgressIndicator appears
-//      (_showSpinner flips to true when AnimationController.status == completed).
+//   4. After 800ms timer fires, CircularProgressIndicator appears
+//      (_showSpinner flips to true when the Timer callback runs).
 //   5. With disableAnimations=true (reduced-motion), _showSpinner is set
 //      immediately via post-frame callback — spinner is visible after first settle.
 //   6. No AppBar is rendered (auth screens are full-screen, no AppBar).
-//   7. AnimationController is disposed without error (no pending timers).
-//   8. Phase 2.15 regression — _logoScale Tween is a no-op (begin == end == 1.0)
-//      so there is zero geometry change at the native-splash handoff.
+//   7. Timer is cancelled on dispose (no pending-timer error).
+//   8. VelvetLogo is not wrapped in FadeTransition (no-op fade removed in Batch 6).
 //   9. Phase 2.15 regression — Scaffold backgroundColor matches BrandColors.base
 //      (#E6DDD0), which must match the native splash background to avoid a color
 //      flash at handoff.
@@ -89,16 +88,16 @@ void main() {
     // -------------------------------------------------------------------------
     // Test 3 — CircularProgressIndicator is initially opacity-hidden
     //
-    // On the first frame, _showSpinner == false because the AnimationController
-    // has not yet completed. The AnimatedOpacity wrapping the spinner sets
-    // opacity: 0.0, but the widget is still in the tree.
+    // On the first frame, _showSpinner == false because the Timer has not yet
+    // fired. The AnimatedOpacity wrapping the spinner sets opacity: 0.0, but
+    // the widget is still in the tree.
     // -------------------------------------------------------------------------
     testWidgets(
       '3. CircularProgressIndicator is present but initially invisible',
       (tester) async {
         await tester.pumpWidget(_buildApp());
         // Pump one frame to trigger the initState post-frame callback (which
-        // calls _logoCtrl.forward()). The animation has NOT completed yet.
+        // schedules the 800ms Timer). The Timer has NOT yet fired.
         await tester.pump();
 
         // The spinner widget must be in the tree (it is always rendered; only
@@ -120,10 +119,9 @@ void main() {
     // -------------------------------------------------------------------------
     // Test 4 — After animation completes, spinner becomes visible
     //
-    // The AnimationController runs for 800 ms. After that, addStatusListener
-    // fires, sets _showSpinner = true, and triggers a rebuild. The
-    // AnimatedOpacity then transitions to opacity: 1.0. We advance the clock
-    // by the controller duration + the AnimatedOpacity transition (200 ms).
+    // The Timer fires after 800 ms, sets _showSpinner = true, and triggers a
+    // rebuild. The AnimatedOpacity then transitions to opacity: 1.0.
+    // We advance the clock by the timer duration + the AnimatedOpacity (200 ms).
     // -------------------------------------------------------------------------
     testWidgets(
       '4. CircularProgressIndicator becomes visible after logo animation completes',
@@ -157,9 +155,9 @@ void main() {
     //           spinner is visible after the AnimatedOpacity transition
     //
     // When MediaQuery.disableAnimations is true, initState's post-frame
-    // callback sets _logoCtrl.value = 1.0 and immediately calls
-    // setState(() => _showSpinner = true). The AnimatedOpacity widget then
-    // transitions to opacity: 1.0 over its 200 ms duration.
+    // callback calls setState(() => _showSpinner = true) immediately
+    // (no Timer is started). The AnimatedOpacity then transitions to
+    // opacity: 1.0 over its 200 ms duration.
     //
     // We cannot use pumpAndSettle here because the AnimatedOpacity implicit
     // animation keeps the engine busy beyond flutter_test's settle threshold.
@@ -170,8 +168,7 @@ void main() {
       '5. with disableAnimations=true spinner becomes visible after transition',
       (tester) async {
         await tester.pumpWidget(_buildApp(disableAnimations: true));
-        // Trigger the post-frame callback that sets _logoCtrl.value=1.0 and
-        // _showSpinner=true.
+        // Trigger the post-frame callback that sets _showSpinner=true.
         await tester.pump();
         // Advance through the AnimatedOpacity transition (200 ms declared in
         // SplashScreen) plus a small margin.
@@ -199,13 +196,13 @@ void main() {
     });
 
     // -------------------------------------------------------------------------
-    // Test 7 — AnimationController disposes cleanly (no pending-timer failures)
+    // Test 7 — Timer is cancelled on dispose (no pending-timer error)
     //
     // If dispose() is missing or incorrect, flutter_test raises a
     // "A Timer is still pending" error at test teardown. Pumping the widget,
     // then disposing (via pumpWidget empty tree), must not throw.
     // -------------------------------------------------------------------------
-    testWidgets('7. AnimationController disposes without error', (
+    testWidgets('7. Timer is cancelled on dispose (no pending-timer error)', (
       tester,
     ) async {
       await tester.pumpWidget(_buildApp());
@@ -214,55 +211,61 @@ void main() {
       // Replace the widget tree with an empty widget to trigger dispose().
       await tester.pumpWidget(const SizedBox.shrink());
 
-      // If we reach here without an exception the controller was cleaned up.
+      // If we reach here without an exception the 800ms timer was cancelled in dispose().
       expect(find.byType(SplashScreen), findsNothing);
     });
 
     // -------------------------------------------------------------------------
-    // Test 8 — Phase 2.15 regression: _logoScale Tween is a no-op (1.0→1.0)
+    // Test 8 — Batch 6 regression: VelvetLogo is not wrapped in FadeTransition
     //
-    // Option A of the native-splash handoff sets _logoScale begin = 1.0 so the
-    // logo never changes size during the Flutter animation. This eliminates the
-    // geometry jump at the handoff. Verify by reading the ScaleTransform value
-    // at the very first frame (before the animation has moved), where the logo
-    // Transform.scale must equal 1.0 regardless of animation progress.
-    //
-    // Because the Tween is begin:1.0 end:1.0, the scale must be 1.0 at every
-    // animation value including 0.0 (start), 0.5 (mid), and 1.0 (end).
-    // We assert the start frame (value=0) here, which is the critical moment
-    // when the native splash dismisses and Flutter takes over.
+    // The FadeTransition that was wrapping VelvetLogo used a 1.0→1.0 Tween
+    // (a no-op — opacity was always 1.0). It was removed in Batch 6 to eliminate
+    // the per-tick SaveLayer and the AnimationController. This test asserts the
+    // FadeTransition is absent so a future re-introduction would be caught.
     // -------------------------------------------------------------------------
     testWidgets(
-      '8. Phase 2.15 — logo scale is 1.0 at animation start (no geometry jump at handoff)',
+      '8. VelvetLogo is not wrapped in FadeTransition (no-op fade removed in Batch 6)',
       (tester) async {
         await tester.pumpWidget(_buildApp());
-        // One frame to ensure the widget is laid out but before the post-frame
-        // callback fires (so the animation controller is still at value 0.0).
         await tester.pump(Duration.zero);
 
-        // Locate the Transform widget that applies _logoScale. It wraps a
-        // VelvetLogo inside an AnimatedBuilder.
-        final transformWidgets = tester.widgetList<Transform>(
-          find.byType(Transform),
-        );
+        // VelvetLogo must be present.
+        expect(find.byType(VelvetLogo), findsOneWidget);
 
-        // At animation value 0.0 with a 1.0→1.0 Tween, every Transform scale
-        // must be 1.0. An old begin=0.5 Tween would produce 0.5 here.
-        for (final t in transformWidgets) {
-          final matrix = t.transform;
-          // m[0] and m[5] are the X and Y scale factors in a column-major
-          // 4×4 transform matrix (Transform.scale sets them identically).
-          final scaleX = matrix.getMaxScaleOnAxis();
-          // Allow a floating-point epsilon.
-          expect(
-            scaleX,
-            closeTo(1.0, 0.001),
-            reason:
-                'Logo scale must be 1.0 at animation start (Phase 2.15 Option A: '
-                'begin changed from 0.5 to 1.0 to prevent geometry jump at '
-                'native-splash handoff). Got $scaleX.',
-          );
-        }
+        // The VelvetLogo is placed directly inside a Column → Align → Stack
+        // (SplashScreen's body). Its immediate parent in SplashScreen's own
+        // subtree must NOT be FadeTransition.
+        //
+        // Strategy: locate the Column that is a descendant of the Scaffold's
+        // body (below the Scaffold, therefore below MaterialApp's routing
+        // FadeTransitions). Then assert that no FadeTransition exists as a
+        // descendant of that Column AND as an ancestor of VelvetLogo.
+        //
+        // We use find.byWidgetPredicate on Column to pick the one whose
+        // children include VelvetLogo (the Column is mainAxisSize.min, which
+        // distinguishes it from any outer Column the framework might inject).
+        final logoColumnFinder = find.byWidgetPredicate(
+          (widget) =>
+              widget is Column && widget.mainAxisSize == MainAxisSize.min,
+        );
+        // There must be exactly one such Column on this screen.
+        expect(logoColumnFinder, findsOneWidget);
+
+        // No FadeTransition should be a descendant of that Column AND an
+        // ancestor of VelvetLogo.
+        expect(
+          find.descendant(
+            of: logoColumnFinder,
+            matching: find.ancestor(
+              of: find.byType(VelvetLogo),
+              matching: find.byType(FadeTransition),
+            ),
+          ),
+          findsNothing,
+          reason:
+              'VelvetLogo must not be wrapped in FadeTransition inside '
+              "SplashScreen's Column after the Batch 6 no-op animation cleanup.",
+        );
       },
     );
 

@@ -221,6 +221,15 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
     color: BrandColors.placeholder,
   );
 
+  // Hoisted to avoid TextStyle allocation on every keystroke.
+  static final TextStyle _errorFeedbackStyle = VelvetText.feedback(
+    BrandColors.error,
+  );
+  static final TextStyle _mutedFeedbackStyle = VelvetText.feedback(
+    BrandColors.muted,
+  );
+  static final TextStyle _labelStyle = VelvetText.label();
+
   late final FocusNode _focusNode;
   // Cached once in initState — widget.prefixIcon is set at construction time
   // and never changes, so evaluating it once avoids a conditional per build.
@@ -263,7 +272,7 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
       children: <Widget>[
         Padding(
           padding: const EdgeInsets.only(left: 6, bottom: VelvetSpacing.sm),
-          child: Text(widget.label, style: VelvetText.label()),
+          child: Text(widget.label, style: _labelStyle),
         ),
         NeumorphicInset(
           focused: _focused,
@@ -366,10 +375,7 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
                   ),
                   const SizedBox(width: VelvetSpacing.xs + 2),
                   Expanded(
-                    child: Text(
-                      widget.errorText!,
-                      style: VelvetText.feedback(BrandColors.error),
-                    ),
+                    child: Text(widget.errorText!, style: _errorFeedbackStyle),
                   ),
                 ],
               ),
@@ -378,10 +384,7 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
         else if (widget.helperText != null)
           Padding(
             padding: const EdgeInsets.only(left: 6, top: VelvetSpacing.sm),
-            child: Text(
-              widget.helperText!,
-              style: VelvetText.feedback(BrandColors.muted),
-            ),
+            child: Text(widget.helperText!, style: _mutedFeedbackStyle),
           ),
       ],
     );
@@ -421,6 +424,10 @@ class _NeumorphicButtonState extends State<NeumorphicButton> {
   static final TextStyle _ctaDisabledStyle = VelvetText.cta().copyWith(
     color: const Color(0x8CF5EDE0),
   );
+
+  // Hoisted: BrandColors.white (0xFFF5EDE0) at alpha 55% (0x8C = round(0.55 × 255)).
+  // Avoids allocating a Color on every button rebuild when disabled.
+  static const Color _ctaIconDisabledColor = Color(0x8CF5EDE0);
 
   bool _pressed = false;
 
@@ -476,9 +483,9 @@ class _NeumorphicButtonState extends State<NeumorphicButton> {
                               width: 22,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2.4,
-                                color: BrandColors.white.withValues(
-                                  alpha: _enabled ? 1.0 : 0.55,
-                                ),
+                                color: _enabled
+                                    ? BrandColors.white
+                                    : _ctaIconDisabledColor,
                               ),
                             )
                           : Row(
@@ -487,9 +494,9 @@ class _NeumorphicButtonState extends State<NeumorphicButton> {
                                 if (widget.icon != null) ...<Widget>[
                                   Icon(
                                     widget.icon,
-                                    color: BrandColors.white.withValues(
-                                      alpha: _enabled ? 1.0 : 0.55,
-                                    ),
+                                    color: _enabled
+                                        ? BrandColors.white
+                                        : _ctaIconDisabledColor,
                                     size: 20,
                                   ),
                                   const SizedBox(width: VelvetSpacing.sm),
@@ -666,6 +673,7 @@ class VelvetLogo extends StatelessWidget {
       child: Column(
         children: <Widget>[
           Container(
+            key: const Key('velvet_logo_pillow'),
             height: tile,
             width: tile,
             decoration: const BoxDecoration(

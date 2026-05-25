@@ -542,26 +542,32 @@ void main() {
       // Both monograms render.
       expect(find.text('B'), findsNWidgets(2));
 
-      // The compact pillow Container is shorter than the standard one.
-      // We locate each Container that is a direct child of the logo column by
-      // comparing their render heights; compact tile is 72 px, default is 80+.
-      final Iterable<Element> containers = find
-          .byType(Container)
-          .evaluate()
-          .where((Element e) {
-            final RenderBox rb = e.renderObject! as RenderBox;
-            // Only the logo pillow containers — filter by square aspect ratio.
-            final Size s = rb.size;
-            return s.width > 40 && (s.width - s.height).abs() < 2;
-          });
-
-      final List<double> heights = containers.map((Element e) {
-        return (e.renderObject! as RenderBox).size.height;
-      }).toList()..sort();
-
-      expect(heights.length, greaterThanOrEqualTo(2));
-      // Compact pillow (72) must be strictly smaller than the normal pillow.
-      expect(heights.first, lessThan(heights.last));
+      // Compact pillow Container carries the stable 'velvet_logo_pillow' Key.
+      // Both VelvetLogo instances render it; use Key to locate, RenderBox to measure.
+      final pillow1 = tester.getSize(
+        find.descendant(
+          of: find.byKey(const Key('logo_normal')),
+          matching: find.byKey(const Key('velvet_logo_pillow')),
+        ),
+      );
+      final pillow2 = tester.getSize(
+        find.descendant(
+          of: find.byKey(const Key('logo_compact')),
+          matching: find.byKey(const Key('velvet_logo_pillow')),
+        ),
+      );
+      // Normal pillow is larger than compact (80 > 72).
+      expect(
+        pillow1.height,
+        greaterThan(pillow2.height),
+        reason:
+            'Normal VelvetLogo pillow must be taller than compact (80 > 72)',
+      );
+      expect(
+        pillow2.height,
+        closeTo(72.0, 1.0),
+        reason: 'Compact pillow height must be 72 px',
+      );
     });
   });
 
@@ -612,5 +618,64 @@ void main() {
 
       expect(tapped, isTrue);
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // 11. NeumorphicTextField — autofillHints assertion
+  // -------------------------------------------------------------------------
+  group('NeumorphicTextField autofillHints assert', () {
+    test('throws AssertionError when password autofillHint is given without '
+        'obscureToggle', () {
+      // Constructing a NeumorphicTextField with a password autofillHint but
+      // obscureToggle: false (the default) must trigger the assertion guard.
+      final controller = TextEditingController();
+      expect(
+        () => NeumorphicTextField(
+          label: 'Password',
+          controller: controller,
+          hintText: 'Password',
+          autofillHints: const [AutofillHints.password],
+          // obscureToggle defaults to false — assertion fires here.
+        ),
+        throwsAssertionError,
+      );
+      controller.dispose();
+    });
+
+    test(
+      'does not throw when password autofillHint is given WITH obscureToggle',
+      () {
+        // Same hint is allowed when obscureToggle: true.
+        final controller = TextEditingController();
+        expect(
+          () => NeumorphicTextField(
+            label: 'Password',
+            controller: controller,
+            hintText: 'Password',
+            autofillHints: const [AutofillHints.password],
+            obscureToggle: true,
+          ),
+          returnsNormally,
+        );
+        controller.dispose();
+      },
+    );
+
+    test(
+      'does not throw for non-password autofillHints without obscureToggle',
+      () {
+        final controller = TextEditingController();
+        expect(
+          () => NeumorphicTextField(
+            label: 'Email',
+            controller: controller,
+            hintText: 'Email',
+            autofillHints: const [AutofillHints.email],
+          ),
+          returnsNormally,
+        );
+        controller.dispose();
+      },
+    );
   });
 }

@@ -35,6 +35,7 @@
 //   14. initState prefetch: oblastListProvider is read on first frame.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/register_result.dart';
@@ -54,6 +55,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+
+import '../../../helpers/fakes/fake_secure_storage.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -150,6 +153,7 @@ ProviderContainer _container({
   final container = ProviderContainer(
     overrides: [
       authRepositoryProvider.overrideWith((_) => authRepo),
+      secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
       locationRepositoryProvider.overrideWith((_) => _FakeLocationRepository()),
       if (masterRepo != null)
         masterRepositoryProvider.overrideWith((_) => masterRepo),
@@ -1069,6 +1073,57 @@ void main() {
       );
     },
   );
+
+  // ── 15. MASTER submit with empty street → street inline errorText ──────────
+  testWidgets('15. MASTER submit with locality selected but empty street → '
+      'street errorText rendered inline', (tester) async {
+    final authRepo = _MockAuthRepository();
+    final masterRepo = _MockMasterRepository();
+    final container = _container(
+      role: UserRole.independentMaster,
+      authRepo: authRepo,
+      masterRepo: masterRepo,
+    );
+    addTearDown(container.dispose);
+
+    final router = _makeRouter();
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(_app(router, container));
+    await tester.pumpAndSettle();
+
+    // Select oblast → city (no districts) via cascade pickers.
+    // Tap the oblast tile to open the bottom sheet.
+    await tester.tap(find.byKey(const Key('locality_row_oblast')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(_oblast.name));
+    await tester.pumpAndSettle();
+
+    // Tap the city tile.
+    await tester.tap(find.byKey(const Key('locality_row_city')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(_cityNoDistricts.name));
+    await tester.pumpAndSettle();
+
+    // Leave street empty (default) — tap submit.
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('address_submit')),
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('address_submit')));
+    await tester.pump();
+
+    // The street field must show an inline error.
+    final l10n = AppLocalizations.of(
+      tester.element(find.byKey(const ValueKey<String>('address_street'))),
+    );
+    expect(
+      find.text(l10n.errStreetRequired),
+      findsWidgets,
+      reason:
+          'NeumorphicTextField for street must render inline errorText '
+          'when street is empty on MASTER submit',
+    );
+  });
 
   // ── Location icon tile (Phase 2.x icon standardisation) ───────────────────
   testWidgets('location_on_outlined icon tile renders at top of Step 3 '

@@ -113,6 +113,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // loginEmailHint must be rendered as placeholder text in the email field.
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(find.text(l10n.loginEmailHint), findsOneWidget);
+
       await tester.enterText(
         find.byKey(const ValueKey<String>('login_email')),
         'test@example.com',
@@ -203,6 +207,7 @@ void main() {
           ProviderScope(
             overrides: [
               authProvider.overrideWith(() => _LoadingAuthNotifier()),
+              authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
               secureStorageProvider.overrideWith((_) => storage),
             ],
             child: MaterialApp.router(
@@ -251,6 +256,7 @@ void main() {
         ProviderScope(
           overrides: [
             authProvider.overrideWith(() => _ErrorAuthNotifier()),
+            authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
             secureStorageProvider.overrideWith((_) => storage),
           ],
           child: MaterialApp.router(
@@ -529,6 +535,7 @@ void main() {
           ProviderScope(
             overrides: [
               authProvider.overrideWith(() => _UnverifiedAuthNotifier()),
+              authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
               secureStorageProvider.overrideWith((_) => storage),
             ],
             child: MaterialApp.router(
@@ -592,6 +599,7 @@ void main() {
           ProviderScope(
             overrides: [
               authProvider.overrideWith(() => _UnverifiedAuthNotifier()),
+              authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
               secureStorageProvider.overrideWith((_) => storage),
             ],
             child: MaterialApp.router(

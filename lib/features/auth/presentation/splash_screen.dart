@@ -23,11 +23,10 @@
 //   Reduced-motion: the native splash itself is OS-owned and cannot be skipped,
 //   but the Flutter-side animation respects [MediaQueryData.disableAnimations].
 //
-// Animation (post-Phase 2.15 / P1-STARTUP-2 + Batch-2 perf fix): _logoOpacity
-// is a no-op (1.0→1.0) — the native splash shows the logo at full opacity already.
-// The controller drives only spinner-reveal timing. AnimatedBuilder / Transform.scale
-// removed (Batch-2 A1) because the scale was always 1.0 — a per-tick no-op.
-// Both animations skipped on reduced-motion.
+// AnimationController replaced with Timer in Batch 6 perf fix — the 1.0→1.0
+// FadeTransition was a no-op and has been removed.
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
@@ -38,9 +37,9 @@ import '../../../core/widgets/neumorphic.dart';
 
 /// Cold-start parking screen shown while the auth session resolves.
 ///
-/// Displays the Beautica logo with a cinematic scale+fade entrance animation
-/// and a branded progress indicator. The animation is skipped automatically
-/// when the system's reduced-motion preference is active.
+/// Displays the Beautica logo with a branded progress indicator. The spinner
+/// is revealed after 800 ms via a cancellable [Timer] (or immediately when the
+/// system's reduced-motion preference is active).
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -48,10 +47,8 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _logoCtrl;
-  late final Animation<double> _logoOpacity;
+class _SplashScreenState extends State<SplashScreen> {
+  Timer? _spinnerTimer;
 
   bool _showSpinner = false;
 
@@ -59,50 +56,26 @@ class _SplashScreenState extends State<SplashScreen>
   void initState() {
     super.initState();
 
-    _logoCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-
-    // P1-STARTUP-2 (perf MEDIUM, Phase 2.20 audit): begin changed 0.0 → 1.0.
-    // The native splash shows the logo at opacity 1.0 already. Starting at 0.0
-    // causes a 1-frame (~16 ms) invisible-logo flash at the native→Flutter
-    // handoff. _logoOpacity is a no-op (1.0→1.0); the controller drives only
-    // spinner-reveal timing.
-    // Batch-2 A1: _logoScale (also 1.0→1.0) and its AnimatedBuilder have been
-    // removed — they rebuilt on every tick and allocated a Matrix4 for nothing.
-    _logoOpacity = Tween<double>(begin: 1.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _logoCtrl,
-        curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
-      ),
-    );
-
-    _logoCtrl.addStatusListener((status) {
-      if (status == AnimationStatus.completed && mounted) {
-        setState(() => _showSpinner = true);
-      }
-    });
-
-    // Phase 2.15 — dismiss native splash on first Flutter frame, synchronised
-    // with the start of the Phase 2.10 animation. FlutterNativeSplash.remove()
-    // is idempotent and safe even if preserve() was not called (debug mode).
+    // Phase 2.15 — dismiss native splash on first Flutter frame.
+    // FlutterNativeSplash.remove() is idempotent and safe even if preserve()
+    // was not called (debug mode).
     // Defer reduced-motion check to post-frame so MediaQuery is available.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FlutterNativeSplash.remove();
       if (!mounted) return;
       if (MediaQuery.of(context).disableAnimations) {
-        _logoCtrl.value = 1.0;
         if (mounted) setState(() => _showSpinner = true);
       } else {
-        _logoCtrl.forward();
+        _spinnerTimer = Timer(const Duration(milliseconds: 800), () {
+          if (mounted) setState(() => _showSpinner = true);
+        });
       }
     });
   }
 
   @override
   void dispose() {
-    _logoCtrl.dispose();
+    _spinnerTimer?.cancel();
     super.dispose();
   }
 
@@ -121,14 +94,7 @@ class _SplashScreenState extends State<SplashScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // FadeTransition drives opacity via the animation object directly,
-                // avoiding the per-frame SaveLayer that Opacity(opacity: x!=1)
-                // would create. The AnimatedBuilder/Transform.scale wrapper was
-                // removed (Batch-2 A1) — the scale was always 1.0 (no-op).
-                FadeTransition(
-                  opacity: _logoOpacity,
-                  child: const VelvetLogo(),
-                ),
+                const VelvetLogo(),
                 const SizedBox(height: AppSpacing.xxl),
                 AnimatedOpacity(
                   opacity: _showSpinner ? 1.0 : 0.0,
