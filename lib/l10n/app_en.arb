@@ -74,6 +74,10 @@
   "@loginEmailPlaceholder": {
     "description": "In-field placeholder for the email input on the login screen (login-page.html input placeholder)."
   },
+  "loginEmailHint": "you@example.com",
+  "@loginEmailHint": {
+    "description": "hintText for the email field on the login screen — a generic English placeholder email address."
+  },
   "loginPasswordPlaceholder": "Your password",
   "@loginPasswordPlaceholder": {
     "description": "In-field placeholder for the password input on the login screen (login-page.html input placeholder)."
@@ -414,6 +418,10 @@
   "@registerEmailPlaceholder": {
     "description": "In-field placeholder for the email input on the registration details screen (sign-up-page.html input placeholder)."
   },
+  "registerEmailHint": "you@beautica.ua",
+  "@registerEmailHint": {
+    "description": "hintText for the email field on the Step 1 registration screen — an English-locale placeholder email address."
+  },
   "registerPhonePlaceholder": "+380 __ ___ ____",
   "@registerPhonePlaceholder": {
     "description": "In-field placeholder for the phone input (sign-up-page.html input placeholder)."
@@ -445,6 +453,28 @@
   "registerPasswordCriteriaUppercase": "Uppercase",
   "@registerPasswordCriteriaUppercase": {
     "description": "Password helper criterion: contains an uppercase letter (sign-up-page.html .helper-text)."
+  },
+  "passwordRuleLength": "From {minLength} to 128 characters",
+  "@passwordRuleLength": {
+    "description": "Live password rule: minimum-to-maximum length. {minLength} is the minimum character count (default 8; invite path uses 12).",
+    "placeholders": {
+      "minLength": {
+        "type": "int",
+        "example": "8"
+      }
+    }
+  },
+  "passwordRuleDigit": "At least one digit",
+  "@passwordRuleDigit": {
+    "description": "Live password rule: must contain at least one digit character."
+  },
+  "passwordRuleUppercase": "At least one uppercase letter",
+  "@passwordRuleUppercase": {
+    "description": "Live password rule: must contain at least one uppercase letter."
+  },
+  "passwordChecklistSemantics": "Password requirements",
+  "@passwordChecklistSemantics": {
+    "description": "Accessibility Semantics.label for the PasswordChecklist widget container."
   },
   "registerTermsPrefix": "By signing up, you agree to our",
   "@registerTermsPrefix": {
@@ -807,10 +837,6 @@
   "step3CtaSave": "Save",
   "@step3CtaSave": {
     "description": "Filled CTA button on the Step 3 Address screen, CLIENT variant. Saves the chosen locality and proceeds to verification."
-  },
-  "step3CtaSaveAndContinue": "Save and continue",
-  "@step3CtaSaveAndContinue": {
-    "description": "Single full-width filled CTA on the Step 3 Address screen for INDEPENDENT_MASTER and SALON_OWNER. Registers the account, saves the address, and proceeds to verification."
   },
   "step3ProfileSaveFallback": "Save your address later in your profile",
   "@step3ProfileSaveFallback": {

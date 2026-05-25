@@ -113,7 +113,7 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
           Text(
             key: const Key('done-greeting'),
             l10n.registerDoneGreeting(displayName),
-            style: VelvetText.heading().copyWith(fontSize: 26),
+            style: VelvetText.headingLg,
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: VelvetSpacing.sm),
@@ -122,10 +122,7 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
           Text(
             key: const Key('done-subtitle'),
             l10n.registerDoneSubtitle,
-            style: VelvetText.subheading().copyWith(
-              color: BrandColors.accentDeep,
-              fontStyle: FontStyle.italic,
-            ),
+            style: VelvetText.subheadingItalicAccent,
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: VelvetSpacing.md),
@@ -135,7 +132,7 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
             padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
             child: Text(
               l10n.registerDoneDesc,
-              style: VelvetText.body().copyWith(fontSize: 13),
+              style: VelvetText.bodySmall,
               textAlign: TextAlign.center,
             ),
           ),
@@ -224,12 +221,7 @@ class _SummaryChip extends StatelessWidget {
           children: <Widget>[
             Icon(icon, size: 15, color: BrandColors.accent),
             const SizedBox(width: VelvetSpacing.sm),
-            Text(
-              label,
-              style: VelvetText.feedback(
-                BrandColors.textSecondary,
-              ).copyWith(fontSize: 12.5),
-            ),
+            Text(label, style: VelvetText.chipLabel),
           ],
         ),
       ),

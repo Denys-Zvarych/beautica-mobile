@@ -203,10 +203,15 @@ final class ErrorMapperInterceptor extends Interceptor {
   /// Falls back to `0` when both sources are absent or malformed — the screen
   /// still shows the throttle banner and the user can manually retry.
   ///
-  /// All values are clamped to [0, 2^31] to prevent a rogue server from
-  /// pinning the resend cooldown to a multi-year value (MASVS-PLATFORM).
+  /// Two-tier clamping (Batch-2 A4):
+  ///   - Security clamp: [0, 2^31] prevents integer overflow from a rogue server.
+  ///   - UX clamp: [0, kMaxUxCooldownSeconds] (10 min) prevents a multi-hour /
+  ///     multi-year countdown from being shown to the user. Values above the UX
+  ///     ceiling are treated as if the server sent the UX ceiling — the throttle
+  ///     banner is still shown but the countdown never exceeds 10 minutes.
   int _extractRetryAfterSeconds(DioException err) {
-    const kMaxCooldown = 1 << 31;
+    const int kMaxCooldown = 1 << 31; // overflow guard (MASVS-PLATFORM)
+    const int kMaxUxCooldownSeconds = 600; // 10 min UX ceiling (Batch-2 A4)
 
     // 1. Retry-After header (RFC 7231 §7.1.3 — integer seconds form only;
     //    HTTP-date form is intentionally not parsed here since the backend
@@ -216,7 +221,7 @@ final class ErrorMapperInterceptor extends Interceptor {
       if (headerRaw != null) {
         final parsed = int.tryParse(headerRaw.trim());
         if (parsed != null && parsed >= 0) {
-          return parsed.clamp(0, kMaxCooldown);
+          return parsed.clamp(0, kMaxCooldown).clamp(0, kMaxUxCooldownSeconds);
         }
       }
     } catch (e) {
@@ -236,8 +241,15 @@ final class ErrorMapperInterceptor extends Interceptor {
         final data = body['data'];
         if (data is Map<String, dynamic>) {
           final raw = data['retryAfterSeconds'];
-          if (raw is int) return raw.clamp(0, kMaxCooldown);
-          if (raw is num) return raw.toInt().clamp(0, kMaxCooldown);
+          if (raw is int) {
+            return raw.clamp(0, kMaxCooldown).clamp(0, kMaxUxCooldownSeconds);
+          }
+          if (raw is num) {
+            return raw
+                .toInt()
+                .clamp(0, kMaxCooldown)
+                .clamp(0, kMaxUxCooldownSeconds);
+          }
         }
       }
     } catch (e) {

@@ -74,6 +74,10 @@
   "@loginEmailPlaceholder": {
     "description": "In-field placeholder for the email input on the login screen (login-page.html input placeholder)."
   },
+  "loginEmailHint": "olena.kovalenko@gmail.com",
+  "@loginEmailHint": {
+    "description": "hintText for the email field on the login screen — a realistic Ukrainian placeholder email address."
+  },
   "loginPasswordPlaceholder": "Ваш пароль",
   "@loginPasswordPlaceholder": {
     "description": "In-field placeholder for the password input on the login screen (login-page.html input placeholder)."
@@ -414,6 +418,10 @@
   "@registerEmailPlaceholder": {
     "description": "In-field placeholder for the email input on the registration details screen (sign-up-page.html input placeholder)."
   },
+  "registerEmailHint": "ви@beautica.ua",
+  "@registerEmailHint": {
+    "description": "hintText for the email field on the Step 1 registration screen — a Ukrainian-locale placeholder email address."
+  },
   "registerPhonePlaceholder": "+380 __ ___ ____",
   "@registerPhonePlaceholder": {
     "description": "In-field placeholder for the phone input (sign-up-page.html input placeholder)."
@@ -445,6 +453,28 @@
   "registerPasswordCriteriaUppercase": "Велика літера",
   "@registerPasswordCriteriaUppercase": {
     "description": "Password helper criterion: contains an uppercase letter (sign-up-page.html .helper-text)."
+  },
+  "passwordRuleLength": "Від {minLength} символів",
+  "@passwordRuleLength": {
+    "description": "Live password rule: minimum character count. {minLength} is the minimum (default 8; invite path uses 12). Max-128 is enforced by TextField maxLength, not shown here (Phase 2.16).",
+    "placeholders": {
+      "minLength": {
+        "type": "int",
+        "example": "8"
+      }
+    }
+  },
+  "passwordRuleDigit": "Хоча б одна цифра",
+  "@passwordRuleDigit": {
+    "description": "Live password rule: must contain at least one digit character."
+  },
+  "passwordRuleUppercase": "Хоча б одна велика літера",
+  "@passwordRuleUppercase": {
+    "description": "Live password rule: must contain at least one uppercase letter."
+  },
+  "passwordChecklistSemantics": "Вимоги до пароля",
+  "@passwordChecklistSemantics": {
+    "description": "Accessibility Semantics.label for the PasswordChecklist widget container."
   },
   "registerTermsPrefix": "Реєструючись, ви погоджуєтесь з нашими",
   "@registerTermsPrefix": {
@@ -807,10 +837,6 @@
   "step3CtaSave": "Зберегти",
   "@step3CtaSave": {
     "description": "Filled CTA button on the Step 3 Address screen, CLIENT variant (sign-up-step-3-address.html .cta-btn — 'Зберегти'). Saves the chosen locality and proceeds to verification."
-  },
-  "step3CtaSaveAndContinue": "Зберегти і продовжити",
-  "@step3CtaSaveAndContinue": {
-    "description": "Single full-width filled CTA on the Step 3 Address screen for INDEPENDENT_MASTER and SALON_OWNER (sign-up-step-3-address.html .cta-btn — 'Зберегти і продовжити'). Registers the account, saves the address, and proceeds to verification."
   },
   "step3ProfileSaveFallback": "Збережіть адресу пізніше у профілі",
   "@step3ProfileSaveFallback": {

@@ -70,7 +70,14 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   bool _loading = false;
 
   /// Password policy rules — 12-char min for the invite path.
-  late final List<PasswordRule> _rules = passwordRules(minLength: 12);
+  /// Initialised in [didChangeDependencies] so AppLocalizations is available.
+  List<PasswordRule>? _rules;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _rules ??= passwordRules(AppLocalizations.of(context), minLength: 12);
+  }
 
   @override
   void initState() {
@@ -94,7 +101,8 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
 
   // ── Validation helpers ────────────────────────────────────────────────
 
-  bool get _passwordMeetsRules => _rules.every((r) => r.test(_passwordValue));
+  // _rules is guaranteed non-null after didChangeDependencies runs.
+  bool get _passwordMeetsRules => _rules!.every((r) => r.test(_passwordValue));
 
   bool get _formValid =>
       _passwordMeetsRules &&
@@ -240,7 +248,8 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
           ),
           const SizedBox(height: VelvetSpacing.sm),
           // Invite path requires a 12-character minimum (vs 8 for self-register).
-          PasswordChecklist(value: _passwordValue, rules: _rules),
+          // _rules is guaranteed non-null after didChangeDependencies runs.
+          PasswordChecklist(value: _passwordValue, rules: _rules!),
           const SizedBox(height: VelvetSpacing.lg),
           Row(
             children: <Widget>[

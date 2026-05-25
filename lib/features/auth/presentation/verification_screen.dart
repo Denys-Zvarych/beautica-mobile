@@ -513,13 +513,7 @@ class _OtpCell extends StatelessWidget {
         boxShadow: active ? const <BoxShadow>[] : VelvetShadows.extrudedSmall,
         border: active ? Border.all(color: BrandColors.accent, width: 2) : null,
       ),
-      child: Text(
-        digit,
-        style: VelvetText.heading().copyWith(
-          fontSize: 24,
-          color: BrandColors.accent,
-        ),
-      ),
+      child: Text(digit, style: VelvetText.otpDigit),
     );
   }
 }
@@ -626,9 +620,11 @@ class _ResendRowState extends State<_ResendRow> {
             _cooldown > 0
                 ? l10n.verificationResendTimer('$_cooldown с')
                 : l10n.verificationResendBtn,
-            style: VelvetText.link().copyWith(
-              color: _cooldown > 0 ? BrandColors.faint : BrandColors.accentDeep,
-            ),
+            // Batch-2 A3: use pre-cached styles — no per-tick copyWith allocation.
+            // Active branch reuses the base _linkStyle (already accentDeep).
+            style: _cooldown > 0
+                ? VelvetText.resendCooldown
+                : VelvetText.link(),
           ),
         ),
       ],

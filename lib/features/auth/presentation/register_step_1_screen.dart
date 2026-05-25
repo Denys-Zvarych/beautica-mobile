@@ -57,7 +57,17 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
   String? _emailError;
   String? _passwordError;
   String? _confirmError;
-  late final List<PasswordRule> _rules = passwordRules();
+  List<PasswordRule>? _rules;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Initialise password rules exactly once — requires AppLocalizations which
+    // is only available after the first didChangeDependencies call (not in
+    // initState). The null-guard ensures subsequent dependency changes (e.g.
+    // locale switch) do NOT re-create the list mid-session.
+    _rules ??= passwordRules(AppLocalizations.of(context));
+  }
 
   @override
   void initState() {
@@ -173,7 +183,7 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
             key: const ValueKey<String>('step1_email'),
             label: l10n.loginEmailLabel,
             controller: _emailController,
-            hintText: 'ви@beautica.ua',
+            hintText: l10n.registerEmailHint,
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.next,
             maxLength: 255,
@@ -209,7 +219,8 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           const SizedBox(height: VelvetSpacing.xs),
 
           // ── Password checklist ─────────────────────────────────────────
-          PasswordChecklist(value: _passwordValue, rules: _rules),
+          // _rules is guaranteed non-null after didChangeDependencies runs.
+          PasswordChecklist(value: _passwordValue, rules: _rules!),
           const SizedBox(height: VelvetSpacing.sm),
 
           // ── Confirm password ───────────────────────────────────────────
@@ -243,12 +254,12 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
                 const TextSpan(text: ' '),
                 TextSpan(
                   text: l10n.registerTermsTerms,
-                  style: VelvetText.link().copyWith(fontSize: 13),
+                  style: VelvetText.linkSmall,
                 ),
                 TextSpan(text: l10n.registerTermsConjunction),
                 TextSpan(
                   text: l10n.registerTermsPrivacy,
-                  style: VelvetText.link().copyWith(fontSize: 13),
+                  style: VelvetText.linkSmall,
                 ),
               ],
             ),

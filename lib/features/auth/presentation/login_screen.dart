@@ -241,7 +241,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   key: const ValueKey<String>('login_email'),
                   label: l10n.loginEmailLabel,
                   controller: _emailController,
-                  hintText: 'olena.kovalenko@gmail.com',
+                  hintText: l10n.loginEmailHint,
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
                   prefixIcon: const Icon(Icons.alternate_email_rounded),

@@ -93,9 +93,16 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
   /// Per-field inline error for the password field (validator result on submit).
   String? _passwordError;
 
-  /// Password policy rules — computed once at state creation to avoid
-  /// reallocating the list (and its PasswordRule objects) on every keystroke.
-  late final List<PasswordRule> _rules = passwordRules();
+  /// Password policy rules — initialised once in [didChangeDependencies] to
+  /// allow l10n key lookup (AppLocalizations requires a BuildContext, which is
+  /// unavailable at field-initialisation time).
+  List<PasswordRule>? _rules;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _rules ??= passwordRules(AppLocalizations.of(context));
+  }
 
   @override
   void initState() {
@@ -244,7 +251,8 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
             },
           ),
           const SizedBox(height: VelvetSpacing.sm),
-          PasswordChecklist(value: _passwordValue, rules: _rules),
+          // _rules is guaranteed non-null after didChangeDependencies runs.
+          PasswordChecklist(value: _passwordValue, rules: _rules!),
           const SizedBox(height: VelvetSpacing.lg),
           NeumorphicTextField(
             key: const ValueKey<String>('reset_confirm'),
