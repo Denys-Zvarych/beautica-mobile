@@ -133,7 +133,11 @@ class NeumorphicInset extends StatelessWidget {
 /// a visible label above the field (never placeholder-only) and renders inline
 /// error text with an icon below the well when [errorText] is provided.
 class NeumorphicTextField extends StatefulWidget {
-  const NeumorphicTextField({
+  // Not `const`: the constructor body runs an assert that calls List.any(),
+  // which is a runtime expression and is therefore incompatible with const
+  // constructors in Dart.  All call sites that used `const NeumorphicTextField`
+  // will continue to work — Dart simply evaluates the widget at runtime.
+  NeumorphicTextField({
     super.key,
     required this.label,
     required this.controller,
@@ -154,7 +158,22 @@ class NeumorphicTextField extends StatefulWidget {
     this.enableSuggestions,
     this.autocorrect,
     this.enableIMEPersonalizedLearning,
-  });
+  }) {
+    // Development-time contract: if the caller passes password-typed autofill
+    // hints (AutofillHints.password / .newPassword) without also setting
+    // obscureToggle:true, the OS suggestion strip above the keyboard will show
+    // the password as plain text.  This assert fires in debug mode only — it is
+    // a programming error, not a runtime failure.
+    assert(
+      autofillHints == null ||
+          obscureToggle ||
+          !autofillHints!.any(
+            (h) =>
+                h == AutofillHints.password || h == AutofillHints.newPassword,
+          ),
+      'NeumorphicTextField: pass obscureToggle: true when using password autofillHints',
+    );
+  }
 
   final String label;
   final TextEditingController controller;

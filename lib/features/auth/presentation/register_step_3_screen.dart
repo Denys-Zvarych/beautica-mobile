@@ -447,6 +447,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
                     inputFormatters: <TextInputFormatter>[
                       LengthLimitingTextInputFormatter(kStreetMaxLength),
                     ],
+                    // autofillHints intentionally omitted — street address data is not autofilled by policy
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.md),
@@ -466,6 +467,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
                     inputFormatters: <TextInputFormatter>[
                       LengthLimitingTextInputFormatter(kBuildingMaxLength),
                     ],
+                    // autofillHints intentionally omitted — street address data is not autofilled by policy
                   ),
                 ),
               ],
