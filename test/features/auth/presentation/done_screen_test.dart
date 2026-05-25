@@ -12,10 +12,10 @@
 //      done_chip_ready) with the expected label text.
 //   4. Role chip shows the role-derived label from UserRoleL10n.
 //   5. Tapping done_to_app navigates to /home.
-//   6. Tapping done_setup_later navigates to /home.
 //   7. Mounting /done resets the in-flight registration draft (HIGH-1 regression).
 //   8. ScreenProtector is never invoked in widget tests (removed from screen;
 //      pump must complete without MissingPluginException).
+// Note: Test 6 (done_setup_later secondary CTA) removed — widget no longer exists.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -409,38 +409,6 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 6 — Secondary link navigates to /home
-    // -----------------------------------------------------------------------
-    testWidgets('6. tapping done_setup_later navigates the router to /home', (
-      tester,
-    ) async {
-      final router = _makeRouter();
-      addTearDown(router.dispose);
-
-      await _pumpDoneScreen(
-        tester,
-        authenticatedUser: _userWithName,
-        router: router,
-      );
-
-      expect(find.text('home-route'), findsNothing);
-
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('done_setup_later')),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const ValueKey<String>('done_setup_later')));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text('home-route'),
-        findsOneWidget,
-        reason: 'done_setup_later must call context.go(RouteNames.home)',
-      );
-    });
-
-    // -----------------------------------------------------------------------
     // Test 7 — /done resets the registration draft (HIGH-1 regression)
     // -----------------------------------------------------------------------
     testWidgets(
@@ -602,6 +570,99 @@ void main() {
         reason:
             'DoneScreen must pump cleanly — no platform channel calls '
             'that require a mock binding',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 11 — Structural assertion: 2-row chip layout
+    //
+    // done_chip_role and done_chip_email must be siblings inside the same Row
+    // (first layout row). done_chip_ready must NOT be in that Row; it must
+    // instead have a Center ancestor (second layout row).
+    // -----------------------------------------------------------------------
+    testWidgets('11. chip_role and chip_email are siblings in the same Row; '
+        'chip_ready is rendered in a separate Center below', (tester) async {
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await _pumpDoneScreen(
+        tester,
+        authenticatedUser: _userWithName,
+        router: router,
+      );
+
+      final roleElement = tester.element(
+        find.byKey(const ValueKey<String>('done_chip_role')),
+      );
+      final emailElement = tester.element(
+        find.byKey(const ValueKey<String>('done_chip_email')),
+      );
+      final readyElement = tester.element(
+        find.byKey(const ValueKey<String>('done_chip_ready')),
+      );
+
+      // Find the nearest Row ancestor of done_chip_role.
+      Element? roleRowAncestor;
+      roleElement.visitAncestorElements((el) {
+        if (el.widget is Row) {
+          roleRowAncestor = el;
+          return false;
+        }
+        return true;
+      });
+      expect(
+        roleRowAncestor,
+        isNotNull,
+        reason: 'done_chip_role must be inside a Row',
+      );
+
+      // done_chip_email must share that same Row ancestor.
+      bool emailSharesRow = false;
+      emailElement.visitAncestorElements((el) {
+        if (el == roleRowAncestor) {
+          emailSharesRow = true;
+          return false;
+        }
+        return true;
+      });
+      expect(
+        emailSharesRow,
+        isTrue,
+        reason:
+            'done_chip_email must be a sibling of done_chip_role in '
+            'the same Row (2-row chip layout Row 1)',
+      );
+
+      // done_chip_ready must NOT share that Row ancestor.
+      bool readySharesRow = false;
+      readyElement.visitAncestorElements((el) {
+        if (el == roleRowAncestor) {
+          readySharesRow = true;
+          return false;
+        }
+        return true;
+      });
+      expect(
+        readySharesRow,
+        isFalse,
+        reason:
+            'done_chip_ready must be in a separate layout row '
+            '(Center below the role+email Row)',
+      );
+
+      // done_chip_ready must have a Center ancestor.
+      bool readyHasCenter = false;
+      readyElement.visitAncestorElements((el) {
+        if (el.widget is Center) {
+          readyHasCenter = true;
+          return false;
+        }
+        return true;
+      });
+      expect(
+        readyHasCenter,
+        isTrue,
+        reason: 'done_chip_ready must be wrapped in Center (Row 2)',
       );
     });
   });

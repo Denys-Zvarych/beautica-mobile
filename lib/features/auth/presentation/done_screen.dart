@@ -77,27 +77,10 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
 
     return AuthScaffold(
       showBack: false,
-      bottomBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          NeumorphicButton(
-            key: const ValueKey<String>('done_to_app'),
-            label: l10n.registerDoneCtaPrimary,
-            onPressed: () => context.go(RouteNames.home),
-          ),
-          const SizedBox(height: VelvetSpacing.md),
-          GestureDetector(
-            key: const ValueKey<String>('done_setup_later'),
-            onTap: () => context.go(RouteNames.home),
-            child: Padding(
-              padding: const EdgeInsets.all(VelvetSpacing.xs),
-              child: Text(
-                l10n.registerDoneCtaSecondary,
-                style: VelvetText.feedback(BrandColors.muted),
-              ),
-            ),
-          ),
-        ],
+      bottomBar: NeumorphicButton(
+        key: const ValueKey<String>('done_to_app'),
+        label: l10n.registerDoneCtaPrimary,
+        onPressed: () => context.go(RouteNames.home),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -158,26 +141,35 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
           ),
           const SizedBox(height: VelvetSpacing.xl),
 
-          // Summary chips — three inset neumorphic pills.
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: VelvetSpacing.sm,
-            runSpacing: VelvetSpacing.sm,
+          // Summary chips — three inset neumorphic pills in a 2-row layout.
+          // Row 1: role + email chips side-by-side, centred.
+          // Row 2: ready chip centred below.
+          Column(
+            mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              _SummaryChip(
-                key: const ValueKey<String>('done_chip_role'),
-                icon: roleIcon,
-                label: roleLabel,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  _SummaryChip(
+                    key: const ValueKey<String>('done_chip_role'),
+                    icon: roleIcon,
+                    label: roleLabel,
+                  ),
+                  const SizedBox(width: VelvetSpacing.sm),
+                  _SummaryChip(
+                    key: const ValueKey<String>('done_chip_email'),
+                    icon: Icons.mark_email_read_outlined,
+                    label: l10n.registerDoneChipEmailVerified,
+                  ),
+                ],
               ),
-              _SummaryChip(
-                key: const ValueKey<String>('done_chip_email'),
-                icon: Icons.mark_email_read_outlined,
-                label: l10n.registerDoneChipEmailVerified,
-              ),
-              _SummaryChip(
-                key: const ValueKey<String>('done_chip_ready'),
-                icon: Icons.schedule_rounded,
-                label: l10n.registerDoneChipReadyFast,
+              const SizedBox(height: VelvetSpacing.sm),
+              Center(
+                child: _SummaryChip(
+                  key: const ValueKey<String>('done_chip_ready'),
+                  icon: Icons.schedule_rounded,
+                  label: l10n.registerDoneChipReadyFast,
+                ),
               ),
             ],
           ),
