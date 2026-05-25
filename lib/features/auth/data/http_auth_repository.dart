@@ -220,7 +220,17 @@ final class HttpAuthRepository implements AuthRepository {
   @override
   Future<User> me() async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>('/users/me');
+      // MEDIUM fix (mobile-security): X-No-Retry prevents RefreshInterceptor
+      // from intercepting a 401 on /users/me and issuing a second refresh when
+      // me() is called right after obtaining a fresh access token (e.g. during
+      // login or verifyEmail). Without this header a clock-skew / split-brain
+      // 401 on /users/me would destroy the just-created session via logout().
+      // Every call to me() carries a fresh token that must not be refreshed
+      // again — the flag is unconditional, matching the pattern in refresh().
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/users/me',
+        options: Options(headers: {'X-No-Retry': 'true'}),
+      );
       final data = response.data!['data'] as Map<String, dynamic>;
       return User.fromJson(data);
     } on DioException catch (e, st) {

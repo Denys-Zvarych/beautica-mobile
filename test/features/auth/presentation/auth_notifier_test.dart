@@ -22,6 +22,8 @@
 //   verifyEmail group — success, Failure rethrow, UnimplementedError rethrow.
 //   resendCode group  — success, Failure rethrow.
 
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -255,6 +257,7 @@ void main() {
         when(
           () => repo.login(email: 'test@example.com', password: 'pass123'),
         ).thenAnswer((_) async => (testUser, testTokens));
+        when(() => repo.me()).thenAnswer((_) async => testUser);
 
         await container
             .read(authProvider.notifier)
@@ -900,6 +903,7 @@ void main() {
         when(
           () => repo.verifyEmail(email: 'anya@example.com', otp: '123456'),
         ).thenAnswer((_) async => (testUser, testTokens));
+        when(() => repo.me()).thenAnswer((_) async => testUser);
 
         final container = makeContainer(repo: repo, storage: storage);
         await container.read(authProvider.future);
@@ -1441,5 +1445,337 @@ void main() {
         expect(await storage.readRefreshToken(), isNull);
       },
     );
+  });
+
+  // =========================================================================
+  // firstName feature — regression guard (2026-05-25)
+  //
+  // login() and verifyEmail() now call repo.me() after obtaining tokens so
+  // the settled Authenticated state carries firstName/lastName (absent from
+  // the flat AuthResponse). These tests prove:
+  //   (a) the user in state comes from repo.me(), not repo.login/verifyEmail,
+  //   (b) if repo.me() throws after tokens are written, coldStartAccessToken
+  //       is cleared and the error surfaces as AsyncError,
+  //   (c) verifyEmail() sets AsyncLoading synchronously before any await so
+  //       the submit button is disabled for the full network window.
+  // =========================================================================
+
+  // ---------------------------------------------------------------------------
+  // login — me() output distinct from login() output
+  //
+  // The login() stub returns a User with firstName: null (mirrors the real
+  // flat AuthResponse shape). The me() stub returns a User with firstName
+  // populated. The settled state must carry the me() user — proving the notifier
+  // uses me() and not the partial AuthResponse user.
+  // ---------------------------------------------------------------------------
+  group('login — firstName sourced from me()', () {
+    test('login success: settled Authenticated user comes from repo.me() — '
+        'firstName populated even though AuthResponse carries null', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      // Partial user as returned by the flat AuthResponse (no firstName).
+      const partialUser = User(
+        id: 'u1',
+        email: 'test@example.com',
+        role: UserRole.independentMaster,
+        // firstName / lastName are absent from AuthResponse by contract.
+      );
+      // Full user as returned by GET /users/me.
+      const fullUser = User(
+        id: 'u1',
+        email: 'test@example.com',
+        role: UserRole.independentMaster,
+        firstName: 'Іванна',
+        lastName: 'Коваль',
+      );
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      when(
+        () => repo.login(email: 'test@example.com', password: 'pass123'),
+      ).thenAnswer((_) async => (partialUser, testTokens));
+      // me() returns a DIFFERENT object with firstName populated.
+      when(() => repo.me()).thenAnswer((_) async => fullUser);
+
+      await container
+          .read(authProvider.notifier)
+          .login('test@example.com', 'pass123');
+
+      final value = container.read(authProvider);
+      expect(value, isA<AsyncData<AuthSession>>());
+
+      final session = value.value as Authenticated;
+      // The session must carry the me() user, not the partial login user.
+      expect(
+        session.user.firstName,
+        equals('Іванна'),
+        reason:
+            'firstName must come from repo.me() — '
+            'AuthResponse does not include it',
+      );
+      expect(session.user.lastName, equals('Коваль'));
+      // Structural equality: the full me() user is used, not partialUser.
+      expect(
+        session.user,
+        equals(fullUser),
+        reason: 'The settled session must hold the fullUser from repo.me()',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // login: tokens obtained, then me() throws → AsyncError, sentinel cleared
+    //
+    // This is the critical partial-success error path for login():
+    //   repo.login() → tokens written to storage
+    //   coldStartAccessToken = tokens.accessToken   ← sentinel set
+    //   repo.me() → throws UnauthorizedFailure
+    //   finally { coldStartAccessToken = null }      ← MUST clear sentinel
+    //   AsyncValue.guard() captures the error → AsyncError
+    //
+    // Without this test, deleting the try/finally block in AuthNotifier.login()
+    // would leave the sentinel set on failure, giving the interceptor a stale
+    // token for all subsequent requests in the same session.
+    // -----------------------------------------------------------------------
+    test(
+      'login: repo.me() throws after tokens obtained → AsyncError surfaced, '
+      'coldStartAccessToken cleared by finally, refresh token already persisted',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        const partialUser = User(
+          id: 'u1',
+          email: 'test@example.com',
+          role: UserRole.independentMaster,
+        );
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        when(
+          () => repo.login(email: 'test@example.com', password: 'pass123'),
+        ).thenAnswer((_) async => (partialUser, testTokens));
+        // me() throws after the tokens have been written to storage.
+        when(() => repo.me()).thenThrow(const UnauthorizedFailure());
+
+        await container
+            .read(authProvider.notifier)
+            .login('test@example.com', 'pass123');
+
+        final value = container.read(authProvider);
+
+        // (1) Error must surface as AsyncError so the screen can render it.
+        expect(
+          value,
+          isA<AsyncError<AuthSession>>(),
+          reason:
+              'A failed repo.me() inside login() must surface as AsyncError',
+        );
+        expect(
+          value.error,
+          isA<UnauthorizedFailure>(),
+          reason:
+              'The exact Failure from repo.me() must be the AsyncError payload',
+        );
+
+        // (2) coldStartAccessToken must be null — the try/finally block MUST
+        // clear the sentinel even when me() throws.
+        expect(
+          container.read(authProvider.notifier).coldStartAccessToken,
+          isNull,
+          reason:
+              'login() finally block must clear coldStartAccessToken '
+              'even when repo.me() throws',
+        );
+
+        // (3) The refresh token written by login() before me() was called is
+        // retained in storage — unlike the cold-start failure path, login()
+        // does NOT wipe storage on me() failure (the user still has a valid
+        // session; only the profile load failed).
+        expect(
+          await storage.readRefreshToken(),
+          equals(testTokens.refreshToken),
+          reason:
+              'refresh token persisted before me() must not be wiped '
+              'when me() fails inside login()',
+        );
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // verifyEmail — me() output distinct from verifyEmail() output
+  // ---------------------------------------------------------------------------
+  group('verifyEmail — firstName sourced from me()', () {
+    test(
+      'verifyEmail success: settled Authenticated user comes from repo.me() — '
+      'firstName populated even though AuthResponse carries null',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        // Partial user from AuthResponse (flat envelope — no firstName).
+        const partialUser = User(
+          id: 'u1',
+          email: 'anya@example.com',
+          role: UserRole.independentMaster,
+        );
+        // Full user as returned by GET /users/me.
+        const fullUser = User(
+          id: 'u1',
+          email: 'anya@example.com',
+          role: UserRole.independentMaster,
+          firstName: 'Аня',
+          lastName: 'Шевченко',
+        );
+
+        when(
+          () => repo.verifyEmail(email: 'anya@example.com', otp: '123456'),
+        ).thenAnswer((_) async => (partialUser, testTokens));
+        when(() => repo.me()).thenAnswer((_) async => fullUser);
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        await container
+            .read(authProvider.notifier)
+            .verifyEmail(email: 'anya@example.com', otp: '123456');
+
+        final value = container.read(authProvider);
+        expect(value, isA<AsyncData<AuthSession>>());
+
+        final session = value.value as Authenticated;
+        // The session must carry the me() user — firstName must be populated.
+        expect(
+          session.user.firstName,
+          equals('Аня'),
+          reason:
+              'firstName must come from repo.me() — '
+              'AuthResponse does not include it',
+        );
+        expect(session.user.lastName, equals('Шевченко'));
+        expect(
+          session.user,
+          equals(fullUser),
+          reason: 'The settled session must hold the fullUser from repo.me()',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // verifyEmail AsyncLoading observed before async work completes
+    //
+    // verifyEmail() sets state = AsyncLoading() synchronously before any
+    // await. This disables the submit button for the full
+    // POST /verify-email + GET /users/me window, preventing double-submit.
+    // Without this test, removing the synchronous `state = AsyncLoading()`
+    // line would not break any other test.
+    // -----------------------------------------------------------------------
+    test('verifyEmail: state transitions through AsyncLoading before settling '
+        '→ submit button disabled for the full async window', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      // Use a Completer to pause verifyEmail midway and observe the state.
+      final pauseCompleter = Completer<(User, AuthTokens)>();
+
+      when(
+        () => repo.verifyEmail(email: 'anya@example.com', otp: '123456'),
+      ).thenAnswer((_) => pauseCompleter.future);
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      // Start verifyEmail — do NOT await yet.
+      final verifyFuture = container
+          .read(authProvider.notifier)
+          .verifyEmail(email: 'anya@example.com', otp: '123456');
+
+      // Give the microtask queue a turn so the synchronous
+      // `state = AsyncLoading()` assignment fires but the Completer has
+      // not resolved yet.
+      await Future<void>.microtask(() {});
+
+      // State MUST be AsyncLoading while verifyEmail is in-flight.
+      expect(
+        container.read(authProvider),
+        isA<AsyncLoading<AuthSession>>(),
+        reason:
+            'verifyEmail() must set state = AsyncLoading() synchronously '
+            'before any await so the submit button is disabled immediately',
+      );
+
+      // Now let the operation complete.
+      const partialUser = User(
+        id: 'u1',
+        email: 'anya@example.com',
+        role: UserRole.independentMaster,
+      );
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      pauseCompleter.complete((partialUser, testTokens));
+      await verifyFuture;
+
+      // After settling, state must be Authenticated.
+      final value = container.read(authProvider);
+      expect(
+        value,
+        isA<AsyncData<AuthSession>>(),
+        reason: 'verifyEmail() must settle to AsyncData on success',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // verifyEmail: me() throws after tokens written → sentinel cleared,
+    // error propagated (state stays AsyncLoading — callers must handle)
+    // -----------------------------------------------------------------------
+    test('verifyEmail: repo.me() throws after tokens written → '
+        'coldStartAccessToken cleared, error rethrown', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      const partialUser = User(
+        id: 'u1',
+        email: 'anya@example.com',
+        role: UserRole.independentMaster,
+      );
+
+      when(
+        () => repo.verifyEmail(email: 'anya@example.com', otp: '123456'),
+      ).thenAnswer((_) async => (partialUser, testTokens));
+      // me() throws after the refresh token has been written to storage.
+      when(() => repo.me()).thenThrow(const UnauthorizedFailure());
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      // verifyEmail must rethrow — the calling screen catches and renders it.
+      await expectLater(
+        () => container
+            .read(authProvider.notifier)
+            .verifyEmail(email: 'anya@example.com', otp: '123456'),
+        throwsA(isA<UnauthorizedFailure>()),
+      );
+
+      // coldStartAccessToken must be null after the finally block runs.
+      expect(
+        container.read(authProvider.notifier).coldStartAccessToken,
+        isNull,
+        reason:
+            'verifyEmail() finally block must clear coldStartAccessToken '
+            'even when repo.me() throws after tokens are obtained',
+      );
+
+      // The refresh token was already persisted before me() was called and
+      // must not be wiped by the me() failure.
+      expect(
+        await storage.readRefreshToken(),
+        equals(testTokens.refreshToken),
+        reason:
+            'refresh token persisted before me() must survive a me() failure '
+            'inside verifyEmail()',
+      );
+    });
   });
 }

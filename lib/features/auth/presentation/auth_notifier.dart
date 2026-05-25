@@ -40,6 +40,7 @@ import '../../../shared/util/mask_email.dart';
 import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
 import '../domain/register_result.dart';
+import '../domain/user.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
 
@@ -181,20 +182,40 @@ class AuthNotifier extends _$AuthNotifier {
   /// On success, state becomes [AsyncData<Authenticated>] with the user profile
   /// and a fresh access token. On failure, state becomes [AsyncError] with the
   /// typed [Failure] — the calling screen's `.when(error:)` handler displays it.
+  ///
+  /// HIGH-1 pattern: while [AsyncValue.guard] holds state in [AsyncLoading],
+  /// the access token is written to [coldStartAccessToken] so [AuthInterceptor]
+  /// can inject the Bearer header on the [repo.me] call that follows. The
+  /// sentinel is cleared unconditionally via try/finally so a failed [repo.me]
+  /// does not leave a stale token in memory. This guarantees [firstName] and
+  /// [lastName] are populated in the settled [Authenticated] session — callers
+  /// such as the home screen and master-profile header see the real name.
   Future<void> login(String email, String password) async {
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      final (user, tokens) = await ref
-          .read(authRepositoryProvider)
-          .login(email: email, password: password);
-      await ref
-          .read(secureStorageProvider)
-          .writeRefreshToken(tokens.refreshToken);
+      final repo = ref.read(authRepositoryProvider);
+      final storage = ref.read(secureStorageProvider);
+      final (_, tokens) = await repo.login(email: email, password: password);
+      await storage.writeRefreshToken(tokens.refreshToken);
+      // HIGH-1 pattern: state is AsyncLoading while this guard runs; write the
+      // access token to the sentinel so AuthInterceptor injects the Bearer
+      // header on repo.me() without triggering RefreshInterceptor.
+      coldStartAccessToken = tokens.accessToken;
+      final User fullUser;
+      try {
+        fullUser = await repo.me();
+      } finally {
+        coldStartAccessToken = null;
+      }
       if (kDebugMode) {
-        log('Login success: user ${user.id}', name: 'auth', level: 800);
+        log(
+          'Login success: user ${fullUser.id} (firstName: ${fullUser.firstName})',
+          name: 'auth',
+          level: 800,
+        );
       }
       return AuthSession.authenticated(
-        user: user,
+        user: fullUser,
         accessToken: tokens.accessToken,
       );
     });
@@ -284,27 +305,56 @@ class AuthNotifier extends _$AuthNotifier {
   ///
   /// On success this method mirrors the [login] / [register] success path:
   ///   - persists the rotated refresh token to [SecureStorage];
-  ///   - flips [state] to `AsyncData(Authenticated(user, accessToken))`.
+  ///   - calls [repo.me] to load the full user profile (firstName/lastName are
+  ///     absent from [AuthResponse] — only [/users/me] returns them);
+  ///   - flips [state] to `AsyncData(Authenticated(fullUser, accessToken))`.
   /// The router redirect (Phase 2.9) detects the Authenticated state and
-  /// forwards the user away from `/verification`.
+  /// forwards the user away from `/verification` to the done screen, where
+  /// [_resolveDisplayName] surfaces the real first name in the greeting.
+  ///
+  /// HIGH-1 pattern: before calling [repo.me], the access token is written to
+  /// [coldStartAccessToken] so [AuthInterceptor] injects the Bearer header
+  /// while the provider state is still [AsyncData(Unauthenticated)] from the
+  /// registration phase. Without this, [/users/me] returns 401 and [firstName]
+  /// remains null, causing the done screen to fall back to "друже".
+  /// The sentinel is cleared unconditionally via try/finally.
   ///
   /// Throws whatever the underlying [AuthRepository.verifyEmail] throws —
   /// the calling screen wraps the call in `try/catch` to render the inline
   /// error message via [VerificationFailure.userMessage].
   Future<void> verifyEmail({required String email, required String otp}) async {
+    // LOW fix: set AsyncLoading immediately so the UI disables the submit
+    // button for the full POST /verify-email + GET /users/me window, preventing
+    // double-submit on slow networks (~400–1200 ms). Mirrors the pattern used
+    // by login() and build().
+    state = const AsyncLoading();
     try {
-      final (user, tokens) = await ref
-          .read(authRepositoryProvider)
-          .verifyEmail(email: email, otp: otp);
-      await ref
-          .read(secureStorageProvider)
-          .writeRefreshToken(tokens.refreshToken);
+      final repo = ref.read(authRepositoryProvider);
+      final storage = ref.read(secureStorageProvider);
+      final (_, tokens) = await repo.verifyEmail(email: email, otp: otp);
+      await storage.writeRefreshToken(tokens.refreshToken);
+      // HIGH-1 pattern (same as build()): write the access token to the
+      // sentinel field so AuthInterceptor can inject the Bearer header on
+      // repo.me() while the provider state is still AsyncData(Unauthenticated)
+      // from registration. Without this, /users/me returns 401 and firstName
+      // stays null — the done screen greeting falls back to "друже".
+      coldStartAccessToken = tokens.accessToken;
+      final User fullUser;
+      try {
+        fullUser = await repo.me();
+      } finally {
+        coldStartAccessToken = null;
+      }
       state = AsyncData(
-        AuthSession.authenticated(user: user, accessToken: tokens.accessToken),
+        AuthSession.authenticated(
+          user: fullUser,
+          accessToken: tokens.accessToken,
+        ),
       );
       if (kDebugMode) {
         log(
-          'verifyEmail success for ${maskEmail(email)}',
+          'verifyEmail success for ${maskEmail(email)} — profile loaded '
+          '(firstName: ${fullUser.firstName})',
           name: 'auth.verification',
           level: 800,
         );

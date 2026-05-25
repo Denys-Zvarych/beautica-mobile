@@ -388,7 +388,12 @@ void main() {
 
   group('me', () {
     test('7. success → returns User with correct role', () async {
-      when(() => mockDio.get<Map<String, dynamic>>('/users/me')).thenAnswer(
+      when(
+        () => mockDio.get<Map<String, dynamic>>(
+          '/users/me',
+          options: any(named: 'options'),
+        ),
+      ).thenAnswer(
         (_) async => Response(
           requestOptions: _fakeOptions('/users/me'),
           statusCode: 200,
@@ -401,16 +406,88 @@ void main() {
       expect(user.id, 'usr-1');
       expect(user.role, UserRole.independentMaster);
       expect(user.email, 'master@beautica.test');
+      // firstName and lastName are ONLY available from /users/me (absent from
+      // AuthResponse). If User.fromJson stops parsing these fields the done
+      // screen greeting falls back to "друже" — this assertion catches that.
+      expect(
+        user.firstName,
+        equals('Іванна'),
+        reason:
+            'me() must parse firstName from the /users/me envelope; '
+            'it is absent from the flat AuthResponse',
+      );
+      expect(
+        user.lastName,
+        equals('Коваль'),
+        reason: 'me() must parse lastName from the /users/me envelope',
+      );
 
       // Verify the correct path was called exactly once — guards against future
       // typos in the URL literal (regression for the /user/me → /users/me fix).
-      verify(() => mockDio.get<Map<String, dynamic>>('/users/me')).called(1);
+      verify(
+        () => mockDio.get<Map<String, dynamic>>(
+          '/users/me',
+          options: any(named: 'options'),
+        ),
+      ).called(1);
+    });
+
+    // -----------------------------------------------------------------------
+    // me() — X-No-Retry header verification
+    //
+    // me() carries X-No-Retry: true unconditionally so RefreshInterceptor
+    // cannot intercept a 401 on /users/me and issue a redundant refresh.
+    // any(named: 'options') in the when/verify stubs above accepts ANY
+    // Options object — including Options() with no headers. This test
+    // captures the actual Options passed and asserts the header is present
+    // with the correct value.
+    // -----------------------------------------------------------------------
+    test('7b. me() passes X-No-Retry: true in the Options headers', () async {
+      Options? capturedOptions;
+
+      when(
+        () => mockDio.get<Map<String, dynamic>>(
+          '/users/me',
+          options: any(named: 'options'),
+        ),
+      ).thenAnswer((invocation) async {
+        capturedOptions =
+            invocation.namedArguments[const Symbol('options')] as Options?;
+        return Response(
+          requestOptions: _fakeOptions('/users/me'),
+          statusCode: 200,
+          data: _meEnvelope(),
+        );
+      });
+
+      await repository.me();
+
+      expect(
+        capturedOptions,
+        isNotNull,
+        reason: 'me() must pass an Options object — not null',
+      );
+      expect(
+        capturedOptions!.headers,
+        isNotNull,
+        reason: 'Options.headers must not be null',
+      );
+      expect(
+        capturedOptions!.headers!['X-No-Retry'],
+        equals('true'),
+        reason:
+            'me() must set X-No-Retry: true so RefreshInterceptor '
+            'cannot intercept a 401 on /users/me and issue a second refresh',
+      );
     });
 
     test('8. 401 DioException → re-throws UnauthorizedFailure', () async {
       const failure = UnauthorizedFailure();
       when(
-        () => mockDio.get<Map<String, dynamic>>('/users/me'),
+        () => mockDio.get<Map<String, dynamic>>(
+          '/users/me',
+          options: any(named: 'options'),
+        ),
       ).thenThrow(_dioWithFailure(failure, statusCode: 401));
 
       await expectLater(
@@ -428,7 +505,10 @@ void main() {
     test('9. network error on /users/me → re-throws NetworkFailure', () async {
       const failure = NetworkFailure();
       when(
-        () => mockDio.get<Map<String, dynamic>>('/users/me'),
+        () => mockDio.get<Map<String, dynamic>>(
+          '/users/me',
+          options: any(named: 'options'),
+        ),
       ).thenThrow(_dioWithFailure(failure, statusCode: 503));
 
       await expectLater(() => repository.me(), throwsA(isA<NetworkFailure>()));
@@ -438,7 +518,10 @@ void main() {
       '10. raw DioException on /users/me (no attached Failure) → throws UnknownFailure',
       () async {
         when(
-          () => mockDio.get<Map<String, dynamic>>('/users/me'),
+          () => mockDio.get<Map<String, dynamic>>(
+            '/users/me',
+            options: any(named: 'options'),
+          ),
         ).thenThrow(_rawDioException());
 
         await expectLater(
