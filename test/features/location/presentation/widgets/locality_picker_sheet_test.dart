@@ -14,6 +14,8 @@
 //   * can be told to fail its first oblast fetch then succeed (drives the
 //     AsyncError → Retry → data path).
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
@@ -96,6 +98,29 @@ class _CountingLocationRepository implements LocationRepository {
 }
 
 // ---------------------------------------------------------------------------
+// Hanging fake repository — oblast fetch never resolves until told to.
+// Used to drive the explicit _SheetLoading state assertion (GAP 3).
+// ---------------------------------------------------------------------------
+
+class _HangingLocationRepository implements LocationRepository {
+  final Completer<List<Oblast>> _completer = Completer();
+
+  /// Complete the pending oblast fetch with the given items.
+  void complete(List<Oblast> oblasts) {
+    if (!_completer.isCompleted) _completer.complete(oblasts);
+  }
+
+  @override
+  Future<List<Oblast>> fetchOblasts() => _completer.future;
+
+  @override
+  Future<List<City>> fetchCities(String oblastId) async => const [];
+
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async => const [];
+}
+
+// ---------------------------------------------------------------------------
 // Test harness — the same shape as locality_cascade_test, but the parent owns
 // selection state so that re-tapping a row reopens the picker.
 // ---------------------------------------------------------------------------
@@ -137,7 +162,7 @@ class _CascadeHarnessState extends State<_CascadeHarness> {
   }
 }
 
-Widget _wrap(Widget child, _CountingLocationRepository repo) {
+Widget _wrap(Widget child, LocationRepository repo) {
   // GoRouter is required so the bottom-sheet's context.pop() call (go_router)
   // can resolve the InheritedGoRouter. The router itself has a single route —
   // the test harness never navigates away, so the route table is minimal.
@@ -258,49 +283,102 @@ void main() {
     );
   });
 
-  group('VelvetTouch warm-taupe surface (issue-1 regression guard)', () {
+  // ---------------------------------------------------------------------------
+  // GAP 3 — explicit _SheetLoading state assertion
+  // ---------------------------------------------------------------------------
+  group('locality picker sheet — loading state (GAP 3)', () {
     testWidgets(
-      'sheet surface uses BrandColors.base flat fill — no gradient, no glass',
+      'CircularProgressIndicator visible while AsyncLoading, list appears on complete',
       (tester) async {
-        final repo = _CountingLocationRepository();
-        await tester.pumpWidget(_wrap(const _CascadeHarness(), repo));
+        final hangingRepo = _HangingLocationRepository();
+        await tester.pumpWidget(_wrap(const _CascadeHarness(), hangingRepo));
         await tester.pump();
 
-        // Open the oblast picker so the sheet (and its surface) is mounted.
+        // Open the oblast picker. The future never completes yet.
         await tester.tap(find.byKey(const Key('locality_row_oblast')));
+        // Single pump — NOT pumpAndSettle — so the sheet opens but the async
+        // result stays in AsyncLoading (the future has not resolved).
+        await tester.pump();
+
+        // The loading indicator must be visible while the future is pending.
+        expect(
+          find.byType(CircularProgressIndicator),
+          findsOneWidget,
+          reason:
+              '_SheetLoading must show CircularProgressIndicator while AsyncLoading',
+        );
+        // No tiles or empty state yet.
+        expect(find.byKey(const Key('locality_picker_empty')), findsNothing);
+
+        // Complete the future with the standard oblast list.
+        hangingRepo.complete(const [
+          _oblast,
+          Oblast(id: 'o2', name: 'Київська', katotthCode: 'UA32'),
+        ]);
         await tester.pumpAndSettle();
 
-        // The VelvetTouch redesign uses a flat BrandColors.base fill instead of
-        // the old dark gradient + glass overlay.  Lock the new treatment:
-        //   (a) at least one DecoratedBox in the sheet must carry BrandColors.base
-        //       as its solid fill colour.
-        //   (b) no DecoratedBox in the tree must carry a LinearGradient (that
-        //       would signal a regression back to the old glassmorphism surface).
-        final decoratedBoxes = tester.widgetList<DecoratedBox>(
-          find.byType(DecoratedBox),
-        );
-
-        final hasBaseFill = decoratedBoxes.any((box) {
-          final d = box.decoration;
-          return d is BoxDecoration && d.color == BrandColors.base;
-        });
+        // Loading indicator gone; list now visible.
+        expect(find.byType(CircularProgressIndicator), findsNothing);
         expect(
-          hasBaseFill,
-          isTrue,
-          reason: 'picker surface must use BrandColors.base flat fill',
-        );
-
-        final hasGradient = decoratedBoxes.any((box) {
-          final d = box.decoration;
-          return d is BoxDecoration && d.gradient is LinearGradient;
-        });
-        expect(
-          hasGradient,
-          isFalse,
-          reason: 'picker surface must NOT use a LinearGradient (VelvetTouch)',
+          find.byKey(ValueKey('locality_picker_tile_${_oblast.id}')),
+          findsOneWidget,
         );
       },
     );
+  });
+
+  group('VelvetTouch warm-taupe surface (issue-1 regression guard)', () {
+    testWidgets('sheet surface uses BrandColors.base flat fill — no gradient, no glass', (
+      tester,
+    ) async {
+      final repo = _CountingLocationRepository();
+      await tester.pumpWidget(_wrap(const _CascadeHarness(), repo));
+      await tester.pump();
+
+      // Open the oblast picker so the sheet (and its surface) is mounted.
+      await tester.tap(find.byKey(const Key('locality_row_oblast')));
+      await tester.pumpAndSettle();
+
+      // The VelvetTouch redesign uses a flat BrandColors.base fill instead of
+      // the old dark gradient + glass overlay.  Lock the new treatment:
+      //   (a) at least one DecoratedBox in the sheet must carry BrandColors.base
+      //       as its solid fill colour.
+      //   (b) no DecoratedBox in the tree must carry a LinearGradient (that
+      //       would signal a regression back to the old glassmorphism surface).
+      final decoratedBoxes = tester.widgetList<DecoratedBox>(
+        find.byType(DecoratedBox),
+      );
+
+      final hasBaseFill = decoratedBoxes.any((box) {
+        final d = box.decoration;
+        return d is BoxDecoration && d.color == BrandColors.base;
+      });
+      expect(
+        hasBaseFill,
+        isTrue,
+        reason: 'picker surface must use BrandColors.base flat fill',
+      );
+
+      final hasGradient = decoratedBoxes.any((box) {
+        final d = box.decoration;
+        return d is BoxDecoration && d.gradient is LinearGradient;
+      });
+      expect(
+        hasGradient,
+        isFalse,
+        reason: 'picker surface must NOT use a LinearGradient (VelvetTouch)',
+      );
+
+      // GAP 4 — BackdropFilter absent guard.
+      // The VelvetTouch sheet is a flat warm-taupe surface with no glassmorphism.
+      // A BackdropFilter in the tree would signal a regression to the old design.
+      expect(
+        find.byType(BackdropFilter),
+        findsNothing,
+        reason:
+            'locality picker sheet is VelvetTouch — no glassmorphism (BackdropFilter must be absent)',
+      );
+    });
   });
 
   group('sheet shape + dismiss affordances (Defects 1 & 6)', () {

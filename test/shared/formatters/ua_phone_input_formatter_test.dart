@@ -176,5 +176,31 @@ void main() {
     test('25. Lifecell +380 73 → formats correctly', () {
       expect(_format('+380731234567').text, equals('+380 73 123 45 67'));
     });
+
+    // ── Bare partial-prefix inputs ─────────────────────────────────────────────
+    //
+    // These two cases document the formatter/validator contract split:
+    //   - The FORMATTER is liberal: it treats lone digits that do not match the
+    //     '0', '380', or '+380' prefix heuristics as bare subscriber digits and
+    //     prepends '+380 ' without complaint.
+    //   - The VALIDATOR is strict: it rejects any result whose subscriber-digit
+    //     count is not exactly 9 (i.e. the formatted value is not a complete
+    //     '+380 XX XXX XX XX' number).
+    //
+    // This means the formatter is safe to use in an onChange handler — it keeps
+    // the field readable as the user types — while the final submit gate (the
+    // validator) ensures only a complete 9-digit subscriber number is accepted.
+
+    test('26. bare "3" treated as 1 subscriber digit → "+380 3"', () {
+      // formatter treats '3' as a bare subscriber digit;
+      // validator would reject this as incomplete
+      expect(_format('3').text, equals('+380 3'));
+    });
+
+    test('27. bare "38" treated as 2 subscriber digits → "+380 38"', () {
+      // formatter treats '38' as 2 subscriber digits;
+      // paste-guard in validator rejects '38XXXXXXXXX' as a complete number
+      expect(_format('38').text, equals('+380 38'));
+    });
   });
 }

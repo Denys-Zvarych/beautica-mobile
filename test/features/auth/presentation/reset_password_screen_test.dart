@@ -25,7 +25,10 @@
 //   8. ServerFailure → inline error, stays on form.
 //   9. Visibility toggles reveal/hide both password fields.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/presentation/reset_password_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/widgets/password_checklist.dart';
@@ -37,6 +40,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
+import '../../../helpers/fakes/fake_secure_storage.dart';
 
 const String _kToken = 'raw-reset-token';
 
@@ -70,7 +74,10 @@ Future<void> _pump(
   addTearDown(router.dispose);
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [authRepositoryProvider.overrideWith((_) => repo)],
+      overrides: [
+        authRepositoryProvider.overrideWith((_) => repo),
+        secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+      ],
       child: MaterialApp.router(
         routerConfig: router,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -348,25 +355,17 @@ void main() {
     });
 
     // LOW — password-visibility toggles flip obscureText on both fields.
-    // NeumorphicTextField auto-generates its toggle key as
-    // ValueKey<String>('${label}_toggle') — resolved via the l10n key values
-    // used when constructing the field.
+    // Stable const Keys ('reset_password_toggle' / 'reset_confirm_toggle') are
+    // passed via NeumorphicTextField.toggleKey — no locale-coupling required.
     testWidgets('9. visibility toggles reveal/hide both password fields', (
       WidgetTester tester,
     ) async {
       final FakeAuthRepository repo = FakeAuthRepository();
       await _pump(tester, repo);
-      final AppLocalizations l10n = AppLocalizations.of(
-        tester.element(find.byKey(const ValueKey<String>('reset_password'))),
-      );
 
-      // Build the auto-generated toggle keys from the label strings.
-      final Key newToggleKey = ValueKey<String>(
-        '${l10n.resetPasswordNewLabel}_toggle',
-      );
-      final Key confirmToggleKey = ValueKey<String>(
-        '${l10n.resetPasswordConfirmLabel}_toggle',
-      );
+      // Stable locale-independent keys set via NeumorphicTextField.toggleKey.
+      const Key newToggleKey = Key('reset_password_toggle');
+      const Key confirmToggleKey = Key('reset_confirm_toggle');
 
       EditableText editableUnder(Key fieldKey) => tester.widget<EditableText>(
         find.descendant(
@@ -404,5 +403,139 @@ void main() {
         isFalse,
       );
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GROUP 1 — passwordRules predicate boundaries
+  // ---------------------------------------------------------------------------
+  //
+  // These tests exercise the predicates returned by passwordRules(l10n) in
+  // password_checklist.dart directly via PasswordRule.test(value). They do not
+  // pump a widget tree — they are pure-Dart unit tests.
+  group('passwordRules predicates', () {
+    late AppLocalizations l10n;
+
+    setUpAll(() {
+      // lookupAppLocalizations requires a Locale — use UK (primary).
+      l10n = lookupAppLocalizations(const Locale('uk'));
+    });
+
+    test('1. length boundary: 7 chars fails, 8 chars passes', () {
+      final rules = passwordRules(l10n);
+      // Rule index 0 is the length rule (≥8 chars by default).
+      final lengthRule = rules[0];
+      expect(
+        lengthRule.test('Abcdef1'), // 7 chars
+        isFalse,
+        reason: '7-char value must fail the length-≥8 predicate',
+      );
+      expect(
+        lengthRule.test('Abcdef12'), // 8 chars
+        isTrue,
+        reason: '8-char value must pass the length-≥8 predicate',
+      );
+    });
+
+    test('2. digit rule: absent → fails, present → passes', () {
+      final rules = passwordRules(l10n);
+      // Rule index 1 is the digit rule.
+      final digitRule = rules[1];
+      expect(
+        digitRule.test('Abcdefgh'), // no digit
+        isFalse,
+        reason: '"Abcdefgh" contains no digit — predicate must fail',
+      );
+      expect(
+        digitRule.test('Abcdefg1'), // has digit
+        isTrue,
+        reason: '"Abcdefg1" contains a digit — predicate must pass',
+      );
+    });
+
+    test('3. Latin uppercase rule: absent → fails, present → passes', () {
+      final rules = passwordRules(l10n);
+      // Rule index 2 is the uppercase rule (covers [A-Z] and [А-ЯІЇЄ]).
+      final upperRule = rules[2];
+      expect(
+        upperRule.test('abcdefg1'), // no uppercase
+        isFalse,
+        reason: '"abcdefg1" has no uppercase letter — predicate must fail',
+      );
+      expect(
+        upperRule.test('Abcdefg1'), // has Latin uppercase
+        isTrue,
+        reason: '"Abcdefg1" has Latin uppercase "A" — predicate must pass',
+      );
+    });
+
+    test('4. Cyrillic uppercase rule: absent → fails, present → passes', () {
+      final rules = passwordRules(l10n);
+      final upperRule = rules[2];
+      expect(
+        upperRule.test('пароль12'), // all Cyrillic lowercase + digits
+        isFalse,
+        reason: '"пароль12" has no uppercase — predicate must fail',
+      );
+      expect(
+        upperRule.test('Пароль12'), // Cyrillic uppercase П
+        isTrue,
+        reason:
+            '"Пароль12" has Cyrillic uppercase "П" (in [А-ЯІЇЄ]) — '
+            'predicate must pass',
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GROUP 2 — ResetPasswordScreen loading state (independent assertion)
+  // ---------------------------------------------------------------------------
+  group('ResetPasswordScreen loading state', () {
+    testWidgets(
+      '10. loading indicator visible mid-submit; normal state after complete',
+      (WidgetTester tester) async {
+        // A Completer that keeps the confirmPasswordReset Future pending so we
+        // can assert the intermediate loading state before it resolves.
+        final Completer<void> completer = Completer<void>();
+        final FakeAuthRepository repo = FakeAuthRepository()
+          ..confirmPasswordResetDelay = completer.future;
+
+        await _pump(tester, repo);
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('reset_password')),
+          'Password1',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('reset_confirm')),
+          'Password1',
+        );
+
+        // Tap submit and pump one frame — completer not yet completed, so the
+        // screen stays in the loading state.
+        await tester.tap(find.byKey(const ValueKey<String>('reset_submit')));
+        await tester.pump();
+
+        // The submit button must be in its loading state (loading: true on
+        // NeumorphicButton renders a CircularProgressIndicator).
+        expect(
+          find.byType(CircularProgressIndicator),
+          findsOneWidget,
+          reason:
+              'Mid-submit: NeumorphicButton with loading:true must show a '
+              'CircularProgressIndicator',
+        );
+
+        // Resolve the completer and let the screen transition to success.
+        completer.complete();
+        await tester.pumpAndSettle();
+
+        // Normal (success) state — spinner gone, success CTA present.
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(
+          find.byKey(const ValueKey<String>('reset_back_login')),
+          findsOneWidget,
+        );
+      },
+    );
   });
 }

@@ -91,6 +91,7 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
           // Single-tile icon — matches the pattern used by VerificationScreen.
           Center(
             child: Container(
+              key: const Key('done-icon-tile'),
               height: 72,
               width: 72,
               decoration: const BoxDecoration(

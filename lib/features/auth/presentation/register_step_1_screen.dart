@@ -159,6 +159,7 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
           // ── Credentials icon tile (72×72 neumorphic) ──────────────────
           Center(
             child: Container(
+              key: const Key('step1_icon_tile'),
               height: 72,
               width: 72,
               decoration: const BoxDecoration(

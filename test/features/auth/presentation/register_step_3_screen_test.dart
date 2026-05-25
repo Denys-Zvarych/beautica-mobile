@@ -1061,10 +1061,11 @@ void main() {
 
       expect(
         spy.fetchOblastsCallCount,
-        greaterThanOrEqualTo(1),
+        equals(1),
         reason:
             'initState addPostFrameCallback must read oblastListProvider '
-            'which calls fetchOblasts() to warm the cache on first mount',
+            'exactly once — calling fetchOblasts() to warm the cache on '
+            'first mount (not on subsequent rebuilds)',
       );
     },
   );

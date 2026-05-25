@@ -338,6 +338,167 @@ void main() {
       },
     );
 
+    // ── 7. Password rules partially unmet → CTA disabled ────────────────
+    //
+    // The invite path enforces 3 rules: length >= 12, has digit, has uppercase.
+    // A 12-char lowercase-only string with a digit meets the length rule but
+    // fails the uppercase rule — the PasswordChecklist must show at least one
+    // unmet row, the _formValid getter returns false, and the CTA stays
+    // disabled (onPressed == null), so no acceptInvite call is made.
+    //
+    // This replaces the originally-planned "confirm-password mismatch" test:
+    // AcceptInviteScreen has no confirm-password field — password policy rules
+    // are the sole pre-submit gate. Testing a password that satisfies length but
+    // not all rules is the equivalent "partial input" coverage for this screen.
+    testWidgets(
+      '7. password meets length but not all rules → checklist unmet row shown, '
+      'CTA disabled, no submit call',
+      (WidgetTester tester) async {
+        final repo = await _pumpValid(tester);
+
+        // 12 chars, has a digit, but ALL LOWERCASE — fails the uppercase rule.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_password')),
+          'weakpassword1',
+        );
+        await tester.pump();
+
+        // At least one unmet rule must be visible (radio_button_unchecked).
+        expect(find.byIcon(Icons.radio_button_unchecked), findsWidgets);
+
+        // Fill first + last name so those fields are not blocking the gate.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+          'Марія',
+        );
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+          'Бондар',
+        );
+        await tester.pump();
+
+        // Attempt to tap the CTA — it is disabled (onPressed == null on the
+        // NeumorphicButton). A tap on a disabled GestureDetector is a no-op.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey<String>('invite_accept')),
+          warnIfMissed: false,
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+
+        // The repository must not have been called.
+        expect(repo.acceptInviteCalls, isEmpty);
+      },
+    );
+
+    // ── 8. Phone formatter wires +380 mask to invite_phone ───────────────
+    //
+    // UaPhoneInputFormatter is attached to the invite_phone field.
+    // Typing the 10-digit local number '0671234567' must produce the formatted
+    // string '+380 67 123 45 67' in the field.
+    testWidgets(
+      '8. entering 0671234567 in invite_phone formats to +380 67 123 45 67',
+      (WidgetTester tester) async {
+        await _pumpValid(tester);
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_phone')),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '0671234567',
+        );
+        await tester.pump();
+
+        // The formatter converts the raw digits to the masked format.
+        expect(
+          find.text('+380 67 123 45 67'),
+          findsOneWidget,
+          reason:
+              'UaPhoneInputFormatter must reformat "0671234567" to '
+              '"+380 67 123 45 67" in the invite_phone field',
+        );
+      },
+    );
+
+    // ── 9. Formatted phone passed through to repository ──────────────────
+    //
+    // After UaPhoneInputFormatter formats the input, the formatted string
+    // must be submitted to the repository unchanged so that the backend
+    // receives the canonical +380 XX XXX XX XX value.
+    testWidgets(
+      '9. submit with formatted phone → repo.acceptInviteCalls.first.phoneNumber '
+      '== "+380 67 123 45 67"',
+      (WidgetTester tester) async {
+        final repo = await _pumpValid(tester);
+
+        // Enter a strong password that satisfies all 3 checklist rules:
+        //   length >= 12 ✓  |  has digit ✓  |  has uppercase ✓
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_password')),
+          'StrongPassword12',
+        );
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+          'Марія',
+        );
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+          'Бондар',
+        );
+        await tester.pump();
+
+        // Enter the local-format phone — formatter converts it to +380 mask.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_phone')),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '0671234567',
+        );
+        await tester.pump();
+
+        // Tap the CTA.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        // The repository received the formatted phone number, not the raw input.
+        expect(repo.acceptInviteCalls.length, 1);
+        expect(
+          repo.acceptInviteCalls.first.phoneNumber,
+          '+380 67 123 45 67',
+          reason:
+              'The accept call must carry the formatter output '
+              '"+380 67 123 45 67", not the raw "0671234567"',
+        );
+      },
+    );
+
     // ── 6. Accept failure shows inline error ─────────────────────────────
     testWidgets('6. accept failure → inline error shown, user stays on form', (
       WidgetTester tester,

@@ -25,7 +25,10 @@
 //   5. NetworkFailure → inline error shown, does NOT switch to confirmation.
 //   6. Unknown email renders the SAME generic confirmation widget.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/presentation/forgot_password_request_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -36,6 +39,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
+import '../../../helpers/fakes/fake_secure_storage.dart';
 
 GoRouter _makeRouter() => GoRouter(
   initialLocation: RouteNames.forgotPassword,
@@ -63,7 +67,10 @@ Future<void> _pump(WidgetTester tester, FakeAuthRepository repo) async {
   addTearDown(router.dispose);
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [authRepositoryProvider.overrideWith((_) => repo)],
+      overrides: [
+        authRepositoryProvider.overrideWith((_) => repo),
+        secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+      ],
       child: MaterialApp.router(
         routerConfig: router,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -243,6 +250,63 @@ void main() {
         // The top-left back button is always present (AuthScaffold.showBack:
         // true), so we only assert the confirmation-specific preview CTA is
         // absent — not the scaffold-level back affordance.
+      },
+    );
+
+    // MEDIUM — loading state independent assertion. Mid-submit (while the repo
+    // Future is pending) the button must be in its loading state
+    // (CircularProgressIndicator visible); after the completer resolves the
+    // screen must return to its normal state (confirmation shown).
+    testWidgets(
+      '7. loading indicator visible mid-submit; confirmation shown after '
+      'completer resolves',
+      (WidgetTester tester) async {
+        // A Completer that keeps requestPasswordReset pending so we can
+        // assert the intermediate loading state before it resolves.
+        final Completer<void> completer = Completer<void>();
+        final FakeAuthRepository repo = FakeAuthRepository()
+          ..requestPasswordResetDelay = completer.future;
+
+        await _pump(tester, repo);
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('forgot_email')),
+          'anya@example.com',
+        );
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('forgot_submit')),
+        );
+
+        // Tap submit and pump one frame — completer not yet completed, so the
+        // screen stays in the loading state.
+        await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
+        await tester.pump();
+
+        // The submit button must be in its loading state
+        // (NeumorphicButton with loading:true renders CircularProgressIndicator).
+        expect(
+          find.byType(CircularProgressIndicator),
+          findsOneWidget,
+          reason:
+              'Mid-submit: NeumorphicButton with loading:true must show a '
+              'CircularProgressIndicator',
+        );
+
+        // Resolve the completer and let the screen transition to sent state.
+        completer.complete();
+        await tester.pumpAndSettle();
+
+        // Normal (confirmation) state — spinner gone, email field gone.
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(
+          find.byKey(const ValueKey<String>('forgot_preview_reset')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('forgot_email')),
+          findsNothing,
+        );
       },
     );
 

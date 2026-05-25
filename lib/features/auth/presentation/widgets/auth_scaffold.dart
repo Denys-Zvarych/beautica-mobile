@@ -134,6 +134,7 @@ class AuthBanner extends StatelessWidget {
                   if (actionLabel != null && onAction != null) ...<Widget>[
                     const SizedBox(height: VelvetSpacing.sm),
                     GestureDetector(
+                      key: const ValueKey<String>('auth_banner_action'),
                       onTap: onAction,
                       child: Text(
                         actionLabel!,

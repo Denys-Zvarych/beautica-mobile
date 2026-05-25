@@ -753,13 +753,16 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        final icons = tester.widgetList<Icon>(find.byType(Icon)).toList();
         expect(
-          icons.any((i) => i.icon == Icons.key_outlined),
-          isTrue,
+          find.descendant(
+            of: find.byKey(const Key('step1_icon_tile')),
+            matching: find.byIcon(Icons.key_outlined),
+          ),
+          findsOneWidget,
           reason:
-              'RegisterStep1Screen must render Icons.key_outlined (72×72 '
-              'neumorphic icon tile) at the top of the screen.',
+              'RegisterStep1Screen must render Icons.key_outlined inside the '
+              '72×72 neumorphic icon tile (key: step1_icon_tile) at the top '
+              'of the screen.',
         );
       },
     );

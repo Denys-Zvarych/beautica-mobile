@@ -74,6 +74,18 @@ final class FakeAuthRepository implements AuthRepository {
   ///                  (e.g. [ResetTokenInvalidFailure]).
   Object? confirmPasswordResetResult;
 
+  /// When non-null, [confirmPasswordReset] awaits this future before
+  /// inspecting [confirmPasswordResetResult]. Set to a non-completing Future
+  /// (e.g. `Completer<void>().future`) to block the call indefinitely in
+  /// tests that need to inspect the optimistic intermediate (loading) state.
+  Future<void>? confirmPasswordResetDelay;
+
+  /// When non-null, [requestPasswordReset] awaits this future before
+  /// inspecting [requestPasswordResetResult]. Set to a non-completing Future
+  /// (e.g. `Completer<void>().future`) to block the call indefinitely in
+  /// tests that need to inspect the optimistic intermediate (loading) state.
+  Future<void>? requestPasswordResetDelay;
+
   /// Return value for the next [validateInvite] call.
   ///
   /// Accepted values:
@@ -254,6 +266,7 @@ final class FakeAuthRepository implements AuthRepository {
   @override
   Future<void> requestPasswordReset(String email) async {
     requestPasswordResetCalls.add((email: email));
+    if (requestPasswordResetDelay != null) await requestPasswordResetDelay!;
     final result = requestPasswordResetResult;
     if (result is Failure) throw result;
   }
@@ -264,6 +277,7 @@ final class FakeAuthRepository implements AuthRepository {
     required String newPassword,
   }) async {
     confirmPasswordResetCalls.add((token: token, newPassword: newPassword));
+    if (confirmPasswordResetDelay != null) await confirmPasswordResetDelay!;
     final result = confirmPasswordResetResult;
     if (result is Failure) throw result;
   }

@@ -89,10 +89,21 @@ class _FakeLocationRepository implements LocationRepository {
 // ---------------------------------------------------------------------------
 
 class _CascadeHarness extends StatefulWidget {
-  const _CascadeHarness({this.initialCity, this.onDistrictSelected});
+  const _CascadeHarness({
+    this.initialCity,
+    this.onDistrictSelected,
+    this.showDistrictNoneHelper = true,
+    this.oblastError,
+    this.cityError,
+    this.districtError,
+  });
 
   final City? initialCity;
   final ValueChanged<CityDistrict?>? onDistrictSelected;
+  final bool showDistrictNoneHelper;
+  final String? oblastError;
+  final String? cityError;
+  final String? districtError;
 
   @override
   State<_CascadeHarness> createState() => _CascadeHarnessState();
@@ -121,6 +132,10 @@ class _CascadeHarnessState extends State<_CascadeHarness> {
       selectedOblast: _oblast,
       selectedCity: _city,
       selectedDistrict: _district,
+      showDistrictNoneHelper: widget.showDistrictNoneHelper,
+      oblastError: widget.oblastError,
+      cityError: widget.cityError,
+      districtError: widget.districtError,
       onOblast: (o) => setState(() => _oblast = o),
       onCity: (c) => setState(() => _city = c),
       onDistrict: (d) {
@@ -342,6 +357,108 @@ void main() {
         findsOneWidget,
       );
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GAP 1 — oblastError / cityError / districtError rendered at cascade level
+  // ---------------------------------------------------------------------------
+  group('LocalityCascade inline error props (GAP 1)', () {
+    testWidgets(
+      'oblastError renders one locality_tap_row_error with the expected text',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrap(const _CascadeHarness(oblastError: 'Виберіть область')),
+        );
+        await tester.pump();
+
+        // Exactly one error widget (only the oblast row has an error here).
+        final errorFinder = find.byKey(
+          const ValueKey<String>('locality_tap_row_error'),
+        );
+        expect(errorFinder, findsOneWidget);
+
+        // The rendered text matches the supplied message.
+        expect(tester.widget<Text>(errorFinder).data, 'Виберіть область');
+      },
+    );
+
+    testWidgets(
+      'each row renders its own error independently (all three set)',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            const _CascadeHarness(
+              // Seed a city with districts so all three rows are individually
+              // addressable and the districtError is meaningful.
+              initialCity: _cityWithDistricts,
+              oblastError: 'oblast err',
+              cityError: 'city err',
+              districtError: 'district err',
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // All three tap-rows carry their own error — three error widgets total.
+        expect(
+          find.byKey(const ValueKey<String>('locality_tap_row_error')),
+          findsNWidgets(3),
+        );
+
+        // Verify each message is present in the tree.
+        expect(find.text('oblast err'), findsOneWidget);
+        expect(find.text('city err'), findsOneWidget);
+        expect(find.text('district err'), findsOneWidget);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // GAP 2 — showDistrictNoneHelper: false path
+  // ---------------------------------------------------------------------------
+  group('LocalityCascade showDistrictNoneHelper: false (GAP 2)', () {
+    testWidgets(
+      'leaf city with showDistrictNoneHelper:false — no helper text, district row still disabled',
+      (tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            const _CascadeHarness(
+              initialCity: _cityNoDistricts,
+              showDistrictNoneHelper: false,
+            ),
+          ),
+        );
+        await tester.pump();
+
+        // The helper text must be absent (feature of showDistrictNoneHelper:false).
+        expect(
+          find.text(_l10n(tester).localityDistrictNoneHelper),
+          findsNothing,
+          reason:
+              'helper text must not render when showDistrictNoneHelper is false',
+        );
+
+        // The district row is still non-interactive — hasDistricts is false.
+        expect(
+          _rowEnabled(tester, const Key('locality_row_district')),
+          isFalse,
+          reason:
+              'district row must stay disabled even without the helper text',
+        );
+
+        // Confirming the district row does NOT open a picker sheet.
+        await tester.tap(
+          find.byKey(const Key('locality_row_district')),
+          warnIfMissed: false,
+        );
+        await tester.pump();
+        expect(
+          find.byKey(const Key('locality_picker_search')),
+          findsNothing,
+          reason: 'disabled district row must not open the picker sheet',
+        );
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

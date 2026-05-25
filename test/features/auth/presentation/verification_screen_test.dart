@@ -1004,6 +1004,9 @@ void main() {
     // -----------------------------------------------------------------------
     // Test 7b — Hidden OTP TextField has correct keyboard / security settings.
     //           Single hidden field replaces the 6-box approach.
+    //           MASVS-PLATFORM: suggestions, autocorrect, and IME personalized
+    //           learning must all be disabled to prevent OTP leakage through
+    //           keyboard dictionaries (mobile-security MS-7).
     // -----------------------------------------------------------------------
     testWidgets(
       '7b. hidden OTP TextField (verify_code_input) has correct settings',
@@ -1032,6 +1035,29 @@ void main() {
           field.showCursor,
           isFalse,
           reason: 'Hidden OTP field must not show a cursor',
+        );
+        // MASVS-PLATFORM security properties — GAP 5 (backlog "Test 7b missing
+        // MASVS security assertions").
+        expect(
+          field.enableSuggestions,
+          isFalse,
+          reason:
+              'OTP field must disable suggestions to prevent keyboard '
+              'dictionary leakage (MASVS-PLATFORM MS-7)',
+        );
+        expect(
+          field.autocorrect,
+          isFalse,
+          reason:
+              'OTP field must disable autocorrect to prevent OTP digits '
+              'being stored in autocorrect history (MASVS-PLATFORM MS-7)',
+        );
+        expect(
+          field.enableIMEPersonalizedLearning,
+          isFalse,
+          reason:
+              'OTP field must disable IME personalized learning to prevent '
+              'OTP values training the keyboard model (MASVS-PLATFORM MS-7)',
         );
       },
     );
@@ -1206,6 +1232,161 @@ void main() {
           reason:
               'NeumorphicButton.loading must be true while authProvider '
               'is in AsyncLoading',
+        );
+      },
+    );
+    // -----------------------------------------------------------------------
+    // Test 11 — Countdown text is rendered mid-cooldown.
+    //           After a successful resend, the resend row displays the
+    //           verificationResendTimer(N) l10n string while the cooldown
+    //           is still active (GAP 4: "Test 3 countdown text not asserted").
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '11. resend row shows verificationResendTimer text while cooldown > 0',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        // Drain the initial 30 s mount cooldown so the resend link is active.
+        await tester.pump(const Duration(seconds: 31));
+
+        // Tap resend — this starts a fresh 30 s cooldown (success path).
+        await tester.tap(find.byKey(const ValueKey<String>('verify_resend')));
+        await tester.pump(); // begin async
+        await tester.pump(); // microtasks
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // Advance 1 second — the countdown has ticked at least once.
+        // After the initial optimistic _startCooldown(30) and 1 s elapsed,
+        // the visible cooldown is 29 s.
+        await tester.pump(const Duration(seconds: 1));
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('verify_resend'))),
+        );
+
+        // The timer text "Надіслати знову (29 с)" must appear somewhere in the
+        // tree. The exact remaining value may vary by 1 s depending on pump
+        // timing, so we check for either 29 or 28.
+        final has29 = tester
+            .widgetList<Text>(find.byType(Text))
+            .any((t) => t.data == l10n.verificationResendTimer('29 с'));
+        final has28 = tester
+            .widgetList<Text>(find.byType(Text))
+            .any((t) => t.data == l10n.verificationResendTimer('28 с'));
+        expect(
+          has29 || has28,
+          isTrue,
+          reason:
+              'A countdown text matching verificationResendTimer("29 с") or '
+              'verificationResendTimer("28 с") must be shown 1 s after a '
+              'successful resend. '
+              'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 12 — CODE_EXPIRED failure shows verificationErrCodeExpired copy.
+    //           Regression guard for the codeExpired branch in
+    //           _VerificationScreenState._setInlineError / VerificationFailure
+    //           userMessage dispatch (GAP 6).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '12. CODE_EXPIRED failure shows verificationErrCodeExpired inline copy',
+      (tester) async {
+        final repo = FakeAuthRepository()
+          ..verifyEmailResult = const VerificationFailure(
+            code: VerificationErrorCode.codeExpired,
+          );
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        await _fillOtp(tester, '999888');
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pump(); // begin async
+        await tester.pump(); // microtasks
+        await tester.pump(const Duration(milliseconds: 50)); // animations
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('verify_submit'))),
+        );
+
+        expect(
+          tester
+              .widgetList<Text>(find.byType(Text))
+              .any((t) => t.data == l10n.verificationErrCodeExpired),
+          isTrue,
+          reason:
+              'Expected verificationErrCodeExpired inline copy after '
+              'VerificationFailure(code: VerificationErrorCode.codeExpired). '
+              'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
+        );
+
+        // The AuthBanner must be present (error banner widget, not raw Text).
+        expect(
+          find.byType(AuthBanner),
+          findsOneWidget,
+          reason:
+              'An AuthBanner must appear for CODE_EXPIRED (same error path)',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 13 — ResendThrottledFailure(retryAfterSeconds: 0) edge case.
+    //           When the server returns retryAfterSeconds = 0 the resend row
+    //           must NOT start a cooldown — onTap must remain non-null
+    //           immediately after the response (GAP 7).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '13. ResendThrottledFailure(retryAfterSeconds: 0) does not start a cooldown',
+      (tester) async {
+        final repo = FakeAuthRepository()
+          ..resendVerificationResult = const ResendThrottledFailure(
+            retryAfterSeconds: 0,
+          );
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        // Drain the initial 30 s mount cooldown so the resend link is active.
+        await tester.pump(const Duration(seconds: 31));
+
+        // Tap resend — the server will respond with retryAfterSeconds = 0.
+        await tester.tap(find.byKey(const ValueKey<String>('verify_resend')));
+        // Cannot pumpAndSettle: the ResendThrottledFailure catch restarts the
+        // periodic timer (or starts one with 0 s — implementation may differ).
+        await tester.pump(); // begin async
+        await tester.pump(); // microtasks (await + catch)
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // When retryAfterSeconds = 0, _startCooldown(0) is a no-op in the
+        // _ResendRowState: the timer tick immediately drains cooldown to 0
+        // (or it was never started). Either way onTap must be non-null.
+        final gesture = tester.widget<GestureDetector>(
+          find.byKey(const ValueKey<String>('verify_resend')),
+        );
+        expect(
+          gesture.onTap,
+          isNotNull,
+          reason:
+              'When the server returns retryAfterSeconds = 0, the resend '
+              'GestureDetector.onTap must be non-null (no cooldown — user '
+              'can retry immediately). '
+              'Actual onTap: ${gesture.onTap}',
         );
       },
     );

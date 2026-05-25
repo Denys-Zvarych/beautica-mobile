@@ -1097,4 +1097,224 @@ void main() {
       );
     });
   });
+
+  // =========================================================================
+  // Phase 2.18 — acceptInvite
+  //
+  // Contract: on success the notifier mirrors the login success path:
+  //   - persists the refresh token to SecureStorage (MS-1 invariant),
+  //   - transitions state to AsyncData(Authenticated(user, accessToken)).
+  // On failure, state becomes AsyncError with the typed Failure.
+  // =========================================================================
+  group('acceptInvite', () {
+    // -----------------------------------------------------------------------
+    // AN-1 / AN-3 — happy path: transitions to Authenticated, persists refresh
+    //               token, does NOT persist access token (combined per brief).
+    // -----------------------------------------------------------------------
+    test('acceptInvite success: state → Authenticated, refresh token persisted '
+        '(access token in-memory only)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      // Exact-match stub: if the notifier drops or renames any required arg
+      // this stub will not match and mocktail throws MissingStubError.
+      when(
+        () => repo.acceptInvite(
+          token: 'invite-abc123',
+          password: 'SecurePass1!',
+          firstName: 'Іван',
+          lastName: 'Коваль',
+          phoneNumber: '+380501234567',
+        ),
+      ).thenAnswer((_) async => (testUser, testTokens));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 'invite-abc123',
+            password: 'SecurePass1!',
+            firstName: 'Іван',
+            lastName: 'Коваль',
+            phoneNumber: '+380501234567',
+          );
+
+      // State must transition to AsyncData(Authenticated).
+      final value = container.read(authProvider);
+      expect(
+        value,
+        isA<AsyncData<AuthSession>>(),
+        reason: 'After acceptInvite success state must be AsyncData',
+      );
+      expect(
+        value.value,
+        equals(
+          AuthSession.authenticated(
+            user: testUser,
+            accessToken: testTokens.accessToken,
+          ),
+        ),
+        reason:
+            'Authenticated session must carry the correct user + access token',
+      );
+
+      // AN-3: Only the refresh token is persisted to SecureStorage (MS-1).
+      // The access token lives exclusively in-memory inside [Authenticated].
+      expect(
+        await storage.readRefreshToken(),
+        equals(testTokens.refreshToken),
+        reason:
+            'refresh token must be written to SecureStorage after '
+            'acceptInvite success (MS-1 invariant)',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // acceptInvite — optional phoneNumber omitted (null forwarded, not "")
+    // -----------------------------------------------------------------------
+    test('acceptInvite without phoneNumber: null forwarded to repository, '
+        'state transitions to Authenticated', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      // Strict stub: phoneNumber is absent (null default).
+      // If the notifier passed '' instead of null the stub would not match.
+      when(
+        () => repo.acceptInvite(
+          token: 'invite-xyz',
+          password: 'Secret1!',
+          firstName: 'Олена',
+          lastName: 'Шевченко',
+          // phoneNumber intentionally absent — must stay null.
+        ),
+      ).thenAnswer((_) async => (testUser, testTokens));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 'invite-xyz',
+            password: 'Secret1!',
+            firstName: 'Олена',
+            lastName: 'Шевченко',
+            // phoneNumber omitted — default null.
+          );
+
+      final value = container.read(authProvider);
+      expect(value, isA<AsyncData<AuthSession>>());
+      expect(
+        value.value,
+        equals(
+          AuthSession.authenticated(
+            user: testUser,
+            accessToken: testTokens.accessToken,
+          ),
+        ),
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // AN-2 — failure path: ValidationFailure → AsyncError
+    // -----------------------------------------------------------------------
+    test(
+      'acceptInvite ValidationFailure → state becomes AsyncError<AuthSession> '
+      'with a ValidationFailure, storage unchanged',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        const failure = ValidationFailure(
+          fieldErrors: {'token': 'expired_or_invalid'},
+        );
+        when(
+          () => repo.acceptInvite(
+            token: any(named: 'token'),
+            password: any(named: 'password'),
+            firstName: any(named: 'firstName'),
+            lastName: any(named: 'lastName'),
+            phoneNumber: any(named: 'phoneNumber'),
+          ),
+        ).thenThrow(failure);
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        await container
+            .read(authProvider.notifier)
+            .acceptInvite(
+              token: 'expired-token',
+              password: 'Secret1!',
+              firstName: 'Test',
+              lastName: 'User',
+            );
+
+        final value = container.read(authProvider);
+        expect(
+          value,
+          isA<AsyncError<AuthSession>>(),
+          reason:
+              'A ValidationFailure from acceptInvite must surface as '
+              'AsyncError so the screen can render the inline error state',
+        );
+        expect(
+          value.error,
+          isA<ValidationFailure>(),
+          reason: 'The error payload must be the original ValidationFailure',
+        );
+        expect(
+          (value.error as ValidationFailure).fieldErrors,
+          equals({'token': 'expired_or_invalid'}),
+        );
+
+        // No token must be written to storage on failure.
+        expect(
+          await storage.readRefreshToken(),
+          isNull,
+          reason: 'No refresh token must be persisted when acceptInvite fails',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // acceptInvite — generic NetworkFailure rethrown through AsyncError
+    // -----------------------------------------------------------------------
+    test(
+      'acceptInvite NetworkFailure → AsyncError<AuthSession> with NetworkFailure',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(
+          () => repo.acceptInvite(
+            token: any(named: 'token'),
+            password: any(named: 'password'),
+            firstName: any(named: 'firstName'),
+            lastName: any(named: 'lastName'),
+            phoneNumber: any(named: 'phoneNumber'),
+          ),
+        ).thenThrow(const NetworkFailure());
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        await container
+            .read(authProvider.notifier)
+            .acceptInvite(
+              token: 'token',
+              password: 'Secret1!',
+              firstName: 'Test',
+              lastName: 'User',
+            );
+
+        final value = container.read(authProvider);
+        expect(value, isA<AsyncError<AuthSession>>());
+        expect(value.error, isA<NetworkFailure>());
+        expect(await storage.readRefreshToken(), isNull);
+      },
+    );
+  });
 }

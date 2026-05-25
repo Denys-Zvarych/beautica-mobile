@@ -145,6 +145,7 @@ class NeumorphicTextField extends StatefulWidget {
     this.keyboardType,
     this.textInputAction,
     this.obscureToggle = false,
+    this.toggleKey,
     this.prefixIcon,
     this.errorText,
     this.helperText,
@@ -181,6 +182,12 @@ class NeumorphicTextField extends StatefulWidget {
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
   final bool obscureToggle;
+
+  /// Optional stable key for the visibility-toggle [IconButton] rendered when
+  /// [obscureToggle] is true. When null the auto-generated
+  /// `ValueKey<String>('${label}_toggle')` is used (existing behaviour).
+  final Key? toggleKey;
+
   final Widget? prefixIcon;
   final String? errorText;
   final String? helperText;
@@ -326,7 +333,9 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
                     button: true,
                     label: _obscured ? 'Показати пароль' : 'Сховати пароль',
                     child: IconButton(
-                      key: ValueKey<String>('${widget.label}_toggle'),
+                      key:
+                          widget.toggleKey ??
+                          ValueKey<String>('${widget.label}_toggle'),
                       onPressed: () => setState(() => _obscured = !_obscured),
                       icon: Icon(
                         _obscured

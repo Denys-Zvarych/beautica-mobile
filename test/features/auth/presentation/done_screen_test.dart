@@ -6,18 +6,28 @@
 // can read [currentUserProvider] for the personalised greeting + chips.
 //
 // Covered scenarios:
-//   1. Personalised greeting renders with the authenticated user's first name.
-//   2. Falls back to the l10n placeholder when User has no first name.
-//   3. Three summary chips render (done_chip_role / done_chip_email /
-//      done_chip_ready) with the expected label text.
-//   4. Role chip shows the role-derived label from UserRoleL10n.
-//   5. Tapping done_to_app navigates to /home.
-//   7. Mounting /done resets the in-flight registration draft (HIGH-1 regression).
-//   8. ScreenProtector is never invoked in widget tests (removed from screen;
-//      pump must complete without MissingPluginException).
-// Note: Test 6 (done_setup_later secondary CTA) removed — widget no longer exists.
+//   1.  Personalised greeting renders with the authenticated user's first name.
+//   2.  Falls back to the l10n placeholder when User has no first name.
+//   2b. Uses lastName as display name when firstName is null.
+//   2c. Uses firstName alone when lastName is null.
+//   3.  Three summary chips render (done_chip_role / done_chip_email /
+//       done_chip_ready) with the expected label text.
+//   4.  Role chip shows the role-derived label from UserRoleL10n (client).
+//   5.  Tapping done_to_app navigates to /home.
+//   6.  Mounting /done resets the in-flight registration draft (HIGH-1 regression).
+//   7.  salonOwner role chip shows l10n.roleSalonOwner.
+//   8.  Screen pumps without exceptions; VelvetHeader/VelvetLogo absent;
+//       AuthScaffold back button absent (showBack: false);
+//       72×72 icon tile present and correctly sized.
+//   9.  No authenticated user: DoneScreen renders fallback greeting + client role
+//       label without crashing.
+//   10. independentMaster role chip shows l10n.roleIndependentMaster.
+//   11. done_chip_role and done_chip_email are siblings in the same Row;
+//       done_chip_ready is in a separate Center below.
+// Note: Test 6 (done_setup_later secondary CTA) was removed — widget no longer exists.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -409,10 +419,10 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 7 — /done resets the registration draft (HIGH-1 regression)
+    // Test 6 — /done resets the registration draft (HIGH-1 regression)
     // -----------------------------------------------------------------------
     testWidgets(
-      '7. mounting /done resets the in-flight registration draft to null '
+      '6. mounting /done resets the in-flight registration draft to null '
       '(Phase 2.16 HIGH-1)',
       (tester) async {
         final storage = FakeSecureStorage();
@@ -460,6 +470,134 @@ void main() {
               'mounting /done must call registerDraftProvider.reset() in '
               'its post-frame callback — leaving the password in memory '
               'after wizard completion is HIGH-1',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 7 — salonOwner role chip label
+    //
+    // salonOwner is an invite-only role — a salonOwner cannot self-register.
+    // However, a user with role salonOwner can land on DoneScreen after
+    // accepting an invitation. This test exercises the chip label path for
+    // that role, confirming UserRoleL10n.label() maps salonOwner correctly.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '7. salonOwner role chip shows the roleSalonOwner localised label',
+      (tester) async {
+        const userSalonOwner = User(
+          id: 'u5',
+          email: 'owner@salon.test',
+          role: UserRole.salonOwner,
+          firstName: 'Олена',
+          lastName: 'Бойко',
+        );
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: userSalonOwner,
+          router: router,
+        );
+
+        final l10n = _l10n(tester);
+
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('done_chip_role')),
+            matching: find.text(l10n.roleSalonOwner),
+          ),
+          findsOneWidget,
+          reason:
+              'For UserRole.salonOwner (invite-only, but reachable via invite '
+              'accept flow) the role chip must show l10n.roleSalonOwner.',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 8 — Screen pumps cleanly; structural absence/presence guards
+    //
+    // Verifies four structural invariants in a single pump:
+    //  a. No platform-channel exceptions (ScreenProtector removed).
+    //  b. VelvetHeader is absent (DoneScreen is post-auth — no brand header).
+    //  c. VelvetLogo is absent (same reason as b).
+    //  d. AuthScaffold back button is absent (showBack: false).
+    //  e. 72×72 icon tile is present and correctly sized.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '8. DoneScreen pumps without exception; VelvetHeader and VelvetLogo are '
+      'absent; back button absent (showBack: false); 72×72 icon tile present',
+      (tester) async {
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _userWithName,
+          router: router,
+        );
+
+        // a. No platform-channel exceptions from ScreenProtector.
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'DoneScreen must pump cleanly — no platform channel calls '
+              'that require a mock binding',
+        );
+
+        // b. VelvetHeader must not be present — DoneScreen is post-auth.
+        expect(
+          find.byType(VelvetHeader),
+          findsNothing,
+          reason: 'DoneScreen is post-auth — VelvetHeader must not be present',
+        );
+
+        // c. VelvetLogo must not be present.
+        expect(
+          find.byType(VelvetLogo),
+          findsNothing,
+          reason: 'DoneScreen is post-auth — VelvetLogo must not be present',
+        );
+
+        // d. AuthScaffold back button must not be present (showBack: false).
+        // AuthScaffold renders a NeumorphicIconButton with key 'auth_scaffold_back'
+        // when showBack is true. When false, no BackButton or back affordance
+        // is rendered at all.
+        expect(
+          find.byKey(const ValueKey<String>('auth_scaffold_back')),
+          findsNothing,
+          reason:
+              'DoneScreen passes showBack: false to AuthScaffold — no back '
+              'affordance must be present in the widget tree',
+        );
+        expect(
+          find.byType(BackButton),
+          findsNothing,
+          reason: 'DoneScreen showBack: false — no BackButton must be present',
+        );
+
+        // e. 72×72 icon tile is present and correctly sized.
+        expect(
+          find.byKey(const Key('done-icon-tile')),
+          findsOneWidget,
+          reason: 'The 72×72 check-mark container must be rendered',
+        );
+        final tileSize = tester.getSize(
+          find.byKey(const Key('done-icon-tile')),
+        );
+        expect(
+          tileSize.width,
+          closeTo(72, 1),
+          reason: 'Icon tile width must be 72 dp',
+        );
+        expect(
+          tileSize.height,
+          closeTo(72, 1),
+          reason: 'Icon tile height must be 72 dp',
         );
       },
     );
@@ -543,33 +681,6 @@ void main() {
         reason:
             'For UserRole.independentMaster the role chip must show '
             'l10n.roleIndependentMaster — not null, empty, or any other label.',
-      );
-    });
-
-    // -----------------------------------------------------------------------
-    // Test 8 — Screen pumps cleanly without platform-channel exceptions
-    //
-    // ScreenProtector has been removed from DoneScreen (post-auth screen
-    // carries no sensitive data). The test verifies no exceptions are thrown
-    // during a full pump-and-settle cycle.
-    // -----------------------------------------------------------------------
-    testWidgets('8. DoneScreen pumps without any exception (no ScreenProtector '
-        'platform-channel call)', (tester) async {
-      final router = _makeRouter();
-      addTearDown(router.dispose);
-
-      await _pumpDoneScreen(
-        tester,
-        authenticatedUser: _userWithName,
-        router: router,
-      );
-
-      expect(
-        tester.takeException(),
-        isNull,
-        reason:
-            'DoneScreen must pump cleanly — no platform channel calls '
-            'that require a mock binding',
       );
     });
 

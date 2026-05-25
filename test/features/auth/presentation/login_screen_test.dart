@@ -559,12 +559,11 @@ void main() {
         // AuthBanner must be present before we tap its action.
         expect(find.byType(AuthBanner), findsOneWidget);
 
-        // The action label is localised — tap it by text (AuthBanner renders
-        // a plain GestureDetector with no Key; tracked as LOW M2 finding).
-        final l10n = AppLocalizations.of(
-          tester.element(find.byType(AuthBanner)),
+        // Tap the action GestureDetector by its stable ValueKey — locale-
+        // independent and survives copy changes.
+        await tester.tap(
+          find.byKey(const ValueKey<String>('auth_banner_action')),
         );
-        await tester.tap(find.text(l10n.loginUnverifiedAction));
         await tester.pumpAndSettle();
 
         // The test router renders "verification" text at /verification.

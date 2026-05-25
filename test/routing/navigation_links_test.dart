@@ -697,7 +697,9 @@ void main() {
       await tester.pumpAndSettle();
 
       // Navigate to /forgot-password (push from /login).
-      unawaited(router.push(RouteNames.forgotPassword));
+      unawaited(
+        router.push(RouteNames.forgotPassword),
+      ); // ignore: unawaited_futures
       await tester.pumpAndSettle();
 
       // The ForgotPasswordRequestScreen is now on screen — tap back.
@@ -768,7 +770,9 @@ void main() {
         await tester.pumpAndSettle();
 
         // Navigate to /reset-password (push from /login, simulating deep-link).
-        unawaited(router.push('${RouteNames.resetPassword}?token=test-token'));
+        unawaited(
+          router.push('${RouteNames.resetPassword}?token=test-token'),
+        ); // ignore: unawaited_futures
         await tester.pumpAndSettle();
 
         // Tap back (AuthScaffold renders the back button in the form state).
