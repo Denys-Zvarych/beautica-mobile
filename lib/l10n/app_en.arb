@@ -520,9 +520,9 @@
   "@verificationCardTitle": {
     "description": "Card heading on the email verification screen (verification-page.html .card-title)."
   },
-  "verificationCardDesc": "If this email isn't already registered, you'll receive a 6-digit code at",
+  "verificationCardDesc": "We sent a 6-digit code to",
   "@verificationCardDesc": {
-    "description": "Neutral post-registration card description shown above the masked email on the verification screen. Backend silently returns 200 on a duplicate-email registration (anti-enumeration), so the copy must NOT promise that a code was actually sent — the phrasing is conditional. Originally read \"We sent a 6-digit code to\"."
+    "description": "Card description before the masked email address (verification-page.html .card-desc)."
   },
   "verificationResendPrompt": "Didn't receive a code?",
   "@verificationResendPrompt": {

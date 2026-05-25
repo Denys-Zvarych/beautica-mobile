@@ -1250,11 +1250,14 @@ void main() {
     },
   );
 
-  // ── Neutral post-registration card description copy (Part A) ──────────────
+  // ── Honest post-registration card description copy ────────────────────────
   //
-  // Backend silently returns 200 on a duplicate-email registration (anti-
-  // enumeration). The verification card description must NOT promise
-  // "we sent a code" — it must use the conditional neutral phrasing.
+  // Backend ALWAYS returns 409 EMAIL_ALREADY_REGISTERED on duplicate-email
+  // registrations (the disclose-duplicate-registration toggle was removed —
+  // see backend commit 35e4eb8). Mobile Step 3 routes the 409 case to the
+  // inline banner + Sign In CTA, so only fresh (genuinely new) email
+  // registrations ever reach the verification screen. The user WILL receive
+  // a code, and the copy must say so plainly.
   //
   // This test is in the step3 file because step3 is where the test framework
   // already has the wired-up provider/router. We pump the bare verification
@@ -1262,8 +1265,8 @@ void main() {
   // the screen widget structure (the verification screen is exercised in
   // verification_screen_test.dart; here we lock the COPY itself).
   testWidgets(
-    'verificationCardDesc resolves to the neutral conditional copy in uk '
-    '(no "Ми надіслали" / "we sent" phrasing)',
+    'verificationCardDesc resolves to the honest "we sent" copy in uk '
+    '(no neutral / conditional phrasing)',
     (tester) async {
       // Render a minimal MaterialApp with only AppLocalizations so we can
       // assert the resolved string for the uk locale.
@@ -1281,25 +1284,27 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Positive assertion: the new neutral wording is present.
-      expect(
-        find.textContaining('Якщо ця електронна адреса ще не зареєстрована'),
-        findsOneWidget,
-        reason:
-            'verificationCardDesc (uk) must use the conditional neutral '
-            'phrasing — backend anti-enumeration means we cannot promise '
-            'a code was sent.',
-      );
-
-      // Negative assertion: the old affirmative phrasing must be gone. If
-      // someone reverts the .arb the negative assertion catches it even if
-      // the positive one still happens to match a different paragraph.
+      // Positive assertion: the honest "we sent" wording is present. Only
+      // fresh (non-duplicate) registrations reach this screen, so promising
+      // a code is accurate.
       expect(
         find.textContaining('Ми надіслали'),
+        findsOneWidget,
+        reason:
+            'verificationCardDesc (uk) must use the honest "Ми надіслали" '
+            'phrasing — only fresh registrations reach verification (409 '
+            'duplicates are caught on Step 3 via the banner + Sign In CTA).',
+      );
+
+      // Negative assertion: the old neutral conditional phrasing must not
+      // leak back in. It was a stopgap for the now-removed anti-enumeration
+      // silent-200 flow and reads as confusing FUD on the success path.
+      expect(
+        find.textContaining('Якщо ця електронна адреса ще не зареєстрована'),
         findsNothing,
         reason:
-            'The legacy "Ми надіслали" copy must not be present — it lies '
-            'about send semantics in the anti-enumeration flow.',
+            'The neutral conditional copy must not be present — the silent-'
+            '200 anti-enumeration flow it covered no longer exists.',
       );
     },
   );
