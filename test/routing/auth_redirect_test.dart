@@ -14,15 +14,17 @@
 // location-string seam; one widget test pumps a real `GoRouter` so the
 // `authRedirect` → `authRedirectForLocation` wiring is covered end-to-end.
 //
-// F4 — AuthNotifier.build() now returns SYNCHRONOUSLY with Unauthenticated,
-// so AsyncLoading should rarely (if ever) reach this guard at cold start.
-// The loading branch is retained as a defensive fallback (e.g. an action
-// method that sets `state = AsyncLoading()` mid-flight).
+// F4 — The isLoading branch exists as a defensive guard for: (a) cold-start
+// background session restore (Keystore read + token refresh + /users/me,
+// 100–500 ms on Android); (b) mid-registration register() call which briefly
+// emits AsyncLoading before settling. During cold start, isLoading parks on
+// /splash to prevent flashing /login to a returning authenticated user.
 //
 // Covered scenarios (redirect matrix):
 //   - authenticated → protected → allow (null)
 //   - unauthenticated → protected → /login
-//   - loading → protected → /login; loading @ auth route → stay
+//   - loading → protected → /splash (cold-start parking); loading @ auth route → stay
+//   - loading @ /splash → /splash (self-redirect, GoRouter no-op); once settled → /home or /login
 //   - authenticated @ auth route → /home
 //   - unauthenticated @ auth route → allow (null)
 //   - settled unauthenticated @ /splash → /login
@@ -101,32 +103,34 @@ void main() {
       );
     });
 
-    test('loading session at / is redirected to /login', () {
+    test('loading session at / is redirected to /splash', () {
       expect(
         authRedirectForLocation(_loadingSession, RouteNames.home),
-        equals(RouteNames.login),
+        equals(RouteNames.splash),
       );
     });
 
-    test('loading session at /splash is redirected to /login', () {
-      // F4 corrected: /splash is no longer the loading parking spot. The
-      // loading window (microsecond) resolves to /login as a neutral landing
-      // pad; if the background restore flips to Authenticated, the next
-      // redirect pass forwards to /home.
+    test('loading session at /splash stays on /splash during loading', () {
+      // /splash is the cold-start parking screen. The guard returns RouteNames.splash
+      // (a self-redirect) which GoRouter collapses to a no-op — the user stays on
+      // /splash while the session resolves. Once settled:
+      //   Authenticated  → /home (auth_redirect.dart: authenticated + isAtSplash → /home)
+      //   Unauthenticated → /login (auth_redirect.dart: !isAuthenticated + isAtSplash → /login)
       expect(
         authRedirectForLocation(_loadingSession, RouteNames.splash),
-        equals(RouteNames.login),
+        equals(RouteNames.splash),
       );
     });
 
     // Loading-branch reorder lock — while the session is AsyncLoading (the
     // register flow flips authProvider to AsyncLoading mid-submit), auth-flow
-    // routes stay put (null) and protected routes still bounce to /login.
+    // routes stay put (null) and protected routes park on /splash until the
+    // session settles (Authenticated → /home, Unauthenticated → /login).
 
-    test('loading session at /settings is redirected to /login', () {
+    test('loading session at /settings is redirected to /splash', () {
       expect(
         authRedirectForLocation(_loadingSession, RouteNames.settings),
-        equals(RouteNames.login),
+        equals(RouteNames.splash),
       );
     });
 
@@ -441,7 +445,136 @@ void main() {
       expect(find.text('reset-password'), findsOneWidget);
       expect(find.text('login'), findsNothing);
     });
+
+    testWidgets(
+      'cold-start: loading at /home parks on /splash, then authenticated → /home (no /login flash)',
+      (tester) async {
+        var session = _loadingSession as AsyncValue<AuthSession>;
+        late void Function() triggerRefresh;
+        final listenable = _CallbackListenable((cb) => triggerRefresh = cb);
+
+        final router = GoRouter(
+          initialLocation: RouteNames.home,
+          refreshListenable: listenable,
+          redirect: (context, state) => authRedirect(session, state),
+          routes: [
+            GoRoute(
+              path: RouteNames.splash,
+              builder: (_, __) => const _Probe('splash'),
+            ),
+            GoRoute(
+              path: RouteNames.login,
+              builder: (_, __) => const _Probe('login'),
+            ),
+            GoRoute(
+              path: RouteNames.home,
+              builder: (_, __) => const _Probe('home'),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('splash'),
+          findsOneWidget,
+          reason: 'loading session must park on /splash, not /login',
+        );
+        expect(
+          find.text('login'),
+          findsNothing,
+          reason: 'authenticated user must never see /login on cold start',
+        );
+
+        // Simulate session settling to authenticated.
+        session = _authenticatedSession;
+        triggerRefresh();
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('home'),
+          findsOneWidget,
+          reason: 'authenticated session must forward to /home after settle',
+        );
+        expect(
+          find.text('login'),
+          findsNothing,
+          reason:
+              '/login must never appear in the authenticated cold-start chain',
+        );
+        expect(
+          find.text('splash'),
+          findsNothing,
+          reason: '/splash must be left once session settles',
+        );
+      },
+    );
+
+    testWidgets(
+      'cold-start: loading at /home parks on /splash, then unauthenticated → /login',
+      (tester) async {
+        var session = _loadingSession as AsyncValue<AuthSession>;
+        late void Function() triggerRefresh;
+        final listenable = _CallbackListenable((cb) => triggerRefresh = cb);
+
+        final router = GoRouter(
+          initialLocation: RouteNames.home,
+          refreshListenable: listenable,
+          redirect: (context, state) => authRedirect(session, state),
+          routes: [
+            GoRoute(
+              path: RouteNames.splash,
+              builder: (_, __) => const _Probe('splash'),
+            ),
+            GoRoute(
+              path: RouteNames.login,
+              builder: (_, __) => const _Probe('login'),
+            ),
+            GoRoute(
+              path: RouteNames.home,
+              builder: (_, __) => const _Probe('home'),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('splash'),
+          findsOneWidget,
+          reason: 'loading session must park on /splash',
+        );
+
+        // Simulate session settling to unauthenticated.
+        session = _unauthenticatedSession;
+        triggerRefresh();
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('login'),
+          findsOneWidget,
+          reason: 'unauthenticated session must reach /login after settle',
+        );
+        expect(
+          find.text('splash'),
+          findsNothing,
+          reason: '/splash must be left once unauthenticated session settles',
+        );
+      },
+    );
   });
+}
+
+/// A [ChangeNotifier] that captures its first [notifyListeners] callback so
+/// tests can trigger a GoRouter refresh on demand.
+class _CallbackListenable extends ChangeNotifier {
+  _CallbackListenable(void Function(void Function()) capture) {
+    capture(notifyListeners);
+  }
 }
 
 /// Minimal probe screen rendering its label so the resolved route can be

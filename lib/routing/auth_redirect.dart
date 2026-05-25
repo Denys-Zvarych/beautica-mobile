@@ -5,9 +5,13 @@
 // current location.
 //
 // Rules:
-//   isLoading → redirect to /login (F4 corrected design — the AsyncLoading
-//     window now lasts microseconds, so /login is the right "neutral" landing
-//     pad and avoids a visible /splash flash on cold start).
+//   isLoading + not on an auth route → park on /splash (branded loading
+//     screen) until the session settles. Prevents the cold-start /login flash:
+//     the background session restore (Keystore read + token refresh + /users/me)
+//     takes 100–500 ms on Android; parking on /splash avoids showing /login to
+//     a returning authenticated user. Registration wizard flows are unaffected
+//     because they are on auth routes (isAtAuthRoute = true → null is returned).
+//   isLoading + on an auth route → null (stay). Preserves wizard mid-flight.
 //   Unauthenticated + not on an auth route → redirect to /login.
 //   Unauthenticated on /splash (session settled) → redirect to /login.
 //   Authenticated + on an auth route (login/register/splash) → redirect to /.
@@ -103,12 +107,17 @@ String? authRedirectForLocation(
   // are already on. This matters for the registration wizard: register()
   // briefly flips authProvider to AsyncLoading before settling to
   // Unauthenticated/Authenticated, which fires the router's refreshListenable.
-  // Bouncing to /login during that microsecond window would abort the Step 3 →
-  // /verification navigation (the user would land on /login instead). Cold
-  // start (on /splash or a protected route) still routes to /login as the safe
-  // neutral landing pad. F4: this loading window is microseconds long.
+  // Bouncing to /splash during that window would abort the Step 3 →
+  // /verification navigation (the user would land on /splash instead).
+  //
+  // Cold start (on a protected route) parks on /splash — the branded loading
+  // screen is designed for exactly this. Once the session settles the guard
+  // fires again: Authenticated + /splash → /home; Unauthenticated + /splash →
+  // /login. The isAtAuthRoute = true branch (registration wizard, forgot/reset
+  // password, invite accept) is unaffected — null is returned, keeping the
+  // user on their current auth route.
   if (session.isLoading) {
-    return isAtAuthRoute ? null : RouteNames.login;
+    return isAtAuthRoute ? null : RouteNames.splash;
   }
 
   final isAuthenticated = session.value is Authenticated;
