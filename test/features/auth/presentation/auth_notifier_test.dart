@@ -4,10 +4,10 @@
 // channels are involved. FakeSecureStorage provides in-memory storage;
 // MockAuthRepository (mocktail) stubs the network boundary.
 //
-// F4 — build() now returns SYNCHRONOUSLY with Unauthenticated; the storage
-// read + refresh runs as a fire-and-forget background task that mutates
-// [state] when it settles. Tests use `pumpEventQueue` to flush the
-// microtask + pending Futures before reading the post-restore state.
+// build() is async — Riverpod emits AsyncLoading while the storage read +
+// token refresh + /users/me network calls are in-flight. Tests use
+// `await container.read(authProvider.future)` to wait for the full restore;
+// no `pumpEventQueue` is needed for the cold-start path.
 //
 // Coverage:
 //   1.  Cold start — no refresh token → Unauthenticated (no repo calls).
@@ -91,16 +91,10 @@ void main() {
 
         final container = makeContainer(repo: repo, storage: storage);
 
-        // F4 — build() returns synchronously with Unauthenticated. The
-        // initial read settles immediately; the background storage read
-        // also resolves to "no token" so state stays Unauthenticated.
+        // async build() awaits storage.readRefreshToken(); with no token stored
+        // it returns Unauthenticated immediately (no network call).
         final session = await container.read(authProvider.future);
         expect(session, equals(const AuthSession.unauthenticated()));
-
-        // Flush the background microtask so any pending storage I/O drains
-        // before asserting `verifyNever` — otherwise a late repo call could
-        // slip through after the assertion.
-        await pumpEventQueue();
 
         expect(
           container.read(authProvider).value,
@@ -130,11 +124,8 @@ void main() {
 
         final container = makeContainer(repo: repo, storage: storage);
 
-        // F4 — initial state settles synchronously to Unauthenticated, then
-        // the background task swaps it to Authenticated once repo.refresh()
-        // + repo.me() resolve. Drain the event queue to wait for that swap.
+        // async build() keeps AsyncLoading until repo.refresh() + repo.me() complete.
         await container.read(authProvider.future);
-        await pumpEventQueue();
 
         expect(
           container.read(authProvider).value,
@@ -169,11 +160,9 @@ void main() {
 
       final container = makeContainer(repo: repo, storage: storage);
 
-      // F4 — initial state is Unauthenticated synchronously. The background
-      // task tries to refresh, gets UnauthorizedFailure, wipes storage and
-      // re-asserts Unauthenticated. Drain the event queue to wait for that.
+      // async build() awaits repo.refresh(), catches UnauthorizedFailure,
+      // wipes storage, returns Unauthenticated.
       await container.read(authProvider.future);
-      await pumpEventQueue();
 
       expect(
         container.read(authProvider).value,
@@ -185,6 +174,69 @@ void main() {
 
       // me() must not be called when refresh has already failed.
       verifyNever(() => repo.me());
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 3b — cold-start sequence: AsyncLoading → Authenticated
+    //           (never emits Unauthenticated before Authenticated)
+    // -----------------------------------------------------------------------
+    test('cold start with valid token: state sequence is AsyncLoading → '
+        'Authenticated (never emits Unauthenticated first)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => rotatedTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+
+      final container = makeContainer(repo: repo, storage: storage);
+
+      final emittedStates = <AsyncValue<AuthSession>>[];
+      final sub = container.listen<AsyncValue<AuthSession>>(
+        authProvider,
+        (_, next) => emittedStates.add(next),
+        fireImmediately: true,
+      );
+      addTearDown(sub.close);
+
+      // Wait for build() to complete.
+      await container.read(authProvider.future);
+
+      // The first emission must be AsyncLoading (build() is in-flight).
+      expect(
+        emittedStates.first,
+        isA<AsyncLoading<AuthSession>>(),
+        reason:
+            'authProvider must start in AsyncLoading while build() is in-flight',
+      );
+
+      // No emission of AsyncData(Unauthenticated) must occur before Authenticated.
+      // An Unauthenticated emission here would cause the router to flash /login.
+      final beforeAuthenticated = emittedStates.takeWhile(
+        (s) => s.value is! Authenticated,
+      );
+      for (final s in beforeAuthenticated) {
+        expect(
+          s.value,
+          isNot(isA<Unauthenticated>()),
+          reason:
+              'authProvider must NOT emit Unauthenticated before Authenticated '
+              'when a valid token is stored — that would flash the /login screen.',
+        );
+      }
+
+      // Final state must be Authenticated.
+      expect(
+        container.read(authProvider).value,
+        equals(
+          AuthSession.authenticated(
+            user: testUser,
+            accessToken: rotatedTokens.accessToken,
+          ),
+        ),
+      );
     });
 
     // -----------------------------------------------------------------------
@@ -244,10 +296,8 @@ void main() {
       when(() => repo.logout()).thenAnswer((_) async {});
 
       final container = makeContainer(repo: repo, storage: storage);
-      // F4 — wait for the background cold-start restore to complete
-      // (state becomes Authenticated) before invoking logout().
+      // async build() completes with Authenticated once repo.refresh() + repo.me() settle.
       await container.read(authProvider.future);
-      await pumpEventQueue();
 
       await container.read(authProvider.notifier).logout();
 
@@ -494,10 +544,9 @@ void main() {
 
         final container = makeContainer(repo: repo, storage: storage);
 
-        // build() returns synchronously with Unauthenticated; the background
-        // task fires the failing repo.refresh() then catches it.
+        // async build() awaits repo.refresh(), catches the non-Failure exception,
+        // wipes storage, and returns Unauthenticated.
         await container.read(authProvider.future);
-        await pumpEventQueue();
 
         final value = container.read(authProvider);
         expect(value, isA<AsyncData<AuthSession>>());
@@ -505,6 +554,83 @@ void main() {
         expect(await storage.readRefreshToken(), isNull);
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Test 10b — cold-start partial success: refresh OK, repo.me throws →
+    //            coldStartAccessToken cleared by finally block
+    //
+    // HIGH-1 regression guard (mobile-security 2026-05-24):
+    //
+    // AuthNotifier.build() writes the rotated access token to its plain
+    // [coldStartAccessToken] field after a successful repo.refresh() so the
+    // AuthInterceptor can attach a Bearer header on the subsequent /users/me
+    // call. The `finally` block on auth_notifier.dart:172-176 MUST clear the
+    // field on every exit path — including the case where refresh succeeded
+    // but me() threw. Tests 3 and 10 only exercise refresh failing, where the
+    // field was never set, so the finally block is a no-op there.
+    //
+    // Without this test, removing the entire `finally` block would not be
+    // caught by any other test.
+    // -----------------------------------------------------------------------
+    test('cold start: refresh succeeds but repo.me throws → '
+        'coldStartAccessToken cleared by finally, state is Unauthenticated, '
+        'storage wiped', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      // refresh() succeeds → coldStartAccessToken gets set to
+      // rotatedTokens.accessToken inside build() before me() is awaited.
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => rotatedTokens);
+
+      // me() throws a Failure → `on Failure catch` branch runs: storage is
+      // wiped and Unauthenticated is returned. The `finally` block must then
+      // clear coldStartAccessToken even though we are leaving via the catch.
+      when(() => repo.me()).thenThrow(const UnauthorizedFailure());
+
+      final container = makeContainer(repo: repo, storage: storage);
+
+      // Await full build() resolution — by this point the catch + finally
+      // must have run.
+      await container.read(authProvider.future);
+
+      // (1) coldStartAccessToken must be null — proving the finally block ran.
+      // If the `finally` block were deleted, this would still be set to
+      // rotatedTokens.accessToken from the line just before await repo.me().
+      expect(
+        container.read(authProvider.notifier).coldStartAccessToken,
+        isNull,
+        reason:
+            'finally block in AuthNotifier.build() must clear '
+            'coldStartAccessToken even on partial-success cold start',
+      );
+
+      // (2) Final state must be Unauthenticated — the catch wiped storage and
+      // returned the unauthenticated session.
+      final value = container.read(authProvider);
+      expect(value, isA<AsyncData<AuthSession>>());
+      expect(
+        value.value,
+        equals(const AuthSession.unauthenticated()),
+        reason:
+            'A failed /users/me on cold start must leave the session '
+            'Unauthenticated, never AsyncError (which would cause a '
+            'redirect loop)',
+      );
+
+      // (3) Storage was wiped — the stored refresh token must be gone.
+      // FakeSecureStorage backs deleteAll() with Map.clear(); a null read
+      // after a non-null write is the canonical assertion in this file
+      // (see Test 3 and Test 10) that storage.deleteAll() ran.
+      expect(
+        await storage.readRefreshToken(),
+        isNull,
+        reason:
+            'storage.deleteAll() must run when repo.me() throws on cold start',
+      );
+    });
 
     // -----------------------------------------------------------------------
     // Test 11 — logout from Unauthenticated (idempotency)
@@ -551,9 +677,8 @@ void main() {
         when(() => repo.me()).thenAnswer((_) async => testUser);
 
         final container = makeContainer(repo: repo, storage: storage);
-        // F4 — wait for the background restore to settle to Authenticated.
+        // async build() completes with Authenticated once repo.refresh() + repo.me() settle.
         await container.read(authProvider.future);
-        await pumpEventQueue();
 
         // State is now Authenticated with rotatedTokens.accessToken.
         container.read(authProvider.notifier).setAccessToken('brand-new-token');

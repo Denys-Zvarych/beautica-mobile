@@ -35,12 +35,31 @@ final class AuthInterceptor extends Interceptor {
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    // `.value` returns null when the AsyncValue is loading or in an error
-    // state — both are treated as unauthenticated (no token attached).
-    final state = _ref.read(authProvider).value;
+    if (kAuthPaths.contains(options.path)) {
+      // Auth endpoints (login, refresh, register, …) must never carry a
+      // Bearer token — skip injection entirely.
+      handler.next(options);
+      return;
+    }
 
-    if (state is Authenticated && !kAuthPaths.contains(options.path)) {
-      options.headers['Authorization'] = 'Bearer ${state.accessToken}';
+    // Prefer the settled Authenticated state (normal post-cold-start path).
+    final session = _ref.read(authProvider).value;
+    final String? accessToken;
+
+    if (session is Authenticated) {
+      accessToken = session.accessToken;
+    } else {
+      // HIGH-1 (mobile-security 2026-05-24): during cold-start, authProvider
+      // is still in AsyncLoading while build() awaits repo.me(). The notifier
+      // stores the freshly-rotated access token in [coldStartAccessToken] so
+      // we can inject the Bearer header on /users/me without a mid-build
+      // state mutation (which would cause provider.future to resolve with a
+      // sentinel user rather than the real user).
+      accessToken = _ref.read(authProvider.notifier).coldStartAccessToken;
+    }
+
+    if (accessToken != null) {
+      options.headers['Authorization'] = 'Bearer $accessToken';
       if (kDebugMode) {
         log(
           'Attaching Bearer token to ${options.method} ${options.path}',

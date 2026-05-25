@@ -234,5 +234,59 @@ void main() {
       expect(opts.headers.containsKey('Authorization'), isFalse);
       verify(() => handler.next(opts)).called(1);
     });
+
+    // -----------------------------------------------------------------------
+    // Test 5 — Loading state WITH coldStartAccessToken set → Bearer header injected
+    //
+    // HIGH-1 regression guard (mobile-security 2026-05-24):
+    //
+    // During cold-start, authProvider is in AsyncLoading while build() awaits
+    // repo.me(). To prevent a 401 → RefreshInterceptor loop on /users/me, the
+    // notifier writes the freshly-rotated access token to its plain
+    // [coldStartAccessToken] field. AuthInterceptor's else-branch
+    // (auth_interceptor.dart:51-59) MUST pick this up and inject the Bearer
+    // header even though [authProvider.value] is still null.
+    //
+    // Without this test, deleting the else-branch would leave Tests 1–4 green
+    // (Test 4 only covers `AsyncLoading + coldStartAccessToken == null`).
+    // -----------------------------------------------------------------------
+    test('loading state with coldStartAccessToken set → '
+        'Bearer header injected (HIGH-1 cold-start fallback)', () async {
+      // Start from a settled state so the notifier exists; then push the
+      // notifier into AsyncLoading and set the sentinel field — exactly the
+      // condition AuthInterceptor sees on the cold-start /users/me call.
+      const authState = AsyncData<AuthSession>(AuthSession.unauthenticated());
+
+      final container = _makeContainer(authState);
+      await container.read(authProvider.future);
+
+      // Push the notifier back into AsyncLoading and seed the sentinel with
+      // the rotated access token (the value AuthNotifier.build() writes
+      // before awaiting repo.me()).
+      const coldToken = 'cold-token';
+      final notifier = container.read(authProvider.notifier);
+      notifier.coldStartAccessToken = coldToken;
+      // ignore: invalid_use_of_protected_member
+      notifier.state = const AsyncLoading<AuthSession>();
+
+      final ref = container.read(_refCaptureProvider);
+      final interceptor = AuthInterceptor(ref);
+      final handler = MockRequestHandler();
+      // /users/me is NOT in kAuthPaths — interceptor must reach the else-branch
+      // and inject the cold-start access token.
+      final opts = _opts('/users/me');
+
+      interceptor.onRequest(opts, handler);
+
+      expect(
+        opts.headers['Authorization'],
+        equals('Bearer $coldToken'),
+        reason:
+            'During cold-start AsyncLoading, AuthInterceptor must fall back '
+            'to coldStartAccessToken and attach the Bearer header so '
+            '/users/me does not 401 and trigger a redundant refresh loop.',
+      );
+      verify(() => handler.next(opts)).called(1);
+    });
   });
 }

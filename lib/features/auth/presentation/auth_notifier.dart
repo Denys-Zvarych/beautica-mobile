@@ -3,19 +3,16 @@
 // Owns the sealed [AuthSession] state for the entire app lifecycle. Kept alive
 // because the auth interceptor, router guard, and all feature screens need it.
 //
-// Cold-start flow (build()) — F4 perf fix:
-//   build() returns SYNCHRONOUSLY with Unauthenticated so the router can
-//   immediately redirect to /login (splash no longer blocks for ~1.5 s on the
-//   KeyStore-backed flutter_secure_storage read). The storage read + refresh
-//   call run as a fire-and-forget background task that mutates [state] when
-//   it completes:
-//     1. Read refresh token from SecureStorage.
-//     2. If absent → state stays Unauthenticated (no-op, build() already set it).
-//     3. If present → call repo.refresh() then repo.me().
-//        - Success → state = AsyncData(Authenticated(...)).
-//        - Failure → wipe storage, state = AsyncData(Unauthenticated).
-//   The background task never throws to the caller — every failure path
-//   resolves to Unauthenticated, so the router guard sees a settled state.
+// Cold-start flow (build()):
+//   build() is async and stays in AsyncLoading until the session is known:
+//   1. Read refresh token from SecureStorage (~1–5 ms).
+//      If absent → return Unauthenticated immediately (no network call).
+//   2. If present → call repo.refresh() then repo.me() (~200–2000 ms).
+//      - Success → state briefly set to Authenticated(sentinel) so AuthInterceptor
+//        can inject the Bearer header on /users/me, then return Authenticated(user).
+//      - Failure → wipe storage, return Unauthenticated.
+//   While build() is in-flight, Riverpod emits AsyncLoading — the go_router
+//   auth guard parks the user on /splash until the session resolves (no /login flash).
 //
 // Action methods (login, register, logout) follow the AsyncNotifier pattern:
 //   - Set state to AsyncLoading before the async work.
@@ -32,7 +29,6 @@
 //     (sentinel user) so AuthInterceptor injects the Bearer token into the
 //     subsequent repo.me() call — preventing a RefreshInterceptor loop on me().
 
-import 'dart:async';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
@@ -42,7 +38,6 @@ import '../../../core/errors/failures.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../../../shared/util/mask_email.dart';
 import '../data/auth_repository_provider.dart';
-import '../domain/user.dart';
 import '../domain/auth_session.dart';
 import '../domain/register_result.dart';
 import '../domain/user_role.dart';
@@ -60,33 +55,51 @@ part 'auth_notifier.g.dart';
 /// Generated provider name: `authProvider` (Riverpod 3.x strips "Notifier").
 @Riverpod(keepAlive: true)
 class AuthNotifier extends _$AuthNotifier {
-  @override
-  Future<AuthSession> build() {
-    // F4 (corrected) — never block the splash on the KeyStore-backed storage
-    // read. Schedule the storage read + refresh as a microtask so the Future
-    // returned here resolves IMMEDIATELY (synchronously-completed) — by the
-    // time the router observes [authProvider], the AsyncNotifier has settled
-    // to AsyncData(Unauthenticated()). The background task then mutates
-    // [state] to AsyncData(Authenticated(...)) if a valid session is restored.
-    //
-    // NOTE: build() is intentionally NOT marked `async`. Using `async` would
-    // force a microtask boundary before the value is observable; returning
-    // `Future.value(...)` is observably synchronous when awaited but cleanly
-    // typed as Future<AuthSession>. This preserves the public AsyncValue
-    // surface that every consumer (router, interceptor, selectors, screens)
-    // depends on.
-    unawaited(Future.microtask(_restoreSessionInBackground));
-    return Future.value(const AuthSession.unauthenticated());
-  }
+  // HIGH-1 sentinel token (mobile-security 2026-05-24):
+  //
+  // Riverpod 3's AsyncNotifier completes `provider.future` on the FIRST
+  // `state = AsyncData(...)` assignment (or the `build()` return value,
+  // whichever comes first). A mid-build `state =` assignment therefore
+  // hijacks `provider.future` and causes it to resolve with the sentinel
+  // user rather than the real user — breaking `await authProvider.future`
+  // in tests and router guards.
+  //
+  // To preserve the HIGH-1 invariant (Bearer token present on /users/me so
+  // RefreshInterceptor cannot issue a second refresh) WITHOUT a mid-build
+  // state mutation, we use this plain Dart field. [AuthInterceptor] checks
+  // [coldStartAccessToken] when [authProvider.value] is still loading. The
+  // field is cleared to null once [build()] returns (either success or
+  // failure), at which point the settled state carries the real access token.
+  //
+  // This field is intentionally NOT part of the Riverpod state graph — it is
+  // a lightweight synchronisation primitive purely for the interceptor.
+  String? coldStartAccessToken;
 
-  /// Background restoration task — never throws. Runs after [build] returns.
-  ///
-  /// Reads the stored refresh token; if present, exchanges it for a new token
-  /// pair and loads the user profile. On any failure, wipes storage and leaves
-  /// the state as Unauthenticated.
-  ///
-  /// Mutates [state] directly — does not return anything.
-  Future<void> _restoreSessionInBackground() async {
+  @override
+  Future<AuthSession> build() async {
+    // Cold-start session restore — Riverpod emits AsyncLoading while this
+    // Future is in-flight, parking the router on /splash (auth_redirect.dart
+    // isLoading guard) until we know definitively whether the user is
+    // authenticated or not.
+    //
+    // The restore has two phases:
+    //   Phase 1 (fast, ~1–5 ms): read the refresh token from SecureStorage.
+    //     If absent → return Unauthenticated immediately (no network call).
+    //   Phase 2 (network, ~200–2000 ms): exchange the stored token for a new
+    //     token pair (repo.refresh) and load the user profile (repo.me).
+    //     On success → return Authenticated.
+    //     On any failure → wipe storage, return Unauthenticated.
+    //
+    // HIGH-1: before calling repo.me(), write the fresh access token to
+    // [coldStartAccessToken] so AuthInterceptor injects it as the Bearer
+    // header. This prevents a 401 on /users/me that would trigger a redundant
+    // second refresh via RefreshInterceptor. The field is cleared on return
+    // because the settled Authenticated state carries the real access token.
+    //
+    // Why the old "F4 synchronous return" was wrong: Future.value() completes
+    // in the same microtask as the observer's first subscription, giving Riverpod
+    // zero time to emit AsyncLoading. The auth_redirect isLoading guard was
+    // architecturally correct but unreachable. This async build() restores it.
     final storage = ref.read(secureStorageProvider);
     final rt = await storage.readRefreshToken();
 
@@ -98,44 +111,36 @@ class AuthNotifier extends _$AuthNotifier {
           level: 800,
         );
       }
-      // Already AsyncData(Unauthenticated) from build(); nothing to update.
-      return;
+      return const AuthSession.unauthenticated();
     }
 
     try {
       final repo = ref.read(authRepositoryProvider);
 
-      // HIGH-1 (mobile-security 2026-05-24): repo.refresh() is used (not
-      // cleanDio directly) to preserve the repository abstraction for tests.
-      // HttpAuthRepository.refresh() sends X-No-Retry: true on the Dio call so
-      // RefreshInterceptor cannot re-intercept a 401 from /auth/refresh and
-      // issue a second refresh with the same already-expired token.
+      // HIGH-1 (mobile-security 2026-05-24): repo.refresh() sends
+      // X-No-Retry: true so RefreshInterceptor cannot re-intercept a 401
+      // from /auth/refresh and loop with the already-expired token.
       final tokens = await repo.refresh(rt);
       await storage.writeRefreshToken(tokens.refreshToken);
 
-      // Temporarily promote state to Authenticated with the new access token
-      // BEFORE calling repo.me(). This lets AuthInterceptor inject the Bearer
-      // header on /users/me — without it the request would be unauthenticated
-      // (401), and RefreshInterceptor would issue a redundant second refresh.
-      // The sentinel user is replaced immediately once me() resolves.
-      state = AsyncData(
-        AuthSession.authenticated(
-          user: const User(id: '', email: '', role: UserRole.client),
-          accessToken: tokens.accessToken,
-        ),
-      );
+      // HIGH-1: write the fresh access token to the sentinel field so
+      // AuthInterceptor can inject the Bearer header on the subsequent
+      // repo.me() call while authProvider is still in AsyncLoading.
+      coldStartAccessToken = tokens.accessToken;
 
       final user = await repo.me();
 
       if (kDebugMode) {
         log(
-          'Cold start: session restored for user ${user.id}',
+          'Cold start: session restored for ${user.id}',
           name: 'auth',
           level: 800,
         );
       }
-      state = AsyncData(
-        AuthSession.authenticated(user: user, accessToken: tokens.accessToken),
+
+      return AuthSession.authenticated(
+        user: user,
+        accessToken: tokens.accessToken,
       );
     } on Failure catch (f) {
       if (kDebugMode) {
@@ -148,11 +153,10 @@ class AuthNotifier extends _$AuthNotifier {
         );
       }
       await storage.deleteAll();
-      // Re-assert Unauthenticated in case any caller mutated state in between
-      // (defensive — the more common path is that state is already this value).
-      state = const AsyncData(AuthSession.unauthenticated());
+      return const AuthSession.unauthenticated();
     } catch (e, st) {
-      // Catch-all — must not bubble up since this is a fire-and-forget Future.
+      // Catch-all — must not surface as AsyncError; the router handles
+      // Unauthenticated states but has no handler for AsyncError on startup.
       if (kDebugMode) {
         log(
           'Cold start refresh failed with non-Failure exception — '
@@ -164,7 +168,11 @@ class AuthNotifier extends _$AuthNotifier {
         );
       }
       await storage.deleteAll();
-      state = const AsyncData(AuthSession.unauthenticated());
+      return const AuthSession.unauthenticated();
+    } finally {
+      // Clear the sentinel regardless of outcome — the settled state (or the
+      // Unauthenticated return) no longer needs it.
+      coldStartAccessToken = null;
     }
   }
 
