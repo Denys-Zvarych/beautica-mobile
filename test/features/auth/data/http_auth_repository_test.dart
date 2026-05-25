@@ -555,6 +555,60 @@ void main() {
         );
       },
     );
+
+    // -------------------------------------------------------------------------
+    // 10b. EmailAlreadyRegisteredFailure end-to-end: backend dev mode
+    // (disclose-duplicate-registration=true) returns 409 +
+    // data.code == EMAIL_ALREADY_REGISTERED. The repository must surface the
+    // typed failure unchanged so the screen can branch on it.
+    //
+    // Mutation: if registerIndependentMaster catches DioException and re-wraps
+    // it as UnknownFailure instead of preserving the typed Failure, this test
+    // fails.
+    // -------------------------------------------------------------------------
+    test('10b. register() returns EmailAlreadyRegisteredFailure when backend '
+        'responds 409 with data.code == EMAIL_ALREADY_REGISTERED', () async {
+      const failure = EmailAlreadyRegisteredFailure();
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/register/independent-master',
+          data: any(named: 'data'),
+        ),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 409));
+
+      await expectLater(
+        () => repository.registerIndependentMaster(
+          email: 'dup@beautica.test',
+          password: 'P@ssw0rd!',
+          firstName: 'Іванна',
+          lastName: 'Коваль',
+        ),
+        throwsA(isA<EmailAlreadyRegisteredFailure>()),
+      );
+    });
+
+    test('10c. register() (SALON_OWNER → /auth/register) propagates '
+        'EmailAlreadyRegisteredFailure unchanged', () async {
+      const failure = EmailAlreadyRegisteredFailure();
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/register',
+          data: any(named: 'data'),
+        ),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 409));
+
+      await expectLater(
+        () => repository.registerIndependentMaster(
+          email: 'dup@beautica.test',
+          password: 'P@ssw0rd!',
+          firstName: 'Марія',
+          lastName: 'Ковальчук',
+          role: UserRole.salonOwner,
+          businessName: 'Краса Студія',
+        ),
+        throwsA(isA<EmailAlreadyRegisteredFailure>()),
+      );
+    });
   });
 
   // -------------------------------------------------------------------------

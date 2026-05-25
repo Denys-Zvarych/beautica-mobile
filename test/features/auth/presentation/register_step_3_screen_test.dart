@@ -141,6 +141,13 @@ GoRouter _makeRouter() => GoRouter(
         return Scaffold(body: Center(child: Text('verification:$email')));
       },
     ),
+    // /login is the navigation target of the EmailAlreadyRegisteredFailure
+    // banner CTA — used by the 409+EMAIL_ALREADY_REGISTERED test.
+    GoRoute(
+      path: RouteNames.login,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('login-screen'))),
+    ),
   ],
 );
 
@@ -1124,6 +1131,178 @@ void main() {
           'when street is empty on MASTER submit',
     );
   });
+
+  // ── EmailAlreadyRegisteredFailure (409 + EMAIL_ALREADY_REGISTERED) ───────
+  //
+  // Backend dev mode (disclose-duplicate-registration=true) returns 409 with
+  // {success:false, data:{code:"EMAIL_ALREADY_REGISTERED"}} on a duplicate-
+  // email submit. Step 3 must:
+  //   (a) NOT crash;
+  //   (b) render an inline AuthBanner with the new l10n copy
+  //       (errEmailAlreadyRegistered);
+  //   (c) expose a Sign In CTA that navigates to /login WITHOUT re-running
+  //       the register POST.
+  //
+  // Mutation: if the EmailAlreadyRegisteredFailure branch is removed from
+  // _runRegisterAndSave (so the screen falls through to the generic snackbar)
+  // this test fails because the banner key is absent.
+  testWidgets(
+    'EmailAlreadyRegisteredFailure (409) renders inline banner with new l10n '
+    'copy + Sign In CTA; tapping CTA navigates to /login without '
+    'auto-resubmitting the form',
+    (tester) async {
+      final authRepo = _MockAuthRepository();
+      when(
+        () => authRepo.registerIndependentMaster(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          role: any(named: 'role'),
+          businessName: any(named: 'businessName'),
+          address: any(named: 'address'),
+          phone: any(named: 'phone'),
+        ),
+      ).thenThrow(const EmailAlreadyRegisteredFailure());
+
+      final router = _makeRouter();
+      final container = _container(role: UserRole.client, authRepo: authRepo);
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_app(router, container));
+      await tester.pumpAndSettle();
+
+      // CLIENT skip path → fires register() with the seeded draft email/pw.
+      await _tap(tester, const ValueKey<String>('address_skip'));
+
+      // (1) Banner is present with the localised UK copy.
+      expect(
+        find.byKey(const Key('step3-email-already-registered')),
+        findsOneWidget,
+        reason:
+            'EmailAlreadyRegisteredFailure must render the dedicated AuthBanner '
+            '(key: step3-email-already-registered) so the user can recover via '
+            'the Sign In CTA.',
+      );
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(
+        find.text(l10n.errEmailAlreadyRegistered),
+        findsOneWidget,
+        reason:
+            'Banner text must use the new l10n key errEmailAlreadyRegistered '
+            '(not the server-supplied "Email already registered" string).',
+      );
+      expect(
+        find.text(l10n.errEmailAlreadyRegisteredAction),
+        findsOneWidget,
+        reason:
+            'CTA inside the banner must use the new l10n key '
+            'errEmailAlreadyRegisteredAction ("Увійти" / "Sign in").',
+      );
+
+      // (2) register() was invoked exactly once on submit — the failure path
+      // must not retry behind the scenes.
+      verify(
+        () => authRepo.registerIndependentMaster(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          role: any(named: 'role'),
+          businessName: any(named: 'businessName'),
+          address: any(named: 'address'),
+          phone: any(named: 'phone'),
+        ),
+      ).called(1);
+
+      // (3) Tap the Sign In CTA — navigates to /login.
+      await tester.tap(
+        find.byKey(const ValueKey<String>('auth_banner_action')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        router.routerDelegate.currentConfiguration.fullPath,
+        equals(RouteNames.login),
+        reason:
+            'Tapping the Sign In CTA must navigate to RouteNames.login so the '
+            'user can sign in to the existing account.',
+      );
+      expect(find.text('login-screen'), findsOneWidget);
+
+      // (4) The form did NOT auto-resubmit — no additional register calls
+      // beyond the single one already verified above.
+      verifyNever(
+        () => authRepo.registerIndependentMaster(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          role: any(named: 'role'),
+          businessName: any(named: 'businessName'),
+          address: any(named: 'address'),
+          phone: any(named: 'phone'),
+        ),
+      );
+
+      // (5) The verification screen was NOT reached (no false-positive
+      // navigation through the success path).
+      expect(find.textContaining('verification:'), findsNothing);
+    },
+  );
+
+  // ── Neutral post-registration card description copy (Part A) ──────────────
+  //
+  // Backend silently returns 200 on a duplicate-email registration (anti-
+  // enumeration). The verification card description must NOT promise
+  // "we sent a code" — it must use the conditional neutral phrasing.
+  //
+  // This test is in the step3 file because step3 is where the test framework
+  // already has the wired-up provider/router. We pump the bare verification
+  // copy via the canonical l10n lookup so the assertion is independent of
+  // the screen widget structure (the verification screen is exercised in
+  // verification_screen_test.dart; here we lock the COPY itself).
+  testWidgets(
+    'verificationCardDesc resolves to the neutral conditional copy in uk '
+    '(no "Ми надіслали" / "we sent" phrasing)',
+    (tester) async {
+      // Render a minimal MaterialApp with only AppLocalizations so we can
+      // assert the resolved string for the uk locale.
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          home: Builder(
+            builder: (ctx) => Scaffold(
+              body: Text(AppLocalizations.of(ctx).verificationCardDesc),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Positive assertion: the new neutral wording is present.
+      expect(
+        find.textContaining('Якщо ця електронна адреса ще не зареєстрована'),
+        findsOneWidget,
+        reason:
+            'verificationCardDesc (uk) must use the conditional neutral '
+            'phrasing — backend anti-enumeration means we cannot promise '
+            'a code was sent.',
+      );
+
+      // Negative assertion: the old affirmative phrasing must be gone. If
+      // someone reverts the .arb the negative assertion catches it even if
+      // the positive one still happens to match a different paragraph.
+      expect(
+        find.textContaining('Ми надіслали'),
+        findsNothing,
+        reason:
+            'The legacy "Ми надіслали" copy must not be present — it lies '
+            'about send semantics in the anti-enumeration flow.',
+      );
+    },
+  );
 
   // ── Location icon tile (Phase 2.x icon standardisation) ───────────────────
   testWidgets('location_on_outlined icon tile renders at top of Step 3 '

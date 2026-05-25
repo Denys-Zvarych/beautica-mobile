@@ -136,6 +136,14 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
   String? _streetError;
   String? _buildingError;
 
+  /// True when the last submit returned [EmailAlreadyRegisteredFailure] (backend
+  /// 409 + data.code == EMAIL_ALREADY_REGISTERED, dev `disclose-duplicate-
+  /// registration=true`). When set, the screen renders an inline AuthBanner
+  /// with a localized message + Sign In CTA so the user can navigate to /login
+  /// instead of re-submitting. Cleared on any subsequent field edit / picker
+  /// change so the banner does not persist past the next interaction.
+  bool _emailAlreadyRegistered = false;
+
   @override
   void initState() {
     super.initState();
@@ -280,7 +288,12 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
       return;
     }
 
-    setState(() => _submitting = true);
+    setState(() {
+      _submitting = true;
+      // Clear any banner from a previous duplicate-email attempt so the user
+      // is not visually penalised for retrying with a different email.
+      _emailAlreadyRegistered = false;
+    });
 
     try {
       if (kDebugMode) {
@@ -310,6 +323,17 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
       // register() returns null only when an AsyncError was captured.
       if (result == null) {
         final error = ref.read(authProvider).error;
+        // Phase / backlog — Backend dev mode (disclose-duplicate-registration)
+        // returns 409 + data.code == EMAIL_ALREADY_REGISTERED for a duplicate
+        // email. Surface as an inline AuthBanner with a localised message + a
+        // Sign In CTA so the user can navigate to /login without re-submitting
+        // the form. The duplicate-email signal is intentionally NOT a snackbar
+        // because the recovery action (Sign In) is a primary affordance, not a
+        // throwaway notice.
+        if (error is EmailAlreadyRegisteredFailure) {
+          setState(() => _emailAlreadyRegistered = true);
+          return;
+        }
         _showSnackBar(
           error is Failure ? error.userMessage(context) : l10n.errUnknown,
         );
@@ -402,6 +426,27 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
             style: VelvetText.body(),
           ),
           const SizedBox(height: VelvetSpacing.sm),
+
+          // ── Email-already-registered banner (409 + EMAIL_ALREADY_REGISTERED)
+          // Rendered only when the last submit returned the typed failure.
+          // The CTA navigates to /login — it does NOT re-submit the form.
+          if (_emailAlreadyRegistered) ...<Widget>[
+            AuthBanner(
+              key: const Key('step3-email-already-registered'),
+              icon: Icons.error_outline_rounded,
+              color: BrandColors.error,
+              message: l10n.errEmailAlreadyRegistered,
+              actionLabel: l10n.errEmailAlreadyRegisteredAction,
+              onAction: () {
+                // Clear the in-progress draft (password) before navigating so
+                // the plaintext credential does not linger past the abort
+                // (matches the step1 Sign In link's reset() semantics).
+                ref.read(registerDraftProvider.notifier).reset();
+                context.go(RouteNames.login);
+              },
+            ),
+            const SizedBox(height: VelvetSpacing.md),
+          ],
 
           // ── Locality cascade ───────────────────────────────────────────────
           _LocalityBlock(

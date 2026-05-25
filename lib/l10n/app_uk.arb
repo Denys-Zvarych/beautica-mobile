@@ -42,6 +42,14 @@
   "@errUnknown": {
     "description": "Fallback error message for unexpected failures."
   },
+  "errEmailAlreadyRegistered": "Ця електронна адреса вже зареєстрована. Увійдіть до облікового запису.",
+  "@errEmailAlreadyRegistered": {
+    "description": "Inline error shown on the registration submit when the backend returns 409 with data.code == EMAIL_ALREADY_REGISTERED (backend disclose-duplicate-registration mode). Surfaced via EmailAlreadyRegisteredFailure.userMessage."
+  },
+  "errEmailAlreadyRegisteredAction": "Увійти",
+  "@errEmailAlreadyRegisteredAction": {
+    "description": "CTA label inside the EmailAlreadyRegisteredFailure banner; tapping navigates the user to the login screen so they can sign in instead of re-submitting registration."
+  },
   "retryLabel": "Спробувати знову",
   "@retryLabel": {
     "description": "Label for the retry button shown in error states."
@@ -512,9 +520,9 @@
   "@verificationCardTitle": {
     "description": "Card heading on the email verification screen (verification-page.html .card-title)."
   },
-  "verificationCardDesc": "Ми надіслали 6-значний код на",
+  "verificationCardDesc": "Якщо ця електронна адреса ще не зареєстрована, ви отримаєте 6-значний код на",
   "@verificationCardDesc": {
-    "description": "Card description before the masked email address (verification-page.html .card-desc)."
+    "description": "Neutral post-registration card description shown above the masked email on the verification screen. Backend silently returns 200 on a duplicate-email registration (anti-enumeration), so the copy must NOT promise that a code was actually sent — the phrasing is conditional. Originally read \"Ми надіслали 6-значний код на\" (\"We sent a 6-digit code to\")."
   },
   "verificationResendPrompt": "Не отримали код?",
   "@verificationResendPrompt": {

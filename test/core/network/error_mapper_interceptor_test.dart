@@ -147,9 +147,14 @@ void main() {
       expect(failure.statusCode, 503);
     });
 
-    test('HTTP 409 Conflict → ServerFailure(statusCode: 409)', () {
+    test('HTTP 409 Conflict WITHOUT EMAIL_ALREADY_REGISTERED → '
+        'ServerFailure(statusCode: 409)', () {
+      // No data.code present — must fall through to generic ServerFailure
+      // so other 409 resource-conflict variants keep their existing
+      // retryable behaviour.
       final rejected = _captureRejected(_httpError(409));
       expect(rejected.error, isA<ServerFailure>());
+      expect(rejected.error, isNot(isA<EmailAlreadyRegisteredFailure>()));
       final failure = rejected.error as ServerFailure;
       expect(failure.statusCode, 409);
     });
@@ -647,6 +652,103 @@ void main() {
 
       // 429 is not in the generic mapping table, so it falls through.
       expect(rejected.error, isA<UnknownFailure>());
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // EMAIL_ALREADY_REGISTERED — backend dev mode (disclose-duplicate-
+  // registration). Backend returns 409 with envelope:
+  //   {success:false, data:{code:"EMAIL_ALREADY_REGISTERED"},
+  //    message:"Email already registered"}
+  // ---------------------------------------------------------------------------
+
+  group('ErrorMapperInterceptor — 409 EMAIL_ALREADY_REGISTERED', () {
+    test('409 with data.code == EMAIL_ALREADY_REGISTERED → '
+        'EmailAlreadyRegisteredFailure (must fail if the code-string check is '
+        'removed from _mapError)', () {
+      final rejected = _captureRejected(
+        _httpError(
+          409,
+          path: '/auth/register',
+          body: {
+            'success': false,
+            'data': {'code': 'EMAIL_ALREADY_REGISTERED'},
+            'message': 'Email already registered',
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<EmailAlreadyRegisteredFailure>());
+      // Cross-check: must NOT be the generic ServerFailure that the old
+      // path would have returned. Removing the code-string check from
+      // _mapError causes this assertion to fail.
+      expect(rejected.error, isNot(isA<ServerFailure>()));
+    });
+
+    test(
+      '409 on /auth/register/independent-master with EMAIL_ALREADY_REGISTERED '
+      '→ EmailAlreadyRegisteredFailure (path-agnostic — both /auth/register '
+      'and /auth/register/independent-master are valid duplicate-email sources)',
+      () {
+        final rejected = _captureRejected(
+          _httpError(
+            409,
+            path: '/auth/register/independent-master',
+            body: {
+              'success': false,
+              'data': {'code': 'EMAIL_ALREADY_REGISTERED'},
+              'message': 'Email already registered',
+            },
+          ),
+        );
+
+        expect(rejected.error, isA<EmailAlreadyRegisteredFailure>());
+      },
+    );
+
+    test('409 with data.code == EMAIL_ALREADY_REGISTERED carries the original '
+        'DioException as cause (logging)', () {
+      final input = _httpError(
+        409,
+        path: '/auth/register',
+        body: {
+          'success': false,
+          'data': {'code': 'EMAIL_ALREADY_REGISTERED'},
+        },
+      );
+      final rejected = _captureRejected(input);
+      expect(rejected.error, isA<EmailAlreadyRegisteredFailure>());
+      expect((rejected.error as Failure).cause, same(input));
+    });
+
+    test(
+      '409 with data.code == UNKNOWN_FUTURE_CODE → ServerFailure (only the '
+      'exact EMAIL_ALREADY_REGISTERED wire code triggers the typed failure)',
+      () {
+        final rejected = _captureRejected(
+          _httpError(
+            409,
+            path: '/auth/register',
+            body: {
+              'success': false,
+              'data': {'code': 'SOMETHING_NEW'},
+            },
+          ),
+        );
+
+        expect(rejected.error, isA<ServerFailure>());
+        expect(rejected.error, isNot(isA<EmailAlreadyRegisteredFailure>()));
+      },
+    );
+
+    test('409 with no data envelope → ServerFailure (genuinely-malformed 409s '
+        'still fall through to the retryable server-error branch)', () {
+      final rejected = _captureRejected(
+        _httpError(409, path: '/auth/register', body: {'message': 'Conflict'}),
+      );
+
+      expect(rejected.error, isA<ServerFailure>());
+      expect(rejected.error, isNot(isA<EmailAlreadyRegisteredFailure>()));
     });
   });
 

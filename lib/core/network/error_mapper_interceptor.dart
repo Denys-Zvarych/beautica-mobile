@@ -112,10 +112,18 @@ final class ErrorMapperInterceptor extends Interceptor {
         );
       }
       if (statusCode == 404) return NotFoundFailure(cause: err);
-      // HTTP 409 Conflict — email already registered during sign-up (or any
-      // other resource-conflict). Map to ServerFailure so the screen surfaces
-      // the generic "server error" copy rather than the opaque errUnknown.
+      // HTTP 409 Conflict — backend `disclose-duplicate-registration` mode
+      // (currently dev only via application-local.yml) returns 409 with
+      // {success:false, data:{code:"EMAIL_ALREADY_REGISTERED"}} on duplicate
+      // registration. Surface as the dedicated typed failure so the step-3
+      // submit handler can render an inline error + Sign In CTA without
+      // probing strings. Other 409 shapes (resource-conflict, future codes)
+      // still fall through to ServerFailure so callers continue to receive
+      // a generic retryable error.
       if (statusCode == 409) {
+        if (_isEmailAlreadyRegistered(err)) {
+          return EmailAlreadyRegisteredFailure(cause: err);
+        }
         return ServerFailure(statusCode: statusCode, cause: err);
       }
       if (statusCode == 400 || statusCode == 422) {
@@ -130,6 +138,35 @@ final class ErrorMapperInterceptor extends Interceptor {
     }
 
     return UnknownFailure(cause: err);
+  }
+
+  /// Returns `true` when the 409 response body contains the
+  /// `EMAIL_ALREADY_REGISTERED` sub-code.
+  ///
+  /// Expected backend envelope shape (`disclose-duplicate-registration=true`):
+  /// ```json
+  /// {
+  ///   "success": false,
+  ///   "data": { "code": "EMAIL_ALREADY_REGISTERED" },
+  ///   "message": "Email already registered"
+  /// }
+  /// ```
+  /// Returns `false` for any other 409 shape so the caller falls through to
+  /// the generic [ServerFailure] mapping (other resource-conflict variants
+  /// continue to surface their existing retryable behaviour).
+  bool _isEmailAlreadyRegistered(DioException err) {
+    try {
+      final body = err.response?.data;
+      if (body is Map<String, dynamic>) {
+        final data = body['data'];
+        if (data is Map<String, dynamic>) {
+          return data['code'] == 'EMAIL_ALREADY_REGISTERED';
+        }
+      }
+    } catch (_) {
+      // Swallow parse errors — fall back to false (generic ServerFailure).
+    }
+    return false;
   }
 
   /// Returns `true` when the 401 response body contains the `EMAIL_NOT_VERIFIED`

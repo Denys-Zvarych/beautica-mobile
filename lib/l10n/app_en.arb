@@ -42,6 +42,14 @@
   "@errUnknown": {
     "description": "Fallback error message for unexpected failures."
   },
+  "errEmailAlreadyRegistered": "This email is already registered. Please sign in instead.",
+  "@errEmailAlreadyRegistered": {
+    "description": "Inline error shown on the registration submit when the backend returns 409 with data.code == EMAIL_ALREADY_REGISTERED (backend disclose-duplicate-registration mode). Surfaced via EmailAlreadyRegisteredFailure.userMessage."
+  },
+  "errEmailAlreadyRegisteredAction": "Sign in",
+  "@errEmailAlreadyRegisteredAction": {
+    "description": "CTA label inside the EmailAlreadyRegisteredFailure banner; tapping navigates the user to the login screen so they can sign in instead of re-submitting registration."
+  },
   "retryLabel": "Try again",
   "@retryLabel": {
     "description": "Label for the retry button shown in error states."
@@ -512,9 +520,9 @@
   "@verificationCardTitle": {
     "description": "Card heading on the email verification screen (verification-page.html .card-title)."
   },
-  "verificationCardDesc": "We sent a 6-digit code to",
+  "verificationCardDesc": "If this email isn't already registered, you'll receive a 6-digit code at",
   "@verificationCardDesc": {
-    "description": "Card description before the masked email address (verification-page.html .card-desc)."
+    "description": "Neutral post-registration card description shown above the masked email on the verification screen. Backend silently returns 200 on a duplicate-email registration (anti-enumeration), so the copy must NOT promise that a code was actually sent — the phrasing is conditional. Originally read \"We sent a 6-digit code to\"."
   },
   "verificationResendPrompt": "Didn't receive a code?",
   "@verificationResendPrompt": {

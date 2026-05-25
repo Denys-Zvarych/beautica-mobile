@@ -203,6 +203,35 @@ final class ResendThrottledFailure extends Failure {
   ).verificationErrResendThrottled(retryAfterSeconds);
 }
 
+/// Emitted when `POST /auth/register` (or its role-specific variant) returns
+/// HTTP 409 with the typed `data.code == "EMAIL_ALREADY_REGISTERED"` envelope.
+///
+/// Backend default behaviour is to silently return 200 on a duplicate-email
+/// registration (anti-enumeration). When the `app.security
+/// .disclose-duplicate-registration` flag is true (currently `application-
+/// local.yml` in dev), the backend instead returns 409 with this envelope:
+/// ```json
+/// {
+///   "success": false,
+///   "data": { "code": "EMAIL_ALREADY_REGISTERED" },
+///   "message": "Email already registered"
+/// }
+/// ```
+/// The mobile must surface a useful localized message + a "Sign In" CTA. The
+/// server-supplied `message` field is intentionally NOT used — the mobile owns
+/// the displayed copy (l10n) so it can stay in voice with the rest of the
+/// auth surface.
+///
+/// Mapped by [ErrorMapperInterceptor]; re-thrown unchanged by the auth
+/// repository so the register notifier / step screen can branch on it.
+final class EmailAlreadyRegisteredFailure extends Failure {
+  const EmailAlreadyRegisteredFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errEmailAlreadyRegistered;
+}
+
 /// Emitted when `POST /auth/reset-password` returns the backend's generic
 /// 400 for an invalid, used, or expired reset token (backend Phase 11.3).
 ///
