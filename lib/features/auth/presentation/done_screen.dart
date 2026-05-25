@@ -25,6 +25,7 @@ import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
+import '../domain/user.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_selectors.dart';
 import 'user_role_l10n.dart';
@@ -70,9 +71,7 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
     final l10n = AppLocalizations.of(context);
     final user = ref.watch(currentUserProvider);
 
-    final firstName = (user?.firstName?.trim().isNotEmpty ?? false)
-        ? user!.firstName!.trim()
-        : (user?.email.split('@').first ?? l10n.registerDoneGreetingFallback);
+    final displayName = _resolveDisplayName(user, l10n);
     final roleLabel = user?.role.label(l10n) ?? l10n.registerDoneChipRoleClient;
     final roleIcon = user?.role.icon ?? Icons.person_outline_rounded;
 
@@ -130,7 +129,7 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
           // Personalised headline.
           Text(
             key: const Key('done-greeting'),
-            l10n.registerDoneGreeting(firstName),
+            l10n.registerDoneGreeting(displayName),
             style: VelvetText.heading().copyWith(fontSize: 26),
             textAlign: TextAlign.center,
           ),
@@ -186,6 +185,27 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Display-name resolver
+// ---------------------------------------------------------------------------
+
+/// Returns the best available display name for the greeting headline.
+///
+/// Priority: full name (first + last) → first-only → last-only → l10n fallback.
+/// The email address is never used — per the Phase 2.12 fix that removed the
+/// `email.split('@').first` fallback.
+String _resolveDisplayName(User? user, AppLocalizations l10n) {
+  if (user == null) return l10n.registerDoneGreetingFallback;
+
+  final first = user.firstName?.trim() ?? '';
+  final last = user.lastName?.trim() ?? '';
+
+  if (first.isNotEmpty && last.isNotEmpty) return '$first $last';
+  if (first.isNotEmpty) return first;
+  if (last.isNotEmpty) return last;
+  return l10n.registerDoneGreetingFallback;
 }
 
 // ---------------------------------------------------------------------------

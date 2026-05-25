@@ -140,8 +140,8 @@ void main() {
     // Test 1 — Personalised greeting renders the user's first name
     // -----------------------------------------------------------------------
     testWidgets(
-      '1. renders "Вітаємо, {firstName}!" with the authenticated user\'s '
-      'first name',
+      '1. renders "Вітаємо, {displayName}!" with the authenticated user\'s '
+      'full name (first + last) when both fields are present',
       (tester) async {
         final router = _makeRouter();
         addTearDown(router.dispose);
@@ -155,12 +155,14 @@ void main() {
         final greeting = tester.widget<Text>(
           find.byKey(const Key('done-greeting')),
         );
+        // _userWithName has firstName='Анна' AND lastName='Коваль',
+        // so _resolveDisplayName returns 'Анна Коваль'.
         expect(
           greeting.data,
-          equals(_l10n(tester).registerDoneGreeting('Анна')),
+          equals(_l10n(tester).registerDoneGreeting('Анна Коваль')),
           reason:
-              'greeting must interpolate User.firstName from the '
-              'authenticated session',
+              'greeting must interpolate the full name (first + last) when '
+              'both User.firstName and User.lastName are non-empty',
         );
 
         // Italic-camel subtitle is present.
@@ -172,34 +174,129 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // Test 2 — Fallback greeting when User has no first name
+    // Test 2 — Fallback greeting when User has neither first nor last name
     // -----------------------------------------------------------------------
-    testWidgets('2. falls back to email username when User.firstName is null', (
-      tester,
-    ) async {
-      final router = _makeRouter();
-      addTearDown(router.dispose);
+    testWidgets(
+      '2. falls back to l10n placeholder when User has no firstName and no '
+      'lastName (email address must never appear in the greeting)',
+      (tester) async {
+        final router = _makeRouter();
+        addTearDown(router.dispose);
 
-      await _pumpDoneScreen(
-        tester,
-        authenticatedUser: _userWithoutName,
-        router: router,
-      );
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _userWithoutName,
+          router: router,
+        );
 
-      final greeting = tester.widget<Text>(
-        find.byKey(const Key('done-greeting')),
-      );
-      final l10n = _l10n(tester);
-      // When firstName is null/empty the screen derives the display name
-      // from email.split('@').first ('noname' from 'noname@beautica.test').
-      expect(
-        greeting.data,
-        equals(l10n.registerDoneGreeting('noname')),
-        reason:
-            'when User.firstName is null/empty the greeting must use '
-            'the email username prefix as the display name',
-      );
-    });
+        final greeting = tester.widget<Text>(
+          find.byKey(const Key('done-greeting')),
+        );
+        final l10n = _l10n(tester);
+        // _userWithoutName has no firstName and no lastName.
+        // _resolveDisplayName must return the l10n fallback — never the
+        // email address or its local-part.
+        expect(
+          greeting.data,
+          equals(l10n.registerDoneGreeting(l10n.registerDoneGreetingFallback)),
+          reason:
+              'when both User.firstName and User.lastName are null/empty the '
+              'greeting must use registerDoneGreetingFallback — the email '
+              'address must never appear in the greeting text',
+        );
+        // Confirm the raw email string does NOT appear anywhere on screen.
+        expect(
+          find.textContaining('noname@beautica.test'),
+          findsNothing,
+          reason: 'email address must not appear anywhere in the greeting UI',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 2b — last-name-only fallback when firstName is null but lastName
+    //           is non-null.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '2b. uses lastName as display name when firstName is null but lastName '
+      'is non-empty',
+      (tester) async {
+        const userLastNameOnly = User(
+          id: 'u3',
+          email: 'lastnameonly@beautica.test',
+          role: UserRole.client,
+          // firstName is intentionally omitted (null).
+          lastName: 'Шевченко',
+        );
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: userLastNameOnly,
+          router: router,
+        );
+
+        final greeting = tester.widget<Text>(
+          find.byKey(const Key('done-greeting')),
+        );
+        expect(
+          greeting.data,
+          equals(_l10n(tester).registerDoneGreeting('Шевченко')),
+          reason:
+              'when User.firstName is null but User.lastName is non-empty '
+              '_resolveDisplayName must return the lastName alone',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 2c — firstName-only path: firstName non-empty, lastName null.
+    //           Covers the B3 branch of _resolveDisplayName, which was not
+    //           previously exercised by any test in the suite.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '2c. uses firstName as display name when firstName is non-empty but '
+      'lastName is null (email address must never appear on screen)',
+      (tester) async {
+        const userFirstNameOnly = User(
+          id: 'u4',
+          email: 'firstnameonly@beautica.test',
+          role: UserRole.client,
+          firstName: 'Олег',
+          // lastName intentionally omitted (null) — exercises B3 branch.
+        );
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: userFirstNameOnly,
+          router: router,
+        );
+
+        final greeting = tester.widget<Text>(
+          find.byKey(const Key('done-greeting')),
+        );
+        expect(
+          greeting.data,
+          equals(_l10n(tester).registerDoneGreeting('Олег')),
+          reason:
+              'when User.firstName is non-empty and User.lastName is null '
+              '_resolveDisplayName must return the firstName alone (B3 branch)',
+        );
+
+        // Email-safety invariant: the raw email address must not appear
+        // anywhere in the UI, even as part of a chip or subtitle widget.
+        expect(
+          find.textContaining('firstnameonly@beautica.test'),
+          findsNothing,
+          reason: 'email address must never be surfaced in the greeting UI',
+        );
+      },
+    );
 
     // -----------------------------------------------------------------------
     // Test 3 — Three summary chips are rendered
