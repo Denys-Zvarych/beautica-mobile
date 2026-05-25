@@ -14,23 +14,25 @@
 //       Key('btn-save-step3')          → ValueKey<String>('address_submit')  (CLIENT)
 //       Key('btn-save-continue-step3') → ValueKey<String>('address_submit')  (MASTER/OWNER)
 //   - Skip affordance is now a GestureDetector (was InkWell).
-//   - Layout: SubStepIndicator is nested inside a NeumorphicCard (Test 1b probe
-//     path updated).
+// - Layout: SubStepIndicator and its NeumorphicCard wrapper removed; SizedBox(sm) spacer added between sub-text and LocalityCascade.
 //
-// Covered scenarios (unchanged):
-//   1. CLIENT renders 3 picker rows + split CTA, NO street/building/note.
+// Covered scenarios:
+//   1.  CLIENT renders 3 picker rows + split CTA, NO street/building/note.
 //   1b. CLIENT "Пропустити" link renders with maxLines == 1.
-//   2. MASTER renders 3 picker rows + street/building/note + single CTA.
-//   3. OWNER renders 3 picker rows + street/building/note + single CTA.
-//   4. CLIENT "Пропустити" → register → /verification (no provider save).
-//   5. MASTER full submit → register, stash locality in draft → /verification.
-//   6. OWNER full submit → register, stash salon locality → /verification.
-//   7. City-without-districts → District disabled; submit OK; draft districtId null.
-//   8. City-with-districts, district unpicked → submit blocked; "Оберіть район"
-//      under the DISTRICT row.
-//   9. (Defect 2) CLIENT Save error → Skip proves _submitting resets.
+//   2.  MASTER renders 3 picker rows + street/building/note + single CTA.
+//   3.  OWNER renders 3 picker rows + street/building/note + single CTA.
+//   4.  CLIENT "Пропустити" → register → /verification (no provider save).
+//   5.  MASTER full submit → register, stash locality in draft → /verification.
+//   6.  OWNER full submit → register, stash salon locality → /verification.
+//   7.  City-without-districts → District disabled; submit OK; draft districtId null.
+//   8.  City-with-districts, district unpicked → submit blocked; "Оберіть район"
+//       under the DISTRICT row.
+//   9.  (Defect 2) CLIENT Save error → Skip proves _submitting resets.
 //   10. Register failure → snackbar, no profile-save, no navigate.
 //   11. Successful register clears draft password before /verification.
+//   12. auth_scaffold_back navigates to /register/step-2 without firing register POST.
+//   13. Already-registered guard: draft.password empty → skip register() → /verification.
+//   14. initState prefetch: oblastListProvider is read on first frame.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';

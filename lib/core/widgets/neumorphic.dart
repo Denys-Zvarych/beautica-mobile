@@ -40,9 +40,21 @@ class NeumorphicCard extends StatelessWidget {
 /// fields and selected/active surfaces. Flutter's [BoxShadow] cannot render
 /// inner shadows, so we paint two offset inner glows on a clipped canvas.
 class _InsetShadowPainter extends CustomPainter {
-  const _InsetShadowPainter({required this.radius});
+  // Paint objects hoisted to instance fields so they are allocated once per
+  // painter instance instead of on every paint() call.
+  _InsetShadowPainter({required this.radius});
 
   final double radius;
+
+  final Paint _dark = Paint()
+    ..color = BrandColors.shadowDarkButton
+    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+
+  final Paint _light = Paint()
+    ..color = BrandColors.shadowLightStrong
+    ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+
+  final Paint _fill = Paint()..color = BrandColors.base;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -55,20 +67,13 @@ class _InsetShadowPainter extends CustomPainter {
       ..clipRRect(rrect);
 
     // Dark inner shadow from the top-left.
-    final Paint dark = Paint()
-      ..color = BrandColors.shadowDarkButton
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-    canvas.drawRRect(rrect.shift(const Offset(-5, -5)).inflate(0), dark);
+    canvas.drawRRect(rrect.shift(const Offset(-5, -5)).inflate(0), _dark);
 
     // Light inner shadow from the bottom-right (drawn as an inverse stroke).
-    final Paint light = Paint()
-      ..color = BrandColors.shadowLightStrong
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
-    canvas.drawRRect(rrect.shift(const Offset(5, 5)).inflate(0), light);
+    canvas.drawRRect(rrect.shift(const Offset(5, 5)).inflate(0), _light);
 
     // Re-fill the centre with the base tone so only the rim glows remain.
-    final Paint fill = Paint()..color = BrandColors.base;
-    canvas.drawRRect(rrect.deflate(4), fill);
+    canvas.drawRRect(rrect.deflate(4), _fill);
 
     canvas.restore();
   }
@@ -191,6 +196,9 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
   );
 
   late final FocusNode _focusNode;
+  // Cached once in initState — widget.prefixIcon is set at construction time
+  // and never changes, so evaluating it once avoids a conditional per build.
+  late final EdgeInsets _contentPadding;
   bool _obscured = true;
   bool _focused = false;
 
@@ -199,6 +207,12 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
     super.initState();
     _focusNode = widget.focusNode ?? FocusNode();
     _focusNode.addListener(_onFocusChange);
+    _contentPadding = EdgeInsets.symmetric(
+      horizontal: widget.prefixIcon == null
+          ? VelvetSpacing.md
+          : VelvetSpacing.sm,
+      vertical: VelvetSpacing.md,
+    );
   }
 
   void _onFocusChange() {
@@ -284,12 +298,7 @@ class _NeumorphicTextFieldState extends State<NeumorphicTextField> {
                       border: InputBorder.none,
                       hintText: widget.hintText,
                       hintStyle: _hintStyle,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: widget.prefixIcon == null
-                            ? VelvetSpacing.md
-                            : VelvetSpacing.sm,
-                        vertical: VelvetSpacing.md,
-                      ),
+                      contentPadding: _contentPadding,
                     ),
                   ),
                 ),
@@ -373,6 +382,18 @@ class NeumorphicButton extends StatefulWidget {
 }
 
 class _NeumorphicButtonState extends State<NeumorphicButton> {
+  // Hoisted to avoid re-allocation on every build; VelvetRadii.button is a
+  // compile-time constant so the whole BorderRadius can be const.
+  static const BorderRadius _buttonRadius = BorderRadius.all(
+    Radius.circular(VelvetRadii.button),
+  );
+
+  // Disabled CTA text style — BrandColors.white (0xFFF5EDE0) at alpha 0.55
+  // (0x8C = 140 ≈ 0.55 × 255). Static so copyWith() runs only once.
+  static final TextStyle _ctaDisabledStyle = VelvetText.cta().copyWith(
+    color: const Color(0x8CF5EDE0),
+  );
+
   bool _pressed = false;
 
   bool get _enabled => widget.onPressed != null && !widget.loading;
@@ -410,13 +431,13 @@ class _NeumorphicButtonState extends State<NeumorphicButton> {
                     BrandColors.accentDeep,
                   ],
                 ),
-                borderRadius: BorderRadius.circular(VelvetRadii.button),
+                borderRadius: _buttonRadius,
                 boxShadow: _pressed || !_enabled
                     ? null
                     : VelvetShadows.extrudedButtonAccent,
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(VelvetRadii.button),
+                borderRadius: _buttonRadius,
                 child: Stack(
                   children: <Widget>[
                     // Label / spinner layer.
@@ -448,15 +469,12 @@ class _NeumorphicButtonState extends State<NeumorphicButton> {
                                 // Phase 2.17 fix P1-3: zero-allocation on enabled
                                 // path — VelvetText.cta() already carries
                                 // color: BrandColors.white so no copyWith needed.
+                                // Disabled style cached in _ctaDisabledStyle.
                                 Text(
                                   widget.label,
                                   style: _enabled
                                       ? VelvetText.cta()
-                                      : VelvetText.cta().copyWith(
-                                          color: BrandColors.white.withValues(
-                                            alpha: 0.55,
-                                          ),
-                                        ),
+                                      : _ctaDisabledStyle,
                                 ),
                               ],
                             ),
@@ -466,7 +484,7 @@ class _NeumorphicButtonState extends State<NeumorphicButton> {
                     // enabled state; hidden when pressed so the flat look sells
                     // the "depressed" feel.
                     if (!_pressed && _enabled)
-                      Positioned.fill(
+                      const Positioned.fill(
                         child: IgnorePointer(
                           child: DecoratedBox(
                             decoration: BoxDecoration(
@@ -474,11 +492,11 @@ class _NeumorphicButtonState extends State<NeumorphicButton> {
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
                                 colors: <Color>[
-                                  Colors.white.withValues(alpha: 0.28),
+                                  Color(0x47FFFFFF), // white @ 0.28 (71/255)
                                   Colors.transparent,
-                                  Colors.black.withValues(alpha: 0.14),
+                                  Color(0x24000000), // black @ 0.14 (36/255)
                                 ],
-                                stops: const <double>[0.0, 0.45, 1.0],
+                                stops: <double>[0.0, 0.45, 1.0],
                               ),
                             ),
                           ),
@@ -507,6 +525,17 @@ class NeumorphicTile extends StatelessWidget {
     this.selected = false,
   });
 
+  // Cached subtitle style — body at 13 px. Static so copyWith() runs once.
+  static final TextStyle _subtitleStyle = VelvetText.body().copyWith(
+    fontSize: 13,
+  );
+
+  // Hoisted: VelvetRadii.field is a compile-time constant so the BorderRadius
+  // can be static const, avoiding an allocation per build for the icon container.
+  static const BorderRadius _iconContainerRadius = BorderRadius.all(
+    Radius.circular(VelvetRadii.field),
+  );
+
   final IconData icon;
   final String title;
   final String subtitle;
@@ -527,7 +556,7 @@ class NeumorphicTile extends StatelessWidget {
             width: 44,
             decoration: BoxDecoration(
               color: BrandColors.base,
-              borderRadius: BorderRadius.circular(VelvetRadii.field),
+              borderRadius: _iconContainerRadius,
               boxShadow: selected ? null : VelvetShadows.extrudedSmall,
             ),
             child: Icon(
@@ -543,7 +572,7 @@ class NeumorphicTile extends StatelessWidget {
               children: <Widget>[
                 Text(title, style: VelvetText.subheading()),
                 const SizedBox(height: 2),
-                Text(subtitle, style: VelvetText.body().copyWith(fontSize: 13)),
+                Text(subtitle, style: _subtitleStyle),
               ],
             ),
           ),
@@ -580,6 +609,26 @@ class VelvetLogo extends StatelessWidget {
 
   final bool compact;
 
+  // Hoisted to avoid a .copyWith() allocation on every rebuild.
+  // VelvetText.heading() returns a cached static final; .copyWith() always
+  // allocates a new TextStyle, so pre-compute both variants once.
+  static final TextStyle _logoStyleLarge = VelvetText.heading().copyWith(
+    fontSize: 36,
+    color: BrandColors.accentLogo,
+    fontWeight: FontWeight.w700,
+  );
+  static final TextStyle _logoStyleCompact = VelvetText.heading().copyWith(
+    fontSize: 30,
+    color: BrandColors.accentLogo,
+    fontWeight: FontWeight.w700,
+  );
+
+  // Hoisted: VelvetRadii.logoTile is a compile-time constant so the whole
+  // BorderRadius can be a static const, avoiding an allocation per build.
+  static const BorderRadius _logoTileRadius = BorderRadius.all(
+    Radius.circular(VelvetRadii.logoTile),
+  );
+
   @override
   Widget build(BuildContext context) {
     final double tile = compact ? 72 : VelvetSizes.logoTile;
@@ -591,19 +640,15 @@ class VelvetLogo extends StatelessWidget {
           Container(
             height: tile,
             width: tile,
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               color: BrandColors.base,
-              borderRadius: BorderRadius.circular(VelvetRadii.logoTile),
+              borderRadius: _logoTileRadius,
               boxShadow: VelvetShadows.extrudedSmall,
             ),
             child: Center(
               child: Text(
                 'B',
-                style: VelvetText.heading().copyWith(
-                  fontSize: compact ? 30 : 36,
-                  color: BrandColors.accentLogo,
-                  fontWeight: FontWeight.w700,
-                ),
+                style: compact ? _logoStyleCompact : _logoStyleLarge,
               ),
             ),
           ),
@@ -653,6 +698,12 @@ class NeumorphicIconButton extends StatelessWidget {
   final VoidCallback onTap;
   final String semanticLabel;
 
+  // Hoisted: VelvetRadii.field is a compile-time constant so the BorderRadius
+  // can be static const, avoiding an allocation per build.
+  static const BorderRadius _buttonRadius = BorderRadius.all(
+    Radius.circular(VelvetRadii.field),
+  );
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
@@ -663,9 +714,9 @@ class NeumorphicIconButton extends StatelessWidget {
         child: Container(
           height: 48,
           width: 48,
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             color: BrandColors.base,
-            borderRadius: BorderRadius.circular(VelvetRadii.field),
+            borderRadius: _buttonRadius,
             boxShadow: VelvetShadows.extrudedSmall,
           ),
           child: Icon(icon, color: BrandColors.textSecondary, size: 22),

@@ -190,6 +190,79 @@ void main() {
       final TextField after = tester.widget<TextField>(find.byType(TextField));
       expect(after.obscureText, isFalse);
     });
+
+    // Phase 2.17 regression — _contentPadding is cached once in initState.
+    // The branch is: prefixIcon == null → horizontal: VelvetSpacing.md (16);
+    //                prefixIcon != null → horizontal: VelvetSpacing.sm (8).
+    // Verify both branches produce the expected contentPadding on the TextField
+    // so a future refactor that accidentally re-evaluates the wrong path is caught.
+    testWidgets(
+      'contentPadding uses VelvetSpacing.md horizontal when no prefixIcon',
+      (WidgetTester tester) async {
+        final controller = TextEditingController();
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(
+          _wrap(
+            NeumorphicTextField(
+              key: const Key('tf_padding_no_prefix'),
+              label: 'Адреса',
+              controller: controller,
+              // No prefixIcon — expects horizontal: 16 (VelvetSpacing.md).
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final TextField field = tester.widget<TextField>(
+          find.byType(TextField),
+        );
+        final EdgeInsets padding =
+            field.decoration!.contentPadding! as EdgeInsets;
+        // VelvetSpacing.md == 16
+        expect(
+          padding.left,
+          16.0,
+          reason:
+              'Without prefixIcon, _contentPadding should use VelvetSpacing.md '
+              '(16) horizontal padding',
+        );
+      },
+    );
+
+    testWidgets(
+      'contentPadding uses VelvetSpacing.sm horizontal when prefixIcon is set',
+      (WidgetTester tester) async {
+        final controller = TextEditingController();
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(
+          _wrap(
+            NeumorphicTextField(
+              key: const Key('tf_padding_with_prefix'),
+              label: 'Пошта',
+              controller: controller,
+              prefixIcon: const Icon(Icons.alternate_email_rounded),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final TextField field = tester.widget<TextField>(
+          find.byType(TextField),
+        );
+        final EdgeInsets padding =
+            field.decoration!.contentPadding! as EdgeInsets;
+        // VelvetSpacing.sm == 8
+        expect(
+          padding.left,
+          8.0,
+          reason:
+              'With prefixIcon, _contentPadding should use VelvetSpacing.sm '
+              '(8) horizontal padding so the text does not overlap the icon',
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------

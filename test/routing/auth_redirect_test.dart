@@ -4,14 +4,14 @@
 // `_locationRedirect` duplicate of the production logic, which could diverge
 // silently. That duplicate is DELETED. We now exercise the production
 // `authRedirectForLocation` (the @visibleForTesting pure seam that
-// `authRedirect` delegates to) directly, plus one real-`GoRouterState`
-// integration test through `authRedirect` itself.
+// `authRedirect` delegates to) directly, plus nine real-`GoRouterState`
+// widget tests through `authRedirect` itself.
 //
 // `authRedirect(AsyncValue<AuthSession>, GoRouterState)` extracts
 // `state.matchedLocation` and forwards to `authRedirectForLocation`. Because
 // `GoRouterState` has an internal constructor (it needs a `RouteConfiguration`
 // that is not publicly constructible), the matrix tests target the pure
-// location-string seam; one widget test pumps a real `GoRouter` so the
+// location-string seam; nine widget tests pump a real `GoRouter` so the
 // `authRedirect` → `authRedirectForLocation` wiring is covered end-to-end.
 //
 // F4 — The isLoading branch exists as a defensive guard for: (a) cold-start
