@@ -46,18 +46,29 @@ import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/auth/presentation/verification_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/widgets/auth_scaffold.dart';
+import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
+import 'package:beautica_mobile/features/user/data/user_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+
+// ---------------------------------------------------------------------------
+// Mock UserRepository for the post-verification PATCH /users/me regression
+// guards (CLIENT locality persistence). Tests 14 + 15 below.
+// ---------------------------------------------------------------------------
+
+class _MockUserRepository extends Mock implements UserRepository {}
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -1390,6 +1401,203 @@ void main() {
         );
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Test 14 — CLIENT registration locality persistence (regression guard).
+    //
+    // The CLIENT registration draft captures cityId/districtId/street/
+    // buildingNo/locationNote on Step 3, but the backend RegisterRequest DTO
+    // silently drops these fields — so they only reach the DB via the
+    // post-verification PATCH /users/me call. Before this fix the CLIENT
+    // branch of _saveProviderProfile was a no-op (commented "locality rode
+    // along in the register body — nothing to save"); the result was rows in
+    // production with city_id=NULL etc.
+    //
+    // This test seeds a CLIENT draft with full locality, drives the verify
+    // submit, and asserts that UserRepository.updateLocality was called with
+    // the exact field values from the draft. Without the fix the mock would
+    // never be invoked and the verify call would still mark the test
+    // assertion as failed.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '14. CLIENT with locality on draft: verify success PATCHes /users/me '
+      'with cityId/districtId/street/buildingNo/locationNote from draft',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final userRepo = _MockUserRepository();
+        when(
+          () => userRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenAnswer((_) async {});
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            userRepositoryProvider.overrideWith((_) => userRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Seed a CLIENT registration draft with full locality.
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.client);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          phone: '+380501112233',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Хрещатик',
+          buildingNo: '12А',
+          locationNote: '3 поверх',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pumpAndSettle();
+
+        // Must have landed on /home (via /done redirect) — verifying that the
+        // PATCH call did not crash the flow.
+        expect(
+          find.text('home'),
+          findsOneWidget,
+          reason:
+              'CLIENT with locality must still navigate to /done → /home after '
+              'a successful PATCH /users/me.',
+        );
+
+        // Strict argument assertion — the draft values must flow through
+        // unchanged into the UserRepository.updateLocality call.
+        verify(
+          () => userRepo.updateLocality(
+            cityId: 'city-1',
+            districtId: 'district-1',
+            street: 'вул. Хрещатик',
+            buildingNo: '12А',
+            locationNote: '3 поверх',
+          ),
+        ).called(1);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 15 — CLIENT WITHOUT locality on draft (Step 3 skipped):
+    //           UserRepository.updateLocality must NOT be called.
+    //
+    // Guard for the `cityId == null || cityId.isEmpty → return` early-exit
+    // inside _saveProviderProfile. Users who tapped "Пропустити" on Step 3
+    // have a draft with cityId == null; they should still verify and reach
+    // /done without any PATCH /users/me being attempted.
+    // -----------------------------------------------------------------------
+    testWidgets('15. CLIENT without locality on draft (Step 3 skipped): '
+        'PATCH /users/me is NOT called', (tester) async {
+      final repo = FakeAuthRepository();
+      final userRepo = _MockUserRepository();
+
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      final storage = FakeSecureStorage();
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          userRepositoryProvider.overrideWith((_) => userRepo),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Seed a CLIENT draft WITHOUT a Step 3 locality (cityId stays null).
+      final notifier = container.read(registerDraftProvider.notifier)
+        ..start(UserRole.client);
+      notifier.updateStep1(
+        email: _testEmail,
+        password: 'Password1!',
+        confirmPassword: 'Password1!',
+      );
+      notifier.updateStep2(
+        firstName: 'Аня',
+        lastName: 'Коваль',
+        phone: '+380501112233',
+      );
+      // No updateStep3 — Step 3 was skipped.
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _fillOtp(tester, '654321');
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('verify_submit')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+      await tester.pumpAndSettle();
+
+      // Still navigates to home — the skip path must not block verification.
+      expect(
+        find.text('home'),
+        findsOneWidget,
+        reason:
+            'CLIENT who skipped Step 3 must still navigate to /done → /home '
+            'after verification (no PATCH attempted).',
+      );
+
+      // Strict assertion: the mock must not have been invoked at all.
+      verifyNever(
+        () => userRepo.updateLocality(
+          cityId: any(named: 'cityId'),
+          districtId: any(named: 'districtId'),
+          street: any(named: 'street'),
+          buildingNo: any(named: 'buildingNo'),
+          locationNote: any(named: 'locationNote'),
+        ),
+      );
+    });
   });
 }
 

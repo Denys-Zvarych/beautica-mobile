@@ -37,6 +37,7 @@ import '../../../routing/route_names.dart';
 import '../../../shared/util/mask_email.dart';
 import '../../master/data/master_repository.dart';
 import '../../salon/data/salon_repository.dart';
+import '../../user/data/user_repository.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_notifier.dart';
@@ -160,21 +161,23 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
     }
   }
 
-  /// Persists the provider's locality/address after verification.
+  /// Persists the user's locality/address after verification.
   ///
   /// Reads the stashed Step 3 slice from the keepAlive register draft and calls
   /// the role-appropriate endpoint:
-  ///   INDEPENDENT_MASTER → PATCH /independent-masters/me
-  ///   SALON_OWNER        → POST  /salons
-  ///   CLIENT             → no provider profile; locality rode along in the
-  ///                        register body — nothing to save.
+  ///   INDEPENDENT_MASTER → PATCH /independent-masters/me  (provider profile)
+  ///   SALON_OWNER        → POST  /salons                   (creates the salon)
+  ///   CLIENT             → PATCH /users/me                 (user row only —
+  ///                         RegisterRequest silently drops these fields, so
+  ///                         this is the FIRST point they reach the DB).
+  ///   SALON_ADMIN / _MASTER → no-op (invite flow, no Step 3).
   ///
   /// Rethrows the typed [Failure] on error so [_submit]'s catch surfaces it as
   /// a real inline message (Defect 8 — never silent).
   Future<void> _saveProviderProfile(AppLocalizations l10n) async {
     final draft = ref.read(registerDraftProvider);
     // No draft (e.g. deep-link straight to /verification) or no city selected →
-    // nothing to persist. CLIENT also has no provider profile.
+    // nothing to persist. The guard also covers users who skipped Step 3.
     if (draft == null) return;
     final cityId = draft.cityId;
     if (cityId == null || cityId.isEmpty) return;
@@ -206,9 +209,22 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
               ),
             );
       case UserRole.client:
+        // CLIENT has no provider profile, but locality must still be persisted
+        // — the register endpoint drops these fields (RegisterRequest doesn't
+        // declare them), so PATCH /users/me is the FIRST point they reach the
+        // DB. Mirrors the INDEPENDENT_MASTER branch above.
+        await ref
+            .read(userRepositoryProvider)
+            .updateLocality(
+              cityId: cityId,
+              districtId: districtId,
+              street: draft.street,
+              buildingNo: draft.buildingNo,
+              locationNote: draft.locationNote,
+            );
       case UserRole.salonAdmin:
       case UserRole.salonMaster:
-        // No provider profile to persist for these roles.
+        // Invite-flow roles never run the Step 3 wizard.
         return;
     }
   }
