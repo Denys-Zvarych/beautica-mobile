@@ -51,6 +51,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/auth/presentation/verification_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/widgets/auth_scaffold.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/user/data/user_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -69,6 +70,13 @@ import '../../../helpers/fakes/fake_secure_storage.dart';
 // ---------------------------------------------------------------------------
 
 class _MockUserRepository extends Mock implements UserRepository {}
+
+// ---------------------------------------------------------------------------
+// Mock SalonRepository for the post-verification POST /salons regression
+// guards (SALON_OWNER phone pass-through). Tests 16 + 17 below.
+// ---------------------------------------------------------------------------
+
+class _MockSalonRepository extends Mock implements SalonRepository {}
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -156,6 +164,14 @@ Future<void> _fillOtp(WidgetTester tester, String digits) async {
 
 void main() {
   group('VerificationScreen (VelvetTouch)', () {
+    setUpAll(() {
+      // Required by mocktail for any(named:) / captureAny(named:) matchers on
+      // SalonCreateDto (used in Tests 16 + 17 — SALON_OWNER phone pass-through).
+      registerFallbackValue(
+        const SalonCreateDto(name: '', cityId: '', street: '', buildingNo: ''),
+      );
+    });
+
     // -----------------------------------------------------------------------
     // Test 1 — All 6 digits filled → NeumorphicButton enabled
     // -----------------------------------------------------------------------
@@ -1598,6 +1614,221 @@ void main() {
         ),
       );
     });
+
+    // -----------------------------------------------------------------------
+    // Test 16 — SALON_OWNER with phone: phone forwarded to SalonCreateDto.
+    //
+    // Guards the `phone: draft.phone` line added in the SALON_OWNER case of
+    // _saveProviderProfile (verification_screen.dart ~line 209). Without that
+    // line the SalonCreateDto would be constructed with phone: null and the
+    // backend `@Pattern`-validated field would be absent regardless of what
+    // the user typed in Step 2.
+    //
+    // Mirrors the setup of Tests 14 + 15 exactly — same ProviderContainer +
+    // UncontrolledProviderScope pattern, same Step-by-step draft population;
+    // only the role and the additional salonRepositoryProvider override differ.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '16. SALON_OWNER with phone on draft: verify success creates salon with '
+      'phone forwarded from draft to SalonCreateDto.phone',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final salonRepo = _MockSalonRepository();
+        when(
+          () => salonRepo.create(dto: any(named: 'dto')),
+        ).thenAnswer((_) async {});
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            salonRepositoryProvider.overrideWith((_) => salonRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Seed a SALON_OWNER registration draft with full locality + phone.
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.salonOwner);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Олена',
+          lastName: 'Мороз',
+          phone: '+380671234567',
+          salonName: 'Salon Lumière',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Хрещатик',
+          buildingNo: '12А',
+          locationNote: '3 поверх',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pumpAndSettle();
+
+        // Must land on /home (via /done redirect).
+        expect(
+          find.text('home'),
+          findsOneWidget,
+          reason:
+              'SALON_OWNER with phone must still navigate to /done → /home after '
+              'a successful POST /salons.',
+        );
+
+        // Capture the dto argument passed to SalonRepository.create.
+        final captured = verify(
+          () => salonRepo.create(dto: captureAny(named: 'dto')),
+        ).captured;
+        expect(captured, hasLength(1));
+        final dto = captured.single as SalonCreateDto;
+
+        // Phone must be forwarded verbatim from the draft.
+        expect(
+          dto.phone,
+          equals('+380671234567'),
+          reason:
+              'SalonCreateDto.phone must equal draft.phone (+380671234567). '
+              'If this fails, verification_screen.dart is missing phone: draft.phone '
+              'in the SALON_OWNER SalonCreateDto constructor.',
+        );
+        // Locality fields must also be correct (regression guard for the
+        // remaining fields — phone is the HIGH gap but all fields are asserted).
+        expect(dto.name, equals('Salon Lumière'));
+        expect(dto.cityId, equals('city-1'));
+        expect(dto.districtId, equals('district-1'));
+        expect(dto.street, equals('вул. Хрещатик'));
+        expect(dto.buildingNo, equals('12А'));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 17 — SALON_OWNER with empty phone: toJson() omits phone key.
+    //
+    // When the user leaves the phone field blank on Step 2, draft.phone == ''.
+    // The SalonCreateDto must be constructed with phone: '' (from draft.phone)
+    // and toJson() must then omit the key entirely (empty-string guard in
+    // SalonCreateDto.toJson). This prevents the backend from receiving an
+    // empty-string phone which would fail `@Pattern` validation.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '17. SALON_OWNER with empty phone on draft: SalonCreateDto.toJson() '
+      'omits the phone key (no empty-string sent to backend)',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final salonRepo = _MockSalonRepository();
+        when(
+          () => salonRepo.create(dto: any(named: 'dto')),
+        ).thenAnswer((_) async {});
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            salonRepositoryProvider.overrideWith((_) => salonRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Seed a SALON_OWNER draft with phone left as the empty default.
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.salonOwner);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Олена',
+          lastName: 'Мороз',
+          phone: '', // explicitly empty — user skipped the phone field
+          salonName: 'Salon Lumière',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          street: 'вул. Хрещатик',
+          buildingNo: '12А',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pumpAndSettle();
+
+        // Must still navigate to /home.
+        expect(
+          find.text('home'),
+          findsOneWidget,
+          reason:
+              'SALON_OWNER with empty phone must still navigate to /done → /home.',
+        );
+
+        // Capture the dto and assert toJson() omits the phone key.
+        final captured = verify(
+          () => salonRepo.create(dto: captureAny(named: 'dto')),
+        ).captured;
+        expect(captured, hasLength(1));
+        final dto = captured.single as SalonCreateDto;
+
+        expect(
+          dto.toJson().containsKey('phone'),
+          isFalse,
+          reason:
+              'SalonCreateDto.toJson() must omit the phone key when phone is '
+              'empty — sending an empty string to the backend triggers '
+              '@Pattern validation failure (HIGH gap fix).',
+        );
+      },
+    );
   });
 }
 

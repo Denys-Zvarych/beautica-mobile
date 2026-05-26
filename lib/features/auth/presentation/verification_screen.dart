@@ -206,6 +206,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
                 street: draft.street,
                 buildingNo: draft.buildingNo,
                 locationNote: draft.locationNote,
+                phone: draft.phone,
               ),
             );
       case UserRole.client:

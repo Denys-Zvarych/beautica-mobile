@@ -10,7 +10,7 @@
 // Backend contract (locked):
 //   POST /api/v1/salons
 //     Body: { name, cityId (UUID), districtId? (UUID|null), street, buildingNo,
-//             locationNote? }
+//             locationNote?, phone? }
 //     Returns: ApiResponse<SalonResponse> — the mobile layer does not need the
 //              body here, so the method resolves with void.
 //
@@ -29,9 +29,9 @@ part 'salon_repository.g.dart';
 
 /// Immutable write payload for `POST /salons`.
 ///
-/// Hand-written (no generated DTO yet). [districtId] and [locationNote] are
-/// nullable optionals; [toJson] omits them when null/empty so the backend sees
-/// a clean body rather than explicit nulls.
+/// Hand-written (no generated DTO yet). [districtId], [locationNote], and
+/// [phone] are nullable optionals; [toJson] omits them when null/empty so the
+/// backend sees a clean body rather than explicit nulls.
 @immutable
 final class SalonCreateDto {
   const SalonCreateDto({
@@ -41,6 +41,7 @@ final class SalonCreateDto {
     required this.street,
     required this.buildingNo,
     this.locationNote,
+    this.phone,
   });
 
   /// Salon display name (collected in Step 2 as `salonName`).
@@ -61,9 +62,17 @@ final class SalonCreateDto {
   /// Optional free-text note (floor, entrance, intercom, …).
   final String? locationNote;
 
+  /// Optional contact phone number for the salon.
+  ///
+  /// Nullable — callers that do not have phone data pass null and [toJson]
+  /// will omit the field entirely. Backend validates with `@Pattern + @Size`
+  /// when present, so an empty string is also omitted rather than sent.
+  final String? phone;
+
   /// Serialises to the backend body, omitting empty optionals.
   Map<String, dynamic> toJson() {
     final trimmedNote = locationNote?.trim();
+    final trimmedPhone = phone?.trim();
     final json = <String, dynamic>{
       'name': name.trim(),
       'cityId': cityId,
@@ -75,6 +84,9 @@ final class SalonCreateDto {
     }
     if (trimmedNote != null && trimmedNote.isNotEmpty) {
       json['locationNote'] = trimmedNote;
+    }
+    if (trimmedPhone != null && trimmedPhone.isNotEmpty) {
+      json['phone'] = trimmedPhone;
     }
     return json;
   }

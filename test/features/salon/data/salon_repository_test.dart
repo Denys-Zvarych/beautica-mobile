@@ -42,6 +42,7 @@ void main() {
         street: 'вул. Хрещатик',
         buildingNo: '12А',
         locationNote: '3 поверх',
+        phone: '+380501112233',
       );
 
       expect(dto.toJson(), {
@@ -51,6 +52,7 @@ void main() {
         'buildingNo': '12А',
         'districtId': 'district-1',
         'locationNote': '3 поверх',
+        'phone': '+380501112233',
       });
     });
 
@@ -69,6 +71,50 @@ void main() {
       expect(json.containsKey('locationNote'), isFalse);
       expect(json['name'], 'Salon');
       expect(json['cityId'], 'city-1');
+    });
+
+    test('includes phone when non-null and non-empty', () {
+      const dto = SalonCreateDto(
+        name: 'Salon',
+        cityId: 'city-1',
+        street: 'St.',
+        buildingNo: '8',
+        phone: '+380501112233',
+      );
+      expect(dto.toJson()['phone'], '+380501112233');
+    });
+
+    test('omits phone when null', () {
+      const dto = SalonCreateDto(
+        name: 'Salon',
+        cityId: 'city-1',
+        street: 'St.',
+        buildingNo: '8',
+        // phone: null (default)
+      );
+      expect(dto.toJson().containsKey('phone'), isFalse);
+    });
+
+    test('omits phone when empty string', () {
+      const dto = SalonCreateDto(
+        name: 'Salon',
+        cityId: 'city-1',
+        street: 'St.',
+        buildingNo: '8',
+        phone: '',
+      );
+      expect(dto.toJson().containsKey('phone'), isFalse);
+    });
+
+    test('omits phone when whitespace-only', () {
+      const dto = SalonCreateDto(
+        name: 'Salon',
+        cityId: 'city-1',
+        street: 'St.',
+        buildingNo: '8',
+        phone: '   ',
+      );
+      expect(dto.toJson().containsKey('phone'), isFalse);
     });
   });
 
