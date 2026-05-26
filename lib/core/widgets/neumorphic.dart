@@ -638,25 +638,198 @@ class NeumorphicTile extends StatelessWidget {
   }
 }
 
+/// Letter-by-letter reveal of the "beautica" wordmark.
+///
+/// Each letter fades in (opacity 0→1) and slides up
+/// (Offset(0, 0.3)→Offset.zero) over [perLetterDurationMs] ms, staggered by
+/// [perLetterDelayMs] ms. The animation is driven by an externally-owned
+/// [AnimationController] — this widget never disposes it.
+///
+/// Accessibility: the enclosing [VelvetLogo] already provides a
+/// `Semantics(label: 'beautica', image: true)` ancestor node; no additional
+/// [Semantics] wrapper is added here to avoid a double-announce on TalkBack.
+class AnimatedWordmark extends StatefulWidget {
+  const AnimatedWordmark({
+    super.key,
+    required this.controller,
+    this.text = 'beautica',
+    this.startDelayMs = 0,
+    this.perLetterDelayMs = 90,
+    this.perLetterDurationMs = 250,
+    this.fontSize = 14,
+  });
+
+  /// The [AnimationController] whose [duration] must be at least
+  /// [startDelayMs] + ([text.length] − 1) × [perLetterDelayMs] +
+  /// [perLetterDurationMs] milliseconds (default 880 ms for 8 letters).
+  /// The controller is owned by the caller — [AnimatedWordmark] never
+  /// disposes it.
+  final AnimationController controller;
+
+  /// The word to animate. Each character becomes one animated [Text] widget.
+  final String text;
+
+  /// Milliseconds before the first letter starts animating.
+  final int startDelayMs;
+
+  /// Stagger delay between consecutive letters, in milliseconds.
+  final int perLetterDelayMs;
+
+  /// Duration of the per-letter fade+slide animation, in milliseconds.
+  final int perLetterDurationMs;
+
+  /// Font size passed to [VelvetText.wordmark] via [TextStyle.copyWith].
+  /// Defaults to 14, matching the static wordmark. Splash screen passes 17.
+  final double fontSize;
+
+  @override
+  State<AnimatedWordmark> createState() => _AnimatedWordmarkState();
+}
+
+class _AnimatedWordmarkState extends State<AnimatedWordmark> {
+  /// The [CurvedAnimation] instances — one per letter — are tracked here so
+  /// they can be disposed in [dispose] / [didUpdateWidget]. Each removes its
+  /// listener from the parent [AnimationController] when disposed, preventing
+  /// the leak that fires Flutter debug-mode animation assertions.
+  late List<CurvedAnimation> _curves;
+  late List<Animation<double>> _opacities;
+  late List<Animation<Offset>> _slides;
+  late TextStyle _style;
+
+  void _initAnimations() {
+    final int totalMs = widget.controller.duration?.inMilliseconds ?? 880;
+    _curves = <CurvedAnimation>[];
+    _opacities = <Animation<double>>[];
+    _slides = <Animation<Offset>>[];
+    _style = VelvetText.wordmark().copyWith(fontSize: widget.fontSize);
+
+    for (int i = 0; i < widget.text.length; i++) {
+      final int startMs = widget.startDelayMs + i * widget.perLetterDelayMs;
+      final int endMs = startMs + widget.perLetterDurationMs;
+
+      // Interval ensures begin < end even for the last letter at the edge.
+      final CurvedAnimation curved = CurvedAnimation(
+        parent: widget.controller,
+        curve: Interval(
+          (startMs / totalMs).clamp(0.0, 1.0),
+          (endMs / totalMs).clamp(0.0, 1.0),
+          curve: Curves.easeOut,
+        ),
+      );
+      _curves.add(curved);
+      _opacities.add(Tween<double>(begin: 0.0, end: 1.0).animate(curved));
+      _slides.add(
+        Tween<Offset>(
+          begin: const Offset(0, 0.3),
+          end: Offset.zero,
+        ).animate(curved),
+      );
+    }
+  }
+
+  void _disposeAnimations() {
+    for (final CurvedAnimation c in _curves) {
+      c.dispose();
+    }
+    _curves = <CurvedAnimation>[];
+    _opacities = <Animation<double>>[];
+    _slides = <Animation<Offset>>[];
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _initAnimations();
+  }
+
+  @override
+  void didUpdateWidget(covariant AnimatedWordmark oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Re-create animations whenever any parameter that affects the curve
+    // intervals or style changes, including a new controller reference.
+    if (oldWidget.controller != widget.controller ||
+        oldWidget.text != widget.text ||
+        oldWidget.fontSize != widget.fontSize ||
+        oldWidget.startDelayMs != widget.startDelayMs ||
+        oldWidget.perLetterDelayMs != widget.perLetterDelayMs ||
+        oldWidget.perLetterDurationMs != widget.perLetterDurationMs) {
+      _disposeAnimations();
+      _initAnimations();
+    }
+  }
+
+  @override
+  void dispose() {
+    // Dispose the CurvedAnimations we own. The AnimationController is owned
+    // by the caller (e.g. SplashScreen) and must NOT be disposed here.
+    _disposeAnimations();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final List<Widget> children = <Widget>[];
+    for (int i = 0; i < widget.text.length; i++) {
+      children.add(
+        FadeTransition(
+          opacity: _opacities[i],
+          child: SlideTransition(
+            position: _slides[i],
+            child: Text(widget.text[i], style: _style),
+          ),
+        ),
+      );
+    }
+
+    // No Semantics wrapper here — the enclosing VelvetLogo already provides
+    // Semantics(label: 'beautica', image: true). Adding one here would cause
+    // TalkBack to announce "beautica" twice (LOW-3 double-announce fix).
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: children,
+    );
+  }
+}
+
 /// The Velvet "B" logo pillow + lowercase `beautica` wordmark.
+///
+/// By default renders a static wordmark ([Text]). When [animationController]
+/// is supplied, the wordmark is replaced by an [AnimatedWordmark] that reveals
+/// the letters one-by-one.
+///
+/// The optional [tileSize], [markFontSize], and [wordmarkFontSize] parameters
+/// allow the splash screen to render a slightly larger logo without affecting
+/// any other call site. All params have defaults that exactly reproduce the
+/// original two-param behaviour (`VelvetLogo()` and `VelvetLogo(compact: true)`
+/// are unaffected).
 class VelvetLogo extends StatelessWidget {
-  const VelvetLogo({super.key, this.compact = false});
+  const VelvetLogo({
+    super.key,
+    this.compact = false,
+    this.animationController,
+    this.tileSize,
+    this.markFontSize = 36,
+    this.wordmarkFontSize = 14,
+  });
 
   final bool compact;
 
-  // Hoisted to avoid a .copyWith() allocation on every rebuild.
-  // VelvetText.heading() returns a cached static final; .copyWith() always
-  // allocates a new TextStyle, so pre-compute both variants once.
-  static final TextStyle _logoStyleLarge = VelvetText.heading().copyWith(
-    fontSize: 36,
-    color: BrandColors.accentLogo,
-    fontWeight: FontWeight.w700,
-  );
-  static final TextStyle _logoStyleCompact = VelvetText.heading().copyWith(
-    fontSize: 30,
-    color: BrandColors.accentLogo,
-    fontWeight: FontWeight.w700,
-  );
+  /// When non-null, an [AnimatedWordmark] is rendered instead of the static
+  /// wordmark [Text]. The controller must be started by the caller.
+  final AnimationController? animationController;
+
+  /// Overrides the default tile dimension (`compact ? 72 : VelvetSizes.logoTile`).
+  /// Used by the splash screen to render a slightly larger pillow.
+  final double? tileSize;
+
+  /// Font size of the "B" glyph inside the logo pillow. Defaults to 36.
+  final double markFontSize;
+
+  /// Font size forwarded to [AnimatedWordmark] (or applied to the static
+  /// wordmark via [TextStyle.copyWith]). Defaults to 14 (= VelvetText.wordmark()).
+  final double wordmarkFontSize;
 
   // Hoisted: VelvetRadii.logoTile is a compile-time constant so the whole
   // BorderRadius can be a static const, avoiding an allocation per build.
@@ -666,7 +839,26 @@ class VelvetLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final double tile = compact ? 72 : VelvetSizes.logoTile;
+    final double tile = tileSize ?? (compact ? 72 : VelvetSizes.logoTile);
+
+    // Compute mark style — hoist the common parts, vary only markFontSize.
+    // Using a local final (not a static) because markFontSize is an instance param.
+    final TextStyle markStyle = VelvetText.heading().copyWith(
+      fontSize: markFontSize,
+      color: BrandColors.accentLogo,
+      fontWeight: FontWeight.w700,
+    );
+
+    final Widget wordmark = animationController != null
+        ? AnimatedWordmark(
+            controller: animationController!,
+            fontSize: wordmarkFontSize,
+          )
+        : Text(
+            'beautica',
+            style: VelvetText.wordmark().copyWith(fontSize: wordmarkFontSize),
+          );
+
     return Semantics(
       label: 'beautica',
       image: true,
@@ -681,15 +873,10 @@ class VelvetLogo extends StatelessWidget {
               borderRadius: _logoTileRadius,
               boxShadow: VelvetShadows.extrudedSmall,
             ),
-            child: Center(
-              child: Text(
-                'B',
-                style: compact ? _logoStyleCompact : _logoStyleLarge,
-              ),
-            ),
+            child: Center(child: Text('B', style: markStyle)),
           ),
           const SizedBox(height: VelvetSpacing.md),
-          Text('beautica', style: VelvetText.wordmark()),
+          wordmark,
         ],
       ),
     );

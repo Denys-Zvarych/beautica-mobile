@@ -1,36 +1,37 @@
 // Widget tests for SplashScreen.
 //
-// SplashScreen was converted from StatelessWidget to StatefulWidget in the
-// auth-screen redesign. It now owns a `_showSpinner` bool that gates the
-// CircularProgressIndicator, driven by a cancellable `Timer`.
-// Zero test coverage existed before this file.
+// SplashScreen was converted from a Timer/spinner approach to an
+// AnimationController-driven letter-by-letter wordmark reveal. The
+// [CircularProgressIndicator] is removed; [AnimatedWordmark] inside
+// [VelvetLogo] IS the loading animation.
 //
 // Covered scenarios:
 //   1. Widget renders without error (smoke test) — Scaffold + Stack present.
-//   2. VelvetLogo is present in the tree (SVG→VelvetLogo migration regression).
-//   3. On first pump, CircularProgressIndicator opacity is 0 (_showSpinner=false).
-//   4. After 800ms timer fires, CircularProgressIndicator appears
-//      (_showSpinner flips to true when the Timer callback runs).
-//   5. With disableAnimations=true (reduced-motion), _showSpinner is set
-//      immediately via post-frame callback — spinner is visible after first settle.
-//   6. No AppBar is rendered (auth screens are full-screen, no AppBar).
-//   7. Timer is cancelled on dispose (no pending-timer error).
-//   8. VelvetLogo is not wrapped in FadeTransition (no-op fade removed in Batch 6).
-//   9. Phase 2.15 regression — Scaffold backgroundColor matches BrandColors.base
-//      (#E6DDD0), which must match the native splash background to avoid a color
-//      flash at handoff.
-//  10. Phase 2.15 regression — FlutterNativeSplash.remove() does not throw in the
-//      widget-test environment; the post-frame callback runs clean.
+//   2. VelvetLogo is present with compact=false, tileSize=92, markFontSize=42,
+//      wordmarkFontSize=17.
+//   3. AnimatedWordmark is present in the tree after first pump.
+//   4. CircularProgressIndicator is NOT in the tree (replaced by animation).
+//   5. After controller.forward() completes (pump 880ms + settle), every
+//      letter FadeTransition has opacity 1.0.
+//   6. No AppBar rendered (auth screens are full-screen, no AppBar).
+//   7. AnimationController is disposed on widget dispose (no pending-frame
+//      error; replaces the old "Timer cancelled" test).
+//   8. Batch 6 regression — VelvetLogo itself is NOT wrapped in FadeTransition.
+//      FadeTransition widgets inside AnimatedWordmark are descendants of
+//      VelvetLogo — that is correct and must NOT trigger this assertion.
+//   9. Phase 2.15 regression — Scaffold backgroundColor == BrandColors.base.
+//  10. Phase 2.15 regression — FlutterNativeSplash.remove() does not throw
+//      in the widget-test environment.
+//  11. Reduced-motion — with disableAnimations=true, controller snaps to
+//      value 1.0 after first pump; all letter FadeTransitions have opacity 1.0.
 //
-// Note on VelvetLogo:
-//   VelvetLogo is a pure-Dart widget (no asset loading, no SVG, no external
-//   file). flutter_test requires no asset bundle setup and no mock for it.
+// Note on VelvetLogo / AnimatedWordmark:
+//   Both are pure-Dart widgets (no asset loading, no SVG, no network).
+//   flutter_test requires no asset bundle setup.
 //
-// Note on FlutterNativeSplash.remove() (Tests 1, 2, 8, 9, 10):
+// Note on FlutterNativeSplash.remove() (Tests 1, 9, 10):
 //   In the flutter_test environment the native-splash platform channel is not
-//   initialised, so FlutterNativeSplash.remove() is a documented no-op — it
-//   does not throw. Tests verify it remains a no-op by asserting no exception
-//   escapes after the post-frame callback fires.
+//   initialised, so FlutterNativeSplash.remove() is a documented no-op.
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
@@ -60,128 +61,162 @@ void main() {
     });
 
     // -------------------------------------------------------------------------
-    // Test 2 — VelvetLogo is rendered (SVG→VelvetLogo migration regression)
+    // Test 2 — VelvetLogo is present with the splash-specific size params
     //
-    // Phase 2.15 removed the SvgPicture-based logo and replaced it with the
-    // pure-Dart VelvetLogo widget. This test asserts the widget is present in
-    // the tree so that a future reversion would be caught immediately.
+    // The splash screen renders a larger logo than any other screen:
+    //   - compact: false  (default — unchanged)
+    //   - tileSize: 92    (bigger pillow on splash only)
+    //   - markFontSize: 42
+    //   - wordmarkFontSize: 17
     // -------------------------------------------------------------------------
-    testWidgets('2. VelvetLogo widget is present in the tree', (tester) async {
+    testWidgets('2. VelvetLogo present with splash-specific size params', (
+      tester,
+    ) async {
       await tester.pumpWidget(_buildApp());
       await tester.pump();
 
       expect(
         find.byType(VelvetLogo),
         findsOneWidget,
-        reason:
-            'SplashScreen must render exactly one VelvetLogo. '
-            'A regression to SvgPicture or any other widget would fail this test.',
+        reason: 'SplashScreen must render exactly one VelvetLogo.',
       );
-      // Verify the full-size (non-compact) logo is used on the splash.
+
+      final logo = tester.widget<VelvetLogo>(find.byType(VelvetLogo));
+
       expect(
-        tester.widget<VelvetLogo>(find.byType(VelvetLogo)).compact,
+        logo.compact,
         isFalse,
-        reason: 'SplashScreen uses the full-size logo (compact: false).',
+        reason: 'SplashScreen uses the full-size (non-compact) logo.',
+      );
+      expect(
+        logo.tileSize,
+        equals(92.0),
+        reason: 'Splash uses a 92 dp pillow — larger than the default 78 dp.',
+      );
+      expect(
+        logo.markFontSize,
+        equals(42.0),
+        reason: 'Splash "B" glyph is 42 sp — larger than the default 36 sp.',
+      );
+      expect(
+        logo.wordmarkFontSize,
+        equals(17.0),
+        reason: 'Splash wordmark is 17 sp — larger than the default 14 sp.',
       );
     });
 
     // -------------------------------------------------------------------------
-    // Test 3 — CircularProgressIndicator is initially opacity-hidden
+    // Test 3 — AnimatedWordmark is present in the tree after first pump
+    // -------------------------------------------------------------------------
+    testWidgets('3. AnimatedWordmark is present in the widget tree', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_buildApp());
+      await tester.pump();
+
+      expect(
+        find.byType(AnimatedWordmark),
+        findsOneWidget,
+        reason:
+            'VelvetLogo must render AnimatedWordmark when animationController '
+            'is supplied. The splash screen always supplies a controller.',
+      );
+    });
+
+    // -------------------------------------------------------------------------
+    // Test 4 — CircularProgressIndicator is NOT in the tree
     //
-    // On the first frame, _showSpinner == false because the Timer has not yet
-    // fired. The AnimatedOpacity wrapping the spinner sets opacity: 0.0, but
-    // the widget is still in the tree.
+    // The spinner was removed in this phase and replaced entirely by the
+    // AnimatedWordmark letter-by-letter reveal.
+    // -------------------------------------------------------------------------
+    testWidgets('4. CircularProgressIndicator is not in the tree', (
+      tester,
+    ) async {
+      await tester.pumpWidget(_buildApp());
+      await tester.pump();
+
+      expect(
+        find.byType(CircularProgressIndicator),
+        findsNothing,
+        reason:
+            'CircularProgressIndicator was removed in the splash animation '
+            'redesign. AnimatedWordmark is now the loading indicator.',
+      );
+    });
+
+    // -------------------------------------------------------------------------
+    // Test 5 — After animation completes, all letter FadeTransitions are at 1.0
+    //
+    // We advance the clock by 880 ms (the controller duration) then settle.
+    // Every FadeTransition that is a descendant of AnimatedWordmark must have
+    // its opacity animation at value 1.0.
     // -------------------------------------------------------------------------
     testWidgets(
-      '3. CircularProgressIndicator is present but initially invisible',
+      '5. after animation completes, all letter FadeTransitions have opacity 1.0',
       (tester) async {
         await tester.pumpWidget(_buildApp());
-        // Pump one frame to trigger the initState post-frame callback (which
-        // schedules the 800ms Timer). The Timer has NOT yet fired.
+        // Trigger the post-frame callback that calls controller.forward().
         await tester.pump();
+        // Advance past the full animation duration.
+        await tester.pump(const Duration(milliseconds: 880));
+        // Settle any residual frames.
+        await tester.pumpAndSettle();
 
-        // The spinner widget must be in the tree (it is always rendered; only
-        // its opacity changes).
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        final animatedWordmarkFinder = find.byType(AnimatedWordmark);
+        expect(animatedWordmarkFinder, findsOneWidget);
 
-        // The AnimatedOpacity wrapping the spinner must be at opacity 0.0 —
-        // _showSpinner is still false at this point.
-        final animatedOpacity = tester.widget<AnimatedOpacity>(
-          find.ancestor(
-            of: find.byType(CircularProgressIndicator),
-            matching: find.byType(AnimatedOpacity),
+        final fadeTransitions = tester.widgetList<FadeTransition>(
+          find.descendant(
+            of: animatedWordmarkFinder,
+            matching: find.byType(FadeTransition),
           ),
         );
-        expect(animatedOpacity.opacity, equals(0.0));
-      },
-    );
 
-    // -------------------------------------------------------------------------
-    // Test 4 — After animation completes, spinner becomes visible
-    //
-    // The Timer fires after 800 ms, sets _showSpinner = true, and triggers a
-    // rebuild. The AnimatedOpacity then transitions to opacity: 1.0.
-    // We advance the clock by the timer duration + the AnimatedOpacity (200 ms).
-    // -------------------------------------------------------------------------
-    testWidgets(
-      '4. CircularProgressIndicator becomes visible after logo animation completes',
-      (tester) async {
-        await tester.pumpWidget(_buildApp());
-        // Trigger the post-frame callback that starts the animation.
-        await tester.pump();
-
-        // Advance past the logo animation duration (800 ms).
-        await tester.pump(const Duration(milliseconds: 800));
-
-        // The status listener fires synchronously at frame boundary.
-        // Pump one more frame to apply the setState rebuild.
-        await tester.pump();
-
-        // Advance through the AnimatedOpacity transition (200 ms).
-        await tester.pump(const Duration(milliseconds: 200));
-
-        final animatedOpacity = tester.widget<AnimatedOpacity>(
-          find.ancestor(
-            of: find.byType(CircularProgressIndicator),
-            matching: find.byType(AnimatedOpacity),
-          ),
+        final transitions = fadeTransitions.toList();
+        expect(
+          transitions,
+          hasLength(8),
+          reason:
+              'AnimatedWordmark with text "beautica" (8 chars) must produce '
+              'exactly 8 FadeTransition widgets.',
         );
-        expect(animatedOpacity.opacity, equals(1.0));
-      },
-    );
 
-    // -------------------------------------------------------------------------
-    // Test 5 — Reduced-motion: disableAnimations=true skips animation,
-    //           spinner is visible after the AnimatedOpacity transition
-    //
-    // When MediaQuery.disableAnimations is true, initState's post-frame
-    // callback calls setState(() => _showSpinner = true) immediately
-    // (no Timer is started). The AnimatedOpacity then transitions to
-    // opacity: 1.0 over its 200 ms duration.
-    //
-    // We cannot use pumpAndSettle here because the AnimatedOpacity implicit
-    // animation keeps the engine busy beyond flutter_test's settle threshold.
-    // Instead we advance the clock explicitly by 300 ms — enough to cover the
-    // post-frame callback (1 frame) + the 200 ms AnimatedOpacity duration.
-    // -------------------------------------------------------------------------
-    testWidgets(
-      '5. with disableAnimations=true spinner becomes visible after transition',
-      (tester) async {
-        await tester.pumpWidget(_buildApp(disableAnimations: true));
-        // Trigger the post-frame callback that sets _showSpinner=true.
-        await tester.pump();
-        // Advance through the AnimatedOpacity transition (200 ms declared in
-        // SplashScreen) plus a small margin.
-        await tester.pump(const Duration(milliseconds: 300));
+        for (final ft in transitions) {
+          expect(
+            ft.opacity.value,
+            equals(1.0),
+            reason:
+                'All letter FadeTransitions must be at opacity 1.0 after the '
+                '880 ms animation controller completes.',
+          );
+        }
 
-        // The AnimatedOpacity wrapping the spinner should now be at 1.0.
-        final animatedOpacity = tester.widget<AnimatedOpacity>(
-          find.ancestor(
-            of: find.byType(CircularProgressIndicator),
-            matching: find.byType(AnimatedOpacity),
-          ),
+        // SlideTransition check — all positions must be Offset.zero after the
+        // animation completes (each letter has slid fully into its final position).
+        final slideTransitions = tester
+            .widgetList<SlideTransition>(
+              find.descendant(
+                of: animatedWordmarkFinder,
+                matching: find.byType(SlideTransition),
+              ),
+            )
+            .toList();
+        expect(
+          slideTransitions,
+          hasLength(8),
+          reason:
+              'AnimatedWordmark with text "beautica" (8 chars) must produce '
+              'exactly 8 SlideTransition widgets.',
         );
-        expect(animatedOpacity.opacity, equals(1.0));
+        for (final st in slideTransitions) {
+          expect(
+            st.position.value,
+            equals(Offset.zero),
+            reason:
+                'All letter SlideTransitions must be at Offset.zero after the '
+                '880 ms animation controller completes.',
+          );
+        }
       },
     );
 
@@ -196,35 +231,42 @@ void main() {
     });
 
     // -------------------------------------------------------------------------
-    // Test 7 — Timer is cancelled on dispose (no pending-timer error)
+    // Test 7 — AnimationController is disposed on widget dispose
     //
-    // If dispose() is missing or incorrect, flutter_test raises a
-    // "A Timer is still pending" error at test teardown. Pumping the widget,
-    // then disposing (via pumpWidget empty tree), must not throw.
-    // -------------------------------------------------------------------------
-    testWidgets('7. Timer is cancelled on dispose (no pending-timer error)', (
-      tester,
-    ) async {
-      await tester.pumpWidget(_buildApp());
-      await tester.pump();
-
-      // Replace the widget tree with an empty widget to trigger dispose().
-      await tester.pumpWidget(const SizedBox.shrink());
-
-      // If we reach here without an exception the 800ms timer was cancelled in dispose().
-      expect(find.byType(SplashScreen), findsNothing);
-    });
-
-    // -------------------------------------------------------------------------
-    // Test 8 — Batch 6 regression: VelvetLogo is not wrapped in FadeTransition
-    //
-    // The FadeTransition that was wrapping VelvetLogo used a 1.0→1.0 Tween
-    // (a no-op — opacity was always 1.0). It was removed in Batch 6 to eliminate
-    // the per-tick SaveLayer and the AnimationController. This test asserts the
-    // FadeTransition is absent so a future re-introduction would be caught.
+    // If dispose() is missing or incorrect the dart:ui framework raises a
+    // "AnimationController disposed" / "A listener was disposed" assertion
+    // error at teardown. Replacing the widget tree triggers dispose().
     // -------------------------------------------------------------------------
     testWidgets(
-      '8. VelvetLogo is not wrapped in FadeTransition (no-op fade removed in Batch 6)',
+      '7. AnimationController is disposed on widget dispose (no pending-frame error)',
+      (tester) async {
+        await tester.pumpWidget(_buildApp());
+        await tester.pump();
+
+        // Replace the widget tree with an empty widget to trigger dispose().
+        await tester.pumpWidget(const SizedBox.shrink());
+
+        // If we reach here without a framework assertion, the controller was
+        // correctly disposed in _SplashScreenState.dispose().
+        expect(find.byType(SplashScreen), findsNothing);
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // Test 8 — Batch 6 regression: VelvetLogo itself is NOT wrapped in
+    //           FadeTransition.
+    //
+    // The FadeTransition widgets inside AnimatedWordmark are DESCENDANTS of
+    // VelvetLogo — that is correct and expected. This test only asserts that
+    // VelvetLogo does not have FadeTransition as an ANCESTOR inside
+    // SplashScreen's own subtree (i.e. SplashScreen does not wrap the entire
+    // logo in a FadeTransition).
+    //
+    // Strategy: find the outer Align > Stack and assert that no FadeTransition
+    // is an ancestor of VelvetLogo within that subtree.
+    // -------------------------------------------------------------------------
+    testWidgets(
+      '8. VelvetLogo is not wrapped in FadeTransition by SplashScreen (Batch 6 regression)',
       (tester) async {
         await tester.pumpWidget(_buildApp());
         await tester.pump(Duration.zero);
@@ -232,30 +274,25 @@ void main() {
         // VelvetLogo must be present.
         expect(find.byType(VelvetLogo), findsOneWidget);
 
-        // The VelvetLogo is placed directly inside a Column → Align → Stack
-        // (SplashScreen's body). Its immediate parent in SplashScreen's own
-        // subtree must NOT be FadeTransition.
+        // A FadeTransition that is BOTH a descendant of the Scaffold body's
+        // Stack AND an ancestor of VelvetLogo would mean SplashScreen itself
+        // wraps the logo — that is the regression.
         //
-        // Strategy: locate the Column that is a descendant of the Scaffold's
-        // body (below the Scaffold, therefore below MaterialApp's routing
-        // FadeTransitions). Then assert that no FadeTransition exists as a
-        // descendant of that Column AND as an ancestor of VelvetLogo.
-        //
-        // We use find.byWidgetPredicate on Column to pick the one whose
-        // children include VelvetLogo (the Column is mainAxisSize.min, which
-        // distinguishes it from any outer Column the framework might inject).
-        final logoColumnFinder = find.byWidgetPredicate(
+        // We find the Align widget (immediate parent of VelvetLogo in the
+        // Scaffold body) and assert that no FadeTransition is an ancestor of
+        // VelvetLogo below that Align.
+        final alignFinder = find.byWidgetPredicate(
           (widget) =>
-              widget is Column && widget.mainAxisSize == MainAxisSize.min,
+              widget is Align && (widget.alignment as Alignment).y == -0.4,
         );
-        // There must be exactly one such Column on this screen.
-        expect(logoColumnFinder, findsOneWidget);
+        expect(alignFinder, findsOneWidget);
 
-        // No FadeTransition should be a descendant of that Column AND an
-        // ancestor of VelvetLogo.
+        // Any FadeTransition that is a descendant of Align AND an ancestor of
+        // VelvetLogo would indicate that SplashScreen wraps the logo in a
+        // FadeTransition — the forbidden pattern.
         expect(
           find.descendant(
-            of: logoColumnFinder,
+            of: alignFinder,
             matching: find.ancestor(
               of: find.byType(VelvetLogo),
               matching: find.byType(FadeTransition),
@@ -263,8 +300,9 @@ void main() {
           ),
           findsNothing,
           reason:
-              'VelvetLogo must not be wrapped in FadeTransition inside '
-              "SplashScreen's Column after the Batch 6 no-op animation cleanup.",
+              'SplashScreen must not wrap VelvetLogo in a FadeTransition. '
+              'FadeTransition widgets inside AnimatedWordmark (descendants of '
+              'VelvetLogo) are correct and are not tested here.',
         );
       },
     );
@@ -274,9 +312,7 @@ void main() {
     //
     // The native splash background is configured as #E6DDD0 (warm taupe) in
     // pubspec.yaml flutter_native_splash.color. The Flutter Scaffold must use
-    // the identical color (BrandColors.base = Color(0xFFE6DDD0)) to prevent a
-    // background color flash at the handoff. If someone changes one without the
-    // other this test fails immediately.
+    // the identical color to prevent a background color flash at the handoff.
     // -------------------------------------------------------------------------
     testWidgets(
       '9. Phase 2.15 — Scaffold backgroundColor matches BrandColors.base (#E6DDD0)',
@@ -300,26 +336,90 @@ void main() {
     // -------------------------------------------------------------------------
     // Test 10 — Phase 2.15 regression: FlutterNativeSplash.remove() does not
     //            throw in the widget-test environment.
-    //
-    // The post-frame callback in initState calls FlutterNativeSplash.remove()
-    // before checking disableAnimations. In the widget-test environment the
-    // native-splash platform channel is not initialised; the package must
-    // treat this as a no-op and not throw. If a future package upgrade changes
-    // this contract, this test will fail and the team must add a try/catch or
-    // guard around the call site.
     // -------------------------------------------------------------------------
     testWidgets(
       '10. Phase 2.15 — FlutterNativeSplash.remove() does not throw in test environment',
       (tester) async {
-        // Pump the full widget. The post-frame callback fires on the second
-        // pump(), calling FlutterNativeSplash.remove(). No exception must
-        // propagate to the test harness.
         await tester.pumpWidget(_buildApp());
         await tester.pump(); // triggers addPostFrameCallback
 
         // If we reach this assertion without a test failure, remove() was a
         // silent no-op as required.
         expect(find.byType(SplashScreen), findsOneWidget);
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // Test 11 — Reduced-motion: disableAnimations=true snaps controller to 1.0
+    //
+    // When MediaQuery.disableAnimations is true, initState's post-frame
+    // callback sets _wordmarkController.value = 1.0 (skip animation).
+    // All letter FadeTransitions must be at opacity 1.0 after the first settle.
+    // -------------------------------------------------------------------------
+    testWidgets(
+      '11. reduced-motion: disableAnimations=true snaps all letters to opacity 1.0',
+      (tester) async {
+        await tester.pumpWidget(_buildApp(disableAnimations: true));
+        // Trigger the post-frame callback that snaps the controller to 1.0.
+        await tester.pump();
+        // Settle any residual frames triggered by the value change.
+        await tester.pumpAndSettle();
+
+        final animatedWordmarkFinder = find.byType(AnimatedWordmark);
+        expect(animatedWordmarkFinder, findsOneWidget);
+
+        final fadeTransitions = tester.widgetList<FadeTransition>(
+          find.descendant(
+            of: animatedWordmarkFinder,
+            matching: find.byType(FadeTransition),
+          ),
+        );
+
+        final transitions = fadeTransitions.toList();
+        expect(
+          transitions,
+          hasLength(8),
+          reason:
+              'AnimatedWordmark with text "beautica" (8 chars) must produce '
+              'exactly 8 FadeTransition widgets.',
+        );
+
+        for (final ft in transitions) {
+          expect(
+            ft.opacity.value,
+            equals(1.0),
+            reason:
+                'With disableAnimations=true, controller.value is snapped to '
+                '1.0 — all letters must be fully visible immediately.',
+          );
+        }
+
+        // SlideTransition check — all positions must be Offset.zero after the
+        // controller snaps to 1.0 in reduced-motion mode.
+        final slideTransitions = tester
+            .widgetList<SlideTransition>(
+              find.descendant(
+                of: animatedWordmarkFinder,
+                matching: find.byType(SlideTransition),
+              ),
+            )
+            .toList();
+        expect(
+          slideTransitions,
+          hasLength(8),
+          reason:
+              'AnimatedWordmark with text "beautica" (8 chars) must produce '
+              'exactly 8 SlideTransition widgets.',
+        );
+        for (final st in slideTransitions) {
+          expect(
+            st.position.value,
+            equals(Offset.zero),
+            reason:
+                'With disableAnimations=true, all letter SlideTransitions must '
+                'be at Offset.zero after the controller snaps to 1.0.',
+          );
+        }
       },
     );
   });

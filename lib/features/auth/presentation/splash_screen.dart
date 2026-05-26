@@ -16,30 +16,26 @@
 //   The native splash (warm taupe #E6DDD0 bg + Beautica B mark at scale 1.0)
 //   is preserved by [FlutterNativeSplash.preserve] in main() and dismissed here
 //   via [FlutterNativeSplash.remove] on the first Flutter post-frame callback.
-//   Because the native splash already shows the logo at rest (scale 1.0), the
-//   previous _logoScale Tween ran 1.0→1.0 (no-op). It has been removed to avoid
-//   the unnecessary AnimatedBuilder rebuild + Matrix4 allocation on every tick.
-//   The opacity fade and the spinner fade-in are preserved unchanged.
-//   Reduced-motion: the native splash itself is OS-owned and cannot be skipped,
-//   but the Flutter-side animation respects [MediaQueryData.disableAnimations].
 //
-// AnimationController replaced with Timer in Batch 6 perf fix — the 1.0→1.0
-// FadeTransition was a no-op and has been removed.
-
-import 'dart:async';
+// Splash animation — letter-by-letter wordmark reveal:
+//   The [CircularProgressIndicator] + Timer have been replaced by an
+//   [AnimatedWordmark] that reveals "beautica" letter-by-letter over 880 ms.
+//   Each letter fades in and slides up with a 90 ms stagger. The animation
+//   serves as both a brand moment and a visual loading indicator.
+//   Reduced-motion: when [MediaQueryData.disableAnimations] is true the
+//   controller is snapped to its end value so all letters appear immediately.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 
-import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/widgets/neumorphic.dart';
 
 /// Cold-start parking screen shown while the auth session resolves.
 ///
-/// Displays the Beautica logo with a branded progress indicator. The spinner
-/// is revealed after 800 ms via a cancellable [Timer] (or immediately when the
-/// system's reduced-motion preference is active).
+/// Displays the Beautica logo with an animated letter-by-letter wordmark
+/// reveal. The [VelvetLogo] is rendered slightly larger than on other screens
+/// to give the splash a premium, spacious feel.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -47,14 +43,21 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
-  Timer? _spinnerTimer;
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  /// Total controller duration — covers 8 letters × 90 ms stagger + 250 ms
+  /// per-letter duration = 630 + 250 = 880 ms.
+  static const Duration _animDuration = Duration(milliseconds: 880);
 
-  bool _showSpinner = false;
+  late final AnimationController _wordmarkController;
 
   @override
   void initState() {
     super.initState();
+    _wordmarkController = AnimationController(
+      vsync: this,
+      duration: _animDuration,
+    );
 
     // Phase 2.15 — dismiss native splash on first Flutter frame.
     // FlutterNativeSplash.remove() is idempotent and safe even if preserve()
@@ -64,18 +67,17 @@ class _SplashScreenState extends State<SplashScreen> {
       FlutterNativeSplash.remove();
       if (!mounted) return;
       if (MediaQuery.of(context).disableAnimations) {
-        if (mounted) setState(() => _showSpinner = true);
+        // Snap all letters to fully visible — no per-tick animation.
+        _wordmarkController.value = 1.0;
       } else {
-        _spinnerTimer = Timer(const Duration(milliseconds: 800), () {
-          if (mounted) setState(() => _showSpinner = true);
-        });
+        _wordmarkController.forward();
       }
     });
   }
 
   @override
   void dispose() {
-    _spinnerTimer?.cancel();
+    _wordmarkController.dispose();
     super.dispose();
   }
 
@@ -86,25 +88,18 @@ class _SplashScreenState extends State<SplashScreen> {
       // Must match the native splash color in pubspec.yaml flutter_native_splash.color.
       backgroundColor: BrandColors.base,
       body: Stack(
-        children: [
+        children: <Widget>[
           // Align at (0, -0.4) shifts the logo into the upper-middle zone —
           // roughly 38% from the top — rather than dead centre.
           Align(
             alignment: const Alignment(0.0, -0.4),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const VelvetLogo(),
-                const SizedBox(height: AppSpacing.xxl),
-                AnimatedOpacity(
-                  opacity: _showSpinner ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 200),
-                  child: const CircularProgressIndicator(
-                    color: BrandColors.accent,
-                    strokeWidth: 2,
-                  ),
-                ),
-              ],
+            child: VelvetLogo(
+              animationController: _wordmarkController,
+              // Slightly larger on splash only — compact: false (default)
+              // + explicit overrides keep all other call sites unchanged.
+              tileSize: 92,
+              markFontSize: 42,
+              wordmarkFontSize: 17,
             ),
           ),
         ],

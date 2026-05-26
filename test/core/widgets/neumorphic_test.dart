@@ -569,6 +569,38 @@ void main() {
         reason: 'Compact pillow height must be 72 px',
       );
     });
+
+    // MEDIUM-2 — default param values are guarded: markFontSize, wordmarkFontSize,
+    // compact. If any default changes accidentally, this test catches it.
+    testWidgets(
+      'default VelvetLogo() has markFontSize=36, wordmarkFontSize=14, compact=false',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          _wrap(const VelvetLogo(key: Key('logo_defaults'))),
+        );
+        await tester.pumpAndSettle();
+
+        final logo = tester.widget<VelvetLogo>(
+          find.byKey(const Key('logo_defaults')),
+        );
+
+        expect(
+          logo.markFontSize,
+          equals(36.0),
+          reason: 'Default VelvetLogo markFontSize must be 36.',
+        );
+        expect(
+          logo.wordmarkFontSize,
+          equals(14.0),
+          reason: 'Default VelvetLogo wordmarkFontSize must be 14.',
+        );
+        expect(
+          logo.compact,
+          isFalse,
+          reason: 'Default VelvetLogo compact must be false.',
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -675,6 +707,151 @@ void main() {
           returnsNormally,
         );
         controller.dispose();
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // 12. AnimatedWordmark
+  // HIGH-2: didUpdateWidget correctly swaps the AnimationController.
+  // Also covers the text.length → FadeTransition count contract.
+  // -------------------------------------------------------------------------
+  group('AnimatedWordmark', () {
+    // Verifies that swapping the AnimationController via pumpWidget triggers
+    // didUpdateWidget, which calls _disposeAnimations() + _initAnimations(),
+    // so the new controller drives the opacity animations from scratch.
+    testWidgets('didUpdateWidget swaps controller and resets letter opacities', (
+      WidgetTester tester,
+    ) async {
+      final controllerA = AnimationController(
+        vsync: tester,
+        duration: const Duration(milliseconds: 880),
+      );
+      final controllerB = AnimationController(
+        vsync: tester,
+        duration: const Duration(milliseconds: 880),
+      );
+      addTearDown(controllerA.dispose);
+      addTearDown(controllerB.dispose);
+
+      // Build with controller A at the start (value = 0.0).
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: AnimatedWordmark(controller: controllerA)),
+        ),
+      );
+      await tester.pump();
+
+      // Advance controller A to its end — all 8 letters should be fully visible.
+      controllerA.value = 1.0;
+      await tester.pump();
+
+      final fadesBefore = tester
+          .widgetList<FadeTransition>(
+            find.descendant(
+              of: find.byType(AnimatedWordmark),
+              matching: find.byType(FadeTransition),
+            ),
+          )
+          .toList();
+      expect(
+        fadesBefore,
+        hasLength(8),
+        reason:
+            'AnimatedWordmark("beautica") must produce exactly 8 FadeTransition '
+            'widgets.',
+      );
+      for (final ft in fadesBefore) {
+        expect(
+          ft.opacity.value,
+          equals(1.0),
+          reason:
+              'All letters must be fully visible after controllerA reaches 1.0.',
+        );
+      }
+
+      // Swap to controller B which is at its initial value (0.0).
+      // didUpdateWidget must re-initialise all animations with the new controller.
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: AnimatedWordmark(controller: controllerB)),
+        ),
+      );
+      await tester.pump();
+
+      final fadesAfter = tester
+          .widgetList<FadeTransition>(
+            find.descendant(
+              of: find.byType(AnimatedWordmark),
+              matching: find.byType(FadeTransition),
+            ),
+          )
+          .toList();
+      expect(
+        fadesAfter,
+        hasLength(8),
+        reason:
+            'AnimatedWordmark must still produce 8 FadeTransitions after swap.',
+      );
+      for (final ft in fadesAfter) {
+        expect(
+          ft.opacity.value,
+          equals(0.0),
+          reason:
+              'didUpdateWidget must re-initialise animations with the new controller '
+              '(controllerB at 0.0), so all letter opacities must be 0.0.',
+        );
+      }
+
+      // Advance controller B to its end — letters must return to fully visible.
+      controllerB.value = 1.0;
+      await tester.pump();
+
+      for (final ft in tester.widgetList<FadeTransition>(
+        find.descendant(
+          of: find.byType(AnimatedWordmark),
+          matching: find.byType(FadeTransition),
+        ),
+      )) {
+        expect(
+          ft.opacity.value,
+          equals(1.0),
+          reason:
+              'Letters must be fully visible after controllerB advances to 1.0.',
+        );
+      }
+    });
+
+    // Verifies that the number of FadeTransition widgets scales with text length.
+    // Uses a 3-letter word so the test is unambiguous regardless of the default text.
+    testWidgets(
+      'produces exactly text.length FadeTransitions for custom text',
+      (WidgetTester tester) async {
+        final controller = AnimationController(
+          vsync: tester,
+          duration: const Duration(milliseconds: 880),
+        );
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: AnimatedWordmark(controller: controller, text: 'bea'),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(
+          find.descendant(
+            of: find.byType(AnimatedWordmark),
+            matching: find.byType(FadeTransition),
+          ),
+          findsNWidgets(3),
+          reason:
+              "AnimatedWordmark with text='bea' must produce exactly 3 "
+              'FadeTransition widgets — one per character.',
+        );
       },
     );
   });
