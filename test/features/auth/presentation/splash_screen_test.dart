@@ -392,7 +392,7 @@ void main() {
     // -------------------------------------------------------------------------
     testWidgets(
       '11. reduced-motion: accessibilityFeatures.disableAnimations=true snaps '
-          'all letters to opacity 1.0 immediately (no clock advance required)',
+      'all letters to opacity 1.0 immediately (no clock advance required)',
       (tester) async {
         // Set the platform-level accessibility flag BEFORE pumpWidget so
         // initState reads it as true on first mount.
