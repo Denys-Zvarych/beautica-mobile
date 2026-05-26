@@ -155,4 +155,10 @@ flutter:
   # assets/branding/ is intentionally NOT listed here — those files are
   # build-time inputs for flutter_launcher_icons and flutter_native_splash
   # only and are never loaded via Image.asset() at runtime.
-  # Add runtime-referenced assets here when needed (e.g. - assets/images/).
+  assets:
+    # Bundled font files for Comfortaa (w600/w700) and Nunito (w600/w700).
+    # google_fonts automatically prefers these over network fetches when
+    # allowRuntimeFetching = false (see main.dart). Required for release APKs
+    # where there is no network fallback and where kDebugMode = false previously
+    # caused the wordmark to fall back to the system font.
+    - assets/fonts/

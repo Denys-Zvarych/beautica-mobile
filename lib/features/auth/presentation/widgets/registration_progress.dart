@@ -35,7 +35,7 @@
 //   .prog-item.inactive .prog-num  { border: 1.5px solid rgba(255,255,255,0.15); color: rgba(255,255,255,0.28) }
 //   .prog-line.done    { background: rgba(184,154,122,0.25) }
 //   .prog-line         { background: rgba(255,255,255,0.08) }
-//   .prog-label-under  { font: 14px italic 600 Cormorant Garamond; color: var(--accent); letter-spacing: 0.01em; line-height: 1 }
+//   .prog-label-under  { font: 14px italic 600 Comfortaa; color: var(--accent); letter-spacing: 0.01em; line-height: 1 }
 //
 // Testability keys:
 //   Key('progress-step-1')..Key('progress-step-4')  — one per dot column
@@ -77,11 +77,11 @@ enum RegistrationStep {
 /// Renders the 4-dot progress row used on every registration-flow screen.
 ///
 /// [currentStep] selects which dot is highlighted as the active one.
-/// [activeStepLabel] — when non-null — is rendered as italic Cormorant
-/// Garamond camel text under the active dot, allowed to overflow the active
-/// dot's 22 dp column into neighbouring (empty) label slots. When null no
-/// label is rendered (mostly useful for tests / screenshots that want to
-/// show the dot row in isolation).
+/// [activeStepLabel] — when non-null — is rendered as italic Comfortaa w600
+/// camel text under the active dot, allowed to overflow the active dot's 22 dp
+/// column into neighbouring (empty) label slots. When null no label is rendered
+/// (mostly useful for tests / screenshots that want to show the dot row in
+/// isolation).
 class RegistrationProgress extends StatelessWidget {
   const RegistrationProgress({
     super.key,
@@ -174,7 +174,7 @@ class _ProgItem extends StatelessWidget {
   /// band so the label can overflow the 22 dp dot column symmetrically into
   /// neighbouring (empty) label slots. 110 dp per side → 242 dp wide band
   /// for the label text, which comfortably fits the widest Cyrillic label
-  /// ("Верифікація", ~120 dp at 14 px Cormorant Garamond) and re-centres on
+  /// ("Верифікація", ~120 dp at 14 px Comfortaa) and re-centres on
   /// the dot midline via the inner `Center`.
   static const double _kLabelOverflow = 110;
 
@@ -291,7 +291,7 @@ class _ProgItem extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Internal — active label (Cormorant Garamond italic, camel)
+// Internal — active label (Comfortaa italic w600, camel)
 // ---------------------------------------------------------------------------
 
 /// Active-step label rendered absolutely under the active dot.
@@ -305,7 +305,7 @@ class _ActiveLabel extends StatelessWidget {
   final String text;
 
   /// .prog-label-under {
-  ///   font-family: 'Cormorant Garamond';
+  ///   font-family: 'Comfortaa';   ← bundled in assets/fonts/; allowRuntimeFetching=false
   ///   font-style: italic;
   ///   font-weight: 600;
   ///   font-size: 14px;
@@ -313,7 +313,10 @@ class _ActiveLabel extends StatelessWidget {
   ///   color: var(--accent) #b89a7a;
   ///   letter-spacing: 0.01em;
   /// }
-  static final _kLabelStyle = GoogleFonts.cormorantGaramond(
+  /// Comfortaa is bundled under assets/fonts/ (Comfortaa-SemiBold.ttf /
+  /// Comfortaa-Bold.ttf). CormorantGaramond is NOT bundled and must not be
+  /// used with allowRuntimeFetching = false (throws at runtime on release APK).
+  static final _kLabelStyle = GoogleFonts.comfortaa(
     textStyle: const TextStyle(
       fontStyle: FontStyle.italic,
       fontWeight: FontWeight.w600,

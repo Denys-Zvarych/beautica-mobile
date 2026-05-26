@@ -24,6 +24,8 @@
 //      in the widget-test environment.
 //  11. Reduced-motion — with disableAnimations=true, controller snaps to
 //      value 1.0 after first pump; all letter FadeTransitions have opacity 1.0.
+//  12. !mounted guard — widget disposed before postFrameCallback fires;
+//      no null-check exception thrown (AOT crash regression).
 //
 // Note on VelvetLogo / AnimatedWordmark:
 //   Both are pure-Dart widgets (no asset loading, no SVG, no network).
@@ -346,6 +348,54 @@ void main() {
         // If we reach this assertion without a test failure, remove() was a
         // silent no-op as required.
         expect(find.byType(SplashScreen), findsOneWidget);
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // Test 12 — !mounted guard: widget disposed BEFORE postFrameCallback fires.
+    //
+    // Regression guard for the AOT crash fixed in this batch:
+    //   In the postFrameCallback, FlutterNativeSplash.remove() must remain
+    //   unconditional. The `if (!mounted) return` guard that follows it prevents
+    //   _wordmarkController.forward() from running on a disposed controller
+    //   (in AOT, _ticker is null → "Null check operator on a null value").
+    //
+    // How this test exercises the !mounted path:
+    //   1. pumpWidget — schedules initState and the postFrameCallback.
+    //   2. pumpWidget(SizedBox.shrink()) WITHOUT calling pump() first — replaces
+    //      the tree synchronously, triggering dispose() BEFORE the microtask
+    //      queue is drained.
+    //   3. pump() — drains the microtask queue, running the postFrameCallback
+    //      with mounted == false. Without the guard, forward() throws.
+    //   4. pumpAndSettle() — confirms no pending-frame errors surface.
+    //
+    // Note: flutter_test tracks pending timers; any assert from a disposed
+    // AnimationController surfaces immediately — this is NOT a silent pass.
+    // -------------------------------------------------------------------------
+    testWidgets(
+      '12. !mounted guard: no exception when widget disposed before postFrameCallback fires',
+      (tester) async {
+        // Step 1 — pump the splash screen into the tree.
+        // This registers the addPostFrameCallback but does NOT yet drain it.
+        await tester.pumpWidget(_buildApp());
+
+        // Step 2 — replace the widget tree immediately, triggering dispose().
+        // pump() has NOT been called yet, so the postFrameCallback is still
+        // pending. At this point mounted == false for the old _SplashScreenState.
+        await tester.pumpWidget(const SizedBox.shrink());
+
+        // Step 3 — drain the microtask / frame queue.
+        // The pending postFrameCallback now runs. Without `if (!mounted) return`,
+        // _wordmarkController.forward() would throw because _ticker is null in
+        // AOT (disposed AnimationController). With the guard, it returns early.
+        await tester.pump();
+
+        // Step 4 — confirm no errors surface.
+        await tester.pumpAndSettle();
+
+        // If we reach here without a framework assertion or exception, the guard
+        // correctly short-circuited the animation start on a disposed widget.
+        expect(find.byType(SplashScreen), findsNothing);
       },
     );
 

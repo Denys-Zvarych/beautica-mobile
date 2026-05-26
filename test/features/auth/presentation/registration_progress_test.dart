@@ -3,7 +3,7 @@
 //
 // Asserts the 4 numbered dots render with correct done/active/inactive state
 // for each [RegistrationStep] value AND that the under-dot active label
-// (italic Cormorant Garamond camel) is rendered exactly once — under the
+// (italic Comfortaa w600 camel) is rendered exactly once — under the
 // active dot — when [activeStepLabel] is non-null:
 //   • account       — dot 1 active; 2/3/4 inactive
 //   • details       — dot 1 done; 2 active; 3/4 inactive
@@ -277,8 +277,8 @@ void main() {
     );
 
     testWidgets(
-      'active label TextStyle is italic Cormorant Garamond 14 px camel '
-      '(locks the design-token contract)',
+      'active label TextStyle is italic Comfortaa w600 14 px camel '
+      '(locks the design-token contract; guards CormorantGaramond→Comfortaa fix)',
       (tester) async {
         await _pumpProgress(
           tester,
@@ -294,6 +294,22 @@ void main() {
         expect(style.fontWeight, FontWeight.w600);
         // Brand camel #B89A7A → 0xFFB89A7A.
         expect(style.color, const Color(0xFFB89A7A));
+        // Font family guard — regression for the CormorantGaramond→Comfortaa
+        // fix (2026-05-26). GoogleFonts.comfortaa() resolves to a fontFamily
+        // string that starts with 'Comfortaa'. CormorantGaramond would start
+        // with 'Cormorant Garamond' — causing a crash on release APKs when
+        // GoogleFonts.config.allowRuntimeFetching = false blocks the network
+        // fetch. startsWith() is used rather than equals() because GoogleFonts
+        // may append a subset qualifier (e.g. 'Comfortaa_semibold700').
+        expect(
+          style.fontFamily,
+          startsWith('Comfortaa'),
+          reason:
+              '_kLabelStyle must use GoogleFonts.comfortaa(), not '
+              'GoogleFonts.cormorantGaramond(). Comfortaa is bundled under '
+              'assets/fonts/ and resolves offline. CormorantGaramond is NOT '
+              'bundled and throws when allowRuntimeFetching=false.',
+        );
       },
     );
   });

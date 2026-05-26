@@ -60,11 +60,18 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     // Phase 2.15 — dismiss native splash on first Flutter frame.
-    // FlutterNativeSplash.remove() is idempotent and safe even if preserve()
-    // was not called (debug mode).
-    // Defer reduced-motion check to post-frame so MediaQuery is available.
+    // FlutterNativeSplash.remove() is idempotent and must remain unconditional:
+    // it must fire even when the widget has already been disposed (go_router
+    // navigated away before the callback ran) so the native overlay is always
+    // cleared regardless of mount state.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FlutterNativeSplash.remove();
+      // Guard after remove(): if go_router navigated away before this callback
+      // fired, the widget is disposed (mounted == false). In release mode (AOT)
+      // a disposed AnimationController has _ticker == null, so calling
+      // forward() would throw "Null check operator used on a null value" at
+      // animation_controller.dart:866. The user is already on the next screen
+      // at this point — there is no animation to play.
       if (!mounted) return;
       if (MediaQuery.of(context).disableAnimations) {
         // Snap all letters to fully visible — no per-tick animation.

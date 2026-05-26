@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
@@ -51,7 +50,12 @@ Future<void> main() async {
   // on cold start, so SplashScreen.initState never fires.
   FlutterNativeSplash.preserve(widgetsBinding: binding);
 
-  GoogleFonts.config.allowRuntimeFetching = kDebugMode;
+  // Fonts are bundled as assets under assets/fonts/ (Comfortaa + Nunito variants).
+  // Runtime fetching disabled in ALL modes so release APKs render the wordmark
+  // without a network round-trip and debug builds stay consistent.
+  // google_fonts automatically prefers the bundled asset when the file is declared
+  // in pubspec.yaml and the TTF exists in assets/fonts/.
+  GoogleFonts.config.allowRuntimeFetching = false;
 
   runApp(const ProviderScope(child: BeauticaApp()));
 
