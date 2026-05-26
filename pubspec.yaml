@@ -41,9 +41,6 @@ dependencies:
   # Design system — Manrope via google_fonts (full Cyrillic glyph set).
   google_fonts: ^8.1.0
 
-  # Responsive layout — Material 3 canonical breakpoints.
-  flutter_adaptive_scaffold: ^0.3.1
-
   # Models / serialization — freezed + json_serializable codegen.
   # Upgraded to ^3.0.0 in Phase 1.4 to align with custom_lint ^0.8.x which
   # requires freezed_annotation ^3; the ^2.x constraint broke build_runner.
@@ -84,10 +81,11 @@ dev_dependencies:
   # openapi_generator deferred to Phase 3.1 — version conflict with
   # riverpod_lint's required analyzer ^7. Re-add when the OpenAPI client lands.
 
-  # Testing — mocktail (no codegen), golden_toolkit for snapshot tests.
+  # Testing — mocktail (no codegen).
+  # golden_toolkit removed 2026-05-26 — discontinued on pub.dev; was declared but never imported.
+  # When golden tests are needed, use Flutter's built-in matchesGoldenFile or the alchemist package.
   mocktail: ^1.0.4
   network_image_mock: ^2.1.1
-  golden_toolkit: ^0.15.0
 
   # Lints — flutter_lints + riverpod_lint via custom_lint.
   # Upgraded custom_lint stack to ^0.8.1 in Phase 1.4 to resolve the
