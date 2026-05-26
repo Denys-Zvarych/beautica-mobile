@@ -14,18 +14,21 @@
 //   5. After controller.forward() completes (pump 880ms + settle), every
 //      letter FadeTransition has opacity 1.0.
 //   6. No AppBar rendered (auth screens are full-screen, no AppBar).
-//   7. AnimationController is disposed on widget dispose (no pending-frame
-//      error; replaces the old "Timer cancelled" test).
+//   7. AnimationController is disposed on widget dispose (no pending-frame error).
 //   8. Batch 6 regression — VelvetLogo itself is NOT wrapped in FadeTransition.
 //      FadeTransition widgets inside AnimatedWordmark are descendants of
 //      VelvetLogo — that is correct and must NOT trigger this assertion.
 //   9. Phase 2.15 regression — Scaffold backgroundColor == BrandColors.base.
 //  10. Phase 2.15 regression — FlutterNativeSplash.remove() does not throw
 //      in the widget-test environment.
-//  11. Reduced-motion — with disableAnimations=true, controller snaps to
-//      value 1.0 after first pump; all letter FadeTransitions have opacity 1.0.
-//  12. !mounted guard — widget disposed before postFrameCallback fires;
-//      no null-check exception thrown (AOT crash regression).
+//  11. Reduced-motion — with accessibilityFeatures.disableAnimations=true
+//      (set via tester.platformDispatcher, matching the initState call site),
+//      controller is snapped to value 1.0; all letter FadeTransitions have
+//      opacity 1.0 immediately after first pump.
+//  12. Early-dispose safety — widget disposed immediately after pumpWidget
+//      (before any pump drains the frame queue); no AnimationController error
+//      surfaces. Verifies that the initState animation start cannot produce a
+//      use-after-dispose exception regardless of pump ordering.
 //
 // Note on VelvetLogo / AnimatedWordmark:
 //   Both are pure-Dart widgets (no asset loading, no SVG, no network).
@@ -34,6 +37,21 @@
 // Note on FlutterNativeSplash.remove() (Tests 1, 9, 10):
 //   In the flutter_test environment the native-splash platform channel is not
 //   initialised, so FlutterNativeSplash.remove() is a documented no-op.
+//
+// Note on ScreenProtector (initState / dispose):
+//   ScreenProtector.preventScreenshotOn/Off are platform channel calls guarded
+//   by `if (!kDebugMode)`. In flutter_test, kDebugMode is always true, so the
+//   calls are never made. No mock or assertion is required — the guard makes
+//   ScreenProtector dead code in the test runner environment.
+//
+// Note on Test 11 — accessibilityFeatures vs MediaQuery:
+//   The source reads WidgetsBinding.instance.accessibilityFeatures.disableAnimations
+//   in initState. MediaQueryData.disableAnimations is a DIFFERENT value backed by
+//   a separate data path. Setting MediaQuery(data: copyWith(disableAnimations: true))
+//   does NOT affect accessibilityFeatures — it would leave the branch in source
+//   perpetually untested. The correct setter is
+//   tester.platformDispatcher.accessibilityFeaturesTestValue with
+//   FakeAccessibilityFeatures(disableAnimations: true).
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
@@ -42,11 +60,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // Wraps the widget under test in the minimal tree that SplashScreen requires:
-// a MaterialApp (for Scaffold / MediaQuery / Theme) with no router needed.
-Widget _buildApp({bool disableAnimations = false}) => MediaQuery(
-  data: const MediaQueryData().copyWith(disableAnimations: disableAnimations),
-  child: const MaterialApp(home: SplashScreen()),
-);
+// a MaterialApp (for Scaffold / Theme) with no router needed.
+// MediaQuery is NOT injected here — Test 11 uses the platform dispatcher path
+// that the source code actually reads (accessibilityFeatures), not MediaQuery.
+Widget _buildApp() => const MaterialApp(home: SplashScreen());
 
 void main() {
   group('SplashScreen', () {
@@ -55,7 +72,6 @@ void main() {
     // -------------------------------------------------------------------------
     testWidgets('1. renders without error', (tester) async {
       await tester.pumpWidget(_buildApp());
-      // Allow post-frame callbacks (initState deferred check) to run.
       await tester.pump();
 
       expect(find.byType(SplashScreen), findsOneWidget);
@@ -157,7 +173,7 @@ void main() {
       '5. after animation completes, all letter FadeTransitions have opacity 1.0',
       (tester) async {
         await tester.pumpWidget(_buildApp());
-        // Trigger the post-frame callback that calls controller.forward().
+        // Allow the first frame to build (initState has already called forward()).
         await tester.pump();
         // Advance past the full animation duration.
         await tester.pump(const Duration(milliseconds: 880));
@@ -338,12 +354,16 @@ void main() {
     // -------------------------------------------------------------------------
     // Test 10 — Phase 2.15 regression: FlutterNativeSplash.remove() does not
     //            throw in the widget-test environment.
+    //
+    // FlutterNativeSplash.remove() is called unconditionally in initState.
+    // In flutter_test the platform channel is not initialised — the call must
+    // be a silent no-op, not a crash.
     // -------------------------------------------------------------------------
     testWidgets(
       '10. Phase 2.15 — FlutterNativeSplash.remove() does not throw in test environment',
       (tester) async {
         await tester.pumpWidget(_buildApp());
-        await tester.pump(); // triggers addPostFrameCallback
+        await tester.pump();
 
         // If we reach this assertion without a test failure, remove() was a
         // silent no-op as required.
@@ -352,100 +372,72 @@ void main() {
     );
 
     // -------------------------------------------------------------------------
-    // Test 12 — !mounted guard: widget disposed BEFORE postFrameCallback fires.
+    // Test 11 — Reduced-motion: accessibilityFeatures.disableAnimations=true
+    //            snaps controller to 1.0 immediately.
     //
-    // Regression guard for the AOT crash fixed in this batch:
-    //   In the postFrameCallback, FlutterNativeSplash.remove() must remain
-    //   unconditional. The `if (!mounted) return` guard that follows it prevents
-    //   _wordmarkController.forward() from running on a disposed controller
-    //   (in AOT, _ticker is null → "Null check operator on a null value").
+    // The source reads WidgetsBinding.instance.accessibilityFeatures.disableAnimations
+    // in initState (line 97 of splash_screen.dart). This value is backed by the
+    // platform dispatcher — it is NOT the same as MediaQuery.disableAnimations.
+    // Setting MediaQueryData.copyWith(disableAnimations: true) would leave this
+    // branch permanently untested because accessibilityFeatures.disableAnimations
+    // remains false regardless of MediaQuery.
     //
-    // How this test exercises the !mounted path:
-    //   1. pumpWidget — schedules initState and the postFrameCallback.
-    //   2. pumpWidget(SizedBox.shrink()) WITHOUT calling pump() first — replaces
-    //      the tree synchronously, triggering dispose() BEFORE the microtask
-    //      queue is drained.
-    //   3. pump() — drains the microtask queue, running the postFrameCallback
-    //      with mounted == false. Without the guard, forward() throws.
-    //   4. pumpAndSettle() — confirms no pending-frame errors surface.
+    // Correct approach: set the platform-dispatcher test value via
+    // tester.platformDispatcher.accessibilityFeaturesTestValue before pumpWidget
+    // so that accessibilityFeatures.disableAnimations is true when initState runs.
     //
-    // Note: flutter_test tracks pending timers; any assert from a disposed
-    // AnimationController surfaces immediately — this is NOT a silent pass.
+    // Expected behaviour: _wordmarkController.value = 1.0 (snap, no animation).
+    // All 8 FadeTransitions must be at opacity 1.0 and all SlideTransitions at
+    // Offset.zero after the first pump — without advancing the clock at all.
     // -------------------------------------------------------------------------
     testWidgets(
-      '12. !mounted guard: no exception when widget disposed before postFrameCallback fires',
+      '11. reduced-motion: accessibilityFeatures.disableAnimations=true snaps '
+          'all letters to opacity 1.0 immediately (no clock advance required)',
       (tester) async {
-        // Step 1 — pump the splash screen into the tree.
-        // This registers the addPostFrameCallback but does NOT yet drain it.
+        // Set the platform-level accessibility flag BEFORE pumpWidget so
+        // initState reads it as true on first mount.
+        tester.platformDispatcher.accessibilityFeaturesTestValue =
+            const FakeAccessibilityFeatures(disableAnimations: true);
+        addTearDown(
+          tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+        );
+
         await tester.pumpWidget(_buildApp());
-
-        // Step 2 — replace the widget tree immediately, triggering dispose().
-        // pump() has NOT been called yet, so the postFrameCallback is still
-        // pending. At this point mounted == false for the old _SplashScreenState.
-        await tester.pumpWidget(const SizedBox.shrink());
-
-        // Step 3 — drain the microtask / frame queue.
-        // The pending postFrameCallback now runs. Without `if (!mounted) return`,
-        // _wordmarkController.forward() would throw because _ticker is null in
-        // AOT (disposed AnimationController). With the guard, it returns early.
+        // First pump — initState has already run and set controller.value = 1.0.
+        // No clock advance needed: the controller is at its end value immediately.
         await tester.pump();
-
-        // Step 4 — confirm no errors surface.
-        await tester.pumpAndSettle();
-
-        // If we reach here without a framework assertion or exception, the guard
-        // correctly short-circuited the animation start on a disposed widget.
-        expect(find.byType(SplashScreen), findsNothing);
-      },
-    );
-
-    // -------------------------------------------------------------------------
-    // Test 11 — Reduced-motion: disableAnimations=true snaps controller to 1.0
-    //
-    // When MediaQuery.disableAnimations is true, initState's post-frame
-    // callback sets _wordmarkController.value = 1.0 (skip animation).
-    // All letter FadeTransitions must be at opacity 1.0 after the first settle.
-    // -------------------------------------------------------------------------
-    testWidgets(
-      '11. reduced-motion: disableAnimations=true snaps all letters to opacity 1.0',
-      (tester) async {
-        await tester.pumpWidget(_buildApp(disableAnimations: true));
-        // Trigger the post-frame callback that snaps the controller to 1.0.
-        await tester.pump();
-        // Settle any residual frames triggered by the value change.
-        await tester.pumpAndSettle();
 
         final animatedWordmarkFinder = find.byType(AnimatedWordmark);
         expect(animatedWordmarkFinder, findsOneWidget);
 
-        final fadeTransitions = tester.widgetList<FadeTransition>(
-          find.descendant(
-            of: animatedWordmarkFinder,
-            matching: find.byType(FadeTransition),
-          ),
-        );
+        final fadeTransitions = tester
+            .widgetList<FadeTransition>(
+              find.descendant(
+                of: animatedWordmarkFinder,
+                matching: find.byType(FadeTransition),
+              ),
+            )
+            .toList();
 
-        final transitions = fadeTransitions.toList();
         expect(
-          transitions,
+          fadeTransitions,
           hasLength(8),
           reason:
               'AnimatedWordmark with text "beautica" (8 chars) must produce '
               'exactly 8 FadeTransition widgets.',
         );
 
-        for (final ft in transitions) {
+        for (final ft in fadeTransitions) {
           expect(
             ft.opacity.value,
             equals(1.0),
             reason:
-                'With disableAnimations=true, controller.value is snapped to '
-                '1.0 — all letters must be fully visible immediately.',
+                'With accessibilityFeatures.disableAnimations=true, '
+                '_wordmarkController.value is set to 1.0 in initState — '
+                'all letters must be fully visible immediately.',
           );
         }
 
-        // SlideTransition check — all positions must be Offset.zero after the
-        // controller snaps to 1.0 in reduced-motion mode.
         final slideTransitions = tester
             .widgetList<SlideTransition>(
               find.descendant(
@@ -454,6 +446,7 @@ void main() {
               ),
             )
             .toList();
+
         expect(
           slideTransitions,
           hasLength(8),
@@ -461,15 +454,65 @@ void main() {
               'AnimatedWordmark with text "beautica" (8 chars) must produce '
               'exactly 8 SlideTransition widgets.',
         );
+
         for (final st in slideTransitions) {
           expect(
             st.position.value,
             equals(Offset.zero),
             reason:
-                'With disableAnimations=true, all letter SlideTransitions must '
-                'be at Offset.zero after the controller snaps to 1.0.',
+                'With accessibilityFeatures.disableAnimations=true, all letter '
+                'SlideTransitions must be at Offset.zero after the snap.',
           );
         }
+
+        // Key distinction from Test 5: Test 5 advances 880ms and settles.
+        // This test must NOT advance the clock — the snap is instantaneous.
+        // If forward() were called instead of value=1.0, opacity would be 0.0
+        // at this point (animation not yet started). The test would fail,
+        // catching the regression.
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // Test 12 — Early-dispose safety: widget disposed immediately after
+    //            pumpWidget, before any frame pump.
+    //
+    // The initState animation start (controller.forward()) schedules a ticker.
+    // If dispose() does not correctly call controller.dispose(), the pending
+    // ticker fires after teardown and raises a framework assertion. This test
+    // exercises the race between initState (starts the ticker) and dispose
+    // (cleans it up) by replacing the widget tree before pump() drains the
+    // frame queue.
+    //
+    // Historical note: an earlier version of this test was described as testing
+    // an addPostFrameCallback !mounted guard. That code path no longer exists —
+    // the source was refactored to call forward() directly in initState (no
+    // postFrameCallback, no mounted guard). This test now verifies the correct
+    // invariant: controller.dispose() in dispose() cleans up a ticker that was
+    // started in initState, regardless of pump ordering.
+    // -------------------------------------------------------------------------
+    testWidgets(
+      '12. early-dispose: no AnimationController error when widget disposed before first pump',
+      (tester) async {
+        // Step 1 — pump the splash screen into the tree. initState runs and
+        // calls controller.forward(), scheduling a ticker. The first frame has
+        // NOT been flushed yet.
+        await tester.pumpWidget(_buildApp());
+
+        // Step 2 — replace the widget tree immediately (no pump in between).
+        // This triggers dispose() while the ticker from forward() is still
+        // pending. controller.dispose() must cancel the ticker cleanly.
+        await tester.pumpWidget(const SizedBox.shrink());
+
+        // Step 3 — drain the frame queue. Any frame scheduled by the now-
+        // disposed controller's ticker would surface a framework assertion
+        // here if dispose() failed to clean it up.
+        await tester.pump();
+        await tester.pumpAndSettle();
+
+        // If we reach here without a framework assertion, dispose() correctly
+        // cleaned up the AnimationController started in initState.
+        expect(find.byType(SplashScreen), findsNothing);
       },
     );
   });

@@ -15,18 +15,33 @@
 // Phase 2.15 — Native-splash handoff (Option A — "Single continuous animation"):
 //   The native splash (warm taupe #E6DDD0 bg + Beautica B mark at scale 1.0)
 //   is preserved by [FlutterNativeSplash.preserve] in main() and dismissed here
-//   via [FlutterNativeSplash.remove] on the first Flutter post-frame callback.
+//   via [FlutterNativeSplash.remove] directly inside [initState].
+//
+// Why initState, not addPostFrameCallback:
+//   In release AOT, the auth provider (SecureStorage) resolves synchronously
+//   before the first Flutter frame is painted. go_router therefore redirects
+//   to /login or /home before SplashScreen gets a chance to paint, which means
+//   the widget is either never mounted or is immediately disposed. An
+//   addPostFrameCallback fires AFTER the first frame — i.e. after go_router
+//   has already navigated away — so mounted == false and forward() is never
+//   called. Starting the animation in initState avoids this race entirely:
+//   initState runs while the widget IS mounted, and AnimationController
+//   schedules its own ticker via vsync without needing a rendered frame.
 //
 // Splash animation — letter-by-letter wordmark reveal:
 //   The [CircularProgressIndicator] + Timer have been replaced by an
 //   [AnimatedWordmark] that reveals "beautica" letter-by-letter over 880 ms.
 //   Each letter fades in and slides up with a 90 ms stagger. The animation
 //   serves as both a brand moment and a visual loading indicator.
-//   Reduced-motion: when [MediaQueryData.disableAnimations] is true the
+//   Reduced-motion: when [accessibilityFeatures.disableAnimations] is true the
 //   controller is snapped to its end value so all letters appear immediately.
+//   (MediaQuery is unavailable in initState; accessibilityFeatures reads the
+//   same underlying platform flag.)
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
+import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/widgets/neumorphic.dart';
@@ -59,31 +74,39 @@ class _SplashScreenState extends State<SplashScreen>
       duration: _animDuration,
     );
 
-    // Phase 2.15 — dismiss native splash on first Flutter frame.
-    // FlutterNativeSplash.remove() is idempotent and must remain unconditional:
-    // it must fire even when the widget has already been disposed (go_router
-    // navigated away before the callback ran) so the native overlay is always
-    // cleared regardless of mount state.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      FlutterNativeSplash.remove();
-      // Guard after remove(): if go_router navigated away before this callback
-      // fired, the widget is disposed (mounted == false). In release mode (AOT)
-      // a disposed AnimationController has _ticker == null, so calling
-      // forward() would throw "Null check operator used on a null value" at
-      // animation_controller.dart:866. The user is already on the next screen
-      // at this point — there is no animation to play.
-      if (!mounted) return;
-      if (MediaQuery.of(context).disableAnimations) {
-        // Snap all letters to fully visible — no per-tick animation.
-        _wordmarkController.value = 1.0;
-      } else {
-        _wordmarkController.forward();
-      }
-    });
+    // Phase 2.15 fix — dismiss native splash immediately when this State is
+    // created. initState only fires while the widget IS mounted, so there is
+    // no risk of releasing the native overlay after the widget is gone.
+    // FlutterNativeSplash.remove() is idempotent: if main() already released
+    // the overlay (returning-user bypass path where go_router skips /splash
+    // entirely), this call is a safe no-op.
+    FlutterNativeSplash.remove();
+
+    // MASVS-PLATFORM / MS6 — prevent OS-level screenshot / screen recording
+    // while the splash (and therefore the auth flow entry point) is visible.
+    // Mirrors the same guard used on every other auth screen.
+    if (!kDebugMode) {
+      ScreenProtector.preventScreenshotOn();
+    }
+
+    // Start the animation immediately. AnimationController schedules its own
+    // ticker via vsync and does not need a rendered frame — no
+    // addPostFrameCallback required. MediaQuery is unavailable in initState;
+    // accessibilityFeatures reads the same underlying platform disableAnimations
+    // flag via the engine and is available from the very first frame.
+    if (WidgetsBinding.instance.accessibilityFeatures.disableAnimations) {
+      // Snap all letters to fully visible — no per-tick animation.
+      _wordmarkController.value = 1.0;
+    } else {
+      _wordmarkController.forward();
+    }
   }
 
   @override
   void dispose() {
+    if (!kDebugMode) {
+      ScreenProtector.preventScreenshotOff();
+    }
     _wordmarkController.dispose();
     super.dispose();
   }

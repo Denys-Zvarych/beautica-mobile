@@ -20,12 +20,18 @@ import 'routing/app_router.dart';
 /// [appRouterProvider] via [ConsumerWidget]; the app boots to
 /// [RouteNames.splash].
 /// Phase 2.15 — [FlutterNativeSplash.preserve] keeps the branded warm-taupe
-/// native splash on screen while the engine starts up. [FlutterNativeSplash.remove]
-/// is called synchronously in [main] after [runApp] (not in [SplashScreen.initState])
-/// because the F4 auth-redirect design bypasses `/splash` on cold start —
-/// [SplashScreen.initState] would never fire, leaving [deferFirstFrame] unreleased.
-/// [SplashScreen.initState] retains a redundant [remove] call as an idempotent
-/// safety net for the cases where `/splash` is navigated to directly.
+/// native splash on screen while the engine starts up. Two [FlutterNativeSplash.remove]
+/// call sites exist (both idempotent, whichever fires first wins):
+///   1. [main] (here, after [runApp]) — safety net for the returning-user
+///      bypass path where go_router skips `/splash` entirely and
+///      [SplashScreen.initState] never runs. Without this call the native
+///      overlay would never be released.
+///   2. [SplashScreen.initState] — primary call site for cold-start new-user
+///      path where `/splash` is mounted. Moved from addPostFrameCallback to
+///      initState in the release-AOT fix (Phase 2.15+): in release mode the
+///      auth provider resolves before the first Flutter frame, go_router
+///      redirects while [SplashScreen] is still initializing, and a
+///      postFrameCallback fires too late (mounted == false → forward() skipped).
 ///
 /// MP-STARTUP-THEME: [velvetTheme()] is computed once and stored here. The
 /// [MaterialApp.router] widget re-builds on every [authProvider] state change
