@@ -25,6 +25,12 @@
 -keep class net.jonhanson.flutter_native_splash.** { *; }
 -keepclassmembers class net.jonhanson.flutter_native_splash.** { *; }
 
+# screen_protector — MethodChannel handler for FLAG_SECURE (MASVS-PLATFORM MS6)
+# Protects auth screens from OS-level screenshot/recording. R8 must not strip
+# the MethodChannel implementation or preventScreenshotOn/Off become silent no-ops.
+-keep class io.etchells.screenprotector.** { *; }
+-keepclassmembers class io.etchells.screenprotector.** { *; }
+
 # Dio — keep response type adapters
 -keep class retrofit2.** { *; }
 -keep class okhttp3.** { *; }

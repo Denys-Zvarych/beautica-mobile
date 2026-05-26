@@ -6,6 +6,7 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'core/app_start_time.dart';
 import 'core/theme/app_theme.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
@@ -45,6 +46,12 @@ Future<void> main() async {
   // SchedulerBinding.instance below hangs on Mali-G52 / this Flutter combo.
   // Phase 2.15: capture the binding so it can be passed to FlutterNativeSplash.
   final binding = WidgetsFlutterBinding.ensureInitialized();
+
+  // Phase 2.15+ — record the wall-clock start time so auth_redirect.dart can
+  // enforce a minimum splash visible duration (950 ms). Must be called before
+  // runApp() — the elapsed() reading in the redirect guard measures from this
+  // point so it covers provider initialisation + the first frame build.
+  AppStartTime.record();
 
   // Phase 2.15 — preserve the native splash through Flutter engine startup.
   // The native splash (warm taupe #E6DDD0 bg + Beautica B mark) remains visible

@@ -43,22 +43,27 @@ def generate_std(font_path: str, out_path: str) -> None:
     r = 96          # 24dp × 4
 
     # ── Shadows ───────────────────────────────────────────────────────────────
-    # Dark shadow: +20px offset, blur 20, color #C0AF98 α200
+    # Dark shadow: +20px offset, blur 20, color #C0AF98 α80 (very subtle warm beige).
+    # Alpha reduced from 200 → 80 so the shadow is only slightly darker than the
+    # #E6DDD0 base — matching extrudedSmall in velvet_tokens.dart which renders on
+    # that same background. Opaque dark shadows at α200 composite as a heavy
+    # grayish halo on the warm-taupe native splash background.
     draw_blurred_shadow(
         canvas,
         [tx + 20, ty + 20, tx + tw + 20, ty + th + 20],
         radius=r,
         fill_rgb=(0xC0, 0xAF, 0x98),
-        alpha=200,
+        alpha=80,
         blur=20,
     )
-    # Light shadow: -20px offset, blur 20, color #FFFBF4 α210
+    # Light shadow: -20px offset, blur 20, color #FFFBF4 α120 (gentle highlight).
+    # Alpha reduced from 210 → 120 — near-white cream, barely perceptible lift.
     draw_blurred_shadow(
         canvas,
         [tx - 20, ty - 20, tx + tw - 20, ty + th - 20],
         radius=r,
         fill_rgb=(0xFF, 0xFB, 0xF4),
-        alpha=210,
+        alpha=120,
         blur=20,
     )
 
@@ -82,8 +87,8 @@ def generate_std(font_path: str, out_path: str) -> None:
     text_y    = ty + (th - text_h) // 2 - bbox[1]
     text_draw.text((text_x, text_y), "B", font=font, fill=(0xC4, 0xA9, 0x88, 255))
 
-    canvas.save(out_path)
-    print(f"[OK] {out_path}  ({SIZE}×{SIZE})")
+    canvas.save(out_path, optimize=True, compress_level=9)
+    print(f"[OK] {out_path}  ({SIZE}×{SIZE}, {os.path.getsize(out_path)//1024}KB)")
 
 
 def generate_android12(font_path: str, out_path: str) -> None:
@@ -110,12 +115,15 @@ def generate_android12(font_path: str, out_path: str) -> None:
     r      = 120    # 24dp × 5
 
     # ── Shadows ───────────────────────────────────────────────────────────────
+    # Alpha values match the standard variant: dark α80, light α120.
+    # Same rationale: Android 12 composites the PNG over #E6DDD0, so the shadow
+    # must be very subtle to avoid the heavy-halo artifact in the release APK.
     draw_blurred_shadow(
         canvas,
         [tx + 25, ty + 25, tx + tw + 25, ty + th + 25],
         radius=r,
         fill_rgb=(0xC0, 0xAF, 0x98),
-        alpha=200,
+        alpha=80,
         blur=16,
     )
     draw_blurred_shadow(
@@ -123,7 +131,7 @@ def generate_android12(font_path: str, out_path: str) -> None:
         [tx - 25, ty - 25, tx + tw - 25, ty + th - 25],
         radius=r,
         fill_rgb=(0xFF, 0xFB, 0xF4),
-        alpha=210,
+        alpha=120,
         blur=16,
     )
 
@@ -147,8 +155,48 @@ def generate_android12(font_path: str, out_path: str) -> None:
     text_y    = ty + (th - text_h) // 2 - bbox[1]
     text_draw.text((text_x, text_y), "B", font=font, fill=(0xC4, 0xA9, 0x88, 255))
 
-    canvas.save(out_path)
-    print(f"[OK] {out_path}  ({SIZE}×{SIZE})")
+    canvas.save(out_path, optimize=True, compress_level=9)
+    print(f"[OK] {out_path}  ({SIZE}×{SIZE}, {os.path.getsize(out_path)//1024}KB)")
+
+
+def optimize_drawables() -> None:
+    """
+    Re-compress existing Android drawable splash PNGs with PIL optimize=True +
+    compress_level=9. Call AFTER 'dart run flutter_native_splash:create' to
+    shrink the generated drawables by ~12%.
+
+    Note: if 'pngquant' is installed (sudo apt install pngquant), run:
+        pngquant --quality=80-95 --strip --force --ext .png
+              android/app/src/main/res/drawable*/splash.png
+    for an additional ~25-30% reduction on top of PIL compression.
+    """
+    import glob
+    import io as _io
+
+    pattern = "android/app/src/main/res/drawable*/splash.png"
+    files = sorted(glob.glob(pattern))
+    if not files:
+        print("[SKIP] No drawable splash PNGs found — run flutter_native_splash:create first.")
+        return
+
+    total_before = 0
+    total_after  = 0
+    for path in files:
+        before = os.path.getsize(path)
+        img    = Image.open(path)
+        buf    = _io.BytesIO()
+        img.save(buf, format="PNG", optimize=True, compress_level=9)
+        data   = buf.getvalue()
+        after  = len(data)
+        if after < before:
+            with open(path, "wb") as fh:
+                fh.write(data)
+        total_before += before
+        total_after  += min(before, after)
+
+    saved = total_before - total_after
+    pct   = saved * 100 // total_before if total_before else 0
+    print(f"[OK] Drawables: {total_before//1024}KB → {total_after//1024}KB  (saved {saved//1024}KB, -{pct}%)")
 
 
 if __name__ == "__main__":
@@ -157,4 +205,7 @@ if __name__ == "__main__":
     assert os.path.exists(FONT_PATH), f"Font not found: {FONT_PATH}"
     generate_std(FONT_PATH, OUT_STD)
     generate_android12(FONT_PATH, OUT_A12)
+    # Post-process any already-generated drawable PNGs (run this script again
+    # after 'dart run flutter_native_splash:create' to compress the outputs).
+    optimize_drawables()
     print("Done.")

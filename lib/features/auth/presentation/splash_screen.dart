@@ -38,11 +38,15 @@
 //   (MediaQuery is unavailable in initState; accessibilityFeatures reads the
 //   same underlying platform flag.)
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
+import 'package:go_router/go_router.dart';
 import 'package:screen_protector/screen_protector.dart';
 
+import '../../../core/app_start_time.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/widgets/neumorphic.dart';
 
@@ -65,6 +69,7 @@ class _SplashScreenState extends State<SplashScreen>
   static const Duration _animDuration = Duration(milliseconds: 880);
 
   late final AnimationController _wordmarkController;
+  Timer? _splashTimer;
 
   @override
   void initState() {
@@ -100,6 +105,48 @@ class _SplashScreenState extends State<SplashScreen>
     } else {
       _wordmarkController.forward();
     }
+
+    // Minimum splash duration gate — router re-kick.
+    //
+    // In release AOT builds the auth provider can resolve synchronously before
+    // the first Flutter frame. GoRouter fires its redirect once (returning
+    // /splash because AppStartTime.elapsed() < 950 ms) and then goes quiet —
+    // authProvider never emits again, so AuthRefreshNotifier never calls
+    // notifyListeners(), and the router never re-evaluates the redirect.
+    //
+    // Fix: when the animation completes (at ~880 ms), call GoRouter.of().refresh()
+    // to force a second redirect evaluation. By that point 880 ms have elapsed,
+    // which exceeds the 950 ms gate only if there was negligible startup latency.
+    // To be safe we wait the full _minSplashMs before refreshing — the router
+    // then immediately routes to /home or /login as appropriate.
+    //
+    // In debug mode the gate is skipped by auth_redirect.dart (kDebugMode check),
+    // so this listener fires but the router routes normally on the first evaluation.
+    // The addStatusListener is cheap and harmless in both modes.
+    _wordmarkController.addStatusListener(_onAnimationStatus);
+  }
+
+  /// Minimum splash wall-clock duration in milliseconds.
+  ///
+  /// Single source of truth: [AppStartTime.minSplashDuration]. Derived here as
+  /// an int so it can be used directly in the [Timer] remainder calculation.
+  static final int _minSplashMs =
+      AppStartTime.minSplashDuration.inMilliseconds;
+
+  void _onAnimationStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed) return;
+    // Animation is done (~880 ms). Wait for the full 950 ms gate, then kick
+    // the router so it re-runs its redirect callback. By this point
+    // AppStartTime.elapsed() will be >= _minSplashDuration and the gate in
+    // auth_redirect.dart will pass through to the real auth routing logic.
+    final remaining =
+        _minSplashMs -
+        AppStartTime.elapsed().inMilliseconds.clamp(0, _minSplashMs);
+    _splashTimer = Timer(Duration(milliseconds: remaining), () {
+      // Guard against the widget being disposed before the delay fires
+      // (e.g. in tests or if the OS kills the app while in background).
+      if (mounted) GoRouter.of(context).refresh();
+    });
   }
 
   @override
@@ -107,6 +154,7 @@ class _SplashScreenState extends State<SplashScreen>
     if (!kDebugMode) {
       ScreenProtector.preventScreenshotOff();
     }
+    _splashTimer?.cancel();
     _wordmarkController.dispose();
     super.dispose();
   }

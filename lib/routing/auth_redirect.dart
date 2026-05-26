@@ -29,7 +29,18 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/app_start_time.dart';
 import 'route_names.dart';
+
+/// Guaranteed minimum time the animated splash wordmark is visible.
+///
+/// Single source of truth: [AppStartTime.minSplashDuration] (950 ms).
+/// The redirect gate parks the router on [RouteNames.splash] until this
+/// duration has passed, even when the auth provider resolves synchronously
+/// (as it does in release AOT builds for returning users). This ensures the
+/// letter-by-letter wordmark reveal always plays to completion before
+/// go_router navigates away.
+const Duration _minSplashDuration = AppStartTime.minSplashDuration;
 
 /// Pure guard function wired into [GoRouter.redirect].
 ///
@@ -118,6 +129,24 @@ String? authRedirectForLocation(
   // user on their current auth route.
   if (session.isLoading) {
     return isAtAuthRoute ? null : RouteNames.splash;
+  }
+
+  // Minimum splash duration gate — enforces that the animated "beautica"
+  // wordmark (880 ms) is always visible for at least 950 ms before routing
+  // away. In release AOT builds authProvider resolves synchronously (Keystore
+  // read is fast), so without this gate go_router redirects to /home or
+  // /login before SplashScreen has a chance to run the animation.
+  //
+  // Applies only when the user is currently on /splash — does NOT affect any
+  // other route, including auth wizard routes (isAtAuthRoute → null was already
+  // returned above). Also does not apply if the session is still loading (the
+  // isLoading branch above handles that path). The gate is intentionally not
+  // applied in debug mode — developers should not wait 950 ms on every hot
+  // restart. In release mode the 950 ms brand moment is non-negotiable UX.
+  if (!kDebugMode && location == RouteNames.splash) {
+    if (AppStartTime.elapsed() < _minSplashDuration) {
+      return RouteNames.splash;
+    }
   }
 
   final isAuthenticated = session.value is Authenticated;
