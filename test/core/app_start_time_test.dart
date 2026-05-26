@@ -20,32 +20,26 @@ void main() {
   tearDown(AppStartTime.resetForTest);
 
   group('AppStartTime', () {
-    test(
-      'minSplashDuration is 950 ms — single source of truth invariant',
-      () {
-        // This assertion is the MEDIUM-1 guard. If the 950 ms constant is
-        // ever changed in AppStartTime, this test fails, forcing the author
-        // to also update the splash gate documentation and confirm the change
-        // is intentional. The test is intentionally fragile in that direction.
-        expect(
-          AppStartTime.minSplashDuration,
-          equals(const Duration(milliseconds: 950)),
-          reason:
-              'splash_screen.dart and auth_redirect.dart both derive their '
-              'timer constants from this field. A change here propagates '
-              'atomically — that is the single-source-of-truth invariant.',
-        );
-      },
-    );
+    test('minSplashDuration is 950 ms — single source of truth invariant', () {
+      // This assertion is the MEDIUM-1 guard. If the 950 ms constant is
+      // ever changed in AppStartTime, this test fails, forcing the author
+      // to also update the splash gate documentation and confirm the change
+      // is intentional. The test is intentionally fragile in that direction.
+      expect(
+        AppStartTime.minSplashDuration,
+        equals(const Duration(milliseconds: 950)),
+        reason:
+            'splash_screen.dart and auth_redirect.dart both derive their '
+            'timer constants from this field. A change here propagates '
+            'atomically — that is the single-source-of-truth invariant.',
+      );
+    });
 
-    test(
-      'elapsed() returns Duration.zero before record() is called',
-      () {
-        // _start is null after resetForTest — the defensive fallback must
-        // return Duration.zero, not throw.
-        expect(AppStartTime.elapsed(), equals(Duration.zero));
-      },
-    );
+    test('elapsed() returns Duration.zero before record() is called', () {
+      // _start is null after resetForTest — the defensive fallback must
+      // return Duration.zero, not throw.
+      expect(AppStartTime.elapsed(), equals(Duration.zero));
+    });
 
     test(
       'elapsed() returns a positive duration after record() is called',
@@ -86,15 +80,12 @@ void main() {
       },
     );
 
-    test(
-      'elapsed() grows over time',
-      () async {
-        AppStartTime.record();
-        final before = AppStartTime.elapsed();
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-        final after = AppStartTime.elapsed();
-        expect(after, greaterThan(before));
-      },
-    );
+    test('elapsed() grows over time', () async {
+      AppStartTime.record();
+      final before = AppStartTime.elapsed();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      final after = AppStartTime.elapsed();
+      expect(after, greaterThan(before));
+    });
   });
 }

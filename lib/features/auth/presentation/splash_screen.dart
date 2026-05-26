@@ -34,17 +34,25 @@
 //   Each letter fades in and slides up with a 90 ms stagger. The animation
 //   serves as both a brand moment and a visual loading indicator.
 //   Reduced-motion: when [accessibilityFeatures.disableAnimations] is true the
-//   controller is snapped to its end value so all letters appear immediately.
-//   (MediaQuery is unavailable in initState; accessibilityFeatures reads the
-//   same underlying platform flag.)
+//   controller is snapped to its end value so all letters appear immediately,
+//   and a timer is scheduled to kick the router directly — the status listener
+//   will never fire because setting value = 1.0 does not emit
+//   AnimationStatus.completed. (MediaQuery is unavailable in initState;
+//   accessibilityFeatures reads the same underlying platform flag.)
+//
+// Why no ScreenProtector here:
+//   The splash screen displays only the branded "beautica" wordmark animation —
+//   no passwords, OTP codes, or user data are ever rendered on this screen.
+//   Applying FLAG_SECURE here caused the Android emulator to render a black
+//   window for the entire splash duration, hiding the animation. ScreenProtector
+//   is used on auth screens that display sensitive fields (login, verification,
+//   register, reset-password, invite-accept, settings).
 
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:go_router/go_router.dart';
-import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/app_start_time.dart';
 import '../../../core/theme/brand_colors.dart';
@@ -87,13 +95,6 @@ class _SplashScreenState extends State<SplashScreen>
     // entirely), this call is a safe no-op.
     FlutterNativeSplash.remove();
 
-    // MASVS-PLATFORM / MS6 — prevent OS-level screenshot / screen recording
-    // while the splash (and therefore the auth flow entry point) is visible.
-    // Mirrors the same guard used on every other auth screen.
-    if (!kDebugMode) {
-      ScreenProtector.preventScreenshotOn();
-    }
-
     // Start the animation immediately. AnimationController schedules its own
     // ticker via vsync and does not need a rendered frame — no
     // addPostFrameCallback required. MediaQuery is unavailable in initState;
@@ -102,6 +103,15 @@ class _SplashScreenState extends State<SplashScreen>
     if (WidgetsBinding.instance.accessibilityFeatures.disableAnimations) {
       // Snap all letters to fully visible — no per-tick animation.
       _wordmarkController.value = 1.0;
+      // Accessibility: animation skipped — status listener will never fire
+      // (value = 1.0 does not emit AnimationStatus.completed). Schedule the
+      // router refresh directly so accessibility users are not parked on /splash.
+      final remaining =
+          _minSplashMs -
+          AppStartTime.elapsed().inMilliseconds.clamp(0, _minSplashMs);
+      _splashTimer = Timer(Duration(milliseconds: remaining), () {
+        if (mounted) GoRouter.of(context).refresh();
+      });
     } else {
       _wordmarkController.forward();
     }
@@ -130,8 +140,7 @@ class _SplashScreenState extends State<SplashScreen>
   ///
   /// Single source of truth: [AppStartTime.minSplashDuration]. Derived here as
   /// an int so it can be used directly in the [Timer] remainder calculation.
-  static final int _minSplashMs =
-      AppStartTime.minSplashDuration.inMilliseconds;
+  static final int _minSplashMs = AppStartTime.minSplashDuration.inMilliseconds;
 
   void _onAnimationStatus(AnimationStatus status) {
     if (status != AnimationStatus.completed) return;
@@ -151,9 +160,6 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
-    if (!kDebugMode) {
-      ScreenProtector.preventScreenshotOff();
-    }
     _splashTimer?.cancel();
     _wordmarkController.dispose();
     super.dispose();

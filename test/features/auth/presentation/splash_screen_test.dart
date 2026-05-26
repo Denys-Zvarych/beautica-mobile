@@ -29,6 +29,13 @@
 //      (before any pump drains the frame queue); no AnimationController error
 //      surfaces. Verifies that the initState animation start cannot produce a
 //      use-after-dispose exception regardless of pump ordering.
+//  13. Accessibility early-dispose — disableAnimations=true schedules _splashTimer
+//      in initState; dispose() must cancel it without crash (no dangling timer).
+//  14. Accessibility timer → GoRouter.refresh() — with disableAnimations=true
+//      and the widget mounted, GoRouter.of(context).refresh() must be called
+//      after the _minSplashMs timer fires. Verifies the router-kick in the
+//      accessibility fast-path (the status listener never fires in this path
+//      because value=1.0 does not emit AnimationStatus.completed).
 //
 // Note on VelvetLogo / AnimatedWordmark:
 //   Both are pure-Dart widgets (no asset loading, no SVG, no network).
@@ -38,11 +45,11 @@
 //   In the flutter_test environment the native-splash platform channel is not
 //   initialised, so FlutterNativeSplash.remove() is a documented no-op.
 //
-// Note on ScreenProtector (initState / dispose):
-//   ScreenProtector.preventScreenshotOn/Off are platform channel calls guarded
-//   by `if (!kDebugMode)`. In flutter_test, kDebugMode is always true, so the
-//   calls are never made. No mock or assertion is required — the guard makes
-//   ScreenProtector dead code in the test runner environment.
+// Note on ScreenProtector:
+//   ScreenProtector was intentionally removed from SplashScreen (Phase 2.15
+//   fix — FLAG_SECURE caused the Android emulator to black out the animated
+//   wordmark). The splash screen has no sensitive data; FLAG_SECURE correctly
+//   remains on all auth screens that show passwords/OTP/PII.
 //
 // Note on Test 11 — accessibilityFeatures vs MediaQuery:
 //   The source reads WidgetsBinding.instance.accessibilityFeatures.disableAnimations
@@ -58,6 +65,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/presentation/splash_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 // Wraps the widget under test in the minimal tree that SplashScreen requires:
 // a MaterialApp (for Scaffold / Theme) with no router needed.
@@ -513,6 +521,111 @@ void main() {
         // If we reach here without a framework assertion, dispose() correctly
         // cleaned up the AnimationController started in initState.
         expect(find.byType(SplashScreen), findsNothing);
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // Test 13 — Accessibility timer: early dispose cancels _splashTimer cleanly.
+    //
+    // When disableAnimations=true, initState schedules _splashTimer directly
+    // (because value=1.0 does not emit AnimationStatus.completed — the status
+    // listener never fires). dispose() must cancel _splashTimer so no dangling
+    // timer resource remains after the widget is torn down.
+    //
+    // Strategy: set disableAnimations=true → pumpWidget (schedules timer in
+    // initState) → immediately replace widget tree (dispose() fires, must cancel
+    // timer) → advance fake clock far past any timer → no framework assertion.
+    // -------------------------------------------------------------------------
+    testWidgets(
+      '13. accessibility early-dispose: _splashTimer cancelled by dispose() without error',
+      (tester) async {
+        tester.platformDispatcher.accessibilityFeaturesTestValue =
+            const FakeAccessibilityFeatures(disableAnimations: true);
+        addTearDown(
+          tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+        );
+
+        // Pump — initState sets _wordmarkController.value=1.0 and schedules
+        // _splashTimer. No GoRouter in this tree so GoRouter.of() would throw
+        // IF the timer fires while mounted. The mounted guard prevents that;
+        // cancellation in dispose() prevents it from firing at all.
+        await tester.pumpWidget(_buildApp());
+
+        // Dispose immediately before any pump drains the timer.
+        await tester.pumpWidget(const SizedBox.shrink());
+
+        // Drain the frame queue and advance the fake clock far past any timer.
+        // If _splashTimer was not cancelled, the callback fires here. mounted==false
+        // prevents GoRouter.of(), but the cancel in dispose() is the primary guard.
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 5));
+        await tester.pumpAndSettle();
+
+        // If we reach here, dispose() cancelled _splashTimer correctly.
+        expect(find.byType(SplashScreen), findsNothing);
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // Test 14 — Accessibility timer → GoRouter.refresh() fires when mounted.
+    //
+    // With disableAnimations=true, _splashTimer is scheduled in initState.
+    // After the timer fires (at _minSplashMs - elapsed()), if the widget is
+    // still mounted, GoRouter.of(context).refresh() must be called exactly once.
+    // This is the router re-kick that prevents accessibility users from being
+    // permanently parked on /splash.
+    //
+    // Uses a real GoRouter with a counting redirect callback to observe the
+    // refresh call without mocking internal go_router types.
+    // -------------------------------------------------------------------------
+    testWidgets(
+      '14. accessibility-timer: GoRouter.refresh() is called after timer fires when mounted',
+      (tester) async {
+        tester.platformDispatcher.accessibilityFeaturesTestValue =
+            const FakeAccessibilityFeatures(disableAnimations: true);
+        addTearDown(
+          tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+        );
+
+        var refreshCount = 0;
+        final router = GoRouter(
+          initialLocation: '/splash',
+          // Count every redirect evaluation. GoRouter.refresh() triggers a
+          // re-evaluation which increments this counter.
+          redirect: (context, state) {
+            refreshCount++;
+            return null; // always stay — test only checks that refresh fired
+          },
+          routes: [
+            GoRoute(path: '/splash', builder: (_, __) => const SplashScreen()),
+            GoRoute(
+              path: '/',
+              builder: (_, __) => const Scaffold(body: Text('home')),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+        await tester.pump();
+        // Capture redirect count after initial router evaluation.
+        final countAfterBuild = refreshCount;
+
+        // Advance clock past _minSplashMs (950 ms). The accessibility timer
+        // fires, GoRouter.of(context).refresh() is called, triggering a
+        // redirect re-evaluation. The counter must exceed countAfterBuild.
+        await tester.pump(const Duration(milliseconds: 1200));
+        await tester.pumpAndSettle();
+
+        expect(
+          refreshCount,
+          greaterThan(countAfterBuild),
+          reason:
+              'With disableAnimations=true, _splashTimer must call '
+              'GoRouter.of(context).refresh() after _minSplashMs. '
+              'The redirect callback count must increase — if it does not, '
+              'accessibility users are permanently parked on /splash.',
+        );
       },
     );
   });
