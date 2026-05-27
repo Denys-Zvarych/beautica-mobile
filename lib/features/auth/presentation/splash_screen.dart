@@ -14,48 +14,31 @@
 //
 // Phase 2.15 — Native-splash handoff (revised 2026-05-27):
 //   The OS native splash shows ONLY the warm-taupe background colour
-//   (#E6DDD0) — no B-pillow, no logo, no wordmark. The Flutter splash is the
-//   SOLE owner of any brand render. There is no static B-pillow on the
-//   Flutter splash either — the Lottie wordmark reveal IS the entire splash
-//   content. This eliminates the OS-baked-PNG vs Flutter-runtime
-//   position+size mismatch users perceived on Android 12+ release builds AND
-//   removes the leftover static "B" pillow the user reported seeing on the
-//   splash ("now on splash screen I can see simple B but shouldn't").
+//   (#E6DDD0) — no B-pillow, no logo, no wordmark. The Flutter splash takes
+//   over once the first frame is ready and renders the SAME [VelvetLogo]
+//   composite that the login screen uses (`compact: true`) centred on
+//   [BrandColors.base]. Result: cold-start → warm-taupe bg only → warm-taupe
+//   bg + the login-screen logo (B-pillow + "beautica" wordmark below).
 //
 //   [FlutterNativeSplash.preserve] in main() holds the OS bg until the first
 //   Flutter frame; [FlutterNativeSplash.remove] in [initState] dismisses it.
-//   What the user sees is: warm-taupe background only → warm-taupe background
-//   + Lottie wordmark reveal.
 //
-// Splash content — tri-state probe:
-//   The Lottie asset is bundled today, but the splash is robust to a missing
-//   asset. On mount, [_checkLottieAsset] probes for
-//   `assets/lottie/splash_wordmark.json` via `rootBundle.load()` and the
-//   build switches on a tri-state [_lottieAvailable] (`bool?`):
+// Splash content — single widget:
+//   The splash body is exactly `Center(child: VelvetLogo(compact: true))`,
+//   matching `login_screen.dart` line 196 character-for-character. No Lottie
+//   animation, no AnimationController, no tri-state asset probe — the
+//   splash visual is identical to what the user sees on /login the moment
+//   they arrive there, which is the requested behaviour.
 //
-//     null  → probing. Nothing rendered on top of the warm-taupe bg. The
-//             Lottie reveal owns the wordmark's first appearance — no static
-//             text flash beats the animation, and there is no B-pillow to
-//             compete for attention.
-//     true  → Lottie asset resolved. Lottie wordmark renders centred on the
-//             warm-taupe bg.
-//     false → Lottie asset failed to load. A plain Text("beautica") renders
-//             centred on the warm-taupe bg as a fallback so the user still
-//             sees the brand wordmark — better a static name than no name.
-//
-//   Regardless of which state renders, a [Timer] for the remaining
-//   [AppStartTime.minSplashDuration] kicks the GoRouter so we exit /splash
-//   into /login or /home as soon as the gate is satisfied.
+//   A [Timer] for the remaining [AppStartTime.minSplashDuration] still kicks
+//   the GoRouter so we exit /splash into /login or /home as soon as the
+//   minimum splash duration has elapsed; without it the auth provider can
+//   resolve before the first frame and the redirect never re-fires.
 //
 // Why no AnimationController here:
-//   Earlier iterations used an [AnimationController]-driven letter-by-letter
-//   reveal ([AnimatedWordmark]). On Android 12 release AOT builds, the Ticker
-//   did not deliver vsync ticks during the OS native-splash phase, causing the
-//   animation to snap to its end state in a single frame. A Lottie file —
-//   pre-rendered frame data — sidesteps the Ticker entirely; the animation
-//   plays at its baked frame rate from frame 0 the moment the widget mounts.
-//   When Lottie resolution fails the static Text fallback is shown so the
-//   wordmark is at least visible.
+//   Splash visual is a static composite — no animation owned by this widget.
+//   VelvetLogo internally renders a plain Text wordmark when no
+//   AnimationController is supplied, so there is no Ticker dependency.
 //
 // Why no ScreenProtector here:
 //   The splash screen displays only the branded "beautica" wordmark — no
@@ -66,32 +49,19 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:go_router/go_router.dart';
-import 'package:lottie/lottie.dart';
 
 import '../../../core/app_start_time.dart';
 import '../../../core/theme/brand_colors.dart';
-import '../../../core/theme/velvet_text.dart';
-
-/// Path of the optional Lottie wordmark animation. When this asset is
-/// bundled, the Lottie widget renders; otherwise the static fallback runs.
-const String _lottieAssetPath = 'assets/lottie/splash_wordmark.json';
-
-/// Font size of the static-fallback wordmark Text. Kept identical to what
-/// [VelvetLogo] uses internally when [VelvetLogo.wordmarkFontSize] is 17, so
-/// the fallback path remains visually consistent with wordmark renders
-/// elsewhere in the app (e.g. login/register screens).
-const double _wordmarkFontSize = 17.0;
+import '../../../core/widgets/neumorphic.dart';
 
 /// Cold-start parking screen shown while the auth session resolves.
 ///
-/// Tri-state render driven by [_SplashScreenState._lottieAvailable]:
-///   - `null`  (probing) → bg colour only; no widget rendered.
-///   - `true`  → centred Lottie wordmark reveal on the warm-taupe bg.
-///   - `false` (Lottie asset failed) → centred static "beautica" Text on the
-///                                     warm-taupe bg.
+/// Renders the same [VelvetLogo] composite the login screen uses
+/// (`compact: true` → 72dp tile + "beautica" wordmark below) centred on
+/// [BrandColors.base]. No animation owned by this widget — the visual is
+/// intentionally identical to what /login shows on first paint.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -105,17 +75,6 @@ class _SplashScreenState extends State<SplashScreen> {
   static final int _minSplashMs = AppStartTime.minSplashDuration.inMilliseconds;
 
   Timer? _splashTimer;
-
-  /// Tri-state Lottie asset probe:
-  ///
-  ///   null  → still probing (the rootBundle.load() future has not resolved).
-  ///           Render nothing on top of the bg colour so the wordmark first
-  ///           appears via the Lottie reveal (no static-text flash before
-  ///           the animation, and no B-pillow competing for attention).
-  ///   true  → asset resolved. Render the Lottie reveal animation centred.
-  ///   false → asset failed. Render a static "beautica" Text centred so the
-  ///           wordmark is at least visible.
-  bool? _lottieAvailable;
 
   @override
   void initState() {
@@ -135,20 +94,13 @@ class _SplashScreenState extends State<SplashScreen> {
     // paint a single frame.
     AppStartTime.record();
 
-    // Probe for the optional Lottie animation asynchronously. The widget
-    // mounts immediately in the probing state (bg colour only, no widget);
-    // when the rootBundle.load() future resolves the build flips to either
-    // the Lottie path or the static-text fallback via setState() inside
-    // [_checkLottieAsset].
-    _checkLottieAsset();
-
-    // Schedule a router refresh at minSplashDuration regardless of which
-    // wordmark path renders. In release AOT builds the auth provider can
-    // resolve synchronously before the first Flutter frame, in which case
-    // GoRouter fires its redirect once (returning /splash because elapsed <
-    // _minSplashMs) and then goes quiet — authProvider never emits again, so
-    // AuthRefreshNotifier never calls notifyListeners() and the router never
-    // re-evaluates. The timer below kicks it so we exit /splash on schedule.
+    // Schedule a router refresh at minSplashDuration. In release AOT builds
+    // the auth provider can resolve synchronously before the first Flutter
+    // frame, in which case GoRouter fires its redirect once (returning
+    // /splash because elapsed < _minSplashMs) and then goes quiet —
+    // authProvider never emits again, so AuthRefreshNotifier never calls
+    // notifyListeners() and the router never re-evaluates. The timer below
+    // kicks it so we exit /splash on schedule.
     final int remaining =
         _minSplashMs -
         AppStartTime.elapsed().inMilliseconds.clamp(0, _minSplashMs);
@@ -166,27 +118,6 @@ class _SplashScreenState extends State<SplashScreen> {
     });
   }
 
-  /// Attempts to load the Lottie wordmark asset. Flips [_lottieAvailable]
-  /// from `null` (probing) to either `true` (Lottie ready — render the
-  /// animation) or `false` (asset failed — render the static Text fallback so
-  /// the user still sees the wordmark).
-  ///
-  /// While [_lottieAvailable] is still `null`, the build deliberately renders
-  /// nothing on top of the bg colour so the wordmark's first appearance is
-  /// the Lottie reveal — no static-text flash beats the animation.
-  Future<void> _checkLottieAsset() async {
-    try {
-      await rootBundle.load(_lottieAssetPath);
-      if (!mounted) return;
-      setState(() => _lottieAvailable = true);
-    } catch (_) {
-      // Asset missing — fall back to a static Text("beautica") so the user
-      // still sees the brand wordmark. Better a static name than no name.
-      if (!mounted) return;
-      setState(() => _lottieAvailable = false);
-    }
-  }
-
   @override
   void dispose() {
     _splashTimer?.cancel();
@@ -195,34 +126,16 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Single centred child driven by the tri-state probe:
-    //   - probing  → SizedBox.shrink (bg colour alone, no widget visible).
-    //   - Lottie   → the wordmark reveal animation.
-    //   - fallback → a static "beautica" Text.
+    // Single centred VelvetLogo — matches login_screen.dart:196 verbatim:
+    //   const Center(child: VelvetLogo(compact: true)),
     //
-    // There is intentionally NO static B-pillow on the splash. The Lottie
-    // reveal (or its static-Text fallback) is the entire splash content.
-    return Scaffold(
+    // The widget renders a 72dp B-pillow tile with the "beautica" wordmark
+    // below (VelvetLogo defaults: markFontSize:36, wordmarkFontSize:14,
+    // showWordmark:true). No animation, no asset probe — what the user sees
+    // on /splash is exactly what they see on /login the moment they arrive.
+    return const Scaffold(
       backgroundColor: BrandColors.base,
-      body: Center(
-        child: switch (_lottieAvailable) {
-          true => Lottie.asset(
-            _lottieAssetPath,
-            width: 400,
-            height: 80,
-            fit: BoxFit.contain,
-            repeat: false,
-          ),
-          false => Text(
-            'beautica',
-            // Style is the cached VelvetText.wordmark() with fontSize:17 —
-            // matches the wordmark render used elsewhere in the app, so the
-            // fallback path is visually consistent.
-            style: VelvetText.wordmark().copyWith(fontSize: _wordmarkFontSize),
-          ),
-          null => const SizedBox.shrink(),
-        },
-      ),
+      body: Center(child: VelvetLogo(compact: true)),
     );
   }
 }
