@@ -101,8 +101,13 @@ class _SplashScreenState extends State<SplashScreen>
     // accessibilityFeatures reads the same underlying platform disableAnimations
     // flag via the engine and is available from the very first frame.
     if (WidgetsBinding.instance.accessibilityFeatures.disableAnimations) {
-      // Snap all letters to fully visible — no per-tick animation.
-      _wordmarkController.value = 1.0;
+      // Defer the snap until after first build so AnimatedWordmark's FadeTransition
+      // listeners have attached — setting value=1.0 in initState fires notifyListeners
+      // before any child subscribes, leaving opacity at 0.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _wordmarkController.value = 1.0;
+      });
       // Accessibility: animation skipped — status listener will never fire
       // (value = 1.0 does not emit AnimationStatus.completed). Schedule the
       // router refresh directly so accessibility users are not parked on /splash.
