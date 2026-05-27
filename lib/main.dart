@@ -6,6 +6,7 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'core/network/dio_provider.dart';
 import 'core/theme/app_theme.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
@@ -87,6 +88,11 @@ Future<void> main() async {
     fontWeight: FontWeight.w700,
   ); // bodyStrong / label / link / feedback
   await GoogleFonts.pendingFonts();
+
+  // MEDIUM-3 (mobile-security 2026-05-27): pre-load ISRG Root X1 cert for
+  // Dio IOHttpClientAdapter cert-pinning. Must complete before runApp so
+  // the SecurityContext is cached before any provider reads dioProvider.
+  await initCertPinning();
 
   runApp(const ProviderScope(child: BeauticaApp()));
 

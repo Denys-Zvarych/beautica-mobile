@@ -165,10 +165,36 @@ void main() {
       },
     );
 
+    test('2. 401 plain UnauthorizedFailure (emailNotVerified=false) → remapped '
+        'to InvalidCredentialsFailure (wrong-password fix)', () async {
+      // The backend returns 401 for wrong credentials on /auth/login.
+      // ErrorMapperInterceptor maps the 401 to UnauthorizedFailure(emailNotVerified=false).
+      // HttpAuthRepository.login() must remap that to InvalidCredentialsFailure
+      // so the login screen shows "Incorrect email or password" instead of
+      // the session-expiry message.
+      const failure = UnauthorizedFailure();
+      when(
+        () => mockDio.post<Map<String, dynamic>>(
+          '/auth/login',
+          data: any(named: 'data'),
+        ),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 401));
+
+      await expectLater(
+        () => repository.login(email: 'x@x.com', password: 'wrong'),
+        throwsA(isA<InvalidCredentialsFailure>()),
+      );
+    });
+
     test(
-      '2. 401 DioException (error = UnauthorizedFailure) → re-throws UnauthorizedFailure',
+      '2b. 401 UnauthorizedFailure(emailNotVerified=true) → NOT remapped; '
+      'UnauthorizedFailure propagates unchanged for AuthBanner routing',
       () async {
-        const failure = UnauthorizedFailure();
+        // When the 401 carries EMAIL_NOT_VERIFIED, the login screen branches
+        // to show the inline AuthBanner (not a SnackBar). This requires the
+        // UnauthorizedFailure to reach the screen with emailNotVerified=true
+        // intact — it must NOT be remapped to InvalidCredentialsFailure.
+        const failure = UnauthorizedFailure(emailNotVerified: true);
         when(
           () => mockDio.post<Map<String, dynamic>>(
             '/auth/login',
@@ -177,8 +203,14 @@ void main() {
         ).thenThrow(_dioWithFailure(failure, statusCode: 401));
 
         await expectLater(
-          () => repository.login(email: 'x@x.com', password: 'wrong'),
-          throwsA(isA<UnauthorizedFailure>()),
+          () => repository.login(email: 'unverified@x.com', password: 'pw'),
+          throwsA(
+            isA<UnauthorizedFailure>().having(
+              (f) => f.emailNotVerified,
+              'emailNotVerified',
+              isTrue,
+            ),
+          ),
         );
       },
     );

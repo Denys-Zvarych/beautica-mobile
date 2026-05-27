@@ -78,6 +78,24 @@ final class UnauthorizedFailure extends Failure {
       AppLocalizations.of(ctx).errUnauthorized;
 }
 
+/// Emitted when the user supplies wrong email/password at the login endpoint.
+///
+/// Semantically distinct from [UnauthorizedFailure] (session expiry / token
+/// revocation) — the user intentionally submitted a credential, and it was
+/// rejected by the server.
+///
+/// Mapped by [HttpAuthRepository.login] when [ErrorMapperInterceptor] returns
+/// an [UnauthorizedFailure] without [UnauthorizedFailure.emailNotVerified]:
+/// a plain 401 on `/auth/login` always means wrong credentials, never a
+/// session expiry (the user has no session yet at that point).
+final class InvalidCredentialsFailure extends Failure {
+  const InvalidCredentialsFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errInvalidCredentials;
+}
+
 /// Emitted when the server responds with HTTP 422 Unprocessable Entity.
 ///
 /// [fieldErrors] maps field path (e.g. `"email"`) to a localized or

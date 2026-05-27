@@ -190,3 +190,9 @@ flutter:
     # below the static VelvetLogo B-pillow. See assets/lottie/README.md for
     # the design spec.
     - assets/lottie/
+
+    # TLS certificate for Dio cert-pinning (MEDIUM-3, mobile-security 2026-05-27).
+    # The ISRG Root X1 PEM is used by IOHttpClientAdapter on both Android
+    # (belt — alongside network_security_config.xml) and iOS (suspenders —
+    # no OS-level equivalent to Android's network_security_config).
+    - assets/certs/

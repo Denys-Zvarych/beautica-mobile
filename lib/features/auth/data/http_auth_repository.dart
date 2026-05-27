@@ -74,7 +74,21 @@ final class HttpAuthRepository implements AuthRepository {
           stackTrace: st,
         );
       }
-      throw _mapDioException(e);
+      final failure = _mapDioException(e);
+      // A 401 on /auth/login means wrong credentials, not a session expiry.
+      // The user has no session at this point — the server rejected the supplied
+      // email/password. Remap to [InvalidCredentialsFailure] so the login screen
+      // shows "Incorrect email or password" rather than the session-expiry copy
+      // that [UnauthorizedFailure] carries.
+      //
+      // EMAIL_NOT_VERIFIED (emailNotVerified == true) is intentionally excluded
+      // from this remap — that sub-code triggers the inline AuthBanner flow in
+      // [LoginScreen], which must receive [UnauthorizedFailure] to branch
+      // correctly on `e.emailNotVerified`.
+      if (failure is UnauthorizedFailure && !failure.emailNotVerified) {
+        throw InvalidCredentialsFailure(cause: failure.cause);
+      }
+      throw failure;
     }
   }
 

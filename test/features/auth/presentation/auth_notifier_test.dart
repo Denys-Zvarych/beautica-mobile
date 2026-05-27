@@ -23,6 +23,7 @@
 //   resendCode group  — success, Failure rethrow.
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1775,6 +1776,79 @@ void main() {
         reason:
             'refresh token persisted before me() must survive a me() failure '
             'inside verifyEmail()',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // MEDIUM-4 — JWT exp pre-check (mobile-security 2026-05-27)
+    // -----------------------------------------------------------------------
+
+    // Builds a minimal JWT with a given exp claim (seconds since epoch).
+    // The header and signature are stub values — _isTokenExpired only reads
+    // the payload, never verifies the signature.
+    String buildJwt({required int expSeconds}) {
+      final headerB64 = base64Url
+          .encode(utf8.encode('{"alg":"HS256","typ":"JWT"}'))
+          .replaceAll('=', '');
+      final payloadB64 = base64Url
+          .encode(utf8.encode('{"sub":"u1","exp":$expSeconds}'))
+          .replaceAll('=', '');
+      return '$headerB64.$payloadB64.signature';
+    }
+
+    test('MEDIUM-4: cold start with already-expired refresh token → '
+        'Unauthenticated without a network call; storage wiped', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      // Build a JWT whose exp is 60 seconds in the past.
+      final pastExp = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 60;
+      final expiredJwt = buildJwt(expSeconds: pastExp);
+      await storage.writeRefreshToken(expiredJwt);
+
+      final container = makeContainer(repo: repo, storage: storage);
+      final session = await container.read(authProvider.future);
+
+      // Must return Unauthenticated without touching the repository.
+      expect(session, equals(const AuthSession.unauthenticated()));
+      verifyNever(() => repo.refresh(any()));
+      verifyNever(() => repo.me());
+
+      // Storage must be wiped (stale token cleaned up).
+      expect(
+        await storage.readRefreshToken(),
+        isNull,
+        reason: 'expired token must be deleted during cold-start pre-check',
+      );
+    });
+
+    test('MEDIUM-4: cold start with non-expired refresh token → '
+        'attempts network refresh (normal path)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      // Build a JWT whose exp is 5 minutes in the future (well within the
+      // 30-second grace window). The pre-check must NOT skip the refresh call.
+      final futureExp = DateTime.now().millisecondsSinceEpoch ~/ 1000 + 300;
+      final validJwt = buildJwt(expSeconds: futureExp);
+      await storage.writeRefreshToken(validJwt);
+
+      when(() => repo.refresh(validJwt)).thenAnswer((_) async => rotatedTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+
+      final container = makeContainer(repo: repo, storage: storage);
+      final session = await container.read(authProvider.future);
+
+      // Network refresh must have been attempted.
+      verify(() => repo.refresh(validJwt)).called(1);
+      expect(
+        session,
+        equals(
+          AuthSession.authenticated(
+            user: testUser,
+            accessToken: rotatedTokens.accessToken,
+          ),
+        ),
       );
     });
   });

@@ -1,4 +1,6 @@
 // Phase 2.8 — Settings screen (minimal — full settings UI ships in Phase 5+).
+// Phase MEDIUM-2 fix — ported from glassmorphism (#1A110A + BackdropFilter) to
+// VelvetTouch neumorphic design system (BrandColors.base + NeumorphicCard).
 //
 // Purpose: provides an accessible logout entry point so users can clear their
 // session. Future phases will expand this screen with notification preferences,
@@ -15,10 +17,6 @@
 // Security:
 //   - ScreenProtector.preventScreenshotOn() active in non-debug builds to
 //     prevent OS-level screenshot capture of the settings surface.
-//   - The AppBar BackdropFilter ImageFilter is a static final to avoid
-//     per-rebuild allocation.
-
-import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -27,11 +25,13 @@ import 'package:go_router/go_router.dart';
 import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/theme/brand_colors.dart';
+import '../../../core/theme/velvet_geometry.dart';
+import '../../../core/theme/velvet_text.dart';
 import '../../../features/auth/presentation/auth_notifier.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 
-/// Minimal settings screen — Warm Mocha style.
+/// Minimal settings screen — VelvetTouch neumorphic design.
 ///
 /// Contains a single logout action. Navigation back to the login screen is
 /// explicit — the Phase 2.9 router guard provides a second safety net.
@@ -45,10 +45,6 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   // Prevents double-tapping the logout tile while a logout is in flight.
   bool _isLoggingOut = false;
-
-  // Promoted from an inline build()-time allocation to a static final to avoid
-  // constructing a new ImageFilter on every rebuild.
-  static final _kAppBarBlur = ImageFilter.blur(sigmaX: 20, sigmaY: 20);
 
   @override
   void initState() {
@@ -70,31 +66,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1A110A),
-        title: Text(
-          l10n.logout,
-          style: const TextStyle(color: BrandColors.white),
+        backgroundColor: BrandColors.base,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(VelvetRadii.card)),
         ),
-        content: Text(
-          l10n.logoutConfirm,
-          style: const TextStyle(color: Color(0x99F5EDE0)),
-        ),
+        title: Text(l10n.logout, style: VelvetText.heading()),
+        content: Text(l10n.logoutConfirm, style: VelvetText.body()),
         actions: [
           TextButton(
             key: const Key('btn-logout-cancel'),
             onPressed: () => ctx.pop(false),
-            child: Text(
-              l10n.cancel,
-              style: const TextStyle(color: BrandColors.accent),
-            ),
+            child: Text(l10n.cancel, style: VelvetText.link()),
           ),
           TextButton(
             key: const Key('btn-logout-confirm'),
             onPressed: () => ctx.pop(true),
-            child: Text(
-              l10n.logout,
-              style: const TextStyle(color: BrandColors.accent),
-            ),
+            child: Text(l10n.logout, style: VelvetText.link()),
           ),
         ],
       ),
@@ -124,55 +111,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     return Scaffold(
       backgroundColor: BrandColors.base,
-      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: BrandColors.base,
         elevation: 0,
-        flexibleSpace: ClipRect(
-          child: BackdropFilter(
-            filter: _kAppBarBlur,
-            child: const ColoredBox(color: Color(0x22000000)),
-          ),
-        ),
-        title: const Text(
-          'BEAUTICA',
-          style: TextStyle(
-            color: Color(0xEBFFFFFF),
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.6,
-          ),
-        ),
-        iconTheme: const IconThemeData(color: BrandColors.white),
+        surfaceTintColor: Colors.transparent,
+        title: Text(l10n.settingsTitle, style: VelvetText.subheading()),
+        iconTheme: const IconThemeData(color: BrandColors.textSecondary),
       ),
-      body: Stack(
-        children: [
-          SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              children: [
-                _WarmMochaListTile(
-                  tileKey: const Key('btn-logout'),
-                  icon: Icons.logout,
-                  label: l10n.logout,
-                  isLoading: _isLoggingOut,
-                  onTap: () => _handleLogout(context),
-                ),
-              ],
-            ),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.symmetric(
+            horizontal: VelvetSpacing.md,
+            vertical: VelvetSpacing.md,
           ),
-        ],
+          children: [
+            _NeumorphicSettingsTile(
+              tileKey: const Key('btn-logout'),
+              icon: Icons.logout,
+              label: l10n.logout,
+              isLoading: _isLoggingOut,
+              onTap: () => _handleLogout(context),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// _WarmMochaListTile — glassmorphism list tile for settings rows
+// _NeumorphicSettingsTile — VelvetTouch neumorphic list tile for settings rows
 // ---------------------------------------------------------------------------
 
-class _WarmMochaListTile extends StatelessWidget {
-  const _WarmMochaListTile({
+class _NeumorphicSettingsTile extends StatelessWidget {
+  const _NeumorphicSettingsTile({
     required this.tileKey,
     required this.icon,
     required this.label,
@@ -186,67 +158,53 @@ class _WarmMochaListTile extends StatelessWidget {
   final VoidCallback onTap;
   final bool isLoading;
 
-  static final _kBlur = ImageFilter.blur(sigmaX: 20, sigmaY: 20);
-
-  static const _kDecoration = BoxDecoration(
-    color: Color(0x11FFFFFF),
-    borderRadius: BorderRadius.all(Radius.circular(14)),
-    border: Border.fromBorderSide(
-      BorderSide(color: Color(0x1AFFFFFF), width: 1),
-    ),
+  // Hoisted: VelvetRadii.card is a compile-time constant so the whole
+  // BorderRadius can be static const, avoiding an allocation per build.
+  static const BorderRadius _tileRadius = BorderRadius.all(
+    Radius.circular(VelvetRadii.card),
   );
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: const BorderRadius.all(Radius.circular(14)),
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: BackdropFilter(
-              filter: _kBlur,
-              child: const DecoratedBox(decoration: _kDecoration),
-            ),
-          ),
-          Material(
-            type: MaterialType.transparency,
-            child: InkWell(
-              key: tileKey,
-              onTap: isLoading ? null : onTap,
-              splashColor: Colors.white.withValues(alpha: 0.06),
-              highlightColor: Colors.white.withValues(alpha: 0.03),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                child: Row(
-                  children: [
-                    isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: BrandColors.accent,
-                            ),
-                          )
-                        : Icon(icon, color: BrandColors.accent, size: 20),
-                    const SizedBox(width: 14),
-                    Text(
-                      label,
-                      style: const TextStyle(
-                        color: BrandColors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: BrandColors.base,
+        borderRadius: _tileRadius,
+        boxShadow: VelvetShadows.extrudedCard,
+      ),
+      child: ClipRRect(
+        borderRadius: _tileRadius,
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            key: tileKey,
+            onTap: isLoading ? null : onTap,
+            splashColor: BrandColors.accent.withValues(alpha: 0.12),
+            highlightColor: BrandColors.accent.withValues(alpha: 0.06),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: VelvetSpacing.md,
+                vertical: VelvetSpacing.md,
+              ),
+              child: Row(
+                children: [
+                  isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: BrandColors.accent,
+                          ),
+                        )
+                      : Icon(icon, color: BrandColors.accent, size: 20),
+                  const SizedBox(width: VelvetSpacing.md),
+                  Text(label, style: VelvetText.bodyStrong()),
+                ],
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }

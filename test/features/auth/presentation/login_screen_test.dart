@@ -243,11 +243,15 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // Test 4 — login() error → SnackBar shows the localised failure message
+    // Test 4 — wrong-password 401 → SnackBar shows InvalidCredentialsFailure
+    //          message, NOT the session-expiry message (critical bug fix)
+    //
+    // The repository remaps plain UnauthorizedFailure (emailNotVerified=false)
+    // to InvalidCredentialsFailure so the login screen shows "Incorrect email
+    // or password" rather than "Session expired. Sign in again."
     // -----------------------------------------------------------------------
-    testWidgets('4. shows SnackBar with error message on failed login', (
-      tester,
-    ) async {
+    testWidgets('4. wrong-password 401 → SnackBar shows errInvalidCredentials, '
+        'NOT errUnauthorized (session-expiry copy)', (tester) async {
       final storage = FakeSecureStorage();
       final router = _makeRouter();
       addTearDown(router.dispose);
@@ -255,7 +259,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            authProvider.overrideWith(() => _ErrorAuthNotifier()),
+            authProvider.overrideWith(() => _InvalidCredentialsAuthNotifier()),
             authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
             secureStorageProvider.overrideWith((_) => storage),
           ],
@@ -276,7 +280,7 @@ void main() {
       );
       await tester.enterText(
         find.byKey(const ValueKey<String>('login_password')),
-        'password',
+        'wrongpassword',
       );
 
       await tester.ensureVisible(
@@ -288,9 +292,25 @@ void main() {
       // The SnackBar must be present.
       expect(find.byType(SnackBar), findsOneWidget);
 
-      // The message must match the l10n string for UnauthorizedFailure.
       final l10n = AppLocalizations.of(tester.element(find.byType(SnackBar)));
-      expect(find.text(l10n.errUnauthorized), findsOneWidget);
+
+      // Must show the specific wrong-credentials message.
+      expect(
+        find.text(l10n.errInvalidCredentials),
+        findsOneWidget,
+        reason:
+            'A 401 on /auth/login means wrong credentials — the screen '
+            'must show errInvalidCredentials, not the session-expiry copy',
+      );
+
+      // Must NOT show the misleading session-expiry message.
+      expect(
+        find.text(l10n.errUnauthorized),
+        findsNothing,
+        reason:
+            'errUnauthorized (session-expiry copy) must NOT appear for '
+            'wrong-password 401s on the login screen',
+      );
     });
 
     // -----------------------------------------------------------------------
@@ -712,14 +732,20 @@ void main() {
 // AuthNotifier stubs
 // ---------------------------------------------------------------------------
 
-/// Returns [UnauthorizedFailure] (generic) on login — triggers the SnackBar path.
-class _ErrorAuthNotifier extends AuthNotifier {
+/// Returns [InvalidCredentialsFailure] on login — simulates the repository's
+/// remap of a plain 401 (wrong email/password) to the typed failure.
+///
+/// This is what [HttpAuthRepository.login] throws after the Phase 2.x fix:
+/// plain [UnauthorizedFailure] (emailNotVerified=false) is remapped to
+/// [InvalidCredentialsFailure] so the screen shows "Incorrect email or
+/// password" instead of "Session expired. Sign in again."
+class _InvalidCredentialsAuthNotifier extends AuthNotifier {
   @override
   Future<AuthSession> build() async => const AuthSession.unauthenticated();
 
   @override
   Future<void> login(String email, String password) async {
-    state = const AsyncError(UnauthorizedFailure(), StackTrace.empty);
+    state = const AsyncError(InvalidCredentialsFailure(), StackTrace.empty);
   }
 }
 

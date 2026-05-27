@@ -29,6 +29,7 @@
 //     (sentinel user) so AuthInterceptor injects the Bearer token into the
 //     subsequent repo.me() call — preventing a RefreshInterceptor loop on me().
 
+import 'dart:convert';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
@@ -76,6 +77,39 @@ class AuthNotifier extends _$AuthNotifier {
   // a lightweight synchronisation primitive purely for the interceptor.
   String? coldStartAccessToken;
 
+  // ---------------------------------------------------------------------------
+  // JWT exp pre-check (MEDIUM-4, mobile-security 2026-05-27)
+  // ---------------------------------------------------------------------------
+
+  /// Returns `true` when [jwt]'s `exp` claim is in the past (or within a
+  /// 30-second grace window). Used to short-circuit the cold-start network
+  /// refresh when the stored refresh token is already known to be expired.
+  ///
+  /// Signature is NOT verified — this is a UX optimisation only. The server
+  /// remains the authoritative arbiter; if clock-skew is extreme or the token
+  /// was revoked server-side, the server 401 still handles it correctly.
+  ///
+  /// Returns `false` (fail-open) on any decode error so the server can decide.
+  bool _isTokenExpired(String jwt) {
+    try {
+      final parts = jwt.split('.');
+      if (parts.length != 3) return false;
+      // Normalise the URL-safe base64 segment (no padding) before decoding.
+      final normalised = base64Url.normalize(parts[1]);
+      final decoded = utf8.decode(base64Url.decode(normalised));
+      final payload = jsonDecode(decoded) as Map<String, dynamic>;
+      final exp = payload['exp'];
+      if (exp is! int) return false;
+      // Apply a 30-second grace window to account for minor clock skew.
+      const kGraceSeconds = 30;
+      final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      return exp < nowSeconds + kGraceSeconds;
+    } catch (_) {
+      // Fail-open — let the server decide if we cannot decode the token.
+      return false;
+    }
+  }
+
   @override
   Future<AuthSession> build() async {
     // Cold-start session restore — Riverpod emits AsyncLoading while this
@@ -112,6 +146,22 @@ class AuthNotifier extends _$AuthNotifier {
           level: 800,
         );
       }
+      return const AuthSession.unauthenticated();
+    }
+
+    // MEDIUM-4 (mobile-security 2026-05-27): exp pre-check.
+    // Skip the refresh network call when the stored refresh token is already
+    // known to be expired — saves a full DNS + TLS + server round-trip.
+    // The server remains the authoritative arbiter; this is a UX optimisation.
+    if (_isTokenExpired(rt)) {
+      if (kDebugMode) {
+        log(
+          'Cold start: refresh token expired — skip network call',
+          name: 'auth',
+          level: 800,
+        );
+      }
+      await storage.deleteAll(); // clean up stale token
       return const AuthSession.unauthenticated();
     }
 

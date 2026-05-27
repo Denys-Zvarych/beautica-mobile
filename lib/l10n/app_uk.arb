@@ -30,6 +30,10 @@
   "@errUnauthorized": {
     "description": "Error message shown when the user's session has expired (401)."
   },
+  "errInvalidCredentials": "Неправильна пошта або пароль.",
+  "@errInvalidCredentials": {
+    "description": "Error shown on the login screen when the backend rejects credentials with HTTP 401 (wrong email or password — not a session expiry)."
+  },
   "errValidation": "Перевірте введені дані та спробуйте знову.",
   "@errValidation": {
     "description": "Error message shown when the server returns validation errors (422)."
