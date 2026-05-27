@@ -12,59 +12,67 @@
 // No user interaction is expected here; there is intentionally no retry or
 // skip button.
 //
-// Phase 2.15 — Native-splash handoff (Option A — "Single continuous animation"):
-//   The native splash (warm taupe #E6DDD0 bg + Beautica B mark at scale 1.0)
-//   is preserved by [FlutterNativeSplash.preserve] in main() and dismissed here
-//   via [FlutterNativeSplash.remove] directly inside [initState].
+// Phase 2.15 — Native-splash handoff:
+//   The native splash (warm taupe #E6DDD0 bg + composite B + "beautica" PNG)
+//   is preserved by [FlutterNativeSplash.preserve] in main() and dismissed
+//   here via [FlutterNativeSplash.remove] inside [initState]. Because the OS
+//   splash PNG already shows the full composite, the handoff to the Flutter
+//   splash is visually seamless even with zero animation in the static path.
 //
-// Why addPostFrameCallback for forward():
-//   On Android 12 cold start, Flutter doesn't deliver vsync ticks during
-//   the OS-managed native splash phase, so an AnimationController.forward()
-//   call placed in initState ticks-as-elapsed-time but renders no
-//   intermediate values — the user sees the animation snap from start to
-//   end in one frame instead of playing. Starting forward() after the
-//   first Flutter frame has been composed (post-frame callback) means the
-//   Ticker only begins ticking once vsync is reliably firing, so every
-//   subsequent frame delivers a real intermediate value. The
-//   minSplashDuration gate in auth_redirect.dart keeps the widget mounted
-//   for the duration of the animation regardless of how fast auth resolves,
-//   so the post-frame callback always fires while mounted == true.
+// Splash content — Lottie or static:
+//   On mount the splash probes for `assets/lottie/splash_wordmark.json` via
+//   `rootBundle.load()`. If the asset loads:
+//     - Lottie path: B pillow alone (showWordmark: false) + Lottie.asset()
+//       rendering the animated wordmark beneath it.
+//   If the asset is missing:
+//     - Static path: standard [VelvetLogo] (B pillow + plain "beautica" Text).
+//       This is the visual baseline that exactly mirrors the OS-baked splash
+//       PNG, so the cold-start handoff has zero visible jump.
 //
-// Splash animation — letter-by-letter wordmark reveal:
-//   The [CircularProgressIndicator] + Timer have been replaced by an
-//   [AnimatedWordmark] that reveals "beautica" letter-by-letter over 880 ms.
-//   Each letter fades in and slides up with a 90 ms stagger. The animation
-//   serves as both a brand moment and a visual loading indicator.
-//   Reduced-motion: when [accessibilityFeatures.disableAnimations] is true the
-//   controller is snapped to its end value so all letters appear immediately,
-//   and a timer is scheduled to kick the router directly — the status listener
-//   will never fire because setting value = 1.0 does not emit
-//   AnimationStatus.completed. (MediaQuery is unavailable in initState;
-//   accessibilityFeatures reads the same underlying platform flag.)
+//   Regardless of which path renders, a [Timer] for the remaining
+//   [AppStartTime.minSplashDuration] kicks the GoRouter so we exit /splash
+//   into /login or /home as soon as the gate is satisfied.
+//
+// Why no AnimationController here:
+//   Earlier iterations used an [AnimationController]-driven letter-by-letter
+//   reveal ([AnimatedWordmark]). On Android 12 release AOT builds, the Ticker
+//   did not deliver vsync ticks during the OS native-splash phase, causing the
+//   animation to snap to its end state in a single frame. A Lottie file —
+//   pre-rendered frame data — sidesteps the Ticker entirely; the animation
+//   plays at its baked frame rate from frame 0 the moment the widget mounts.
+//   Until the user drops a `.json` file in, the static fallback renders the
+//   exact same composite the OS splash PNG already shows.
 //
 // Why no ScreenProtector here:
-//   The splash screen displays only the branded "beautica" wordmark animation —
-//   no passwords, OTP codes, or user data are ever rendered on this screen.
-//   Applying FLAG_SECURE here caused the Android emulator to render a black
-//   window for the entire splash duration, hiding the animation. ScreenProtector
-//   is used on auth screens that display sensitive fields (login, verification,
-//   register, reset-password, invite-accept, settings).
+//   The splash screen displays only the branded "beautica" wordmark — no
+//   passwords, OTP codes, or user data are ever rendered. ScreenProtector is
+//   reserved for screens with sensitive fields (login, verification, register,
+//   reset-password, invite-accept, settings).
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lottie/lottie.dart';
 
 import '../../../core/app_start_time.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/widgets/neumorphic.dart';
 
+/// Path of the optional Lottie wordmark animation. When this asset is
+/// bundled, the Lottie widget renders; otherwise the static fallback runs.
+/// File-scope so [_LottieSplashContent] can reference it without poking into
+/// `_SplashScreenState`'s private fields.
+const String _lottieAssetPath = 'assets/lottie/splash_wordmark.json';
+
 /// Cold-start parking screen shown while the auth session resolves.
 ///
-/// Displays the Beautica logo with an animated letter-by-letter wordmark
-/// reveal. The [VelvetLogo] is rendered slightly larger than on other screens
-/// to give the splash a premium, spacious feel.
+/// Displays the Beautica logo. When `assets/lottie/splash_wordmark.json` is
+/// bundled, the wordmark is rendered as a Lottie animation; otherwise the
+/// static [VelvetLogo] is shown (matching the OS-baked native splash PNG so
+/// the handoff is seamless).
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -72,126 +80,80 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen>
-    with SingleTickerProviderStateMixin {
-  /// Total controller duration — covers 8 letters × 90 ms stagger + 250 ms
-  /// per-letter duration = 630 + 250 = 880 ms.
-  static const Duration _animDuration = Duration(milliseconds: 880);
+class _SplashScreenState extends State<SplashScreen> {
+  /// Minimum splash wall-clock duration in milliseconds. Single source of
+  /// truth: [AppStartTime.minSplashDuration].
+  static final int _minSplashMs = AppStartTime.minSplashDuration.inMilliseconds;
 
-  late final AnimationController _wordmarkController;
   Timer? _splashTimer;
+  bool _lottieAvailable = false;
 
   @override
   void initState() {
     super.initState();
-    _wordmarkController = AnimationController(
-      vsync: this,
-      duration: _animDuration,
-    );
 
-    // Phase 2.15 fix — dismiss native splash immediately when this State is
-    // created. initState only fires while the widget IS mounted, so there is
-    // no risk of releasing the native overlay after the widget is gone.
-    // FlutterNativeSplash.remove() is idempotent: if main() already released
-    // the overlay (returning-user bypass path where go_router skips /splash
-    // entirely), this call is a safe no-op.
+    // Dismiss the native splash immediately. initState only fires while the
+    // widget IS mounted, so there is no risk of releasing the native overlay
+    // after the widget is gone. FlutterNativeSplash.remove() is idempotent:
+    // if main() already released the overlay (returning-user bypass path
+    // where go_router skips /splash entirely), this call is a safe no-op.
     FlutterNativeSplash.remove();
 
     // Anchor the splash-duration gate to the moment Flutter's surface becomes
     // visible, NOT to app entry. Native splash + Dart VM init can take >1s on
-    // Android 12 cold starts, which would otherwise pre-expire the 950 ms gate
-    // and cause go_router to redirect to /login before the wordmark animation
-    // can paint a single frame.
+    // Android 12 cold starts, which would otherwise pre-expire the 2000 ms
+    // gate and cause go_router to redirect to /login before the splash can
+    // paint a single frame.
     AppStartTime.record();
 
-    // Start the animation immediately. AnimationController schedules its own
-    // ticker via vsync and does not need a rendered frame — no
-    // addPostFrameCallback required. MediaQuery is unavailable in initState;
-    // accessibilityFeatures reads the same underlying platform disableAnimations
-    // flag via the engine and is available from the very first frame.
-    if (WidgetsBinding.instance.accessibilityFeatures.disableAnimations) {
-      // Defer the snap until after first build so AnimatedWordmark's FadeTransition
-      // listeners have attached — setting value=1.0 in initState fires notifyListeners
-      // before any child subscribes, leaving opacity at 0.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _wordmarkController.value = 1.0;
-      });
-      // Accessibility: animation skipped — status listener will never fire
-      // (value = 1.0 does not emit AnimationStatus.completed). Schedule the
-      // router refresh directly so accessibility users are not parked on /splash.
-      final remaining =
-          _minSplashMs -
-          AppStartTime.elapsed().inMilliseconds.clamp(0, _minSplashMs);
-      _splashTimer = Timer(Duration(milliseconds: remaining), () {
-        if (mounted) GoRouter.of(context).refresh();
-      });
-    } else {
-      // Defer forward() until after the first Flutter frame has been composed.
-      // On cold start, Flutter doesn't deliver vsync ticks during the Android
-      // OS native-splash phase, so an AnimationController started in initState
-      // ticks-as-elapsed-time but renders no intermediate values — the visible
-      // result is the animation snapping from 0 to 1 in one frame. Starting
-      // forward() in a post-frame callback ensures the Ticker only begins once
-      // Flutter is actively rendering, so every subsequent vsync delivers a real
-      // intermediate frame and the user actually perceives the scale-in stagger.
-      //
-      // Safe: the minSplashDuration gate in auth_redirect.dart keeps SplashScreen
-      // mounted for at least 2 seconds regardless of how fast authProvider
-      // resolves, so the postFrameCallback always fires while mounted == true.
-      // The `if (!mounted) return;` guard is belt-and-braces.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _wordmarkController.forward();
-      });
-    }
+    // Probe for the optional Lottie animation asynchronously. The widget
+    // mounts immediately with the static fallback; if the asset resolves
+    // before the splash exits, the Lottie path takes over via setState().
+    _checkLottieAsset();
 
-    // Minimum splash duration gate — router re-kick.
-    //
-    // In release AOT builds the auth provider can resolve synchronously before
-    // the first Flutter frame. GoRouter fires its redirect once (returning
-    // /splash because AppStartTime.elapsed() < 950 ms) and then goes quiet —
-    // authProvider never emits again, so AuthRefreshNotifier never calls
-    // notifyListeners(), and the router never re-evaluates the redirect.
-    //
-    // Fix: when the animation completes (at ~880 ms), call GoRouter.of().refresh()
-    // to force a second redirect evaluation. By that point 880 ms have elapsed,
-    // which exceeds the 950 ms gate only if there was negligible startup latency.
-    // To be safe we wait the full _minSplashMs before refreshing — the router
-    // then immediately routes to /home or /login as appropriate.
-    //
-    // In debug mode the gate is skipped by auth_redirect.dart (kDebugMode check),
-    // so this listener fires but the router routes normally on the first evaluation.
-    // The addStatusListener is cheap and harmless in both modes.
-    _wordmarkController.addStatusListener(_onAnimationStatus);
-  }
-
-  /// Minimum splash wall-clock duration in milliseconds.
-  ///
-  /// Single source of truth: [AppStartTime.minSplashDuration]. Derived here as
-  /// an int so it can be used directly in the [Timer] remainder calculation.
-  static final int _minSplashMs = AppStartTime.minSplashDuration.inMilliseconds;
-
-  void _onAnimationStatus(AnimationStatus status) {
-    if (status != AnimationStatus.completed) return;
-    // Animation is done (~880 ms). Wait for the full 950 ms gate, then kick
-    // the router so it re-runs its redirect callback. By this point
-    // AppStartTime.elapsed() will be >= _minSplashDuration and the gate in
-    // auth_redirect.dart will pass through to the real auth routing logic.
-    final remaining =
+    // Schedule a router refresh at minSplashDuration regardless of which
+    // wordmark path renders. In release AOT builds the auth provider can
+    // resolve synchronously before the first Flutter frame, in which case
+    // GoRouter fires its redirect once (returning /splash because elapsed <
+    // _minSplashMs) and then goes quiet — authProvider never emits again, so
+    // AuthRefreshNotifier never calls notifyListeners() and the router never
+    // re-evaluates. The timer below kicks it so we exit /splash on schedule.
+    final int remaining =
         _minSplashMs -
         AppStartTime.elapsed().inMilliseconds.clamp(0, _minSplashMs);
     _splashTimer = Timer(Duration(milliseconds: remaining), () {
-      // Guard against the widget being disposed before the delay fires
-      // (e.g. in tests or if the OS kills the app while in background).
-      if (mounted) GoRouter.of(context).refresh();
+      if (!mounted) return;
+      // `GoRouter.of(context)` throws if no router ancestor exists (common in
+      // widget tests that use a plain MaterialApp). Catch and no-op so the
+      // timer is safe in any tree.
+      try {
+        GoRouter.of(context).refresh();
+      } catch (_) {
+        // No router in this tree — tests typically. The widget is the visible
+        // result and that's all that matters in that context.
+      }
     });
+  }
+
+  /// Attempts to load the Lottie wordmark asset. If successful, flips the
+  /// build to render `Lottie.asset(...)` in place of the static wordmark.
+  /// On any failure (FlutterError "Unable to load asset", FileSystemException
+  /// in tests, etc.) the static fallback is kept silently — this is the
+  /// expected baseline state until the user drops the JSON file in.
+  Future<void> _checkLottieAsset() async {
+    try {
+      await rootBundle.load(_lottieAssetPath);
+      if (!mounted) return;
+      setState(() => _lottieAvailable = true);
+    } catch (_) {
+      // Asset missing — keep static fallback. Intentionally silent: missing
+      // file is the documented baseline, not an error condition.
+    }
   }
 
   @override
   void dispose() {
     _splashTimer?.cancel();
-    _wordmarkController.dispose();
     super.dispose();
   }
 
@@ -203,15 +165,42 @@ class _SplashScreenState extends State<SplashScreen>
         children: <Widget>[
           Align(
             alignment: const Alignment(0.0, -0.4),
-            child: VelvetLogo(
-              animationController: _wordmarkController,
-              tileSize: 92,
-              markFontSize: 42,
-              wordmarkFontSize: 17,
-            ),
+            child: _lottieAvailable
+                ? const _LottieSplashContent()
+                : const VelvetLogo(
+                    tileSize: 92,
+                    markFontSize: 42,
+                    wordmarkFontSize: 17,
+                  ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Renders the B pillow + a [Lottie.asset] wordmark animation. Used when the
+/// optional `assets/lottie/splash_wordmark.json` is bundled. The B pillow is
+/// reused from [VelvetLogo] with `showWordmark: false` so the Lottie file owns
+/// the wordmark slot exclusively.
+class _LottieSplashContent extends StatelessWidget {
+  const _LottieSplashContent();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        const VelvetLogo(tileSize: 92, markFontSize: 42, showWordmark: false),
+        const SizedBox(height: 16),
+        Lottie.asset(
+          _lottieAssetPath,
+          width: 400,
+          height: 80,
+          fit: BoxFit.contain,
+          repeat: false,
+        ),
+      ],
     );
   }
 }

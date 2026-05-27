@@ -800,7 +800,9 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
 ///
 /// By default renders a static wordmark ([Text]). When [animationController]
 /// is supplied, the wordmark is replaced by an [AnimatedWordmark] that reveals
-/// the letters one-by-one.
+/// the letters one-by-one. When [showWordmark] is false, the wordmark slot is
+/// omitted entirely (used by the Lottie splash path, where the Lottie file
+/// renders its own wordmark adjacent to the B pillow).
 ///
 /// The optional [tileSize], [markFontSize], and [wordmarkFontSize] parameters
 /// allow the splash screen to render a slightly larger logo without affecting
@@ -815,12 +817,14 @@ class VelvetLogo extends StatelessWidget {
     this.tileSize,
     this.markFontSize = 36,
     this.wordmarkFontSize = 14,
+    this.showWordmark = true,
   });
 
   final bool compact;
 
   /// When non-null, an [AnimatedWordmark] is rendered instead of the static
   /// wordmark [Text]. The controller must be started by the caller.
+  /// Ignored when [showWordmark] is false.
   final AnimationController? animationController;
 
   /// Overrides the default tile dimension (`compact ? 72 : VelvetSizes.logoTile`).
@@ -833,6 +837,12 @@ class VelvetLogo extends StatelessWidget {
   /// Font size forwarded to [AnimatedWordmark] (or applied to the static
   /// wordmark via [TextStyle.copyWith]). Defaults to 14 (= VelvetText.wordmark()).
   final double wordmarkFontSize;
+
+  /// Whether to render the "beautica" wordmark below the B pillow. Defaults
+  /// to true (existing behaviour). The Lottie splash path passes false so the
+  /// Lottie animation can supply its own wordmark; the B pillow alone is
+  /// rendered here and the Lottie widget sits adjacent in the parent column.
+  final bool showWordmark;
 
   // Hoisted: VelvetRadii.logoTile is a compile-time constant so the whole
   // BorderRadius can be a static const, avoiding an allocation per build.
@@ -852,7 +862,9 @@ class VelvetLogo extends StatelessWidget {
       fontWeight: FontWeight.w700,
     );
 
-    final Widget wordmark = animationController != null
+    final Widget? wordmark = !showWordmark
+        ? null
+        : animationController != null
         ? AnimatedWordmark(
             controller: animationController!,
             fontSize: wordmarkFontSize,
@@ -878,8 +890,10 @@ class VelvetLogo extends StatelessWidget {
             ),
             child: Center(child: Text('B', style: markStyle)),
           ),
-          const SizedBox(height: VelvetSpacing.md),
-          wordmark,
+          if (wordmark != null) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.md),
+            wordmark,
+          ],
         ],
       ),
     );

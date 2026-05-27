@@ -51,6 +51,13 @@ dependencies:
   # Flutter 3.41; flutter_intl tooling can bump it later.
   intl: any
 
+  # Lottie — pre-rendered JSON animations that play smoothly regardless of
+  # Flutter's cold-start frame throttling. Used for the splash wordmark
+  # reveal: when `assets/lottie/splash_wordmark.json` is present the splash
+  # screen renders the Lottie animation; otherwise it falls back to a static
+  # "beautica" wordmark (matching the OS-baked native splash PNG).
+  lottie: ^3.1.0
+
   # OpenAPI client codegen annotation — deferred to Phase 3.1; pinning it
   # here together with riverpod_lint 2.6.x produces an irreconcilable
   # analyzer version conflict (annotations pull openapi_generator's analyzer
@@ -162,3 +169,8 @@ flutter:
     # where there is no network fallback and where kDebugMode = false previously
     # caused the wordmark to fall back to the system font.
     - assets/fonts/
+    # Lottie animations directory. The splash screen probes for
+    # `assets/lottie/splash_wordmark.json` at startup and renders it via
+    # Lottie.asset(...) when present, otherwise falls back to a static
+    # "beautica" wordmark. See assets/lottie/README.md for the design spec.
+    - assets/lottie/
