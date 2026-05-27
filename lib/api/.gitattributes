@@ -1,0 +1,3 @@
+# Mark all files in this directory as generated so GitHub
+# excludes them from PR diff view and language statistics.
+* linguist-generated=true

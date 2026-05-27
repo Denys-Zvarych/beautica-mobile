@@ -36,9 +36,19 @@ jobs:
       - name: Codegen (build_runner)
         run: dart run build_runner build --delete-conflicting-outputs
 
-      # Phase 3.1 wires the OpenAPI client generation gate:
-      #   - name: Verify OpenAPI client is up to date
-      #     run: ./scripts/regenerate_api.sh --check
+      # Phase 3.1 — OpenAPI client drift gate.
+      # Regenerates the Dart client from the COMMITTED spec snapshot
+      # (tool/openapi/api-spec.json) into a temp dir, then diffs against the
+      # committed lib/api/.  Fails if they diverge — no live backend needed.
+      # Tool setup: openapi_generator_cli is activated on the first run and
+      # its JAR is cached in .dart_tool/openapi_generator_cache/.
+      - name: Install openapi-generator-cli
+        # Pinned to 6.1.0 (wraps JAR 7.9.0) — must match scripts/regenerate_api.sh.
+        # Update both locations together to avoid spec-drift between local and CI.
+        run: dart pub global activate openapi_generator_cli 6.1.0
+
+      - name: Verify OpenAPI client is up to date
+        run: ./scripts/regenerate_api.sh --check
 
       - name: Format check
         run: dart format --output=none --set-exit-if-changed lib/ test/
