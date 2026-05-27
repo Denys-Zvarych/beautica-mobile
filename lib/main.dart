@@ -68,6 +68,26 @@ Future<void> main() async {
   // in pubspec.yaml and the TTF exists in assets/fonts/.
   GoogleFonts.config.allowRuntimeFetching = false;
 
+  // Pre-warm every (family, weight) tuple VelvetText actually consumes so the
+  // first frame of any screen paints with the bundled glyphs and never the
+  // system fallback. Without this, screens that are the first to render a
+  // given (family, weight) — login + role-selection — show a one-frame
+  // system-font → Nunito swap (visible as a "text flicker"). The native
+  // splash is preserved above, so users see solid warm-taupe while these
+  // four FontLoader.load() futures complete (~ms on a modern device).
+  //
+  // If you add a new (family, weight) tuple to VelvetText, add it here too,
+  // or the first screen to use it will flicker on cold entry.
+  GoogleFonts.comfortaa(fontWeight: FontWeight.w600); // VelvetText.subheading
+  GoogleFonts.comfortaa(
+    fontWeight: FontWeight.w700,
+  ); // wordmark / heading / cta
+  GoogleFonts.nunito(fontWeight: FontWeight.w600); // body / input
+  GoogleFonts.nunito(
+    fontWeight: FontWeight.w700,
+  ); // bodyStrong / label / link / feedback
+  await GoogleFonts.pendingFonts();
+
   runApp(const ProviderScope(child: BeauticaApp()));
 
   // Phase 2.15 fix — release the native splash so the first Flutter frame
