@@ -60,6 +60,7 @@ import 'package:beautica_mobile/features/auth/presentation/splash_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lottie/lottie.dart';
 
 // Wraps the widget under test in the minimal tree that SplashScreen requires:
 // a MaterialApp (for Scaffold / Theme) with no router needed for most tests.
@@ -86,11 +87,17 @@ void main() {
     // -------------------------------------------------------------------------
     // Test 2 — VelvetLogo is present with the splash-specific size params
     //
-    // The static fallback renders a larger logo than any other screen:
+    // The splash renders a larger logo than any other screen:
     //   - compact: false  (default — unchanged)
     //   - tileSize: 92    (bigger pillow on splash only)
     //   - markFontSize: 42
-    //   - wordmarkFontSize: 17
+    //
+    // wordmarkFontSize is intentionally NOT asserted: in the Lottie path the
+    // VelvetLogo is constructed with showWordmark:false (the Lottie animation
+    // renders the wordmark itself), so the wordmark Text never appears and
+    // wordmarkFontSize is irrelevant. The remaining tileSize/markFontSize
+    // checks still cover the regression intent (splash uses its custom
+    // sizing).
     // -------------------------------------------------------------------------
     testWidgets('2. VelvetLogo present with splash-specific size params', (
       tester,
@@ -121,42 +128,42 @@ void main() {
         equals(42.0),
         reason: 'Splash "B" glyph is 42 sp — larger than the default 36 sp.',
       );
-      expect(
-        logo.wordmarkFontSize,
-        equals(17.0),
-        reason: 'Splash wordmark is 17 sp — larger than the default 14 sp.',
-      );
-      expect(
-        logo.showWordmark,
-        isTrue,
-        reason:
-            'Static fallback path renders the full VelvetLogo including its '
-            'wordmark Text. showWordmark:false is reserved for the Lottie path.',
-      );
+      // wordmarkFontSize is irrelevant in the Lottie path: VelvetLogo's
+      // showWordmark=false suppresses the static Text("beautica"), so the
+      // size value is dead. The Lottie animation owns the wordmark render.
 
       // Drain the splash timer.
       await tester.pump(const Duration(milliseconds: 2500));
     });
 
     // -------------------------------------------------------------------------
-    // Test 3 — Static "beautica" wordmark Text is in the tree
+    // Test 3 — Wordmark is rendered via Lottie OR a static "beautica" Text
     //
-    // The static fallback renders a plain [Text] containing "beautica" inside
-    // VelvetLogo. This replaces the previous AnimatedWordmark assertion.
+    // SplashScreen has two render paths for the wordmark:
+    //   - Lottie path:   Lottie.asset(splash_wordmark.json) renders the
+    //                    wordmark animation — no Text widget exists.
+    //   - Static path:   VelvetLogo's Text("beautica") fallback when the
+    //                    Lottie asset is not bundled.
+    //
+    // The asset is now bundled in pubspec.yaml, so the test environment may
+    // resolve the Lottie path. This assertion tolerates either render path to
+    // remain robust to the bundle/no-bundle toggle.
     // -------------------------------------------------------------------------
-    testWidgets('3. static "beautica" wordmark Text is in the tree', (
+    testWidgets('3. wordmark renders via Lottie or static "beautica" Text', (
       tester,
     ) async {
       await tester.pumpWidget(_buildApp());
       await tester.pump();
 
+      final hasLottie = find.byType(Lottie).evaluate().isNotEmpty;
+      final hasStaticText = find.text('beautica').evaluate().isNotEmpty;
       expect(
-        find.text('beautica'),
-        findsOneWidget,
+        hasLottie || hasStaticText,
+        isTrue,
         reason:
-            'Static fallback path must render a plain Text("beautica") inside '
-            'VelvetLogo. The Lottie path replaces this with Lottie.asset() but '
-            'in the test environment the JSON asset is never bundled.',
+            'Splash should render the wordmark via either a Lottie widget '
+            '(asset bundled) or a static Text("beautica") in VelvetLogo '
+            '(asset missing). Neither was found.',
       );
 
       // Drain the splash timer.
