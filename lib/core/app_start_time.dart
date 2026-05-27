@@ -25,12 +25,16 @@ abstract final class AppStartTime {
 
   /// Guaranteed minimum time the animated splash wordmark is visible.
   ///
-  /// 880 ms animation + 70 ms buffer = 950 ms. Referenced by both
-  /// [auth_redirect.dart] (which parks the router on /splash until this
-  /// duration has passed) and [splash_screen.dart] (which waits for
-  /// the remainder after the animation completes before refreshing the router).
+  /// 880 ms designed animation duration can stretch to ~1.5 s on Android 12
+  /// cold start due to native-splash compositing throttling. Plus ~500 ms of
+  /// static visible end-state so the user actually perceives the completed
+  /// wordmark before the route transitions to /login or /home. Referenced by
+  /// both [auth_redirect.dart] (parks the router on /splash until this
+  /// duration has passed) and [splash_screen.dart] (waits for the remainder
+  /// after the animation completes before refreshing the router).
+  ///
   /// Single source of truth — do not duplicate this constant.
-  static const Duration minSplashDuration = Duration(milliseconds: 950);
+  static const Duration minSplashDuration = Duration(milliseconds: 2000);
 
   /// Record the current time as the application start instant.
   ///

@@ -507,11 +507,12 @@ void main() {
         // ---------------------------------------------------------------
         // Drain the _splashTimer cleanly to satisfy the test binding's
         // !timersPending invariant at tear-down. Mirrors test 14's
-        // clock-advance pattern (line 622): pump past _minSplashMs (~950 ms)
-        // then pumpAndSettle so the timer fires, router.refresh() runs, and
-        // no wall-clock timer is left dangling.
+        // clock-advance pattern: pump past _minSplashMs then pumpAndSettle
+        // so the timer fires, router.refresh() runs, and no wall-clock
+        // timer is left dangling.
+        // minSplashDuration is 2000ms; pump comfortably past the timer.
         // ---------------------------------------------------------------
-        await tester.pump(const Duration(milliseconds: 1200));
+        await tester.pump(const Duration(milliseconds: 2500));
         await tester.pumpAndSettle();
 
         // Key distinction from Test 5: Test 5 must advance the full 880 ms
@@ -653,10 +654,11 @@ void main() {
         // Capture redirect count after initial router evaluation.
         final countAfterBuild = refreshCount;
 
-        // Advance clock past _minSplashMs (950 ms). The accessibility timer
+        // Advance clock past _minSplashMs (2000 ms). The accessibility timer
         // fires, GoRouter.of(context).refresh() is called, triggering a
         // redirect re-evaluation. The counter must exceed countAfterBuild.
-        await tester.pump(const Duration(milliseconds: 1200));
+        // minSplashDuration is 2000ms; pump comfortably past the timer.
+        await tester.pump(const Duration(milliseconds: 2500));
         await tester.pumpAndSettle();
 
         expect(
