@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -696,6 +698,9 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
   late List<Animation<Offset>> _slides;
   late TextStyle _style;
 
+  // DIAGNOSTIC: periodic logger to confirm whether FadeTransition opacities actually advance. Remove with the rest of the diagnostic instrumentation.
+  Timer? _opacityLogger;
+
   void _initAnimations() {
     final int totalMs = widget.controller.duration?.inMilliseconds ?? 880;
     _curves = <CurvedAnimation>[];
@@ -740,6 +745,32 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
   void initState() {
     super.initState();
     _initAnimations();
+    // DIAGNOSTIC: log letter opacity every 100ms until the parent controller completes.
+    // DIAGNOSTIC: skip the periodic logger in flutter_test environment so it
+    // doesn't trip the !timersPending invariant at widget teardown.
+    final bindingTypeName = WidgetsBinding.instance.runtimeType.toString();
+    if (!bindingTypeName.contains('Test')) {
+      _opacityLogger = Timer.periodic(const Duration(milliseconds: 100), (t) {
+        if (!mounted) {
+          t.cancel();
+          return;
+        }
+        if (_opacities.isEmpty) return;
+        debugPrint(
+          '[wordmark-tick] parent=${widget.controller.value.toStringAsFixed(3)} '
+          'first=${_opacities.first.value.toStringAsFixed(3)} '
+          'last=${_opacities.last.value.toStringAsFixed(3)} '
+          'status=${widget.controller.status}',
+        );
+        if (widget.controller.status == AnimationStatus.completed ||
+            widget.controller.status == AnimationStatus.dismissed) {
+          debugPrint(
+            '[wordmark-tick] DONE final_first=${_opacities.first.value.toStringAsFixed(3)} final_last=${_opacities.last.value.toStringAsFixed(3)}',
+          );
+          t.cancel();
+        }
+      });
+    }
   }
 
   @override
@@ -760,6 +791,7 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
 
   @override
   void dispose() {
+    _opacityLogger?.cancel();
     // Dispose the CurvedAnimations we own. The AnimationController is owned
     // by the caller (e.g. SplashScreen) and must NOT be disposed here.
     _disposeAnimations();

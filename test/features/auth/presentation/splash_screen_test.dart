@@ -511,7 +511,8 @@ void main() {
         // then pumpAndSettle so the timer fires, router.refresh() runs, and
         // no wall-clock timer is left dangling.
         // ---------------------------------------------------------------
-        await tester.pump(const Duration(milliseconds: 1200));
+        // DIAGNOSTIC: bumped from 1200ms to 5200ms to match minSplashDuration=5000ms. Revert with the rest of the diagnostic.
+        await tester.pump(const Duration(milliseconds: 5200));
         await tester.pumpAndSettle();
 
         // Key distinction from Test 5: Test 5 must advance the full 880 ms
@@ -656,7 +657,8 @@ void main() {
         // Advance clock past _minSplashMs (950 ms). The accessibility timer
         // fires, GoRouter.of(context).refresh() is called, triggering a
         // redirect re-evaluation. The counter must exceed countAfterBuild.
-        await tester.pump(const Duration(milliseconds: 1200));
+        // DIAGNOSTIC: bumped from 1200ms to 5200ms to match minSplashDuration=5000ms. Revert with the rest of the diagnostic.
+        await tester.pump(const Duration(milliseconds: 5200));
         await tester.pumpAndSettle();
 
         expect(
