@@ -198,22 +198,15 @@ class _SplashScreenState extends State<SplashScreen>
       // VelvetTouch palette — warm taupe #E6DDD0 (= BrandColors.base).
       // Must match the native splash color in pubspec.yaml flutter_native_splash.color.
       backgroundColor: BrandColors.base,
-      body: Stack(
-        children: <Widget>[
-          // Align at (0, -0.4) shifts the logo into the upper-middle zone —
-          // roughly 38% from the top — rather than dead centre.
-          Align(
-            alignment: const Alignment(0.0, -0.4),
-            child: VelvetLogo(
-              animationController: _wordmarkController,
-              // Slightly larger on splash only — compact: false (default)
-              // + explicit overrides keep all other call sites unchanged.
-              tileSize: 92,
-              markFontSize: 42,
-              wordmarkFontSize: 17,
-            ),
+      body: SafeArea(
+        child: Center(
+          child: VelvetLogo(
+            animationController: _wordmarkController,
+            tileSize: 92,
+            markFontSize: 42,
+            wordmarkFontSize: 17,
           ),
-        ],
+        ),
       ),
     );
   }
