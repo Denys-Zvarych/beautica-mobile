@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Exclude flutter_secure_storage data from Auto Backup to prevent token leakage -->
+    <exclude domain="sharedpref" path="FlutterSecureStorage"/>
+    <exclude domain="database" path="FlutterSecureStorageDatabase"/>
+    <exclude domain="file" path=".flutter_secure_storage"/>
+</full-backup-content>

@@ -3,5 +3,1104 @@
   "appTitle": "Beautica",
   "@appTitle": {
     "description": "Application name shown in the OS task switcher and on the splash screen."
+  },
+  "loadingLabel": "Завантаження…",
+  "@loadingLabel": {
+    "description": "Generic 'Loading…' label shown next to a CircularProgressIndicator while async data resolves."
+  },
+  "calendarBookingsForDay": "{count, plural, =0{Немає записів} =1{1 запис} few{{count} записи} many{{count} записів} other{{count} записів}}",
+  "@calendarBookingsForDay": {
+    "description": "Summary count of bookings shown on a calendar day cell or day header.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "errNetwork": "Немає з'єднання з мережею. Перевірте інтернет і спробуйте ще раз.",
+  "@errNetwork": {
+    "description": "Error message shown when a network request fails due to no connectivity."
+  },
+  "errNotFound": "Запис не знайдено.",
+  "@errNotFound": {
+    "description": "Error message shown when a 404 response is received."
+  },
+  "errUnauthorized": "Сесія завершилась. Увійдіть знову.",
+  "@errUnauthorized": {
+    "description": "Error message shown when the user's session has expired (401)."
+  },
+  "errInvalidCredentials": "Неправильна пошта або пароль.",
+  "@errInvalidCredentials": {
+    "description": "Error shown on the login screen when the backend rejects credentials with HTTP 401 (wrong email or password — not a session expiry)."
+  },
+  "errValidation": "Перевірте введені дані та спробуйте знову.",
+  "@errValidation": {
+    "description": "Error message shown when the server returns validation errors (422)."
+  },
+  "errServer": "Помилка сервера. Спробуйте пізніше.",
+  "@errServer": {
+    "description": "Error message shown when a 5xx server error occurs."
+  },
+  "errUnknown": "Щось пішло не так. Спробуйте ще раз.",
+  "@errUnknown": {
+    "description": "Fallback error message for unexpected failures."
+  },
+  "errEmailAlreadyRegistered": "Ця електронна адреса вже зареєстрована. Увійдіть до облікового запису.",
+  "@errEmailAlreadyRegistered": {
+    "description": "Inline error shown on the registration submit when the backend returns 409 with data.code == EMAIL_ALREADY_REGISTERED (backend disclose-duplicate-registration mode). Surfaced via EmailAlreadyRegisteredFailure.userMessage."
+  },
+  "errEmailAlreadyRegisteredAction": "Увійти",
+  "@errEmailAlreadyRegisteredAction": {
+    "description": "CTA label inside the EmailAlreadyRegisteredFailure banner; tapping navigates the user to the login screen so they can sign in instead of re-submitting registration."
+  },
+  "retryLabel": "Спробувати знову",
+  "@retryLabel": {
+    "description": "Label for the retry button shown in error states."
+  },
+  "loginTitle": "Вхід",
+  "@loginTitle": {
+    "description": "Title of the login screen."
+  },
+  "loginEmailLabel": "Електронна пошта",
+  "@loginEmailLabel": {
+    "description": "Label for the email input field on the login screen."
+  },
+  "loginPasswordLabel": "Пароль",
+  "@loginPasswordLabel": {
+    "description": "Label for the password input field on the login screen."
+  },
+  "loginSubmit": "Увійти",
+  "@loginSubmit": {
+    "description": "Label for the submit button on the login screen."
+  },
+  "loginNoAccount": "Немає акаунту?",
+  "@loginNoAccount": {
+    "description": "Prompt text shown before the create account link (login-page.html .register-row)."
+  },
+  "loginCreateAccount": "Зареєструватися",
+  "@loginCreateAccount": {
+    "description": "Link label to navigate to the register screen (login-page.html .register-row a)."
+  },
+  "loginEmailPlaceholder": "anya@example.com",
+  "@loginEmailPlaceholder": {
+    "description": "In-field placeholder for the email input on the login screen (login-page.html input placeholder)."
+  },
+  "loginEmailHint": "olena.kovalenko@gmail.com",
+  "@loginEmailHint": {
+    "description": "hintText for the email field on the login screen — a realistic Ukrainian placeholder email address."
+  },
+  "loginPasswordPlaceholder": "Ваш пароль",
+  "@loginPasswordPlaceholder": {
+    "description": "In-field placeholder for the password input on the login screen (login-page.html input placeholder)."
+  },
+  "errEmailRequired": "Введіть email",
+  "@errEmailRequired": {
+    "description": "Validation error when the email field is empty."
+  },
+  "errEmailInvalid": "Невірний формат email",
+  "@errEmailInvalid": {
+    "description": "Validation error when the email field has an invalid format."
+  },
+  "errEmailTooLong": "Email не може перевищувати 255 символів",
+  "@errEmailTooLong": {
+    "description": "Validation error when the email field exceeds 255 characters."
+  },
+  "errPasswordRequired": "Введіть пароль",
+  "@errPasswordRequired": {
+    "description": "Validation error when the password field is empty."
+  },
+  "errPasswordLength": "Пароль повинен бути від 1 до 128 символів",
+  "@errPasswordLength": {
+    "description": "Validation error when the password field length is out of range."
+  },
+  "errPasswordTooShort": "Пароль має містити щонайменше 8 символів",
+  "@errPasswordTooShort": {
+    "description": "Validation error for new-password creation when the value is shorter than 8 characters."
+  },
+  "errPasswordNoDigit": "Додайте хоча б одну цифру",
+  "@errPasswordNoDigit": {
+    "description": "Validation error for new-password creation when no digit character is present."
+  },
+  "errPasswordNoUppercase": "Додайте хоча б одну велику літеру",
+  "@errPasswordNoUppercase": {
+    "description": "Validation error for new-password creation when no uppercase letter is present."
+  },
+  "registerTitle": "Реєстрація",
+  "@registerTitle": {
+    "description": "Title of the register screen."
+  },
+  "registerSubmit": "Зареєструватися",
+  "@registerSubmit": {
+    "description": "Label for the submit button on the register screen."
+  },
+  "registerHaveAccount": "Вже є акаунт?",
+  "@registerHaveAccount": {
+    "description": "Prompt text shown before the sign in link on the register screen."
+  },
+  "registerSignIn": "Увійти",
+  "@registerSignIn": {
+    "description": "Link label to navigate back to the login screen from register."
+  },
+  "firstNameLabel": "Ім'я",
+  "@firstNameLabel": {
+    "description": "Label for the first name input field."
+  },
+  "lastNameLabel": "Прізвище",
+  "@lastNameLabel": {
+    "description": "Label for the last name input field."
+  },
+  "roleLabel": "Роль",
+  "@roleLabel": {
+    "description": "Label for the role selector."
+  },
+  "roleComingSoon": "Незабаром",
+  "@roleComingSoon": {
+    "description": "Tooltip shown on disabled role options."
+  },
+  "errNameRequired": "Це поле обов'язкове",
+  "@errNameRequired": {
+    "description": "Validation error when a required name field is empty."
+  },
+  "errNameTooLong": "Максимум 100 символів",
+  "@errNameTooLong": {
+    "description": "Validation error when a name field exceeds 100 characters."
+  },
+  "roleClient": "Клієнт",
+  "@roleClient": {
+    "description": "Label for the Client role."
+  },
+  "roleSalonOwner": "Власник салону",
+  "@roleSalonOwner": {
+    "description": "Label for the Salon Owner role."
+  },
+  "roleSalonAdmin": "Адміністратор",
+  "@roleSalonAdmin": {
+    "description": "Label for the Salon Admin role."
+  },
+  "roleSalonMaster": "Майстер салону",
+  "@roleSalonMaster": {
+    "description": "Label for the Salon Master role."
+  },
+  "roleIndependentMaster": "Незалежний майстер",
+  "@roleIndependentMaster": {
+    "description": "Label for the Independent Master role."
+  },
+  "logout": "Вийти",
+  "@logout": {
+    "description": "Label for the logout action."
+  },
+  "logoutConfirm": "Ви впевнені, що хочете вийти?",
+  "@logoutConfirm": {
+    "description": "Confirmation dialog body asking the user to confirm logout."
+  },
+  "cancel": "Скасувати",
+  "@cancel": {
+    "description": "Label for a generic cancel action (e.g. in confirmation dialogs)."
+  },
+  "settingsTitle": "Налаштування",
+  "@settingsTitle": {
+    "description": "Title of the settings screen."
+  },
+  "intentPickerTitle": "Як ви плануєте використовувати Beautica?",
+  "@intentPickerTitle": {
+    "description": "Heading on the intent picker step of the register screen."
+  },
+  "intentIndependentTitle": "Незалежний майстер",
+  "@intentIndependentTitle": {
+    "description": "Title for the independent master role card (role-selection-page.html .role-title)."
+  },
+  "intentIndependentSubtitle": "Незалежний майстер",
+  "@intentIndependentSubtitle": {
+    "description": "Secondary label for the independent master intent card."
+  },
+  "intentSalonTitle": "Власник салону",
+  "@intentSalonTitle": {
+    "description": "Title for the salon owner role card (role-selection-page.html .role-title)."
+  },
+  "intentSalonSubtitle": "Власник салону",
+  "@intentSalonSubtitle": {
+    "description": "Secondary label for the salon owner intent card."
+  },
+  "intentClientTitle": "Клієнт",
+  "@intentClientTitle": {
+    "description": "Title for the client role card (role-selection-page.html .role-title)."
+  },
+  "intentClientSubtitle": "Клієнт",
+  "@intentClientSubtitle": {
+    "description": "Secondary label for the client intent card."
+  },
+  "registerBusinessNameLabel": "Назва салону",
+  "@registerBusinessNameLabel": {
+    "description": "Label for the business/salon name input field, shown only when registering as a Salon Owner."
+  },
+  "registerAddressLabel": "Адреса салону",
+  "@registerAddressLabel": {
+    "description": "Label for the salon address input field on the salon owner registration step 2."
+  },
+  "registerPhoneLabel": "Номер телефону",
+  "@registerPhoneLabel": {
+    "description": "Label for the phone number input field on the salon owner registration step 2."
+  },
+  "registerStep1Title": "Вхідні дані",
+  "@registerStep1Title": {
+    "description": "Title for step 1 of the universal multi-step registration (email + password)."
+  },
+  "registerStep2Title": "Особисті дані",
+  "@registerStep2Title": {
+    "description": "Title for step 2 of the universal multi-step registration for non-salon roles (name + phone)."
+  },
+  "registerSalonStep1Title": "Основна інформація",
+  "@registerSalonStep1Title": {
+    "description": "Title for step 1 of the salon owner multi-step registration."
+  },
+  "registerSalonStep2Title": "Деталі салону",
+  "@registerSalonStep2Title": {
+    "description": "Title for step 2 of the salon owner multi-step registration."
+  },
+  "registerNextStep": "Далі",
+  "@registerNextStep": {
+    "description": "Label for the Next button in multi-step registration."
+  },
+  "registerBackStep": "Назад",
+  "@registerBackStep": {
+    "description": "Label for the Back button in multi-step registration."
+  },
+  "passwordStrengthWeak": "Слабкий",
+  "@passwordStrengthWeak": {
+    "description": "Password strength label: weak."
+  },
+  "passwordStrengthMedium": "Середній",
+  "@passwordStrengthMedium": {
+    "description": "Password strength label: medium."
+  },
+  "passwordStrengthStrong": "Сильний",
+  "@passwordStrengthStrong": {
+    "description": "Password strength label: strong."
+  },
+  "errAddressRequired": "Введіть адресу салону",
+  "@errAddressRequired": {
+    "description": "Validation error when the salon address field is empty."
+  },
+  "errAddressTooLong": "Адреса не може перевищувати 255 символів",
+  "@errAddressTooLong": {
+    "description": "Validation error when the salon address field exceeds 255 characters."
+  },
+  "errPhoneTooLong": "Номер телефону занадто довгий",
+  "@errPhoneTooLong": {
+    "description": "Validation error when the phone number field exceeds 20 characters."
+  },
+  "errPhoneInvalidFormat": "Невірний формат номера телефону",
+  "@errPhoneInvalidFormat": {
+    "description": "Validation error when the phone number field contains invalid characters."
+  },
+  "errPhoneRequired": "Введіть номер телефону",
+  "@errPhoneRequired": {
+    "description": "Validation error when the phone number field is empty."
+  },
+  "showPasswordSemanticLabel": "Показати пароль",
+  "@showPasswordSemanticLabel": {
+    "description": "Accessibility semantic label for the show-password icon button (eye icon in password field)."
+  },
+  "hidePasswordSemanticLabel": "Приховати пароль",
+  "@hidePasswordSemanticLabel": {
+    "description": "Accessibility semantic label for the hide-password icon button (eye-off icon in password field)."
+  },
+  "loginHeadline": "Welcome to premium\nBeauty Service",
+  "@loginHeadline": {
+    "description": "Large headline on the login screen (Warm Mocha redesign)."
+  },
+  "loginHeadlineAccent": "раді бачити вас знову",
+  "@loginHeadlineAccent": {
+    "description": "Italic serif accent line below the main login headline."
+  },
+  "loginSubText": "Увійдіть, щоб керувати записами та послугами.",
+  "@loginSubText": {
+    "description": "Muted sub-text below the login headline describing the action."
+  },
+  "loginForgotPassword": "Забули пароль?",
+  "@loginForgotPassword": {
+    "description": "Right-aligned link text for the forgot-password flow on the login screen."
+  },
+  "loginUnverifiedMessage": "Пошту ще не підтверджено. Введіть код, щоб завершити вхід.",
+  "@loginUnverifiedMessage": {
+    "description": "Inline banner message shown when the user tries to log in with an unverified email."
+  },
+  "loginUnverifiedAction": "Підтвердити пошту",
+  "@loginUnverifiedAction": {
+    "description": "Link label in the EMAIL_NOT_VERIFIED banner that takes the user to the verification screen."
+  },
+  "registerHeadline": "Створення акаунту",
+  "@registerHeadline": {
+    "description": "Large headline on the role selection step of the register screen."
+  },
+  "registerHeadlineAccent": "Хто ви?",
+  "@registerHeadlineAccent": {
+    "description": "Italic serif accent line on the role selection step of the register screen."
+  },
+  "registerSubText": "Оберіть тип акаунту — це визначить ваш простір у Beautica.",
+  "@registerSubText": {
+    "description": "Muted sub-text below the role selection headline."
+  },
+  "intentClientDesc": "Шукаю та бронюю послуги краси",
+  "@intentClientDesc": {
+    "description": "Short description line shown on the Client role card (Warm Mocha redesign)."
+  },
+  "intentSalonDesc": "Керую салоном і командою майстрів",
+  "@intentSalonDesc": {
+    "description": "Short description line shown on the Salon Owner role card (Warm Mocha redesign)."
+  },
+  "intentIndependentDesc": "Працюю сам/сама на себе — власний розклад та послуги",
+  "@intentIndependentDesc": {
+    "description": "Short description line shown on the Independent Master role card (Warm Mocha redesign)."
+  },
+  "registerContinue": "Далі",
+  "@registerContinue": {
+    "description": "CTA button label on the role selection step of the register screen."
+  },
+  "progressStepDetails": "Деталі",
+  "@progressStepDetails": {
+    "description": "Legacy 3-step progress label (kept for backward compatibility; superseded by the registerProgress* family on 2026-05-20)."
+  },
+  "progressStepVerification": "Верифікація",
+  "@progressStepVerification": {
+    "description": "Legacy 3-step progress label (kept for backward compatibility; superseded by registerProgressVerification on 2026-05-20)."
+  },
+  "progressStepDone": "Готово",
+  "@progressStepDone": {
+    "description": "Legacy 3-step progress label (kept for backward compatibility; superseded by registerProgressDone on 2026-05-20)."
+  },
+  "registerProgressAccount": "Акаунт",
+  "@registerProgressAccount": {
+    "description": "Active label under dot 1 of the 4-dot wizard progress indicator on the Step 1 credentials screen (sign-up-page.html .prog-label-under). Used only when dot 1 is the active step."
+  },
+  "registerProgressProfile": "Профіль",
+  "@registerProgressProfile": {
+    "description": "Active label under dot 2 of the 4-dot wizard progress indicator on the Step 2 profile screen (sign-up-step-2-profile.html .prog-label-under). Step 2 and Step 3 both collapse to dot 2; only the active label text differs."
+  },
+  "registerProgressLocation": "Локація",
+  "@registerProgressLocation": {
+    "description": "Active label under dot 2 of the 4-dot wizard progress indicator on the Step 3 address screen (sign-up-step-3-address.html .prog-label-under). Step 2 and Step 3 both collapse to dot 2; only the active label text differs."
+  },
+  "registerProgressVerification": "Верифікація",
+  "@registerProgressVerification": {
+    "description": "Active label under dot 3 of the 4-dot wizard progress indicator on the verification screen (verification-page.html .prog-label-under)."
+  },
+  "registerProgressDone": "Готово",
+  "@registerProgressDone": {
+    "description": "Active label under dot 4 of the 4-dot wizard progress indicator on the registration-done screen (done-page.html .prog-label-under)."
+  },
+  "registerStep1HeadlineAccent": "акаунт",
+  "@registerStep1HeadlineAccent": {
+    "description": "Italic Cormorant Garamond accent on the Step 1 credentials screen headline (sign-up-page.html .headline em — 'Створіть акаунт')."
+  },
+  "registerStep1Headline": "Створіть",
+  "@registerStep1Headline": {
+    "description": "Main headline on the Step 1 credentials screen (sign-up-page.html .headline — 'Створіть акаунт')."
+  },
+  "registerConfirmPasswordLabel": "Повторіть пароль",
+  "@registerConfirmPasswordLabel": {
+    "description": "Label for the confirm-password input on the Step 1 credentials screen (sign-up-page.html .field-group label)."
+  },
+  "registerConfirmPasswordPlaceholder": "Повторіть пароль",
+  "@registerConfirmPasswordPlaceholder": {
+    "description": "In-field placeholder for the confirm-password input on the Step 1 credentials screen (sign-up-page.html input placeholder)."
+  },
+  "errPasswordsMismatch": "Паролі не співпадають",
+  "@errPasswordsMismatch": {
+    "description": "Validation error when the confirm-password value does not match the password value (sign-up-page.html .error-text)."
+  },
+  "registerDetailsHeadline": "Welcome to Premium",
+  "@registerDetailsHeadline": {
+    "description": "Main headline on the registration details screen (sign-up-page.html .headline). Brand copy kept verbatim from the approved design."
+  },
+  "registerDetailsHeadlineAccent": "beauty services",
+  "@registerDetailsHeadlineAccent": {
+    "description": "Italic Cormorant Garamond accent line under the registration details headline (sign-up-page.html .headline em)."
+  },
+  "registerFirstNamePlaceholder": "Аня",
+  "@registerFirstNamePlaceholder": {
+    "description": "In-field placeholder for the first name input (sign-up-page.html input placeholder)."
+  },
+  "registerLastNamePlaceholder": "Коваль",
+  "@registerLastNamePlaceholder": {
+    "description": "In-field placeholder for the last name input (sign-up-page.html input placeholder)."
+  },
+  "registerEmailPlaceholder": "anya@example.com",
+  "@registerEmailPlaceholder": {
+    "description": "In-field placeholder for the email input on the registration details screen (sign-up-page.html input placeholder)."
+  },
+  "registerEmailHint": "ви@beautica.ua",
+  "@registerEmailHint": {
+    "description": "hintText for the email field on the Step 1 registration screen — a Ukrainian-locale placeholder email address."
+  },
+  "registerPhonePlaceholder": "+380 __ ___ ____",
+  "@registerPhonePlaceholder": {
+    "description": "In-field placeholder for the phone input (sign-up-page.html input placeholder)."
+  },
+  "registerPhoneHint": "+380 XX XXX XX XX",
+  "@registerPhoneHint": {
+    "description": "Hint text showing the Ukrainian phone number format pattern in the registration phone field."
+  },
+  "registerPhoneRequired": "Вкажіть номер телефону",
+  "@registerPhoneRequired": {
+    "description": "Inline validation error on the Step 2 phone field when the field is empty and the user has touched it (touched-driven inline error, not Form validator)."
+  },
+  "step2SalonNameHelper": "Відображається клієнтам у вашому профілі.",
+  "@step2SalonNameHelper": {
+    "description": "Helper text below the salon-name field on the Step 2 Profile screen (VelvetTouch). Shown only for SALON_OWNER role."
+  },
+  "registerPasswordPlaceholder": "Мінімум 8 символів",
+  "@registerPasswordPlaceholder": {
+    "description": "In-field placeholder for the password input on the registration details screen (sign-up-page.html input placeholder)."
+  },
+  "registerPasswordCriteriaLength": "8+ симв.",
+  "@registerPasswordCriteriaLength": {
+    "description": "Password helper criterion: minimum length (sign-up-page.html .helper-text)."
+  },
+  "registerPasswordCriteriaDigit": "Цифра",
+  "@registerPasswordCriteriaDigit": {
+    "description": "Password helper criterion: contains a digit (sign-up-page.html .helper-text)."
+  },
+  "registerPasswordCriteriaUppercase": "Велика літера",
+  "@registerPasswordCriteriaUppercase": {
+    "description": "Password helper criterion: contains an uppercase letter (sign-up-page.html .helper-text)."
+  },
+  "passwordRuleLength": "Від {minLength} символів",
+  "@passwordRuleLength": {
+    "description": "Live password rule: minimum character count. {minLength} is the minimum (default 8; invite path uses 12). Max-128 is enforced by TextField maxLength, not shown here (Phase 2.16).",
+    "placeholders": {
+      "minLength": {
+        "type": "int",
+        "example": "8"
+      }
+    }
+  },
+  "passwordRuleDigit": "Хоча б одна цифра",
+  "@passwordRuleDigit": {
+    "description": "Live password rule: must contain at least one digit character."
+  },
+  "passwordRuleUppercase": "Хоча б одна велика літера",
+  "@passwordRuleUppercase": {
+    "description": "Live password rule: must contain at least one uppercase letter."
+  },
+  "passwordChecklistSemantics": "Вимоги до пароля",
+  "@passwordChecklistSemantics": {
+    "description": "Accessibility Semantics.label for the PasswordChecklist widget container."
+  },
+  "registerTermsPrefix": "Реєструючись, ви погоджуєтесь з нашими",
+  "@registerTermsPrefix": {
+    "description": "Leading text of the terms-and-privacy line on the registration details screen (sign-up-page.html .terms)."
+  },
+  "registerTermsTerms": "Умовами",
+  "@registerTermsTerms": {
+    "description": "Inline link label for the Terms document (sign-up-page.html .terms a)."
+  },
+  "registerTermsConjunction": " та ",
+  "@registerTermsConjunction": {
+    "description": "Conjunction between the Terms and Privacy links (sign-up-page.html .terms)."
+  },
+  "registerTermsPrivacy": "Політикою конфіденційності",
+  "@registerTermsPrivacy": {
+    "description": "Inline link label for the Privacy Policy document (sign-up-page.html .terms a)."
+  },
+  "logoutFailed": "Вихід не вдався. Спробуйте ще раз.",
+  "@logoutFailed": {
+    "description": "SnackBar message shown when an unexpected error occurs during logout."
+  },
+  "verificationTitle": "Перевірте пошту",
+  "@verificationTitle": {
+    "description": "Title of the email verification screen."
+  },
+  "verificationHeadline": "Підтвердіть пошту",
+  "@verificationHeadline": {
+    "description": "Main headline line 1 on the email verification screen (verification-page.html .headline)."
+  },
+  "verificationHeadlineAccent": "електронну пошту",
+  "@verificationHeadlineAccent": {
+    "description": "Italic Cormorant Garamond accent line on the email verification screen (verification-page.html .headline em)."
+  },
+  "verificationCardTitle": "Введіть код підтвердження",
+  "@verificationCardTitle": {
+    "description": "Card heading on the email verification screen (verification-page.html .card-title)."
+  },
+  "verificationCardDesc": "Ми надіслали 6-значний код на",
+  "@verificationCardDesc": {
+    "description": "Card description before the masked email address (verification-page.html .card-desc)."
+  },
+  "verificationResendPrompt": "Не отримали код?",
+  "@verificationResendPrompt": {
+    "description": "Leading prompt in the resend row shown while the countdown is active (verification-page.html .resend-text)."
+  },
+  "verificationResendTimer": "Надіслати знову ({time})",
+  "@verificationResendTimer": {
+    "description": "Countdown timer text shown while the resend cooldown is active (verification-page.html .timer).",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "01:24"
+      }
+    }
+  },
+  "verificationResendBtn": "Надіслати знову",
+  "@verificationResendBtn": {
+    "description": "Resend code link shown when the countdown reaches zero (verification-page.html .resend-link)."
+  },
+  "verificationConfirmBtn": "Підтвердити",
+  "@verificationConfirmBtn": {
+    "description": "CTA button label on the email verification screen (verification-page.html .cta-btn)."
+  },
+  "verificationBackBtn": "Повернутись назад",
+  "@verificationBackBtn": {
+    "description": "Back link below the glass card on the email verification screen (verification-page.html .back-row a)."
+  },
+  "verificationOtpSemantics": "Цифра {index} з 6",
+  "@verificationOtpSemantics": {
+    "description": "Accessibility semantic label for each OTP digit box.",
+    "placeholders": {
+      "index": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+  "verificationServiceUnavailable": "Сервіс тимчасово недоступний. Спробуйте пізніше.",
+  "@verificationServiceUnavailable": {
+    "description": "Inline error shown when the OTP or resend endpoint is not yet live (stub response)."
+  },
+  "verificationError": "Невірний код. Перевірте та спробуйте ще раз.",
+  "@verificationError": {
+    "description": "Inline error shown when the OTP verification call returns a failure."
+  },
+  "verificationErrInvalidCode": "Невірний код. Перевірте та спробуйте ще раз.",
+  "@verificationErrInvalidCode": {
+    "description": "Inline error shown when the backend returns INVALID_CODE for POST /auth/verify-email (wrong digits OR non-existent email; backend uses the same code to prevent enumeration)."
+  },
+  "verificationErrInvalidCodeWithLoginHint": "Невірний або вже використаний код. Якщо пошту вже підтверджено — увійдіть до акаунту.",
+  "@verificationErrInvalidCodeWithLoginHint": {
+    "description": "Inline error shown for INVALID_CODE on the verify-email screen. The backend returns INVALID_CODE both for a wrong code and for a code that was already consumed (account already verified). This copy is less alarming than the plain invalidCode message and includes a hint to log in."
+  },
+  "verificationGoToLogin": "Увійти до акаунту",
+  "@verificationGoToLogin": {
+    "description": "Action label inside the inline error banner on the verification screen for INVALID_CODE and ALREADY_VERIFIED errors. Tapping navigates to the login screen."
+  },
+  "verificationErrCodeExpired": "Термін дії коду минув. Надішліть код повторно.",
+  "@verificationErrCodeExpired": {
+    "description": "Inline error shown when the backend returns CODE_EXPIRED for POST /auth/verify-email (OTP older than 15 min)."
+  },
+  "verificationErrAlreadyVerified": "Цей акаунт вже підтверджено. Увійдіть.",
+  "@verificationErrAlreadyVerified": {
+    "description": "Inline error shown when the backend returns ALREADY_VERIFIED for POST /auth/verify-email."
+  },
+  "verificationErrResendThrottled": "Зачекайте {seconds} с перш ніж надсилати код знову.",
+  "@verificationErrResendThrottled": {
+    "description": "Error shown when POST /auth/resend-verification returns 429 with a retry-after value.",
+    "placeholders": {
+      "seconds": {
+        "type": "int",
+        "example": "42"
+      }
+    }
+  },
+  "registerDoneGreeting": "Вітаємо, {firstName}!",
+  "@registerDoneGreeting": {
+    "description": "Personalized celebration headline on the registration-done screen (done-page.html .celebrate-title). Interpolates the authenticated user's first name; when no first name is available the screen falls back to `registerDoneGreetingFallback`.",
+    "placeholders": {
+      "firstName": {
+        "type": "String",
+        "example": "Аня"
+      }
+    }
+  },
+  "registerDoneGreetingFallback": "друже",
+  "@registerDoneGreetingFallback": {
+    "description": "Fallback first-name substitute used in `registerDoneGreeting` when the authenticated user has no first name set (e.g. account auto-provisioned during verification before a profile-setup step). Vocative case in Ukrainian — slots into 'Вітаємо, {firstName}!'."
+  },
+  "registerDoneSubtitle": "Ваш акаунт створено",
+  "@registerDoneSubtitle": {
+    "description": "Italic Cormorant Garamond accent subtitle on the registration-done screen (done-page.html .celebrate-subtitle)."
+  },
+  "registerDoneDesc": "Тепер ви можете знайти для себе найкращих майстрів та здійснювати запис за лічені секунди.",
+  "@registerDoneDesc": {
+    "description": "Body description below the headline on the registration-done screen (done-page.html .celebrate-desc)."
+  },
+  "registerDoneChipRoleClient": "Клієнт",
+  "@registerDoneChipRoleClient": {
+    "description": "Role summary chip text on the registration-done screen when the user registered as a CLIENT (done-page.html .chip — first chip in the .chips-row)."
+  },
+  "registerDoneChipEmailVerified": "Пошта підтверджена",
+  "@registerDoneChipEmailVerified": {
+    "description": "Second summary chip on the registration-done screen confirming the email has been verified (done-page.html .chip — second chip)."
+  },
+  "registerDoneChipReadyFast": "Готово за лічені секунди",
+  "@registerDoneChipReadyFast": {
+    "description": "Third summary chip on the registration-done screen — marketing copy reinforcing how fast booking will be (done-page.html .chip — third chip)."
+  },
+  "registerDoneCtaPrimary": "Перейти до застосунку",
+  "@registerDoneCtaPrimary": {
+    "description": "Primary CTA button label on the registration-done screen (done-page.html .cta-btn). Navigates to the home shell."
+  },
+  "registerDoneCtaSecondary": "Налаштувати профіль пізніше",
+  "@registerDoneCtaSecondary": {
+    "description": "Secondary action link below the primary CTA on the registration-done screen (done-page.html .secondary-action a). Today this navigates to /home — Phase 4.x profile-setup will divert it once that screen exists."
+  },
+
+  "step2HeadlineLine1": "Особисті",
+  "@step2HeadlineLine1": {
+    "description": "First line of the hero headline on the Step 2 Profile screen (sign-up-step-2-profile.html .headline — 'Особисті дані'). Rendered in Manrope 700."
+  },
+  "step2HeadlineLine2": "дані",
+  "@step2HeadlineLine2": {
+    "description": "Second line (italic Cormorant Garamond accent) of the hero headline on the Step 2 Profile screen (sign-up-step-2-profile.html .headline em — 'дані')."
+  },
+  "step2SubtextClient": "Ця інформація буде використовуватися для запису Вас на послугу.",
+  "@step2SubtextClient": {
+    "description": "Muted sub-text below the Step 2 headline for the CLIENT role variant (sign-up-step-2-profile.html .sub-text — client variant)."
+  },
+  "step2SubtextMaster": "Клієнти бачитимуть ваше ім'я та прізвище у профілі.",
+  "@step2SubtextMaster": {
+    "description": "Muted sub-text below the Step 2 headline for the INDEPENDENT_MASTER role variant (sign-up-step-2-profile.html .sub-text — master variant)."
+  },
+  "step2SubtextOwner": "Контактна особа салону та назва б'юті-простору.",
+  "@step2SubtextOwner": {
+    "description": "Muted sub-text below the Step 2 headline for the SALON_OWNER role variant (sign-up-step-2-profile.html .sub-text — owner variant)."
+  },
+  "roleChipOwner": "Салон",
+  "@roleChipOwner": {
+    "description": "Role chip label for the SALON_OWNER role across the registration flow and role selection (sign-up-step-2-profile.html .role-chip — owner variant shows 'Салон', NOT 'Власник салону'). Short display label only."
+  },
+  "step2FieldNameLabel": "Ім'я",
+  "@step2FieldNameLabel": {
+    "description": "Uppercase field label above the first-name input on the Step 2 Profile screen (sign-up-step-2-profile.html label — 'Ім'я')."
+  },
+  "step2FieldSurnameLabel": "Прізвище",
+  "@step2FieldSurnameLabel": {
+    "description": "Uppercase field label above the last-name input on the Step 2 Profile screen (sign-up-step-2-profile.html label — 'Прізвище')."
+  },
+  "step2FieldPhoneLabel": "Телефон",
+  "@step2FieldPhoneLabel": {
+    "description": "Uppercase field label above the phone input on the Step 2 Profile screen (sign-up-step-2-profile.html label — 'Телефон')."
+  },
+  "step2FieldSalonLabel": "Назва салону",
+  "@step2FieldSalonLabel": {
+    "description": "Uppercase field label above the salon-name input on the Step 2 Profile screen (sign-up-step-2-profile.html label — 'Назва салону'). Only shown for SALON_OWNER role."
+  },
+  "step2FieldNamePlaceholder": "Аня",
+  "@step2FieldNamePlaceholder": {
+    "description": "In-field placeholder for the first-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Аня'). Transcribed verbatim from HTML."
+  },
+  "step2FieldSurnamePlaceholder": "Коваль",
+  "@step2FieldSurnamePlaceholder": {
+    "description": "In-field placeholder for the last-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Коваль'). Transcribed verbatim from HTML."
+  },
+  "step2FieldPhonePlaceholder": "+380 __ ___ ____",
+  "@step2FieldPhonePlaceholder": {
+    "description": "In-field placeholder for the phone input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — '+380 __ ___ ____'). Shows the Ukrainian phone format mask. Transcribed verbatim from HTML."
+  },
+  "step2FieldSalonPlaceholder": "Salon Lumière",
+  "@step2FieldSalonPlaceholder": {
+    "description": "In-field placeholder for the salon-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Salon Lumière'). Transcribed verbatim from HTML. Only shown for SALON_OWNER role."
+  },
+  "step2CtaContinue": "Далі",
+  "@step2CtaContinue": {
+    "description": "CTA button label on the Step 2 Profile screen (sign-up-step-2-profile.html .cta-btn — 'Продовжити'). Advances the wizard to Step 3."
+  },
+  "errPhoneInvalid": "Невірний номер телефону",
+  "@errPhoneInvalid": {
+    "description": "Validation error shown when the phone field contains an unrecognised phone number. Accepts Ukrainian +380 format with 9-digit subscriber number."
+  },
+  "errSalonNameRequired": "Введіть назву салону",
+  "@errSalonNameRequired": {
+    "description": "Validation error when the salon-name field is empty or too short (less than 2 characters). Used only for the SALON_OWNER role variant."
+  },
+  "errSalonNameTooLong": "Назва салону не може перевищувати 100 символів",
+  "@errSalonNameTooLong": {
+    "description": "Validation error when the salon-name field exceeds 100 characters. Mirrors the backend JPA column length constraint."
+  },
+  "localityOblastLabel": "Область",
+  "@localityOblastLabel": {
+    "description": "Label above the Oblast (region) tap-row in the locality cascade picker (sign-up-step-3-address.html .picker-group label — 'Область')."
+  },
+  "localityCityLabel": "Місто",
+  "@localityCityLabel": {
+    "description": "Label above the City tap-row in the locality cascade picker (sign-up-step-3-address.html — 'Місто')."
+  },
+  "localityDistrictLabel": "Район",
+  "@localityDistrictLabel": {
+    "description": "Label above the District tap-row in the locality cascade picker (sign-up-step-3-address.html — 'Район')."
+  },
+  "localityOblastPlaceholder": "Оберіть область",
+  "@localityOblastPlaceholder": {
+    "description": "Placeholder shown inside the Oblast tap-row before a region is selected."
+  },
+  "localityCityPlaceholder": "Оберіть місто",
+  "@localityCityPlaceholder": {
+    "description": "Placeholder shown inside the City tap-row before a city is selected (sign-up-step-3-address.html .picker-value — 'Оберіть місто')."
+  },
+  "localityDistrictPlaceholder": "Оберіть район",
+  "@localityDistrictPlaceholder": {
+    "description": "Placeholder shown inside the District tap-row before a district is selected (sign-up-step-3-address.html .picker-value — 'Оберіть район')."
+  },
+  "localityDistrictNoneHelper": "Не обов'язково для міст без районів",
+  "@localityDistrictNoneHelper": {
+    "description": "Helper line shown below the disabled District tap-row when the selected city has no urban districts (sign-up-step-3-address.html .picker-helper — \"Не обов'язково для міст без районів.\")."
+  },
+  "localityPickerClose": "Закрити",
+  "@localityPickerClose": {
+    "description": "Accessibility label / tooltip for the close (X) button in the header of the locality picker bottom sheet. Lets the user dismiss the sheet even with the keyboard open."
+  },
+  "localitySearchHint": "Пошук…",
+  "@localitySearchHint": {
+    "description": "Placeholder in the search field at the top of the locality picker bottom sheet."
+  },
+  "localitySearchEmpty": "Нічого не знайдено",
+  "@localitySearchEmpty": {
+    "description": "Empty-state message shown in the locality picker bottom sheet when the search query matches no items (sign-up-step-3 design — 'Нічого не знайдено')."
+  },
+  "localityRetry": "Повторити",
+  "@localityRetry": {
+    "description": "Label on the Retry button shown in the locality picker bottom sheet when the underlying list request failed."
+  },
+
+  "step3HeadlineClientLine1": "Ваше",
+  "@step3HeadlineClientLine1": {
+    "description": "First line of the hero headline on the Step 3 Address screen, CLIENT variant (sign-up-step-3-address.html .headline — 'Ваше місто'). Rendered in Manrope 700."
+  },
+  "step3HeadlineClientLine2": "місто",
+  "@step3HeadlineClientLine2": {
+    "description": "Second line (italic Cormorant Garamond accent) of the Step 3 hero headline, CLIENT variant (sign-up-step-3-address.html .headline em — 'місто')."
+  },
+  "step3HeadlineMasterLine1": "Де ви",
+  "@step3HeadlineMasterLine1": {
+    "description": "First line of the hero headline on the Step 3 Address screen, INDEPENDENT_MASTER variant (sign-up-step-3-address.html .headline — 'Де ви працюєте'). Rendered in Manrope 700."
+  },
+  "step3HeadlineMasterLine2": "працюєте",
+  "@step3HeadlineMasterLine2": {
+    "description": "Second line (italic Cormorant Garamond accent) of the Step 3 hero headline, INDEPENDENT_MASTER variant (sign-up-step-3-address.html .headline em — 'працюєте')."
+  },
+  "step3HeadlineOwnerLine1": "Адреса",
+  "@step3HeadlineOwnerLine1": {
+    "description": "First line of the hero headline on the Step 3 Address screen, SALON_OWNER variant (sign-up-step-3-address.html .headline — 'Адреса салону'). Rendered in Manrope 700."
+  },
+  "step3HeadlineOwnerLine2": "салону",
+  "@step3HeadlineOwnerLine2": {
+    "description": "Second line (italic Cormorant Garamond accent) of the Step 3 hero headline, SALON_OWNER variant (sign-up-step-3-address.html .headline em — 'салону')."
+  },
+  "step3SubtextClient": "Покажемо майстрів поряд із вами. Можна пропустити та обрати пізніше.",
+  "@step3SubtextClient": {
+    "description": "Muted sub-text below the Step 3 headline for the CLIENT role variant (sign-up-step-3-address.html .sub-text — client variant)."
+  },
+  "step3SubtextMaster": "Адреса вашого робочого місця — щоб клієнти могли вас знайти.",
+  "@step3SubtextMaster": {
+    "description": "Muted sub-text below the Step 3 headline for the INDEPENDENT_MASTER role variant (sign-up-step-3-address.html .sub-text — master variant)."
+  },
+  "step3SubtextOwner": "Де знаходиться ваш салон — фізична адреса для клієнтів.",
+  "@step3SubtextOwner": {
+    "description": "Muted sub-text below the Step 3 headline for the SALON_OWNER role variant (sign-up-step-3-address.html .sub-text — owner variant)."
+  },
+  "localityLabelOptional": "— необов'язково",
+  "@localityLabelOptional": {
+    "description": "Muted camel optional tag appended to each locality picker label for the CLIENT role only (sign-up-step-3-address.html .label-optional — \"— необов'язково\"). Indicates the locality fields are skippable for clients."
+  },
+  "localityOblastTipClient": "Потрібно для пошуку майстрів поряд із вами",
+  "@localityOblastTipClient": {
+    "description": "Tooltip text on the small circular '?' tip-icon next to the Oblast label, CLIENT variant (sign-up-step-3-address.html .tip-icon title — client). Shown on tap."
+  },
+  "localityOblastTipProvider": "Потрібно щоб вас змогли знайти клієнти",
+  "@localityOblastTipProvider": {
+    "description": "Tooltip text on the small circular '?' tip-icon next to the Oblast label, INDEPENDENT_MASTER and SALON_OWNER variants (sign-up-step-3-address.html .tip-icon title — master/owner). Shown on tap."
+  },
+  "localityOblastTipSemanticLabel": "Підказка про область",
+  "@localityOblastTipSemanticLabel": {
+    "description": "Screen-reader label for the icon-only '?' tip-icon button next to the Oblast label (accessibility — the visible glyph is just '?')."
+  },
+  "step3FieldStreetLabel": "Вулиця",
+  "@step3FieldStreetLabel": {
+    "description": "Uppercase field label above the street input on the Step 3 Address screen (sign-up-step-3-address.html label — 'Вулиця'). Shown for INDEPENDENT_MASTER and SALON_OWNER only."
+  },
+  "step3FieldBuildingLabel": "Будинок",
+  "@step3FieldBuildingLabel": {
+    "description": "Uppercase field label above the building-number input on the Step 3 Address screen (sign-up-step-3-address.html label — 'Будинок'). Shown for INDEPENDENT_MASTER and SALON_OWNER only."
+  },
+  "step3FieldNoteLabel": "Примітка",
+  "@step3FieldNoteLabel": {
+    "description": "Uppercase field label above the location-note textarea on the Step 3 Address screen (sign-up-step-3-address.html label — 'Примітка'). Shown for INDEPENDENT_MASTER and SALON_OWNER only."
+  },
+  "step3FieldStreetPlaceholder": "вул. Хрещатик",
+  "@step3FieldStreetPlaceholder": {
+    "description": "In-field placeholder for the street input on the Step 3 Address screen (sign-up-step-3-address.html input placeholder — 'вул. Хрещатик'). Transcribed verbatim from HTML."
+  },
+  "step3FieldBuildingPlaceholder": "12А",
+  "@step3FieldBuildingPlaceholder": {
+    "description": "In-field placeholder for the building-number input on the Step 3 Address screen (sign-up-step-3-address.html input placeholder — '12А'). Transcribed verbatim from HTML."
+  },
+  "step3FieldNotePlaceholder": "Поверх, домофон тощо",
+  "@step3FieldNotePlaceholder": {
+    "description": "In-field placeholder for the location-note textarea on the Step 3 Address screen (sign-up-step-3-address.html textarea placeholder — 'Поверх, домофон тощо'). Transcribed verbatim from HTML."
+  },
+  "step3FieldNoteHelper": "Необов'язково. Поверх, код домофону, орієнтири.",
+  "@step3FieldNoteHelper": {
+    "description": "Helper text below the location-note field on the Step 3 Address screen, INDEPENDENT_MASTER and SALON_OWNER only (VelvetTouch — transcribed from docs/signup-designs/VelvetTouchDesign/lib/screens/address_screen.dart). Mirrors the HTML design note helper."
+  },
+  "step3CtaSkip": "Пропустити",
+  "@step3CtaSkip": {
+    "description": "Ghost CTA button on the Step 3 Address screen, CLIENT variant only (sign-up-step-3-address.html .cta-ghost — 'Пропустити'). Skips saving locality and proceeds to verification."
+  },
+  "step3CtaSave": "Зберегти",
+  "@step3CtaSave": {
+    "description": "Filled CTA button on the Step 3 Address screen, CLIENT variant (sign-up-step-3-address.html .cta-btn — 'Зберегти'). Saves the chosen locality and proceeds to verification."
+  },
+  "step3ProfileSaveFallback": "Збережіть адресу пізніше у профілі",
+  "@step3ProfileSaveFallback": {
+    "description": "Snackbar shown when the registration POST succeeded but the follow-up profile/salon locality save failed. The account exists and OTP was emailed, so navigation still proceeds to verification."
+  },
+  "errLocalityOblastRequired": "Оберіть область",
+  "@errLocalityOblastRequired": {
+    "description": "Validation error shown to providers (MASTER/OWNER) when no oblast is selected on the Step 3 Address screen."
+  },
+  "errLocalityCityRequired": "Оберіть місто",
+  "@errLocalityCityRequired": {
+    "description": "Validation error shown to providers (MASTER/OWNER) when no city is selected on the Step 3 Address screen."
+  },
+  "errLocalityDistrictRequired": "Оберіть район",
+  "@errLocalityDistrictRequired": {
+    "description": "Validation error shown to providers (MASTER/OWNER) when the selected city has districts but none is chosen on the Step 3 Address screen."
+  },
+  "errStreetRequired": "Вкажіть вулицю",
+  "@errStreetRequired": {
+    "description": "Validation error when the street field is empty or shorter than 2 characters (MASTER/OWNER only)."
+  },
+  "errStreetTooLong": "Назва вулиці не може перевищувати 120 символів",
+  "@errStreetTooLong": {
+    "description": "Validation error when the street field exceeds 120 characters. Mirrors the backend address column length constraint."
+  },
+  "errBuildingRequired": "Вкажіть номер будинку",
+  "@errBuildingRequired": {
+    "description": "Validation error when the building-number field is empty (MASTER/OWNER only)."
+  },
+  "errBuildingTooLong": "Номер будинку не може перевищувати 20 символів",
+  "@errBuildingTooLong": {
+    "description": "Validation error when the building-number field exceeds 20 characters. Mirrors the backend address column length constraint."
+  },
+  "errLocationNoteTooLong": "Примітка не може перевищувати 250 символів",
+  "@errLocationNoteTooLong": {
+    "description": "Validation error when the location-note textarea exceeds 250 characters."
+  },
+
+  "forgotPasswordHeadline": "Відновлення пароля",
+  "@forgotPasswordHeadline": {
+    "description": "Forgot-password request screen hero headline, line 1 (forgot-password-request.html .headline). Manrope 700."
+  },
+  "forgotPasswordHeadlineAccent": "пароль?",
+  "@forgotPasswordHeadlineAccent": {
+    "description": "Forgot-password request screen hero accent (forgot-password-request.html .headline em). Cormorant Garamond italic, camel."
+  },
+  "forgotPasswordSubText": "Вкажіть пошту акаунту — ми надішлемо посилання для скидання пароля.",
+  "@forgotPasswordSubText": {
+    "description": "Sub-text under the forgot-password request headline (forgot-password-request.html .sub-text)."
+  },
+  "forgotPasswordEmailLabel": "Електронна пошта",
+  "@forgotPasswordEmailLabel": {
+    "description": "Uppercase label above the email field on the forgot-password request screen."
+  },
+  "forgotPasswordEmailPlaceholder": "anya@example.com",
+  "@forgotPasswordEmailPlaceholder": {
+    "description": "Placeholder for the email field on the forgot-password request screen."
+  },
+  "forgotPasswordEmailHelper": "Перевірте, що це та сама пошта, з якою ви реєструвались.",
+  "@forgotPasswordEmailHelper": {
+    "description": "Helper note under the email field on the forgot-password request screen (forgot-password-request.html .helper-note)."
+  },
+  "forgotPasswordSubmit": "Надіслати посилання",
+  "@forgotPasswordSubmit": {
+    "description": "CTA on the forgot-password request screen (forgot-password-request.html .cta-btn)."
+  },
+  "forgotPasswordConfirmHeadline": "Перевірте",
+  "@forgotPasswordConfirmHeadline": {
+    "description": "Confirmation-state hero headline line 1 (forgot-password-request.html state B .headline). Manrope 700."
+  },
+  "forgotPasswordConfirmHeadlineAccent": "вашу пошту",
+  "@forgotPasswordConfirmHeadlineAccent": {
+    "description": "Confirmation-state hero accent (forgot-password-request.html state B .headline em). Cormorant Garamond italic, camel."
+  },
+  "forgotPasswordConfirmTitle": "Перевірте пошту",
+  "@forgotPasswordConfirmTitle": {
+    "description": "Generic anti-enumeration confirmation title (forgot-password-request.html .confirm-title)."
+  },
+  "forgotPasswordConfirmDesc": "Якщо для цієї адреси існує акаунт, ми надіслали посилання для скидання пароля. Перевірте також теку «Спам».",
+  "@forgotPasswordConfirmDesc": {
+    "description": "Generic anti-enumeration confirmation body — identical whether or not the account exists (forgot-password-request.html .confirm-desc)."
+  },
+  "forgotPasswordConfirmHint": "Не бачите листа? Перевірте папку «Спам». Посилання дійсне протягом 60 хвилин.",
+  "@forgotPasswordConfirmHint": {
+    "description": "Spam-folder + 60-minute validity hint block on the confirmation state (forgot-password-request.html .hint-block p)."
+  },
+  "forgotPasswordResendPrompt": "Не отримали лист?",
+  "@forgotPasswordResendPrompt": {
+    "description": "Resend prompt text on the confirmation state (forgot-password-request.html .resend-text)."
+  },
+  "forgotPasswordResendLink": "У мене є посилання",
+  "@forgotPasswordResendLink": {
+    "description": "Resend link on the confirmation state (forgot-password-request.html .resend-link)."
+  },
+
+  "resetPasswordHeadline": "Новий пароль",
+  "@resetPasswordHeadline": {
+    "description": "Reset-password form hero headline line 1 (forgot-password-reset.html state A .headline). Manrope 700."
+  },
+  "resetPasswordHeadlineAccent": "пароль",
+  "@resetPasswordHeadlineAccent": {
+    "description": "Reset-password form hero accent (forgot-password-reset.html state A .headline em). Cormorant Garamond italic, camel."
+  },
+  "resetPasswordSubText": "Придумайте надійний пароль. Він замінить попередній.",
+  "@resetPasswordSubText": {
+    "description": "Sub-text under the reset-password form headline (forgot-password-reset.html .sub-text)."
+  },
+  "resetPasswordNewLabel": "Новий пароль",
+  "@resetPasswordNewLabel": {
+    "description": "Uppercase label above the new-password field (forgot-password-reset.html state A first label)."
+  },
+  "resetPasswordNewPlaceholder": "Мінімум 8 символів",
+  "@resetPasswordNewPlaceholder": {
+    "description": "Placeholder for the new-password field (forgot-password-reset.html state A new-password input)."
+  },
+  "resetPasswordConfirmLabel": "Підтвердження пароля",
+  "@resetPasswordConfirmLabel": {
+    "description": "Uppercase label above the confirm-password field (forgot-password-reset.html state A second label)."
+  },
+  "resetPasswordConfirmPlaceholder": "Повторіть пароль",
+  "@resetPasswordConfirmPlaceholder": {
+    "description": "Placeholder for the confirm-password field (forgot-password-reset.html state A confirm input)."
+  },
+  "resetPasswordSubmit": "Зберегти пароль",
+  "@resetPasswordSubmit": {
+    "description": "CTA on the reset-password form (forgot-password-reset.html state A .cta-btn)."
+  },
+  "resetPasswordBackToLogin": "Повернутись до входу",
+  "@resetPasswordBackToLogin": {
+    "description": "Bottom back-to-login link on the reset-password screen (forgot-password-reset.html .back-row a)."
+  },
+  "resetPasswordSuccessTitle": "Пароль оновлено",
+  "@resetPasswordSuccessTitle": {
+    "description": "Success-state title after a password reset (forgot-password-reset.html state B .state-title)."
+  },
+  "resetPasswordSuccessSub": "Готово",
+  "@resetPasswordSuccessSub": {
+    "description": "Success-state italic sub-line (forgot-password-reset.html state B .state-sub). Cormorant Garamond italic, camel."
+  },
+  "resetPasswordSuccessDesc": "Тепер увійдіть з новим паролем.",
+  "@resetPasswordSuccessDesc": {
+    "description": "Success-state body copy (forgot-password-reset.html state B .state-desc)."
+  },
+  "resetPasswordSuccessCta": "Увійти",
+  "@resetPasswordSuccessCta": {
+    "description": "Success-state CTA to the login screen (forgot-password-reset.html state B .cta-btn)."
+  },
+  "resetPasswordInvalidTitle": "Посилання недійсне або застаріле",
+  "@resetPasswordInvalidTitle": {
+    "description": "Invalid/expired-token state title (forgot-password-reset.html state C .state-title)."
+  },
+  "resetPasswordInvalidDesc": "Це посилання вже використано чи минув строк його дії (60 хвилин). Запросіть нове посилання для скидання пароля.",
+  "@resetPasswordInvalidDesc": {
+    "description": "Invalid/expired-token state body copy (forgot-password-reset.html state C .state-desc)."
+  },
+  "resetPasswordInvalidCta": "Запросити нове посилання",
+  "@resetPasswordInvalidCta": {
+    "description": "Invalid/expired-token state recovery CTA back to the forgot-password request screen (forgot-password-reset.html state C .cta-btn)."
+  },
+  "resetErrTokenInvalid": "Посилання недійсне або застаріле. Запросіть нове.",
+  "@resetErrTokenInvalid": {
+    "description": "userMessage for ResetTokenInvalidFailure (generic backend 400 for invalid/used/expired reset token)."
+  },
+  "inviteHeading": "Вас запрошено",
+  "@inviteHeading": {
+    "description": "Main heading on the accept-invite screen."
+  },
+  "inviteSubtitle": "Завершіть налаштування акаунту, щоб приєднатися до команди салону.",
+  "@inviteSubtitle": {
+    "description": "Sub-heading on the accept-invite screen."
+  },
+  "inviteEmailLabel": "Запрошена пошта",
+  "@inviteEmailLabel": {
+    "description": "Read-only label for the invited email row in the invite preview card."
+  },
+  "inviteRoleLabel": "Роль",
+  "@inviteRoleLabel": {
+    "description": "Read-only label for the role row in the invite preview card."
+  },
+  "inviteExpiresLabel": "Дійсне ще",
+  "@inviteExpiresLabel": {
+    "description": "Read-only label for the expiry row in the invite preview card."
+  },
+  "inviteExpiresValue": "{hours} год",
+  "@inviteExpiresValue": {
+    "description": "Formatted expiry value shown in the invite preview card.",
+    "placeholders": {
+      "hours": {
+        "type": "int",
+        "example": "48"
+      }
+    }
+  },
+  "invitePasswordLabel": "Пароль",
+  "@invitePasswordLabel": {
+    "description": "Label for the password field on the accept-invite screen."
+  },
+  "inviteFirstNameLabel": "Ім'я",
+  "@inviteFirstNameLabel": {
+    "description": "Label for the first-name field on the accept-invite screen."
+  },
+  "inviteLastNameLabel": "Прізвище",
+  "@inviteLastNameLabel": {
+    "description": "Label for the last-name field on the accept-invite screen."
+  },
+  "invitePhoneLabel": "Телефон",
+  "@invitePhoneLabel": {
+    "description": "Label for the optional phone field on the accept-invite screen."
+  },
+  "invitePhoneHelper": "Необов'язково.",
+  "@invitePhoneHelper": {
+    "description": "Helper text below the phone field indicating it is optional."
+  },
+  "inviteAcceptCta": "Приєднатися",
+  "@inviteAcceptCta": {
+    "description": "CTA button label on the accept-invite screen."
+  },
+  "inviteInvalidError": "Запрошення недійсне або прострочено.",
+  "@inviteInvalidError": {
+    "description": "Banner message shown when the invite token is invalid or expired (AsyncError state)."
+  },
+  "inviteExpiredError": "Термін дії запрошення вичерпано.",
+  "@inviteExpiredError": {
+    "description": "Inline error shown when expiresInHours reaches zero."
+  },
+  "inviteSuccessSnackbar": "Вас успішно приєднано до команди!",
+  "@inviteSuccessSnackbar": {
+    "description": "Snackbar message shown after a successful invite acceptance (router then forwards to home)."
+  },
+
+  "roleSelectHeadline": "Welcome to premium\nBeauty Service",
+  "@roleSelectHeadline": {
+    "description": "Centered hero heading on the role-selection screen (design source: VelvetTouchDesign/role_select_screen.dart). English brand copy — verbatim from approved design."
+  },
+
+  "registerStep2ShellHeadline": "Особисті дані",
+  "@registerStep2ShellHeadline": {
+    "description": "Wizard shell headline shown when the current step is /register/step-2 (design: VelvetTouchDesign/sign_up_screen.dart profile section)."
+  },
+
+  "registerStep3ShellHeadlineClient": "Ваш район",
+  "@registerStep3ShellHeadlineClient": {
+    "description": "Wizard shell headline for CLIENT role on /register/step-3 (design: VelvetTouchDesign/address_screen.dart _headline CLIENT)."
+  },
+
+  "registerStep3ShellHeadlineMaster": "Де ви працюєте",
+  "@registerStep3ShellHeadlineMaster": {
+    "description": "Wizard shell headline for INDEPENDENT_MASTER role on /register/step-3 (design: VelvetTouchDesign/address_screen.dart _headline MASTER)."
+  },
+
+  "registerStep3ShellHeadlineOwner": "Адреса салону",
+  "@registerStep3ShellHeadlineOwner": {
+    "description": "Wizard shell headline for SALON_OWNER role on /register/step-3 (design: VelvetTouchDesign/address_screen.dart _headline OWNER)."
   }
 }

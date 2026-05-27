@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Network security configuration for Beautica Mobile.
+
+    IMPORTANT: When a custom <network-security-config> is present, Android's
+    built-in cleartext allowance for 10.0.2.2 does NOT apply automatically.
+    Every local address that needs cleartext HTTP must be listed explicitly in
+    a <domain-config> block below.
+
+    Production domain: HTTPS-only, cleartext blocked.
+    Trust anchors: ISRG Root X1 (Let's Encrypt) — stable until 2035.
+    Rotate to ISRG Root X2 before ISRG Root X1 retires.
+-->
+<network-security-config>
+    <!-- Production: HTTPS only, no user CAs -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Production Railway domain: HTTPS only, pinned to ISRG Root X1 -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">beautica-backend-production.up.railway.app</domain>
+        <trust-anchors>
+            <!-- ISRG Root X1 — stable Let's Encrypt root; rotate to X2 when X1 retires (2035) -->
+            <certificates src="@raw/isrg_root_x1" />
+        </trust-anchors>
+    </domain-config>
+
+    <!-- Debug builds: also trust user-installed CA certificates (e.g. Charles, mitmproxy).
+         Cleartext dev addresses (10.0.2.2, 192.168.56.101, localhost) are NOT listed here —
+         they live in src/debug/res/xml/network_security_config.xml which overrides this file
+         for debug/debuggable builds only. -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>
