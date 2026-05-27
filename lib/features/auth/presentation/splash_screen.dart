@@ -84,16 +84,17 @@ const String _lottieAssetPath = 'assets/lottie/splash_wordmark.json';
 /// so the splash visual rhythm matches the login-screen header.
 const double _bToWordmarkGap = 8.0;
 
-/// Render width of the Lottie wordmark on the splash. 220×44 chosen by user
-/// feedback. The Lottie's letter sprites occupy ~17.5% of canvas height, so
-/// bounding-box parity with the login wordmark text (~94 dp wide) renders
-/// letters too small to read; 220×44 keeps letters visible while preserving
-/// the native 5:1 aspect ratio (400×80 composition).
-const double _lottieWidth = 220.0;
+/// Render width of the Lottie wordmark on the splash. 280×56 chosen after
+/// user feedback that 220 was good but "more bigger" was desired; 5:1 aspect
+/// ratio preserved. The Lottie's letter sprites occupy ~17.5% of canvas
+/// height, so bounding-box parity with the login wordmark text (~94 dp wide)
+/// renders letters too small to read; 280×56 keeps letters clearly legible
+/// while preserving the native 5:1 aspect ratio (400×80 composition).
+const double _lottieWidth = 280.0;
 
 /// Render height of the Lottie wordmark on the splash. See [_lottieWidth].
 /// Locked to `_lottieWidth / 5` to preserve the asset's native 5:1 aspect.
-const double _lottieHeight = 44.0;
+const double _lottieHeight = 56.0;
 
 /// Cold-start parking screen shown while the auth session resolves.
 ///
