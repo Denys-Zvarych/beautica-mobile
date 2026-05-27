@@ -768,6 +768,9 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint(
+      '[wordmark] build called; parent.value=${widget.controller.value} first_letter_opacity=${_opacities.isEmpty ? 'EMPTY' : _opacities.first.value.toStringAsFixed(3)} last_letter_opacity=${_opacities.isEmpty ? 'EMPTY' : _opacities.last.value.toStringAsFixed(3)}',
+    );
     final List<Widget> children = <Widget>[];
     for (int i = 0; i < widget.text.length; i++) {
       children.add(
