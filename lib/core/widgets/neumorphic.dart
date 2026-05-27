@@ -638,12 +638,15 @@ class NeumorphicTile extends StatelessWidget {
   }
 }
 
-/// Letter-by-letter reveal of the "beautica" wordmark.
+/// Letter-by-letter "settle" reveal of the "beautica" wordmark.
 ///
-/// Each letter fades in (opacity 0→1) and slides up
-/// (Offset(0, 0.3)→Offset.zero) over [perLetterDurationMs] ms, staggered by
-/// [perLetterDelayMs] ms. The animation is driven by an externally-owned
-/// [AnimationController] — this widget never disposes it.
+/// Each letter eases in (opacity 0.7→1, slide Offset(0, 0.15)→Offset.zero)
+/// over [perLetterDurationMs] ms, staggered by [perLetterDelayMs] ms. The
+/// starting opacity 0.7 ensures letters are visible from frame 1, matching
+/// the native splash hand-off where the wordmark is already statically
+/// painted by the OS. The animation now reads as a settle, not a fade-in.
+/// The animation is driven by an externally-owned [AnimationController] —
+/// this widget never disposes it.
 ///
 /// Accessibility: the enclosing [VelvetLogo] already provides a
 /// `Semantics(label: 'beautica', image: true)` ancestor node; no additional
@@ -717,10 +720,10 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
         ),
       );
       _curves.add(curved);
-      _opacities.add(Tween<double>(begin: 0.0, end: 1.0).animate(curved));
+      _opacities.add(Tween<double>(begin: 0.7, end: 1.0).animate(curved));
       _slides.add(
         Tween<Offset>(
-          begin: const Offset(0, 0.3),
+          begin: const Offset(0, 0.15),
           end: Offset.zero,
         ).animate(curved),
       );
