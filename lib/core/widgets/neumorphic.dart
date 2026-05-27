@@ -884,13 +884,24 @@ class VelvetLogo extends StatelessWidget {
       fontWeight: FontWeight.w700,
     );
 
-    // DIAGNOSTIC: temporarily force the static Text path even when an
-    // animationController is supplied. This bypasses AnimatedWordmark so we can
-    // tell whether the rendering bug is inside that widget or upstream. Revert
-    // with the rest of the diagnostic instrumentation.
-    final Widget wordmark = Text(
-      'beautica',
-      style: VelvetText.wordmark().copyWith(fontSize: wordmarkFontSize),
+    // DIAGNOSTIC: red sentinel rectangle replaces the wordmark slot. Hardcoded
+    // Colors.red bg + Colors.white text bypasses GoogleFonts and VelvetText theme
+    // inheritance entirely. If the user sees the red box on /splash, the second
+    // Column child IS being laid out and painted on screen and the wordmark's bug
+    // is in its TextStyle (color/font/letterSpacing). If the user DOES NOT see
+    // the red box, the Column's second slot is being clipped / collapsed / pushed
+    // off-screen by an ancestor. Revert with the rest of the diagnostic.
+    final Widget wordmark = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: const Color(0xFFFF0000),
+      child: const Text(
+        'beautica',
+        style: TextStyle(
+          color: Color(0xFFFFFFFF),
+          fontSize: 24,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
 
     return Semantics(
