@@ -86,13 +86,13 @@ const double _bToWordmarkGap = 8.0;
 
 /// Render width of the Lottie wordmark on the splash. Sized to read as a
 /// brand mark beneath the 72dp B-pillow, not a tiny line of text. The
-/// underlying Lottie composition is 400×80 (5:1 aspect ratio); 160×32
+/// underlying Lottie composition is 400×80 (5:1 aspect ratio); 220×44
 /// preserves that ratio while keeping the wordmark visually balanced
 /// against the pillow above it.
-const double _lottieWidth = 160.0;
+const double _lottieWidth = 220.0;
 
 /// Render height of the Lottie wordmark on the splash. See [_lottieWidth].
-const double _lottieHeight = 32.0;
+const double _lottieHeight = 44.0;
 
 /// Cold-start parking screen shown while the auth session resolves.
 ///
