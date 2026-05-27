@@ -2,15 +2,24 @@
 //
 // SplashScreen uses a tri-state Lottie probe (`bool? _lottieAvailable`):
 //
-//   null  → probing. The build renders [VelvetLogo] with showWordmark:false
-//           (B pillow only). This deliberately suppresses the static
-//           "beautica" text so the Lottie reveal is the FIRST appearance of
-//           the wordmark on cold start. The OS native splash PNG is also
-//           B-only by design.
-//   true  → asset resolved. Renders B pillow + Lottie.asset() reveal.
-//   false → asset failed. Renders the full static [VelvetLogo] composite
-//           (B pillow + plain "beautica" Text) so the wordmark is at least
-//           visible — better a static name than no name.
+//   null  → probing. The B-pillow alone is centered; no wordmark renders.
+//           The Lottie reveal owns the FIRST appearance of "beautica" on
+//           cold start (no static-text flash beats the animation). The OS
+//           native splash above shows ONLY the warm-taupe bg colour, so the
+//           Flutter splash is the sole place the logo paints.
+//   true  → asset resolved. Renders B-pillow + Lottie.asset() reveal below
+//           it as a sibling Positioned (the pillow does NOT shift upward).
+//   false → asset failed. Renders B-pillow + a plain Text("beautica") below
+//           it as a sibling Positioned — same position as the Lottie path —
+//           so the wordmark is at least visible. Better a static name than
+//           no name.
+//
+// Critical layout invariant: in ALL three states, the B-pillow is rendered
+// by a SINGLE [VelvetLogo] with `showWordmark:false`, centered via
+// `Align(Alignment.center, ...)`. Its on-screen position is identical in
+// every state — the wordmark sibling appears below it without reflowing the
+// pillow. This guards the "B-pillow jumps upward when Lottie renders"
+// regression that the earlier Column-based layout produced.
 //
 // In the widget-test environment the rootBundle.load() probe is async; the
 // first frame after pumpWidget() therefore sees the `null` (probing) state
@@ -24,14 +33,18 @@
 // Covered scenarios:
 //   1. Widget renders without error (smoke test) — Scaffold + Stack present.
 //   2. VelvetLogo is present with compact=false, tileSize=92, markFontSize=42,
-//      wordmarkFontSize=17 — the splash-specific size overrides.
+//      showWordmark=false — the B-pillow is rendered as a single SVG-less
+//      composite, wordmark slot empty (the sibling Lottie / Text owns the
+//      wordmark). Asserted in EVERY tri-state branch.
 //   3a. Lottie wordmark renders when the splash_wordmark.json asset resolves
 //      (the default pubspec setup). Static "beautica" Text must NOT coexist.
-//   3b. Static wordmark renders when the Lottie asset fails to load — the
-//      `_lottieAvailable == false` branch — deterministically triggered by
-//      mocking the `flutter/assets` platform channel so rootBundle.load()
-//      returns null bytes for the Lottie key (which PlatformAssetBundle
-//      converts into a FlutterError throw).
+//   3b. Static wordmark renders below the B-pillow when the Lottie asset
+//      fails to load — the `_lottieAvailable == false` branch —
+//      deterministically triggered by mocking the `flutter/assets` platform
+//      channel so rootBundle.load() returns null bytes for the Lottie key
+//      (which PlatformAssetBundle converts into a FlutterError throw). The
+//      VelvetLogo still has showWordmark:false in this branch; the wordmark
+//      Text is a SIBLING widget in the Stack, positioned below the pillow.
 //   4. CircularProgressIndicator is NOT in the tree (no spinner — the static
 //      composite is the entire splash content).
 //   5. No AnimatedWordmark / FadeTransition / SlideTransition wraps the
@@ -272,31 +285,45 @@ void main() {
         findsNothing,
         reason:
             'When the Lottie asset fails to load, the splash must NOT render '
-            'a Lottie widget — the fallback owns the wordmark slot.',
+            'a Lottie widget — the static Text fallback owns the wordmark slot.',
       );
       expect(
         find.text('beautica'),
         findsOneWidget,
         reason:
-            'When the Lottie asset fails to load, the full static VelvetLogo '
-            'composite must render — better a static wordmark than no wordmark.',
+            'When the Lottie asset fails to load, a static Text("beautica") '
+            'must render — better a static wordmark than no wordmark.',
       );
 
+      // The B-pillow is rendered as a single VelvetLogo with showWordmark:false
+      // in EVERY tri-state branch (including this static-fallback branch). The
+      // wordmark Text is a SIBLING widget in the splash Stack, not built by
+      // VelvetLogo. This decouples the wordmark from the pillow's layout so
+      // the pillow's on-screen position never shifts between states.
       final logo = tester.widget<VelvetLogo>(find.byType(VelvetLogo));
       expect(
         logo.showWordmark,
-        isTrue,
+        isFalse,
         reason:
-            'Static-fallback branch must construct VelvetLogo with '
-            'showWordmark:true so the wordmark Text is built.',
+            'The splash B-pillow uses VelvetLogo(showWordmark:false) in every '
+            'tri-state branch so the pillow is positioned identically when '
+            'the wordmark sibling renders. The static-fallback wordmark is a '
+            'sibling Text in the Stack, not a VelvetLogo-built child.',
       );
+
+      // Verify the sibling Text uses the splash-specific wordmark font size
+      // (17 sp). The Text style is VelvetText.wordmark().copyWith(fontSize:
+      // 17) — identical to what VelvetLogo would have rendered internally
+      // for wordmarkFontSize:17, so the fallback path is visually
+      // indistinguishable from the legacy composite.
+      final Text wordmarkText = tester.widget<Text>(find.text('beautica'));
       expect(
-        logo.wordmarkFontSize,
+        wordmarkText.style?.fontSize,
         equals(17.0),
         reason:
-            'Static-fallback branch pins wordmarkFontSize=17 (proportional to '
-            'the 92dp pillow). If this fails the splash visually regresses on '
-            'the Lottie-failure path.',
+            'Static-fallback wordmark Text must be 17 sp — proportional to '
+            'the 92 dp pillow. If this fails the splash visually regresses '
+            'on the Lottie-failure path.',
       );
 
       // Drain the splash timer.
