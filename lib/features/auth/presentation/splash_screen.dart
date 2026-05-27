@@ -195,9 +195,11 @@ class _SplashScreenState extends State<SplashScreen>
       '[splash] build called; controller.value=${_wordmarkController.value}',
     );
     return Scaffold(
-      // VelvetTouch palette — warm taupe #E6DDD0 (= BrandColors.base).
-      // Must match the native splash color in pubspec.yaml flutter_native_splash.color.
-      backgroundColor: BrandColors.base,
+      // DIAGNOSTIC: bright magenta replaces BrandColors.base (#E6DDD0 warm taupe)
+      // so we can tell whether the user is seeing the Flutter SplashScreen widget
+      // (magenta) or the Android 12 OS native splash window (warm taupe, OS-managed
+      // and unaware of any Flutter color change). Revert with other DIAGNOSTIC markers.
+      backgroundColor: const Color(0xFFFF00FF),
       body: SafeArea(
         child: Center(
           child: VelvetLogo(
