@@ -90,8 +90,10 @@ void main() {
     //
     // The splash renders a larger logo than any other screen:
     //   - compact: false  (default — unchanged)
-    //   - tileSize: 92    (bigger pillow on splash only)
-    //   - markFontSize: 42
+    //   - tileSize: 152   (bigger pillow on splash only — sized to match the
+    //                      OS native splash PNG's visual scale; the OS scales
+    //                      our 1152×1152 composite into the ~192 dp icon area)
+    //   - markFontSize: 70
     //
     // wordmarkFontSize is intentionally NOT asserted: in the Lottie path the
     // VelvetLogo is constructed with showWordmark:false (the Lottie animation
@@ -121,13 +123,16 @@ void main() {
       );
       expect(
         logo.tileSize,
-        equals(92.0),
-        reason: 'Splash uses a 92 dp pillow — larger than the default 78 dp.',
+        equals(152.0),
+        reason:
+            'Splash uses a 152 dp pillow — sized to match the OS native '
+            'splash PNG visual scale (1.65x the previous 92 dp).',
       );
       expect(
         logo.markFontSize,
-        equals(42.0),
-        reason: 'Splash "B" glyph is 42 sp — larger than the default 36 sp.',
+        equals(70.0),
+        reason:
+            'Splash "B" glyph is 70 sp — proportional to the 152 dp pillow.',
       );
       // wordmarkFontSize is irrelevant in the Lottie path: VelvetLogo's
       // showWordmark=false suppresses the static Text("beautica"), so the
