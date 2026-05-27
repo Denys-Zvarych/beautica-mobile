@@ -13,23 +13,30 @@
 // skip button.
 //
 // Phase 2.15 — Native-splash handoff:
-//   The native splash (warm taupe #E6DDD0 bg + composite B + "beautica" PNG)
-//   is preserved by [FlutterNativeSplash.preserve] in main() and dismissed
-//   here via [FlutterNativeSplash.remove] inside [initState]. Because the OS
-//   splash PNG already shows the full composite, the handoff to the Flutter
-//   splash is visually seamless even with zero animation in the static path.
+//   The native splash (warm taupe #E6DDD0 bg + B-only pillow PNG) is preserved
+//   by [FlutterNativeSplash.preserve] in main() and dismissed here via
+//   [FlutterNativeSplash.remove] inside [initState]. The OS PNG intentionally
+//   shows the B pillow ONLY — the "beautica" wordmark is reserved for the
+//   Flutter-side Lottie reveal so the user sees the brand name appear for
+//   the FIRST time via the animation (no double-wordmark on cold start).
 //
-// Splash content — Lottie or static:
-//   On mount the splash probes for `assets/lottie/splash_wordmark.json` via
-//   `rootBundle.load()`. If the asset loads:
-//     - Lottie path: B pillow alone (showWordmark: false) + Lottie.asset()
-//       rendering the animated wordmark beneath it.
-//   If the asset is missing:
-//     - Static path: standard [VelvetLogo] (B pillow + plain "beautica" Text).
-//       This is the visual baseline that exactly mirrors the OS-baked splash
-//       PNG, so the cold-start handoff has zero visible jump.
+// Splash content — tri-state probe:
+//   The Lottie asset is bundled today, but the splash is robust to a missing
+//   asset. On mount, [_checkLottieAsset] probes for
+//   `assets/lottie/splash_wordmark.json` via `rootBundle.load()` and the
+//   build switches on a tri-state [_lottieAvailable] (`bool?`):
 //
-//   Regardless of which path renders, a [Timer] for the remaining
+//     null  → probing. Render B pillow ONLY (showWordmark: false). This
+//             suppresses any flash of the static "beautica" text before the
+//             Lottie kicks in, preserving the "wordmark appears via Lottie"
+//             promise.
+//     true  → Lottie asset resolved. Render B pillow + Lottie.asset() reveal
+//             animation beneath it.
+//     false → Lottie asset failed to load. Fall back to the full static
+//             composite (B pillow + plain "beautica" Text) so the user still
+//             sees the brand wordmark — better a static name than no name.
+//
+//   Regardless of which state renders, a [Timer] for the remaining
 //   [AppStartTime.minSplashDuration] kicks the GoRouter so we exit /splash
 //   into /login or /home as soon as the gate is satisfied.
 //
@@ -40,8 +47,8 @@
 //   animation to snap to its end state in a single frame. A Lottie file —
 //   pre-rendered frame data — sidesteps the Ticker entirely; the animation
 //   plays at its baked frame rate from frame 0 the moment the widget mounts.
-//   Until the user drops a `.json` file in, the static fallback renders the
-//   exact same composite the OS splash PNG already shows.
+//   When Lottie resolution fails the static composite is shown as a
+//   degraded fallback so the wordmark is at least visible.
 //
 // Why no ScreenProtector here:
 //   The splash screen displays only the branded "beautica" wordmark — no
@@ -69,10 +76,12 @@ const String _lottieAssetPath = 'assets/lottie/splash_wordmark.json';
 
 /// Cold-start parking screen shown while the auth session resolves.
 ///
-/// Displays the Beautica logo. When `assets/lottie/splash_wordmark.json` is
-/// bundled, the wordmark is rendered as a Lottie animation; otherwise the
-/// static [VelvetLogo] is shown (matching the OS-baked native splash PNG so
-/// the handoff is seamless).
+/// Tri-state render driven by [_SplashScreenState._lottieAvailable]:
+///   - `null`  (probing) → B pillow only, wordmark suppressed so the Lottie
+///     reveal is the first place the user sees "beautica".
+///   - `true`  → B pillow + Lottie wordmark reveal.
+///   - `false` (Lottie asset failed) → static [VelvetLogo] composite as a
+///     fallback so the user still gets the wordmark.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -86,7 +95,16 @@ class _SplashScreenState extends State<SplashScreen> {
   static final int _minSplashMs = AppStartTime.minSplashDuration.inMilliseconds;
 
   Timer? _splashTimer;
-  bool _lottieAvailable = false;
+
+  /// Tri-state Lottie asset probe:
+  ///
+  ///   null  → still probing (the rootBundle.load() future has not resolved).
+  ///           Render the B pillow ONLY so the wordmark first appears via the
+  ///           Lottie reveal (no static-text flash before the animation).
+  ///   true  → asset resolved. Render the Lottie reveal animation.
+  ///   false → asset failed. Fall back to the full static composite so the
+  ///           wordmark is at least visible.
+  bool? _lottieAvailable;
 
   @override
   void initState() {
@@ -107,8 +125,10 @@ class _SplashScreenState extends State<SplashScreen> {
     AppStartTime.record();
 
     // Probe for the optional Lottie animation asynchronously. The widget
-    // mounts immediately with the static fallback; if the asset resolves
-    // before the splash exits, the Lottie path takes over via setState().
+    // mounts immediately in the probing state (B pillow only, wordmark
+    // suppressed); when the rootBundle.load() future resolves the build
+    // flips to either the Lottie path or the static-composite fallback via
+    // setState() inside [_checkLottieAsset].
     _checkLottieAsset();
 
     // Schedule a router refresh at minSplashDuration regardless of which
@@ -135,19 +155,24 @@ class _SplashScreenState extends State<SplashScreen> {
     });
   }
 
-  /// Attempts to load the Lottie wordmark asset. If successful, flips the
-  /// build to render `Lottie.asset(...)` in place of the static wordmark.
-  /// On any failure (FlutterError "Unable to load asset", FileSystemException
-  /// in tests, etc.) the static fallback is kept silently — this is the
-  /// expected baseline state until the user drops the JSON file in.
+  /// Attempts to load the Lottie wordmark asset. Flips [_lottieAvailable]
+  /// from `null` (probing) to either `true` (Lottie ready — render the
+  /// animation) or `false` (asset failed — render the static composite as a
+  /// fallback so the user still sees the wordmark).
+  ///
+  /// While [_lottieAvailable] is still `null`, the build deliberately renders
+  /// the B pillow ALONE so the wordmark's first appearance is the Lottie
+  /// reveal — no static-text flash beats the animation.
   Future<void> _checkLottieAsset() async {
     try {
       await rootBundle.load(_lottieAssetPath);
       if (!mounted) return;
       setState(() => _lottieAvailable = true);
     } catch (_) {
-      // Asset missing — keep static fallback. Intentionally silent: missing
-      // file is the documented baseline, not an error condition.
+      // Asset missing — fall back to the full static composite so the user
+      // still sees the brand wordmark. Better a static name than no name.
+      if (!mounted) return;
+      setState(() => _lottieAvailable = false);
     }
   }
 
@@ -159,21 +184,35 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Tri-state render: while probing, the wordmark is intentionally
+    // suppressed so the Lottie reveal owns the brand's first appearance.
+    final Widget content;
+    switch (_lottieAvailable) {
+      case true:
+        content = const _LottieSplashContent();
+      case false:
+        // Lottie genuinely failed — show the full static composite so the
+        // user still gets the wordmark.
+        content = const VelvetLogo(
+          tileSize: 92,
+          markFontSize: 42,
+          wordmarkFontSize: 17,
+        );
+      case null:
+        // Probing — B pillow only. The Lottie animation will be the first
+        // place the user sees "beautica".
+        content = const VelvetLogo(
+          tileSize: 92,
+          markFontSize: 42,
+          showWordmark: false,
+        );
+    }
     return Scaffold(
       backgroundColor: BrandColors.base,
       body: Stack(
         children: <Widget>[
           // Matches the Android 12 OS native splash icon position so the handoff doesn't visibly jump.
-          Align(
-            alignment: Alignment.center,
-            child: _lottieAvailable
-                ? const _LottieSplashContent()
-                : const VelvetLogo(
-                    tileSize: 92,
-                    markFontSize: 42,
-                    wordmarkFontSize: 17,
-                  ),
-          ),
+          Align(alignment: Alignment.center, child: content),
         ],
       ),
     );
