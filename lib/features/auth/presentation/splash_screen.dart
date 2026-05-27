@@ -84,15 +84,29 @@ const String _lottieAssetPath = 'assets/lottie/splash_wordmark.json';
 /// so the splash visual rhythm matches the login-screen header.
 const double _bToWordmarkGap = 8.0;
 
-/// Render width of the Lottie wordmark on the splash. Sized to read as a
-/// brand mark beneath the 72dp B-pillow, not a tiny line of text. The
-/// underlying Lottie composition is 400×80 (5:1 aspect ratio); 220×44
-/// preserves that ratio while keeping the wordmark visually balanced
-/// against the pillow above it.
-const double _lottieWidth = 220.0;
+/// Render width of the Lottie wordmark on the splash. Sized so the Lottie
+/// occupies the same visual bounding box as the static "beautica" wordmark
+/// shown by `VelvetLogo(compact: true)` on the login screen — i.e. the same
+/// visual size the user sees beneath the B-pillow on login.
+///
+/// Measurement: the login wordmark is `Text('beautica',
+/// VelvetText.wordmark().copyWith(fontSize: 14))`. `VelvetText.wordmark()` is
+/// Comfortaa w700 with letterSpacing = 22 × 0.16 = 3.52 (baked at the base
+/// 22 sp size and preserved through `copyWith(fontSize: 14)` because
+/// `copyWith` does NOT recompute letterSpacing). `TextPainter.layout()` on
+/// that span resolves to ≈ 94 dp wide × 16 dp tall.
+///
+/// The underlying Lottie composition is 400×80 (5:1 aspect ratio). To
+/// preserve that ratio while matching the static wordmark's bounding box we
+/// render at 95 × 19 dp (95 / 5 = 19). This keeps the splash visually
+/// balanced against the 72 dp B-pillow above it and makes the splash
+/// composite read as the same brand mark the user just saw on the login
+/// screen, only animated.
+const double _lottieWidth = 95.0;
 
 /// Render height of the Lottie wordmark on the splash. See [_lottieWidth].
-const double _lottieHeight = 44.0;
+/// Locked to `_lottieWidth / 5` to preserve the asset's native 5:1 aspect.
+const double _lottieHeight = 19.0;
 
 /// Cold-start parking screen shown while the auth session resolves.
 ///
