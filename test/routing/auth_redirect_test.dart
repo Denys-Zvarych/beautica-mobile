@@ -507,15 +507,15 @@ void main() {
           routes: [
             GoRoute(
               path: RouteNames.splash,
-              builder: (_, __) => const _Probe('splash'),
+              builder: (_, _) => const _Probe('splash'),
             ),
             GoRoute(
               path: RouteNames.login,
-              builder: (_, __) => const _Probe('login'),
+              builder: (_, _) => const _Probe('login'),
             ),
             GoRoute(
               path: RouteNames.home,
-              builder: (_, __) => const _Probe('home'),
+              builder: (_, _) => const _Probe('home'),
             ),
           ],
         );
@@ -573,15 +573,15 @@ void main() {
           routes: [
             GoRoute(
               path: RouteNames.splash,
-              builder: (_, __) => const _Probe('splash'),
+              builder: (_, _) => const _Probe('splash'),
             ),
             GoRoute(
               path: RouteNames.login,
-              builder: (_, __) => const _Probe('login'),
+              builder: (_, _) => const _Probe('login'),
             ),
             GoRoute(
               path: RouteNames.home,
-              builder: (_, __) => const _Probe('home'),
+              builder: (_, _) => const _Probe('home'),
             ),
           ],
         );
