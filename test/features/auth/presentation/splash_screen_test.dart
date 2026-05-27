@@ -2,58 +2,61 @@
 //
 // SplashScreen uses a tri-state Lottie probe (`bool? _lottieAvailable`):
 //
-//   null  → probing. The B-pillow alone is centered; no wordmark renders.
-//           The Lottie reveal owns the FIRST appearance of "beautica" on
-//           cold start (no static-text flash beats the animation). The OS
-//           native splash above shows ONLY the warm-taupe bg colour, so the
-//           Flutter splash is the sole place the logo paints.
-//   true  → asset resolved. Renders B-pillow + Lottie.asset() reveal below
-//           it as a sibling Positioned (the pillow does NOT shift upward).
-//   false → asset failed. Renders B-pillow + a plain Text("beautica") below
-//           it as a sibling Positioned — same position as the Lottie path —
-//           so the wordmark is at least visible. Better a static name than
-//           no name.
+//   null  → probing. Nothing rendered on top of the warm-taupe bg — no
+//           B-pillow, no Lottie, no static text. The Lottie reveal owns the
+//           FIRST appearance of "beautica" on cold start (no static-text
+//           flash beats the animation, and no leftover static B competes for
+//           attention). The OS native splash above shows ONLY the warm-taupe
+//           bg colour, so the Flutter splash is the sole place any brand
+//           render happens.
+//   true  → asset resolved. Renders a centred Lottie.asset() reveal as the
+//           ENTIRE splash content. No B-pillow.
+//   false → asset failed. Renders a centred static Text("beautica") as the
+//           ENTIRE splash content so the wordmark is at least visible. Better
+//           a static name than no name. No B-pillow.
 //
-// Critical layout invariant: in ALL three states, the B-pillow is rendered
-// by a SINGLE [VelvetLogo] with `showWordmark:false`, centered via
-// `Align(Alignment.center, ...)`. Its on-screen position is identical in
-// every state — the wordmark sibling appears below it without reflowing the
-// pillow. This guards the "B-pillow jumps upward when Lottie renders"
-// regression that the earlier Column-based layout produced.
+// Key contract: the static B-pillow (VelvetLogo) has been removed from the
+// splash entirely. The Lottie wordmark reveal IS the splash. (User feedback:
+// "now on splash screen I can see simple B but shouldn't".) The B-pillow
+// continues to live on auth screens (login/register/etc) via VelvetLogo —
+// only its splash-screen usage was removed.
 //
 // In the widget-test environment the rootBundle.load() probe is async; the
 // first frame after pumpWidget() therefore sees the `null` (probing) state
-// and renders the B-only VelvetLogo. After pumping the probe future
-// resolves to either `true` or `false` depending on whether the Lottie
-// asset is declared in pubspec.yaml (it is, today, so most tests can land
-// in the Lottie path after pumping). The tests below are written to be
-// robust to all three states by either asserting on the initial probing
-// frame or by tolerating both final paths.
+// and renders the bg colour alone. After pumping the probe future resolves
+// to either `true` or `false` depending on whether the Lottie asset is
+// declared in pubspec.yaml (it is, today, so most tests can land in the
+// Lottie path after pumping). The tests below either assert on the initial
+// probing frame or pump until a final-state path is reached.
 //
 // Covered scenarios:
-//   1. Widget renders without error (smoke test) — Scaffold + Stack present.
-//   2. VelvetLogo is present with compact=false, tileSize=92, markFontSize=42,
-//      showWordmark=false — the B-pillow is rendered as a single SVG-less
-//      composite, wordmark slot empty (the sibling Lottie / Text owns the
-//      wordmark). Asserted in EVERY tri-state branch.
+//   1. Widget renders without error (smoke test) — Scaffold present.
+//   2. Splash content contract — never VelvetLogo (B-pillow removed),
+//      exactly one wordmark widget (Lottie XOR static "beautica" Text),
+//      Scaffold.backgroundColor = BrandColors.base. The literal probing
+//      frame (`_lottieAvailable == null`) is not directly asserted because
+//      pumpWidget()'s microtask flush resolves the bundled-asset probe
+//      synchronously; the probing branch is covered indirectly by tests 7
+//      and 11 (dispose paths) and the fallback branch deterministically
+//      via test 3b's flutter/assets mock.
 //   3a. Lottie wordmark renders when the splash_wordmark.json asset resolves
-//      (the default pubspec setup). Static "beautica" Text must NOT coexist.
-//   3b. Static wordmark renders below the B-pillow when the Lottie asset
-//      fails to load — the `_lottieAvailable == false` branch —
-//      deterministically triggered by mocking the `flutter/assets` platform
-//      channel so rootBundle.load() returns null bytes for the Lottie key
-//      (which PlatformAssetBundle converts into a FlutterError throw). The
-//      VelvetLogo still has showWordmark:false in this branch; the wordmark
-//      Text is a SIBLING widget in the Stack, positioned below the pillow.
-//   4. CircularProgressIndicator is NOT in the tree (no spinner — the static
-//      composite is the entire splash content).
-//   5. No AnimatedWordmark / FadeTransition / SlideTransition wraps the
-//      wordmark — the static path renders a plain Text, not an animation.
+//       (the default pubspec setup). Static "beautica" Text must NOT
+//       coexist. No VelvetLogo (B-pillow removed from splash).
+//   3b. Static wordmark renders centred when the Lottie asset fails to load
+//       — the `_lottieAvailable == false` branch — deterministically
+//       triggered by mocking the `flutter/assets` platform channel so
+//       rootBundle.load() returns null bytes for the Lottie key (which
+//       PlatformAssetBundle converts into a FlutterError throw). No
+//       VelvetLogo (B-pillow removed from splash). Asserts the fallback Text
+//       style pins fontSize=17.
+//   4. CircularProgressIndicator is NOT in the tree (no spinner — the
+//      Lottie/static Text IS the entire splash content).
+//   5. No AnimatedWordmark wraps the wordmark — the static path renders a
+//      plain Text, not an animation; the Lottie path uses pre-rendered
+//      frame data, not an AnimationController.
 //   6. No AppBar rendered (auth screens are full-screen, no AppBar).
-//   7. No AnimationController exists — the State has no Ticker, so widget
-//      teardown produces no controller-leak assertion. Pump-then-replace is
-//      a no-op.
-//   8. VelvetLogo is not wrapped in FadeTransition by SplashScreen.
+//   7. Widget disposes cleanly (no AnimationController → no Ticker leak;
+//      _splashTimer is cancelled in dispose).
 //   9. Phase 2.15 regression — Scaffold backgroundColor == BrandColors.base.
 //  10. Phase 2.15 regression — FlutterNativeSplash.remove() does not throw
 //      in the widget-test environment.
@@ -66,9 +69,18 @@
 //      the Lottie/static paths produce no AnimationStatus.completed event;
 //      the timer is the single source of router-kick.
 //
-// Note on VelvetLogo + static fallback:
-//   Both are pure-Dart widgets (no asset loading, no SVG, no network).
-//   flutter_test requires no asset bundle setup for the Lottie-success path.
+// Note on the deleted "test 8":
+//   The previous test 8 ("VelvetLogo is not wrapped in FadeTransition by
+//   SplashScreen") guarded a regression that is now vacuously true:
+//   VelvetLogo never renders on the splash at all. The mechanics of the
+//   test (finding VelvetLogo first, then checking its ancestor chain) would
+//   fail at the find step. The test was deleted as part of the B-pillow
+//   removal.
+//
+// Note on Lottie + static fallback:
+//   The static Text fallback is pure-Dart (no asset loading, no SVG, no
+//   network). The Lottie-success path requires the splash_wordmark.json
+//   asset to be bundled (the default pubspec setup).
 //
 //   The static-fallback branch (test 3b) is exercised by intercepting the
 //   `flutter/assets` platform channel: when the mock handler returns null
@@ -123,79 +135,89 @@ void main() {
     });
 
     // -------------------------------------------------------------------------
-    // Test 2 — VelvetLogo is present with the splash-specific size params
+    // Test 2 — splash content contract: no VelvetLogo, no doubled wordmark,
+    // bg = BrandColors.base.
     //
-    // The splash renders the logo at sizes chosen to match the Android 12 OS
-    // native splash icon scale (~192 dp icon area), so the handoff from the
-    // OS splash to the Flutter splash does not produce a visible jump:
-    //   - compact: false   (default — unchanged)
-    //   - tileSize: 92
-    //   - markFontSize: 42
+    // The user-visible contract of the splash after the B-pillow removal:
     //
-    // wordmarkFontSize is intentionally NOT asserted: the initial frame
-    // sees the tri-state probing state (`_lottieAvailable == null`), which
-    // constructs VelvetLogo with showWordmark:false so the wordmark first
-    // appears via the Lottie reveal. In that state the wordmark Text is
-    // never built and wordmarkFontSize is dead. The remaining
-    // tileSize/markFontSize checks cover the regression intent (splash uses
-    // its custom sizing regardless of probe state).
+    //   - There is NEVER a VelvetLogo on the splash (the B-pillow was
+    //     removed in this commit — "now on splash screen I can see simple B
+    //     but shouldn't"). This holds in every tri-state branch.
+    //   - The wordmark slot has exactly one occupant — either the Lottie
+    //     reveal OR the static "beautica" Text fallback — never both.
+    //   - The Scaffold bg is BrandColors.base so the OS native splash and
+    //     the Flutter splash share a single warm-taupe colour.
+    //
+    // In the widget-test environment the rootBundle.load() probe resolves
+    // synchronously inside pumpWidget()'s microtask flush (the asset is
+    // bundled), so the literal "probing frame" with `_lottieAvailable ==
+    // null` is not observable from the test harness. The tri-state probing
+    // path is still proven by:
+    //
+    //   - The fallback path (test 3b) which deterministically reaches
+    //     `_lottieAvailable == false` via a flutter/assets mock.
+    //   - The state machine itself is exercised in test 7 (dispose) and
+    //     test 11 (early-dispose), both of which trigger the probing-state
+    //     SizedBox.shrink branch on the way to disposal.
+    //
+    // So test 2 asserts the universal post-pumpWidget contract instead of
+    // the literal probing frame: no B-pillow, exactly-one wordmark, bg
+    // colour locked.
     // -------------------------------------------------------------------------
-    testWidgets('2. VelvetLogo present with splash-specific size params', (
-      tester,
-    ) async {
-      await tester.pumpWidget(_buildApp());
-      await tester.pump();
+    testWidgets(
+      '2. splash content: no VelvetLogo, single wordmark, bg = BrandColors.base',
+      (tester) async {
+        await tester.pumpWidget(_buildApp());
+        await tester.pump();
 
-      expect(
-        find.byType(VelvetLogo),
-        findsOneWidget,
-        reason:
-            'SplashScreen must render exactly one VelvetLogo in the initial '
-            'probing frame (showWordmark:false, B pillow only).',
-      );
+        expect(
+          find.byType(VelvetLogo),
+          findsNothing,
+          reason:
+              'B-pillow has been removed from the splash. VelvetLogo must '
+              'not be rendered in any frame of /splash.',
+        );
 
-      final logo = tester.widget<VelvetLogo>(find.byType(VelvetLogo));
+        // Exactly one wordmark renders — either the Lottie reveal (default
+        // bundled-asset path) OR the static "beautica" Text fallback (probe
+        // failed). Never both, never zero (after the probe has resolved).
+        final lottieFound = find.byType(Lottie).evaluate().length;
+        final textFound = find.text('beautica').evaluate().length;
+        expect(
+          lottieFound + textFound,
+          equals(1),
+          reason:
+              'Exactly one wordmark must occupy the splash content slot. '
+              'Found Lottie=$lottieFound and Text("beautica")=$textFound — '
+              'both branches are mutually exclusive.',
+        );
 
-      expect(
-        logo.compact,
-        isFalse,
-        reason: 'SplashScreen uses the full-size (non-compact) logo.',
-      );
-      expect(
-        logo.tileSize,
-        equals(92.0),
-        reason:
-            'Splash uses a 92 dp pillow — sized to match the Android 12 OS '
-            'native splash icon area (~192 dp) so the OS→Flutter handoff '
-            'shows no visible logo-size jump.',
-      );
-      expect(
-        logo.markFontSize,
-        equals(42.0),
-        reason: 'Splash "B" glyph is 42 sp — proportional to the 92 dp pillow.',
-      );
-      expect(
-        logo.showWordmark,
-        isFalse,
-        reason:
-            'Initial probing frame must construct VelvetLogo with '
-            'showWordmark:false so the static "beautica" text does not '
-            'flash before the Lottie reveal. The wordmark must first '
-            'appear via the Lottie animation, not via static text.',
-      );
+        // Verify the Scaffold bg matches BrandColors.base so the warm-taupe
+        // base is what the user sees behind the wordmark.
+        final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+        expect(
+          scaffold.backgroundColor,
+          equals(BrandColors.base),
+          reason:
+              'Scaffold.backgroundColor must equal BrandColors.base (#E6DDD0) '
+              '— the same colour as the OS native splash, so the OS → Flutter '
+              'handoff is a single warm-taupe surface.',
+        );
 
-      // Drain the splash timer.
-      // pumps past minSplashDuration = 3000ms
-      await tester.pump(const Duration(milliseconds: 3500));
-    });
+        // Drain the splash timer.
+        // pumps past minSplashDuration = 3000ms
+        await tester.pump(const Duration(milliseconds: 3500));
+      },
+    );
 
     // -------------------------------------------------------------------------
     // Test 3a — Lottie-success branch (`_lottieAvailable == true`).
     //
     // pubspec.yaml bundles splash_wordmark.json, so the default rootBundle
     // resolves the asset and the build switches into the Lottie path after a
-    // couple of pumps. Lottie owns the wordmark slot exclusively — no static
-    // "beautica" Text may coexist (that would be a double-wordmark regression).
+    // couple of pumps. Lottie owns the splash content exclusively — no
+    // static "beautica" Text may coexist, and no VelvetLogo may render (the
+    // B-pillow was removed from the splash).
     // -------------------------------------------------------------------------
     testWidgets('3a. Lottie wordmark renders when asset resolves', (
       tester,
@@ -214,11 +236,18 @@ void main() {
             'may have drifted from the pubspec asset path.',
       );
       expect(
+        find.byType(VelvetLogo),
+        findsNothing,
+        reason:
+            'B-pillow removed from the splash — VelvetLogo must not be '
+            'rendered in the Lottie-success branch.',
+      );
+      expect(
         find.text('beautica'),
         findsNothing,
         reason:
-            'Lottie owns the wordmark slot exclusively in the success branch — '
-            'no static Text("beautica") may coexist.',
+            'Lottie owns the splash content exclusively in the success '
+            'branch — no static Text("beautica") may coexist.',
       );
 
       // Drain the splash timer.
@@ -238,9 +267,15 @@ void main() {
     // throws FlutterError, which lands in _checkLottieAsset()'s catch block
     // and fires setState(_lottieAvailable = false).
     //
-    // The static fallback must produce the full VelvetLogo composite with
-    // showWordmark:true and wordmarkFontSize:17 — better a static wordmark
-    // than no wordmark.
+    // Non-Lottie asset requests (AssetManifest.bin, GoogleFonts lookups for
+    // the wordmark Text's Comfortaa font, etc.) must be forwarded to the
+    // real delegate so the rest of the framework keeps working — otherwise
+    // VelvetText.wordmark() crashes when the Text fallback renders.
+    //
+    // The static fallback must render a standalone Text("beautica") centred
+    // on the bg colour. No Lottie, no VelvetLogo (B-pillow removed from
+    // splash). The Text style pins fontSize=17 so the fallback path is
+    // visually consistent with wordmark renders elsewhere in the app.
     // -------------------------------------------------------------------------
     testWidgets('3b. static wordmark renders when Lottie asset fails to load', (
       tester,
@@ -249,22 +284,24 @@ void main() {
       // the `flutter/assets` channel and returning null bytes (which
       // PlatformAssetBundle.load() converts into a FlutterError throw).
       // The Lottie key is URL-encoded by PlatformAssetBundle before send().
+      // All other asset keys are forwarded to the real delegate so
+      // AssetManifest.bin / GoogleFonts can still resolve.
       const encodedLottieKey = 'assets/lottie/splash_wordmark.json';
+      final delegate = tester.binding.defaultBinaryMessenger.delegate;
       tester.binding.defaultBinaryMessenger.setMockMessageHandler(
         'flutter/assets',
-        (ByteData? message) async {
-          if (message == null) return null;
+        (ByteData? message) {
+          if (message == null) return delegate.send('flutter/assets', message);
           final key = utf8.decode(message.buffer.asUint8List());
           if (key == encodedLottieKey) {
             // Return null bytes → PlatformAssetBundle throws → catch branch.
-            return null;
+            return Future<ByteData?>.value(null);
           }
-          // Any other asset request also returns null. SplashScreen does not
-          // load any other assets via flutter/assets in this test path: the
-          // Lottie widget is never constructed (probe fails), and VelvetLogo
-          // is pure Dart. If a future change adds another asset load here,
-          // this stub must be widened to defer non-Lottie keys.
-          return null;
+          // Forward every other asset request to the real delegate so
+          // AssetManifest.bin, fonts, etc. continue to resolve. Without this,
+          // VelvetText.wordmark() (Comfortaa via GoogleFonts) and Flutter's
+          // own asset-manifest probe both crash on the null response.
+          return delegate.send('flutter/assets', message);
         },
       );
       addTearDown(() {
@@ -285,45 +322,36 @@ void main() {
         findsNothing,
         reason:
             'When the Lottie asset fails to load, the splash must NOT render '
-            'a Lottie widget — the static Text fallback owns the wordmark slot.',
+            'a Lottie widget — the static Text fallback owns the splash slot.',
       );
       expect(
         find.text('beautica'),
         findsOneWidget,
         reason:
             'When the Lottie asset fails to load, a static Text("beautica") '
-            'must render — better a static wordmark than no wordmark.',
+            'must render centred on the bg — better a static wordmark than '
+            'no wordmark.',
       );
-
-      // The B-pillow is rendered as a single VelvetLogo with showWordmark:false
-      // in EVERY tri-state branch (including this static-fallback branch). The
-      // wordmark Text is a SIBLING widget in the splash Stack, not built by
-      // VelvetLogo. This decouples the wordmark from the pillow's layout so
-      // the pillow's on-screen position never shifts between states.
-      final logo = tester.widget<VelvetLogo>(find.byType(VelvetLogo));
       expect(
-        logo.showWordmark,
-        isFalse,
+        find.byType(VelvetLogo),
+        findsNothing,
         reason:
-            'The splash B-pillow uses VelvetLogo(showWordmark:false) in every '
-            'tri-state branch so the pillow is positioned identically when '
-            'the wordmark sibling renders. The static-fallback wordmark is a '
-            'sibling Text in the Stack, not a VelvetLogo-built child.',
+            'B-pillow removed from the splash — VelvetLogo must not be '
+            'rendered in the static-fallback branch either. The standalone '
+            'Text("beautica") is the entire splash content.',
       );
 
-      // Verify the sibling Text uses the splash-specific wordmark font size
-      // (17 sp). The Text style is VelvetText.wordmark().copyWith(fontSize:
-      // 17) — identical to what VelvetLogo would have rendered internally
-      // for wordmarkFontSize:17, so the fallback path is visually
-      // indistinguishable from the legacy composite.
+      // Assert wordmark font size invariant on the standalone Text. Style is
+      // VelvetText.wordmark().copyWith(fontSize: 17) — identical to the
+      // wordmark render VelvetLogo uses internally for wordmarkFontSize:17
+      // elsewhere in the app, so the fallback path stays visually consistent.
       final Text wordmarkText = tester.widget<Text>(find.text('beautica'));
       expect(
         wordmarkText.style?.fontSize,
         equals(17.0),
         reason:
-            'Static-fallback wordmark Text must be 17 sp — proportional to '
-            'the 92 dp pillow. If this fails the splash visually regresses '
-            'on the Lottie-failure path.',
+            'Static-fallback wordmark Text must pin fontSize=17. If this '
+            'fails the splash visually regresses on the Lottie-failure path.',
       );
 
       // Drain the splash timer.
@@ -345,7 +373,8 @@ void main() {
         findsNothing,
         reason:
             'CircularProgressIndicator is not part of the splash design. The '
-            'static composite (or Lottie animation) IS the splash content.',
+            'Lottie animation (or its static Text fallback) IS the splash '
+            'content.',
       );
 
       // Drain the splash timer.
@@ -356,9 +385,10 @@ void main() {
     // -------------------------------------------------------------------------
     // Test 5 — No AnimatedWordmark widget in any of the tri-state branches
     //
-    // SplashScreen no longer passes an AnimationController to VelvetLogo, so
+    // SplashScreen no longer passes an AnimationController to VelvetLogo
+    // (and in fact no longer renders VelvetLogo at all on the splash), so
     // AnimatedWordmark is never built. This holds in all three states:
-    // probing (B-only), Lottie path (Lottie owns the wordmark), and static
+    // probing (bg only), Lottie path (Lottie owns the content), and static
     // fallback (plain Text("beautica")). FadeTransition is NOT asserted
     // absent — it can appear inside unrelated Material widgets (tooltips,
     // page transitions) — we only guard the project-specific
@@ -375,8 +405,9 @@ void main() {
         findsNothing,
         reason:
             'SplashScreen never constructs a VelvetLogo with an '
-            'AnimationController, so AnimatedWordmark must not appear in '
-            'any tri-state branch (probing, Lottie, static).',
+            'AnimationController (and never renders VelvetLogo at all), so '
+            'AnimatedWordmark must not appear in any tri-state branch '
+            '(probing, Lottie, static).',
       );
 
       // Drain the splash timer.
@@ -416,45 +447,6 @@ void main() {
       // If we reach here without a framework assertion, dispose() succeeded.
       expect(find.byType(SplashScreen), findsNothing);
     });
-
-    // -------------------------------------------------------------------------
-    // Test 8 — VelvetLogo is NOT wrapped in FadeTransition by SplashScreen.
-    //
-    // SplashScreen has never wrapped VelvetLogo in a FadeTransition; this
-    // test guards that regression. It is independent of the animation path.
-    // -------------------------------------------------------------------------
-    testWidgets(
-      '8. VelvetLogo is not wrapped in FadeTransition by SplashScreen',
-      (tester) async {
-        await tester.pumpWidget(_buildApp());
-        await tester.pump(Duration.zero);
-
-        expect(find.byType(VelvetLogo), findsOneWidget);
-
-        final alignFinder = find.byWidgetPredicate(
-          (widget) =>
-              widget.runtimeType == Align &&
-              ((widget as Align).alignment as Alignment).y == 0.0,
-        );
-        expect(alignFinder, findsOneWidget);
-
-        expect(
-          find.descendant(
-            of: alignFinder,
-            matching: find.ancestor(
-              of: find.byType(VelvetLogo),
-              matching: find.byType(FadeTransition),
-            ),
-          ),
-          findsNothing,
-          reason: 'SplashScreen must not wrap VelvetLogo in a FadeTransition.',
-        );
-
-        // Drain the splash timer.
-        // pumps past minSplashDuration = 3000ms
-        await tester.pump(const Duration(milliseconds: 3500));
-      },
-    );
 
     // -------------------------------------------------------------------------
     // Test 9 — Scaffold backgroundColor matches BrandColors.base (#E6DDD0)

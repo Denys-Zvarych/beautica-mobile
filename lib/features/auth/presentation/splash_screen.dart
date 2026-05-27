@@ -13,18 +13,19 @@
 // skip button.
 //
 // Phase 2.15 — Native-splash handoff (revised 2026-05-27):
-//   The OS native splash now shows ONLY the warm-taupe background colour
+//   The OS native splash shows ONLY the warm-taupe background colour
 //   (#E6DDD0) — no B-pillow, no logo, no wordmark. The Flutter splash is the
-//   SOLE owner of the logo render. This eliminates the OS-baked-PNG vs
-//   Flutter-runtime position+size mismatch users perceived on Android 12+
-//   release builds (different density buckets baked the PNG at slightly
-//   different sizes; the runtime VelvetLogo sat at a different on-screen
-//   coordinate than the OS layer).
+//   SOLE owner of any brand render. There is no static B-pillow on the
+//   Flutter splash either — the Lottie wordmark reveal IS the entire splash
+//   content. This eliminates the OS-baked-PNG vs Flutter-runtime
+//   position+size mismatch users perceived on Android 12+ release builds AND
+//   removes the leftover static "B" pillow the user reported seeing on the
+//   splash ("now on splash screen I can see simple B but shouldn't").
 //
 //   [FlutterNativeSplash.preserve] in main() holds the OS bg until the first
 //   Flutter frame; [FlutterNativeSplash.remove] in [initState] dismisses it.
 //   What the user sees is: warm-taupe background only → warm-taupe background
-//   + B-pillow (Flutter paints it for the first time) → wordmark reveal.
+//   + Lottie wordmark reveal.
 //
 // Splash content — tri-state probe:
 //   The Lottie asset is bundled today, but the splash is robust to a missing
@@ -32,23 +33,15 @@
 //   `assets/lottie/splash_wordmark.json` via `rootBundle.load()` and the
 //   build switches on a tri-state [_lottieAvailable] (`bool?`):
 //
-//     null  → probing. Wordmark slot empty; B pillow visible. The Lottie
-//             reveal owns the wordmark's first appearance — no static-text
-//             flash beats the animation.
-//     true  → Lottie asset resolved. Lottie wordmark renders below the
-//             B pillow.
+//     null  → probing. Nothing rendered on top of the warm-taupe bg. The
+//             Lottie reveal owns the wordmark's first appearance — no static
+//             text flash beats the animation, and there is no B-pillow to
+//             compete for attention.
+//     true  → Lottie asset resolved. Lottie wordmark renders centred on the
+//             warm-taupe bg.
 //     false → Lottie asset failed to load. A plain Text("beautica") renders
-//             below the B pillow as a fallback so the user still sees the
-//             brand wordmark — better a static name than no name.
-//
-//   Critical layout invariant: the B-pillow's on-screen position is IDENTICAL
-//   across all three branches. It is rendered as a single fixed widget
-//   (VelvetLogo with `showWordmark: false`) centered via [Align] of the
-//   viewport. The wordmark (Lottie or static Text) renders as a SIBLING
-//   [Positioned] layer offset from viewport center so the B-pillow does not
-//   reflow / shift when the probe resolves. This fixes the "B-pillow jumps
-//   upward when the Lottie renders" regression caused by the earlier
-//   Column-based layout.
+//             centred on the warm-taupe bg as a fallback so the user still
+//             sees the brand wordmark — better a static name than no name.
 //
 //   Regardless of which state renders, a [Timer] for the remaining
 //   [AppStartTime.minSplashDuration] kicks the GoRouter so we exit /splash
@@ -61,8 +54,8 @@
 //   animation to snap to its end state in a single frame. A Lottie file —
 //   pre-rendered frame data — sidesteps the Ticker entirely; the animation
 //   plays at its baked frame rate from frame 0 the moment the widget mounts.
-//   When Lottie resolution fails the static composite is shown as a
-//   degraded fallback so the wordmark is at least visible.
+//   When Lottie resolution fails the static Text fallback is shown so the
+//   wordmark is at least visible.
 //
 // Why no ScreenProtector here:
 //   The splash screen displays only the branded "beautica" wordmark — no
@@ -81,41 +74,24 @@ import 'package:lottie/lottie.dart';
 import '../../../core/app_start_time.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_text.dart';
-import '../../../core/widgets/neumorphic.dart';
 
 /// Path of the optional Lottie wordmark animation. When this asset is
 /// bundled, the Lottie widget renders; otherwise the static fallback runs.
 const String _lottieAssetPath = 'assets/lottie/splash_wordmark.json';
 
-/// Splash B-pillow dimensions — sized so the Flutter-side logo paint matches
-/// the brand's intended cold-start hero scale. These are the SINGLE SOURCE of
-/// truth for the pillow geometry inside the splash; tests assert against them
-/// via [VelvetLogo.tileSize] / [VelvetLogo.markFontSize].
-const double _pillowTileSize = 92.0;
-const double _pillowMarkFontSize = 42.0;
-
-/// Vertical gap (dp) between the bottom edge of the B-pillow and the top edge
-/// of the wordmark (Lottie or static Text). Matches [VelvetSpacing.md] used by
-/// the standalone [VelvetLogo] composite, so the visual spacing matches every
-/// other VelvetLogo render in the app.
-const double _pillowToWordmarkGap = 16.0;
-
 /// Font size of the static-fallback wordmark Text. Kept identical to what
 /// [VelvetLogo] uses internally when [VelvetLogo.wordmarkFontSize] is 17, so
-/// the fallback path is visually indistinguishable from the legacy composite.
+/// the fallback path remains visually consistent with wordmark renders
+/// elsewhere in the app (e.g. login/register screens).
 const double _wordmarkFontSize = 17.0;
 
 /// Cold-start parking screen shown while the auth session resolves.
 ///
 /// Tri-state render driven by [_SplashScreenState._lottieAvailable]:
-///   - `null`  (probing) → B pillow visible (centered); no wordmark.
-///   - `true`  → B pillow centered + Lottie wordmark below it.
-///   - `false` (Lottie asset failed) → B pillow centered + static Text below.
-///
-/// The B-pillow is rendered as a single [VelvetLogo] with `showWordmark:false`
-/// in EVERY branch, centered via [Align], so its on-screen position never
-/// shifts. The wordmark is a sibling [Positioned] that appears below the
-/// pillow once the probe resolves.
+///   - `null`  (probing) → bg colour only; no widget rendered.
+///   - `true`  → centred Lottie wordmark reveal on the warm-taupe bg.
+///   - `false` (Lottie asset failed) → centred static "beautica" Text on the
+///                                     warm-taupe bg.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -133,10 +109,11 @@ class _SplashScreenState extends State<SplashScreen> {
   /// Tri-state Lottie asset probe:
   ///
   ///   null  → still probing (the rootBundle.load() future has not resolved).
-  ///           Render the B pillow ONLY so the wordmark first appears via the
-  ///           Lottie reveal (no static-text flash before the animation).
-  ///   true  → asset resolved. Render the Lottie reveal animation.
-  ///   false → asset failed. Fall back to the full static composite so the
+  ///           Render nothing on top of the bg colour so the wordmark first
+  ///           appears via the Lottie reveal (no static-text flash before
+  ///           the animation, and no B-pillow competing for attention).
+  ///   true  → asset resolved. Render the Lottie reveal animation centred.
+  ///   false → asset failed. Render a static "beautica" Text centred so the
   ///           wordmark is at least visible.
   bool? _lottieAvailable;
 
@@ -159,10 +136,10 @@ class _SplashScreenState extends State<SplashScreen> {
     AppStartTime.record();
 
     // Probe for the optional Lottie animation asynchronously. The widget
-    // mounts immediately in the probing state (B pillow only, wordmark
-    // suppressed); when the rootBundle.load() future resolves the build
-    // flips to either the Lottie path or the static-composite fallback via
-    // setState() inside [_checkLottieAsset].
+    // mounts immediately in the probing state (bg colour only, no widget);
+    // when the rootBundle.load() future resolves the build flips to either
+    // the Lottie path or the static-text fallback via setState() inside
+    // [_checkLottieAsset].
     _checkLottieAsset();
 
     // Schedule a router refresh at minSplashDuration regardless of which
@@ -191,19 +168,19 @@ class _SplashScreenState extends State<SplashScreen> {
 
   /// Attempts to load the Lottie wordmark asset. Flips [_lottieAvailable]
   /// from `null` (probing) to either `true` (Lottie ready — render the
-  /// animation) or `false` (asset failed — render the static composite as a
-  /// fallback so the user still sees the wordmark).
+  /// animation) or `false` (asset failed — render the static Text fallback so
+  /// the user still sees the wordmark).
   ///
   /// While [_lottieAvailable] is still `null`, the build deliberately renders
-  /// the B pillow ALONE so the wordmark's first appearance is the Lottie
-  /// reveal — no static-text flash beats the animation.
+  /// nothing on top of the bg colour so the wordmark's first appearance is
+  /// the Lottie reveal — no static-text flash beats the animation.
   Future<void> _checkLottieAsset() async {
     try {
       await rootBundle.load(_lottieAssetPath);
       if (!mounted) return;
       setState(() => _lottieAvailable = true);
     } catch (_) {
-      // Asset missing — fall back to the full static composite so the user
+      // Asset missing — fall back to a static Text("beautica") so the user
       // still sees the brand wordmark. Better a static name than no name.
       if (!mounted) return;
       setState(() => _lottieAvailable = false);
@@ -218,69 +195,33 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Layout invariant: the B-pillow is rendered as a SINGLE VelvetLogo with
-    // showWordmark:false, centered via Align(Alignment.center) in ALL three
-    // tri-state branches. It never moves when the probe resolves. The
-    // wordmark (Lottie or static Text) is a sibling Positioned layer below
-    // the pillow — it appears, but it does NOT reflow the pillow.
+    // Single centred child driven by the tri-state probe:
+    //   - probing  → SizedBox.shrink (bg colour alone, no widget visible).
+    //   - Lottie   → the wordmark reveal animation.
+    //   - fallback → a static "beautica" Text.
     //
-    // Why a Positioned-with-explicit-top instead of a Column:
-    //   A Column would size to the union of its children and Align would then
-    //   centre that union — which means the B-pillow's centre shifts upward
-    //   the moment the wordmark child is added. Putting the wordmark in a
-    //   sibling Positioned anchored to the viewport's top-axis decouples its
-    //   position from the pillow's layout completely.
-    final Size viewport = MediaQuery.sizeOf(context);
-    final double wordmarkTop =
-        viewport.height / 2 + _pillowTileSize / 2 + _pillowToWordmarkGap;
-
+    // There is intentionally NO static B-pillow on the splash. The Lottie
+    // reveal (or its static-Text fallback) is the entire splash content.
     return Scaffold(
       backgroundColor: BrandColors.base,
-      body: Stack(
-        children: <Widget>[
-          // B-pillow — always centered, identical position in every state.
-          // Matches the Flutter-splash brand-mark hero position; the OS native
-          // splash above shows ONLY the bg colour, so there is no double-paint
-          // and no handoff jump.
-          const Align(
-            alignment: Alignment.center,
-            child: VelvetLogo(
-              tileSize: _pillowTileSize,
-              markFontSize: _pillowMarkFontSize,
-              showWordmark: false,
-            ),
+      body: Center(
+        child: switch (_lottieAvailable) {
+          true => Lottie.asset(
+            _lottieAssetPath,
+            width: 400,
+            height: 80,
+            fit: BoxFit.contain,
+            repeat: false,
           ),
-          // Wordmark reveal — rendered as a sibling Positioned ONLY after the
-          // probe resolves. The pillow above does not move when this widget
-          // is added or removed from the Stack.
-          if (_lottieAvailable != null)
-            Positioned(
-              top: wordmarkTop,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: _lottieAvailable == true
-                    ? Lottie.asset(
-                        _lottieAssetPath,
-                        width: 400,
-                        height: 80,
-                        fit: BoxFit.contain,
-                        repeat: false,
-                      )
-                    : Text(
-                        'beautica',
-                        // Style is the EXACT cached TextStyle that VelvetLogo
-                        // would use internally for its built-in wordmark with
-                        // wordmarkFontSize:17 — so this sibling-Text fallback
-                        // is visually indistinguishable from the legacy
-                        // composite. Single source of truth: VelvetText.
-                        style: VelvetText.wordmark().copyWith(
-                          fontSize: _wordmarkFontSize,
-                        ),
-                      ),
-              ),
-            ),
-        ],
+          false => Text(
+            'beautica',
+            // Style is the cached VelvetText.wordmark() with fontSize:17 —
+            // matches the wordmark render used elsewhere in the app, so the
+            // fallback path is visually consistent.
+            style: VelvetText.wordmark().copyWith(fontSize: _wordmarkFontSize),
+          ),
+          null => const SizedBox.shrink(),
+        },
       ),
     );
   }
