@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -698,9 +696,6 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
   late List<Animation<Offset>> _slides;
   late TextStyle _style;
 
-  // DIAGNOSTIC: periodic logger to confirm whether FadeTransition opacities actually advance. Remove with the rest of the diagnostic instrumentation.
-  Timer? _opacityLogger;
-
   void _initAnimations() {
     final int totalMs = widget.controller.duration?.inMilliseconds ?? 880;
     _curves = <CurvedAnimation>[];
@@ -745,32 +740,6 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
   void initState() {
     super.initState();
     _initAnimations();
-    // DIAGNOSTIC: log letter opacity every 100ms until the parent controller completes.
-    // DIAGNOSTIC: skip the periodic logger in flutter_test environment so it
-    // doesn't trip the !timersPending invariant at widget teardown.
-    final bindingTypeName = WidgetsBinding.instance.runtimeType.toString();
-    if (!bindingTypeName.contains('Test')) {
-      _opacityLogger = Timer.periodic(const Duration(milliseconds: 100), (t) {
-        if (!mounted) {
-          t.cancel();
-          return;
-        }
-        if (_opacities.isEmpty) return;
-        debugPrint(
-          '[wordmark-tick] parent=${widget.controller.value.toStringAsFixed(3)} '
-          'first=${_opacities.first.value.toStringAsFixed(3)} '
-          'last=${_opacities.last.value.toStringAsFixed(3)} '
-          'status=${widget.controller.status}',
-        );
-        if (widget.controller.status == AnimationStatus.completed ||
-            widget.controller.status == AnimationStatus.dismissed) {
-          debugPrint(
-            '[wordmark-tick] DONE final_first=${_opacities.first.value.toStringAsFixed(3)} final_last=${_opacities.last.value.toStringAsFixed(3)}',
-          );
-          t.cancel();
-        }
-      });
-    }
   }
 
   @override
@@ -791,7 +760,6 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
 
   @override
   void dispose() {
-    _opacityLogger?.cancel();
     // Dispose the CurvedAnimations we own. The AnimationController is owned
     // by the caller (e.g. SplashScreen) and must NOT be disposed here.
     _disposeAnimations();
@@ -800,9 +768,6 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint(
-      '[wordmark] build called; parent.value=${widget.controller.value} first_letter_opacity=${_opacities.isEmpty ? 'EMPTY' : _opacities.first.value.toStringAsFixed(3)} last_letter_opacity=${_opacities.isEmpty ? 'EMPTY' : _opacities.last.value.toStringAsFixed(3)}',
-    );
     final List<Widget> children = <Widget>[];
     for (int i = 0; i < widget.text.length; i++) {
       children.add(
@@ -884,25 +849,15 @@ class VelvetLogo extends StatelessWidget {
       fontWeight: FontWeight.w700,
     );
 
-    // DIAGNOSTIC: red sentinel rectangle replaces the wordmark slot. Hardcoded
-    // Colors.red bg + Colors.white text bypasses GoogleFonts and VelvetText theme
-    // inheritance entirely. If the user sees the red box on /splash, the second
-    // Column child IS being laid out and painted on screen and the wordmark's bug
-    // is in its TextStyle (color/font/letterSpacing). If the user DOES NOT see
-    // the red box, the Column's second slot is being clipped / collapsed / pushed
-    // off-screen by an ancestor. Revert with the rest of the diagnostic.
-    final Widget wordmark = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: const Color(0xFFFF0000),
-      child: const Text(
-        'beautica',
-        style: TextStyle(
-          color: Color(0xFFFFFFFF),
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
+    final Widget wordmark = animationController != null
+        ? AnimatedWordmark(
+            controller: animationController!,
+            fontSize: wordmarkFontSize,
+          )
+        : Text(
+            'beautica',
+            style: VelvetText.wordmark().copyWith(fontSize: wordmarkFontSize),
+          );
 
     return Semantics(
       label: 'beautica',

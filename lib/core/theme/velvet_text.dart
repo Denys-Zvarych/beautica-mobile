@@ -25,7 +25,10 @@ abstract final class VelvetText {
     fontSize: 22,
     fontWeight: FontWeight.w700,
     letterSpacing: 22 * 0.16,
-    color: BrandColors.textSecondary,
+    // Wordmark needs >=4.5:1 contrast on BrandColors.base for WCAG AA — the
+    // previous textSecondary (#6E5743) read at ~3.2:1 and was illegible on the
+    // warm taupe splash background; textPrimary (#4A3322) is ~7:1 (WCAG AA+).
+    color: BrandColors.text,
   );
 
   static final TextStyle _headingStyle = GoogleFonts.comfortaa(

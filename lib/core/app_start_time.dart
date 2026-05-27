@@ -30,8 +30,7 @@ abstract final class AppStartTime {
   /// duration has passed) and [splash_screen.dart] (which waits for
   /// the remainder after the animation completes before refreshing the router).
   /// Single source of truth — do not duplicate this constant.
-  // DIAGNOSTIC: temporarily 5s (was 950ms) so the user can visually confirm whether the wordmark animation renders during the splash window. Revert to 950 before merging.
-  static const Duration minSplashDuration = Duration(milliseconds: 5000);
+  static const Duration minSplashDuration = Duration(milliseconds: 950);
 
   /// Record the current time as the application start instant.
   ///

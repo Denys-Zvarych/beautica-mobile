@@ -82,9 +82,6 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     super.initState();
-    debugPrint(
-      '[splash] initState elapsed=${AppStartTime.elapsed().inMilliseconds}ms disableAnimations=${WidgetsBinding.instance.accessibilityFeatures.disableAnimations}',
-    );
     _wordmarkController = AnimationController(
       vsync: this,
       duration: _animDuration,
@@ -104,9 +101,6 @@ class _SplashScreenState extends State<SplashScreen>
     // and cause go_router to redirect to /login before the wordmark animation
     // can paint a single frame.
     AppStartTime.record();
-    debugPrint(
-      '[splash] AppStartTime.record() called; elapsed_now=${AppStartTime.elapsed().inMilliseconds}ms',
-    );
 
     // Start the animation immediately. AnimationController schedules its own
     // ticker via vsync and does not need a rendered frame — no
@@ -132,9 +126,6 @@ class _SplashScreenState extends State<SplashScreen>
       });
     } else {
       _wordmarkController.forward();
-      debugPrint(
-        '[splash] forward() called; controller.value=${_wordmarkController.value} status=${_wordmarkController.status}',
-      );
     }
 
     // Minimum splash duration gate — router re-kick.
@@ -165,9 +156,6 @@ class _SplashScreenState extends State<SplashScreen>
 
   void _onAnimationStatus(AnimationStatus status) {
     if (status != AnimationStatus.completed) return;
-    debugPrint(
-      '[splash] animation completed; elapsed=${AppStartTime.elapsed().inMilliseconds}ms scheduling refresh in ${_minSplashMs - AppStartTime.elapsed().inMilliseconds.clamp(0, _minSplashMs)}ms',
-    );
     // Animation is done (~880 ms). Wait for the full 950 ms gate, then kick
     // the router so it re-runs its redirect callback. By this point
     // AppStartTime.elapsed() will be >= _minSplashDuration and the gate in
@@ -191,24 +179,20 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    debugPrint(
-      '[splash] build called; controller.value=${_wordmarkController.value}',
-    );
     return Scaffold(
-      // DIAGNOSTIC: bright magenta replaces BrandColors.base (#E6DDD0 warm taupe)
-      // so we can tell whether the user is seeing the Flutter SplashScreen widget
-      // (magenta) or the Android 12 OS native splash window (warm taupe, OS-managed
-      // and unaware of any Flutter color change). Revert with other DIAGNOSTIC markers.
-      backgroundColor: const Color(0xFFFF00FF),
-      body: SafeArea(
-        child: Center(
-          child: VelvetLogo(
-            animationController: _wordmarkController,
-            tileSize: 92,
-            markFontSize: 42,
-            wordmarkFontSize: 17,
+      backgroundColor: BrandColors.base,
+      body: Stack(
+        children: <Widget>[
+          Align(
+            alignment: const Alignment(0.0, -0.4),
+            child: VelvetLogo(
+              animationController: _wordmarkController,
+              tileSize: 92,
+              markFontSize: 42,
+              wordmarkFontSize: 17,
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
