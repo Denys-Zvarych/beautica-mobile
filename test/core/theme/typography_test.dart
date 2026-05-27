@@ -1,146 +1,161 @@
-// Phase 1.2 — Manrope typography wiring tests.
+// Phase 1.2 — VelvetTouch typography tests.
 //
-// Verifies that [lightTheme] exposes the locked Beautica type scale via the
-// `_textTheme` helper in `app_theme.dart`. All six roles the design system
-// exercises are parametrised below so a regression in any single size or
-// weight surfaces as a named expectation failure instead of an opaque
-// "fontSize wrong" crash. A separate dark-theme spot check guards the
-// `_textTheme(Brightness)` helper's parity contract — the body text scale
-// must look identical regardless of brightness.
+// Verifies:
+//   1. [VelvetText] style accessors return the correct font properties and
+//      [BrandColors] color references.
+//   2. [velvetTheme] text-theme roles carry the Nunito font family.
 //
-// Font-family is intentionally NOT asserted here: `GoogleFonts.manrope*`
-// returns a synthesized family name (e.g. `Manrope_regular`) and the cached
-// asset name can change between `google_fonts` minor versions. Visual
-// confirmation that text renders in Manrope (not system Roboto) is part of
-// the manual emulator check in the phase doc acceptance criteria.
+// Why testWidgets for VelvetText assertions?
+// google_fonts fires an async loadFontIfNecessary side-effect on every
+// GoogleFonts.* call.  A plain test() body completes synchronously and the
+// test harness then reports the still-pending async work as a post-test
+// failure.  Using testWidgets (even without pumping a widget tree) lets the
+// harness drain the font-load queue via the implicit pump, eliminating the
+// spurious async failure.  The style metadata assertions (fontSize, weight,
+// color) are still purely synchronous — they pass on the first microtask.
 
-import 'package:beautica_mobile/core/theme/app_theme.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-/// One row of the canonical Beautica type scale.
-///
-/// `height` and `letterSpacing` are nullable because not every role pins
-/// them — only the ones the design system explicitly locks. A `null` here
-/// means "do not assert" (the value falls through to Material 3 defaults).
-class _TypeRoleSpec {
-  const _TypeRoleSpec({
-    required this.name,
-    required this.style,
-    required this.fontSize,
-    required this.fontWeight,
-    this.height,
-    this.letterSpacing,
-  });
-  final String name;
-  final TextStyle Function(TextTheme) style;
-  final double fontSize;
-  final FontWeight fontWeight;
-  final double? height;
-  final double? letterSpacing;
-}
-
-final List<_TypeRoleSpec> _roles = <_TypeRoleSpec>[
-  _TypeRoleSpec(
-    name: 'displayLarge',
-    style: (t) => t.displayLarge!,
-    fontSize: 57,
-    fontWeight: FontWeight.w400,
-    letterSpacing: -0.25,
-  ),
-  _TypeRoleSpec(
-    name: 'headlineLarge',
-    style: (t) => t.headlineLarge!,
-    fontSize: 32,
-    fontWeight: FontWeight.w600,
-  ),
-  _TypeRoleSpec(
-    name: 'titleLarge',
-    style: (t) => t.titleLarge!,
-    fontSize: 22,
-    fontWeight: FontWeight.w600,
-  ),
-  _TypeRoleSpec(
-    name: 'bodyLarge',
-    style: (t) => t.bodyLarge!,
-    fontSize: 16,
-    fontWeight: FontWeight.w400,
-    height: 1.5,
-  ),
-  _TypeRoleSpec(
-    name: 'bodyMedium',
-    style: (t) => t.bodyMedium!,
-    fontSize: 14,
-    fontWeight: FontWeight.w400,
-    height: 1.4,
-  ),
-  _TypeRoleSpec(
-    name: 'labelLarge',
-    style: (t) => t.labelLarge!,
-    fontSize: 14,
-    fontWeight: FontWeight.w600,
-  ),
-];
+import 'package:flutter/material.dart';
+import 'package:beautica_mobile/core/theme/app_theme.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 
 void main() {
-  testWidgets('lightTheme covers all six brand text roles', (
-    WidgetTester tester,
-  ) async {
-    late TextTheme textTheme;
+  // ── VelvetText unit tests ────────────────────────────────────────────────
+  group('VelvetText', () {
+    testWidgets('heading uses Comfortaa 24/700 with BrandColors.text', (
+      tester,
+    ) async {
+      final s = VelvetText.heading();
+      expect(s.fontSize, 24.0);
+      expect(s.fontWeight, FontWeight.w700);
+      expect(s.height, 1.25);
+      expect(s.color, BrandColors.text);
+    });
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: lightTheme(),
-        home: Builder(
-          builder: (BuildContext ctx) {
-            textTheme = Theme.of(ctx).textTheme;
-            return const SizedBox.shrink();
-          },
-        ),
-      ),
+    testWidgets('subheading uses Comfortaa 17/600', (tester) async {
+      final s = VelvetText.subheading();
+      expect(s.fontSize, 17.0);
+      expect(s.fontWeight, FontWeight.w600);
+      expect(s.color, BrandColors.text);
+    });
+
+    testWidgets('cta uses Comfortaa 16/700 with BrandColors.white', (
+      tester,
+    ) async {
+      final s = VelvetText.cta();
+      expect(s.fontSize, 16.0);
+      expect(s.fontWeight, FontWeight.w700);
+      expect(s.letterSpacing, 0.3);
+      expect(s.color, BrandColors.white);
+    });
+
+    testWidgets(
+      'wordmark uses Comfortaa 22/700 with BrandColors.text (WCAG AA+)',
+      (tester) async {
+        final s = VelvetText.wordmark();
+        expect(s.fontSize, 22.0);
+        expect(s.fontWeight, FontWeight.w700);
+        // Changed from textSecondary (#6E5743, ~3.2:1) to text (#4A3322, ~7:1)
+        // for WCAG AA compliance on the warm-taupe base (#E6DDD0) background.
+        expect(s.color, BrandColors.text);
+      },
     );
 
-    for (final _TypeRoleSpec spec in _roles) {
-      final TextStyle s = spec.style(textTheme);
-      expect(s.fontSize, spec.fontSize, reason: '${spec.name}.fontSize');
-      expect(s.fontWeight, spec.fontWeight, reason: '${spec.name}.fontWeight');
-      if (spec.height != null) {
-        expect(s.height, spec.height, reason: '${spec.name}.height');
-      }
-      if (spec.letterSpacing != null) {
-        expect(
-          s.letterSpacing,
-          spec.letterSpacing,
-          reason: '${spec.name}.letterSpacing',
-        );
-      }
-    }
+    testWidgets('body uses Nunito 15/600 height 1.5 with textSecondary', (
+      tester,
+    ) async {
+      final s = VelvetText.body();
+      expect(s.fontSize, 15.0);
+      expect(s.fontWeight, FontWeight.w600);
+      expect(s.height, 1.5);
+      expect(s.color, BrandColors.textSecondary);
+    });
+
+    testWidgets('bodyStrong uses Nunito 15/700 with BrandColors.text', (
+      tester,
+    ) async {
+      final s = VelvetText.bodyStrong();
+      expect(s.fontSize, 15.0);
+      expect(s.fontWeight, FontWeight.w700);
+      expect(s.color, BrandColors.text);
+    });
+
+    testWidgets('input uses Nunito 16/600 with BrandColors.text', (
+      tester,
+    ) async {
+      final s = VelvetText.input();
+      expect(s.fontSize, 16.0);
+      expect(s.fontWeight, FontWeight.w600);
+      expect(s.color, BrandColors.text);
+    });
+
+    testWidgets(
+      'label uses Nunito 12/700 letterSpacing 0.6 with BrandColors.muted',
+      (tester) async {
+        final s = VelvetText.label();
+        expect(s.fontSize, 12.0);
+        expect(s.fontWeight, FontWeight.w700);
+        expect(s.letterSpacing, 0.6);
+        expect(s.color, BrandColors.muted);
+      },
+    );
+
+    testWidgets('link uses Nunito 14/700 with BrandColors.accentDeep', (
+      tester,
+    ) async {
+      final s = VelvetText.link();
+      expect(s.fontSize, 14.0);
+      expect(s.fontWeight, FontWeight.w700);
+      expect(s.color, BrandColors.accentDeep);
+    });
+
+    testWidgets(
+      'feedback uses Nunito 13/700 height 1.4 with caller-supplied color',
+      (tester) async {
+        final s = VelvetText.feedback(BrandColors.error);
+        expect(s.fontSize, 13.0);
+        expect(s.fontWeight, FontWeight.w700);
+        expect(s.height, 1.4);
+        expect(s.color, BrandColors.error);
+      },
+    );
   });
 
-  testWidgets('darkTheme bodyLarge uses Manrope 16/1.5', (
-    WidgetTester tester,
-  ) async {
-    // Sanity check for the shared `_textTheme(Brightness)` helper — body
-    // text dimensions must be brightness-agnostic. We only assert one role
-    // because the helper applies the same `copyWith` block to both
-    // brightnesses, so light-theme coverage transitively proves dark
-    // parity for the remaining roles.
-    late TextStyle style;
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: darkTheme(),
-        home: Builder(
-          builder: (BuildContext ctx) {
-            style = Theme.of(ctx).textTheme.bodyLarge!;
-            return const SizedBox.shrink();
-          },
+  // ── velvetTheme textTheme fontFamily assertions ──────────────────────────
+  //
+  // Uses the same pump-through-MaterialApp pattern as app_theme_test.dart
+  // (Phase 1.1) to drain the async font load before assertions run.
+  group('velvetTheme textTheme fontFamily', () {
+    Future<TextTheme> pumpTheme(WidgetTester tester) async {
+      late TextTheme textTheme;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: velvetTheme(),
+          home: Builder(
+            builder: (BuildContext ctx) {
+              textTheme = Theme.of(ctx).textTheme;
+              return const SizedBox.shrink();
+            },
+          ),
         ),
-      ),
-    );
+      );
+      return textTheme;
+    }
 
-    expect(style.fontSize, 16);
-    expect(style.height, 1.5);
-    expect(style.fontWeight, FontWeight.w400);
+    testWidgets('bodyLarge starts with Nunito', (tester) async {
+      final theme = await pumpTheme(tester);
+      expect(theme.bodyLarge!.fontFamily, startsWith('Nunito'));
+    });
+
+    testWidgets('bodyMedium starts with Nunito', (tester) async {
+      final theme = await pumpTheme(tester);
+      expect(theme.bodyMedium!.fontFamily, startsWith('Nunito'));
+    });
+
+    testWidgets('labelMedium starts with Nunito', (tester) async {
+      final theme = await pumpTheme(tester);
+      expect(theme.labelMedium!.fontFamily, startsWith('Nunito'));
+    });
   });
 }

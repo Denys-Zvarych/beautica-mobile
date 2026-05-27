@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    DEBUG-ONLY network security configuration for Beautica Mobile.
+
+    This file lives in src/debug/res/xml/ and is merged by the Android build
+    system ONLY for debug/debuggable APKs. It is never included in release or
+    profile builds. The release base config in src/main/res/xml/ never permits
+    cleartext traffic.
+
+    This config is self-contained (no XML <include>) to avoid lint warnings and
+    to remain compatible with all AGP versions.
+-->
+<network-security-config>
+    <!-- Same base-config as release: HTTPS-only for arbitrary hosts. -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Production Railway domain: HTTPS only, pinned to ISRG Root X1.
+         Duplicated here so debug builds can still reach prod if needed. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">beautica-backend-production.up.railway.app</domain>
+        <trust-anchors>
+            <!-- ISRG Root X1 — stable Let's Encrypt root; rotate to X2 when X1 retires (2035) -->
+            <certificates src="@raw/isrg_root_x1" />
+        </trust-anchors>
+    </domain-config>
+
+    <!-- Local development: allow cleartext HTTP to known local addresses.
+         In this project the Android emulator runs on the Windows 11 host while
+         the Spring Boot backend runs on the Ubuntu VM (VirtualBox).
+         From the emulator, 10.0.2.2 reaches the Windows host loopback — NOT
+         the Ubuntu VM. Use the Ubuntu VM's host-only adapter IP instead.
+         The typical VirtualBox host-only adapter IP for the Ubuntu VM is
+         192.168.56.101; verify with `ip addr show` on the VM side and update
+         this list if your VirtualBox network settings differ. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Android AVD loopback to the Windows host (kept for reference) -->
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <!-- Ubuntu VM host-only adapter IP — adjust to match your VirtualBox
+             network settings if different (verify with `ip addr show` on the VM). -->
+        <domain includeSubdomains="false">192.168.56.101</domain>
+        <!-- localhost for unit/integration test runners -->
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+
+    <!-- Debug: also trust user-installed CAs (e.g. Charles Proxy, mitmproxy). -->
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

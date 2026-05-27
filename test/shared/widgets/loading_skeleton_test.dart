@@ -46,6 +46,25 @@ void main() {
       expect(find.byType(LoadingSkeleton), findsOneWidget);
     });
 
+    testWidgets('LoadingSkeleton.list(rows: 5) contains exactly 5 Row widgets', (
+      tester,
+    ) async {
+      // _SkeletonRow is private, but each row contains exactly one Row widget
+      // (the avatar circle + two line placeholders). Count Row widgets that are
+      // descendants of the list Column to verify the rows param is respected.
+      await tester.pumpWidget(_wrap(const LoadingSkeleton.list(rows: 5)));
+      await tester.pump();
+
+      // The list Column contains 5 Padding children, each wrapping one Row.
+      // Row widgets from other sources (e.g. Scaffold's layout) are excluded
+      // by targeting descendants of the first Column inside LoadingSkeleton.
+      final rowFinder = find.descendant(
+        of: find.byType(LoadingSkeleton),
+        matching: find.byType(Row),
+      );
+      expect(rowFinder, findsNWidgets(5));
+    });
+
     testWidgets('LoadingSkeleton.card() renders without error', (tester) async {
       await tester.pumpWidget(_wrap(const LoadingSkeleton.card()));
       await tester.pump();

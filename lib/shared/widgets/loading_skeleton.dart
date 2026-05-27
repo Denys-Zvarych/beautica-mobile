@@ -72,17 +72,15 @@ class _LoadingSkeletonState extends State<LoadingSkeleton>
   Widget build(BuildContext context) {
     final color = Theme.of(context).colorScheme.surfaceContainerHighest;
 
-    return AnimatedBuilder(
-      animation: _opacity,
-      builder: (context, _) {
-        return Opacity(
-          opacity: _opacity.value,
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: _buildBody(color),
-          ),
-        );
-      },
+    // FadeTransition is more efficient than AnimatedBuilder + Opacity because
+    // it composites on the GPU layer without triggering a subtree rasterisation
+    // pass on every animation tick (MP2 pattern).
+    return FadeTransition(
+      opacity: _opacity,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: _buildBody(color),
+      ),
     );
   }
 

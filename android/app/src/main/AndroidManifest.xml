@@ -1,10 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for all network calls in all build variants (debug, profile, release). -->
+    <uses-permission
+        android:name="android.permission.INTERNET"/>
     <application
-        android:label="beautica_mobile"
+        android:label="Beautica"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/launcher_icon"
         android:fullBackupContent="@xml/backup_rules"
-        android:dataExtractionRules="@xml/data_extraction_rules">
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:networkSecurityConfig="@xml/network_security_config">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -19,19 +23,80 @@
                  while the Flutter UI initializes. After that, this theme continues
                  to determine the Window background behind the Flutter UI. -->
             <meta-data
-              android:name="io.flutter.embedding.android.NormalTheme"
-              android:resource="@style/NormalTheme"
-              />
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme"/>
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!--
+                Android App Links for security-token deep-links (MS-MEDIUM-1, Phase 2.20 audit).
+                Scoped to /invite/accept and /reset-password on the production Railway domain.
+                android:autoVerify="true" prevents a competing app from registering the same
+                URL scheme and intercepting the single-use token from an emailed link.
+
+                IMPORTANT — the autoVerify handshake REQUIRES a
+                /.well-known/assetlinks.json file to be published on the production domain
+                (https://beautica-backend-production.up.railway.app/.well-known/assetlinks.json).
+                Until the backend team publishes that file, these links will open as ordinary
+                browser links rather than directly in the app; this intent-filter is safe to
+                ship now and causes no regression for users.
+                Action item for backend-dev: publish assetlinks.json (Phase 2.20 backlog).
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="beautica-backend-production.up.railway.app"
+                    android:pathPrefix="/invite/accept" />
+            </intent-filter>
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="beautica-backend-production.up.railway.app"
+                    android:pathPrefix="/reset-password" />
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
             android:name="flutterEmbedding"
-            android:value="2" />
+            android:value="2"/>
+        <meta-data
+            android:name="io.flutter.embedding.android.ImpellerBackend"
+            android:value="opengles"/>
+
+        <!--
+            MP-STARTUP-FIREBASE: Disable Firebase Messaging auto-init on cold start.
+
+            Root cause: Firebase ships a ContentProvider (FirebaseInitProvider, priority 100)
+            that runs BEFORE Application.onCreate() and calls FirebaseApp.initializeApp().
+            On first cold start on Samsung/Xiaomi/older devices this triggers Keystore operations
+            for FCM token generation and can block process startup for 3–10 seconds.
+
+            firebase_messaging auto-init is disabled here because:
+              1. Firebase push (Phase 8.1) is deferred — FIREBASE_ENABLED=false on Railway.
+              2. The app does not yet call Firebase.initializeApp() in Dart code.
+              3. Enabling auto-init without calling Firebase.initializeApp() in Dart means the
+                 native SDK initializes but the Dart side is not configured, causing a
+                 PlatformException on first FirebaseMessaging.instance usage anyway.
+
+            To re-enable when Phase 8.1 ships:
+              1. Remove or flip these two meta-data entries to "true".
+              2. Add Firebase.initializeApp() in main() (or a deferred post-login init).
+              3. Verify cold-start time stays under 2 s on a cold Pixel 6.
+        -->
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="false"/>
+        <meta-data
+            android:name="firebase_analytics_collection_enabled"
+            android:value="false"/>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
@@ -40,8 +105,10 @@
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
         <intent>
-            <action android:name="android.intent.action.PROCESS_TEXT"/>
-            <data android:mimeType="text/plain"/>
+            <action
+                android:name="android.intent.action.PROCESS_TEXT"/>
+            <data
+                android:mimeType="text/plain"/>
         </intent>
     </queries>
 </manifest>

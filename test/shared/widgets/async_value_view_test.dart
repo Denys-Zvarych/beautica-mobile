@@ -129,10 +129,6 @@ void main() {
       await tester.pumpWidget(_wrap(const _TestWidget()));
       await tester.pump();
 
-      // Transition to data state.
-      final notifier = tester
-          .element(find.byType(_TestWidget))
-          .findAncestorWidgetOfExactType<ProviderScope>();
       // Push the data state via the container.
       final container = ProviderScope.containerOf(
         tester.element(find.byType(_TestWidget)),
@@ -146,10 +142,6 @@ void main() {
       expect(find.text('Манікюр'), findsOneWidget);
       expect(find.byType(LoadingSkeleton), findsNothing);
       expect(find.byType(ErrorState), findsNothing);
-      // Suppress unused variable warning — the ancestor lookup confirms
-      // ProviderScope is in the tree; its value is not needed further.
-      // ignore: unused_local_variable
-      final _ = notifier;
     });
 
     testWidgets('data builder receives the exact resolved value', (

@@ -33,15 +33,13 @@ dependencies:
   # Secure storage — Android Keystore-backed; refresh-token home.
   flutter_secure_storage: ^10.2.0
 
-  # Push notifications — Firebase init lands in Phase 8.1; deps reserved here.
-  firebase_core: ^4.9.0
-  firebase_messaging: ^16.2.2
+  # Push notifications — Firebase deps removed until Phase 8.1 FCM init ships
+  # (Perf MEDIUM-1 2026-05-24: both packages added ~5-7 MB to the release APK
+  # while unused; no Firebase.initializeApp() call, no google-services.json).
+  # Re-add firebase_core ^4.9.0 + firebase_messaging ^16.2.2 in Phase 8.1.
 
   # Design system — Manrope via google_fonts (full Cyrillic glyph set).
   google_fonts: ^8.1.0
-
-  # Responsive layout — Material 3 canonical breakpoints.
-  flutter_adaptive_scaffold: ^0.3.1
 
   # Models / serialization — freezed + json_serializable codegen.
   # Upgraded to ^3.0.0 in Phase 1.4 to align with custom_lint ^0.8.x which
@@ -57,6 +55,22 @@ dependencies:
   # here together with riverpod_lint 2.6.x produces an irreconcilable
   # analyzer version conflict (annotations pull openapi_generator's analyzer
   # <7.0.0 constraint, riverpod_lint requires analyzer ^7).
+
+  # Screen security — preventScreenshotOn/Off on login/register screens prevents
+  # task-switcher screenshots and screen recording (MS-4).
+  screen_protector: ^1.5.1
+
+  # Native splash screen — preserves the branded warm-taupe splash through
+  # Flutter engine startup; `FlutterNativeSplash.remove()` is called from
+  # SplashScreen.initState() to hand off to the Phase 2.10 animation. Phase 2.15.
+  flutter_native_splash: ^2.4.4
+
+  # Lottie animations — used for the splash wordmark reveal animation
+  # (`assets/lottie/splash_wordmark.json`). The splash screen renders the
+  # Lottie wordmark as the animated "beautica" text below the static
+  # VelvetLogo B-pillow. Restored 2026-05-27 after the user requested the
+  # animation be recovered alongside the static logo.
+  lottie: ^3.1.0
 
   # Logging — dart:developer log() is the official channel; no extra package.
   cupertino_icons: ^1.0.8
@@ -74,10 +88,11 @@ dev_dependencies:
   # openapi_generator deferred to Phase 3.1 — version conflict with
   # riverpod_lint's required analyzer ^7. Re-add when the OpenAPI client lands.
 
-  # Testing — mocktail (no codegen), golden_toolkit for snapshot tests.
+  # Testing — mocktail (no codegen).
+  # golden_toolkit removed 2026-05-26 — discontinued on pub.dev; was declared but never imported.
+  # When golden tests are needed, use Flutter's built-in matchesGoldenFile or the alchemist package.
   mocktail: ^1.0.4
   network_image_mock: ^2.1.1
-  golden_toolkit: ^0.15.0
 
   # Lints — flutter_lints + riverpod_lint via custom_lint.
   # Upgraded custom_lint stack to ^0.8.1 in Phase 1.4 to resolve the
@@ -89,7 +104,95 @@ dev_dependencies:
   custom_lint_builder: ^0.8.1
   riverpod_lint: ^3.1.0
 
+  # Launcher icon generator — runs at build prep time only (Phase 2.14).
+  # Generates Android mipmap-*/launcher_icon.png, adaptive-icon XML, themed
+  # monochrome variant, and the iOS AppIcon.appiconset family from the
+  # source PNGs in assets/branding/.
+  flutter_launcher_icons: ^0.14.1
+
+# Launcher icon configuration — read by `dart run flutter_launcher_icons`.
+# Lives at the TOP level (not under `flutter:`) because the dev tool — not the
+# Flutter framework — consumes it. Phase 2.14.
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  remove_alpha_ios: true
+  image_path: "assets/branding/launcher_icon_source.png"
+  image_path_android: "assets/branding/launcher_icon_source.png"
+  image_path_ios: "assets/branding/launcher_icon_source.png"
+  # Android 8+ adaptive icon layers (mandatory since target API 26+).
+  adaptive_icon_background: "#E6DDD0"
+  adaptive_icon_foreground: "assets/branding/launcher_icon_foreground.png"
+  # Android 13+ themed icons (monochrome silhouette tinted by user's wallpaper).
+  adaptive_icon_monochrome: "assets/branding/launcher_icon_monochrome.png"
+  # macOS / Windows / web deferred — only Android + iOS for MVP.
+  # In flutter_launcher_icons 0.14.x these platforms default to disabled when
+  # the key is omitted; passing `false` is a schema-cast error (expects Map).
+
 # Flutter section — enables Material icons + l10n codegen (`flutter gen-l10n`).
+# Native splash configuration — read by `dart run flutter_native_splash:create`.
+# Phase 2.15. Background: VelvetTouch warm taupe #E6DDD0 (= BrandColors.base),
+# NOT the stale espresso #0D0906 from the phase-doc draft.
+#
+# Strategy (revised 2026-05-27): OS native splash shows BACKGROUND COLOR ONLY —
+# no logo, no B-pillow PNG. Rationale: the OS-baked PNG and Flutter's runtime
+# VelvetLogo cannot guarantee identical on-screen position + visual quality
+# across Android/iOS density buckets (release builds showed a visible
+# position+size jump at the OS→Flutter handoff). By stripping the logo from
+# the OS layer, the Flutter splash becomes the SOLE owner of the logo render.
+# Users see a brief warm-taupe flash, then the Flutter splash paints the
+# B-pillow exactly once at viewport center — zero handoff jump.
+flutter_native_splash:
+  color: "#E6DDD0"                                # VelvetTouch warm taupe — matches BrandColors.base
+  color_dark: "#E6DDD0"                           # light-only design system; always warm taupe
+  # No image / image_dark — bg color only. Flutter splash owns the logo.
+
+  android: true
+  ios: true
+  web: false
+
+  # Android 12+ SplashScreen API (windowSplashScreenAnimatedIcon).
+  # Without an explicit `image:` here, Android 12+ falls back to the LAUNCHER
+  # icon (mipmap-*/launcher_icon.png) — a "B"-in-rounded-rectangle adaptive
+  # icon whose rounded-rect background is the same #E6DDD0 as the splash bg,
+  # producing a bare "B" glyph mid-splash. To suppress that glyph entirely
+  # we point at a 1×1 fully-transparent PNG: the OS still renders an icon
+  # layer but it has zero visible pixels, so users see only the bg color
+  # until the Flutter engine takes over.
+  android_12:
+    color: "#E6DDD0"
+    color_dark: "#E6DDD0"
+    # 1×1 transparent PNG — overrides the launcher icon that Android 12+
+    # would otherwise auto-show. See note above.
+    image: assets/branding/splash_icon_blank.png
+
+  android_gravity: center
+  fullscreen: true
+
+  ios_content_mode: center
+
 flutter:
   uses-material-design: true
   generate: true
+  # assets/branding/ is intentionally NOT listed here — those files are
+  # build-time inputs for flutter_launcher_icons and flutter_native_splash
+  # only and are never loaded via Image.asset() at runtime.
+  assets:
+    # Bundled font files for Comfortaa (w600/w700) and Nunito (w600/w700).
+    # google_fonts automatically prefers these over network fetches when
+    # allowRuntimeFetching = false (see main.dart). Required for release APKs
+    # where there is no network fallback and where kDebugMode = false previously
+    # caused the wordmark to fall back to the system font.
+    - assets/fonts/
+
+    # Lottie animations directory. The splash screen renders
+    # `assets/lottie/splash_wordmark.json` as the animated "beautica" wordmark
+    # below the static VelvetLogo B-pillow. See assets/lottie/README.md for
+    # the design spec.
+    - assets/lottie/
+
+    # TLS certificate for Dio cert-pinning (MEDIUM-3, mobile-security 2026-05-27).
+    # The ISRG Root X1 PEM is used by IOHttpClientAdapter on both Android
+    # (belt — alongside network_security_config.xml) and iOS (suspenders —
+    # no OS-level equivalent to Android's network_security_config).
+    - assets/certs/
