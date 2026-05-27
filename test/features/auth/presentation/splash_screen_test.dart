@@ -1,15 +1,27 @@
 // Widget tests for SplashScreen.
 //
-// Contract (post-2026-05-27 refactor — "splash logo === login logo"):
+// Contract (post-2026-05-27 refactor — "centred composite, Lottie wordmark"):
 //
-//   The splash body is exactly:
-//       Center(child: VelvetLogo(compact: true))
-//   centred on a Scaffold whose backgroundColor is BrandColors.base. This is
-//   the same widget literal that login_screen.dart line 196 renders, so the
-//   cold-start visual is identical to what users see the moment /login
-//   paints its first frame. There is NO Lottie animation, NO tri-state
-//   asset probe, NO AnimationController, NO AnimatedWordmark, and NO
-//   plain-Text fallback path — just the shared VelvetLogo composite.
+//   The splash body is a Center wrapping a Column with mainAxisSize:min, so
+//   the whole composite is centred vertically AND horizontally at the
+//   viewport midpoint:
+//       Center(
+//         child: Column(
+//           mainAxisSize: MainAxisSize.min,
+//           children: [
+//             VelvetLogo(compact: true, showWordmark: false),  // B-pillow only
+//             SizedBox(height: 8),
+//             _SplashWordmark(),                               // Lottie wordmark
+//           ],
+//         ),
+//       )
+//   on a Scaffold whose backgroundColor is BrandColors.base.
+//
+//   The wordmark text is owned by the bundled Lottie animation at
+//   `assets/lottie/splash_wordmark.json` — there is NO static Text('beautica')
+//   on the splash anymore. The visual outline matches the login-screen
+//   VelvetLogo composite (B above, "beautica" below), but the wordmark
+//   reveals letter-by-letter instead of rendering as static type.
 //
 // What survives from the old splash:
 //   - FlutterNativeSplash.remove() in initState (idempotent no-op in tests).
@@ -22,19 +34,23 @@
 //
 // Tests:
 //   1. Smoke — widget renders without error.
-//   2. VelvetLogo present in compact mode (compact:true verified on the
-//      widget instance — same flag login_screen.dart:196 passes).
-//   3. Wordmark "beautica" Text is rendered (VelvetLogo's default
-//      showWordmark:true draws the full composite, B-pillow + wordmark).
-//   4. No Lottie widget anywhere in the tree.
-//   5. Scaffold bg == BrandColors.base (warm-taupe match with the native
+//   2. VelvetLogo present in compact mode with showWordmark:false (the
+//      wordmark slot is intentionally suppressed so the Lottie owns the
+//      "beautica" text below the tile).
+//   3. Lottie wordmark widget renders.
+//   4. No static Text('beautica') in the tree — the Lottie is the sole
+//      wordmark, so a coexisting static Text would double-render.
+//   5. Composite is centred — Column inside Center with
+//      mainAxisSize:MainAxisSize.min, so the whole composite lands at the
+//      viewport's true vertical midpoint.
+//   6. Scaffold bg == BrandColors.base (warm-taupe match with the native
 //      OS splash so the handoff is a single colour).
-//   6. FlutterNativeSplash.remove() does not throw in the widget-test
+//   7. FlutterNativeSplash.remove() does not throw in the widget-test
 //      environment (the native-splash platform channel is not initialised
 //      in tests; remove() is a documented no-op).
-//   7. Early-dispose safety — disposing the widget before any pump drains
+//   8. Early-dispose safety — disposing the widget before any pump drains
 //      the frame queue does not throw and does not leak _splashTimer.
-//   8. _splashTimer fires GoRouter.of(context).refresh() after _minSplashMs
+//   9. _splashTimer fires GoRouter.of(context).refresh() after _minSplashMs
 //      when the widget is still mounted — single source of router-kick.
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -43,6 +59,7 @@ import 'package:beautica_mobile/features/auth/presentation/splash_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lottie/lottie.dart';
 
 // Wraps the widget under test in the minimal tree that SplashScreen requires:
 // a MaterialApp (for Scaffold / Theme) with no router needed for most tests.
@@ -66,76 +83,145 @@ void main() {
     });
 
     // -------------------------------------------------------------------------
-    // Test 2 — VelvetLogo present in compact mode (matches login_screen.dart)
+    // Test 2 — VelvetLogo present in compact mode with showWordmark:false
     // -------------------------------------------------------------------------
-    testWidgets('2. renders VelvetLogo(compact: true) centred', (tester) async {
+    testWidgets(
+      '2. renders VelvetLogo(compact: true) with showWordmark:false',
+      (tester) async {
+        await tester.pumpWidget(_buildApp());
+        await tester.pump();
+
+        expect(
+          find.byType(VelvetLogo),
+          findsOneWidget,
+          reason: 'Splash must render the B-pillow via VelvetLogo.',
+        );
+        final logo = tester.widget<VelvetLogo>(find.byType(VelvetLogo));
+        expect(
+          logo.compact,
+          isTrue,
+          reason: 'Splash uses compact:true to match the login-screen logo.',
+        );
+        expect(
+          logo.showWordmark,
+          isFalse,
+          reason:
+              'The wordmark slot is owned by the Lottie animation below; '
+              'VelvetLogo must NOT also render its default static "beautica" '
+              'Text — otherwise the wordmark would render twice.',
+        );
+
+        await tester.pump(const Duration(milliseconds: 3500));
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // Test 3 — Lottie wordmark widget renders
+    // -------------------------------------------------------------------------
+    testWidgets('3. Lottie wordmark widget renders', (tester) async {
       await tester.pumpWidget(_buildApp());
       await tester.pump();
+      // Allow the Lottie asset bundle resolver a frame to settle.
+      await tester.pump(const Duration(milliseconds: 50));
 
       expect(
-        find.byType(VelvetLogo),
+        find.byType(Lottie),
         findsOneWidget,
-        reason: 'Splash must show the same VelvetLogo widget as login.',
-      );
-      final logo = tester.widget<VelvetLogo>(find.byType(VelvetLogo));
-      expect(
-        logo.compact,
-        isTrue,
-        reason: 'Splash uses compact:true to match login_screen.dart:196.',
+        reason: 'Splash must render the animated Lottie wordmark reveal.',
       );
 
       await tester.pump(const Duration(milliseconds: 3500));
     });
 
     // -------------------------------------------------------------------------
-    // Test 3 — wordmark "beautica" Text renders (VelvetLogo default composite)
+    // Test 4 — static "beautica" Text is NOT rendered (animation owns wordmark)
     // -------------------------------------------------------------------------
-    testWidgets('3. wordmark "beautica" Text renders', (tester) async {
-      await tester.pumpWidget(_buildApp());
-      await tester.pump();
+    testWidgets(
+      '4. static "beautica" Text is NOT rendered (animation owns wordmark)',
+      (tester) async {
+        await tester.pumpWidget(_buildApp());
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
 
-      expect(
-        find.text('beautica'),
-        findsOneWidget,
-        reason:
-            'VelvetLogo(compact: true) defaults to showWordmark:true, so '
-            'the "beautica" Text must render below the B-pillow tile.',
-      );
+        expect(
+          find.text('beautica'),
+          findsNothing,
+          reason:
+              'Lottie owns the wordmark; no static Text("beautica") should '
+              'coexist with the animated reveal.',
+        );
 
-      await tester.pump(const Duration(milliseconds: 3500));
-    });
+        await tester.pump(const Duration(milliseconds: 3500));
+      },
+    );
 
     // -------------------------------------------------------------------------
-    // Test 4 — no Lottie widget anywhere
+    // Test 5 — composite is centred (Column inside Center, mainAxisSize:min)
     //
-    // The Lottie reveal was removed — VelvetLogo is the sole content. Use a
-    // type-name predicate instead of importing the Lottie package, since the
-    // dependency may be removed from pubspec entirely.
+    // Center + Column(mainAxisSize:min) is the layout pattern that lands the
+    // composite at the viewport's true vertical midpoint. If the Column
+    // expanded to fill the available vertical extent (mainAxisSize:max), the
+    // children would distribute along the cross axis instead of sitting at
+    // the centre, and the user would see "top of page" drift again.
     // -------------------------------------------------------------------------
-    testWidgets('4. no Lottie widget on splash', (tester) async {
+    testWidgets('5. composite is centred — Column inside Center', (
+      tester,
+    ) async {
       await tester.pumpWidget(_buildApp());
       await tester.pump();
 
-      final lottieDescendants = find.byWidgetPredicate(
-        (w) => w.runtimeType.toString() == 'Lottie',
+      final centerFinder = find.byType(Center);
+      expect(
+        centerFinder,
+        findsWidgets,
+        reason:
+            'A Center widget is required to vertically + horizontally '
+            'centre the composite at the viewport midpoint.',
+      );
+
+      // The splash composite Column is a direct child of a Center widget.
+      // VelvetLogo internally builds its own Column for the B-pillow tile,
+      // so a naive `find.descendant(of: SplashScreen, Column)` matches both;
+      // scope the query to the Column that is wrapped by Center to land on
+      // the composite specifically.
+      final columnFinder = find.ancestor(
+        of: find.byType(VelvetLogo),
+        matching: find.byType(Column),
       );
       expect(
-        lottieDescendants,
-        findsNothing,
-        reason: 'Lottie reveal was removed — VelvetLogo is the sole content.',
+        columnFinder,
+        findsWidgets,
+        reason:
+            'VelvetLogo must sit inside a Column (the composite Column that '
+            'stacks the B-pillow above the Lottie wordmark).',
+      );
+      // The outermost Column that has the Lottie wordmark as a sibling is the
+      // splash composite Column.
+      final compositeColumn = tester.widget<Column>(
+        find
+            .ancestor(of: find.byType(Lottie), matching: find.byType(Column))
+            .first,
+      );
+      expect(
+        compositeColumn.mainAxisSize,
+        equals(MainAxisSize.min),
+        reason:
+            'The splash composite Column.mainAxisSize MUST be min so Center '
+            'treats it as a unit and lands its midpoint at the viewport '
+            'centre.',
       );
 
       await tester.pump(const Duration(milliseconds: 3500));
     });
 
     // -------------------------------------------------------------------------
-    // Test 5 — Scaffold bg matches BrandColors.base
+    // Test 6 — Scaffold bg matches BrandColors.base
     //
     // The native splash background is configured as #E6DDD0 (warm taupe).
     // The Flutter Scaffold must use the identical colour to prevent a flash
     // at the native-to-Flutter handoff.
     // -------------------------------------------------------------------------
-    testWidgets('5. Scaffold bg = BrandColors.base', (tester) async {
+    testWidgets('6. Scaffold bg = BrandColors.base', (tester) async {
       await tester.pumpWidget(_buildApp());
       await tester.pump();
 
@@ -152,9 +238,9 @@ void main() {
     });
 
     // -------------------------------------------------------------------------
-    // Test 6 — FlutterNativeSplash.remove() does not throw in tests
+    // Test 7 — FlutterNativeSplash.remove() does not throw in tests
     // -------------------------------------------------------------------------
-    testWidgets('6. FlutterNativeSplash.remove() does not throw', (
+    testWidgets('7. FlutterNativeSplash.remove() does not throw', (
       tester,
     ) async {
       await tester.pumpWidget(_buildApp());
@@ -166,7 +252,7 @@ void main() {
     });
 
     // -------------------------------------------------------------------------
-    // Test 7 — Early-dispose: _splashTimer cancelled cleanly
+    // Test 8 — Early-dispose: _splashTimer cancelled cleanly
     //
     // initState schedules _splashTimer unconditionally. dispose() must cancel
     // it. If the cancel were missing, the fake-async test binding's
@@ -177,7 +263,7 @@ void main() {
     // the timer → no framework assertion.
     // -------------------------------------------------------------------------
     testWidgets(
-      '7. early-dispose: _splashTimer cancelled by dispose() without error',
+      '8. early-dispose: _splashTimer cancelled by dispose() without error',
       (tester) async {
         await tester.pumpWidget(_buildApp());
 
@@ -198,14 +284,14 @@ void main() {
     );
 
     // -------------------------------------------------------------------------
-    // Test 8 — _splashTimer fires GoRouter.refresh() after _minSplashMs.
+    // Test 9 — _splashTimer fires GoRouter.refresh() after _minSplashMs.
     //
     // The timer fires after _minSplashMs (3000ms). When the widget is still
     // mounted, GoRouter.of(context).refresh() must be called. This is the
     // single router re-kick that prevents users from being permanently parked
     // on /splash.
     // -------------------------------------------------------------------------
-    testWidgets('8. _splashTimer fires GoRouter.refresh() after _minSplashMs', (
+    testWidgets('9. _splashTimer fires GoRouter.refresh() after _minSplashMs', (
       tester,
     ) async {
       var refreshCount = 0;

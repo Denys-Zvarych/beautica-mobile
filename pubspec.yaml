@@ -65,6 +65,13 @@ dependencies:
   # SplashScreen.initState() to hand off to the Phase 2.10 animation. Phase 2.15.
   flutter_native_splash: ^2.4.4
 
+  # Lottie animations — used for the splash wordmark reveal animation
+  # (`assets/lottie/splash_wordmark.json`). The splash screen renders the
+  # Lottie wordmark as the animated "beautica" text below the static
+  # VelvetLogo B-pillow. Restored 2026-05-27 after the user requested the
+  # animation be recovered alongside the static logo.
+  lottie: ^3.1.0
+
   # Logging — dart:developer log() is the official channel; no extra package.
   cupertino_icons: ^1.0.8
 
@@ -177,3 +184,9 @@ flutter:
     # where there is no network fallback and where kDebugMode = false previously
     # caused the wordmark to fall back to the system font.
     - assets/fonts/
+
+    # Lottie animations directory. The splash screen renders
+    # `assets/lottie/splash_wordmark.json` as the animated "beautica" wordmark
+    # below the static VelvetLogo B-pillow. See assets/lottie/README.md for
+    # the design spec.
+    - assets/lottie/

@@ -15,20 +15,38 @@
 // Phase 2.15 — Native-splash handoff (revised 2026-05-27):
 //   The OS native splash shows ONLY the warm-taupe background colour
 //   (#E6DDD0) — no B-pillow, no logo, no wordmark. The Flutter splash takes
-//   over once the first frame is ready and renders the SAME [VelvetLogo]
-//   composite that the login screen uses (`compact: true`) centred on
+//   over once the first frame is ready and renders a centred Column
+//   composite (static B-pillow tile + animated Lottie wordmark reveal) on
 //   [BrandColors.base]. Result: cold-start → warm-taupe bg only → warm-taupe
-//   bg + the login-screen logo (B-pillow + "beautica" wordmark below).
+//   bg + the brand mark animating into place.
 //
 //   [FlutterNativeSplash.preserve] in main() holds the OS bg until the first
 //   Flutter frame; [FlutterNativeSplash.remove] in [initState] dismisses it.
 //
-// Splash content — single widget:
-//   The splash body is exactly `Center(child: VelvetLogo(compact: true))`,
-//   matching `login_screen.dart` line 196 character-for-character. No Lottie
-//   animation, no AnimationController, no tri-state asset probe — the
-//   splash visual is identical to what the user sees on /login the moment
-//   they arrive there, which is the requested behaviour.
+// Splash content — centred composite (revised 2026-05-27):
+//   The splash body is a single `Center` widget wrapping a `Column` whose
+//   children are:
+//     1. [VelvetLogo](compact: true, showWordmark: false) — the rounded
+//        72dp B-pillow tile only.
+//     2. A fixed [_bToWordmarkGap] (8 dp) gap, matching the internal vertical
+//        rhythm of VelvetLogo's default composite.
+//     3. [_SplashWordmark] — a [Lottie.asset] that plays the wordmark reveal
+//        animation bundled at `assets/lottie/splash_wordmark.json` (400×80,
+//        60 fps). The Lottie replaces the static "beautica" Text the default
+//        VelvetLogo composite would have rendered, so the visual outline
+//        matches the login-screen logo exactly while the wordmark itself
+//        animates letter-by-letter on the splash.
+//
+//   The Column uses `mainAxisSize: MainAxisSize.min` so that `Center` treats
+//   the whole composite as a single unit — its vertical midpoint lands on
+//   the viewport's true vertical centre. This is the fix for the user's
+//   complaint that the previous layout had the logo "at the top of the
+//   page".
+//
+//   The Lottie asset is bundled in the APK (declared in pubspec.yaml under
+//   `flutter > assets`), so no runtime probe is required; if the asset is
+//   missing the Lottie widget will throw at build time, which is a
+//   build-invariant failure and therefore correct to surface loudly.
 //
 //   A [Timer] for the remaining [AppStartTime.minSplashDuration] still kicks
 //   the GoRouter so we exit /splash into /login or /home as soon as the
@@ -36,32 +54,57 @@
 //   resolve before the first frame and the redirect never re-fires.
 //
 // Why no AnimationController here:
-//   Splash visual is a static composite — no animation owned by this widget.
-//   VelvetLogo internally renders a plain Text wordmark when no
-//   AnimationController is supplied, so there is no Ticker dependency.
+//   The wordmark animation lives inside the Lottie widget, which owns its
+//   own Ticker via [Lottie.asset]. The splash widget therefore has no
+//   AnimationController of its own to dispose.
 //
 // Why no ScreenProtector here:
-//   The splash screen displays only the branded "beautica" wordmark — no
-//   passwords, OTP codes, or user data are ever rendered. ScreenProtector is
-//   reserved for screens with sensitive fields (login, verification, register,
-//   reset-password, invite-accept, settings).
+//   The splash screen displays only the branded B-pillow and the animated
+//   wordmark — no passwords, OTP codes, or user data are ever rendered.
+//   ScreenProtector is reserved for screens with sensitive fields (login,
+//   verification, register, reset-password, invite-accept, settings).
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lottie/lottie.dart';
 
 import '../../../core/app_start_time.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/widgets/neumorphic.dart';
 
+/// Asset path for the splash wordmark Lottie reveal animation. Bundled in
+/// the APK via the `assets/lottie/` declaration in `pubspec.yaml`.
+const String _lottieAssetPath = 'assets/lottie/splash_wordmark.json';
+
+/// Vertical gap between the B-pillow tile and the wordmark below it. Matches
+/// the internal spacing of the default `VelvetLogo(compact: true)` composite
+/// so the splash visual rhythm matches the login-screen header.
+const double _bToWordmarkGap = 8.0;
+
+/// Render width of the Lottie wordmark on the splash. Sized to read as a
+/// brand mark beneath the 72dp B-pillow, not a tiny line of text. The
+/// underlying Lottie composition is 400×80 (5:1 aspect ratio); 160×32
+/// preserves that ratio while keeping the wordmark visually balanced
+/// against the pillow above it.
+const double _lottieWidth = 160.0;
+
+/// Render height of the Lottie wordmark on the splash. See [_lottieWidth].
+const double _lottieHeight = 32.0;
+
 /// Cold-start parking screen shown while the auth session resolves.
 ///
-/// Renders the same [VelvetLogo] composite the login screen uses
-/// (`compact: true` → 72dp tile + "beautica" wordmark below) centred on
-/// [BrandColors.base]. No animation owned by this widget — the visual is
-/// intentionally identical to what /login shows on first paint.
+/// Renders a centred [Column] composite on [BrandColors.base]:
+///   - [VelvetLogo](compact: true, showWordmark: false) — static B-pillow.
+///   - 8 dp gap ([_bToWordmarkGap]).
+///   - [_SplashWordmark] — animated Lottie wordmark reveal.
+///
+/// The composite is wrapped in a [Center] widget and the inner [Column] uses
+/// `mainAxisSize: MainAxisSize.min` so the whole composite is treated as a
+/// single unit centred at the viewport midpoint, vertically and
+/// horizontally.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -126,16 +169,50 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Single centred VelvetLogo — matches login_screen.dart:196 verbatim:
-    //   const Center(child: VelvetLogo(compact: true)),
+    // Centred composite, vertically and horizontally:
+    //   B-pillow  (VelvetLogo with showWordmark:false — just the rounded tile)
+    //   8 dp gap
+    //   Lottie wordmark reveal  (animated "beautica" letter-by-letter)
     //
-    // The widget renders a 72dp B-pillow tile with the "beautica" wordmark
-    // below (VelvetLogo defaults: markFontSize:36, wordmarkFontSize:14,
-    // showWordmark:true). No animation, no asset probe — what the user sees
-    // on /splash is exactly what they see on /login the moment they arrive.
+    // Mirrors the visual structure of the login-screen header
+    // (`VelvetLogo(compact: true)`) but the wordmark text is replaced by the
+    // Lottie reveal animation. The Column is sized to its children
+    // (`mainAxisSize: MainAxisSize.min`) so Center treats it as one unit and
+    // lands its midpoint on the viewport's true centre — no top-of-page
+    // drift.
     return const Scaffold(
       backgroundColor: BrandColors.base,
-      body: Center(child: VelvetLogo(compact: true)),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            VelvetLogo(compact: true, showWordmark: false),
+            SizedBox(height: _bToWordmarkGap),
+            _SplashWordmark(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Animated wordmark for the splash composite. Plays the bundled Lottie
+/// reveal once (no looping) at a fixed render size below the B-pillow.
+///
+/// Extracted into a private widget so the outer build tree can remain
+/// entirely `const` — `Lottie.asset(...)` is not a const constructor.
+class _SplashWordmark extends StatelessWidget {
+  const _SplashWordmark();
+
+  @override
+  Widget build(BuildContext context) {
+    return Lottie.asset(
+      _lottieAssetPath,
+      width: _lottieWidth,
+      height: _lottieHeight,
+      fit: BoxFit.contain,
+      repeat: false,
     );
   }
 }
