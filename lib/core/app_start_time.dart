@@ -57,4 +57,13 @@ abstract final class AppStartTime {
   /// isolate execution.
   @visibleForTesting
   static void resetForTest() => _start = null;
+
+  /// Set [_start] to a fixed instant in the past so [elapsed] returns a
+  /// deterministic value greater than the supplied offset.
+  ///
+  /// **Test-only** — never call in production code. Used by the redirect
+  /// guard tests to advance past [minSplashDuration] without sleeping on a
+  /// real wall clock.
+  @visibleForTesting
+  static void setStartForTest(DateTime start) => _start = start;
 }

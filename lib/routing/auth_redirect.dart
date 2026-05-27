@@ -140,10 +140,12 @@ String? authRedirectForLocation(
   // Applies only when the user is currently on /splash — does NOT affect any
   // other route, including auth wizard routes (isAtAuthRoute → null was already
   // returned above). Also does not apply if the session is still loading (the
-  // isLoading branch above handles that path). The gate is intentionally not
-  // applied in debug mode — developers should not wait 950 ms on every hot
-  // restart. In release mode the 950 ms brand moment is non-negotiable UX.
-  if (!kDebugMode && location == RouteNames.splash) {
+  // isLoading branch above handles that path). The gate applies in every build
+  // mode (debug and release alike) because the animated wordmark is the
+  // verified UX surface; debug builds previously skipped it and showed only
+  // the static "B" pillow from the native splash before the router yanked the
+  // user to /login or /home.
+  if (location == RouteNames.splash) {
     if (AppStartTime.elapsed() < _minSplashDuration) {
       return RouteNames.splash;
     }

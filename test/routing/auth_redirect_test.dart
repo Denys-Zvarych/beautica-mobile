@@ -30,6 +30,7 @@
 //   - settled unauthenticated @ /splash → /login
 //   - AsyncError → treated as unauthenticated → /login
 
+import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -67,6 +68,19 @@ const _loadingSession = AsyncLoading<AuthSession>();
 // ---------------------------------------------------------------------------
 
 void main() {
+  // The splash duration gate (auth_redirect.dart) now applies in every build
+  // mode — including tests. Backdate AppStartTime so the existing matrix
+  // assertions exercise post-gate behaviour (i.e. elapsed() > minSplashDuration).
+  // Individual tests that need to exercise the within-gate path reset the
+  // start time themselves.
+  setUp(() {
+    AppStartTime.setStartForTest(
+      DateTime.now().subtract(const Duration(seconds: 5)),
+    );
+  });
+
+  tearDown(AppStartTime.resetForTest);
+
   group('authRedirectForLocation (production logic)', () {
     test('anonymous user at / is redirected to /login', () {
       expect(
@@ -317,6 +331,39 @@ void main() {
         isNull,
       );
     });
+  });
+
+  // Splash duration gate — the animated wordmark (880 ms reveal) must always
+  // play to completion. The gate parks the router on /splash until
+  // AppStartTime.elapsed() >= AppStartTime.minSplashDuration regardless of
+  // build mode. Previously gated by !kDebugMode, which caused the static
+  // native-splash "B" pillow to be the only thing debug users ever saw.
+  group('splash duration gate (build-mode-independent)', () {
+    test(
+      'Settled Unauthenticated user on /splash within minSplashDuration → stays on /splash',
+      () {
+        AppStartTime.resetForTest();
+        AppStartTime.record(); // elapsed ≈ 0 → strictly less than minSplashDuration
+        final result = authRedirectForLocation(
+          _unauthenticatedSession,
+          RouteNames.splash,
+        );
+        expect(result, RouteNames.splash);
+      },
+    );
+
+    test(
+      'Settled Authenticated user on /splash within minSplashDuration → stays on /splash',
+      () {
+        AppStartTime.resetForTest();
+        AppStartTime.record(); // elapsed ≈ 0 → strictly less than minSplashDuration
+        final result = authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.splash,
+        );
+        expect(result, RouteNames.splash);
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
