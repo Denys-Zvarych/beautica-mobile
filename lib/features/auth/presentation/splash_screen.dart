@@ -163,8 +163,9 @@ class _SplashScreenState extends State<SplashScreen> {
       backgroundColor: BrandColors.base,
       body: Stack(
         children: <Widget>[
+          // Matches the Android 12 OS native splash icon position so the handoff doesn't visibly jump.
           Align(
-            alignment: const Alignment(0.0, -0.4),
+            alignment: Alignment.center,
             child: _lottieAvailable
                 ? const _LottieSplashContent()
                 : const VelvetLogo(

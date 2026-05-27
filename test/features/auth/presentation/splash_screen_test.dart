@@ -81,7 +81,8 @@ void main() {
 
       // Drain the pending _splashTimer so the binding does not complain about
       // a wall-clock timer left over at tear-down.
-      await tester.pump(const Duration(milliseconds: 2500));
+      // pumps past minSplashDuration = 3000ms
+      await tester.pump(const Duration(milliseconds: 3500));
     });
 
     // -------------------------------------------------------------------------
@@ -133,7 +134,8 @@ void main() {
       // size value is dead. The Lottie animation owns the wordmark render.
 
       // Drain the splash timer.
-      await tester.pump(const Duration(milliseconds: 2500));
+      // pumps past minSplashDuration = 3000ms
+      await tester.pump(const Duration(milliseconds: 3500));
     });
 
     // -------------------------------------------------------------------------
@@ -167,7 +169,8 @@ void main() {
       );
 
       // Drain the splash timer.
-      await tester.pump(const Duration(milliseconds: 2500));
+      // pumps past minSplashDuration = 3000ms
+      await tester.pump(const Duration(milliseconds: 3500));
     });
 
     // -------------------------------------------------------------------------
@@ -188,7 +191,8 @@ void main() {
       );
 
       // Drain the splash timer.
-      await tester.pump(const Duration(milliseconds: 2500));
+      // pumps past minSplashDuration = 3000ms
+      await tester.pump(const Duration(milliseconds: 3500));
     });
 
     // -------------------------------------------------------------------------
@@ -216,7 +220,8 @@ void main() {
       );
 
       // Drain the splash timer.
-      await tester.pump(const Duration(milliseconds: 2500));
+      // pumps past minSplashDuration = 3000ms
+      await tester.pump(const Duration(milliseconds: 3500));
     });
 
     // -------------------------------------------------------------------------
@@ -229,7 +234,8 @@ void main() {
       expect(find.byType(AppBar), findsNothing);
 
       // Drain the splash timer.
-      await tester.pump(const Duration(milliseconds: 2500));
+      // pumps past minSplashDuration = 3000ms
+      await tester.pump(const Duration(milliseconds: 3500));
     });
 
     // -------------------------------------------------------------------------
@@ -267,7 +273,8 @@ void main() {
 
         final alignFinder = find.byWidgetPredicate(
           (widget) =>
-              widget is Align && (widget.alignment as Alignment).y == -0.4,
+              widget.runtimeType == Align &&
+              ((widget as Align).alignment as Alignment).y == 0.0,
         );
         expect(alignFinder, findsOneWidget);
 
@@ -284,7 +291,8 @@ void main() {
         );
 
         // Drain the splash timer.
-        await tester.pump(const Duration(milliseconds: 2500));
+        // pumps past minSplashDuration = 3000ms
+        await tester.pump(const Duration(milliseconds: 3500));
       },
     );
 
@@ -312,7 +320,8 @@ void main() {
         );
 
         // Drain the splash timer.
-        await tester.pump(const Duration(milliseconds: 2500));
+        // pumps past minSplashDuration = 3000ms
+        await tester.pump(const Duration(milliseconds: 3500));
       },
     );
 
@@ -328,7 +337,8 @@ void main() {
         expect(find.byType(SplashScreen), findsOneWidget);
 
         // Drain the splash timer.
-        await tester.pump(const Duration(milliseconds: 2500));
+        // pumps past minSplashDuration = 3000ms
+        await tester.pump(const Duration(milliseconds: 3500));
       },
     );
 
@@ -367,7 +377,7 @@ void main() {
     // -------------------------------------------------------------------------
     // Test 12 — _splashTimer fires and calls GoRouter.refresh() when mounted.
     //
-    // The timer fires after _minSplashMs (2000ms). When the widget is still
+    // The timer fires after _minSplashMs (3000ms). When the widget is still
     // mounted, GoRouter.of(context).refresh() must be called. This is the
     // single router re-kick that prevents users from being permanently parked
     // on /splash. The Lottie/static pivot does not change this behaviour —
@@ -400,10 +410,11 @@ void main() {
         // Capture redirect count after initial router evaluation.
         final countAfterBuild = refreshCount;
 
-        // Advance clock past _minSplashMs (2000 ms). The splash timer fires,
+        // Advance clock past _minSplashMs (3000 ms). The splash timer fires,
         // GoRouter.of(context).refresh() is called, triggering a redirect
         // re-evaluation. The counter must exceed countAfterBuild.
-        await tester.pump(const Duration(milliseconds: 2500));
+        // pumps past minSplashDuration = 3000ms
+        await tester.pump(const Duration(milliseconds: 3500));
         await tester.pumpAndSettle();
 
         expect(

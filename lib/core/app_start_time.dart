@@ -25,16 +25,16 @@ abstract final class AppStartTime {
 
   /// Guaranteed minimum time the animated splash wordmark is visible.
   ///
-  /// 880 ms designed animation duration can stretch to ~1.5 s on Android 12
-  /// cold start due to native-splash compositing throttling. Plus ~500 ms of
-  /// static visible end-state so the user actually perceives the completed
-  /// wordmark before the route transitions to /login or /home. Referenced by
-  /// both [auth_redirect.dart] (parks the router on /splash until this
-  /// duration has passed) and [splash_screen.dart] (waits for the remainder
-  /// after the animation completes before refreshing the router).
+  /// 880 ms Lottie reveal + ~1.5 s of static visible end-state so the user
+  /// has time to perceive the animation completing on Android 12 cold start.
+  /// (The Lottie widget starts a small moment after Flutter takes over from
+  /// the OS splash — asset load + mount latency — so a 2000 ms gate left the
+  /// animation getting cut off mid-reveal. 3000 ms covers the worst case
+  /// with margin.) Referenced by both [auth_redirect.dart] and
+  /// [splash_screen.dart].
   ///
   /// Single source of truth — do not duplicate this constant.
-  static const Duration minSplashDuration = Duration(milliseconds: 2000);
+  static const Duration minSplashDuration = Duration(milliseconds: 3000);
 
   /// Record the current time as the application start instant.
   ///
