@@ -95,6 +95,13 @@ class _SplashScreenState extends State<SplashScreen>
     // entirely), this call is a safe no-op.
     FlutterNativeSplash.remove();
 
+    // Anchor the splash-duration gate to the moment Flutter's surface becomes
+    // visible, NOT to app entry. Native splash + Dart VM init can take >1s on
+    // Android 12 cold starts, which would otherwise pre-expire the 950 ms gate
+    // and cause go_router to redirect to /login before the wordmark animation
+    // can paint a single frame.
+    AppStartTime.record();
+
     // Start the animation immediately. AnimationController schedules its own
     // ticker via vsync and does not need a rendered frame — no
     // addPostFrameCallback required. MediaQuery is unavailable in initState;
