@@ -88,12 +88,13 @@ void main() {
     // -------------------------------------------------------------------------
     // Test 2 — VelvetLogo is present with the splash-specific size params
     //
-    // The splash renders a larger logo than any other screen:
+    // The splash renders the logo at sizes chosen to match the Android 12 OS
+    // native splash icon scale (~192 dp icon area), so the handoff from the
+    // OS splash to the Flutter splash does not produce a visible jump:
     //   - compact: false  (default — unchanged)
-    //   - tileSize: 152   (bigger pillow on splash only — sized to match the
-    //                      OS native splash PNG's visual scale; the OS scales
-    //                      our 1152×1152 composite into the ~192 dp icon area)
-    //   - markFontSize: 70
+    //   - tileSize: 92
+    //   - markFontSize: 42
+    //   - wordmarkFontSize: 17 (static fallback path only)
     //
     // wordmarkFontSize is intentionally NOT asserted: in the Lottie path the
     // VelvetLogo is constructed with showWordmark:false (the Lottie animation
@@ -123,16 +124,16 @@ void main() {
       );
       expect(
         logo.tileSize,
-        equals(152.0),
+        equals(92.0),
         reason:
-            'Splash uses a 152 dp pillow — sized to match the OS native '
-            'splash PNG visual scale (1.65x the previous 92 dp).',
+            'Splash uses a 92 dp pillow — sized to match the Android 12 OS '
+            'native splash icon area (~192 dp) so the OS→Flutter handoff '
+            'shows no visible logo-size jump.',
       );
       expect(
         logo.markFontSize,
-        equals(70.0),
-        reason:
-            'Splash "B" glyph is 70 sp — proportional to the 152 dp pillow.',
+        equals(42.0),
+        reason: 'Splash "B" glyph is 42 sp — proportional to the 92 dp pillow.',
       );
       // wordmarkFontSize is irrelevant in the Lottie path: VelvetLogo's
       // showWordmark=false suppresses the static Text("beautica"), so the

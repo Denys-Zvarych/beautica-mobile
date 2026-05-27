@@ -169,9 +169,9 @@ class _SplashScreenState extends State<SplashScreen> {
             child: _lottieAvailable
                 ? const _LottieSplashContent()
                 : const VelvetLogo(
-                    tileSize: 152,
-                    markFontSize: 70,
-                    wordmarkFontSize: 28,
+                    tileSize: 92,
+                    markFontSize: 42,
+                    wordmarkFontSize: 17,
                   ),
           ),
         ],
@@ -192,12 +192,12 @@ class _LottieSplashContent extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        const VelvetLogo(tileSize: 152, markFontSize: 70, showWordmark: false),
-        const SizedBox(height: 26),
+        const VelvetLogo(tileSize: 92, markFontSize: 42, showWordmark: false),
+        const SizedBox(height: 16),
         Lottie.asset(
           _lottieAssetPath,
-          width: 600,
-          height: 120,
+          width: 400,
+          height: 80,
           fit: BoxFit.contain,
           repeat: false,
         ),
