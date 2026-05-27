@@ -34,7 +34,7 @@ import 'route_names.dart';
 
 /// Guaranteed minimum time the animated splash wordmark is visible.
 ///
-/// Single source of truth: [AppStartTime.minSplashDuration] (950 ms).
+/// Single source of truth: [AppStartTime.minSplashDuration] (3 000 ms).
 /// The redirect gate parks the router on [RouteNames.splash] until this
 /// duration has passed, even when the auth provider resolves synchronously
 /// (as it does in release AOT builds for returning users). This ensures the

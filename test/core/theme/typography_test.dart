@@ -50,14 +50,17 @@ void main() {
       expect(s.color, BrandColors.white);
     });
 
-    testWidgets('wordmark uses Comfortaa 22/700 with textSecondary', (
-      tester,
-    ) async {
-      final s = VelvetText.wordmark();
-      expect(s.fontSize, 22.0);
-      expect(s.fontWeight, FontWeight.w700);
-      expect(s.color, BrandColors.textSecondary);
-    });
+    testWidgets(
+      'wordmark uses Comfortaa 22/700 with BrandColors.text (WCAG AA+)',
+      (tester) async {
+        final s = VelvetText.wordmark();
+        expect(s.fontSize, 22.0);
+        expect(s.fontWeight, FontWeight.w700);
+        // Changed from textSecondary (#6E5743, ~3.2:1) to text (#4A3322, ~7:1)
+        // for WCAG AA compliance on the warm-taupe base (#E6DDD0) background.
+        expect(s.color, BrandColors.text);
+      },
+    );
 
     testWidgets('body uses Nunito 15/600 height 1.5 with textSecondary', (
       tester,

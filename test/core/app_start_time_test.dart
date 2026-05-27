@@ -4,7 +4,7 @@
 //
 // These tests protect the MEDIUM-1 invariant established in the Phase 2.15
 // splash-screen fix cycle: [AppStartTime.minSplashDuration] is the *single*
-// source of truth for the 950 ms minimum splash duration. Both
+// source of truth for the 3 000 ms minimum splash duration. Both
 // [auth_redirect.dart] and [splash_screen.dart] derive their timer constants
 // from this field — if it changes, both consumers change atomically.
 //
@@ -20,14 +20,16 @@ void main() {
   tearDown(AppStartTime.resetForTest);
 
   group('AppStartTime', () {
-    test('minSplashDuration is 950 ms — single source of truth invariant', () {
-      // This assertion is the MEDIUM-1 guard. If the 950 ms constant is
+    test('minSplashDuration is 3000 ms — single source of truth invariant', () {
+      // This assertion is the MEDIUM-1 guard. If the 3 000 ms constant is
       // ever changed in AppStartTime, this test fails, forcing the author
       // to also update the splash gate documentation and confirm the change
       // is intentional. The test is intentionally fragile in that direction.
+      // (Value was 950 ms before the Phase 2.15 AOT-animation-race fix that
+      // raised it to 3 000 ms to guarantee the Lottie animation fully plays.)
       expect(
         AppStartTime.minSplashDuration,
-        equals(const Duration(milliseconds: 950)),
+        equals(const Duration(milliseconds: 3000)),
         reason:
             'splash_screen.dart and auth_redirect.dart both derive their '
             'timer constants from this field. A change here propagates '
