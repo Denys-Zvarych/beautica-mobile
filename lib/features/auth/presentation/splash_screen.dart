@@ -17,16 +17,18 @@
 //   is preserved by [FlutterNativeSplash.preserve] in main() and dismissed here
 //   via [FlutterNativeSplash.remove] directly inside [initState].
 //
-// Why initState, not addPostFrameCallback:
-//   In release AOT, the auth provider (SecureStorage) resolves synchronously
-//   before the first Flutter frame is painted. go_router therefore redirects
-//   to /login or /home before SplashScreen gets a chance to paint, which means
-//   the widget is either never mounted or is immediately disposed. An
-//   addPostFrameCallback fires AFTER the first frame — i.e. after go_router
-//   has already navigated away — so mounted == false and forward() is never
-//   called. Starting the animation in initState avoids this race entirely:
-//   initState runs while the widget IS mounted, and AnimationController
-//   schedules its own ticker via vsync without needing a rendered frame.
+// Why addPostFrameCallback for forward():
+//   On Android 12 cold start, Flutter doesn't deliver vsync ticks during
+//   the OS-managed native splash phase, so an AnimationController.forward()
+//   call placed in initState ticks-as-elapsed-time but renders no
+//   intermediate values — the user sees the animation snap from start to
+//   end in one frame instead of playing. Starting forward() after the
+//   first Flutter frame has been composed (post-frame callback) means the
+//   Ticker only begins ticking once vsync is reliably firing, so every
+//   subsequent frame delivers a real intermediate value. The
+//   minSplashDuration gate in auth_redirect.dart keeps the widget mounted
+//   for the duration of the animation regardless of how fast auth resolves,
+//   so the post-frame callback always fires while mounted == true.
 //
 // Splash animation — letter-by-letter wordmark reveal:
 //   The [CircularProgressIndicator] + Timer have been replaced by an
@@ -125,7 +127,23 @@ class _SplashScreenState extends State<SplashScreen>
         if (mounted) GoRouter.of(context).refresh();
       });
     } else {
-      _wordmarkController.forward();
+      // Defer forward() until after the first Flutter frame has been composed.
+      // On cold start, Flutter doesn't deliver vsync ticks during the Android
+      // OS native-splash phase, so an AnimationController started in initState
+      // ticks-as-elapsed-time but renders no intermediate values — the visible
+      // result is the animation snapping from 0 to 1 in one frame. Starting
+      // forward() in a post-frame callback ensures the Ticker only begins once
+      // Flutter is actively rendering, so every subsequent vsync delivers a real
+      // intermediate frame and the user actually perceives the scale-in stagger.
+      //
+      // Safe: the minSplashDuration gate in auth_redirect.dart keeps SplashScreen
+      // mounted for at least 2 seconds regardless of how fast authProvider
+      // resolves, so the postFrameCallback always fires while mounted == true.
+      // The `if (!mounted) return;` guard is belt-and-braces.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _wordmarkController.forward();
+      });
     }
 
     // Minimum splash duration gate — router re-kick.
