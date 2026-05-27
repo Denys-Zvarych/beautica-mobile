@@ -884,15 +884,14 @@ class VelvetLogo extends StatelessWidget {
       fontWeight: FontWeight.w700,
     );
 
-    final Widget wordmark = animationController != null
-        ? AnimatedWordmark(
-            controller: animationController!,
-            fontSize: wordmarkFontSize,
-          )
-        : Text(
-            'beautica',
-            style: VelvetText.wordmark().copyWith(fontSize: wordmarkFontSize),
-          );
+    // DIAGNOSTIC: temporarily force the static Text path even when an
+    // animationController is supplied. This bypasses AnimatedWordmark so we can
+    // tell whether the rendering bug is inside that widget or upstream. Revert
+    // with the rest of the diagnostic instrumentation.
+    final Widget wordmark = Text(
+      'beautica',
+      style: VelvetText.wordmark().copyWith(fontSize: wordmarkFontSize),
+    );
 
     return Semantics(
       label: 'beautica',
