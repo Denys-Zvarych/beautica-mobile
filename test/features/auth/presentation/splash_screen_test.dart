@@ -12,7 +12,8 @@
 //   3. AnimatedWordmark is present in the tree after first pump.
 //   4. CircularProgressIndicator is NOT in the tree (replaced by animation).
 //   5. After controller.forward() completes (pump 880ms + settle), every
-//      letter FadeTransition has opacity 1.0.
+//      letter ScaleTransition has scale 1.0 (the settled end-state of the
+//      1.15 → 1.0 scale-in stagger).
 //   6. No AppBar rendered (auth screens are full-screen, no AppBar).
 //   7. AnimationController is disposed on widget dispose (no pending-frame error).
 //   8. Batch 6 regression — VelvetLogo itself is NOT wrapped in FadeTransition.
@@ -24,7 +25,7 @@
 //  11. Reduced-motion — with accessibilityFeatures.disableAnimations=true
 //      (set via tester.platformDispatcher, matching the initState call site),
 //      a post-frame callback snaps the controller to value 1.0; all letter
-//      FadeTransitions have opacity 1.0 after pumpAndSettle().
+//      ScaleTransitions have scale 1.0 after pumpAndSettle().
 //  12. Early-dispose safety — widget disposed immediately after pumpWidget
 //      (before any pump drains the frame queue); no AnimationController error
 //      surfaces. Verifies that the initState animation start cannot produce a
@@ -171,14 +172,15 @@ void main() {
     });
 
     // -------------------------------------------------------------------------
-    // Test 5 — After animation completes, all letter FadeTransitions are at 1.0
+    // Test 5 — After animation completes, all letter ScaleTransitions are at 1.0
     //
     // We advance the clock by 880 ms (the controller duration) then settle.
-    // Every FadeTransition that is a descendant of AnimatedWordmark must have
-    // its opacity animation at value 1.0.
+    // Every ScaleTransition that is a descendant of AnimatedWordmark must have
+    // its scale animation at value 1.0 (the settled end-state of the 1.15→1.0
+    // scale-in stagger).
     // -------------------------------------------------------------------------
     testWidgets(
-      '5. after animation completes, all letter FadeTransitions have opacity 1.0',
+      '5. after animation completes, all letter ScaleTransitions have scale 1.0',
       (tester) async {
         await tester.pumpWidget(_buildApp());
         // Allow the first frame to build (initState has already called forward()).
@@ -191,55 +193,28 @@ void main() {
         final animatedWordmarkFinder = find.byType(AnimatedWordmark);
         expect(animatedWordmarkFinder, findsOneWidget);
 
-        final fadeTransitions = tester.widgetList<FadeTransition>(
+        final scaleTransitions = tester.widgetList<ScaleTransition>(
           find.descendant(
             of: animatedWordmarkFinder,
-            matching: find.byType(FadeTransition),
+            matching: find.byType(ScaleTransition),
           ),
         );
 
-        final transitions = fadeTransitions.toList();
+        final transitions = scaleTransitions.toList();
         expect(
           transitions,
           hasLength(8),
           reason:
               'AnimatedWordmark with text "beautica" (8 chars) must produce '
-              'exactly 8 FadeTransition widgets.',
+              'exactly 8 ScaleTransition widgets.',
         );
 
-        for (final ft in transitions) {
+        for (final st in transitions) {
           expect(
-            ft.opacity.value,
+            st.scale.value,
             equals(1.0),
             reason:
-                'All letter FadeTransitions must be at opacity 1.0 after the '
-                '880 ms animation controller completes.',
-          );
-        }
-
-        // SlideTransition check — all positions must be Offset.zero after the
-        // animation completes (each letter has slid fully into its final position).
-        final slideTransitions = tester
-            .widgetList<SlideTransition>(
-              find.descendant(
-                of: animatedWordmarkFinder,
-                matching: find.byType(SlideTransition),
-              ),
-            )
-            .toList();
-        expect(
-          slideTransitions,
-          hasLength(8),
-          reason:
-              'AnimatedWordmark with text "beautica" (8 chars) must produce '
-              'exactly 8 SlideTransition widgets.',
-        );
-        for (final st in slideTransitions) {
-          expect(
-            st.position.value,
-            equals(Offset.zero),
-            reason:
-                'All letter SlideTransitions must be at Offset.zero after the '
+                'All letter ScaleTransitions must be at scale 1.0 after the '
                 '880 ms animation controller completes.',
           );
         }
@@ -395,12 +370,13 @@ void main() {
     // so that accessibilityFeatures.disableAnimations is true when initState runs.
     //
     // Expected behaviour: _wordmarkController.value = 1.0 (snap, no animation).
-    // All 8 FadeTransitions must be at opacity 1.0 and all SlideTransitions at
-    // Offset.zero after the first pump — without advancing the clock at all.
+    // All 8 ScaleTransitions must be at scale 1.0 (the settled end-state of the
+    // 1.15→1.0 scale-in stagger) after the first pump — without advancing the
+    // clock at all.
     // -------------------------------------------------------------------------
     testWidgets(
       '11. reduced-motion: accessibilityFeatures.disableAnimations=true snaps '
-      'all letters to opacity 1.0 on next frame',
+      'all letters to scale 1.0 on next frame',
       (tester) async {
         // Set the platform-level accessibility flag BEFORE pumpWidget so
         // initState reads it as true on first mount.
@@ -444,63 +420,36 @@ void main() {
         expect(animatedWordmarkFinder, findsOneWidget);
 
         // ---------------------------------------------------------------
-        // Capture opacity / offset values BEFORE the _splashTimer fires.
+        // Capture scale values BEFORE the _splashTimer fires.
         // SplashScreen stays mounted through the redirect-returns-null
         // router, but capturing here keeps the snap assertion isolated
         // from any subsequent rebuild caused by router.refresh().
         // ---------------------------------------------------------------
-        final fadeTransitions = tester
-            .widgetList<FadeTransition>(
+        final scaleTransitions = tester
+            .widgetList<ScaleTransition>(
               find.descendant(
                 of: animatedWordmarkFinder,
-                matching: find.byType(FadeTransition),
+                matching: find.byType(ScaleTransition),
               ),
             )
             .toList();
 
         expect(
-          fadeTransitions,
+          scaleTransitions,
           hasLength(8),
           reason:
               'AnimatedWordmark with text "beautica" (8 chars) must produce '
-              'exactly 8 FadeTransition widgets.',
+              'exactly 8 ScaleTransition widgets.',
         );
 
-        for (final ft in fadeTransitions) {
+        for (final st in scaleTransitions) {
           expect(
-            ft.opacity.value,
+            st.scale.value,
             equals(1.0),
             reason:
                 'With accessibilityFeatures.disableAnimations=true, '
                 '_wordmarkController.value is set to 1.0 in initState — '
-                'all letters must be fully visible immediately.',
-          );
-        }
-
-        final slideTransitions = tester
-            .widgetList<SlideTransition>(
-              find.descendant(
-                of: animatedWordmarkFinder,
-                matching: find.byType(SlideTransition),
-              ),
-            )
-            .toList();
-
-        expect(
-          slideTransitions,
-          hasLength(8),
-          reason:
-              'AnimatedWordmark with text "beautica" (8 chars) must produce '
-              'exactly 8 SlideTransition widgets.',
-        );
-
-        for (final st in slideTransitions) {
-          expect(
-            st.position.value,
-            equals(Offset.zero),
-            reason:
-                'With accessibilityFeatures.disableAnimations=true, all letter '
-                'SlideTransitions must be at Offset.zero after the snap.',
+                'all letters must be at their settled scale 1.0 immediately.',
           );
         }
 
@@ -518,8 +467,8 @@ void main() {
         // Key distinction from Test 5: Test 5 must advance the full 880 ms
         // animation duration. This test only needs the first post-frame
         // callback to fire (the deferred value=1.0 assignment). If
-        // forward() were called instead of value=1.0, opacity would still be
-        // ramping at the assertion point above — the test would fail,
+        // forward() were called instead of value=1.0, scale would still be
+        // ramping (>1.0) at the assertion point above — the test would fail,
         // catching the regression.
       },
     );

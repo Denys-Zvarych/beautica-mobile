@@ -638,15 +638,14 @@ class NeumorphicTile extends StatelessWidget {
   }
 }
 
-/// Letter-by-letter "settle" reveal of the "beautica" wordmark.
+/// Letter-by-letter scale-in reveal of the "beautica" wordmark.
 ///
-/// Each letter eases in (opacity 0.7→1, slide Offset(0, 0.15)→Offset.zero)
-/// over [perLetterDurationMs] ms, staggered by [perLetterDelayMs] ms. The
-/// starting opacity 0.7 ensures letters are visible from frame 1, matching
-/// the native splash hand-off where the wordmark is already statically
-/// painted by the OS. The animation now reads as a settle, not a fade-in.
-/// The animation is driven by an externally-owned [AnimationController] —
-/// this widget never disposes it.
+/// Each letter scales from 1.15 → 1.0 over [perLetterDurationMs] ms,
+/// staggered by [perLetterDelayMs] ms. Letters stay at full opacity from
+/// frame 1, matching the native splash hand-off where the wordmark is
+/// already statically painted at full opacity by the OS — no disappear
+/// glitch. The 15% scale change is clearly perceptible while preserving
+/// the static letter centers and overall composition.
 ///
 /// Accessibility: the enclosing [VelvetLogo] already provides a
 /// `Semantics(label: 'beautica', image: true)` ancestor node; no additional
@@ -697,6 +696,7 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
   late List<CurvedAnimation> _curves;
   late List<Animation<double>> _opacities;
   late List<Animation<Offset>> _slides;
+  late List<Animation<double>> _scales;
   late TextStyle _style;
 
   void _initAnimations() {
@@ -704,6 +704,7 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
     _curves = <CurvedAnimation>[];
     _opacities = <Animation<double>>[];
     _slides = <Animation<Offset>>[];
+    _scales = <Animation<double>>[];
     _style = VelvetText.wordmark().copyWith(fontSize: widget.fontSize);
 
     for (int i = 0; i < widget.text.length; i++) {
@@ -720,13 +721,16 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
         ),
       );
       _curves.add(curved);
-      _opacities.add(Tween<double>(begin: 0.7, end: 1.0).animate(curved));
-      _slides.add(
-        Tween<Offset>(
-          begin: const Offset(0, 0.15),
-          end: Offset.zero,
-        ).animate(curved),
-      );
+
+      // Letters always at full opacity — matches the OS-splash handoff state so
+      // there's no "wordmark visible → flicker → settle" glitch on cold start.
+      _opacities.add(const AlwaysStoppedAnimation<double>(1.0));
+
+      // No slide — the letter centers stay fixed; the scale-in does the work.
+      _slides.add(const AlwaysStoppedAnimation<Offset>(Offset.zero));
+
+      // Scale-in: 1.15 → 1.0 over the per-letter window.
+      _scales.add(Tween<double>(begin: 1.15, end: 1.0).animate(curved));
     }
   }
 
@@ -737,6 +741,7 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
     _curves = <CurvedAnimation>[];
     _opacities = <Animation<double>>[];
     _slides = <Animation<Offset>>[];
+    _scales = <Animation<double>>[];
   }
 
   @override
@@ -774,12 +779,11 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
     final List<Widget> children = <Widget>[];
     for (int i = 0; i < widget.text.length; i++) {
       children.add(
-        FadeTransition(
-          opacity: _opacities[i],
-          child: SlideTransition(
-            position: _slides[i],
-            child: Text(widget.text[i], style: _style),
-          ),
+        ScaleTransition(
+          scale: _scales[i],
+          // Default alignment is center, which is what we want — the letter
+          // grows/shrinks from its center, so the row baseline stays put.
+          child: Text(widget.text[i], style: _style),
         ),
       );
     }
