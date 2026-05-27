@@ -152,13 +152,19 @@ flutter_native_splash:
   web: false
 
   # Android 12+ SplashScreen API (windowSplashScreenAnimatedIcon).
-  # No image, no icon_background_color — the OS falls back to the launcher
-  # icon's adaptive background (#E6DDD0) with a transparent foreground until
-  # the Flutter engine takes over. The warm-taupe bg is the only thing the
-  # user sees during the native phase.
+  # Without an explicit `image:` here, Android 12+ falls back to the LAUNCHER
+  # icon (mipmap-*/launcher_icon.png) — a "B"-in-rounded-rectangle adaptive
+  # icon whose rounded-rect background is the same #E6DDD0 as the splash bg,
+  # producing a bare "B" glyph mid-splash. To suppress that glyph entirely
+  # we point at a 1×1 fully-transparent PNG: the OS still renders an icon
+  # layer but it has zero visible pixels, so users see only the bg color
+  # until the Flutter engine takes over.
   android_12:
     color: "#E6DDD0"
     color_dark: "#E6DDD0"
+    # 1×1 transparent PNG — overrides the launcher icon that Android 12+
+    # would otherwise auto-show. See note above.
+    image: assets/branding/splash_icon_blank.png
 
   android_gravity: center
   fullscreen: true
