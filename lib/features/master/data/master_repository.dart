@@ -1,38 +1,37 @@
-// TODO(phase-3.2): replace hand-written payloads with generated MasterApi DTOs.
+// Phase 4.1 — MasterRepository extended with getMyProfile.
 //
-// Phase 2.19 — MasterRepository (hand-written Dio).
+// Phase 2.19 introduced [HttpMasterRepository] with a hand-written Dio
+// implementation of [updateLocality]. Phase 4.1 adds [getMyProfile], which
+// uses the generated [MasterControllerApi] (via [masterApiProvider]) so that
+// deserialization of the `MasterDetailResponse` envelope is handled by the
+// generated built_value serializers — no manual JSON parsing needed.
 //
-// The OpenAPI codegen for `lib/api/` is deferred (see ARCHITECTURE-mobile.md
-// § 2), so this repository talks to the backend directly through the singleton
-// authenticated [dioProvider] Dio — mirroring [HttpLocationRepository] and
-// [HttpAuthRepository]'s envelope handling.
+// The constructor now accepts both [Dio] (for [updateLocality]) and
+// [MasterControllerApi] (for [getMyProfile]). Both are injected via
+// [masterRepositoryProvider] — never construct directly.
 //
-// For now the only method is [updateLocality], called immediately after a
-// successful INDEPENDENT_MASTER registration to persist the provider's working
-// address (locality + street + building + optional note) onto their profile,
-// per backend Phase 10.6.
+// Backend contracts:
+//   PATCH /api/v1/independent-masters/me — see Phase 2.19 comment.
+//   GET   /api/v1/masters/{masterId}     — returns ApiResponse<MasterDetailResponse>.
 //
-// Backend contract (locked):
-//   PATCH /api/v1/independent-masters/me
-//     Body: { cityId (UUID), districtId? (UUID|null), street, buildingNo,
-//             locationNote? }
-//     Returns: ApiResponse<IndependentMasterResponse> — the mobile layer does
-//              not need the body here, so the method resolves with void.
-//
-// The base URL already carries the `/api/v1` prefix (see AppConfig.baseUrl), so
-// the path below is the suffix only.
+// The base URL already carries the `/api/v1` prefix (see AppConfig.baseUrl).
 
 import 'dart:developer';
 
+import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/api_client_provider.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'master_mapper.dart';
+
 part 'master_repository.g.dart';
 
-/// Contract for the independent-master profile write layer.
+/// Contract for the independent-master profile layer.
 ///
 /// Every method either resolves successfully or throws a [Failure] subclass
 /// from `core/errors/failures.dart`. Raw [DioException]s are caught inside the
@@ -50,15 +49,27 @@ abstract interface class MasterRepository {
     required String buildingNo,
     String? locationNote,
   });
+
+  /// Fetches the master profile for the given [masterId].
+  ///
+  /// Wraps `GET /masters/{masterId}`. For the authenticated master's own
+  /// profile, pass the user's id (available from [AuthSession.user.id]).
+  /// Throws a typed [Failure] on any transport or server error.
+  Future<Master> getMyProfile(String masterId);
 }
 
 /// HTTP implementation of [MasterRepository].
 ///
 /// Inject via [masterRepositoryProvider] — never construct directly.
+///
+/// [_dio] drives [updateLocality] (hand-written PATCH envelope).
+/// [_masterApi] drives [getMyProfile] using the generated [MasterControllerApi]
+/// so that built_value deserialization handles the response envelope.
 final class HttpMasterRepository implements MasterRepository {
-  HttpMasterRepository(this._dio);
+  HttpMasterRepository(this._dio, this._masterApi);
 
   final Dio _dio;
+  final MasterControllerApi _masterApi;
 
   @override
   Future<void> updateLocality({
@@ -101,6 +112,36 @@ final class HttpMasterRepository implements MasterRepository {
     }
   }
 
+  @override
+  Future<Master> getMyProfile(String masterId) async {
+    try {
+      final res = await _masterApi.getMasterDetail(masterId: masterId);
+      final dto = res.data?.data;
+      if (dto == null) {
+        log(
+          'getMyProfile: ApiResponseMasterDetailResponse.data is null '
+          'for masterId=$masterId',
+          name: 'master.repository',
+          level: 1000,
+        );
+        throw const ServerFailure(statusCode: null);
+      }
+      return MasterMapper.fromDto(dto);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getMyProfile failed: ${e.type} ${e.response?.statusCode}',
+          name: 'master.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
   /// Maps a [DioException] to a typed [Failure].
   ///
   /// If [ErrorMapperInterceptor] has already attached a [Failure] as `e.error`,
@@ -124,10 +165,11 @@ final class HttpMasterRepository implements MasterRepository {
   }
 }
 
-/// Provides the [MasterRepository] singleton backed by the authenticated Dio.
+/// Provides the [MasterRepository] singleton backed by the authenticated Dio
+/// and the generated [MasterControllerApi].
 ///
 /// Override in tests with a mocktail mock — never construct
 /// [HttpMasterRepository] directly in tests.
 @Riverpod(keepAlive: true)
 MasterRepository masterRepository(Ref ref) =>
-    HttpMasterRepository(ref.watch(dioProvider));
+    HttpMasterRepository(ref.watch(dioProvider), ref.watch(masterApiProvider));

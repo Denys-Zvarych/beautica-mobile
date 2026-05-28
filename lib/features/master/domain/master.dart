@@ -1,0 +1,71 @@
+// Phase 4.1 — Master domain model.
+//
+// Immutable value object representing a beauty master as returned by the
+// `GET /masters/{masterId}` endpoint. Uses `freezed` for value equality,
+// copyWith, and pattern matching.
+//
+// [MasterType] bridges the backend's SCREAMING_SNAKE_CASE wire values
+// (from [MasterDetailResponseMasterTypeEnum]) to idiomatic Dart lowerCamelCase
+// enum variants so the rest of the domain layer never depends on generated
+// API types.
+//
+// Pure Dart: no Flutter imports anywhere in this file.
+
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'master.freezed.dart';
+
+/// The role / tenure type of a master in the Beautica platform.
+///
+/// Mirrors [MasterDetailResponseMasterTypeEnum] from the generated API package.
+/// Conversion is done once at the data-layer boundary in [MasterMapper].
+enum MasterType {
+  /// Master employed within a salon (invited by a [salonOwner] or admin).
+  salonMaster,
+
+  /// Solo provider with no salon affiliation.
+  independentMaster,
+
+  /// Owner of a salon who also acts as a master.
+  salonOwner,
+}
+
+/// A Beautica beauty master — the canonical domain entity returned by the
+/// profile-read path.
+///
+/// All fields are flat and nullable-where-optional; there is no nested user
+/// sub-object because [MasterDetailResponse] does not carry one.
+@freezed
+abstract class Master with _$Master {
+  const factory Master({
+    /// Backend-assigned UUID for this master.
+    required String id,
+
+    /// Master's given name.
+    required String firstName,
+
+    /// Master's family name.
+    required String lastName,
+
+    /// City where the master operates (display string, not a UUID).
+    String? city,
+
+    /// Short bio text entered by the master.
+    String? bio,
+
+    /// URL of the master's profile avatar.
+    String? avatarUrl,
+
+    /// Average review rating (0.0–5.0 scale).
+    required double avgRating,
+
+    /// Total number of reviews received.
+    required int reviewCount,
+
+    /// Tenure / role type for this master.
+    required MasterType type,
+
+    /// UUID of the affiliated salon; `null` for [MasterType.independentMaster].
+    String? salonId,
+  }) = _Master;
+}

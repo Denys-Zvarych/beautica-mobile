@@ -132,3 +132,67 @@ final class UserApiProvider
 }
 
 String _$userApiHash() => r'46ce080c703ee972e4052065d04903c017e124be';
+
+/// Provides the generated [MasterControllerApi] singleton.
+///
+/// Used by [HttpMasterRepository.getMyProfile] to fetch master profile data
+/// via `GET /masters/{masterId}`. Same Dio instance and serializers as the
+/// other API providers in this file.
+
+@ProviderFor(masterApi)
+final masterApiProvider = MasterApiProvider._();
+
+/// Provides the generated [MasterControllerApi] singleton.
+///
+/// Used by [HttpMasterRepository.getMyProfile] to fetch master profile data
+/// via `GET /masters/{masterId}`. Same Dio instance and serializers as the
+/// other API providers in this file.
+
+final class MasterApiProvider
+    extends
+        $FunctionalProvider<
+          MasterControllerApi,
+          MasterControllerApi,
+          MasterControllerApi
+        >
+    with $Provider<MasterControllerApi> {
+  /// Provides the generated [MasterControllerApi] singleton.
+  ///
+  /// Used by [HttpMasterRepository.getMyProfile] to fetch master profile data
+  /// via `GET /masters/{masterId}`. Same Dio instance and serializers as the
+  /// other API providers in this file.
+  MasterApiProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'masterApiProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$masterApiHash();
+
+  @$internal
+  @override
+  $ProviderElement<MasterControllerApi> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  MasterControllerApi create(Ref ref) {
+    return masterApi(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(MasterControllerApi value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<MasterControllerApi>(value),
+    );
+  }
+}
+
+String _$masterApiHash() => r'a65eae8f063767751d1fc49a0c9dbc1d679f3fc7';
