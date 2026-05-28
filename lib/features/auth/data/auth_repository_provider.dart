@@ -4,6 +4,8 @@
 //             instead of raw Dio + SecureStorage. SecureStorage is no longer
 //             needed directly; the generated logout() uses the Bearer token
 //             that AuthInterceptor injects from the Riverpod state.
+// MEDIUM-1   — TokenRefreshLock injected to share the single-flight guard
+//             with RefreshInterceptor (mobile-perf 2026-05-28).
 //
 // Wires [HttpAuthRepository] with the generated API singletons from
 // [authApiProvider] and [userApiProvider]. Kept alive for the app lifetime
@@ -14,6 +16,7 @@
 // never construct [HttpAuthRepository] directly in tests.
 
 import 'package:beautica_mobile/core/network/api_client_provider.dart';
+import 'package:beautica_mobile/core/network/token_refresh_lock.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'auth_repository.dart';
@@ -27,5 +30,8 @@ part 'auth_repository_provider.g.dart';
 /// and [userApiProvider]. Override in tests with a [FakeAuthRepository] or
 /// mocktail mock.
 @Riverpod(keepAlive: true)
-AuthRepository authRepository(Ref ref) =>
-    HttpAuthRepository(ref.watch(authApiProvider), ref.watch(userApiProvider));
+AuthRepository authRepository(Ref ref) => HttpAuthRepository(
+  ref.watch(authApiProvider),
+  ref.watch(userApiProvider),
+  ref.watch(tokenRefreshLockProvider),
+);

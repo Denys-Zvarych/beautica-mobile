@@ -32,6 +32,7 @@ import 'dart:async';
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/token_refresh_lock.dart';
 import 'package:beautica_mobile/features/auth/data/http_auth_repository.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/domain/register_result.dart';
@@ -247,7 +248,12 @@ void main() {
   setUp(() {
     mockAuthApi = MockAuthApi();
     mockUserApi = MockUserApi();
-    repository = HttpAuthRepository(mockAuthApi, mockUserApi);
+    // Fresh lock per test so state from one test cannot leak into the next.
+    repository = HttpAuthRepository(
+      mockAuthApi,
+      mockUserApi,
+      TokenRefreshLock(),
+    );
   });
 
   // -------------------------------------------------------------------------

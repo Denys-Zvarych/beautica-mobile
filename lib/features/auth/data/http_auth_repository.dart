@@ -21,6 +21,7 @@ import 'dart:developer';
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/token_refresh_lock.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -36,15 +37,20 @@ import 'user_mapper.dart';
 ///
 /// Inject via [authRepositoryProvider] — never construct directly.
 final class HttpAuthRepository implements AuthRepository {
-  HttpAuthRepository(this._authApi, this._userApi);
+  HttpAuthRepository(this._authApi, this._userApi, this._refreshLock);
 
   final AuthControllerApi _authApi;
   final UserControllerApi _userApi;
 
-  /// Guards against concurrent refresh races: if a refresh call is already
-  /// in-flight, subsequent callers await the same [Completer] instead of
-  /// issuing duplicate network requests.
-  Completer<AuthTokens>? _pendingRefresh;
+  /// Shared single-flight guard that prevents concurrent token refreshes
+  /// across both this repository's direct [refresh] path and the
+  /// [RefreshInterceptor] 401-triggered path.
+  ///
+  /// When a refresh call is already in-flight, subsequent callers await the
+  /// same [Completer.future] instead of issuing duplicate network requests.
+  /// The lock is shared at the provider level — both [HttpAuthRepository] and
+  /// [RefreshInterceptor] receive the same [TokenRefreshLock] instance.
+  final TokenRefreshLock _refreshLock;
 
   // ---------------------------------------------------------------------------
   // AuthRepository
@@ -188,11 +194,17 @@ final class HttpAuthRepository implements AuthRepository {
 
   @override
   Future<AuthTokens> refresh(String refreshToken) async {
-    // If a refresh is already in-flight, reuse its result rather than
-    // issuing a duplicate request (e.g. two expired requests racing).
-    if (_pendingRefresh != null) return _pendingRefresh!.future;
+    // Consult the shared lock first. If the RefreshInterceptor (or a
+    // concurrent call via this same path) already started a refresh, await
+    // its result rather than issuing a duplicate network request.
+    if (_refreshLock.pending != null) return _refreshLock.pending!.future;
 
-    _pendingRefresh = Completer<AuthTokens>();
+    final completer = _refreshLock.claim();
+    // Silence "unhandled future error" when this is the only caller (no
+    // concurrent call is subscribed to completer.future). The error still
+    // propagates to any listener that IS attached. ignore() prevents the Dart
+    // runtime from treating an unlistened error as uncaught.
+    completer.future.ignore();
     try {
       // HIGH-1 (mobile-security 2026-05-24): X-No-Retry prevents
       // RefreshInterceptor from re-intercepting a 401 response from
@@ -208,7 +220,7 @@ final class HttpAuthRepository implements AuthRepository {
         accessToken: dto.accessToken!,
         refreshToken: dto.refreshToken!,
       );
-      _pendingRefresh!.complete(result);
+      completer.complete(result);
       return result;
     } on DioException catch (e, st) {
       if (kDebugMode) {
@@ -221,10 +233,10 @@ final class HttpAuthRepository implements AuthRepository {
         );
       }
       final failure = _mapDioException(e);
-      _pendingRefresh!.completeError(failure, st);
+      completer.completeError(failure, st);
       throw failure;
     } finally {
-      _pendingRefresh = null;
+      _refreshLock.release();
     }
   }
 
