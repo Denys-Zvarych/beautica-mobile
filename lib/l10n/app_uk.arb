@@ -1102,5 +1102,60 @@
   "registerStep3ShellHeadlineOwner": "Адреса салону",
   "@registerStep3ShellHeadlineOwner": {
     "description": "Wizard shell headline for SALON_OWNER role on /register/step-3 (design: VelvetTouchDesign/address_screen.dart _headline OWNER)."
+  },
+
+  "masterProfileTitle": "Мій профіль",
+  "@masterProfileTitle": {
+    "description": "Title shown in the ProfileScaffold top bar on the master profile screen."
+  },
+
+  "masterBioLabel": "Про себе",
+  "@masterBioLabel": {
+    "description": "Section label above the bio inset card on the master profile screen."
+  },
+
+  "masterRatingLabel": "Рейтинг",
+  "@masterRatingLabel": {
+    "description": "Caption under the rating stat tile on the master profile screen."
+  },
+
+  "masterServicesLabel": "Послуги",
+  "@masterServicesLabel": {
+    "description": "Caption under the services stat tile and section header on the master profile screen."
+  },
+
+  "masterPortfolioLabel": "Портфоліо",
+  "@masterPortfolioLabel": {
+    "description": "Section label above the portfolio horizontal row on the master profile screen."
+  },
+
+  "masterStatsBookingsLabel": "Записів\nмісяця",
+  "@masterStatsBookingsLabel": {
+    "description": "Two-line caption under the bookings-this-month stat tile on the master profile screen."
+  },
+
+  "masterStatsReviewsLabel": "Відгуки",
+  "@masterStatsReviewsLabel": {
+    "description": "Caption under the reviews stat tile on the master profile screen."
+  },
+
+  "masterEditButton": "Редагувати профіль",
+  "@masterEditButton": {
+    "description": "Semantic label for the edit IconButton in the master profile top bar."
+  },
+
+  "masterRoleIndependent": "Незалежний майстер",
+  "@masterRoleIndependent": {
+    "description": "Role chip label for INDEPENDENT_MASTER type on the master profile screen."
+  },
+
+  "masterRoleSalonMaster": "Майстер салону",
+  "@masterRoleSalonMaster": {
+    "description": "Role chip label for SALON_MASTER type on the master profile screen."
+  },
+
+  "masterRoleSalonOwner": "Власник салону",
+  "@masterRoleSalonOwner": {
+    "description": "Role chip label for SALON_OWNER type on the master profile screen."
   }
 }

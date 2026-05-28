@@ -1102,5 +1102,60 @@
   "registerStep3ShellHeadlineOwner": "Salon address",
   "@registerStep3ShellHeadlineOwner": {
     "description": "Wizard shell headline for SALON_OWNER role on /register/step-3 (design: VelvetTouchDesign/address_screen.dart _headline OWNER)."
+  },
+
+  "masterProfileTitle": "My Profile",
+  "@masterProfileTitle": {
+    "description": "Title shown in the ProfileScaffold top bar on the master profile screen."
+  },
+
+  "masterBioLabel": "About",
+  "@masterBioLabel": {
+    "description": "Section label above the bio inset card on the master profile screen."
+  },
+
+  "masterRatingLabel": "Rating",
+  "@masterRatingLabel": {
+    "description": "Caption under the rating stat tile on the master profile screen."
+  },
+
+  "masterServicesLabel": "Services",
+  "@masterServicesLabel": {
+    "description": "Caption under the services stat tile and section header on the master profile screen."
+  },
+
+  "masterPortfolioLabel": "Portfolio",
+  "@masterPortfolioLabel": {
+    "description": "Section label above the portfolio horizontal row on the master profile screen."
+  },
+
+  "masterStatsBookingsLabel": "Bookings\nthis month",
+  "@masterStatsBookingsLabel": {
+    "description": "Two-line caption under the bookings-this-month stat tile on the master profile screen."
+  },
+
+  "masterStatsReviewsLabel": "Reviews",
+  "@masterStatsReviewsLabel": {
+    "description": "Caption under the reviews stat tile on the master profile screen."
+  },
+
+  "masterEditButton": "Edit profile",
+  "@masterEditButton": {
+    "description": "Semantic label for the edit IconButton in the master profile top bar."
+  },
+
+  "masterRoleIndependent": "Independent master",
+  "@masterRoleIndependent": {
+    "description": "Role chip label for INDEPENDENT_MASTER type on the master profile screen."
+  },
+
+  "masterRoleSalonMaster": "Salon master",
+  "@masterRoleSalonMaster": {
+    "description": "Role chip label for SALON_MASTER type on the master profile screen."
+  },
+
+  "masterRoleSalonOwner": "Salon owner",
+  "@masterRoleSalonOwner": {
+    "description": "Role chip label for SALON_OWNER type on the master profile screen."
   }
 }

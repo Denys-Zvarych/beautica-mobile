@@ -118,12 +118,17 @@ final class HttpMasterRepository implements MasterRepository {
       final res = await _masterApi.getMasterDetail(masterId: masterId);
       final dto = res.data?.data;
       if (dto == null) {
-        log(
-          'getMyProfile: ApiResponseMasterDetailResponse.data is null '
-          'for masterId=$masterId',
-          name: 'master.repository',
-          level: 1000,
-        );
+        // Fix 7 (SEC MEDIUM-2): guard the log call with kDebugMode so the
+        // masterId (PII-adjacent) is never emitted in release builds. Matches
+        // the existing guard pattern on the other log() calls in this file.
+        if (kDebugMode) {
+          log(
+            'getMyProfile: ApiResponseMasterDetailResponse.data is null '
+            'for masterId=$masterId',
+            name: 'master.repository',
+            level: 1000,
+          );
+        }
         throw const ServerFailure(statusCode: null);
       }
       return MasterMapper.fromDto(dto);

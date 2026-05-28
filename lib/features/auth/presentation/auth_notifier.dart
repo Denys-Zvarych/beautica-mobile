@@ -44,6 +44,7 @@ import '../domain/register_result.dart';
 import '../domain/user.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
+import '../../master/presentation/master_profile_notifier.dart';
 
 part 'auth_notifier.g.dart';
 
@@ -600,6 +601,11 @@ class AuthNotifier extends _$AuthNotifier {
     // explicit logout. The draft survives across nav (keepAlive) so without
     // this it would persist until the process is killed.
     ref.read(registerDraftProvider.notifier).reset();
+    // Fix 6 (SEC MEDIUM-1): invalidate the cached master profile so that stale
+    // AsyncData<Master> (holding name/city/bio PII) does not linger in the
+    // Riverpod container after logout. Mirrors the registerDraftProvider.reset()
+    // pattern above.
+    ref.invalidate(masterProfileProvider);
     if (kDebugMode) {
       log('Logout: session cleared', name: 'auth', level: 800);
     }

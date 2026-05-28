@@ -45,4 +45,7 @@ abstract final class RouteNames {
   static const String done = '/done';
   static const String home = '/';
   static const String settings = '/settings';
+
+  // Phase 4.2 — Master profile (read-only). Phase 4.3 will add masterEdit.
+  static const String masterProfile = '/master/profile';
 }

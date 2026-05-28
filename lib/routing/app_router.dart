@@ -37,6 +37,7 @@ import '../features/auth/presentation/register_step_3_screen.dart';
 import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
+import '../features/master/presentation/master_profile_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
@@ -180,6 +181,12 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.settings,
         builder: (context, state) => const SettingsScreen(),
+      ),
+      // Phase 4.2 — Master profile (read-only).
+      GoRoute(
+        path: RouteNames.masterProfile,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const MasterProfileScreen()),
       ),
     ],
   );
