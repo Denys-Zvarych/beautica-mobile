@@ -280,7 +280,7 @@ void main() {
     test('success: maps MasterDetailResponse to Master', () async {
       final dto = buildDto();
       when(
-        () => masterApi.getMasterDetail(masterId: 'master-1'),
+        () => masterApi.getMasterMe(),
       ).thenAnswer((_) async => apiResponse(dto));
 
       final master = await repository.getMyProfile('master-1');
@@ -299,14 +299,14 @@ void main() {
         masterId: 'master-2',
         masterType: MasterDetailResponseMasterTypeEnum.SALON_OWNER,
       );
-      when(() => masterApi.getMasterDetail(masterId: 'master-2')).thenAnswer(
+      when(() => masterApi.getMasterMe()).thenAnswer(
         (_) async => Response<ApiResponseMasterDetailResponse>(
           data: ApiResponseMasterDetailResponse(
             (b) => b
               ..data.replace(dto)
               ..success = true,
           ),
-          requestOptions: RequestOptions(path: '/masters/master-2'),
+          requestOptions: RequestOptions(path: '/masters/me'),
           statusCode: 200,
         ),
       );
@@ -317,7 +317,7 @@ void main() {
     });
 
     test('DioException connectionError → NetworkFailure', () async {
-      when(() => masterApi.getMasterDetail(masterId: 'master-1')).thenThrow(
+      when(() => masterApi.getMasterMe()).thenThrow(
         DioException(
           requestOptions: RequestOptions(path: _getMasterPath),
           type: DioExceptionType.connectionError,
@@ -331,7 +331,7 @@ void main() {
     });
 
     test('DioException badResponse 404 → ServerFailure(404)', () async {
-      when(() => masterApi.getMasterDetail(masterId: 'master-1')).thenThrow(
+      when(() => masterApi.getMasterMe()).thenThrow(
         DioException(
           requestOptions: RequestOptions(path: _getMasterPath),
           type: DioExceptionType.badResponse,
@@ -352,7 +352,7 @@ void main() {
 
     test('pre-mapped Failure on e.error is re-thrown unchanged', () async {
       const mapped = UnauthorizedFailure();
-      when(() => masterApi.getMasterDetail(masterId: 'master-1')).thenThrow(
+      when(() => masterApi.getMasterMe()).thenThrow(
         DioException(
           requestOptions: RequestOptions(path: _getMasterPath),
           type: DioExceptionType.badResponse,

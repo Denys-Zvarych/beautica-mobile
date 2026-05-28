@@ -115,16 +115,15 @@ final class HttpMasterRepository implements MasterRepository {
   @override
   Future<Master> getMyProfile(String masterId) async {
     try {
-      final res = await _masterApi.getMasterDetail(masterId: masterId);
+      // Uses GET /masters/me — the backend resolves masterId from the
+      // authenticated JWT. The masterId parameter is kept on the interface
+      // for mapper compatibility but is not sent over the wire.
+      final res = await _masterApi.getMasterMe();
       final dto = res.data?.data;
       if (dto == null) {
-        // Fix 7 (SEC MEDIUM-2): guard the log call with kDebugMode so the
-        // masterId (PII-adjacent) is never emitted in release builds. Matches
-        // the existing guard pattern on the other log() calls in this file.
         if (kDebugMode) {
           log(
-            'getMyProfile: ApiResponseMasterDetailResponse.data is null '
-            'for masterId=$masterId',
+            'getMyProfile: ApiResponseMasterDetailResponse.data is null',
             name: 'master.repository',
             level: 1000,
           );
