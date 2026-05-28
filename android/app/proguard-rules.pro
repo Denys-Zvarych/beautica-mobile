@@ -36,3 +36,18 @@
 -keep class okhttp3.** { *; }
 -dontwarn okhttp3.**
 -dontwarn retrofit2.**
+
+# Phase 3.1 — built_value serializer registry (accessed via reflection at runtime)
+# Required: built_value model classes and their serializers are enumerated by name.
+# Missing these rules causes MissingFieldException / StateError on first API response deserialization.
+-keep class **.model.** { *; }
+-keep class ** implements built_value.Serializer { *; }
+-keepnames class ** { @com.google.auto.value.AutoValue *; }
+-keep @com.google.auto.value.AutoValue class * { *; }
+
+# Phase 3.1 — one_of / one_of_serializer discriminated union runtime dispatch
+-keep class ** implements one_of_serializer.** { *; }
+-keepclassmembers class * {
+    *** oneOf;
+    *** anyOf;
+}

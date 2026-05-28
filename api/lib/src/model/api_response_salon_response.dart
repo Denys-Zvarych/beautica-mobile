@@ -1,0 +1,155 @@
+//
+// AUTO-GENERATED FILE, DO NOT MODIFY!
+//
+
+// ignore_for_file: unused_element
+import 'package:beautica_api/src/model/salon_response.dart';
+import 'package:built_value/built_value.dart';
+import 'package:built_value/serializer.dart';
+
+part 'api_response_salon_response.g.dart';
+
+/// ApiResponseSalonResponse
+///
+/// Properties:
+/// * [success]
+/// * [data]
+/// * [message]
+@BuiltValue()
+abstract class ApiResponseSalonResponse
+    implements
+        Built<ApiResponseSalonResponse, ApiResponseSalonResponseBuilder> {
+  @BuiltValueField(wireName: r'success')
+  bool? get success;
+
+  @BuiltValueField(wireName: r'data')
+  SalonResponse? get data;
+
+  @BuiltValueField(wireName: r'message')
+  String? get message;
+
+  ApiResponseSalonResponse._();
+
+  factory ApiResponseSalonResponse(
+          [void updates(ApiResponseSalonResponseBuilder b)]) =
+      _$ApiResponseSalonResponse;
+
+  @BuiltValueHook(initializeBuilder: true)
+  static void _defaults(ApiResponseSalonResponseBuilder b) => b;
+
+  @BuiltValueSerializer(custom: true)
+  static Serializer<ApiResponseSalonResponse> get serializer =>
+      _$ApiResponseSalonResponseSerializer();
+}
+
+class _$ApiResponseSalonResponseSerializer
+    implements PrimitiveSerializer<ApiResponseSalonResponse> {
+  @override
+  final Iterable<Type> types = const [
+    ApiResponseSalonResponse,
+    _$ApiResponseSalonResponse
+  ];
+
+  @override
+  final String wireName = r'ApiResponseSalonResponse';
+
+  Iterable<Object?> _serializeProperties(
+    Serializers serializers,
+    ApiResponseSalonResponse object, {
+    FullType specifiedType = FullType.unspecified,
+  }) sync* {
+    if (object.success != null) {
+      yield r'success';
+      yield serializers.serialize(
+        object.success,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.data != null) {
+      yield r'data';
+      yield serializers.serialize(
+        object.data,
+        specifiedType: const FullType(SalonResponse),
+      );
+    }
+    if (object.message != null) {
+      yield r'message';
+      yield serializers.serialize(
+        object.message,
+        specifiedType: const FullType(String),
+      );
+    }
+  }
+
+  @override
+  Object serialize(
+    Serializers serializers,
+    ApiResponseSalonResponse object, {
+    FullType specifiedType = FullType.unspecified,
+  }) {
+    return _serializeProperties(serializers, object,
+            specifiedType: specifiedType)
+        .toList();
+  }
+
+  void _deserializeProperties(
+    Serializers serializers,
+    Object serialized, {
+    FullType specifiedType = FullType.unspecified,
+    required List<Object?> serializedList,
+    required ApiResponseSalonResponseBuilder result,
+    required List<Object?> unhandled,
+  }) {
+    for (var i = 0; i < serializedList.length; i += 2) {
+      final key = serializedList[i] as String;
+      final value = serializedList[i + 1];
+      switch (key) {
+        case r'success':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.success = valueDes;
+          break;
+        case r'data':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(SalonResponse),
+          ) as SalonResponse;
+          result.data.replace(valueDes);
+          break;
+        case r'message':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.message = valueDes;
+          break;
+        default:
+          unhandled.add(key);
+          unhandled.add(value);
+          break;
+      }
+    }
+  }
+
+  @override
+  ApiResponseSalonResponse deserialize(
+    Serializers serializers,
+    Object serialized, {
+    FullType specifiedType = FullType.unspecified,
+  }) {
+    final result = ApiResponseSalonResponseBuilder();
+    final serializedList = (serialized as Iterable<Object?>).toList();
+    final unhandled = <Object?>[];
+    _deserializeProperties(
+      serializers,
+      serialized,
+      specifiedType: specifiedType,
+      serializedList: serializedList,
+      unhandled: unhandled,
+      result: result,
+    );
+    return result.build();
+  }
+}
