@@ -3,10 +3,10 @@
 #
 # Regenerate the OpenAPI Dart client from the committed spec snapshot.
 #
-# Normal usage (regenerates lib/api/ in-place):
+# Normal usage (regenerates api/ in-place):
 #   ./scripts/regenerate_api.sh
 #
-# Check mode (CI — diffs generated output against lib/api/, exits non-zero on drift):
+# Check mode (CI — diffs generated output against api/, exits non-zero on drift):
 #   ./scripts/regenerate_api.sh --check
 #
 # To refresh the spec from the running local backend first, then regenerate:
@@ -163,7 +163,7 @@ if [[ "${CHECK_MODE}" == "true" ]]; then
     --exclude=".gitattributes" \
     --exclude=".openapi-generator" \
     --exclude=".openapi-generator-ignore" \
-    "${PROJECT_ROOT}/lib/api" \
+    "${PROJECT_ROOT}/api" \
     "${TEMP_OUT}" 2>&1 || true)"
 
   # Strip diff lines that only mention the test/ scaffolding directory (generated
@@ -171,27 +171,27 @@ if [[ "${CHECK_MODE}" == "true" ]]; then
   DIFF_OUTPUT="$(echo "${DIFF_OUTPUT}" | grep -v "^Only in.*test/" || true)"
 
   if [[ -n "${DIFF_OUTPUT}" ]]; then
-    echo "ERROR: lib/api/ is out of date with the committed spec."
+    echo "ERROR: api/ is out of date with the committed spec."
     echo "  Run ./scripts/regenerate_api.sh and commit the result."
     echo ""
     echo "${DIFF_OUTPUT}" | head -40
     exit 1
   fi
 
-  echo "OK: lib/api/ matches the committed spec snapshot."
+  echo "OK: api/ matches the committed spec snapshot."
   exit 0
 fi
 
 # ── Normal (in-place) regeneration ────────────────────────────────────────────
 echo "=== regenerate_api.sh ==="
-echo "Generating Dart client into lib/api/ …"
+echo "Generating Dart client into api/ …"
 
-OUTPUT_DIR="${PROJECT_ROOT}/lib/api"
+OUTPUT_DIR="${PROJECT_ROOT}/api"
 run_codegen "${OUTPUT_DIR}"
 apply_security_patches "${OUTPUT_DIR}"
 run_build_runner "${OUTPUT_DIR}"
 
 echo ""
 echo "Done. Review the diff, then:"
-echo "  git add lib/api/ tool/openapi/api-spec.json"
+echo "  git add api/ tool/openapi/api-spec.json"
 echo "  git commit -m 'chore(api): regenerate Dart client from updated spec'"

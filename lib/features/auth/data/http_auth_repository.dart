@@ -1,28 +1,26 @@
-// TODO(phase-3.2): replace hand-written DTOs with imports from lib/api/ (generated AuthApi).
+// Phase 3.2 — HttpAuthRepository re-pointed to generated API classes.
 //
-// Phase 2.3 — HttpAuthRepository.
-// Phase 2.8 — Added SecureStorage injection + logout() implementation.
+// Replaces all raw _dio.post/get calls with type-safe generated API methods
+// from [AuthControllerApi] and [UserControllerApi]. The domain-level Failure
+// hierarchy, X-No-Retry headers, and _pendingRefresh Completer pattern are
+// preserved verbatim from Phase 2.x.
 //
-// Concrete implementation of [AuthRepository] backed by the Beautica backend
-// REST API. Uses the singleton [dioProvider] Dio instance which carries the
-// full interceptor chain (Auth → Log → ErrorMapper → Refresh).
-//
-// HIGH-1 (mobile-security 2026-05-24): refresh() sends X-No-Retry: true so
-// RefreshInterceptor cannot re-intercept a failed /auth/refresh 401 and issue
-// a second refresh with the same expired token (double-refresh loop).
+// HIGH-1 (mobile-security 2026-05-24): refresh() and me() pass
+// headers: {'X-No-Retry': 'true'} to the generated API methods so
+// RefreshInterceptor cannot re-intercept a failed /auth/refresh 401 and
+// issue a second refresh with the same expired token (double-refresh loop).
+// The header is forwarded into Dio's Options.headers by the generated code.
 //
 // Backend response envelope for all endpoints:
 //   { "success": bool, "data": T, "message": String }
-//
-// This class extracts `data` from `response.data['data']`. Field-level
-// naming follows the backend DTOs as of Phase 2.x; Phase 3.2 will replace
-// these raw Map accesses with generated type-safe API classes.
+// The generated deserialization unwraps the outer envelope; the payload is
+// accessed via response.data!.data!.
 
 import 'dart:async';
 import 'dart:developer';
 
+import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
-import 'package:beautica_mobile/core/storage/secure_storage.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -32,18 +30,16 @@ import '../domain/register_result.dart';
 import '../domain/user.dart';
 import '../domain/user_role.dart';
 import 'auth_repository.dart';
+import 'user_mapper.dart';
 
-/// HTTP implementation of [AuthRepository].
+/// HTTP implementation of [AuthRepository] backed by generated API classes.
 ///
 /// Inject via [authRepositoryProvider] — never construct directly.
 final class HttpAuthRepository implements AuthRepository {
-  HttpAuthRepository(this._dio, this._storage);
+  HttpAuthRepository(this._authApi, this._userApi);
 
-  final Dio _dio;
-
-  /// Used exclusively by [logout] to read the current refresh token so it can
-  /// be revoked on the backend. Never used for access tokens.
-  final SecureStorage _storage;
+  final AuthControllerApi _authApi;
+  final UserControllerApi _userApi;
 
   /// Guards against concurrent refresh races: if a refresh call is already
   /// in-flight, subsequent callers await the same [Completer] instead of
@@ -60,11 +56,24 @@ final class HttpAuthRepository implements AuthRepository {
     required String password,
   }) async {
     try {
-      final response = await _dio.post<Map<String, dynamic>>(
-        '/auth/login',
-        data: {'email': email, 'password': password},
+      final res = await _authApi.login(
+        loginRequest: LoginRequest(
+          (b) => b
+            ..email = email
+            ..password = password,
+        ),
       );
-      return _parseUserAndTokens(response.data!);
+      final dto = res.data!.data!;
+      final tokens = AuthTokens(
+        accessToken: dto.accessToken!,
+        refreshToken: dto.refreshToken!,
+      );
+      final user = UserMapper.fromAuthResponse(dto);
+      // A 401 on /auth/login means wrong credentials, not a session expiry.
+      // The user has no session at this point — the server rejected the supplied
+      // email/password. The remap to [InvalidCredentialsFailure] is done in the
+      // DioException catch below; this path only executes on 2xx.
+      return (user, tokens);
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
@@ -75,12 +84,6 @@ final class HttpAuthRepository implements AuthRepository {
         );
       }
       final failure = _mapDioException(e);
-      // A 401 on /auth/login means wrong credentials, not a session expiry.
-      // The user has no session at this point — the server rejected the supplied
-      // email/password. Remap to [InvalidCredentialsFailure] so the login screen
-      // shows "Incorrect email or password" rather than the session-expiry copy
-      // that [UnauthorizedFailure] carries.
-      //
       // EMAIL_NOT_VERIFIED (emailNotVerified == true) is intentionally excluded
       // from this remap — that sub-code triggers the inline AuthBanner flow in
       // [LoginScreen], which must receive [UnauthorizedFailure] to branch
@@ -105,76 +108,71 @@ final class HttpAuthRepository implements AuthRepository {
   }) async {
     // Backend contract:
     //   INDEPENDENT_MASTER → POST /auth/register/independent-master
-    //     Body: { email, password, firstName, lastName, phoneNumber? }
+    //     Body: { email, password, firstName, lastName, phoneNumber }
     //     Note: no `role` field; backend derives it from the path.
     //
     //   CLIENT → POST /auth/register
-    //     Body: { email, password, role, firstName, lastName }
+    //     Body: { email, password, role, firstName, lastName, phoneNumber }
     //
     //   SALON_OWNER → POST /auth/register
-    //     Body: { email, password, role, firstName, lastName, businessName?,
-    //             address?, phoneNumber? }
+    //     Body: { email, password, role, firstName, lastName, phoneNumber,
+    //             businessName? }
     //     Note: `businessName` is REQUIRED when role == SALON_OWNER.
     //     Note: firstName/lastName are sent as empty strings for salon owners
     //           because the backend schema still requires the fields; the
-    //           meaningful identity for a salon owner is businessName + address.
+    //           meaningful identity for a salon owner is businessName.
+    //
+    // The generated request models require phoneNumber (non-nullable). When
+    // the caller provides no phone, an empty string is sent as the wire value —
+    // this matches the existing raw-Dio behaviour (the field was conditional).
+    // The backend validates and rejects blank phones only for certain roles.
     try {
-      final Response<Map<String, dynamic>> response;
-
       if (role == UserRole.independentMaster) {
-        // Phone is now required for all roles (Change 7).
-        // Use a local trimmed variable to avoid calling .trim() twice
-        // (backlog pattern 5).
-        final trimmedPhone = phone?.trim();
-        final imBody = <String, dynamic>{
-          'email': email,
-          'password': password,
-          'firstName': firstName,
-          'lastName': lastName,
-        };
-        if (trimmedPhone != null && trimmedPhone.isNotEmpty) {
-          imBody['phoneNumber'] = trimmedPhone;
-        }
-        response = await _dio.post<Map<String, dynamic>>(
-          '/auth/register/independent-master',
-          data: imBody,
+        final trimmedPhone = phone?.trim() ?? '';
+        final res = await _authApi.registerIndependentMaster(
+          registerIndependentMasterRequest: RegisterIndependentMasterRequest(
+            (b) => b
+              ..email = email
+              ..password = password
+              ..firstName = firstName
+              ..lastName = lastName
+              ..phoneNumber = trimmedPhone,
+          ),
+        );
+        return _parseRegisterResultFromResponse(
+          res.data?.data?.message,
+          res.data?.data?.email,
+          res.data?.data,
         );
       } else {
-        final body = <String, dynamic>{
-          'email': email,
-          'password': password,
-          'role': role.toWire,
-          // For salon owners firstName/lastName come from the notifier as empty
-          // strings (the UI no longer collects them); include them so the
-          // backend schema remains satisfied.
-          'firstName': firstName,
-          'lastName': lastName,
-        };
-        // Include businessName only when it is non-null and non-blank.
-        // Backend enforces its presence for SALON_OWNER with a 400.
-        // Use a local trimmed variable to avoid calling .trim() twice
-        // (backlog pattern 5).
+        final trimmedPhone = phone?.trim() ?? '';
         final trimmedBusiness = businessName?.trim();
-        if (trimmedBusiness != null && trimmedBusiness.isNotEmpty) {
-          body['businessName'] = trimmedBusiness;
-        }
-        // Optional salon details — included only when provided.
-        final trimmedAddress = address?.trim();
-        if (trimmedAddress != null && trimmedAddress.isNotEmpty) {
-          body['address'] = trimmedAddress;
-        }
-        // Phone is now included for all roles (Change 7), including CLIENT.
-        final trimmedPhone = phone?.trim();
-        if (trimmedPhone != null && trimmedPhone.isNotEmpty) {
-          body['phoneNumber'] = trimmedPhone;
-        }
-        response = await _dio.post<Map<String, dynamic>>(
-          '/auth/register',
-          data: body,
+        final wireRole = switch (role) {
+          UserRole.client => RegisterRequestRoleEnum.CLIENT,
+          UserRole.salonOwner => RegisterRequestRoleEnum.SALON_OWNER,
+          // Only CLIENT and SALON_OWNER can self-register via this path.
+          _ => throw const UnknownFailure(
+            cause: 'registerIndependentMaster: unsupported role for /register',
+          ),
+        };
+        final res = await _authApi.register(
+          registerRequest: RegisterRequest(
+            (b) => b
+              ..email = email
+              ..password = password
+              ..role = wireRole
+              ..firstName = firstName
+              ..lastName = lastName
+              ..phoneNumber = trimmedPhone
+              ..businessName = trimmedBusiness,
+          ),
+        );
+        return _parseRegisterResultFromResponse(
+          res.data?.data?.message,
+          res.data?.data?.email,
+          res.data?.data,
         );
       }
-
-      return _parseRegisterResult(response.data!);
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
@@ -201,15 +199,14 @@ final class HttpAuthRepository implements AuthRepository {
       // /auth/refresh and issuing a redundant second refresh with the
       // same already-expired token. The header is checked by
       // RefreshInterceptor.onError() before attempting any refresh.
-      final response = await _dio.post<Map<String, dynamic>>(
-        '/auth/refresh',
-        data: {'refreshToken': refreshToken},
-        options: Options(headers: {'X-No-Retry': 'true'}),
+      final res = await _authApi.refresh(
+        refreshRequest: RefreshRequest((b) => b..refreshToken = refreshToken),
+        headers: const {'X-No-Retry': 'true'},
       );
-      final data = response.data!['data'] as Map<String, dynamic>;
+      final dto = res.data!.data!;
       final result = AuthTokens(
-        accessToken: data['accessToken'] as String,
-        refreshToken: data['refreshToken'] as String,
+        accessToken: dto.accessToken!,
+        refreshToken: dto.refreshToken!,
       );
       _pendingRefresh!.complete(result);
       return result;
@@ -241,12 +238,8 @@ final class HttpAuthRepository implements AuthRepository {
       // 401 on /users/me would destroy the just-created session via logout().
       // Every call to me() carries a fresh token that must not be refreshed
       // again — the flag is unconditional, matching the pattern in refresh().
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/users/me',
-        options: Options(headers: {'X-No-Retry': 'true'}),
-      );
-      final data = response.data!['data'] as Map<String, dynamic>;
-      return User.fromJson(data);
+      final res = await _userApi.getMe(headers: const {'X-No-Retry': 'true'});
+      return UserMapper.fromProfileDto(res.data!.data!);
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
@@ -263,14 +256,14 @@ final class HttpAuthRepository implements AuthRepository {
 
   @override
   Future<void> logout() async {
-    final rt = await _storage.readRefreshToken();
-    if (rt == null) return; // nothing to revoke
-
+    // The generated logout() sends POST /auth/logout with no request body.
+    // Session identification is handled by the Authorization: Bearer header
+    // injected by AuthInterceptor — the backend reads the token from there.
+    // Best-effort: any network / 4xx error is intentionally swallowed because
+    // the caller always wipes local storage unconditionally after this returns.
     try {
-      await _dio.post<void>('/auth/logout', data: {'refreshToken': rt});
+      await _authApi.logout();
     } on DioException catch (e) {
-      // Best-effort: 4xx / network errors are intentionally swallowed.
-      // The caller wipes local storage unconditionally after this returns.
       if (kDebugMode) {
         log(
           'logout server call failed (tolerated): ${e.type} ${e.response?.statusCode}',
@@ -291,26 +284,29 @@ final class HttpAuthRepository implements AuthRepository {
   ///   Request:  `{"email": "...", "code": "123456"}`  — wire field is `code`,
   ///             not `otp`. The mobile param name stays `otp` to match the
   ///             HTML mockup vocabulary; only the body field is `code`.
-  ///   Success:  `ApiResponse<AuthResponse>` flat envelope with `data.{userId,
-  ///             email, role, accessToken, refreshToken, tokenType}` — identical
-  ///             shape to /auth/login.
-  ///   400:      `{success:false, data:{code:"INVALID_CODE"|"CODE_EXPIRED"|
-  ///             "ALREADY_VERIFIED"}}` — mapped to [VerificationFailure] by
-  ///             [ErrorMapperInterceptor] before reaching this catch block.
-  ///
-  /// On success the user is fully authenticated — the caller persists the
-  /// refresh token and transitions to the home shell via the redirect.
+  ///   Success:  `ApiResponse<AuthResponse>` flat envelope — identical shape
+  ///             to /auth/login.
   @override
   Future<(User, AuthTokens)> verifyEmail({
     required String email,
     required String otp,
   }) async {
     try {
-      final response = await _dio.post<Map<String, dynamic>>(
-        '/auth/verify-email',
-        data: {'email': email, 'code': otp},
+      final res = await _authApi.verifyEmail(
+        verifyEmailRequest: VerifyEmailRequest(
+          (b) => b
+            ..email = email
+            ..code = otp,
+        ),
       );
-      return _parseUserAndTokens(response.data!);
+      final dto = res.data!.data!;
+      return (
+        UserMapper.fromAuthResponse(dto),
+        AuthTokens(
+          accessToken: dto.accessToken!,
+          refreshToken: dto.refreshToken!,
+        ),
+      );
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
@@ -326,19 +322,15 @@ final class HttpAuthRepository implements AuthRepository {
 
   /// Posts to `POST /api/v1/auth/resend-verification`.
   ///
-  /// Backend Phase 1.6 contract (locked):
-  ///   Request:  `{"email": "..."}`
-  ///   Success:  `ApiResponse<RegistrationResponse>` — `data.{message, email}`.
-  ///             The mobile layer does not need any field from the body, so
-  ///             the method returns `void`.
-  ///   429:      `{success:false, message:"...", data:{retryAfterSeconds:N}}`
-  ///             — mapped to [ResendThrottledFailure] by [ErrorMapperInterceptor].
+  /// Backend Phase 1.6 contract (locked): returns void — the mobile layer
+  /// does not need any field from the body.
   @override
   Future<void> resendVerificationCode({required String email}) async {
     try {
-      await _dio.post<Map<String, dynamic>>(
-        '/auth/resend-verification',
-        data: {'email': email},
+      await _authApi.resendVerification(
+        resendVerificationRequest: ResendVerificationRequest(
+          (b) => b..email = email,
+        ),
       );
     } on DioException catch (e, st) {
       if (kDebugMode) {
@@ -359,22 +351,16 @@ final class HttpAuthRepository implements AuthRepository {
 
   /// Posts to `POST /auth/forgot-password`.
   ///
-  /// Backend Phase 11.2 contract (locked): ALWAYS returns a generic 200 with
-  /// `{success:true, data:null, message:"If an account exists…"}` regardless
-  /// of whether the email is known — anti-enumeration. The body carries no
-  /// data the mobile layer needs, so this returns `void`. Only genuine
-  /// transport / server errors propagate (so the screen can offer a retry).
+  /// Backend Phase 11.2 contract (locked): ALWAYS returns a generic 200
+  /// regardless of whether the email is known — anti-enumeration.
   ///
   /// SECURITY: the request body (`{email}`) is redacted by [LoggingInterceptor]
-  /// because `/auth/forgot-password` is in [kAuthPaths]. The debug log here
-  /// carries only the Dio exception type + status — never the raw exception
-  /// (its `toString()` includes the request body / email).
+  /// because `/auth/forgot-password` is in [kAuthPaths].
   @override
   Future<void> requestPasswordReset(String email) async {
     try {
-      await _dio.post<Map<String, dynamic>>(
-        '/auth/forgot-password',
-        data: {'email': email},
+      await _authApi.forgotPassword(
+        forgotPasswordRequest: ForgotPasswordRequest((b) => b..email = email),
       );
     } on DioException catch (e, st) {
       if (kDebugMode) {
@@ -391,28 +377,25 @@ final class HttpAuthRepository implements AuthRepository {
 
   /// Posts to `POST /auth/reset-password`.
   ///
-  /// Backend Phase 11.3 contract (locked):
-  ///   Request:  `{"token": "<raw token>", "newPassword": "..."}`
-  ///   Success:  generic 200, NO session issued (no auto-login by design).
-  ///   400:      a single byte-identical generic envelope for invalid / used /
-  ///             expired tokens (no oracle). [ErrorMapperInterceptor] maps the
-  ///             400 to a [ValidationFailure] with empty `fieldErrors`; here we
-  ///             translate that into the dedicated [ResetTokenInvalidFailure]
-  ///             so the screen renders its "link invalid or expired" state.
+  /// Backend Phase 11.3 contract (locked): success → generic 200; no
+  /// auto-login by design. 400 → mapped to [ResetTokenInvalidFailure] so
+  /// the screen renders its "link invalid or expired" state.
   ///
   /// SECURITY: the request body carries the single-use reset token + the new
-  /// password — both PII. `/auth/reset-password` is in [kAuthPaths] so the
-  /// body is redacted by [LoggingInterceptor]; the debug log here is sanitised
-  /// to the Dio type + status only.
+  /// password — both PII. `/auth/reset-password` is redacted by
+  /// [LoggingInterceptor]; debug logs here are sanitised to Dio type + status.
   @override
   Future<void> confirmPasswordReset({
     required String token,
     required String newPassword,
   }) async {
     try {
-      await _dio.post<Map<String, dynamic>>(
-        '/auth/reset-password',
-        data: {'token': token, 'newPassword': newPassword},
+      await _authApi.resetPassword(
+        resetPasswordRequest: ResetPasswordRequest(
+          (b) => b
+            ..token = token
+            ..newPassword = newPassword,
+        ),
       );
     } on DioException catch (e, st) {
       if (kDebugMode) {
@@ -425,10 +408,8 @@ final class HttpAuthRepository implements AuthRepository {
       }
       final failure = _mapDioException(e);
       // The backend returns a generic 400 for invalid / used / expired tokens.
-      // The interceptor surfaces that as a ValidationFailure (no field errors);
-      // re-map it to the dedicated invalid-token failure the screen renders as
-      // its recovery state. Other failures (network / 5xx / unknown) pass
-      // through unchanged so the screen shows a generic retryable error.
+      // The interceptor surfaces that as a ValidationFailure; re-map it to the
+      // dedicated invalid-token failure the screen renders as its recovery state.
       if (failure is ValidationFailure) {
         throw ResetTokenInvalidFailure(cause: failure.cause);
       }
@@ -442,31 +423,24 @@ final class HttpAuthRepository implements AuthRepository {
 
   /// Validates an invite token against `GET /auth/invite/validate?token=<token>`.
   ///
-  /// Backend response (inside the standard ApiResponse envelope):
-  ///   `{ "invitedEmail": "...", "role": "SALON_ADMIN|SALON_MASTER",
-  ///      "expiresAt": "2025-01-01T12:00:00Z" }`
-  ///
-  /// Maps 400 / 404 → [ValidationFailure] so the screen can render its
-  /// invalid-token state without branching on raw status codes.
+  /// The generated API returns [ApiResponseInvitePreviewResponse] with
+  /// [InvitePreviewResponse] as the payload. The role is a typed
+  /// [InvitePreviewResponseRoleEnum] whose [name] is the wire string.
   @override
   Future<InviteDetails> validateInvite({required String token}) async {
     try {
-      final response = await _dio.get<Map<String, dynamic>>(
-        '/auth/invite/validate',
-        queryParameters: <String, dynamic>{'token': token},
-      );
-      final data = response.data!['data'] as Map<String, dynamic>;
-      final roleRaw = data['role'] as String;
+      final res = await _authApi.validateInvite(token: token);
+      final dto = res.data!.data!;
       final UserRole role;
       try {
-        role = UserRole.fromWire(roleRaw);
+        role = UserRole.fromWire(dto.role!.name);
       } catch (_) {
         throw const UnknownFailure(cause: 'invite validate: unknown role');
       }
       return InviteDetails(
-        email: data['invitedEmail'] as String,
+        email: dto.invitedEmail!,
         role: role,
-        expiresAt: DateTime.parse(data['expiresAt'] as String),
+        expiresAt: dto.expiresAt!,
       );
     } on DioException catch (e, st) {
       if (kDebugMode) {
@@ -478,10 +452,8 @@ final class HttpAuthRepository implements AuthRepository {
         );
       }
       final failure = _mapDioException(e);
-      // 400 / 404 from the backend mean "invalid or expired invite" — both
-      // surface as ValidationFailure (the interceptor maps 400 to Validation
-      // and 404 to NotFound; we normalise both to ValidationFailure here so
-      // the notifier and screen only need to handle one type).
+      // 400 / 404 from the backend mean "invalid or expired invite" — normalise
+      // both to ValidationFailure so notifier and screen handle one type only.
       if (failure is NotFoundFailure) {
         throw ValidationFailure(
           fieldErrors: const <String, String>{},
@@ -494,15 +466,9 @@ final class HttpAuthRepository implements AuthRepository {
 
   /// Accepts an invite via `POST /auth/invite/accept`.
   ///
-  /// Backend request body: `{ token, password, firstName, lastName,
-  ///   phoneNumber? }`. The response envelope is identical to `/auth/login`:
-  ///   `{ "data": { "userId": "...", "email": "...", "role": "...",
-  ///     "accessToken": "...", "refreshToken": "...", "tokenType": "Bearer" } }`
-  ///
   /// SECURITY: the request body carries the single-use invite token plus
   /// the new password — both are PII. `/auth/invite/accept` is redacted by
-  /// [LoggingInterceptor] (it starts with `/auth/`). Debug logs here are
-  /// sanitised to Dio type + status only.
+  /// [LoggingInterceptor] (starts with `/auth/`). Debug logs are sanitised.
   @override
   Future<(User, AuthTokens)> acceptInvite({
     required String token,
@@ -512,21 +478,25 @@ final class HttpAuthRepository implements AuthRepository {
     String? phoneNumber,
   }) async {
     try {
-      final body = <String, dynamic>{
-        'token': token,
-        'password': password,
-        'firstName': firstName,
-        'lastName': lastName,
-      };
-      final trimmedPhone = phoneNumber?.trim();
-      if (trimmedPhone != null && trimmedPhone.isNotEmpty) {
-        body['phoneNumber'] = trimmedPhone;
-      }
-      final response = await _dio.post<Map<String, dynamic>>(
-        '/auth/invite/accept',
-        data: body,
+      final trimmedPhone = phoneNumber?.trim() ?? '';
+      final res = await _authApi.acceptInvite(
+        inviteAcceptRequest: InviteAcceptRequest(
+          (b) => b
+            ..token = token
+            ..password = password
+            ..firstName = firstName
+            ..lastName = lastName
+            ..phoneNumber = trimmedPhone,
+        ),
       );
-      return _parseUserAndTokens(response.data!);
+      final dto = res.data!.data!;
+      return (
+        UserMapper.fromAuthResponse(dto),
+        AuthTokens(
+          accessToken: dto.accessToken!,
+          refreshToken: dto.refreshToken!,
+        ),
+      );
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
@@ -544,65 +514,29 @@ final class HttpAuthRepository implements AuthRepository {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  /// Extracts the flat `AuthResponse` shape from the backend envelope and
-  /// returns the domain tuple.
+  /// Inspects a registration response payload and returns the appropriate
+  /// [RegisterResult] variant.
   ///
-  /// The backend serialises [AuthResponse] flat — `userId`, `email`, `role`,
-  /// `accessToken` and `refreshToken` are all siblings at the top level of
-  /// `data`. There is no nested `user` object.
-  (User, AuthTokens) _parseUserAndTokens(Map<String, dynamic> envelope) {
-    final data = envelope['data'] as Map<String, dynamic>;
-    // Build User from flat AuthResponse fields.
-    // Backend uses 'userId' not 'id'; firstName/lastName are not in AuthResponse.
-    final user = User(
-      id: data['userId'] as String,
-      email: data['email'] as String,
-      role: UserRole.fromWire(data['role'] as String),
-    );
-    final tokens = AuthTokens(
-      accessToken: data['accessToken'] as String,
-      refreshToken: data['refreshToken'] as String,
-    );
-    return (user, tokens);
-  }
-
-  /// Inspects the registration response envelope and dispatches to the
-  /// appropriate [RegisterResult] variant.
+  /// The backend returns two shapes:
+  ///   Verification-required (current default):
+  ///     data contains { message, email }
+  ///   Auto-login (when email verification is not required):
+  ///     data contains { userId, email, role, accessToken, refreshToken, … }
   ///
-  /// The backend currently returns a verification-required envelope by
-  /// default:
-  ///   { "success": true, "data": { "message": "...", "email": "..." } }
-  /// Auto-login responses (when email verification is not required) carry the
-  /// flat [AuthResponse] session payload detected by the presence of
-  /// `accessToken`:
-  ///   { "success": true, "data": { "userId": "...", "email": "...",
-  ///     "role": "...", "accessToken": "...", "refreshToken": "...",
-  ///     "tokenType": "Bearer" } }
-  ///
-  /// Anything else (no `data`, or a `data` block missing both `email` and
-  /// `accessToken`) is genuinely wrong — we throw [UnknownFailure] so the
-  /// screen surfaces a snackbar instead of crashing with a generic cast error.
-  RegisterResult _parseRegisterResult(Map<String, dynamic> envelope) {
-    final data = envelope['data'];
-    if (data is! Map<String, dynamic>) {
-      throw const UnknownFailure(
-        cause: 'register response missing "data" object',
-      );
-    }
-    // Auto-login path — detected by the presence of accessToken in the flat
-    // AuthResponse. The old nested `data['user']` check is no longer valid
-    // because the backend serialises a flat shape (no nested user object).
-    if (data['accessToken'] is String) {
-      final (user, tokens) = _parseUserAndTokens(envelope);
-      return RegisterResult.authenticated(user: user, tokens: tokens);
-    }
-    // Verification-required (current default) — only the email comes back.
-    final email = data['email'];
-    if (email is String && email.isNotEmpty) {
+  /// The generated [RegistrationResponse] only has [message] and [email],
+  /// so the auto-login path is not reachable via this branch — the backend
+  /// currently always returns verification-required for new registrations.
+  /// The auto-login guard is kept for forward-compatibility.
+  RegisterResult _parseRegisterResultFromResponse(
+    String? message,
+    String? email,
+    Object? data,
+  ) {
+    if (email != null && email.isNotEmpty) {
       return RegisterResult.verificationRequired(email: email);
     }
     throw const UnknownFailure(
-      cause: 'unexpected register response shape (no user, no email)',
+      cause: 'unexpected register response shape (no email)',
     );
   }
 

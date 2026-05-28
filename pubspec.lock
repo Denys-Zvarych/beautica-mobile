@@ -76,7 +76,7 @@ packages:
   beautica_api:
     dependency: "direct main"
     description:
-      path: "lib/api"
+      path: api
       relative: true
     source: path
     version: "1.0.0"

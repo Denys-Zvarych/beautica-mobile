@@ -39,7 +39,7 @@ jobs:
       # Phase 3.1 — OpenAPI client drift gate.
       # Regenerates the Dart client from the COMMITTED spec snapshot
       # (tool/openapi/api-spec.json) into a temp dir, then diffs against the
-      # committed lib/api/.  Fails if they diverge — no live backend needed.
+      # committed api/.  Fails if they diverge — no live backend needed.
       # Tool setup: openapi_generator_cli is activated on the first run and
       # its JAR is cached in .dart_tool/openapi_generator_cache/.
       - name: Install openapi-generator-cli

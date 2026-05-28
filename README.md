@@ -20,10 +20,10 @@ samples, guidance on mobile development, and a full API reference.
 
 ## Regenerate API client
 
-The Dart HTTP client under `lib/api/` is **auto-generated** from the backend's
+The Dart HTTP client under `api/` is **auto-generated** from the backend's
 OpenAPI 3.1 spec using
 [openapi-generator-cli](https://github.com/OpenAPITools/openapi-generator).
-**Never edit `lib/api/` by hand** — your changes will be overwritten on the
+**Never edit `api/` by hand** — your changes will be overwritten on the
 next regeneration.
 
 ### One-time tool setup
@@ -57,10 +57,10 @@ that CI can run codegen offline without a live backend.
 
 The script:
 1. Runs `openapi-generator generate -g dart-dio` against the committed snapshot.
-2. Runs `dart run build_runner build` inside `lib/api/` to produce `*.g.dart`.
-3. Formats `lib/api/lib/` with `dart format`.
+2. Runs `dart run build_runner build` inside `api/` to produce `*.g.dart`.
+3. Formats `api/lib/` with `dart format`.
 
-Commit both `lib/api/` and `tool/openapi/api-spec.json` together in a single
+Commit both `api/` and `tool/openapi/api-spec.json` together in a single
 `chore(api): regenerate Dart client from updated spec` commit.
 
 ### CI gate
@@ -72,5 +72,13 @@ Every PR is gated by:
   run: ./scripts/regenerate_api.sh --check
 ```
 
-This regenerates into a temp dir and diffs against the committed `lib/api/`.
+This regenerates into a temp dir and diffs against the committed `api/`.
 The build fails if they diverge — ensuring no PR ever ships a stale client.
+
+### Regeneration cadence
+
+Regenerate after every backend release that changes a controller, DTO, or status
+code. CI fails PRs where `api/` is out of sync with `tool/openapi/api-spec.json`.
+As a rule of thumb: if a backend PR touches any `@RestController`, `*Request`,
+`*Response`, or `ApiResponse` type, run `./scripts/regenerate_api.sh` and commit
+the result alongside the consuming feature changes in the same PR.
