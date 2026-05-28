@@ -31,6 +31,7 @@ class ProfileScaffold extends StatelessWidget {
     required this.child,
     this.trailing,
     this.showBack = true,
+    this.bottomNavBar,
   });
 
   final String title;
@@ -42,6 +43,11 @@ class ProfileScaffold extends StatelessWidget {
 
   /// Whether to show the back button in the top-left. Defaults to `true`.
   final bool showBack;
+
+  /// Optional bottom navigation bar rendered below the scrollable body,
+  /// outside the scroll area. Pass [VelvetBottomNavBar] here for the master
+  /// profile shell. When null, no bottom bar is rendered.
+  final Widget? bottomNavBar;
 
   @override
   Widget build(BuildContext context) {
@@ -100,6 +106,10 @@ class ProfileScaffold extends StatelessWidget {
                 ),
               ),
             ),
+            // Bottom navigation bar — rendered outside the scroll area so it
+            // always sits at the bottom of the screen. Null-safe: omitted when
+            // [bottomNavBar] is not provided.
+            ?bottomNavBar,
           ],
         ),
       ),

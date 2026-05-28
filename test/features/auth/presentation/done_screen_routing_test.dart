@@ -74,25 +74,25 @@ const _homeMarker = 'stub-home-route';
 const _masterProfileMarker = 'stub-master-profile-route';
 
 GoRouter _makeFullRouter() => GoRouter(
-      initialLocation: RouteNames.done,
-      redirect: (context, state) => null,
-      routes: <RouteBase>[
-        GoRoute(
-          path: RouteNames.done,
-          builder: (context, state) => const DoneScreen(),
-        ),
-        GoRoute(
-          path: RouteNames.home,
-          builder: (context, state) =>
-              const Scaffold(body: Center(child: Text(_homeMarker))),
-        ),
-        GoRoute(
-          path: RouteNames.masterProfile,
-          builder: (context, state) =>
-              const Scaffold(body: Center(child: Text(_masterProfileMarker))),
-        ),
-      ],
-    );
+  initialLocation: RouteNames.done,
+  redirect: (context, state) => null,
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.done,
+      builder: (context, state) => const DoneScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.home,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text(_homeMarker))),
+    ),
+    GoRoute(
+      path: RouteNames.masterProfile,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text(_masterProfileMarker))),
+    ),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Pump helper
@@ -156,47 +156,44 @@ void main() {
     // land on /master/profile. This is the highest-priority case because it
     // gates the master's first-use onboarding flow.
     // -----------------------------------------------------------------------
-    testWidgets(
-      'R1. INDEPENDENT_MASTER: tapping done_to_app navigates to '
-      'RouteNames.masterProfile (/master/profile)',
-      (tester) async {
-        final router = _makeFullRouter();
-        addTearDown(router.dispose);
+    testWidgets('R1. INDEPENDENT_MASTER: tapping done_to_app navigates to '
+        'RouteNames.masterProfile (/master/profile)', (tester) async {
+      final router = _makeFullRouter();
+      addTearDown(router.dispose);
 
-        await _pumpDoneScreen(
-          tester,
-          authenticatedUser: _independentMaster,
-          router: router,
-        );
+      await _pumpDoneScreen(
+        tester,
+        authenticatedUser: _independentMaster,
+        router: router,
+      );
 
-        // DoneScreen is on screen; master profile stub is not yet visible.
-        expect(find.text(_masterProfileMarker), findsNothing);
-        expect(find.text(_homeMarker), findsNothing);
+      // DoneScreen is on screen; master profile stub is not yet visible.
+      expect(find.text(_masterProfileMarker), findsNothing);
+      expect(find.text(_homeMarker), findsNothing);
 
-        await tester.ensureVisible(
-          find.byKey(const ValueKey<String>('done_to_app')),
-        );
-        await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('done_to_app')),
+      );
+      await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const ValueKey<String>('done_to_app')));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey<String>('done_to_app')));
+      await tester.pumpAndSettle();
 
-        expect(
-          find.text(_masterProfileMarker),
-          findsOneWidget,
-          reason:
-              'INDEPENDENT_MASTER must be routed to RouteNames.masterProfile '
-              'after tapping the primary CTA — not to /home',
-        );
-        expect(
-          find.text(_homeMarker),
-          findsNothing,
-          reason:
-              'INDEPENDENT_MASTER must NOT land on /home — the home route '
-              'is reserved for client and non-master roles',
-        );
-      },
-    );
+      expect(
+        find.text(_masterProfileMarker),
+        findsOneWidget,
+        reason:
+            'INDEPENDENT_MASTER must be routed to RouteNames.masterProfile '
+            'after tapping the primary CTA — not to /home',
+      );
+      expect(
+        find.text(_homeMarker),
+        findsNothing,
+        reason:
+            'INDEPENDENT_MASTER must NOT land on /home — the home route '
+            'is reserved for client and non-master roles',
+      );
+    });
 
     // -----------------------------------------------------------------------
     // R2 — CLIENT routes to /home (original behaviour must be preserved)

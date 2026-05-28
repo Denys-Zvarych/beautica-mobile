@@ -1157,5 +1157,10 @@
   "masterRoleSalonOwner": "Власник салону",
   "@masterRoleSalonOwner": {
     "description": "Role chip label for SALON_OWNER type on the master profile screen."
+  },
+
+  "masterContactsLabel": "Контакти",
+  "@masterContactsLabel": {
+    "description": "Section label above the contacts rows (phone + Instagram) on the master profile screen."
   }
 }

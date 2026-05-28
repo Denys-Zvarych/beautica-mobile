@@ -1,21 +1,22 @@
 // Phase 4.2 — Master Profile Screen (read-only).
 //
-// Layout: ProfileScaffold chrome (fixed top bar + scrollable body).
+// Layout: ProfileScaffold chrome (fixed top bar + scrollable body + bottom nav).
 //
 // Four [AsyncValue] states are handled explicitly:
 //   • loading  → [_ProfileSkeleton] (neumorphic shimmer blocks via
 //                 SkeletonShimmerScope / SkeletonBlock)
 //   • data     → [_ProfileBody] (staggered fade-up reveal via
-//                 AnimationController 1100 ms, 5 sections)
+//                 AnimationController 1100 ms, 6 sections)
 //   • error    → [ErrorState] with retry [ref.invalidate]
 //
 // Design source: `docs/signup-designs/MasterProfileScreen/` — transcribed 1:1.
 //
 // Domain-model gaps (fields absent from [Master]):
-//   • serviceCount        → shows '—' in the Services stat tile
+//   • serviceCount        → shows '—' in the Services stat tile and header
 //   • bookingsThisMonth   → shows '—' in the Bookings stat tile
 //   • contactPhone /
-//     instagram           → Contacts section omitted entirely
+//     instagram           → Contacts section shows '—' placeholder rows
+//                           (Phase 13 populates real data)
 //
 // Navigation: back uses `context.pop()`; edit button is Key('btn-edit-master')
 // placeholder (Phase 4.3 will wire it to RouteNames.masterEdit).
@@ -61,13 +62,14 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
 
   // Fix 1 (PERF HIGH-1): Pre-built CurvedAnimation instances so build() never
   // allocates a new CurvedAnimation on each frame. Typed as CurvedAnimation
-  // (not Animation<double>) so dispose() is accessible. Five instances match
-  // the five _revealWith() call sites in _ProfileBody.
+  // (not Animation<double>) so dispose() is accessible. Six instances match
+  // the six _revealWith() call sites in _ProfileBody.
   late final CurvedAnimation _anim0;
   late final CurvedAnimation _anim1;
   late final CurvedAnimation _anim2;
   late final CurvedAnimation _anim3;
   late final CurvedAnimation _anim4;
+  late final CurvedAnimation _anim5;
 
   // Fix 2 (PERF MEDIUM): Pre-built Tween<Offset>.animate() instances so
   // _revealWith() never allocates a new Tween+_AnimatedEvaluation on each
@@ -78,6 +80,7 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
   late final Animation<Offset> _slide2;
   late final Animation<Offset> _slide3;
   late final Animation<Offset> _slide4;
+  late final Animation<Offset> _slide5;
 
   @override
   void initState() {
@@ -112,8 +115,13 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
       parent: _controller,
       curve: const Interval(0.44, 0.94, curve: Curves.easeOutCubic),
     );
-    // Fix 2: derive the five slide animations once from their parent
-    // CurvedAnimation. The same begin/end Offset is shared across all five —
+    // Contacts section — last reveal, matching the design's 0.55–1.0 stagger.
+    _anim5 = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.55, 1.0, curve: Curves.easeOutCubic),
+    );
+    // Fix 2: derive the six slide animations once from their parent
+    // CurvedAnimation. The same begin/end Offset is shared across all six —
     // only the parent (timing curve) differs, matching the stagger intent.
     const slideBegin = Offset(0, 0.04);
     _slide0 = Tween<Offset>(
@@ -136,6 +144,10 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
       begin: slideBegin,
       end: Offset.zero,
     ).animate(_anim4);
+    _slide5 = Tween<Offset>(
+      begin: slideBegin,
+      end: Offset.zero,
+    ).animate(_anim5);
   }
 
   @override
@@ -148,6 +160,7 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
     _anim2.dispose();
     _anim3.dispose();
     _anim4.dispose();
+    _anim5.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -182,6 +195,7 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
           }
         },
       ),
+      bottomNavBar: const VelvetBottomNavBar(activeIndex: 3),
       child: masterAsync.when(
         loading: () => const _ProfileSkeleton(),
         error: (e, _) => ErrorState(
@@ -197,11 +211,13 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
             anim2: _anim2,
             anim3: _anim3,
             anim4: _anim4,
+            anim5: _anim5,
             slide0: _slide0,
             slide1: _slide1,
             slide2: _slide2,
             slide3: _slide3,
             slide4: _slide4,
+            slide5: _slide5,
           );
         },
       ),
@@ -221,11 +237,13 @@ class _ProfileBody extends StatelessWidget {
     required this.anim2,
     required this.anim3,
     required this.anim4,
+    required this.anim5,
     required this.slide0,
     required this.slide1,
     required this.slide2,
     required this.slide3,
     required this.slide4,
+    required this.slide5,
   });
 
   final Master master;
@@ -233,12 +251,13 @@ class _ProfileBody extends StatelessWidget {
   // Fix 1 (PERF HIGH-1): pre-built CurvedAnimation instances passed from the
   // owning StatefulWidget. Using FadeTransition + SlideTransition avoids a
   // separate GPU raster layer per section (vs. Opacity + Transform.translate).
-  // Five instances match the five reveal sections.
+  // Six instances match the six reveal sections.
   final Animation<double> anim0;
   final Animation<double> anim1;
   final Animation<double> anim2;
   final Animation<double> anim3;
   final Animation<double> anim4;
+  final Animation<double> anim5;
 
   // Fix 2 (PERF MEDIUM): pre-built Animation<Offset> instances passed from the
   // owning StatefulWidget. Eliminates Tween+_AnimatedEvaluation allocations on
@@ -248,6 +267,7 @@ class _ProfileBody extends StatelessWidget {
   final Animation<Offset> slide2;
   final Animation<Offset> slide3;
   final Animation<Offset> slide4;
+  final Animation<Offset> slide5;
 
   /// Wraps [child] in a staggered fade-up animation.
   ///
@@ -357,7 +377,7 @@ class _ProfileBody extends StatelessWidget {
                     iconColor: BrandColors.accentDeep,
                   ),
                 ),
-                const SizedBox(width: VelvetSpacing.xs),
+                const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
                   child: StatTile(
                     icon: Icons.star_rounded,
@@ -366,7 +386,7 @@ class _ProfileBody extends StatelessWidget {
                     valueKey: const Key('master-profile-rating-value'),
                   ),
                 ),
-                const SizedBox(width: VelvetSpacing.xs),
+                const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
                   child: StatTile(
                     icon: Icons.design_services_outlined,
@@ -375,7 +395,7 @@ class _ProfileBody extends StatelessWidget {
                     caption: l10n.masterServicesLabel,
                   ),
                 ),
-                const SizedBox(width: VelvetSpacing.xs),
+                const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
                   child: StatTile(
                     icon: Icons.reviews_outlined,
@@ -461,22 +481,35 @@ class _ProfileBody extends StatelessWidget {
                   ],
                 ),
               ),
-              // Placeholder tiles — replaced by real Image.network tiles in
-              // Phase 4.4.
-              Row(
-                children: <Widget>[
-                  for (int i = 0; i < 3; i++) ...<Widget>[
-                    _PortfolioPlaceholderTile(index: i),
-                    if (i < 2) const SizedBox(width: VelvetSpacing.md),
-                  ],
-                ],
+              // Placeholder tiles — horizontal scroll of 6 tiles matching
+              // the design's portfolio row. Replaced by real Image.network
+              // tiles in Phase 4.4.
+              SizedBox(
+                height: 72,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  // M-3 fix: match the BouncingScrollPhysics convention used
+                  // by the outer vertical scroll in profile_scaffold.dart.
+                  physics: const BouncingScrollPhysics(),
+                  padding: EdgeInsets.zero,
+                  child: Row(
+                    children: <Widget>[
+                      for (int i = 0; i < 6; i++) ...<Widget>[
+                        _PortfolioPlaceholderTile(index: i),
+                        if (i < 5) const SizedBox(width: VelvetSpacing.md),
+                      ],
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // 5 — Services section header + "Усі послуги" link (no tiles in Phase 4.2).
+        // 5 — Services section: label (with '—' count) + placeholder ServiceTile
+        // rows. Real tiles arrive in Phase 5; the placeholders match the approved
+        // design's visual structure so the screen looks complete now.
         _revealWith(
           anim4,
           slide4,
@@ -490,8 +523,9 @@ class _ProfileBody extends StatelessWidget {
                 ),
                 child: Row(
                   children: <Widget>[
+                    // '—' count shows unknown total; real count arrives in Phase 5.
                     Text(
-                      l10n.masterServicesLabel,
+                      '${l10n.masterServicesLabel} · —',
                       style: VelvetText.sectionLabel(),
                     ),
                     const Spacer(),
@@ -515,18 +549,61 @@ class _ProfileBody extends StatelessWidget {
                   ],
                 ),
               ),
-              // Service tiles ship in Phase 5. For now, an inset placeholder
-              // hint so the section doesn't look empty.
-              NeumorphicInset(
-                radius: VelvetRadii.field,
-                child: Padding(
-                  padding: const EdgeInsets.all(VelvetSpacing.md),
-                  child: Text(
-                    'Послуги з\'являться в Phase 5',
-                    style: VelvetText.feedback(BrandColors.muted),
-                    textAlign: TextAlign.center,
-                  ),
+              // Static placeholder rows — replaced by live data in Phase 5.
+              for (
+                int i = 0;
+                i < _ProfileBody._kServicePlaceholders.length;
+                i++
+              ) ...<Widget>[
+                ServiceTile(
+                  name: _ProfileBody._kServicePlaceholders[i].name,
+                  duration: _ProfileBody._kServicePlaceholders[i].duration,
+                  price: _ProfileBody._kServicePlaceholders[i].price,
+                  photoGradient: _ProfileBody._kServicePlaceholders[i].gradient,
                 ),
+                if (i < _ProfileBody._kServicePlaceholders.length - 1)
+                  const SizedBox(height: VelvetSpacing.md - 4),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: VelvetSpacing.xl),
+
+        // 6 — Contacts skeleton (phone + Instagram placeholder).
+        // Master domain model has no phone/instagram yet (Phase 13 concern).
+        // Section shows structural skeleton matching the approved design so the
+        // layout is complete and signals that contacts will appear here.
+        _revealWith(
+          anim5,
+          slide5,
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.only(
+                  left: 4,
+                  bottom: VelvetSpacing.xs,
+                ),
+                child: Text(
+                  l10n.masterContactsLabel,
+                  style: VelvetText.sectionLabel(),
+                ),
+              ),
+              ContactTile(
+                key: const Key('master-contact-phone'),
+                icon: Icons.phone_outlined,
+                value: '—',
+                semanticLabel: 'Телефон',
+                onTap: () {},
+              ),
+              const SizedBox(height: VelvetSpacing.sm),
+              ContactTile(
+                key: const Key('master-contact-instagram'),
+                icon: Icons.alternate_email,
+                label: 'Instagram',
+                value: '—',
+                semanticLabel: 'Instagram',
+                onTap: () {},
               ),
             ],
           ),
@@ -534,6 +611,24 @@ class _ProfileBody extends StatelessWidget {
       ],
     );
   }
+
+  /// Static service placeholder entries — displayed until Phase 5 wires the
+  /// real service list from the server.
+  static const List<_ServicePlaceholder> _kServicePlaceholders =
+      <_ServicePlaceholder>[
+        _ServicePlaceholder(
+          name: 'Манікюр',
+          duration: '60 хв',
+          price: '500 грн',
+          gradient: <Color>[Color(0xFFD4B896), Color(0xFF8A6840)],
+        ),
+        _ServicePlaceholder(
+          name: 'Педикюр',
+          duration: '90 хв',
+          price: '700 грн',
+          gradient: <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
+        ),
+      ];
 
   /// Maps [MasterType] to a localized role label string.
   String _roleLabel(MasterType type, AppLocalizations l10n) {
@@ -546,6 +641,26 @@ class _ProfileBody extends StatelessWidget {
         return l10n.masterRoleSalonOwner;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// _ServicePlaceholder
+// ---------------------------------------------------------------------------
+
+/// Immutable data holder for a static service row displayed before Phase 5
+/// wires the real service list from the server.
+class _ServicePlaceholder {
+  const _ServicePlaceholder({
+    required this.name,
+    required this.duration,
+    required this.price,
+    required this.gradient,
+  });
+
+  final String name;
+  final String duration;
+  final String price;
+  final List<Color> gradient;
 }
 
 // ---------------------------------------------------------------------------
@@ -571,6 +686,9 @@ class _PortfolioPlaceholderTileState extends State<_PortfolioPlaceholderTile> {
     <Color>[Color(0xFFD4B896), Color(0xFF8A6840)],
     <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
     <Color>[Color(0xFFDFC6A8), Color(0xFFB89A7A)],
+    <Color>[Color(0xFFC8A878), Color(0xFF6A4A28)],
+    <Color>[Color(0xFFCFB090), Color(0xFF8A6840)],
+    <Color>[Color(0xFFE0CAAC), Color(0xFFB89A7A)],
   ];
 
   @override

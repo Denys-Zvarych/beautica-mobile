@@ -139,6 +139,409 @@ class RoleChip extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// ContactTile
+// ---------------------------------------------------------------------------
+
+/// A tappable raised contact row (phone / Instagram). A small inset glyph well
+/// on the left, the value in the middle, a chevron on the right. Depresses on
+/// press to confirm the tap.
+///
+/// When [label] is provided (e.g. "Instagram"), it renders as a muted caption
+/// above [value], turning the text column into a two-line block so the platform
+/// is always clear without relying on a branded icon.
+///
+/// Ported verbatim from
+/// `docs/signup-designs/MasterProfileScreen/lib/widgets/profile_widgets.dart`.
+/// `VelvetColors.*` → `BrandColors.*`; all VelvetSpacing/VelvetRadii/VelvetShadows
+/// are identical in production.
+class ContactTile extends StatefulWidget {
+  const ContactTile({
+    super.key,
+    required this.icon,
+    required this.value,
+    required this.onTap,
+    required this.semanticLabel,
+    this.label,
+  });
+
+  final IconData icon;
+  final String value;
+  final VoidCallback onTap;
+  final String semanticLabel;
+
+  /// Optional platform label shown above [value] in muted caption style.
+  final String? label;
+
+  @override
+  State<ContactTile> createState() => _ContactTileState();
+}
+
+class _ContactTileState extends State<ContactTile> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: widget.semanticLabel,
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTapUp: (_) {
+          setState(() => _pressed = false);
+          widget.onTap();
+        },
+        child: AnimatedScale(
+          scale: _pressed ? 0.985 : 1,
+          duration: const Duration(milliseconds: 110),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            decoration: BoxDecoration(
+              color: BrandColors.base,
+              borderRadius: BorderRadius.circular(VelvetRadii.field),
+              boxShadow: _pressed ? null : VelvetShadows.extrudedSmall,
+            ),
+            padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
+            child: Row(
+              children: <Widget>[
+                SizedBox(
+                  height: 40,
+                  width: 40,
+                  child: NeumorphicInset(
+                    radius: VelvetRadii.field - 4,
+                    child: Center(
+                      child: Icon(
+                        widget.icon,
+                        size: 18,
+                        color: BrandColors.accentDeep,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: VelvetSpacing.md),
+                Expanded(
+                  child: widget.label != null
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            Text(
+                              widget.label!,
+                              // M-2 fix: pre-composed static; zero per-frame
+                              // allocation.
+                              style: VelvetText.contactPlatformLabel,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(widget.value, style: VelvetText.bodyStrong()),
+                          ],
+                        )
+                      : Text(widget.value, style: VelvetText.bodyStrong()),
+                ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: BrandColors.faint,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ServiceTile
+// ---------------------------------------------------------------------------
+
+/// A tappable service row — photo thumbnail left, name + duration centre,
+/// price right. Raises on its own neumorphic shadow; depresses on press.
+///
+/// Ported verbatim from
+/// `docs/signup-designs/MasterProfileScreen/lib/widgets/profile_widgets.dart`.
+/// `VelvetColors.*` → `BrandColors.*`; all VelvetSpacing/VelvetRadii/VelvetShadows
+/// are identical in production.
+class ServiceTile extends StatefulWidget {
+  const ServiceTile({
+    super.key,
+    required this.name,
+    required this.duration,
+    required this.price,
+    required this.photoGradient,
+  });
+
+  final String name;
+  final String duration;
+  final String price;
+  final List<Color> photoGradient;
+
+  @override
+  State<ServiceTile> createState() => _ServiceTileState();
+}
+
+class _ServiceTileState extends State<ServiceTile> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: '${widget.name}, ${widget.duration}, ${widget.price}',
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTapUp: (_) => setState(() => _pressed = false),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 130),
+          decoration: BoxDecoration(
+            color: BrandColors.base,
+            borderRadius: BorderRadius.circular(VelvetRadii.field),
+            boxShadow: _pressed ? null : VelvetShadows.extrudedSmall,
+          ),
+          padding: const EdgeInsets.symmetric(
+            horizontal: VelvetSpacing.sm + 4,
+            vertical: VelvetSpacing.sm,
+          ),
+          child: Row(
+            children: <Widget>[
+              // Photo thumbnail — gradient fill simulates a real photo.
+              ClipRRect(
+                borderRadius: BorderRadius.circular(VelvetRadii.field - 6),
+                child: Container(
+                  height: 38,
+                  width: 38,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: widget.photoGradient,
+                    ),
+                  ),
+                  child: Center(
+                    child: Icon(
+                      Icons.spa_outlined,
+                      size: 18,
+                      color: BrandColors.white.withValues(alpha: 0.75),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: VelvetSpacing.md),
+              // Name · duration on one line.
+              Expanded(
+                child: Row(
+                  children: <Widget>[
+                    Flexible(
+                      child: Text(
+                        widget.name,
+                        style: VelvetText.bodyStrong(),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: VelvetSpacing.sm),
+                    const Icon(
+                      Icons.schedule_outlined,
+                      size: 12,
+                      color: BrandColors.muted,
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      widget.duration,
+                      // M-2 fix: pre-composed static; zero per-frame
+                      // allocation.
+                      style: VelvetText.serviceDurationLabel,
+                    ),
+                  ],
+                ),
+              ),
+              // Price pill.
+              NeumorphicInset(
+                radius: 999,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: VelvetSpacing.sm + 2,
+                    vertical: VelvetSpacing.xs + 1,
+                  ),
+                  child: Text(
+                    widget.price,
+                    // M-2 fix: pre-composed static; zero per-frame
+                    // allocation.
+                    style: VelvetText.servicePriceLabel,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// VelvetBottomNavBar
+// ---------------------------------------------------------------------------
+
+class _NavItem {
+  const _NavItem({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+  });
+
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+}
+
+/// Full left→right layout: [Послуги(0)] [Мої записи(1)] [Календар(2)] [Профіль(3)].
+const List<_NavItem> _navItems = <_NavItem>[
+  _NavItem(
+    icon: Icons.design_services_outlined,
+    activeIcon: Icons.design_services_rounded,
+    label: 'Послуги',
+  ),
+  _NavItem(
+    icon: Icons.event_note_outlined,
+    activeIcon: Icons.event_note_rounded,
+    label: 'Мої записи',
+  ),
+  _NavItem(
+    icon: Icons.calendar_month_outlined,
+    activeIcon: Icons.calendar_month_rounded,
+    label: 'Календар',
+  ),
+  _NavItem(
+    icon: Icons.person_outline,
+    activeIcon: Icons.person_rounded,
+    label: 'Профіль',
+  ),
+];
+
+/// Neumorphic bottom navigation bar for the master-profile shell. The bar is
+/// extruded from the surface — a top-facing light highlight raises it above the
+/// content, the dark shadow anchors it to the page floor.
+///
+/// [activeIndex] selects the highlighted item (0 = Послуги, 1 = Мої записи,
+/// 2 = Календар, 3 = Профіль). A camel accent pill floats above the active icon.
+///
+/// Ported verbatim from
+/// `docs/signup-designs/MasterProfileScreen/lib/widgets/profile_widgets.dart`.
+/// `VelvetColors.*` → `BrandColors.*`.
+class VelvetBottomNavBar extends StatelessWidget {
+  const VelvetBottomNavBar({super.key, required this.activeIndex});
+
+  final int activeIndex;
+
+  static const BorderRadius _pillRadius = BorderRadius.all(Radius.circular(28));
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        VelvetSpacing.md,
+        0,
+        VelvetSpacing.md,
+        VelvetSpacing.md,
+      ),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: BrandColors.base,
+          borderRadius: _pillRadius,
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: BrandColors.shadowLightStrong,
+              offset: Offset(-6, -6),
+              blurRadius: 16,
+            ),
+            BoxShadow(
+              color: BrandColors.shadowDarkCard,
+              offset: Offset(6, 6),
+              blurRadius: 16,
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: _pillRadius,
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: 62,
+              child: Row(
+                children: <Widget>[
+                  for (int i = 0; i < _navItems.length; i++)
+                    Expanded(
+                      child: _VelvetNavTile(
+                        item: _navItems[i],
+                        active: i == activeIndex,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VelvetNavTile extends StatelessWidget {
+  const _VelvetNavTile({required this.item, required this.active});
+
+  final _NavItem item;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color = active ? BrandColors.accentDeep : BrandColors.muted;
+
+    return Semantics(
+      label: item.label,
+      selected: active,
+      button: true,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          // Camel pill indicator above the active icon.
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            width: active ? 26 : 0,
+            height: 3,
+            margin: const EdgeInsets.only(bottom: VelvetSpacing.xs),
+            decoration: BoxDecoration(
+              gradient: active
+                  ? const LinearGradient(
+                      colors: <Color>[
+                        BrandColors.accentDeep,
+                        BrandColors.accent,
+                      ],
+                    )
+                  : null,
+              color: active ? null : Colors.transparent,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Icon(active ? item.activeIcon : item.icon, size: 22, color: color),
+          const SizedBox(height: 2),
+          Text(
+            item.label,
+            // M-1 fix: pre-composed base; one copyWith for the dynamic color
+            // instead of two allocations (feedback() + copyWith) per frame.
+            style: VelvetText.navTabLabel.copyWith(color: color),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// StatTile
+// ---------------------------------------------------------------------------
+
 /// A single raised stat tile — icon → value → caption centred in a column.
 ///
 /// Used in the 4-up stats row (bookings/rating/services/reviews).

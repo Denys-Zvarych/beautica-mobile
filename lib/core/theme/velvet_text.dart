@@ -197,6 +197,38 @@ abstract final class VelvetText {
   );
 
   // ---------------------------------------------------------------------------
+  // Phase 4.x consolidated MEDIUM fixes — pre-composed statics replacing
+  // `feedback(color).copyWith(fontSize: N)` double-allocation call sites.
+  // Each field is computed once at class-load time (zero per-frame cost).
+  // ---------------------------------------------------------------------------
+
+  /// Nav-tab label — Nunito 13/700, dynamic color applied via a single copyWith.
+  /// Base for `_VelvetNavTile`: callers do `navTabLabel.copyWith(color: color)`.
+  static final TextStyle navTabLabel = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 10,
+  );
+
+  /// ContactTile platform label (e.g. "Instagram") — Nunito 13/700,
+  /// textSecondary, 11 sp.
+  static final TextStyle contactPlatformLabel = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 11,
+  );
+
+  /// ServiceTile duration label — Nunito 13/700, muted, 12 sp.
+  static final TextStyle serviceDurationLabel = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 12,
+  );
+
+  /// ServiceTile price label — Nunito 13/700, accentDeep, 13 sp.
+  static final TextStyle servicePriceLabel = _feedbackBase.copyWith(
+    color: BrandColors.accentDeep,
+    fontSize: 13,
+  );
+
+  // ---------------------------------------------------------------------------
   // Phase 4.2 — Master Profile styles.
   //
   // Transcribed verbatim from the approved preview app at

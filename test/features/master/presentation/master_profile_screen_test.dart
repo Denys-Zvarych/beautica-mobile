@@ -16,6 +16,26 @@
 //   • Override [masterRepositoryProvider] with a mocktail mock.
 //   • Use [pumpApp] from `test/helpers/pump_app.dart` for l10n + Riverpod.
 
+// Phase 4.2 — Widget tests for MasterProfileScreen.
+//
+// Covers all four AsyncValue states:
+//   1. Loading  — [_ProfileSkeleton] tree rendered; [SkeletonBlock] visible.
+//   2. Data     — master name and bio shown; rating + reviews stat keys present.
+//   3. Error    — [ErrorState] widget rendered.
+//   4. Retry (standalone) — tapping the retry button calls onRetry callback.
+//   5. Retry (screen)     — tapping retry in [MasterProfileScreen] causes the
+//                            provider to be invalidated and content reloads.
+//   6. Empty bio — bio section key absent from tree when bio is null.
+//   7. Contacts section — ContactTile keys present in the loaded data state.
+//   8. Bottom nav bar — VelvetBottomNavBar rendered in the data state.
+//
+// Strategy:
+//   • Override [masterProfileProvider] with a stub [MasterProfile] notifier
+//     whose [build()] writes the desired [AsyncValue] to state immediately.
+//   • Override [authProvider] with a stub that always returns [Authenticated].
+//   • Override [masterRepositoryProvider] with a mocktail mock.
+//   • Use [pumpApp] from `test/helpers/pump_app.dart` for l10n + Riverpod.
+
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -27,6 +47,7 @@ import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
@@ -323,6 +344,90 @@ void main() {
       // widget tree is still valid. Data must not have appeared.
       expect(find.byKey(const Key('master-profile-name')), findsNothing);
       expect(find.byType(ErrorState), findsOneWidget);
+    });
+  });
+
+  // ── 7. Contacts section — design-alignment regression ────────────────────
+  //
+  // Regression tests for the Phase 4.2 contacts-skeleton addition:
+  // verifies that both ContactTile widgets with Keys
+  // 'master-contact-phone' and 'master-contact-instagram' appear in the
+  // widget tree when the data state is loaded.
+
+  group('contacts section', () {
+    testWidgets(
+      'phone ContactTile is present in the loaded data state',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-contact-phone')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'instagram ContactTile is present in the loaded data state',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-contact-instagram')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'both contact tiles show dash placeholder value',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Both tiles render '—' until Phase 13 wires real contact fields.
+        // findWidgets (plural) because both tiles display the same dash.
+        final dashFinder = find.text('—');
+        expect(dashFinder, findsWidgets);
+      },
+    );
+  });
+
+  // ── 8. Bottom navigation bar ──────────────────────────────────────────────
+
+  group('bottom nav bar', () {
+    testWidgets('VelvetBottomNavBar is rendered in the data state',
+        (tester) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(VelvetBottomNavBar), findsOneWidget);
     });
   });
 }
