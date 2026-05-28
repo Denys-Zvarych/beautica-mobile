@@ -355,69 +355,61 @@ void main() {
   // widget tree when the data state is loaded.
 
   group('contacts section', () {
-    testWidgets(
-      'phone ContactTile is present in the loaded data state',
-      (tester) async {
-        await tester.pumpApp(
-          const MasterProfileScreen(),
-          overrides: _buildOverrides(
-            masterState: const AsyncData<Master>(_stubMaster),
-            repo: repo,
-          ),
-        );
-        await tester.pumpAndSettle();
+    testWidgets('phone ContactTile is present in the loaded data state', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        expect(
-          find.byKey(const Key('master-contact-phone')),
-          findsOneWidget,
-        );
-      },
-    );
+      expect(find.byKey(const Key('master-contact-phone')), findsOneWidget);
+    });
 
-    testWidgets(
-      'instagram ContactTile is present in the loaded data state',
-      (tester) async {
-        await tester.pumpApp(
-          const MasterProfileScreen(),
-          overrides: _buildOverrides(
-            masterState: const AsyncData<Master>(_stubMaster),
-            repo: repo,
-          ),
-        );
-        await tester.pumpAndSettle();
+    testWidgets('instagram ContactTile is present in the loaded data state', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        expect(
-          find.byKey(const Key('master-contact-instagram')),
-          findsOneWidget,
-        );
-      },
-    );
+      expect(find.byKey(const Key('master-contact-instagram')), findsOneWidget);
+    });
 
-    testWidgets(
-      'both contact tiles show dash placeholder value',
-      (tester) async {
-        await tester.pumpApp(
-          const MasterProfileScreen(),
-          overrides: _buildOverrides(
-            masterState: const AsyncData<Master>(_stubMaster),
-            repo: repo,
-          ),
-        );
-        await tester.pumpAndSettle();
+    testWidgets('both contact tiles show dash placeholder value', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        // Both tiles render '—' until Phase 13 wires real contact fields.
-        // findWidgets (plural) because both tiles display the same dash.
-        final dashFinder = find.text('—');
-        expect(dashFinder, findsWidgets);
-      },
-    );
+      // Both tiles render '—' until Phase 13 wires real contact fields.
+      // findWidgets (plural) because both tiles display the same dash.
+      final dashFinder = find.text('—');
+      expect(dashFinder, findsWidgets);
+    });
   });
 
   // ── 8. Bottom navigation bar ──────────────────────────────────────────────
 
   group('bottom nav bar', () {
-    testWidgets('VelvetBottomNavBar is rendered in the data state',
-        (tester) async {
+    testWidgets('VelvetBottomNavBar is rendered in the data state', (
+      tester,
+    ) async {
       await tester.pumpApp(
         const MasterProfileScreen(),
         overrides: _buildOverrides(

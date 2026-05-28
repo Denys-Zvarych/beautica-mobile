@@ -53,23 +53,24 @@ void main() {
     });
 
     testWidgets(
-        'renders optional platform label above value when label is provided',
-        (tester) async {
-      await tester.pumpApp(
-        ContactTile(
-          icon: Icons.alternate_email,
-          label: 'Instagram',
-          value: '—',
-          semanticLabel: 'Instagram',
-          onTap: () {},
-        ),
-      );
-      await tester.pump();
+      'renders optional platform label above value when label is provided',
+      (tester) async {
+        await tester.pumpApp(
+          ContactTile(
+            icon: Icons.alternate_email,
+            label: 'Instagram',
+            value: '—',
+            semanticLabel: 'Instagram',
+            onTap: () {},
+          ),
+        );
+        await tester.pump();
 
-      expect(find.text('Instagram'), findsOneWidget);
-      // Value text must also be present.
-      expect(find.text('—'), findsWidgets);
-    });
+        expect(find.text('Instagram'), findsOneWidget);
+        // Value text must also be present.
+        expect(find.text('—'), findsWidgets);
+      },
+    );
 
     testWidgets('onTap callback fires when tile is tapped', (tester) async {
       var tapped = false;
@@ -114,7 +115,8 @@ void main() {
     });
 
     testWidgets('wraps its subtree in at least one Semantics widget', (
-        tester) async {
+      tester,
+    ) async {
       await tester.pumpApp(
         const ServiceTile(
           name: 'Педикюр',
@@ -145,20 +147,21 @@ void main() {
     });
 
     testWidgets(
-        'active tab uses the filled icon variant; inactive tabs use the outlined variant',
-        (tester) async {
-      // activeIndex: 3 → 'Профіль' — active icon is Icons.person_rounded.
-      await tester.pumpApp(const VelvetBottomNavBar(activeIndex: 3));
-      await tester.pump();
+      'active tab uses the filled icon variant; inactive tabs use the outlined variant',
+      (tester) async {
+        // activeIndex: 3 → 'Профіль' — active icon is Icons.person_rounded.
+        await tester.pumpApp(const VelvetBottomNavBar(activeIndex: 3));
+        await tester.pump();
 
-      // Active icon (filled) must be present.
-      expect(find.byIcon(Icons.person_rounded), findsOneWidget);
-      // Inactive icons (outlined) for the other 3 tabs must be present.
-      expect(find.byIcon(Icons.design_services_outlined), findsOneWidget);
-      expect(find.byIcon(Icons.event_note_outlined), findsOneWidget);
-      expect(find.byIcon(Icons.calendar_month_outlined), findsOneWidget);
-      // The filled person icon (active) must NOT coexist with the outlined one.
-      expect(find.byIcon(Icons.person_outline), findsNothing);
-    });
+        // Active icon (filled) must be present.
+        expect(find.byIcon(Icons.person_rounded), findsOneWidget);
+        // Inactive icons (outlined) for the other 3 tabs must be present.
+        expect(find.byIcon(Icons.design_services_outlined), findsOneWidget);
+        expect(find.byIcon(Icons.event_note_outlined), findsOneWidget);
+        expect(find.byIcon(Icons.calendar_month_outlined), findsOneWidget);
+        // The filled person icon (active) must NOT coexist with the outlined one.
+        expect(find.byIcon(Icons.person_outline), findsNothing);
+      },
+    );
   });
 }
