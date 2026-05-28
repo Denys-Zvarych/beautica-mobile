@@ -26,6 +26,7 @@ import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../domain/user.dart';
+import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_selectors.dart';
 import 'user_role_l10n.dart';
@@ -80,7 +81,14 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
       bottomBar: NeumorphicButton(
         key: const ValueKey<String>('done_to_app'),
         label: l10n.registerDoneCtaPrimary,
-        onPressed: () => context.go(RouteNames.home),
+        onPressed: () {
+          final role = ref.read(currentUserProvider)?.role;
+          final destination = switch (role) {
+            UserRole.independentMaster => RouteNames.masterProfile,
+            _ => RouteNames.home,
+          };
+          context.go(destination);
+        },
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

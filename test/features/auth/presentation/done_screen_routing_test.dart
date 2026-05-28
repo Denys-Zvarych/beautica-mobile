@@ -1,0 +1,292 @@
+// Regression tests for role-aware CTA routing in DoneScreen.
+//
+// Phase 4.2 fix: the primary CTA (`done_to_app`) now reads the authenticated
+// user's role from [currentUserProvider] and routes:
+//   - INDEPENDENT_MASTER → [RouteNames.masterProfile]
+//   - all other roles    → [RouteNames.home]
+//
+// Covered cases:
+//   R1. INDEPENDENT_MASTER → /master/profile (regression guard)
+//   R2. CLIENT             → / (home) — original behaviour preserved
+//   R3. SALON_OWNER        → / (home) — wildcard branch covers all non-master roles
+//
+// Infrastructure: UncontrolledProviderScope + ProviderContainer mirrors the
+// pattern in done_screen_test.dart. A dedicated GoRouter stub is used here
+// that registers both /home and /master/profile so navigation can actually land.
+
+import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/done_screen.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../../helpers/fakes/fake_auth_repository.dart';
+import '../../../helpers/fakes/fake_secure_storage.dart';
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+const _independentMaster = User(
+  id: 'im-1',
+  email: 'master@beautica.test',
+  role: UserRole.independentMaster,
+  firstName: 'Марко',
+  lastName: 'Гончар',
+);
+
+const _client = User(
+  id: 'cl-1',
+  email: 'client@beautica.test',
+  role: UserRole.client,
+  firstName: 'Анна',
+  lastName: 'Коваль',
+);
+
+const _salonOwner = User(
+  id: 'so-1',
+  email: 'owner@salon.test',
+  role: UserRole.salonOwner,
+  firstName: 'Олена',
+  lastName: 'Бойко',
+);
+
+const _testTokens = AuthTokens(
+  accessToken: 'access-token',
+  refreshToken: 'refresh-token',
+);
+
+// ---------------------------------------------------------------------------
+// Router factory
+//
+// Includes stubs for all three destinations so context.go() can resolve the
+// route. Sentinel text constants allow assertions without coupling to l10n.
+// ---------------------------------------------------------------------------
+
+const _homeMarker = 'stub-home-route';
+const _masterProfileMarker = 'stub-master-profile-route';
+
+GoRouter _makeFullRouter() => GoRouter(
+      initialLocation: RouteNames.done,
+      redirect: (context, state) => null,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.done,
+          builder: (context, state) => const DoneScreen(),
+        ),
+        GoRoute(
+          path: RouteNames.home,
+          builder: (context, state) =>
+              const Scaffold(body: Center(child: Text(_homeMarker))),
+        ),
+        GoRoute(
+          path: RouteNames.masterProfile,
+          builder: (context, state) =>
+              const Scaffold(body: Center(child: Text(_masterProfileMarker))),
+        ),
+      ],
+    );
+
+// ---------------------------------------------------------------------------
+// Pump helper
+// ---------------------------------------------------------------------------
+
+/// Pumps [DoneScreen] inside a [UncontrolledProviderScope] backed by a
+/// [ProviderContainer] whose auth repository is seeded to resolve
+/// [authenticatedUser] as the current user.
+///
+/// Returns the container so callers can dispose it explicitly if needed;
+/// [addTearDown] is always registered inside this helper.
+Future<ProviderContainer> _pumpDoneScreen(
+  WidgetTester tester, {
+  required User authenticatedUser,
+  required GoRouter router,
+}) async {
+  final storage = FakeSecureStorage();
+  await storage.writeRefreshToken('seeded-refresh-token');
+
+  final repo = FakeAuthRepository()
+    ..refreshResult = _testTokens
+    ..meResult = authenticatedUser;
+
+  final container = ProviderContainer(
+    overrides: [
+      secureStorageProvider.overrideWith((_) => storage),
+      authRepositoryProvider.overrideWith((_) => repo),
+    ],
+  );
+  addTearDown(container.dispose);
+
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(
+        routerConfig: router,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('uk'),
+      ),
+    ),
+  );
+
+  // Drain AuthNotifier cold-start restore + DoneScreen post-frame callback.
+  await tester.pumpAndSettle();
+
+  return container;
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+void main() {
+  group('DoneScreen — role-aware CTA routing', () {
+    // -----------------------------------------------------------------------
+    // R1 — INDEPENDENT_MASTER routes to /master/profile
+    //
+    // Regression guard: before this fix the CTA always called
+    // context.go(RouteNames.home). After the fix, INDEPENDENT_MASTER must
+    // land on /master/profile. This is the highest-priority case because it
+    // gates the master's first-use onboarding flow.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'R1. INDEPENDENT_MASTER: tapping done_to_app navigates to '
+      'RouteNames.masterProfile (/master/profile)',
+      (tester) async {
+        final router = _makeFullRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _independentMaster,
+          router: router,
+        );
+
+        // DoneScreen is on screen; master profile stub is not yet visible.
+        expect(find.text(_masterProfileMarker), findsNothing);
+        expect(find.text(_homeMarker), findsNothing);
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('done_to_app')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey<String>('done_to_app')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(_masterProfileMarker),
+          findsOneWidget,
+          reason:
+              'INDEPENDENT_MASTER must be routed to RouteNames.masterProfile '
+              'after tapping the primary CTA — not to /home',
+        );
+        expect(
+          find.text(_homeMarker),
+          findsNothing,
+          reason:
+              'INDEPENDENT_MASTER must NOT land on /home — the home route '
+              'is reserved for client and non-master roles',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // R2 — CLIENT routes to /home (original behaviour must be preserved)
+    //
+    // Ensures the wildcard branch of the switch expression still works for the
+    // most common self-registration role.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'R2. CLIENT: tapping done_to_app navigates to RouteNames.home (/)',
+      (tester) async {
+        final router = _makeFullRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _client,
+          router: router,
+        );
+
+        expect(find.text(_homeMarker), findsNothing);
+        expect(find.text(_masterProfileMarker), findsNothing);
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('done_to_app')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey<String>('done_to_app')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(_homeMarker),
+          findsOneWidget,
+          reason:
+              'CLIENT must be routed to RouteNames.home after tapping the '
+              'primary CTA — this is the original pre-fix behaviour that must '
+              'continue to work',
+        );
+        expect(
+          find.text(_masterProfileMarker),
+          findsNothing,
+          reason: 'CLIENT must NOT be sent to /master/profile',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // R3 — SALON_OWNER routes to /home (wildcard branch coverage)
+    //
+    // The switch expression uses `_ => RouteNames.home` for all non-master roles.
+    // SALON_OWNER is an invite-only role that can reach DoneScreen via the
+    // accept-invite flow. This test confirms the wildcard arm covers it correctly
+    // and that it does not accidentally resolve to /master/profile.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'R3. SALON_OWNER: tapping done_to_app navigates to RouteNames.home (/)',
+      (tester) async {
+        final router = _makeFullRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _salonOwner,
+          router: router,
+        );
+
+        expect(find.text(_homeMarker), findsNothing);
+        expect(find.text(_masterProfileMarker), findsNothing);
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('done_to_app')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey<String>('done_to_app')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(_homeMarker),
+          findsOneWidget,
+          reason:
+              'SALON_OWNER must fall through the wildcard branch to '
+              'RouteNames.home — only INDEPENDENT_MASTER may use /master/profile',
+        );
+        expect(
+          find.text(_masterProfileMarker),
+          findsNothing,
+          reason: 'SALON_OWNER must NOT be routed to /master/profile',
+        );
+      },
+    );
+  });
+}
