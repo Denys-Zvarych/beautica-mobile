@@ -18,7 +18,6 @@
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/pump_app.dart';
@@ -31,10 +30,7 @@ void main() {
       await tester.pumpApp(const ProfileAvatar());
       await tester.pump();
 
-      expect(
-        find.byKey(const Key('master-profile-avatar')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('master-profile-avatar')), findsOneWidget);
     });
 
     testWidgets('defaults to kDiameter and accepts custom diameter', (
@@ -69,14 +65,8 @@ void main() {
       await tester.pumpApp(const ProfileAvatar());
       await tester.pump();
 
-      final semantics = tester.getSemantics(
-        find.byKey(const Key('master-profile-avatar')),
-      );
       // The Semantics widget wraps the SizedBox, so we verify the ancestor.
-      expect(
-        find.bySemanticsLabel('Фото профілю'),
-        findsOneWidget,
-      );
+      expect(find.bySemanticsLabel('Фото профілю'), findsOneWidget);
     });
   });
 
@@ -84,9 +74,7 @@ void main() {
 
   group('RoleChip', () {
     testWidgets('renders the label text', (tester) async {
-      await tester.pumpApp(
-        const RoleChip(label: 'Незалежний майстер'),
-      );
+      await tester.pumpApp(const RoleChip(label: 'Незалежний майстер'));
       await tester.pump();
 
       expect(find.text('Незалежний майстер'), findsOneWidget);
@@ -106,9 +94,7 @@ void main() {
     });
 
     testWidgets('renders without icon when icon is null', (tester) async {
-      await tester.pumpApp(
-        const RoleChip(label: 'Майстер салону'),
-      );
+      await tester.pumpApp(const RoleChip(label: 'Майстер салону'));
       await tester.pump();
 
       // No Icon widget should be present.
@@ -117,9 +103,7 @@ void main() {
     });
 
     testWidgets('renders NeumorphicInset as the container', (tester) async {
-      await tester.pumpApp(
-        const RoleChip(label: 'Тест'),
-      );
+      await tester.pumpApp(const RoleChip(label: 'Тест'));
       await tester.pump();
 
       expect(find.byType(NeumorphicInset), findsOneWidget);

@@ -291,39 +291,38 @@ void main() {
   /// between the screen and the provider is correct. The companion standalone
   /// retry test (group 4) already verified the [onRetry] callback fires.
   group('retry — screen wiring', () {
-    testWidgets(
-      'tapping retry does not crash and notifier rebuilds',
-      (tester) async {
-        // Start in error state.
-        await tester.pumpApp(
-          const MasterProfileScreen(),
-          overrides: _buildOverrides(
-            masterState: const AsyncError<Master>(
-              NetworkFailure(),
-              StackTrace.empty,
-            ),
-            repo: repo,
+    testWidgets('tapping retry does not crash and notifier rebuilds', (
+      tester,
+    ) async {
+      // Start in error state.
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncError<Master>(
+            NetworkFailure(),
+            StackTrace.empty,
           ),
-        );
-        await tester.pumpAndSettle();
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        // Confirm we start in the error state.
-        expect(find.byType(ErrorState), findsOneWidget);
+      // Confirm we start in the error state.
+      expect(find.byType(ErrorState), findsOneWidget);
 
-        // Tap retry — ref.invalidate(masterProfileProvider) fires.
-        final retryBtn = find.byKey(const Key('error_state_retry_button'));
-        expect(retryBtn, findsOneWidget);
+      // Tap retry — ref.invalidate(masterProfileProvider) fires.
+      final retryBtn = find.byKey(const Key('error_state_retry_button'));
+      expect(retryBtn, findsOneWidget);
 
-        // This must not throw (proves invalidate wiring compiles + runs).
-        await tester.tap(retryBtn);
-        await tester.pumpAndSettle();
+      // This must not throw (proves invalidate wiring compiles + runs).
+      await tester.tap(retryBtn);
+      await tester.pumpAndSettle();
 
-        // The stub re-enters AsyncError via a microtask (by design), so the
-        // error banner is visible again — but no exception was thrown and the
-        // widget tree is still valid. Data must not have appeared.
-        expect(find.byKey(const Key('master-profile-name')), findsNothing);
-        expect(find.byType(ErrorState), findsOneWidget);
-      },
-    );
+      // The stub re-enters AsyncError via a microtask (by design), so the
+      // error banner is visible again — but no exception was thrown and the
+      // widget tree is still valid. Data must not have appeared.
+      expect(find.byKey(const Key('master-profile-name')), findsNothing);
+      expect(find.byType(ErrorState), findsOneWidget);
+    });
   });
 }

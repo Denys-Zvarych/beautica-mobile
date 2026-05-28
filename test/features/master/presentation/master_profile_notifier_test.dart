@@ -77,16 +77,15 @@ const _stubMaster = Master(
 class _StubAuthAuthenticated extends AuthNotifier {
   @override
   Future<AuthSession> build() => Future.value(
-    AuthSession.authenticated(user: _stubUser, accessToken: 'tok'),
+    const AuthSession.authenticated(user: _stubUser, accessToken: 'tok'),
   );
 }
 
 /// Resolves to [Unauthenticated] immediately.
 class _StubAuthUnauthenticated extends AuthNotifier {
   @override
-  Future<AuthSession> build() => Future.value(
-    const AuthSession.unauthenticated(),
-  );
+  Future<AuthSession> build() =>
+      Future.value(const AuthSession.unauthenticated());
 }
 
 // ---------------------------------------------------------------------------
@@ -130,8 +129,9 @@ void main() {
 
   group('build()', () {
     test('returns Master when session is Authenticated', () async {
-      when(() => repo.getMyProfile(_testUserId))
-          .thenAnswer((_) async => _stubMaster);
+      when(
+        () => repo.getMyProfile(_testUserId),
+      ).thenAnswer((_) async => _stubMaster);
 
       final container = _makeContainer(
         authFactory: _StubAuthAuthenticated.new,
@@ -149,38 +149,41 @@ void main() {
       expect(master.type, MasterType.independentMaster);
     });
 
-    test('emits AsyncError(UnauthorizedFailure) when session is Unauthenticated',
-        () async {
-      final container = _makeContainer(
-        authFactory: _StubAuthUnauthenticated.new,
-        repo: repo,
-      );
+    test(
+      'emits AsyncError(UnauthorizedFailure) when session is Unauthenticated',
+      () async {
+        final container = _makeContainer(
+          authFactory: _StubAuthUnauthenticated.new,
+          repo: repo,
+        );
 
-      // Settle authProvider first so it resolves to Unauthenticated before
-      // masterProfileProvider builds. This avoids the Loading→Unauthenticated
-      // transition triggering a second rebuild mid-test.
-      await container.read(authProvider.future);
+        // Settle authProvider first so it resolves to Unauthenticated before
+        // masterProfileProvider builds. This avoids the Loading→Unauthenticated
+        // transition triggering a second rebuild mid-test.
+        await container.read(authProvider.future);
 
-      // Trigger the build by reading the provider. Build() sees Unauthenticated
-      // and throws synchronously — Riverpod wraps this in AsyncError.
-      // expectLater with the .future properly observes the first completion.
-      // We use catchError to handle the StateError that Riverpod emits when a
-      // keepAlive provider disposes during a never-completing build. Instead,
-      // read the state after a microtask when the error is settled.
-      container.read(masterProfileProvider); // trigger build
-      await Future<void>.delayed(Duration.zero); // let microtask settle
+        // Trigger the build by reading the provider. Build() sees Unauthenticated
+        // and throws synchronously — Riverpod wraps this in AsyncError.
+        // expectLater with the .future properly observes the first completion.
+        // We use catchError to handle the StateError that Riverpod emits when a
+        // keepAlive provider disposes during a never-completing build. Instead,
+        // read the state after a microtask when the error is settled.
+        container.read(masterProfileProvider); // trigger build
+        await Future<void>.delayed(Duration.zero); // let microtask settle
 
-      final state = container.read(masterProfileProvider);
-      expect(state.hasError, isTrue);
-      expect(state.error, isA<UnauthorizedFailure>());
+        final state = container.read(masterProfileProvider);
+        expect(state.hasError, isTrue);
+        expect(state.error, isA<UnauthorizedFailure>());
 
-      // Repo must never be called when the auth guard fires.
-      verifyNever(() => repo.getMyProfile(any()));
-    });
+        // Repo must never be called when the auth guard fires.
+        verifyNever(() => repo.getMyProfile(any()));
+      },
+    );
 
     test('emits AsyncError(NetworkFailure) when repository throws', () async {
-      when(() => repo.getMyProfile(_testUserId))
-          .thenThrow(const NetworkFailure());
+      when(
+        () => repo.getMyProfile(_testUserId),
+      ).thenThrow(const NetworkFailure());
 
       final container = _makeContainer(
         authFactory: _StubAuthAuthenticated.new,
@@ -206,8 +209,9 @@ void main() {
 
   group('refresh()', () {
     test('transitions to updated AsyncData on success', () async {
-      when(() => repo.getMyProfile(_testUserId))
-          .thenAnswer((_) async => _stubMaster);
+      when(
+        () => repo.getMyProfile(_testUserId),
+      ).thenAnswer((_) async => _stubMaster);
 
       final container = _makeContainer(
         authFactory: _StubAuthAuthenticated.new,
@@ -227,8 +231,9 @@ void main() {
         reviewCount: 20,
         type: MasterType.independentMaster,
       );
-      when(() => repo.getMyProfile(_testUserId))
-          .thenAnswer((_) async => updatedMaster);
+      when(
+        () => repo.getMyProfile(_testUserId),
+      ).thenAnswer((_) async => updatedMaster);
 
       await container.read(masterProfileProvider.notifier).refresh();
 
@@ -238,8 +243,9 @@ void main() {
     });
 
     test('transitions to AsyncError on repo failure', () async {
-      when(() => repo.getMyProfile(_testUserId))
-          .thenAnswer((_) async => _stubMaster);
+      when(
+        () => repo.getMyProfile(_testUserId),
+      ).thenAnswer((_) async => _stubMaster);
 
       final container = _makeContainer(
         authFactory: _StubAuthAuthenticated.new,
@@ -251,8 +257,9 @@ void main() {
       await container.read(masterProfileProvider.future);
 
       // Stub the repo to fail on next call (refresh).
-      when(() => repo.getMyProfile(_testUserId))
-          .thenThrow(const ServerFailure(statusCode: 503));
+      when(
+        () => repo.getMyProfile(_testUserId),
+      ).thenThrow(const ServerFailure(statusCode: 503));
 
       await container.read(masterProfileProvider.notifier).refresh();
 
@@ -260,8 +267,7 @@ void main() {
       expect(state.hasError, isTrue);
       expect(
         state.error,
-        isA<ServerFailure>()
-            .having((f) => f.statusCode, 'statusCode', 503),
+        isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 503),
       );
     });
   });

@@ -25,6 +25,7 @@
 // See test/routing/auth_redirect_test.dart.
 
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -161,12 +162,21 @@ String? authRedirectForLocation(
   }
 
   // Authenticated user sitting on a strict auth-only route or splash → send to
-  // home. Post-registration routes (/verification, /done) are deliberately
-  // excluded: a just-registered (auto-logged-in but email-unverified) user must
-  // be able to remain there to finish verification, instead of being yanked to
-  // /home before they can enter the OTP.
+  // the role-appropriate landing screen. Post-registration routes
+  // (/verification, /done) are deliberately excluded: a just-registered
+  // (auto-logged-in but email-unverified) user must be able to remain there to
+  // finish verification, instead of being yanked away before they can enter the
+  // OTP.
+  //
+  // Role dispatch (Phase 4.2):
+  //   INDEPENDENT_MASTER → /master/profile (the Phase 4 master home screen)
+  //   all other roles    → / (home shell, shows a "coming soon" screen)
   if (isAuthenticated && (isAtUnauthOnlyRoute || isAtSplash)) {
-    return RouteNames.home;
+    final auth = session.value as Authenticated;
+    return switch (auth.user.role) {
+      UserRole.independentMaster => RouteNames.masterProfile,
+      _ => RouteNames.home,
+    };
   }
 
   // No redirect needed.
