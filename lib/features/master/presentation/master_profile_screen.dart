@@ -381,7 +381,9 @@ class _ProfileBody extends StatelessWidget {
                 Expanded(
                   child: StatTile(
                     icon: Icons.star_rounded,
-                    value: master.avgRating.toStringAsFixed(1),
+                    value: master.reviewCount == 0
+                        ? '—'
+                        : master.avgRating.toStringAsFixed(1),
                     caption: l10n.masterRatingLabel,
                     valueKey: const Key('master-profile-rating-value'),
                   ),
@@ -399,7 +401,9 @@ class _ProfileBody extends StatelessWidget {
                 Expanded(
                   child: StatTile(
                     icon: Icons.reviews_outlined,
-                    value: master.reviewCount.toString(),
+                    value: master.reviewCount == 0
+                        ? '—'
+                        : master.reviewCount.toString(),
                     caption: l10n.masterStatsReviewsLabel,
                     valueKey: const Key('master-profile-reviews-value'),
                   ),

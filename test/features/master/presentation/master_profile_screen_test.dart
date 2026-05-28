@@ -224,6 +224,85 @@ void main() {
       // Review count as integer string.
       expect(find.text('42'), findsOneWidget);
     });
+
+    testWidgets(
+        'shows dash placeholder for rating and reviews when reviewCount is 0',
+        (tester) async {
+      // _stubMasterNoBio has reviewCount: 0 — both stat tiles must show '—'.
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMasterNoBio),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // valueKey is placed on the Text widget itself (StatTile.build line 583).
+      // Read the rendered string directly — no descendant lookup needed.
+      final ratingText = tester.widget<Text>(
+        find.byKey(const Key('master-profile-rating-value')),
+      );
+      final reviewsText = tester.widget<Text>(
+        find.byKey(const Key('master-profile-reviews-value')),
+      );
+
+      expect(
+        ratingText.data,
+        '—',
+        reason: 'Rating tile must show dash when reviewCount == 0',
+      );
+      expect(
+        reviewsText.data,
+        '—',
+        reason: 'Reviews tile must show dash when reviewCount == 0',
+      );
+
+      // Confirm no numeric rating or review count leaked into the tree.
+      expect(find.text('0'), findsNothing);
+      expect(find.text('0.0'), findsNothing);
+    });
+
+    testWidgets(
+        'shows real rating and reviews when reviewCount is greater than 0',
+        (tester) async {
+      // Explicit non-zero fixture — reviewCount: 3, avgRating: 4.5.
+      const stubWithRatings = Master(
+        id: 'user-2',
+        firstName: 'Аня',
+        lastName: 'Коваль',
+        avgRating: 4.5,
+        reviewCount: 3,
+        type: MasterType.independentMaster,
+      );
+
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(stubWithRatings),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final ratingText = tester.widget<Text>(
+        find.byKey(const Key('master-profile-rating-value')),
+      );
+      final reviewsText = tester.widget<Text>(
+        find.byKey(const Key('master-profile-reviews-value')),
+      );
+
+      expect(
+        ratingText.data,
+        '4.5',
+        reason: 'Rating tile must show formatted value when reviewCount > 0',
+      );
+      expect(
+        reviewsText.data,
+        '3',
+        reason: 'Reviews tile must show count string when reviewCount > 0',
+      );
+    });
   });
 
   // ── 3. Error state ───────────────────────────────────────────────────────
