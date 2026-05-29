@@ -18,16 +18,20 @@
 //   /auth/resend-verification — re-send verification email
 //
 // Covered scenarios:
-//   1. kAuthPaths contains /auth/login.
-//   2. kAuthPaths contains /auth/logout.
-//   3. kAuthPaths contains /auth/refresh.
-//   4. kAuthPaths contains /auth/register (CLIENT + SALON_OWNER unified endpoint).
-//   5. kAuthPaths contains /auth/register/independent-master.
-//   6. kAuthPaths contains /auth/verify-email (OTP redaction — Phase 2.11).
-//   7. kAuthPaths contains /auth/resend-verification (OTP redaction — Phase 2.11).
-//   8. kAuthPaths contains /auth/forgot-password (email PII redaction — Phase 2.13).
-//   9. kAuthPaths contains /auth/reset-password (token + password redaction — Phase 2.13).
-//  10. kAuthPaths has exactly 11 entries — no undocumented extras.
+//   1.  kAuthPaths contains /auth/login.
+//   2.  kAuthPaths contains /auth/logout.
+//   3.  kAuthPaths contains /auth/refresh.
+//   4.  kAuthPaths contains /auth/register (CLIENT + SALON_OWNER unified endpoint).
+//   5.  kAuthPaths contains /auth/register/independent-master.
+//   6.  kAuthPaths contains /auth/verify-email (OTP redaction — Phase 2.11).
+//   7.  kAuthPaths contains /auth/resend-verification (OTP redaction — Phase 2.11).
+//   8.  kAuthPaths contains /auth/forgot-password (email PII redaction — Phase 2.13).
+//   9.  kAuthPaths contains /auth/reset-password (token + password redaction — Phase 2.13).
+//  10.  kAuthPaths contains /auth/invite/validate (Phase 2.20).
+//  11.  kAuthPaths contains /auth/invite/accept (Phase 2.20).
+//  12.  kAuthPaths contains /independent-masters/me (Phase 4.2 — PII address body redaction).
+//  13.  kAuthPaths contains /masters/me (Phase 4.2 — PII address body redaction).
+//  14.  kAuthPaths has exactly 13 entries — no undocumented extras.
 
 import 'package:beautica_mobile/core/network/auth_paths.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -116,14 +120,67 @@ void main() {
       },
     );
 
+    test(
+      '10. contains /auth/invite/validate (Phase 2.20 — invite token must not be logged)',
+      () {
+        expect(
+          kAuthPaths,
+          contains('/auth/invite/validate'),
+          reason:
+              'AuthInterceptor must NOT inject a bearer token; '
+              'LoggingInterceptor must redact the single-use invite token.',
+        );
+      },
+    );
+
+    test(
+      '11. contains /auth/invite/accept (Phase 2.20 — invite token + password must not be logged)',
+      () {
+        expect(
+          kAuthPaths,
+          contains('/auth/invite/accept'),
+          reason:
+              'AuthInterceptor must NOT inject a bearer token; '
+              'LoggingInterceptor must redact the plaintext password and '
+              'single-use invite token.',
+        );
+      },
+    );
+
+    test(
+      '12. contains /independent-masters/me (Phase 4.2 — precise work address must not be logged)',
+      () {
+        expect(
+          kAuthPaths,
+          contains('/independent-masters/me'),
+          reason:
+              'LoggingInterceptor must redact the request body in debug builds; '
+              'street/buildingNo/locationNote are PII (MS5 pattern).',
+        );
+      },
+    );
+
+    test(
+      '13. contains /masters/me (Phase 4.2 — precise work address must not be logged)',
+      () {
+        expect(
+          kAuthPaths,
+          contains('/masters/me'),
+          reason:
+              'LoggingInterceptor must redact the request body in debug builds; '
+              'street/buildingNo/locationNote are PII (MS5 pattern).',
+        );
+      },
+    );
+
     // -----------------------------------------------------------------------
-    // Test 10: exact cardinality — catches undocumented additions/removals
+    // Test 14: exact cardinality — catches undocumented additions/removals
     // -----------------------------------------------------------------------
 
-    test('10. has exactly 11 entries — no undocumented paths', () {
+    test('14. has exactly 13 entries — no undocumented paths', () {
       expect(
         kAuthPaths.length,
-        equals(11),
+        equals(13),
         reason:
             'A path was added to or removed from kAuthPaths without a '
             'corresponding test update. Update this test and confirm the '

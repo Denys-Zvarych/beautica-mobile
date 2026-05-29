@@ -15,6 +15,7 @@ class NeumorphicCard extends StatelessWidget {
     this.radius = VelvetRadii.card,
     this.shadows = VelvetShadows.extrudedCard,
     this.color = BrandColors.base,
+    this.clipContent = false,
   });
 
   final Widget child;
@@ -23,15 +24,28 @@ class NeumorphicCard extends StatelessWidget {
   final List<BoxShadow> shadows;
   final Color color;
 
+  /// When true, wraps the child in a [ClipRRect] so that content (e.g. a
+  /// [NeumorphicInset] that contains a [RepaintBoundary]) cannot bleed outside
+  /// the card's rounded corners.
+  ///
+  /// Defaults to false. Set to true only when the child subtree paints near the
+  /// card's corner edges — leaving it false avoids an unnecessary GPU saveLayer
+  /// round-trip caused by [ClipRRect] on every frame.
+  final bool clipContent;
+
   @override
   Widget build(BuildContext context) {
+    final BorderRadius borderRadius = BorderRadius.circular(radius);
+    final Widget content = Padding(padding: padding, child: child);
     return DecoratedBox(
       decoration: BoxDecoration(
         color: color,
-        borderRadius: BorderRadius.circular(radius),
+        borderRadius: borderRadius,
         boxShadow: shadows,
       ),
-      child: Padding(padding: padding, child: child),
+      child: clipContent
+          ? ClipRRect(borderRadius: borderRadius, child: content)
+          : content,
     );
   }
 }

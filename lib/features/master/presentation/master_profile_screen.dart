@@ -294,6 +294,14 @@ class _ProfileBody extends StatelessWidget {
     final String displayName = '${master.firstName} ${master.lastName}';
     final String roleLabel = _roleLabel(master.type, l10n);
 
+    // Pre-compute the combined address string once per build so the identity
+    // card Row's child Text widget never contains inline ternary chains.
+    // Compose: street + buildingNo (if present) + city (if present).
+    final String? locationLine = _buildLocationLine(master);
+    final String? noteText = (master.locationNote?.isNotEmpty ?? false)
+        ? master.locationNote
+        : null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -305,6 +313,11 @@ class _ProfileBody extends StatelessWidget {
           NeumorphicCard(
             color: const Color(0xFFEDE4D5),
             padding: const EdgeInsets.all(VelvetSpacing.md),
+            // P1-1 + P1-2 fix: RoleChip uses NeumorphicInset which wraps a
+            // RepaintBoundary that can paint near the card's rounded corners.
+            // clipContent: true opts this card into ClipRRect; all other
+            // NeumorphicCard usages on this screen keep the default (false).
+            clipContent: true,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
@@ -325,8 +338,9 @@ class _ProfileBody extends StatelessWidget {
                         label: roleLabel,
                         icon: Icons.auto_awesome_rounded,
                       ),
-                      if (master.city != null && master.city!.isNotEmpty) ...[
+                      if (locationLine != null) ...[
                         const SizedBox(height: VelvetSpacing.xs),
+                        // Location row: icon + combined address string.
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
@@ -338,16 +352,29 @@ class _ProfileBody extends StatelessWidget {
                             const SizedBox(width: 3),
                             Flexible(
                               child: Text(
-                                master.city!,
-                                // Fix 3 (PERF MEDIUM-1): use pre-cached static
-                                // instead of calling feedback().copyWith() per
-                                // build frame.
+                                locationLine,
+                                // Pre-cached static — no per-frame copyWith
+                                // allocation (PERF MEDIUM pattern).
                                 style: VelvetText.feedbackMutedSm,
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
                         ),
+                        // Note row: shown only when locationNote is set.
+                        if (noteText != null) ...[
+                          const SizedBox(height: 2),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 16),
+                            child: Text(
+                              noteText,
+                              // Pre-cached static (11 sp variant) avoids
+                              // per-frame copyWith call.
+                              style: VelvetText.feedbackMutedNote,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ],
                     ],
                   ),
@@ -644,6 +671,47 @@ class _ProfileBody extends StatelessWidget {
       case MasterType.salonOwner:
         return l10n.masterRoleSalonOwner;
     }
+  }
+
+  /// Builds the combined address line for the identity card location row.
+  ///
+  /// Composition rules (matching the approved design mockup):
+  /// - street + buildingNo + city  → "вул. Хрещатик, 22, Київ"
+  /// - street only + city          → "вул. Хрещатик, Київ"
+  /// - city only                   → "Київ"
+  /// - nothing available           → `null` (caller must hide the row)
+  ///
+  /// Called once per build from [build()] and stored in a local `final` to
+  /// avoid repeated computation during the frame.
+  static String? _buildLocationLine(Master master) {
+    final String? street = (master.street?.isNotEmpty ?? false)
+        ? master.street
+        : null;
+    final String? building = (master.buildingNo?.isNotEmpty ?? false)
+        ? master.buildingNo
+        : null;
+    final String? city = (master.city?.isNotEmpty ?? false)
+        ? master.city
+        : null;
+
+    if (street == null && city == null) return null;
+
+    final StringBuffer buf = StringBuffer();
+    if (street != null) {
+      buf.write(street);
+      if (building != null) {
+        buf.write(', ');
+        buf.write(building);
+      }
+      if (city != null) {
+        buf.write(', ');
+        buf.write(city);
+      }
+    } else {
+      // Only city is present.
+      buf.write(city);
+    }
+    return buf.toString();
   }
 }
 

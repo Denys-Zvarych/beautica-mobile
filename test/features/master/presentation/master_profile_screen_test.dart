@@ -95,6 +95,57 @@ const _stubMasterNoBio = Master(
   type: MasterType.independentMaster,
 );
 
+/// City-only — no street, no buildingNo, no locationNote.
+/// Expected locationLine: "Київ".
+const _stubMasterCityOnly = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  city: 'Київ',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
+/// Street + city, no buildingNo, no locationNote.
+/// Expected locationLine: "вул. Хрещатик, Київ".
+const _stubMasterStreetAndCity = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  city: 'Київ',
+  street: 'вул. Хрещатик',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
+/// Street + buildingNo + city + locationNote — full address.
+/// Expected locationLine: "вул. Хрещатик, 22, Київ".
+/// Expected note row: "кв. 3, 2 поверх".
+const _stubMasterFullAddress = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  city: 'Київ',
+  street: 'вул. Хрещатик',
+  buildingNo: '22',
+  locationNote: 'кв. 3, 2 поверх',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
+/// No city, no street — location row must be hidden entirely.
+const _stubMasterNoLocation = Master(
+  id: 'user-1',
+  firstName: 'Тест',
+  lastName: 'Майстер',
+  avgRating: 4.5,
+  reviewCount: 0,
+  type: MasterType.independentMaster,
+);
+
 // ---------------------------------------------------------------------------
 // Stub notifiers
 // ---------------------------------------------------------------------------
@@ -226,83 +277,85 @@ void main() {
     });
 
     testWidgets(
-        'shows dash placeholder for rating and reviews when reviewCount is 0',
-        (tester) async {
-      // _stubMasterNoBio has reviewCount: 0 — both stat tiles must show '—'.
-      await tester.pumpApp(
-        const MasterProfileScreen(),
-        overrides: _buildOverrides(
-          masterState: const AsyncData<Master>(_stubMasterNoBio),
-          repo: repo,
-        ),
-      );
-      await tester.pumpAndSettle();
+      'shows dash placeholder for rating and reviews when reviewCount is 0',
+      (tester) async {
+        // _stubMasterNoBio has reviewCount: 0 — both stat tiles must show '—'.
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterNoBio),
+            repo: repo,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // valueKey is placed on the Text widget itself (StatTile.build line 583).
-      // Read the rendered string directly — no descendant lookup needed.
-      final ratingText = tester.widget<Text>(
-        find.byKey(const Key('master-profile-rating-value')),
-      );
-      final reviewsText = tester.widget<Text>(
-        find.byKey(const Key('master-profile-reviews-value')),
-      );
+        // valueKey is placed on the Text widget itself (StatTile.build line 583).
+        // Read the rendered string directly — no descendant lookup needed.
+        final ratingText = tester.widget<Text>(
+          find.byKey(const Key('master-profile-rating-value')),
+        );
+        final reviewsText = tester.widget<Text>(
+          find.byKey(const Key('master-profile-reviews-value')),
+        );
 
-      expect(
-        ratingText.data,
-        '—',
-        reason: 'Rating tile must show dash when reviewCount == 0',
-      );
-      expect(
-        reviewsText.data,
-        '—',
-        reason: 'Reviews tile must show dash when reviewCount == 0',
-      );
+        expect(
+          ratingText.data,
+          '—',
+          reason: 'Rating tile must show dash when reviewCount == 0',
+        );
+        expect(
+          reviewsText.data,
+          '—',
+          reason: 'Reviews tile must show dash when reviewCount == 0',
+        );
 
-      // Confirm no numeric rating or review count leaked into the tree.
-      expect(find.text('0'), findsNothing);
-      expect(find.text('0.0'), findsNothing);
-    });
+        // Confirm no numeric rating or review count leaked into the tree.
+        expect(find.text('0'), findsNothing);
+        expect(find.text('0.0'), findsNothing);
+      },
+    );
 
     testWidgets(
-        'shows real rating and reviews when reviewCount is greater than 0',
-        (tester) async {
-      // Explicit non-zero fixture — reviewCount: 3, avgRating: 4.5.
-      const stubWithRatings = Master(
-        id: 'user-2',
-        firstName: 'Аня',
-        lastName: 'Коваль',
-        avgRating: 4.5,
-        reviewCount: 3,
-        type: MasterType.independentMaster,
-      );
+      'shows real rating and reviews when reviewCount is greater than 0',
+      (tester) async {
+        // Explicit non-zero fixture — reviewCount: 3, avgRating: 4.5.
+        const stubWithRatings = Master(
+          id: 'user-2',
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          avgRating: 4.5,
+          reviewCount: 3,
+          type: MasterType.independentMaster,
+        );
 
-      await tester.pumpApp(
-        const MasterProfileScreen(),
-        overrides: _buildOverrides(
-          masterState: const AsyncData<Master>(stubWithRatings),
-          repo: repo,
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(stubWithRatings),
+            repo: repo,
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      final ratingText = tester.widget<Text>(
-        find.byKey(const Key('master-profile-rating-value')),
-      );
-      final reviewsText = tester.widget<Text>(
-        find.byKey(const Key('master-profile-reviews-value')),
-      );
+        final ratingText = tester.widget<Text>(
+          find.byKey(const Key('master-profile-rating-value')),
+        );
+        final reviewsText = tester.widget<Text>(
+          find.byKey(const Key('master-profile-reviews-value')),
+        );
 
-      expect(
-        ratingText.data,
-        '4.5',
-        reason: 'Rating tile must show formatted value when reviewCount > 0',
-      );
-      expect(
-        reviewsText.data,
-        '3',
-        reason: 'Reviews tile must show count string when reviewCount > 0',
-      );
-    });
+        expect(
+          ratingText.data,
+          '4.5',
+          reason: 'Rating tile must show formatted value when reviewCount > 0',
+        );
+        expect(
+          reviewsText.data,
+          '3',
+          reason: 'Reviews tile must show count string when reviewCount > 0',
+        );
+      },
+    );
   });
 
   // ── 3. Error state ───────────────────────────────────────────────────────
@@ -499,6 +552,139 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(VelvetBottomNavBar), findsOneWidget);
+    });
+  });
+
+  // ── 9. Location line — city-only ──────────────────────────────────────────
+  //
+  // Regression tests for the Phase 4.2 location row (street/buildingNo/city
+  // fields on Master).  Tests cover all _buildLocationLine composition branches
+  // by pumping the real _ProfileBody through MasterProfileScreen with different
+  // Master fixtures.
+
+  group('location line — city only', () {
+    testWidgets('renders city name when only city is set', (tester) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMasterCityOnly),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Location icon must be present (location_on_outlined is in the Row).
+      expect(find.byIcon(Icons.location_on_outlined), findsOneWidget);
+      // The combined address text must equal just the city.
+      expect(find.text('Київ'), findsOneWidget);
+    });
+
+    testWidgets('does not render a note row when locationNote is null', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMasterCityOnly),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // No indented note row must appear for a city-only master.
+      expect(find.text('кв. 3, 2 поверх'), findsNothing);
+    });
+  });
+
+  // ── 10. Location line — street + city ─────────────────────────────────────
+
+  group('location line — street and city, no building', () {
+    testWidgets('renders street comma city when buildingNo is absent', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMasterStreetAndCity),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('вул. Хрещатик, Київ'), findsOneWidget);
+    });
+  });
+
+  // ── 11. Location line — full address (street + building + city + note) ─────
+
+  group('location line — full address', () {
+    testWidgets(
+      'renders street comma building comma city and note row',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterFullAddress),
+            repo: repo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Combined address line must include street, building and city.
+        expect(find.text('вул. Хрещатик, 22, Київ'), findsOneWidget);
+        // Note row must be rendered beneath the location line.
+        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+      },
+    );
+
+    testWidgets('location icon is present with full address', (tester) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMasterFullAddress),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.location_on_outlined), findsOneWidget);
+    });
+  });
+
+  // ── 12. Location line — hidden when no city and no street ─────────────────
+
+  group('location line — hidden when location absent', () {
+    testWidgets('location icon absent when city and street are null', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMasterNoLocation),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // No location row should appear — the conditional is `if (locationLine != null)`.
+      expect(find.byIcon(Icons.location_on_outlined), findsNothing);
+    });
+
+    testWidgets('note row absent when city and street are null', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMasterNoLocation),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Master name must still render — only the location row is suppressed.
+      expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
+      expect(find.byIcon(Icons.location_on_outlined), findsNothing);
     });
   });
 }

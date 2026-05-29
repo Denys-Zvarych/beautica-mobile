@@ -189,6 +189,15 @@ abstract final class VelvetText {
     fontSize: 12,
   );
 
+  /// Location note sub-row — Nunito 13/700, muted, 11 sp.
+  /// Used for the optional [Master.locationNote] indented row on the identity
+  /// card. Pre-cached here so the profile screen never calls `.copyWith()` per
+  /// build frame (PERF MEDIUM pattern).
+  static final TextStyle feedbackMutedNote = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 11,
+  );
+
   /// Feedback label for the role chip / accent small text — Nunito 13/700,
   /// accentDeep, 12 sp.
   static final TextStyle feedbackAccentSm = _feedbackBase.copyWith(

@@ -29,4 +29,8 @@ const Set<String> kAuthPaths = {
   // unauthenticated endpoints).
   '/auth/invite/validate',
   '/auth/invite/accept',
+  // Phase 4.2 — master profile endpoints carry street/buildingNo/locationNote
+  // (precise work address). LoggingInterceptor must redact bodies in debug builds.
+  '/independent-masters/me',
+  '/masters/me',
 };

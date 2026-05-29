@@ -84,6 +84,12 @@ class _$MasterDetailResponse extends MasterDetailResponse {
   @override
   final String? city;
   @override
+  final String? street;
+  @override
+  final String? buildingNo;
+  @override
+  final String? locationNote;
+  @override
   final String? bio;
   @override
   final String? avatarUrl;
@@ -107,6 +113,9 @@ class _$MasterDetailResponse extends MasterDetailResponse {
       this.firstName,
       this.lastName,
       this.city,
+      this.street,
+      this.buildingNo,
+      this.locationNote,
       this.bio,
       this.avatarUrl,
       this.avgRating,
@@ -132,6 +141,9 @@ class _$MasterDetailResponse extends MasterDetailResponse {
         firstName == other.firstName &&
         lastName == other.lastName &&
         city == other.city &&
+        street == other.street &&
+        buildingNo == other.buildingNo &&
+        locationNote == other.locationNote &&
         bio == other.bio &&
         avatarUrl == other.avatarUrl &&
         avgRating == other.avgRating &&
@@ -148,6 +160,9 @@ class _$MasterDetailResponse extends MasterDetailResponse {
     _$hash = $jc(_$hash, firstName.hashCode);
     _$hash = $jc(_$hash, lastName.hashCode);
     _$hash = $jc(_$hash, city.hashCode);
+    _$hash = $jc(_$hash, street.hashCode);
+    _$hash = $jc(_$hash, buildingNo.hashCode);
+    _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jc(_$hash, bio.hashCode);
     _$hash = $jc(_$hash, avatarUrl.hashCode);
     _$hash = $jc(_$hash, avgRating.hashCode);
@@ -166,6 +181,9 @@ class _$MasterDetailResponse extends MasterDetailResponse {
           ..add('firstName', firstName)
           ..add('lastName', lastName)
           ..add('city', city)
+          ..add('street', street)
+          ..add('buildingNo', buildingNo)
+          ..add('locationNote', locationNote)
           ..add('bio', bio)
           ..add('avatarUrl', avatarUrl)
           ..add('avgRating', avgRating)
@@ -196,6 +214,18 @@ class MasterDetailResponseBuilder
   String? _city;
   String? get city => _$this._city;
   set city(String? city) => _$this._city = city;
+
+  String? _street;
+  String? get street => _$this._street;
+  set street(String? street) => _$this._street = street;
+
+  String? _buildingNo;
+  String? get buildingNo => _$this._buildingNo;
+  set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
+
+  String? _locationNote;
+  String? get locationNote => _$this._locationNote;
+  set locationNote(String? locationNote) => _$this._locationNote = locationNote;
 
   String? _bio;
   String? get bio => _$this._bio;
@@ -240,6 +270,9 @@ class MasterDetailResponseBuilder
       _firstName = $v.firstName;
       _lastName = $v.lastName;
       _city = $v.city;
+      _street = $v.street;
+      _buildingNo = $v.buildingNo;
+      _locationNote = $v.locationNote;
       _bio = $v.bio;
       _avatarUrl = $v.avatarUrl;
       _avgRating = $v.avgRating;
@@ -274,6 +307,9 @@ class MasterDetailResponseBuilder
             firstName: firstName,
             lastName: lastName,
             city: city,
+            street: street,
+            buildingNo: buildingNo,
+            locationNote: locationNote,
             bio: bio,
             avatarUrl: avatarUrl,
             avgRating: avgRating,

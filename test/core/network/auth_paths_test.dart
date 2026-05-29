@@ -34,6 +34,26 @@ void main() {
       expect(kAuthPaths, contains('/auth/invite/accept'));
     });
 
+    test(
+      'includes Phase 4.2 master profile endpoints (PII work address redaction)',
+      () {
+        expect(
+          kAuthPaths,
+          contains('/independent-masters/me'),
+          reason:
+              'street/buildingNo/locationNote are PII; LoggingInterceptor must '
+              'redact the request body when this path is called.',
+        );
+        expect(
+          kAuthPaths,
+          contains('/masters/me'),
+          reason:
+              'street/buildingNo/locationNote are PII; LoggingInterceptor must '
+              'redact the request body when this path is called.',
+        );
+      },
+    );
+
     test('is a Set (no duplicate entries)', () {
       expect(kAuthPaths.length, equals(kAuthPaths.toSet().length));
     });

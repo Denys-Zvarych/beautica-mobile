@@ -50,6 +50,15 @@ abstract class Master with _$Master {
     /// City where the master operates (display string, not a UUID).
     String? city,
 
+    /// Street name where the master works.
+    String? street,
+
+    /// Building number (e.g. "22").
+    String? buildingNo,
+
+    /// Apartment/floor/office note (e.g. "кв. 3, 2 поверх").
+    String? locationNote,
+
     /// Short bio text entered by the master.
     String? bio,
 
