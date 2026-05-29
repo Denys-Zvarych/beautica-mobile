@@ -526,9 +526,13 @@ class _OtpField extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 for (int i = 0; i < length; i++) ...<Widget>[
-                  _OtpCell(
-                    digit: i < controller.text.length ? controller.text[i] : '',
-                    active: i == controller.text.length && focusNode.hasFocus,
+                  Flexible(
+                    child: _OtpCell(
+                      digit: i < controller.text.length
+                          ? controller.text[i]
+                          : '',
+                      active: i == controller.text.length && focusNode.hasFocus,
+                    ),
                   ),
                   if (i != length - 1)
                     const SizedBox(width: VelvetSpacing.sm + 2),
@@ -560,7 +564,7 @@ class _OtpCell extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       height: 50,
-      width: 41,
+      constraints: const BoxConstraints(maxWidth: 41),
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: BrandColors.base,
