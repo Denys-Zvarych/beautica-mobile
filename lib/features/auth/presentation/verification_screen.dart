@@ -78,8 +78,13 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   String get _otp => _codeController.text;
   bool get _isOtpComplete => _otp.length == 6;
 
-  // ── Cooldown timer — owned by _ResendRow, not this state ─────────────────
-  // (removed: _cooldown, _timer)
+  // ── Cooldown timer — owned by _ResendRow; parent holds a key to reset it ──
+  //
+  // Fix 2B: when _saveProviderProfile() fails after the OTP is already consumed
+  // the user must be able to request a new code immediately (their OTP is gone).
+  // Calling _resendRowKey.currentState?.resetCooldown() from _submit's catch
+  // drives the countdown back to 0 without any cross-widget setState coupling.
+  final GlobalKey<_ResendRowState> _resendRowKey = GlobalKey<_ResendRowState>();
 
   // ── Error / flow state ───────────────────────────────────────────────────
 
@@ -157,6 +162,14 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       context.go(RouteNames.done);
     } catch (e) {
       if (!mounted) return;
+      // Fix 2B: if the post-OTP profile save failed (_emailVerified is true,
+      // meaning the OTP was consumed but the PATCH /independent-masters/me
+      // call threw), the user needs to request a new code before they can
+      // retry — reset the resend cooldown immediately so they are not blocked
+      // by the 30-second window.
+      if (_emailVerified) {
+        _resendRowKey.currentState?.resetCooldown();
+      }
       _setInlineError(e, l10n);
     }
   }
@@ -176,11 +189,35 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   /// a real inline message (Defect 8 — never silent).
   Future<void> _saveProviderProfile(AppLocalizations l10n) async {
     final draft = ref.read(registerDraftProvider);
-    // No draft (e.g. deep-link straight to /verification) or no city selected →
-    // nothing to persist. The guard also covers users who skipped Step 3.
+    // No draft → deep-link edge case (e.g. user tapped the email link on a
+    // different device). Nothing to persist; the backend already has whatever
+    // was submitted at registration time.
     if (draft == null) return;
+
     final cityId = draft.cityId;
-    if (cityId == null || cityId.isEmpty) return;
+    final bool isCityMissing = cityId == null || cityId.isEmpty;
+
+    if (isCityMissing) {
+      // Fix 3: provider roles (INDEPENDENT_MASTER, SALON_OWNER) require a city
+      // because the Step 3 address wizard is mandatory for them and the PATCH /
+      // POST call cannot succeed without it. If cityId is null here the draft
+      // state was lost — surface a typed failure so the user can go back to
+      // Step 3 and re-enter, instead of silently creating a verified account
+      // with no location in the database.
+      //
+      // CLIENT is intentionally excluded: clients may skip Step 3, so a null
+      // cityId for a CLIENT is a valid "skipped" state, not an error.
+      switch (draft.role) {
+        case UserRole.independentMaster:
+        case UserRole.salonOwner:
+          throw const ProviderMissingCityFailure();
+        case UserRole.client:
+        case UserRole.salonAdmin:
+        case UserRole.salonMaster:
+          // Clients may skip; invite-flow roles never run Step 3.
+          return;
+      }
+    }
 
     final districtId = draft.districtId;
 
@@ -397,6 +434,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           const SizedBox(height: VelvetSpacing.xl),
           // ── Resend row — owns its own cooldown timer (Fix B / MEDIUM-2) ────
           _ResendRow(
+            key: _resendRowKey,
             onResend: _resend,
             initialCooldown: _kResendCooldownSeconds,
           ),
@@ -547,7 +585,11 @@ class _OtpCell extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ResendRow extends StatefulWidget {
-  const _ResendRow({required this.onResend, this.initialCooldown = 0});
+  const _ResendRow({
+    super.key,
+    required this.onResend,
+    this.initialCooldown = 0,
+  });
 
   /// Called when the user taps the resend link. Returns cooldown seconds to
   /// display (30 for success, server value for throttle, null for generic
@@ -603,7 +645,23 @@ class _ResendRowState extends State<_ResendRow> {
     });
   }
 
+  /// Immediately cancels the running cooldown and resets the counter to zero.
+  ///
+  /// Called by the parent [_VerificationScreenState] via [GlobalKey] when the
+  /// post-OTP profile save fails (Fix 2B): the OTP is consumed and the user
+  /// must be able to request a new code without waiting out the 30-second window.
+  void resetCooldown() {
+    _timer?.cancel();
+    if (!mounted) return;
+    setState(() => _cooldown = 0);
+  }
+
   Future<void> _handleTap() async {
+    // Fire-and-forget haptic so the tap always gives tactile feedback.
+    // unawaited() because we don't gate any logic on completion and awaiting
+    // a platform channel in widget tests blocks the async chain permanently.
+    unawaited(HapticFeedback.lightImpact());
+
     if (_cooldown > 0) return;
     // Optimistic update — start the countdown immediately so the button
     // disables and the user gets instant visual feedback rather than seeing

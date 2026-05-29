@@ -1162,5 +1162,10 @@
   "masterContactsLabel": "Контакти",
   "@masterContactsLabel": {
     "description": "Section label above the contacts rows (phone + Instagram) on the master profile screen."
+  },
+
+  "verificationErrProviderMissingCity": "Місто не вибрано. Поверніться на крок 3 і вкажіть адресу.",
+  "@verificationErrProviderMissingCity": {
+    "description": "Inline error on the verification screen when a provider role (INDEPENDENT_MASTER or SALON_OWNER) reaches the post-OTP save step with no cityId in the draft — the user must go back to Step 3 and pick a city."
   }
 }

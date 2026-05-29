@@ -618,24 +618,23 @@ void main() {
   // ── 11. Location line — full address (street + building + city + note) ─────
 
   group('location line — full address', () {
-    testWidgets(
-      'renders street comma building comma city and note row',
-      (tester) async {
-        await tester.pumpApp(
-          const MasterProfileScreen(),
-          overrides: _buildOverrides(
-            masterState: const AsyncData<Master>(_stubMasterFullAddress),
-            repo: repo,
-          ),
-        );
-        await tester.pumpAndSettle();
+    testWidgets('renders street comma building comma city and note row', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMasterFullAddress),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        // Combined address line must include street, building and city.
-        expect(find.text('вул. Хрещатик, 22, Київ'), findsOneWidget);
-        // Note row must be rendered beneath the location line.
-        expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
-      },
-    );
+      // Combined address line must include street, building and city.
+      expect(find.text('вул. Хрещатик, 22, Київ'), findsOneWidget);
+      // Note row must be rendered beneath the location line.
+      expect(find.text('кв. 3, 2 поверх'), findsOneWidget);
+    });
 
     testWidgets('location icon is present with full address', (tester) async {
       await tester.pumpApp(

@@ -5,7 +5,9 @@
 //
 // Sensitive data is redacted before logging:
 //   • The `Authorization` header value is replaced with `***REDACTED***`.
-//   • The full request body for auth endpoints is suppressed (shows "[REDACTED]").
+//   • The full request body for paths in [kPiiPaths] is suppressed (shows
+//     "[REDACTED]"). This covers unauthenticated auth endpoints AND
+//     authenticated endpoints that carry PII location data.
 //
 // Response timing is measured from [onRequest] to [onResponse] / [onError]
 // using [Stopwatch]. The stopwatch is stored on [RequestOptions.extra] under
@@ -46,8 +48,10 @@ final class LoggingInterceptor extends Interceptor {
       headers['Authorization'] = '***REDACTED***';
     }
 
-    // Redact body for sensitive endpoints.
-    final dynamic body = kAuthPaths.contains(options.path)
+    // Redact body for sensitive endpoints (auth credentials, OTPs, PII
+    // location fields). Uses [kPiiPaths] — a superset of [kAuthPaths] that
+    // includes authenticated endpoints carrying sensitive location data.
+    final dynamic body = kPiiPaths.contains(options.path)
         ? '[REDACTED]'
         : options.data;
 
@@ -93,9 +97,10 @@ final class LoggingInterceptor extends Interceptor {
 
     final elapsed = _stopElapsed(err.requestOptions);
 
-    // Redact response body for auth endpoints to avoid leaking tokens or
-    // credentials in error logs (e.g. a 401 on /auth/login that echoes input).
-    final dynamic errBody = kAuthPaths.contains(err.requestOptions.path)
+    // Redact response body for sensitive endpoints to avoid leaking tokens,
+    // credentials, or PII location data in error logs. Uses [kPiiPaths] to
+    // cover both auth paths and authenticated PII endpoints.
+    final dynamic errBody = kPiiPaths.contains(err.requestOptions.path)
         ? '[REDACTED]'
         : err.response?.data;
 

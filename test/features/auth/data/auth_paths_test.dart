@@ -148,27 +148,41 @@ void main() {
     );
 
     test(
-      '12. contains /independent-masters/me (Phase 4.2 — precise work address must not be logged)',
+      '12. /independent-masters/me is in kPiiPaths (body redaction) but NOT kAuthPaths (token skip)',
       () {
         expect(
-          kAuthPaths,
+          kPiiPaths,
           contains('/independent-masters/me'),
           reason:
               'LoggingInterceptor must redact the request body in debug builds; '
               'street/buildingNo/locationNote are PII (MS5 pattern).',
         );
+        expect(
+          kAuthPaths,
+          isNot(contains('/independent-masters/me')),
+          reason:
+              'Authenticated endpoint — must carry a Bearer token; placing it in '
+              'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
+        );
       },
     );
 
     test(
-      '13. contains /masters/me (Phase 4.2 — precise work address must not be logged)',
+      '13. /masters/me is in kPiiPaths (body redaction) but NOT kAuthPaths (token skip)',
       () {
         expect(
-          kAuthPaths,
+          kPiiPaths,
           contains('/masters/me'),
           reason:
               'LoggingInterceptor must redact the request body in debug builds; '
               'street/buildingNo/locationNote are PII (MS5 pattern).',
+        );
+        expect(
+          kAuthPaths,
+          isNot(contains('/masters/me')),
+          reason:
+              'Authenticated endpoint — must carry a Bearer token; placing it in '
+              'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
         );
       },
     );
@@ -177,15 +191,59 @@ void main() {
     // Test 14: exact cardinality — catches undocumented additions/removals
     // -----------------------------------------------------------------------
 
-    test('14. has exactly 13 entries — no undocumented paths', () {
-      expect(
-        kAuthPaths.length,
-        equals(13),
-        reason:
-            'A path was added to or removed from kAuthPaths without a '
-            'corresponding test update. Update this test and confirm the '
-            'interceptors handle the new path correctly.',
-      );
-    });
+    test(
+      '14. kAuthPaths has exactly 11 entries (unauthenticated endpoints only)',
+      () {
+        expect(
+          kAuthPaths.length,
+          equals(11),
+          reason:
+              'A path was added to or removed from kAuthPaths without a '
+              'corresponding test update. kAuthPaths must only contain unauthenticated '
+              'endpoints. PII-bearing authenticated paths go in kPiiPaths instead.',
+        );
+      },
+    );
+
+    test(
+      '14b. kPiiPaths is a strict superset of kAuthPaths — every unauthenticated '
+      'path is also redacted in logs',
+      () {
+        // Every path in kAuthPaths must appear in kPiiPaths. The reverse is not
+        // required — kPiiPaths may contain additional authenticated PII paths.
+        for (final path in kAuthPaths) {
+          expect(
+            kPiiPaths,
+            contains(path),
+            reason:
+                'kPiiPaths must contain every path in kAuthPaths. '
+                'Missing: $path. All unauthenticated endpoints carry credentials '
+                'or OTPs and must therefore also be redacted in debug logs.',
+          );
+        }
+        // kPiiPaths must be strictly larger than kAuthPaths (Phase 4.2 added
+        // 2 authenticated PII paths that are NOT in kAuthPaths).
+        expect(
+          kPiiPaths.length,
+          greaterThan(kAuthPaths.length),
+          reason:
+              'kPiiPaths must contain additional entries beyond kAuthPaths '
+              '(/independent-masters/me and /masters/me).',
+        );
+      },
+    );
+
+    test(
+      '15. kPiiPaths has exactly 13 entries (kAuthPaths union + 2 authenticated PII paths)',
+      () {
+        expect(
+          kPiiPaths.length,
+          equals(13),
+          reason:
+              'kPiiPaths must equal kAuthPaths plus /independent-masters/me and '
+              '/masters/me. Update this count if new PII endpoints are added.',
+        );
+      },
+    );
   });
 }
