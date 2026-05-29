@@ -37,6 +37,7 @@ import '../features/auth/presentation/register_step_3_screen.dart';
 import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
+import '../features/master/presentation/master_edit_screen.dart';
 import '../features/master/presentation/master_profile_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import 'auth_redirect.dart';
@@ -187,6 +188,13 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.masterProfile,
         pageBuilder: (context, state) =>
             _instantPage(state, const MasterProfileScreen()),
+      ),
+      // Phase 4.3 — Master profile edit form. Auth-guarded (Phase 2.9 redirect
+      // guard already covers all non-login routes when session is null).
+      GoRoute(
+        path: RouteNames.masterEdit,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const MasterEditScreen()),
       ),
     ],
   );

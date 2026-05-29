@@ -864,17 +864,31 @@ class VelvetLogo extends StatelessWidget {
     Radius.circular(VelvetRadii.logoTile),
   );
 
+  // Fix 3 (PERF MEDIUM-2): pre-computed styles for the two known font sizes so
+  // build() never calls copyWith() on every rebuild. The defaults (36 / 14) are
+  // the only values used across all current call sites.
+  static final TextStyle _markDefaultStyle = VelvetText.heading().copyWith(
+    fontSize: 36,
+    color: BrandColors.accentLogo,
+    fontWeight: FontWeight.w700,
+  );
+  static final TextStyle _wordmarkDefaultStyle = VelvetText.wordmark().copyWith(
+    fontSize: 14,
+  );
+
   @override
   Widget build(BuildContext context) {
     final double tile = tileSize ?? (compact ? 72 : VelvetSizes.logoTile);
 
-    // Compute mark style — hoist the common parts, vary only markFontSize.
-    // Using a local final (not a static) because markFontSize is an instance param.
-    final TextStyle markStyle = VelvetText.heading().copyWith(
-      fontSize: markFontSize,
-      color: BrandColors.accentLogo,
-      fontWeight: FontWeight.w700,
-    );
+    // Fix 3: select the cached style when the font size matches the default;
+    // fall back to copyWith only when a non-default size is explicitly passed.
+    final TextStyle markStyle = markFontSize == 36
+        ? _markDefaultStyle
+        : VelvetText.heading().copyWith(
+            fontSize: markFontSize,
+            color: BrandColors.accentLogo,
+            fontWeight: FontWeight.w700,
+          );
 
     final Widget? wordmark = !showWordmark
         ? null
@@ -885,7 +899,9 @@ class VelvetLogo extends StatelessWidget {
           )
         : Text(
             'beautica',
-            style: VelvetText.wordmark().copyWith(fontSize: wordmarkFontSize),
+            style: wordmarkFontSize == 14
+                ? _wordmarkDefaultStyle
+                : VelvetText.wordmark().copyWith(fontSize: wordmarkFontSize),
           );
 
     return Semantics(
@@ -974,6 +990,216 @@ class NeumorphicIconButton extends StatelessWidget {
             boxShadow: VelvetShadows.extrudedSmall,
           ),
           child: Icon(icon, color: BrandColors.textSecondary, size: 22),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4.3 — Avatar edit affordance (NeumorphicAvatarEditor).
+//
+// Ported verbatim from
+// `docs/signup-designs/MasterEditScreen/lib/widgets/neumorphic.dart`
+// (`NeumorphicAvatarEditor`). Color references changed from `VelvetColors.*`
+// to `BrandColors.*`; all VelvetSpacing/VelvetRadii/VelvetShadows are
+// identical in production.
+// ---------------------------------------------------------------------------
+
+/// Display state for [NeumorphicAvatarEditor].
+enum AvatarEditState {
+  /// No photo yet — initials placeholder on a warm inset disc.
+  pristine,
+
+  /// A photo is set — rendered as a muted camel gradient stand-in (Phase 4.4
+  /// replaces this with a real [Image.network] thumbnail).
+  loaded,
+
+  /// Picker / upload in flight — cream overlay + camel spinner over the disc.
+  picking,
+}
+
+/// The avatar-edit affordance at the top of [MasterEditScreen].
+///
+/// An extruded neumorphic ring (104 dp) cradles a 96 dp avatar disc —
+/// either an initials placeholder, a loaded photo gradient, or a picking
+/// overlay — with a 30 dp camel camera badge anchored at the bottom-right.
+///
+/// frontend-design craft: depth is read entirely through the paired
+/// light/dark neumorphic shadows; the 4 dp gap between the inner disc and
+/// the outer ring gives the inset breathing room so it reads as a physical
+/// pillow pressed up from the taupe surface.
+class NeumorphicAvatarEditor extends StatefulWidget {
+  const NeumorphicAvatarEditor({
+    super.key,
+    required this.state,
+    required this.initials,
+    required this.onTap,
+    this.semanticLabel = 'Змінити фото профілю',
+  });
+
+  /// Which display state to render.
+  final AvatarEditState state;
+
+  /// Initials shown in the [AvatarEditState.pristine] placeholder.
+  final String initials;
+
+  /// Action invoked when the user taps the camera badge.
+  final VoidCallback onTap;
+
+  /// Accessibility label for the outer [Semantics] wrapper.
+  final String semanticLabel;
+
+  /// Outer extruded ring diameter.
+  static const double _ring = 104;
+
+  /// Inner avatar disc diameter.
+  static const double _disc = 96;
+
+  // Cached initials style — Comfortaa 30/700, accentDeep. Computed once at
+  // class-load time so build() never calls GoogleFonts on every frame.
+  static final TextStyle _initialsStyle = VelvetText.displayName().copyWith(
+    fontSize: 30,
+    color: BrandColors.accentDeep,
+  );
+
+  @override
+  State<NeumorphicAvatarEditor> createState() => _NeumorphicAvatarEditorState();
+}
+
+class _NeumorphicAvatarEditorState extends State<NeumorphicAvatarEditor> {
+  bool _badgePressed = false;
+
+  bool get _picking => widget.state == AvatarEditState.picking;
+
+  Widget _discContent() {
+    switch (widget.state) {
+      case AvatarEditState.pristine:
+        return Center(
+          child: Text(
+            widget.initials,
+            style: NeumorphicAvatarEditor._initialsStyle,
+          ),
+        );
+      case AvatarEditState.loaded:
+      case AvatarEditState.picking:
+        // Muted camel gradient stands in for the real network image until
+        // Phase 9.4 wires the actual avatar upload + display.
+        Widget image = const DecoratedBox(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: <Color>[
+                BrandColors.accentLogo,
+                BrandColors.accent,
+                BrandColors.accentLatte,
+              ],
+              stops: <double>[0.0, 0.55, 1.0],
+            ),
+          ),
+        );
+        if (_picking) {
+          image = Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              image,
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: BrandColors.white.withValues(alpha: 0.78),
+                ),
+              ),
+              const Center(
+                child: SizedBox(
+                  height: 30,
+                  width: 30,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    color: BrandColors.accent,
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
+        return image;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      enabled: !_picking,
+      label: widget.semanticLabel,
+      child: SizedBox(
+        // Room for the badge overflowing the ring bottom-right (+18 each axis).
+        height: NeumorphicAvatarEditor._ring + 18,
+        width: NeumorphicAvatarEditor._ring + 18,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: <Widget>[
+            // Outer extruded ring.
+            Container(
+              height: NeumorphicAvatarEditor._ring,
+              width: NeumorphicAvatarEditor._ring,
+              decoration: const BoxDecoration(
+                color: BrandColors.base,
+                shape: BoxShape.circle,
+                boxShadow: VelvetShadows.extrudedCard,
+              ),
+              // 4 dp gap → inset breathing room around the disc.
+              padding: const EdgeInsets.all(4),
+              child: ClipOval(
+                child: SizedBox(
+                  height: NeumorphicAvatarEditor._disc,
+                  width: NeumorphicAvatarEditor._disc,
+                  child: _discContent(),
+                ),
+              ),
+            ),
+            // Camera edit badge — bottom-right, offset from ring edge.
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: GestureDetector(
+                onTapDown: _picking
+                    ? null
+                    : (_) => setState(() => _badgePressed = true),
+                onTapCancel: _picking
+                    ? null
+                    : () => setState(() => _badgePressed = false),
+                onTapUp: _picking
+                    ? null
+                    : (_) {
+                        setState(() => _badgePressed = false);
+                        widget.onTap();
+                      },
+                child: AnimatedContainer(
+                  key: const Key('avatar-edit-badge'),
+                  duration: const Duration(milliseconds: 140),
+                  height: 30,
+                  width: 30,
+                  decoration: BoxDecoration(
+                    color: BrandColors.accent,
+                    shape: BoxShape.circle,
+                    boxShadow: _badgePressed || _picking
+                        ? null
+                        : VelvetShadows.extrudedSmall,
+                  ),
+                  child: Icon(
+                    _picking
+                        ? Icons.hourglass_top_rounded
+                        : Icons.photo_camera_rounded,
+                    color: BrandColors.white,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

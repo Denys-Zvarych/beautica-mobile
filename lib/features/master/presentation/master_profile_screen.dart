@@ -18,14 +18,13 @@
 //     instagram           → Contacts section shows '—' placeholder rows
 //                           (Phase 13 populates real data)
 //
-// Navigation: back uses `context.pop()`; edit button is Key('btn-edit-master')
-// placeholder (Phase 4.3 will wire it to RouteNames.masterEdit).
-
-import 'dart:developer';
+// Navigation: back uses `context.pop()`; edit button (Key('btn-edit-master'))
+// navigates to RouteNames.masterEdit (Phase 4.3).
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:screen_protector/screen_protector.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -37,6 +36,8 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+
+import 'package:beautica_mobile/routing/route_names.dart';
 
 import 'master_profile_notifier.dart';
 import 'widgets/profile_avatar.dart';
@@ -184,16 +185,7 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
         key: const Key('btn-edit-master'),
         icon: Icons.edit_outlined,
         semanticLabel: l10n.masterEditButton,
-        onTap: () {
-          // Phase 4.3 will wire this to RouteNames.masterEdit.
-          if (kDebugMode) {
-            log(
-              'Edit profile tapped — Phase 4.3 not yet implemented',
-              name: 'feature.master',
-              level: 800,
-            );
-          }
-        },
+        onTap: () => context.go(RouteNames.masterEdit),
       ),
       bottomNavBar: const VelvetBottomNavBar(activeIndex: 3),
       child: masterAsync.when(

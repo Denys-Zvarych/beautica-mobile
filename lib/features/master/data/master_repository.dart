@@ -23,6 +23,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/api_client_provider.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -56,6 +57,15 @@ abstract interface class MasterRepository {
   /// profile, pass the user's id (available from [AuthSession.user.id]).
   /// Throws a typed [Failure] on any transport or server error.
   Future<Master> getMyProfile(String masterId);
+
+  /// Persists the authenticated master's editable profile fields.
+  ///
+  /// Wraps `PATCH /independent-masters/me`. All [update] fields are trimmed
+  /// before sending; empty strings are omitted from the body so the backend
+  /// treats them as "no change" / "clear". Throws a typed [Failure] on any
+  /// transport or server error; throws [ValidationFailure] with [fieldErrors]
+  /// when the backend returns HTTP 422.
+  Future<void> updateMyProfile(MasterUpdate update);
 }
 
 /// HTTP implementation of [MasterRepository].
@@ -137,6 +147,41 @@ final class HttpMasterRepository implements MasterRepository {
       if (kDebugMode) {
         log(
           'getMyProfile failed: ${e.type} ${e.response?.statusCode}',
+          name: 'master.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<void> updateMyProfile(MasterUpdate update) async {
+    // Trim all values before building the body so the backend never receives
+    // untrimmed whitespace. Fields that resolve to empty string after trimming
+    // are included as empty strings — the backend decides whether to treat
+    // them as "clear" or "no change" per its own validation rules.
+    final body = <String, dynamic>{
+      'firstName': update.firstName,
+      'lastName': update.lastName,
+    };
+    final trimmedBio = update.bio.trim();
+    if (trimmedBio.isNotEmpty) body['bio'] = trimmedBio;
+    final trimmedPhone = update.contactPhone.trim();
+    if (trimmedPhone.isNotEmpty) body['contactPhone'] = trimmedPhone;
+    final trimmedInstagram = update.instagram.trim();
+    if (trimmedInstagram.isNotEmpty) body['instagram'] = trimmedInstagram;
+
+    try {
+      await _dio.patch<Map<String, dynamic>>(
+        '/independent-masters/me',
+        data: body,
+      );
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'updateMyProfile failed: ${e.type} ${e.response?.statusCode}',
           name: 'master.repository',
           level: 900,
           stackTrace: st,
