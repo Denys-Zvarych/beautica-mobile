@@ -1272,6 +1272,95 @@ void main() {
       },
     );
     // -----------------------------------------------------------------------
+    // Test 8b — NetworkFailure thrown by verifyEmail resets spinner.
+    //           Regression guard for the bug where the catch block inside
+    //           AuthNotifier.verifyEmail() did NOT set state = AsyncError,
+    //           causing the spinner to stay forever after any exception.
+    //
+    //           After the fix (state = AsyncError(e, st) before rethrow):
+    //             - authProvider.isLoading becomes false → button.loading = false.
+    //             - The VerificationScreen catch block sets _inlineError →
+    //               AuthBanner appears.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '8b. NetworkFailure from verifyEmail: spinner stops and AuthBanner appears '
+      '(state = AsyncError fix regression guard)',
+      (tester) async {
+        final repo = FakeAuthRepository()
+          ..verifyEmailResult = const NetworkFailure();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        // Fill all 6 digits so the submit button is active.
+        await _fillOtp(tester, '123456');
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+
+        // Confirm the button is enabled before tapping.
+        final btnBefore = tester.widget<NeumorphicButton>(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        expect(
+          btnBefore.onPressed,
+          isNotNull,
+          reason: 'Button must be enabled before submit (sanity check)',
+        );
+
+        // Tap submit — triggers AuthNotifier.verifyEmail() which throws
+        // NetworkFailure → state = AsyncError(e, st) → rethrow.
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        // Three pumps mirror the existing pattern for async resolution:
+        //   pump 1: starts async (state = AsyncLoading emitted)
+        //   pump 2: completes microtasks (catch fires, state = AsyncError)
+        //   pump 3 (+50ms): animations / setState in VerificationScreen
+        await tester.pump(); // begin async
+        await tester.pump(); // microtasks (catch → state = AsyncError, rethrow)
+        await tester.pump(const Duration(milliseconds: 50)); // animations
+
+        // After the fix: authProvider is in AsyncError → isLoading = false
+        // → NeumorphicButton.loading must be false (spinner stopped).
+        final btnAfter = tester.widget<NeumorphicButton>(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        expect(
+          btnAfter.loading,
+          isFalse,
+          reason:
+              'NeumorphicButton.loading must be false after NetworkFailure — '
+              'authProvider must be in AsyncError, not AsyncLoading. '
+              'Without the fix (state = AsyncError before rethrow), this '
+              'stays true and the spinner never stops.',
+        );
+
+        // The VerificationScreen catch re-enables the button (onPressed non-null)
+        // because the OTP is still filled.
+        expect(
+          btnAfter.onPressed,
+          isNotNull,
+          reason:
+              'Button must be re-enabled after a failed verify so the user '
+              'can retry (onPressed must be non-null with 6 digits still filled)',
+        );
+
+        // An AuthBanner must appear — the VerificationScreen catch sets
+        // _inlineError which renders the banner.
+        expect(
+          find.byType(AuthBanner),
+          findsOneWidget,
+          reason:
+              'An AuthBanner must appear after a failed verify so the user '
+              'sees the error message.',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // Test 11 — Countdown text is rendered mid-cooldown.
     //           After a successful resend, the resend row displays the
     //           verificationResendTimer(N) l10n string while the cooldown

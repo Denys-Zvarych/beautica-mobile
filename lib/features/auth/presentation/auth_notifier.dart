@@ -420,6 +420,7 @@ class AuthNotifier extends _$AuthNotifier {
           stackTrace: st,
         );
       }
+      state = AsyncError(e, st);
       rethrow;
     }
   }
