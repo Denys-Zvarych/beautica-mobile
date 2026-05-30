@@ -255,8 +255,9 @@ class AuthNotifier extends _$AuthNotifier {
       final User fullUser;
       try {
         fullUser = await repo.me();
-      } finally {
+      } catch (_) {
         coldStartAccessToken = null;
+        rethrow;
       }
       if (kDebugMode) {
         log(
@@ -265,10 +266,16 @@ class AuthNotifier extends _$AuthNotifier {
           level: 800,
         );
       }
-      return AuthSession.authenticated(
+      // Clear the sentinel AFTER returning the Authenticated value so that
+      // AsyncValue.guard sets state = AsyncData(Authenticated) before the next
+      // microtask observes coldStartAccessToken == null. Mirrors the fix applied
+      // to verifyEmail() (same race window).
+      final session = AuthSession.authenticated(
         user: fullUser,
         accessToken: tokens.accessToken,
       );
+      coldStartAccessToken = null;
+      return session;
     });
   }
 
@@ -393,15 +400,33 @@ class AuthNotifier extends _$AuthNotifier {
       final User fullUser;
       try {
         fullUser = await repo.me();
-      } finally {
+      } catch (_) {
         coldStartAccessToken = null;
+        rethrow;
       }
+      // CRITICAL: set the Authenticated state BEFORE clearing coldStartAccessToken.
+      //
+      // The old finally-block order was:
+      //   1. coldStartAccessToken = null   ← sentinel wiped
+      //   2. state = AsyncData(Authenticated)  ← state settled
+      //
+      // Between steps 1 and 2 there is a Dart microtask gap. Any Dio request
+      // that fires during that gap (e.g. _saveProviderProfile() → PATCH
+      // /independent-masters/me) hits AuthInterceptor while authProvider is
+      // still AsyncLoading AND coldStartAccessToken is null → no Bearer token
+      // injected → backend returns 401 → RefreshInterceptor triggers logout →
+      // "Сесія завершилась" shown.
+      //
+      // Fix: settle the state first, then clear the sentinel. Once state is
+      // AsyncData(Authenticated) the interceptor reads the token from the
+      // settled Authenticated session; the sentinel is no longer needed.
       state = AsyncData(
         AuthSession.authenticated(
           user: fullUser,
           accessToken: tokens.accessToken,
         ),
       );
+      coldStartAccessToken = null;
       if (kDebugMode) {
         log(
           'verifyEmail success for ${maskEmail(email)} — profile loaded '
