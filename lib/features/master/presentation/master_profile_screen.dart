@@ -345,10 +345,10 @@ class _ProfileBody extends StatelessWidget {
                             Flexible(
                               child: Text(
                                 locationLine,
-                                // Pre-cached static — no per-frame copyWith
-                                // allocation (PERF MEDIUM pattern).
-                                style: VelvetText.feedbackMutedSm,
-                                overflow: TextOverflow.ellipsis,
+                                key: const Key('master-profile-address-text'),
+                                // 11 sp variant allows wrapping so longer
+                                // address strings are never clipped.
+                                style: VelvetText.feedbackMutedXs,
                               ),
                             ),
                           ],

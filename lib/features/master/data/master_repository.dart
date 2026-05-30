@@ -159,9 +159,12 @@ final class HttpMasterRepository implements MasterRepository {
   @override
   Future<void> updateMyProfile(MasterUpdate update) async {
     // Trim all values before building the body so the backend never receives
-    // untrimmed whitespace. Fields that resolve to empty string after trimming
-    // are included as empty strings — the backend decides whether to treat
-    // them as "clear" or "no change" per its own validation rules.
+    // untrimmed whitespace. Optional fields are omitted when empty so the
+    // backend treats them as "no change" per its own validation rules.
+    //
+    // Fix 5: endpoint is PATCH /independent-masters/me/profile (not /me which
+    // is the locality endpoint). Field name is 'phoneNumber' (not 'contactPhone')
+    // to match MasterProfileUpdateRequest on the backend.
     final body = <String, dynamic>{
       'firstName': update.firstName,
       'lastName': update.lastName,
@@ -169,13 +172,13 @@ final class HttpMasterRepository implements MasterRepository {
     final trimmedBio = update.bio.trim();
     if (trimmedBio.isNotEmpty) body['bio'] = trimmedBio;
     final trimmedPhone = update.contactPhone.trim();
-    if (trimmedPhone.isNotEmpty) body['contactPhone'] = trimmedPhone;
+    if (trimmedPhone.isNotEmpty) body['phoneNumber'] = trimmedPhone;
     final trimmedInstagram = update.instagram.trim();
     if (trimmedInstagram.isNotEmpty) body['instagram'] = trimmedInstagram;
 
     try {
       await _dio.patch<Map<String, dynamic>>(
-        '/independent-masters/me',
+        '/independent-masters/me/profile',
         data: body,
       );
     } on DioException catch (e, st) {

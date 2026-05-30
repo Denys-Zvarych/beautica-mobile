@@ -120,6 +120,26 @@ void main() {
         expect(s.color, BrandColors.error);
       },
     );
+
+    testWidgets(
+      'feedbackAccentXs has fontSize 11, fontWeight w700, color accentDeep',
+      (tester) async {
+        final s = VelvetText.feedbackAccentXs;
+        expect(s.fontSize, 11.0);
+        expect(s.fontWeight, FontWeight.w700);
+        expect(s.color, BrandColors.accentDeep);
+      },
+    );
+
+    testWidgets(
+      'feedbackMutedXs has fontSize 11, fontWeight w700, color muted',
+      (tester) async {
+        final s = VelvetText.feedbackMutedXs;
+        expect(s.fontSize, 11.0);
+        expect(s.fontWeight, FontWeight.w700);
+        expect(s.color, BrandColors.muted);
+      },
+    );
   });
 
   // ── velvetTheme textTheme fontFamily assertions ──────────────────────────

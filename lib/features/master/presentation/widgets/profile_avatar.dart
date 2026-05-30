@@ -129,10 +129,10 @@ class RoleChip extends StatelessWidget {
             Flexible(
               child: Text(
                 label,
-                // Fix 3 (PERF MEDIUM-1): use pre-cached static instead of
-                // calling feedback().copyWith() per build frame.
-                style: VelvetText.feedbackAccentSm,
-                overflow: TextOverflow.ellipsis,
+                // Fix 3: use 11 sp variant so 'Незалежний майстер' fits on
+                // typical phone widths; soft-wrap allowed (no ellipsis).
+                style: VelvetText.feedbackAccentXs,
+                softWrap: true,
               ),
             ),
           ],

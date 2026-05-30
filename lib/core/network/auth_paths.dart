@@ -45,5 +45,8 @@ const Set<String> kPiiPaths = {
   // (street, buildingNo, locationNote). Bodies must be redacted in logs even
   // though these endpoints require authentication.
   '/independent-masters/me',
+  // Phase 4.3 — profile edit endpoint carries phone number and other PII.
+  // Must be a separate entry because the path differs from the locality endpoint.
+  '/independent-masters/me/profile',
   '/masters/me',
 };

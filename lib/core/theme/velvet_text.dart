@@ -205,6 +205,20 @@ abstract final class VelvetText {
     fontSize: 12,
   );
 
+  /// Role chip label at 11 sp — used by RoleChip to fit 'Незалежний майстер'
+  /// without truncation on typical phone widths.
+  static final TextStyle feedbackAccentXs = _feedbackBase.copyWith(
+    color: BrandColors.accentDeep,
+    fontSize: 11,
+  );
+
+  /// Address / location text at 11 sp — used by master profile identity card
+  /// to fit longer address strings without truncation.
+  static final TextStyle feedbackMutedXs = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 11,
+  );
+
   // ---------------------------------------------------------------------------
   // Phase 4.x consolidated MEDIUM fixes — pre-composed statics replacing
   // `feedback(color).copyWith(fontSize: N)` double-allocation call sites.

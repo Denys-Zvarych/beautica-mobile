@@ -22,8 +22,9 @@
 //   9.  No authenticated user: DoneScreen renders fallback greeting + client role
 //       label without crashing.
 //   10. independentMaster role chip shows l10n.roleIndependentMaster.
-//   11. done_chip_role and done_chip_email are siblings in the same Row;
-//       done_chip_ready is in a separate Center below.
+//   11. All three chips (done_chip_role, done_chip_email, done_chip_ready) are
+//       on separate centered lines — each chip has a Center ancestor and no
+//       two chips share a Row ancestor.
 // Note: Test 6 (done_setup_later secondary CTA) was removed — widget no longer exists.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -747,14 +748,15 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
-    // Test 11 — Structural assertion: 2-row chip layout
+    // Test 11 — Structural assertion: 3-line centered chip layout
     //
-    // done_chip_role and done_chip_email must be siblings inside the same Row
-    // (first layout row). done_chip_ready must NOT be in that Row; it must
-    // instead have a Center ancestor (second layout row).
+    // All three chips (done_chip_role, done_chip_email, done_chip_ready) must
+    // each be on their own separate centered line — i.e. every chip must have
+    // a Center ancestor and no chip may share a Row ancestor with another chip.
     // -----------------------------------------------------------------------
-    testWidgets('11. chip_role and chip_email are siblings in the same Row; '
-        'chip_ready is rendered in a separate Center below', (tester) async {
+    testWidgets('11. all three chips are on separate centered lines', (
+      tester,
+    ) async {
       final router = _makeRouter();
       addTearDown(router.dispose);
 
@@ -774,56 +776,35 @@ void main() {
         find.byKey(const ValueKey<String>('done_chip_ready')),
       );
 
-      // Find the nearest Row ancestor of done_chip_role.
-      Element? roleRowAncestor;
+      // Each chip must have a Center ancestor.
+      bool roleHasCenter = false;
       roleElement.visitAncestorElements((el) {
-        if (el.widget is Row) {
-          roleRowAncestor = el;
+        if (el.widget is Center) {
+          roleHasCenter = true;
           return false;
         }
         return true;
       });
       expect(
-        roleRowAncestor,
-        isNotNull,
-        reason: 'done_chip_role must be inside a Row',
-      );
-
-      // done_chip_email must share that same Row ancestor.
-      bool emailSharesRow = false;
-      emailElement.visitAncestorElements((el) {
-        if (el == roleRowAncestor) {
-          emailSharesRow = true;
-          return false;
-        }
-        return true;
-      });
-      expect(
-        emailSharesRow,
+        roleHasCenter,
         isTrue,
-        reason:
-            'done_chip_email must be a sibling of done_chip_role in '
-            'the same Row (2-row chip layout Row 1)',
+        reason: 'done_chip_role must be wrapped in Center (line 1)',
       );
 
-      // done_chip_ready must NOT share that Row ancestor.
-      bool readySharesRow = false;
-      readyElement.visitAncestorElements((el) {
-        if (el == roleRowAncestor) {
-          readySharesRow = true;
+      bool emailHasCenter = false;
+      emailElement.visitAncestorElements((el) {
+        if (el.widget is Center) {
+          emailHasCenter = true;
           return false;
         }
         return true;
       });
       expect(
-        readySharesRow,
-        isFalse,
-        reason:
-            'done_chip_ready must be in a separate layout row '
-            '(Center below the role+email Row)',
+        emailHasCenter,
+        isTrue,
+        reason: 'done_chip_email must be wrapped in Center (line 2)',
       );
 
-      // done_chip_ready must have a Center ancestor.
       bool readyHasCenter = false;
       readyElement.visitAncestorElements((el) {
         if (el.widget is Center) {
@@ -835,8 +816,51 @@ void main() {
       expect(
         readyHasCenter,
         isTrue,
-        reason: 'done_chip_ready must be wrapped in Center (Row 2)',
+        reason: 'done_chip_ready must be wrapped in Center (line 3)',
       );
+
+      // No two chips may share a Row ancestor — collect each chip's nearest
+      // Row ancestor (null if none exists) and verify they are all distinct.
+      Element? _nearestRow(Element start) {
+        Element? found;
+        start.visitAncestorElements((el) {
+          if (el.widget is Row) {
+            found = el;
+            return false;
+          }
+          return true;
+        });
+        return found;
+      }
+
+      final roleRow = _nearestRow(roleElement);
+      final emailRow = _nearestRow(emailElement);
+      final readyRow = _nearestRow(readyElement);
+
+      // If a chip has no Row ancestor at all the constraint is satisfied for
+      // that chip; we only need to verify that no two chips share the same Row.
+      if (roleRow != null) {
+        expect(
+          emailRow,
+          isNot(equals(roleRow)),
+          reason:
+              'done_chip_email must not share a Row ancestor with done_chip_role',
+        );
+        expect(
+          readyRow,
+          isNot(equals(roleRow)),
+          reason:
+              'done_chip_ready must not share a Row ancestor with done_chip_role',
+        );
+      }
+      if (emailRow != null) {
+        expect(
+          readyRow,
+          isNot(equals(emailRow)),
+          reason:
+              'done_chip_ready must not share a Row ancestor with done_chip_email',
+        );
+      }
     });
   });
 }

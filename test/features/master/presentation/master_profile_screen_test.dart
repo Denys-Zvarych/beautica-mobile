@@ -39,6 +39,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -593,6 +594,24 @@ void main() {
 
       // No indented note row must appear for a city-only master.
       expect(find.text('кв. 3, 2 поверх'), findsNothing);
+    });
+
+    testWidgets('address text widget uses VelvetText.feedbackMutedXs style', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMasterCityOnly),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final addressText = tester.widget<Text>(
+        find.byKey(const Key('master-profile-address-text')),
+      );
+      expect(addressText.style, VelvetText.feedbackMutedXs);
     });
   });
 

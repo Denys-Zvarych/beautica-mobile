@@ -147,31 +147,26 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
           ),
           const SizedBox(height: VelvetSpacing.xl),
 
-          // Summary chips — three inset neumorphic pills in a 2-row layout.
-          // Row 1: role + email chips side-by-side, centred.
-          // Row 2: ready chip centred below.
+          // Summary chips — three inset neumorphic pills, each on its own
+          // centred line so long labels (e.g. 'Незалежний майстер') never
+          // crowd a sibling chip.
           Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  Flexible(
-                    child: _SummaryChip(
-                      key: const ValueKey<String>('done_chip_role'),
-                      icon: roleIcon,
-                      label: roleLabel,
-                    ),
-                  ),
-                  const SizedBox(width: VelvetSpacing.sm),
-                  Flexible(
-                    child: _SummaryChip(
-                      key: const ValueKey<String>('done_chip_email'),
-                      icon: Icons.mark_email_read_outlined,
-                      label: l10n.registerDoneChipEmailVerified,
-                    ),
-                  ),
-                ],
+              Center(
+                child: _SummaryChip(
+                  key: const ValueKey<String>('done_chip_role'),
+                  icon: roleIcon,
+                  label: roleLabel,
+                ),
+              ),
+              const SizedBox(height: VelvetSpacing.sm),
+              Center(
+                child: _SummaryChip(
+                  key: const ValueKey<String>('done_chip_email'),
+                  icon: Icons.mark_email_read_outlined,
+                  label: l10n.registerDoneChipEmailVerified,
+                ),
               ),
               const SizedBox(height: VelvetSpacing.sm),
               Center(

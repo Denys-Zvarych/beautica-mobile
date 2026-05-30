@@ -12,6 +12,7 @@ import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -21,6 +22,7 @@ class _MockDio extends Mock implements Dio {}
 class _MockMasterControllerApi extends Mock implements MasterControllerApi {}
 
 const _patchPath = '/independent-masters/me';
+const _profilePatchPath = '/independent-masters/me/profile';
 const _getMasterPath = '/masters/master-1';
 
 Response<Map<String, dynamic>> _okEnvelope() => Response<Map<String, dynamic>>(
@@ -28,6 +30,17 @@ Response<Map<String, dynamic>> _okEnvelope() => Response<Map<String, dynamic>>(
   statusCode: 200,
   data: const {'success': true, 'data': <String, dynamic>{}, 'message': 'ok'},
 );
+
+Response<Map<String, dynamic>> _okProfileEnvelope() =>
+    Response<Map<String, dynamic>>(
+      requestOptions: RequestOptions(path: _profilePatchPath),
+      statusCode: 200,
+      data: const {
+        'success': true,
+        'data': <String, dynamic>{},
+        'message': 'ok',
+      },
+    );
 
 void main() {
   late _MockDio dio;
@@ -363,6 +376,156 @@ void main() {
       await expectLater(
         repository.getMyProfile('master-1'),
         throwsA(same(mapped)),
+      );
+    });
+  });
+
+  group('updateMyProfile', () {
+    // ── A — correct endpoint ────────────────────────────────────────────────
+
+    test('PATCHes /independent-masters/me/profile (not /me)', () async {
+      when(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async => _okProfileEnvelope());
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '',
+          instagram: '',
+        ),
+      );
+
+      verify(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).called(1);
+
+      verifyNever(
+        () => dio.patch<Map<String, dynamic>>(
+          _patchPath,
+          data: any(named: 'data'),
+        ),
+      );
+    });
+
+    // ── B — phoneNumber field name (not contactPhone) ───────────────────────
+
+    test('sends phoneNumber (not contactPhone) in request body', () async {
+      when(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async => _okProfileEnvelope());
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '+380501234567',
+          instagram: '',
+        ),
+      );
+
+      final captured =
+          verify(
+                () => dio.patch<Map<String, dynamic>>(
+                  _profilePatchPath,
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+
+      expect(
+        captured.containsKey('phoneNumber'),
+        isTrue,
+        reason: 'request body must use the backend field name "phoneNumber"',
+      );
+      expect(
+        captured.containsKey('contactPhone'),
+        isFalse,
+        reason:
+            'contactPhone is the Dart param name — must not leak into the body',
+      );
+      expect(
+        captured['phoneNumber'],
+        '+380501234567',
+        reason: 'phoneNumber value must match the supplied contactPhone',
+      );
+    });
+
+    // ── C — blank contactPhone is omitted ───────────────────────────────────
+
+    test('omits phoneNumber when contactPhone is blank', () async {
+      when(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async => _okProfileEnvelope());
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '   ',
+          instagram: '',
+        ),
+      );
+
+      final captured =
+          verify(
+                () => dio.patch<Map<String, dynamic>>(
+                  _profilePatchPath,
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+
+      expect(
+        captured.containsKey('phoneNumber'),
+        isFalse,
+        reason:
+            'whitespace-only contactPhone must be omitted from the request body',
+      );
+    });
+
+    // ── D — connectionError → NetworkFailure ────────────────────────────────
+
+    test('throws NetworkFailure on connectionError', () async {
+      when(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: _profilePatchPath),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+
+      await expectLater(
+        repository.updateMyProfile(
+          const MasterUpdate(
+            firstName: 'Аня',
+            lastName: 'Коваль',
+            bio: '',
+            contactPhone: '',
+            instagram: '',
+          ),
+        ),
+        throwsA(isA<NetworkFailure>()),
       );
     });
   });
