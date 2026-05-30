@@ -327,6 +327,7 @@ class _VelvetFieldState extends State<VelvetField> {
                 Expanded(
                   child: Text(
                     widget.helperText!,
+                    key: const Key('phone-privacy-note'),
                     style: _captionStyle,
                     softWrap: true,
                   ),

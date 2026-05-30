@@ -110,6 +110,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
   String? _errLastName;
   String? _errBio;
   String? _errPhone;
+  String? _errInstagram;
 
   static const int _bioMax = 2000;
   static const int _phoneMax = 20;
@@ -193,7 +194,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
     _origLastName = master.lastName;
     _origBio = master.bio ?? '';
     _origPhone = master.phoneNumber ?? '';
-    _origInstagram = '';
+    _origInstagram = master.instagram ?? '';
 
     _firstName = TextEditingController(text: _origFirstName);
     _lastName = TextEditingController(text: _origLastName);
@@ -311,6 +312,23 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
     return null;
   }
 
+  // Pre-built static RegExps — allocated once, never inside build or validate.
+  static final RegExp _instagramHandle = RegExp(r'^@?[A-Za-z0-9._]{1,30}$');
+  static final RegExp _instagramUrl = RegExp(
+    r'^https://(?:www\.)?instagram\.com/[A-Za-z0-9._/]{1,60}$',
+  );
+
+  String? _validateInstagram(String? v) {
+    final serverErr = _fieldErrors['instagram'];
+    if (serverErr != null) return serverErr;
+    if (v == null || v.trim().isEmpty) return null; // optional
+    if (!_instagramHandle.hasMatch(v.trim()) &&
+        !_instagramUrl.hasMatch(v.trim())) {
+      return AppLocalizations.of(context).masterEditInstagramError;
+    }
+    return null;
+  }
+
   /// Runs the form validators and mirrors errors into the inline state so
   /// VelvetField can display them via its [errorText] parameter.
   bool _validateAndUpdateErrors() {
@@ -320,6 +338,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       _errLastName = _validateLastName(_lastName.text);
       _errBio = _validateBio(_bio.text);
       _errPhone = _validatePhone(_phone.text);
+      _errInstagram = _validateInstagram(_instagram.text);
     });
     return ok;
   }
@@ -336,6 +355,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       _errLastName = null;
       _errBio = null;
       _errPhone = null;
+      _errInstagram = null;
     });
 
     if (!_validateAndUpdateErrors()) return;
@@ -359,7 +379,10 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context).savedSnackbar)),
+        SnackBar(
+          key: const Key('snackbar-saved'),
+          content: Text(AppLocalizations.of(context).savedSnackbar),
+        ),
       );
       if (context.canPop()) {
         context.pop();
@@ -612,8 +635,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               label: l10n.bioLabel,
                               controller: _bio,
                               enabled: !_saving,
-                              hint:
-                                  'Розкажіть про свій досвід та спеціалізацію',
+                              hint: l10n.masterEditBioHint,
                               maxLines: 4,
                               maxLength: _bioMax,
                               showCounter: true,
@@ -670,7 +692,12 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                         FormField<String>(
                           key: const Key('field-instagram'),
                           initialValue: _instagram.text,
-                          validator: (_) => _fieldErrors['instagram'],
+                          // SECURITY-LOW: client-side format guard — reuses the
+                          // static _validateInstagram method so the RegExps are
+                          // allocated only once. Server-side validation remains
+                          // the authoritative check.
+                          validator: (_) =>
+                              _validateInstagram(_instagram.text),
                           builder: (FormFieldState<String> field) {
                             return VelvetField(
                               label: l10n.instagramLabel,
@@ -678,11 +705,19 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               enabled: !_saving,
                               optional: true,
                               prefixText: '@',
-                              hint: 'username',
-                              errorText: _fieldErrors['instagram'],
+                              hint: l10n.masterEditInstagramHint,
+                              // _errInstagram is driven by _validateAndUpdateErrors()
+                              // on save-tap and by the live onChanged path; it
+                              // surfaces both the local format error and any
+                              // server-side validation error from _fieldErrors.
+                              errorText: _errInstagram,
                               onChanged: (v) {
                                 _clearServerError('instagram');
                                 field.didChange(v);
+                                setState(
+                                  () => _errInstagram =
+                                      _validateInstagram(_instagram.text),
+                                );
                               },
                             );
                           },

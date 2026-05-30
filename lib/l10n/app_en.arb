@@ -1228,5 +1228,17 @@
   "errBioTooLong": "Bio is too long (max 2000 characters)",
   "@errBioTooLong": {
     "description": "Validation error shown under the bio field when the character count exceeds 2000 (Phase 4.3)."
+  },
+  "masterEditInstagramError": "Invalid format. Enter a @handle or an instagram.com link.",
+  "@masterEditInstagramError": {
+    "description": "Validation error shown when the instagram field value is neither a valid handle nor a valid instagram.com URL."
+  },
+  "masterEditBioHint": "Tell us about your experience and specialisation",
+  "@masterEditBioHint": {
+    "description": "Hint text inside the bio textarea on the master edit screen (Phase 4.3)."
+  },
+  "masterEditInstagramHint": "username",
+  "@masterEditInstagramHint": {
+    "description": "Hint text inside the Instagram handle field on the master edit screen (Phase 4.3)."
   }
 }

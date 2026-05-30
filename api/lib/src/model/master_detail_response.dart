@@ -29,6 +29,7 @@ part 'master_detail_response.g.dart';
 /// * [salon]
 /// * [workingHours]
 /// * [phoneNumber]
+/// * [instagram]
 @BuiltValue()
 abstract class MasterDetailResponse
     implements Built<MasterDetailResponse, MasterDetailResponseBuilder> {
@@ -81,6 +82,12 @@ abstract class MasterDetailResponse
   /// of what the backend sends.
   @BuiltValueField(wireName: r'phoneNumber')
   String? get phoneNumber;
+
+  /// Optional Instagram handle or URL stored and returned by the backend. May
+  /// be a bare handle (e.g. "username"), "@"-prefixed handle, or full
+  /// https://instagram.com/... URL.
+  @BuiltValueField(wireName: r'instagram')
+  String? get instagram;
 
   MasterDetailResponse._();
 
@@ -217,6 +224,13 @@ class _$MasterDetailResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.instagram != null) {
+      yield r'instagram';
+      yield serializers.serialize(
+        object.instagram,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -347,6 +361,13 @@ class _$MasterDetailResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.phoneNumber = valueDes;
+          break;
+        case r'instagram':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.instagram = valueDes;
           break;
         default:
           unhandled.add(key);

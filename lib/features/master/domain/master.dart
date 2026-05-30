@@ -79,5 +79,10 @@ abstract class Master with _$Master {
 
     /// Contact phone number as entered by the master.
     String? phoneNumber,
+
+    /// Instagram handle or URL as entered by the master.
+    /// May be a bare handle (e.g. "username"), "@"-prefixed handle, or full
+    /// https://instagram.com/... URL — stored verbatim from user input.
+    String? instagram,
   }) = _Master;
 }

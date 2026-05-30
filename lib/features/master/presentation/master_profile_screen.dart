@@ -14,9 +14,8 @@
 // Domain-model gaps (fields absent from [Master]):
 //   • serviceCount        → shows '—' in the Services stat tile and header
 //   • bookingsThisMonth   → shows '—' in the Bookings stat tile
-//   • contactPhone /
-//     instagram           → Contacts section shows '—' placeholder rows
-//                           (Phase 13 populates real data)
+//   • contactPhone        → populated from [Master.phoneNumber]
+//   • instagram           → populated from [Master.instagram]; shows '—' when null
 //
 // Navigation: back uses `context.pop()`; edit button (Key('btn-edit-master'))
 // navigates to RouteNames.masterEdit (Phase 4.3).
@@ -592,8 +591,8 @@ class _ProfileBody extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // 6 — Contacts section: phone from domain model; Instagram placeholder
-        // until that field is wired (future phase).
+        // 6 — Contacts section: phone and Instagram from domain model;
+        // both fall back to '—' when the field is not set by the master.
         _revealWith(
           anim5,
           slide5,
@@ -625,7 +624,10 @@ class _ProfileBody extends StatelessWidget {
                 key: const Key('master-contact-instagram'),
                 icon: Icons.alternate_email,
                 label: 'Instagram',
-                value: '—',
+                // Value is stored verbatim from user input — may be a bare
+                // handle, "@"-prefixed, or a full https://instagram.com/...
+                // URL depending on what the user entered.
+                value: master.instagram ?? '—',
                 semanticLabel: 'Instagram',
                 onTap: () {},
               ),

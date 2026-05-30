@@ -105,6 +105,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
   final BuiltList<WorkingHoursResponse>? workingHours;
   @override
   final String? phoneNumber;
+  @override
+  final String? instagram;
 
   factory _$MasterDetailResponse(
           [void Function(MasterDetailResponseBuilder)? updates]) =>
@@ -125,7 +127,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
       this.masterType,
       this.salon,
       this.workingHours,
-      this.phoneNumber})
+      this.phoneNumber,
+      this.instagram})
       : super._();
   @override
   MasterDetailResponse rebuild(
@@ -154,7 +157,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
         masterType == other.masterType &&
         salon == other.salon &&
         workingHours == other.workingHours &&
-        phoneNumber == other.phoneNumber;
+        phoneNumber == other.phoneNumber &&
+        instagram == other.instagram;
   }
 
   @override
@@ -175,6 +179,7 @@ class _$MasterDetailResponse extends MasterDetailResponse {
     _$hash = $jc(_$hash, salon.hashCode);
     _$hash = $jc(_$hash, workingHours.hashCode);
     _$hash = $jc(_$hash, phoneNumber.hashCode);
+    _$hash = $jc(_$hash, instagram.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -196,7 +201,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
           ..add('masterType', masterType)
           ..add('salon', salon)
           ..add('workingHours', workingHours)
-          ..add('phoneNumber', phoneNumber))
+          ..add('phoneNumber', phoneNumber)
+          ..add('instagram', instagram))
         .toString();
   }
 }
@@ -269,6 +275,10 @@ class MasterDetailResponseBuilder
   String? get phoneNumber => _$this._phoneNumber;
   set phoneNumber(String? phoneNumber) => _$this._phoneNumber = phoneNumber;
 
+  String? _instagram;
+  String? get instagram => _$this._instagram;
+  set instagram(String? instagram) => _$this._instagram = instagram;
+
   MasterDetailResponseBuilder() {
     MasterDetailResponse._defaults(this);
   }
@@ -291,6 +301,7 @@ class MasterDetailResponseBuilder
       _salon = $v.salon?.toBuilder();
       _workingHours = $v.workingHours?.toBuilder();
       _phoneNumber = $v.phoneNumber;
+      _instagram = $v.instagram;
       _$v = null;
     }
     return this;
@@ -329,6 +340,7 @@ class MasterDetailResponseBuilder
             salon: _salon?.build(),
             workingHours: _workingHours?.build(),
             phoneNumber: phoneNumber,
+            instagram: instagram,
           );
     } catch (_) {
       late String _$failedField;

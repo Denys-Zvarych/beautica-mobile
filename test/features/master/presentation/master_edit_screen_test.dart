@@ -242,6 +242,35 @@ void main() {
         '+380501234567',
       );
     });
+
+    testWidgets('instagram field is pre-populated from master.instagram', (
+      tester,
+    ) async {
+      final masterWithInstagram = _stubMaster.copyWith(
+        instagram: '@my_handle',
+      );
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo, master: masterWithInstagram),
+      );
+      // Two pumps: one for the router, one for the Future.value microtask.
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('field-instagram')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        '@my_handle',
+      );
+    });
   });
 
   // ── 2. Save disabled when pristine ──────────────────────────────────────
@@ -321,7 +350,7 @@ void main() {
       await tester.tap(find.byKey(const Key('btn-save-master')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Зміни збережено'), findsOneWidget);
+      expect(find.byKey(const Key('snackbar-saved')), findsOneWidget);
     });
   });
 
@@ -412,7 +441,7 @@ void main() {
 
       expect(find.byKey(const Key('field-phone')), findsOneWidget);
       // The privacy note text from l10n.phonePrivacyNote.
-      expect(find.textContaining('Клієнти не бачатимуть'), findsOneWidget);
+      expect(find.byKey(const Key('phone-privacy-note')), findsOneWidget);
     });
   });
 
@@ -525,6 +554,214 @@ void main() {
             'is false — regression guard for the fix in '
             'lib/features/master/presentation/master_edit_screen.dart',
       );
+    });
+  });
+
+  // ── 11. Instagram format validation ─────────────────────────────────────────
+  //
+  // Covers the client-side validator on the instagram FormField. The validator
+  // accepts: (a) empty string (optional field), (b) bare handle with optional @
+  // prefix, (c) full https://instagram.com/… URL. Anything else must surface an
+  // error text descendant of Key('field-instagram') that contains 'instagram'.
+  //
+  // Tests are locale-neutral: they assert on the substring 'instagram' which
+  // appears in both the UK and EN error strings without any raw Cyrillic text
+  // in the finder, satisfying the M11 coverage requirement.
+
+  group('instagram format validation', () {
+    // ── 11.1  Invalid value shows an error ──────────────────────────────────
+
+    testWidgets('invalid instagram value shows error under the field', (
+      tester,
+    ) async {
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Enter an obviously malformed value.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-instagram')),
+          matching: find.byType(TextField),
+        ),
+        'not valid!',
+      );
+      await tester.pump();
+
+      // Trigger validation by tapping Save (button is enabled because a field
+      // is now dirty, even though instagram is invalid).
+      await tester.tap(find.byKey(const Key('btn-save-master')));
+      await tester.pump();
+
+      // The error text rendered by FormField contains 'instagram' (locale-neutral).
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-instagram')),
+          matching: find.textContaining('instagram'),
+        ),
+        findsOneWidget,
+        reason:
+            'The validator must surface an error for a value that is neither a '
+            'valid handle nor an instagram.com URL.',
+      );
+    });
+
+    // ── 11.2  Bare handle (no @) is accepted ────────────────────────────────
+
+    testWidgets('bare handle without @ is accepted (no error shown)', (
+      tester,
+    ) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Enter a valid handle (no @ prefix).
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-instagram')),
+          matching: find.byType(TextField),
+        ),
+        'valid_handle',
+      );
+      await tester.pump();
+
+      // Dirty another field so the form is dirty and Save is enabled.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-firstName')),
+          matching: find.byType(TextField),
+        ),
+        'ОленаEdited',
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-save-master')));
+      await tester.pumpAndSettle();
+
+      // No error descendant must exist inside the instagram field.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-instagram')),
+          matching: find.textContaining('instagram'),
+        ),
+        findsNothing,
+        reason: 'A bare handle without @ should pass validation.',
+      );
+    });
+
+    // ── 11.3  Full instagram.com URL is accepted ─────────────────────────────
+
+    testWidgets('full instagram.com URL is accepted (no error shown)', (
+      tester,
+    ) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Enter a valid full URL.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-instagram')),
+          matching: find.byType(TextField),
+        ),
+        'https://instagram.com/beauty_ua',
+      );
+      await tester.pump();
+
+      // Dirty another field so Save is enabled.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-firstName')),
+          matching: find.byType(TextField),
+        ),
+        'ОленаEdited',
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-save-master')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-instagram')),
+          matching: find.textContaining('instagram'),
+        ),
+        findsNothing,
+        reason: 'A full instagram.com URL should pass validation.',
+      );
+    });
+
+    // ── 11.4  Empty field (optional) — no error and save fires ───────────────
+
+    testWidgets('empty instagram field is accepted and save is called', (
+      tester,
+    ) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+      // Seed a master that already has an instagram value so we can clear it.
+      final masterWithInstagram = _stubMaster.copyWith(
+        instagram: '@old_handle',
+      );
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo, master: masterWithInstagram),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Clear the instagram field.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-instagram')),
+          matching: find.byType(TextField),
+        ),
+        '',
+      );
+      await tester.pump();
+
+      // Dirty another field to ensure Save is enabled (clearing instagram also
+      // counts as a dirty change, but firstName makes the intent explicit).
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-firstName')),
+          matching: find.byType(TextField),
+        ),
+        'ОленаEdited',
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-save-master')));
+      await tester.pumpAndSettle();
+
+      // No error must appear inside the instagram field.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-instagram')),
+          matching: find.textContaining('instagram'),
+        ),
+        findsNothing,
+        reason: 'An empty instagram field (optional) must not show an error.',
+      );
+
+      // The repository must have been called exactly once.
+      verify(() => repo.updateMyProfile(any())).called(1);
     });
   });
 }

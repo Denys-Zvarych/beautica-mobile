@@ -58,6 +58,7 @@ abstract final class MasterMapper {
           : MasterType.salonMaster,
       salonId: dto.salon?.id,
       phoneNumber: dto.phoneNumber,
+      instagram: dto.instagram,
     );
   }
 

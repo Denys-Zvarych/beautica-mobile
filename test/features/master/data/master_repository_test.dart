@@ -422,6 +422,50 @@ void main() {
             'phoneNumber must be null on Master when the DTO omits phoneNumber',
       );
     });
+
+    test('instagram forwarded to Master when set in DTO', () async {
+      final dto =
+          (MasterDetailResponseBuilder()
+                ..masterId = 'master-1'
+                ..firstName = 'Оля'
+                ..lastName = 'Коваль'
+                ..avgRating = 4.5
+                ..reviewCount = 10
+                ..masterType =
+                    MasterDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
+                ..instagram = '@test_handle')
+              .build();
+
+      when(
+        () => masterApi.getMasterMe(),
+      ).thenAnswer((_) async => apiResponse(dto));
+
+      final master = await repository.getMyProfile('master-1');
+
+      expect(
+        master.instagram,
+        '@test_handle',
+        reason: 'instagram from DTO must be forwarded to the Master entity',
+      );
+    });
+
+    test('instagram is null on Master when DTO has no instagram', () async {
+      // buildDto() does not set instagram — it remains null in the DTO.
+      final dto = buildDto();
+
+      when(
+        () => masterApi.getMasterMe(),
+      ).thenAnswer((_) async => apiResponse(dto));
+
+      final master = await repository.getMyProfile('master-1');
+
+      expect(
+        master.instagram,
+        isNull,
+        reason:
+            'instagram must be null on Master when the DTO omits instagram',
+      );
+    });
   });
 
   group('updateMyProfile', () {
@@ -541,6 +585,79 @@ void main() {
         isFalse,
         reason:
             'whitespace-only contactPhone must be omitted from the request body',
+      );
+    });
+
+    // ── E — instagram value included in body when set ──────────────────────
+
+    test('instagram value included in body when set', () async {
+      when(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async => _okProfileEnvelope());
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '',
+          instagram: '@beauty_ua',
+        ),
+      );
+
+      final captured =
+          verify(
+                () => dio.patch<Map<String, dynamic>>(
+                  _profilePatchPath,
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+
+      expect(
+        captured['instagram'],
+        '@beauty_ua',
+        reason: 'instagram value must be forwarded to the request body',
+      );
+    });
+
+    // ── F — blank instagram is omitted ──────────────────────────────────────
+
+    test('instagram omitted from body when blank', () async {
+      when(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async => _okProfileEnvelope());
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '',
+          instagram: '   ',
+        ),
+      );
+
+      final captured =
+          verify(
+                () => dio.patch<Map<String, dynamic>>(
+                  _profilePatchPath,
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+
+      expect(
+        captured.containsKey('instagram'),
+        isFalse,
+        reason:
+            'whitespace-only instagram must be omitted from the request body',
       );
     });
 
