@@ -61,75 +61,78 @@ try {
 
 ## Documentation for API Endpoints
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
-[*AuthControllerApi*](doc/AuthControllerApi.md) | [**acceptInvite**](doc/AuthControllerApi.md#acceptinvite) | **POST** /auth/invite/accept | 
-[*AuthControllerApi*](doc/AuthControllerApi.md) | [**forgotPassword**](doc/AuthControllerApi.md#forgotpassword) | **POST** /auth/forgot-password | 
-[*AuthControllerApi*](doc/AuthControllerApi.md) | [**login**](doc/AuthControllerApi.md#login) | **POST** /auth/login | 
-[*AuthControllerApi*](doc/AuthControllerApi.md) | [**logout**](doc/AuthControllerApi.md#logout) | **POST** /auth/logout | 
-[*AuthControllerApi*](doc/AuthControllerApi.md) | [**refresh**](doc/AuthControllerApi.md#refresh) | **POST** /auth/refresh | 
-[*AuthControllerApi*](doc/AuthControllerApi.md) | [**register**](doc/AuthControllerApi.md#register) | **POST** /auth/register | 
-[*AuthControllerApi*](doc/AuthControllerApi.md) | [**registerIndependentMaster**](doc/AuthControllerApi.md#registerindependentmaster) | **POST** /auth/register/independent-master | 
-[*AuthControllerApi*](doc/AuthControllerApi.md) | [**resendVerification**](doc/AuthControllerApi.md#resendverification) | **POST** /auth/resend-verification | 
-[*AuthControllerApi*](doc/AuthControllerApi.md) | [**resetPassword**](doc/AuthControllerApi.md#resetpassword) | **POST** /auth/reset-password | 
-[*AuthControllerApi*](doc/AuthControllerApi.md) | [**sendInvite**](doc/AuthControllerApi.md#sendinvite) | **POST** /auth/invite | 
-[*AuthControllerApi*](doc/AuthControllerApi.md) | [**validateInvite**](doc/AuthControllerApi.md#validateinvite) | **GET** /auth/invite/validate | 
-[*AuthControllerApi*](doc/AuthControllerApi.md) | [**verifyEmail**](doc/AuthControllerApi.md#verifyemail) | **POST** /auth/verify-email | 
-[*BookingControllerApi*](doc/BookingControllerApi.md) | [**cancelBooking**](doc/BookingControllerApi.md#cancelbooking) | **PATCH** /bookings/{bookingId}/cancel | 
-[*BookingControllerApi*](doc/BookingControllerApi.md) | [**completeBooking**](doc/BookingControllerApi.md#completebooking) | **PATCH** /bookings/{bookingId}/complete | 
-[*BookingControllerApi*](doc/BookingControllerApi.md) | [**confirmBooking**](doc/BookingControllerApi.md#confirmbooking) | **PATCH** /bookings/{bookingId}/confirm | 
-[*BookingControllerApi*](doc/BookingControllerApi.md) | [**createBooking**](doc/BookingControllerApi.md#createbooking) | **POST** /bookings | 
-[*BookingControllerApi*](doc/BookingControllerApi.md) | [**declineBooking**](doc/BookingControllerApi.md#declinebooking) | **PATCH** /bookings/{bookingId}/decline | 
-[*BookingControllerApi*](doc/BookingControllerApi.md) | [**getBooking**](doc/BookingControllerApi.md#getbooking) | **GET** /bookings/{bookingId} | 
-[*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookings**](doc/BookingControllerApi.md#listmybookings) | **GET** /bookings/me | 
-[*BookingControllerApi*](doc/BookingControllerApi.md) | [**notCompleteBooking**](doc/BookingControllerApi.md#notcompletebooking) | **PATCH** /bookings/{bookingId}/not-complete | 
-[*DashboardControllerApi*](doc/DashboardControllerApi.md) | [**getRevenueSummary**](doc/DashboardControllerApi.md#getrevenuesummary) | **GET** /dashboard/revenue | 
-[*DeviceControllerApi*](doc/DeviceControllerApi.md) | [**registerToken**](doc/DeviceControllerApi.md#registertoken) | **POST** /devices/token | 
-[*DeviceControllerApi*](doc/DeviceControllerApi.md) | [**unregisterToken**](doc/DeviceControllerApi.md#unregistertoken) | **DELETE** /devices/token | 
-[*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateLocality**](doc/IndependentMasterControllerApi.md#updatelocality) | **PATCH** /independent-masters/me | 
-[*LocationControllerApi*](doc/LocationControllerApi.md) | [**getCitiesByOblast**](doc/LocationControllerApi.md#getcitiesbyoblast) | **GET** /locations/oblasts/{oblastId}/cities | 
-[*LocationControllerApi*](doc/LocationControllerApi.md) | [**getDistrictsByCity**](doc/LocationControllerApi.md#getdistrictsbycity) | **GET** /locations/cities/{cityId}/districts | 
-[*LocationControllerApi*](doc/LocationControllerApi.md) | [**getOblasts**](doc/LocationControllerApi.md#getoblasts) | **GET** /locations/oblasts | 
-[*MasterControllerApi*](doc/MasterControllerApi.md) | [**addScheduleException**](doc/MasterControllerApi.md#addscheduleexception) | **POST** /masters/{masterId}/schedule-exceptions | 
-[*MasterControllerApi*](doc/MasterControllerApi.md) | [**deactivateMaster**](doc/MasterControllerApi.md#deactivatemaster) | **DELETE** /masters/{masterId} | 
-[*MasterControllerApi*](doc/MasterControllerApi.md) | [**getAvailableSlots**](doc/MasterControllerApi.md#getavailableslots) | **GET** /masters/{masterId}/slots | 
-[*MasterControllerApi*](doc/MasterControllerApi.md) | [**getMasterCalendar**](doc/MasterControllerApi.md#getmastercalendar) | **GET** /masters/me/calendar | 
-[*MasterControllerApi*](doc/MasterControllerApi.md) | [**getMasterDetail**](doc/MasterControllerApi.md#getmasterdetail) | **GET** /masters/{masterId} | 
-[*MasterControllerApi*](doc/MasterControllerApi.md) | [**getMastersBySalon1**](doc/MasterControllerApi.md#getmastersbysalon1) | **GET** /masters/by-salon/{salonId} | 
-[*MasterControllerApi*](doc/MasterControllerApi.md) | [**removeScheduleException**](doc/MasterControllerApi.md#removescheduleexception) | **DELETE** /masters/{masterId}/schedule-exceptions/{date} | 
-[*MasterControllerApi*](doc/MasterControllerApi.md) | [**upsertWorkingHours**](doc/MasterControllerApi.md#upsertworkinghours) | **PATCH** /masters/{masterId}/working-hours | 
-[*MediaControllerApi*](doc/MediaControllerApi.md) | [**deleteAvatar**](doc/MediaControllerApi.md#deleteavatar) | **DELETE** /media/avatar | 
-[*MediaControllerApi*](doc/MediaControllerApi.md) | [**deletePortfolioPhoto**](doc/MediaControllerApi.md#deleteportfoliophoto) | **DELETE** /media/portfolio/{mediaId} | 
-[*MediaControllerApi*](doc/MediaControllerApi.md) | [**getMasterPortfolio**](doc/MediaControllerApi.md#getmasterportfolio) | **GET** /masters/{masterId}/portfolio | 
-[*MediaControllerApi*](doc/MediaControllerApi.md) | [**getSalonPortfolio**](doc/MediaControllerApi.md#getsalonportfolio) | **GET** /salons/{salonId}/portfolio | 
-[*MediaControllerApi*](doc/MediaControllerApi.md) | [**uploadAvatar**](doc/MediaControllerApi.md#uploadavatar) | **POST** /media/avatar | 
-[*MediaControllerApi*](doc/MediaControllerApi.md) | [**uploadPortfolioPhoto**](doc/MediaControllerApi.md#uploadportfoliophoto) | **POST** /media/portfolio | 
-[*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createReview**](doc/ReviewControllerApi.md#createreview) | **POST** /reviews | 
-[*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getReview**](doc/ReviewControllerApi.md#getreview) | **GET** /reviews/{reviewId} | 
-[*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getReviewsByMaster**](doc/ReviewControllerApi.md#getreviewsbymaster) | **GET** /masters/{masterId}/reviews | 
-[*SalonControllerApi*](doc/SalonControllerApi.md) | [**createSalon**](doc/SalonControllerApi.md#createsalon) | **POST** /salons | 
-[*SalonControllerApi*](doc/SalonControllerApi.md) | [**deactivateSalon**](doc/SalonControllerApi.md#deactivatesalon) | **DELETE** /salons/{salonId} | 
-[*SalonControllerApi*](doc/SalonControllerApi.md) | [**getMastersBySalon**](doc/SalonControllerApi.md#getmastersbysalon) | **GET** /salons/{salonId}/masters | 
-[*SalonControllerApi*](doc/SalonControllerApi.md) | [**getOwnedSalons**](doc/SalonControllerApi.md#getownedsalons) | **GET** /salons/mine | 
-[*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSalon**](doc/SalonControllerApi.md#getsalon) | **GET** /salons/{salonId} | 
-[*SalonControllerApi*](doc/SalonControllerApi.md) | [**inviteMaster**](doc/SalonControllerApi.md#invitemaster) | **POST** /salons/{salonId}/invite | 
-[*SalonControllerApi*](doc/SalonControllerApi.md) | [**updateSalon**](doc/SalonControllerApi.md#updatesalon) | **PATCH** /salons/{salonId} | 
-[*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**disableOwnerMaster**](doc/SalonMasterControllerApi.md#disableownermaster) | **DELETE** /salons/{salonId}/master | 
-[*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**enableOwnerMaster**](doc/SalonMasterControllerApi.md#enableownermaster) | **POST** /salons/{salonId}/master | 
-[*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchMasters**](doc/SearchControllerApi.md#searchmasters) | **GET** /search/masters | 
-[*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchSalons**](doc/SearchControllerApi.md#searchsalons) | **GET** /search/salons | 
-[*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getCategories**](doc/ServiceCatalogControllerApi.md#getcategories) | **GET** /service-categories | 
-[*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getServiceTypes**](doc/ServiceCatalogControllerApi.md#getservicetypes) | **GET** /service-types | 
-[*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**suggestServiceType**](doc/ServiceCatalogControllerApi.md#suggestservicetype) | **POST** /service-types/suggest | 
-[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**addIndependentMasterService**](doc/ServiceControllerApi.md#addindependentmasterservice) | **POST** /independent-masters/me/services | 
-[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**addServiceToSalon**](doc/ServiceControllerApi.md#addservicetosalon) | **POST** /salons/{salonId}/services | 
-[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**assignServiceToMaster**](doc/ServiceControllerApi.md#assignservicetomaster) | **POST** /salons/{salonId}/masters/{masterId}/services | 
-[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**deactivateServiceDefinition**](doc/ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /services/{serviceDefId} | 
-[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMasterServices**](doc/ServiceControllerApi.md#getmasterservices) | **GET** /masters/{masterId}/services | 
-[*UserControllerApi*](doc/UserControllerApi.md) | [**getMe**](doc/UserControllerApi.md#getme) | **GET** /users/me | 
-[*UserControllerApi*](doc/UserControllerApi.md) | [**updateMe**](doc/UserControllerApi.md#updateme) | **PATCH** /users/me | 
+[*AuthControllerApi*](doc/AuthControllerApi.md) | [**acceptInvite**](doc/AuthControllerApi.md#acceptinvite) | **POST** /api/v1/auth/invite/accept | 
+[*AuthControllerApi*](doc/AuthControllerApi.md) | [**forgotPassword**](doc/AuthControllerApi.md#forgotpassword) | **POST** /api/v1/auth/forgot-password | 
+[*AuthControllerApi*](doc/AuthControllerApi.md) | [**login**](doc/AuthControllerApi.md#login) | **POST** /api/v1/auth/login | 
+[*AuthControllerApi*](doc/AuthControllerApi.md) | [**logout**](doc/AuthControllerApi.md#logout) | **POST** /api/v1/auth/logout | 
+[*AuthControllerApi*](doc/AuthControllerApi.md) | [**refresh**](doc/AuthControllerApi.md#refresh) | **POST** /api/v1/auth/refresh | 
+[*AuthControllerApi*](doc/AuthControllerApi.md) | [**register**](doc/AuthControllerApi.md#register) | **POST** /api/v1/auth/register | 
+[*AuthControllerApi*](doc/AuthControllerApi.md) | [**registerIndependentMaster**](doc/AuthControllerApi.md#registerindependentmaster) | **POST** /api/v1/auth/register/independent-master | 
+[*AuthControllerApi*](doc/AuthControllerApi.md) | [**resendVerification**](doc/AuthControllerApi.md#resendverification) | **POST** /api/v1/auth/resend-verification | 
+[*AuthControllerApi*](doc/AuthControllerApi.md) | [**resetPassword**](doc/AuthControllerApi.md#resetpassword) | **POST** /api/v1/auth/reset-password | 
+[*AuthControllerApi*](doc/AuthControllerApi.md) | [**sendInvite**](doc/AuthControllerApi.md#sendinvite) | **POST** /api/v1/auth/invite | 
+[*AuthControllerApi*](doc/AuthControllerApi.md) | [**validateInvite**](doc/AuthControllerApi.md#validateinvite) | **GET** /api/v1/auth/invite/validate | 
+[*AuthControllerApi*](doc/AuthControllerApi.md) | [**verifyEmail**](doc/AuthControllerApi.md#verifyemail) | **POST** /api/v1/auth/verify-email | 
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**cancelBooking**](doc/BookingControllerApi.md#cancelbooking) | **PATCH** /api/v1/bookings/{bookingId}/cancel | 
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**completeBooking**](doc/BookingControllerApi.md#completebooking) | **PATCH** /api/v1/bookings/{bookingId}/complete | 
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**confirmBooking**](doc/BookingControllerApi.md#confirmbooking) | **PATCH** /api/v1/bookings/{bookingId}/confirm | 
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**createBooking**](doc/BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**declineBooking**](doc/BookingControllerApi.md#declinebooking) | **PATCH** /api/v1/bookings/{bookingId}/decline | 
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**getBooking**](doc/BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookings**](doc/BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**notCompleteBooking**](doc/BookingControllerApi.md#notcompletebooking) | **PATCH** /api/v1/bookings/{bookingId}/not-complete | 
+[*DashboardControllerApi*](doc/DashboardControllerApi.md) | [**getRevenueSummary**](doc/DashboardControllerApi.md#getrevenuesummary) | **GET** /api/v1/dashboard/revenue | 
+[*DeviceControllerApi*](doc/DeviceControllerApi.md) | [**registerToken**](doc/DeviceControllerApi.md#registertoken) | **POST** /api/v1/devices/token | 
+[*DeviceControllerApi*](doc/DeviceControllerApi.md) | [**unregisterToken**](doc/DeviceControllerApi.md#unregistertoken) | **DELETE** /api/v1/devices/token | 
+[*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateLocality**](doc/IndependentMasterControllerApi.md#updatelocality) | **PATCH** /api/v1/independent-masters/me | 
+[*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateProfile**](doc/IndependentMasterControllerApi.md#updateprofile) | **PATCH** /api/v1/independent-masters/me/profile | 
+[*LocationControllerApi*](doc/LocationControllerApi.md) | [**getCitiesByOblast**](doc/LocationControllerApi.md#getcitiesbyoblast) | **GET** /api/v1/locations/oblasts/{oblastId}/cities | 
+[*LocationControllerApi*](doc/LocationControllerApi.md) | [**getDistrictsByCity**](doc/LocationControllerApi.md#getdistrictsbycity) | **GET** /api/v1/locations/cities/{cityId}/districts | 
+[*LocationControllerApi*](doc/LocationControllerApi.md) | [**getOblasts**](doc/LocationControllerApi.md#getoblasts) | **GET** /api/v1/locations/oblasts | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**addScheduleException**](doc/MasterControllerApi.md#addscheduleexception) | **POST** /api/v1/masters/{masterId}/schedule-exceptions | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**deactivateMaster**](doc/MasterControllerApi.md#deactivatemaster) | **DELETE** /api/v1/masters/{masterId} | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**getAvailableSlots**](doc/MasterControllerApi.md#getavailableslots) | **GET** /api/v1/masters/{masterId}/slots | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**getMasterCalendar**](doc/MasterControllerApi.md#getmastercalendar) | **GET** /api/v1/masters/me/calendar | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**getMasterDetail**](doc/MasterControllerApi.md#getmasterdetail) | **GET** /api/v1/masters/{masterId} | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**getMastersBySalon1**](doc/MasterControllerApi.md#getmastersbysalon1) | **GET** /api/v1/masters/by-salon/{salonId} | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**getMyProfile**](doc/MasterControllerApi.md#getmyprofile) | **GET** /api/v1/masters/me | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**removeScheduleException**](doc/MasterControllerApi.md#removescheduleexception) | **DELETE** /api/v1/masters/{masterId}/schedule-exceptions/{date} | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**updateMyProfile**](doc/MasterControllerApi.md#updatemyprofile) | **PATCH** /api/v1/masters/me/profile | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**upsertWorkingHours**](doc/MasterControllerApi.md#upsertworkinghours) | **PATCH** /api/v1/masters/{masterId}/working-hours | 
+[*MediaControllerApi*](doc/MediaControllerApi.md) | [**deleteAvatar**](doc/MediaControllerApi.md#deleteavatar) | **DELETE** /api/v1/media/avatar | 
+[*MediaControllerApi*](doc/MediaControllerApi.md) | [**deletePortfolioPhoto**](doc/MediaControllerApi.md#deleteportfoliophoto) | **DELETE** /api/v1/media/portfolio/{mediaId} | 
+[*MediaControllerApi*](doc/MediaControllerApi.md) | [**getMasterPortfolio**](doc/MediaControllerApi.md#getmasterportfolio) | **GET** /api/v1/masters/{masterId}/portfolio | 
+[*MediaControllerApi*](doc/MediaControllerApi.md) | [**getSalonPortfolio**](doc/MediaControllerApi.md#getsalonportfolio) | **GET** /api/v1/salons/{salonId}/portfolio | 
+[*MediaControllerApi*](doc/MediaControllerApi.md) | [**uploadAvatar**](doc/MediaControllerApi.md#uploadavatar) | **POST** /api/v1/media/avatar | 
+[*MediaControllerApi*](doc/MediaControllerApi.md) | [**uploadPortfolioPhoto**](doc/MediaControllerApi.md#uploadportfoliophoto) | **POST** /api/v1/media/portfolio | 
+[*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createReview**](doc/ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
+[*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getReview**](doc/ReviewControllerApi.md#getreview) | **GET** /api/v1/reviews/{reviewId} | 
+[*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getReviewsByMaster**](doc/ReviewControllerApi.md#getreviewsbymaster) | **GET** /api/v1/masters/{masterId}/reviews | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**createSalon**](doc/SalonControllerApi.md#createsalon) | **POST** /api/v1/salons | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**deactivateSalon**](doc/SalonControllerApi.md#deactivatesalon) | **DELETE** /api/v1/salons/{salonId} | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**getMastersBySalon**](doc/SalonControllerApi.md#getmastersbysalon) | **GET** /api/v1/salons/{salonId}/masters | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**getOwnedSalons**](doc/SalonControllerApi.md#getownedsalons) | **GET** /api/v1/salons/mine | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSalon**](doc/SalonControllerApi.md#getsalon) | **GET** /api/v1/salons/{salonId} | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**inviteMaster**](doc/SalonControllerApi.md#invitemaster) | **POST** /api/v1/salons/{salonId}/invite | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**updateSalon**](doc/SalonControllerApi.md#updatesalon) | **PATCH** /api/v1/salons/{salonId} | 
+[*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**disableOwnerMaster**](doc/SalonMasterControllerApi.md#disableownermaster) | **DELETE** /api/v1/salons/{salonId}/master | 
+[*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**enableOwnerMaster**](doc/SalonMasterControllerApi.md#enableownermaster) | **POST** /api/v1/salons/{salonId}/master | 
+[*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchMasters**](doc/SearchControllerApi.md#searchmasters) | **GET** /api/v1/search/masters | 
+[*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchSalons**](doc/SearchControllerApi.md#searchsalons) | **GET** /api/v1/search/salons | 
+[*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getCategories**](doc/ServiceCatalogControllerApi.md#getcategories) | **GET** /api/v1/service-categories | 
+[*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getServiceTypes**](doc/ServiceCatalogControllerApi.md#getservicetypes) | **GET** /api/v1/service-types | 
+[*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**suggestServiceType**](doc/ServiceCatalogControllerApi.md#suggestservicetype) | **POST** /api/v1/service-types/suggest | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**addIndependentMasterService**](doc/ServiceControllerApi.md#addindependentmasterservice) | **POST** /api/v1/independent-masters/me/services | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**addServiceToSalon**](doc/ServiceControllerApi.md#addservicetosalon) | **POST** /api/v1/salons/{salonId}/services | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**assignServiceToMaster**](doc/ServiceControllerApi.md#assignservicetomaster) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**deactivateServiceDefinition**](doc/ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMasterServices**](doc/ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
+[*UserControllerApi*](doc/UserControllerApi.md) | [**getMe**](doc/UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
+[*UserControllerApi*](doc/UserControllerApi.md) | [**updateMe**](doc/UserControllerApi.md#updateme) | **PATCH** /api/v1/users/me | 
 
 
 ## Documentation For Models
@@ -150,6 +153,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseListServiceTypeResponse](doc/ApiResponseListServiceTypeResponse.md)
  - [ApiResponseListWorkingHoursResponse](doc/ApiResponseListWorkingHoursResponse.md)
  - [ApiResponseMasterDetailResponse](doc/ApiResponseMasterDetailResponse.md)
+ - [ApiResponseMasterPublicProfileResponse](doc/ApiResponseMasterPublicProfileResponse.md)
  - [ApiResponseMasterServiceResponse](doc/ApiResponseMasterServiceResponse.md)
  - [ApiResponseMediaFileResponse](doc/ApiResponseMediaFileResponse.md)
  - [ApiResponsePageMediaFileResponse](doc/ApiResponsePageMediaFileResponse.md)
@@ -190,6 +194,8 @@ Class | Method | HTTP request | Description
  - [LocationFilter](doc/LocationFilter.md)
  - [LoginRequest](doc/LoginRequest.md)
  - [MasterDetailResponse](doc/MasterDetailResponse.md)
+ - [MasterProfileUpdateRequest](doc/MasterProfileUpdateRequest.md)
+ - [MasterPublicProfileResponse](doc/MasterPublicProfileResponse.md)
  - [MasterSearchRequest](doc/MasterSearchRequest.md)
  - [MasterSearchResult](doc/MasterSearchResult.md)
  - [MasterServiceResponse](doc/MasterServiceResponse.md)

@@ -43,7 +43,7 @@ class LocationControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/locations/oblasts/{oblastId}/cities'.replaceAll(
+    final _path = r'/api/v1/locations/oblasts/{oblastId}/cities'.replaceAll(
         '{' r'oblastId' '}',
         encodeQueryParameter(_serializers, oblastId, const FullType(String))
             .toString());
@@ -53,13 +53,7 @@ class LocationControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -128,7 +122,7 @@ class LocationControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/locations/cities/{cityId}/districts'.replaceAll(
+    final _path = r'/api/v1/locations/cities/{cityId}/districts'.replaceAll(
         '{' r'cityId' '}',
         encodeQueryParameter(_serializers, cityId, const FullType(String))
             .toString());
@@ -138,13 +132,7 @@ class LocationControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -212,20 +200,14 @@ class LocationControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/locations/oblasts';
+    final _path = r'/api/v1/locations/oblasts';
     final _options = Options(
       method: r'GET',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,

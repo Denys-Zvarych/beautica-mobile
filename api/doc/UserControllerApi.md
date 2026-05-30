@@ -5,12 +5,12 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**getMe**](UserControllerApi.md#getme) | **GET** /users/me | 
-[**updateMe**](UserControllerApi.md#updateme) | **PATCH** /users/me | 
+[**getMe**](UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
+[**updateMe**](UserControllerApi.md#updateme) | **PATCH** /api/v1/users/me | 
 
 
 # **getMe**
@@ -41,7 +41,7 @@ This endpoint does not need any parameter.
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -82,7 +82,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 

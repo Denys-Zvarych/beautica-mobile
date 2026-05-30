@@ -82,9 +82,19 @@ class _$MasterDetailResponse extends MasterDetailResponse {
   @override
   final String? lastName;
   @override
+  final String? phoneNumber;
+  @override
   final String? city;
   @override
+  final String? street;
+  @override
+  final String? buildingNo;
+  @override
+  final String? locationNote;
+  @override
   final String? bio;
+  @override
+  final String? instagram;
   @override
   final String? avatarUrl;
   @override
@@ -106,8 +116,13 @@ class _$MasterDetailResponse extends MasterDetailResponse {
       {this.masterId,
       this.firstName,
       this.lastName,
+      this.phoneNumber,
       this.city,
+      this.street,
+      this.buildingNo,
+      this.locationNote,
       this.bio,
+      this.instagram,
       this.avatarUrl,
       this.avgRating,
       this.reviewCount,
@@ -131,8 +146,13 @@ class _$MasterDetailResponse extends MasterDetailResponse {
         masterId == other.masterId &&
         firstName == other.firstName &&
         lastName == other.lastName &&
+        phoneNumber == other.phoneNumber &&
         city == other.city &&
+        street == other.street &&
+        buildingNo == other.buildingNo &&
+        locationNote == other.locationNote &&
         bio == other.bio &&
+        instagram == other.instagram &&
         avatarUrl == other.avatarUrl &&
         avgRating == other.avgRating &&
         reviewCount == other.reviewCount &&
@@ -147,8 +167,13 @@ class _$MasterDetailResponse extends MasterDetailResponse {
     _$hash = $jc(_$hash, masterId.hashCode);
     _$hash = $jc(_$hash, firstName.hashCode);
     _$hash = $jc(_$hash, lastName.hashCode);
+    _$hash = $jc(_$hash, phoneNumber.hashCode);
     _$hash = $jc(_$hash, city.hashCode);
+    _$hash = $jc(_$hash, street.hashCode);
+    _$hash = $jc(_$hash, buildingNo.hashCode);
+    _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jc(_$hash, bio.hashCode);
+    _$hash = $jc(_$hash, instagram.hashCode);
     _$hash = $jc(_$hash, avatarUrl.hashCode);
     _$hash = $jc(_$hash, avgRating.hashCode);
     _$hash = $jc(_$hash, reviewCount.hashCode);
@@ -165,8 +190,13 @@ class _$MasterDetailResponse extends MasterDetailResponse {
           ..add('masterId', masterId)
           ..add('firstName', firstName)
           ..add('lastName', lastName)
+          ..add('phoneNumber', phoneNumber)
           ..add('city', city)
+          ..add('street', street)
+          ..add('buildingNo', buildingNo)
+          ..add('locationNote', locationNote)
           ..add('bio', bio)
+          ..add('instagram', instagram)
           ..add('avatarUrl', avatarUrl)
           ..add('avgRating', avgRating)
           ..add('reviewCount', reviewCount)
@@ -193,13 +223,33 @@ class MasterDetailResponseBuilder
   String? get lastName => _$this._lastName;
   set lastName(String? lastName) => _$this._lastName = lastName;
 
+  String? _phoneNumber;
+  String? get phoneNumber => _$this._phoneNumber;
+  set phoneNumber(String? phoneNumber) => _$this._phoneNumber = phoneNumber;
+
   String? _city;
   String? get city => _$this._city;
   set city(String? city) => _$this._city = city;
 
+  String? _street;
+  String? get street => _$this._street;
+  set street(String? street) => _$this._street = street;
+
+  String? _buildingNo;
+  String? get buildingNo => _$this._buildingNo;
+  set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
+
+  String? _locationNote;
+  String? get locationNote => _$this._locationNote;
+  set locationNote(String? locationNote) => _$this._locationNote = locationNote;
+
   String? _bio;
   String? get bio => _$this._bio;
   set bio(String? bio) => _$this._bio = bio;
+
+  String? _instagram;
+  String? get instagram => _$this._instagram;
+  set instagram(String? instagram) => _$this._instagram = instagram;
 
   String? _avatarUrl;
   String? get avatarUrl => _$this._avatarUrl;
@@ -239,8 +289,13 @@ class MasterDetailResponseBuilder
       _masterId = $v.masterId;
       _firstName = $v.firstName;
       _lastName = $v.lastName;
+      _phoneNumber = $v.phoneNumber;
       _city = $v.city;
+      _street = $v.street;
+      _buildingNo = $v.buildingNo;
+      _locationNote = $v.locationNote;
       _bio = $v.bio;
+      _instagram = $v.instagram;
       _avatarUrl = $v.avatarUrl;
       _avgRating = $v.avgRating;
       _reviewCount = $v.reviewCount;
@@ -273,8 +328,13 @@ class MasterDetailResponseBuilder
             masterId: masterId,
             firstName: firstName,
             lastName: lastName,
+            phoneNumber: phoneNumber,
             city: city,
+            street: street,
+            buildingNo: buildingNo,
+            locationNote: locationNote,
             bio: bio,
+            instagram: instagram,
             avatarUrl: avatarUrl,
             avgRating: avgRating,
             reviewCount: reviewCount,

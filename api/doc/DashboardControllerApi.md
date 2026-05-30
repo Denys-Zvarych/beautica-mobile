@@ -5,11 +5,11 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**getRevenueSummary**](DashboardControllerApi.md#getrevenuesummary) | **GET** /dashboard/revenue | 
+[**getRevenueSummary**](DashboardControllerApi.md#getrevenuesummary) | **GET** /api/v1/dashboard/revenue | 
 
 
 # **getRevenueSummary**
@@ -52,7 +52,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 

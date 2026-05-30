@@ -5,18 +5,20 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**addScheduleException**](MasterControllerApi.md#addscheduleexception) | **POST** /masters/{masterId}/schedule-exceptions | 
-[**deactivateMaster**](MasterControllerApi.md#deactivatemaster) | **DELETE** /masters/{masterId} | 
-[**getAvailableSlots**](MasterControllerApi.md#getavailableslots) | **GET** /masters/{masterId}/slots | 
-[**getMasterCalendar**](MasterControllerApi.md#getmastercalendar) | **GET** /masters/me/calendar | 
-[**getMasterDetail**](MasterControllerApi.md#getmasterdetail) | **GET** /masters/{masterId} | 
-[**getMastersBySalon1**](MasterControllerApi.md#getmastersbysalon1) | **GET** /masters/by-salon/{salonId} | 
-[**removeScheduleException**](MasterControllerApi.md#removescheduleexception) | **DELETE** /masters/{masterId}/schedule-exceptions/{date} | 
-[**upsertWorkingHours**](MasterControllerApi.md#upsertworkinghours) | **PATCH** /masters/{masterId}/working-hours | 
+[**addScheduleException**](MasterControllerApi.md#addscheduleexception) | **POST** /api/v1/masters/{masterId}/schedule-exceptions | 
+[**deactivateMaster**](MasterControllerApi.md#deactivatemaster) | **DELETE** /api/v1/masters/{masterId} | 
+[**getAvailableSlots**](MasterControllerApi.md#getavailableslots) | **GET** /api/v1/masters/{masterId}/slots | 
+[**getMasterCalendar**](MasterControllerApi.md#getmastercalendar) | **GET** /api/v1/masters/me/calendar | 
+[**getMasterDetail**](MasterControllerApi.md#getmasterdetail) | **GET** /api/v1/masters/{masterId} | 
+[**getMastersBySalon1**](MasterControllerApi.md#getmastersbysalon1) | **GET** /api/v1/masters/by-salon/{salonId} | 
+[**getMyProfile**](MasterControllerApi.md#getmyprofile) | **GET** /api/v1/masters/me | 
+[**removeScheduleException**](MasterControllerApi.md#removescheduleexception) | **DELETE** /api/v1/masters/{masterId}/schedule-exceptions/{date} | 
+[**updateMyProfile**](MasterControllerApi.md#updatemyprofile) | **PATCH** /api/v1/masters/me/profile | 
+[**upsertWorkingHours**](MasterControllerApi.md#upsertworkinghours) | **PATCH** /api/v1/masters/{masterId}/working-hours | 
 
 
 # **addScheduleException**
@@ -53,7 +55,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -94,7 +96,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -139,7 +141,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -184,7 +186,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -225,7 +227,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -268,7 +270,44 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getMyProfile**
+> ApiResponseMasterDetailResponse getMyProfile()
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getMasterControllerApi();
+
+try {
+    final response = api.getMyProfile();
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling MasterControllerApi->getMyProfile: $e\n');
+}
+```
+
+### Parameters
+This endpoint does not need any parameter.
+
+### Return type
+
+[**ApiResponseMasterDetailResponse**](ApiResponseMasterDetailResponse.md)
+
+### Authorization
+
+No authorization required
 
 ### HTTP request headers
 
@@ -311,11 +350,52 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
  - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **updateMyProfile**
+> ApiResponseMasterPublicProfileResponse updateMyProfile(masterProfileUpdateRequest)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getMasterControllerApi();
+final MasterProfileUpdateRequest masterProfileUpdateRequest = ; // MasterProfileUpdateRequest | 
+
+try {
+    final response = api.updateMyProfile(masterProfileUpdateRequest);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling MasterControllerApi->updateMyProfile: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **masterProfileUpdateRequest** | [**MasterProfileUpdateRequest**](MasterProfileUpdateRequest.md)|  | 
+
+### Return type
+
+[**ApiResponseMasterPublicProfileResponse**](ApiResponseMasterPublicProfileResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
  - **Accept**: */*
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
@@ -354,7 +434,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 

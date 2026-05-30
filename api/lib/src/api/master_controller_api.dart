@@ -12,10 +12,12 @@ import 'package:beautica_api/src/api_util.dart';
 import 'package:beautica_api/src/model/api_response_available_slots_response.dart';
 import 'package:beautica_api/src/model/api_response_list_working_hours_response.dart';
 import 'package:beautica_api/src/model/api_response_master_detail_response.dart';
+import 'package:beautica_api/src/model/api_response_master_public_profile_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_booking_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_void.dart';
 import 'package:beautica_api/src/model/date.dart';
+import 'package:beautica_api/src/model/master_profile_update_request.dart';
 import 'package:beautica_api/src/model/pageable.dart';
 import 'package:beautica_api/src/model/schedule_exception_request.dart';
 import 'package:beautica_api/src/model/working_hours_request.dart';
@@ -53,7 +55,7 @@ class MasterControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/masters/{masterId}/schedule-exceptions'.replaceAll(
+    final _path = r'/api/v1/masters/{masterId}/schedule-exceptions'.replaceAll(
         '{' r'masterId' '}',
         encodeQueryParameter(_serializers, masterId, const FullType(String))
             .toString());
@@ -63,13 +65,7 @@ class MasterControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -158,7 +154,7 @@ class MasterControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/masters/{masterId}'.replaceAll(
+    final _path = r'/api/v1/masters/{masterId}'.replaceAll(
         '{' r'masterId' '}',
         encodeQueryParameter(_serializers, masterId, const FullType(String))
             .toString());
@@ -168,13 +164,7 @@ class MasterControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -247,7 +237,7 @@ class MasterControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/masters/{masterId}/slots'.replaceAll(
+    final _path = r'/api/v1/masters/{masterId}/slots'.replaceAll(
         '{' r'masterId' '}',
         encodeQueryParameter(_serializers, masterId, const FullType(String))
             .toString());
@@ -257,13 +247,7 @@ class MasterControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -343,20 +327,14 @@ class MasterControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/masters/me/calendar';
+    final _path = r'/api/v1/masters/me/calendar';
     final _options = Options(
       method: r'GET',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -434,7 +412,7 @@ class MasterControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/masters/{masterId}'.replaceAll(
+    final _path = r'/api/v1/masters/{masterId}'.replaceAll(
         '{' r'masterId' '}',
         encodeQueryParameter(_serializers, masterId, const FullType(String))
             .toString());
@@ -444,13 +422,7 @@ class MasterControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -522,7 +494,7 @@ class MasterControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/masters/by-salon/{salonId}'.replaceAll(
+    final _path = r'/api/v1/masters/by-salon/{salonId}'.replaceAll(
         '{' r'salonId' '}',
         encodeQueryParameter(_serializers, salonId, const FullType(String))
             .toString());
@@ -532,13 +504,7 @@ class MasterControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -591,6 +557,80 @@ class MasterControllerApi {
     );
   }
 
+  /// getMyProfile
+  ///
+  ///
+  /// Parameters:
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponseMasterDetailResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponseMasterDetailResponse>> getMyProfile({
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/masters/me';
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponseMasterDetailResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(ApiResponseMasterDetailResponse),
+            ) as ApiResponseMasterDetailResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponseMasterDetailResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// removeScheduleException
   ///
   ///
@@ -616,7 +656,7 @@ class MasterControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/masters/{masterId}/schedule-exceptions/{date}'
+    final _path = r'/api/v1/masters/{masterId}/schedule-exceptions/{date}'
         .replaceAll(
             '{' r'masterId' '}',
             encodeQueryParameter(_serializers, masterId, const FullType(String))
@@ -631,13 +671,7 @@ class MasterControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -683,6 +717,103 @@ class MasterControllerApi {
     );
   }
 
+  /// updateMyProfile
+  ///
+  ///
+  /// Parameters:
+  /// * [masterProfileUpdateRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponseMasterPublicProfileResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponseMasterPublicProfileResponse>> updateMyProfile({
+    required MasterProfileUpdateRequest masterProfileUpdateRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/masters/me/profile';
+    final _options = Options(
+      method: r'PATCH',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(MasterProfileUpdateRequest);
+      _bodyData = _serializers.serialize(masterProfileUpdateRequest,
+          specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponseMasterPublicProfileResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType:
+                  const FullType(ApiResponseMasterPublicProfileResponse),
+            ) as ApiResponseMasterPublicProfileResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponseMasterPublicProfileResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// upsertWorkingHours
   ///
   ///
@@ -708,7 +839,7 @@ class MasterControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/masters/{masterId}/working-hours'.replaceAll(
+    final _path = r'/api/v1/masters/{masterId}/working-hours'.replaceAll(
         '{' r'masterId' '}',
         encodeQueryParameter(_serializers, masterId, const FullType(String))
             .toString());
@@ -718,13 +849,7 @@ class MasterControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',

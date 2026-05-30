@@ -5,13 +5,13 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**getCategories**](ServiceCatalogControllerApi.md#getcategories) | **GET** /service-categories | 
-[**getServiceTypes**](ServiceCatalogControllerApi.md#getservicetypes) | **GET** /service-types | 
-[**suggestServiceType**](ServiceCatalogControllerApi.md#suggestservicetype) | **POST** /service-types/suggest | 
+[**getCategories**](ServiceCatalogControllerApi.md#getcategories) | **GET** /api/v1/service-categories | 
+[**getServiceTypes**](ServiceCatalogControllerApi.md#getservicetypes) | **GET** /api/v1/service-types | 
+[**suggestServiceType**](ServiceCatalogControllerApi.md#suggestservicetype) | **POST** /api/v1/service-types/suggest | 
 
 
 # **getCategories**
@@ -42,7 +42,7 @@ This endpoint does not need any parameter.
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -85,7 +85,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -126,7 +126,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 

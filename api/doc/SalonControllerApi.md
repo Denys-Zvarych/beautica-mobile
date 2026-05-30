@@ -5,17 +5,17 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**createSalon**](SalonControllerApi.md#createsalon) | **POST** /salons | 
-[**deactivateSalon**](SalonControllerApi.md#deactivatesalon) | **DELETE** /salons/{salonId} | 
-[**getMastersBySalon**](SalonControllerApi.md#getmastersbysalon) | **GET** /salons/{salonId}/masters | 
-[**getOwnedSalons**](SalonControllerApi.md#getownedsalons) | **GET** /salons/mine | 
-[**getSalon**](SalonControllerApi.md#getsalon) | **GET** /salons/{salonId} | 
-[**inviteMaster**](SalonControllerApi.md#invitemaster) | **POST** /salons/{salonId}/invite | 
-[**updateSalon**](SalonControllerApi.md#updatesalon) | **PATCH** /salons/{salonId} | 
+[**createSalon**](SalonControllerApi.md#createsalon) | **POST** /api/v1/salons | 
+[**deactivateSalon**](SalonControllerApi.md#deactivatesalon) | **DELETE** /api/v1/salons/{salonId} | 
+[**getMastersBySalon**](SalonControllerApi.md#getmastersbysalon) | **GET** /api/v1/salons/{salonId}/masters | 
+[**getOwnedSalons**](SalonControllerApi.md#getownedsalons) | **GET** /api/v1/salons/mine | 
+[**getSalon**](SalonControllerApi.md#getsalon) | **GET** /api/v1/salons/{salonId} | 
+[**inviteMaster**](SalonControllerApi.md#invitemaster) | **POST** /api/v1/salons/{salonId}/invite | 
+[**updateSalon**](SalonControllerApi.md#updatesalon) | **PATCH** /api/v1/salons/{salonId} | 
 
 
 # **createSalon**
@@ -50,7 +50,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -90,7 +90,7 @@ void (empty response body)
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -133,7 +133,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -170,7 +170,7 @@ This endpoint does not need any parameter.
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -211,7 +211,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -254,7 +254,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -297,7 +297,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 

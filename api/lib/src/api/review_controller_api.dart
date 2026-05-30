@@ -44,20 +44,14 @@ class ReviewControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/reviews';
+    final _path = r'/api/v1/reviews';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -146,7 +140,7 @@ class ReviewControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/reviews/{reviewId}'.replaceAll(
+    final _path = r'/api/v1/reviews/{reviewId}'.replaceAll(
         '{' r'reviewId' '}',
         encodeQueryParameter(_serializers, reviewId, const FullType(String))
             .toString());
@@ -156,13 +150,7 @@ class ReviewControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -233,7 +221,7 @@ class ReviewControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/masters/{masterId}/reviews'.replaceAll(
+    final _path = r'/api/v1/masters/{masterId}/reviews'.replaceAll(
         '{' r'masterId' '}',
         encodeQueryParameter(_serializers, masterId, const FullType(String))
             .toString());
@@ -243,13 +231,7 @@ class ReviewControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,

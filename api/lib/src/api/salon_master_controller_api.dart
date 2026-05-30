@@ -41,7 +41,7 @@ class SalonMasterControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/salons/{salonId}/master'.replaceAll(
+    final _path = r'/api/v1/salons/{salonId}/master'.replaceAll(
         '{' r'salonId' '}',
         encodeQueryParameter(_serializers, salonId, const FullType(String))
             .toString());
@@ -51,13 +51,7 @@ class SalonMasterControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -97,7 +91,7 @@ class SalonMasterControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/salons/{salonId}/master'.replaceAll(
+    final _path = r'/api/v1/salons/{salonId}/master'.replaceAll(
         '{' r'salonId' '}',
         encodeQueryParameter(_serializers, salonId, const FullType(String))
             .toString());
@@ -107,13 +101,7 @@ class SalonMasterControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,

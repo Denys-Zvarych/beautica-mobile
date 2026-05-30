@@ -293,7 +293,7 @@ void main() {
     test('success: maps MasterDetailResponse to Master', () async {
       final dto = buildDto();
       when(
-        () => masterApi.getMasterMe(),
+        () => masterApi.getMyProfile(),
       ).thenAnswer((_) async => apiResponse(dto));
 
       final master = await repository.getMyProfile('master-1');
@@ -312,7 +312,7 @@ void main() {
         masterId: 'master-2',
         masterType: MasterDetailResponseMasterTypeEnum.SALON_OWNER,
       );
-      when(() => masterApi.getMasterMe()).thenAnswer(
+      when(() => masterApi.getMyProfile()).thenAnswer(
         (_) async => Response<ApiResponseMasterDetailResponse>(
           data: ApiResponseMasterDetailResponse(
             (b) => b
@@ -330,7 +330,7 @@ void main() {
     });
 
     test('DioException connectionError → NetworkFailure', () async {
-      when(() => masterApi.getMasterMe()).thenThrow(
+      when(() => masterApi.getMyProfile()).thenThrow(
         DioException(
           requestOptions: RequestOptions(path: _getMasterPath),
           type: DioExceptionType.connectionError,
@@ -344,7 +344,7 @@ void main() {
     });
 
     test('DioException badResponse 404 → ServerFailure(404)', () async {
-      when(() => masterApi.getMasterMe()).thenThrow(
+      when(() => masterApi.getMyProfile()).thenThrow(
         DioException(
           requestOptions: RequestOptions(path: _getMasterPath),
           type: DioExceptionType.badResponse,
@@ -365,7 +365,7 @@ void main() {
 
     test('pre-mapped Failure on e.error is re-thrown unchanged', () async {
       const mapped = UnauthorizedFailure();
-      when(() => masterApi.getMasterMe()).thenThrow(
+      when(() => masterApi.getMyProfile()).thenThrow(
         DioException(
           requestOptions: RequestOptions(path: _getMasterPath),
           type: DioExceptionType.badResponse,
@@ -393,7 +393,7 @@ void main() {
               .build();
 
       when(
-        () => masterApi.getMasterMe(),
+        () => masterApi.getMyProfile(),
       ).thenAnswer((_) async => apiResponse(dto));
 
       final master = await repository.getMyProfile('master-1');
@@ -410,7 +410,7 @@ void main() {
       final dto = buildDto();
 
       when(
-        () => masterApi.getMasterMe(),
+        () => masterApi.getMyProfile(),
       ).thenAnswer((_) async => apiResponse(dto));
 
       final master = await repository.getMyProfile('master-1');
@@ -437,7 +437,7 @@ void main() {
               .build();
 
       when(
-        () => masterApi.getMasterMe(),
+        () => masterApi.getMyProfile(),
       ).thenAnswer((_) async => apiResponse(dto));
 
       final master = await repository.getMyProfile('master-1');
@@ -454,7 +454,7 @@ void main() {
       final dto = buildDto();
 
       when(
-        () => masterApi.getMasterMe(),
+        () => masterApi.getMyProfile(),
       ).thenAnswer((_) async => apiResponse(dto));
 
       final master = await repository.getMyProfile('master-1');

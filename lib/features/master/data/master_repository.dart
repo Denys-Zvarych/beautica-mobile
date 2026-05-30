@@ -128,7 +128,7 @@ final class HttpMasterRepository implements MasterRepository {
       // Uses GET /masters/me — the backend resolves masterId from the
       // authenticated JWT. The masterId parameter is kept on the interface
       // for mapper compatibility but is not sent over the wire.
-      final res = await _masterApi.getMasterMe();
+      final res = await _masterApi.getMyProfile();
       final dto = res.data?.data;
       if (dto == null) {
         if (kDebugMode) {

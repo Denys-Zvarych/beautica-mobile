@@ -5,15 +5,15 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**addIndependentMasterService**](ServiceControllerApi.md#addindependentmasterservice) | **POST** /independent-masters/me/services | 
-[**addServiceToSalon**](ServiceControllerApi.md#addservicetosalon) | **POST** /salons/{salonId}/services | 
-[**assignServiceToMaster**](ServiceControllerApi.md#assignservicetomaster) | **POST** /salons/{salonId}/masters/{masterId}/services | 
-[**deactivateServiceDefinition**](ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /services/{serviceDefId} | 
-[**getMasterServices**](ServiceControllerApi.md#getmasterservices) | **GET** /masters/{masterId}/services | 
+[**addIndependentMasterService**](ServiceControllerApi.md#addindependentmasterservice) | **POST** /api/v1/independent-masters/me/services | 
+[**addServiceToSalon**](ServiceControllerApi.md#addservicetosalon) | **POST** /api/v1/salons/{salonId}/services | 
+[**assignServiceToMaster**](ServiceControllerApi.md#assignservicetomaster) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services | 
+[**deactivateServiceDefinition**](ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
+[**getMasterServices**](ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
 
 
 # **addIndependentMasterService**
@@ -48,7 +48,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -91,7 +91,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -136,7 +136,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -176,7 +176,7 @@ void (empty response body)
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -217,7 +217,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 

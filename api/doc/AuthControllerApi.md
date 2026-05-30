@@ -5,22 +5,22 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**acceptInvite**](AuthControllerApi.md#acceptinvite) | **POST** /auth/invite/accept | 
-[**forgotPassword**](AuthControllerApi.md#forgotpassword) | **POST** /auth/forgot-password | 
-[**login**](AuthControllerApi.md#login) | **POST** /auth/login | 
-[**logout**](AuthControllerApi.md#logout) | **POST** /auth/logout | 
-[**refresh**](AuthControllerApi.md#refresh) | **POST** /auth/refresh | 
-[**register**](AuthControllerApi.md#register) | **POST** /auth/register | 
-[**registerIndependentMaster**](AuthControllerApi.md#registerindependentmaster) | **POST** /auth/register/independent-master | 
-[**resendVerification**](AuthControllerApi.md#resendverification) | **POST** /auth/resend-verification | 
-[**resetPassword**](AuthControllerApi.md#resetpassword) | **POST** /auth/reset-password | 
-[**sendInvite**](AuthControllerApi.md#sendinvite) | **POST** /auth/invite | 
-[**validateInvite**](AuthControllerApi.md#validateinvite) | **GET** /auth/invite/validate | 
-[**verifyEmail**](AuthControllerApi.md#verifyemail) | **POST** /auth/verify-email | 
+[**acceptInvite**](AuthControllerApi.md#acceptinvite) | **POST** /api/v1/auth/invite/accept | 
+[**forgotPassword**](AuthControllerApi.md#forgotpassword) | **POST** /api/v1/auth/forgot-password | 
+[**login**](AuthControllerApi.md#login) | **POST** /api/v1/auth/login | 
+[**logout**](AuthControllerApi.md#logout) | **POST** /api/v1/auth/logout | 
+[**refresh**](AuthControllerApi.md#refresh) | **POST** /api/v1/auth/refresh | 
+[**register**](AuthControllerApi.md#register) | **POST** /api/v1/auth/register | 
+[**registerIndependentMaster**](AuthControllerApi.md#registerindependentmaster) | **POST** /api/v1/auth/register/independent-master | 
+[**resendVerification**](AuthControllerApi.md#resendverification) | **POST** /api/v1/auth/resend-verification | 
+[**resetPassword**](AuthControllerApi.md#resetpassword) | **POST** /api/v1/auth/reset-password | 
+[**sendInvite**](AuthControllerApi.md#sendinvite) | **POST** /api/v1/auth/invite | 
+[**validateInvite**](AuthControllerApi.md#validateinvite) | **GET** /api/v1/auth/invite/validate | 
+[**verifyEmail**](AuthControllerApi.md#verifyemail) | **POST** /api/v1/auth/verify-email | 
 
 
 # **acceptInvite**
@@ -55,7 +55,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -96,7 +96,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -137,7 +137,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -173,7 +173,7 @@ void (empty response body)
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -214,7 +214,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -255,7 +255,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -296,7 +296,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -337,7 +337,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -378,7 +378,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -419,7 +419,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -460,7 +460,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -501,7 +501,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
