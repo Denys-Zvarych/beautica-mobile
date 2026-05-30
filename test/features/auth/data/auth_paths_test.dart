@@ -205,33 +205,30 @@ void main() {
       },
     );
 
-    test(
-      '14b. kPiiPaths is a strict superset of kAuthPaths — every unauthenticated '
-      'path is also redacted in logs',
-      () {
-        // Every path in kAuthPaths must appear in kPiiPaths. The reverse is not
-        // required — kPiiPaths may contain additional authenticated PII paths.
-        for (final path in kAuthPaths) {
-          expect(
-            kPiiPaths,
-            contains(path),
-            reason:
-                'kPiiPaths must contain every path in kAuthPaths. '
-                'Missing: $path. All unauthenticated endpoints carry credentials '
-                'or OTPs and must therefore also be redacted in debug logs.',
-          );
-        }
-        // kPiiPaths must be strictly larger than kAuthPaths (Phase 4.2 added
-        // 2 authenticated PII paths that are NOT in kAuthPaths).
+    test('14b. kPiiPaths is a strict superset of kAuthPaths — every unauthenticated '
+        'path is also redacted in logs', () {
+      // Every path in kAuthPaths must appear in kPiiPaths. The reverse is not
+      // required — kPiiPaths may contain additional authenticated PII paths.
+      for (final path in kAuthPaths) {
         expect(
-          kPiiPaths.length,
-          greaterThan(kAuthPaths.length),
+          kPiiPaths,
+          contains(path),
           reason:
-              'kPiiPaths must contain additional entries beyond kAuthPaths '
-              '(/independent-masters/me, /independent-masters/me/profile, and /masters/me).',
+              'kPiiPaths must contain every path in kAuthPaths. '
+              'Missing: $path. All unauthenticated endpoints carry credentials '
+              'or OTPs and must therefore also be redacted in debug logs.',
         );
-      },
-    );
+      }
+      // kPiiPaths must be strictly larger than kAuthPaths (Phase 4.2 added
+      // 2 authenticated PII paths that are NOT in kAuthPaths).
+      expect(
+        kPiiPaths.length,
+        greaterThan(kAuthPaths.length),
+        reason:
+            'kPiiPaths must contain additional entries beyond kAuthPaths '
+            '(/independent-masters/me, /independent-masters/me/profile, and /masters/me).',
+      );
+    });
 
     test(
       '15. kPiiPaths has exactly 14 entries (kAuthPaths union + 3 authenticated PII paths)',
