@@ -19,7 +19,7 @@ import 'package:mocktail/mocktail.dart';
 class _MockDio extends Mock implements Dio {}
 
 Response<Map<String, dynamic>> _okEnvelope() => Response<Map<String, dynamic>>(
-  requestOptions: RequestOptions(path: '/salons'),
+  requestOptions: RequestOptions(path: '/api/v1/salons'),
   statusCode: 201,
   data: const {'success': true, 'data': <String, dynamic>{}, 'message': 'ok'},
 );
@@ -128,13 +128,19 @@ void main() {
         buildingNo: '8',
       );
       when(
-        () => dio.post<Map<String, dynamic>>('/salons', data: dto.toJson()),
+        () => dio.post<Map<String, dynamic>>(
+          '/api/v1/salons',
+          data: dto.toJson(),
+        ),
       ).thenAnswer((_) async => _okEnvelope());
 
       await repository.create(dto: dto);
 
       verify(
-        () => dio.post<Map<String, dynamic>>('/salons', data: dto.toJson()),
+        () => dio.post<Map<String, dynamic>>(
+          '/api/v1/salons',
+          data: dto.toJson(),
+        ),
       ).called(1);
     });
 
@@ -146,14 +152,16 @@ void main() {
         buildingNo: '8',
       );
       when(
-        () =>
-            dio.post<Map<String, dynamic>>('/salons', data: any(named: 'data')),
+        () => dio.post<Map<String, dynamic>>(
+          '/api/v1/salons',
+          data: any(named: 'data'),
+        ),
       ).thenThrow(
         DioException(
-          requestOptions: RequestOptions(path: '/salons'),
+          requestOptions: RequestOptions(path: '/api/v1/salons'),
           type: DioExceptionType.badResponse,
           response: Response<dynamic>(
-            requestOptions: RequestOptions(path: '/salons'),
+            requestOptions: RequestOptions(path: '/api/v1/salons'),
             statusCode: 422,
           ),
         ),
@@ -175,11 +183,13 @@ void main() {
         buildingNo: '8',
       );
       when(
-        () =>
-            dio.post<Map<String, dynamic>>('/salons', data: any(named: 'data')),
+        () => dio.post<Map<String, dynamic>>(
+          '/api/v1/salons',
+          data: any(named: 'data'),
+        ),
       ).thenThrow(
         DioException(
-          requestOptions: RequestOptions(path: '/salons'),
+          requestOptions: RequestOptions(path: '/api/v1/salons'),
           type: DioExceptionType.connectionError,
         ),
       );
@@ -199,11 +209,13 @@ void main() {
       );
       const mapped = ValidationFailure(fieldErrors: {'name': 'taken'});
       when(
-        () =>
-            dio.post<Map<String, dynamic>>('/salons', data: any(named: 'data')),
+        () => dio.post<Map<String, dynamic>>(
+          '/api/v1/salons',
+          data: any(named: 'data'),
+        ),
       ).thenThrow(
         DioException(
-          requestOptions: RequestOptions(path: '/salons'),
+          requestOptions: RequestOptions(path: '/api/v1/salons'),
           type: DioExceptionType.badResponse,
           error: mapped,
         ),

@@ -5,26 +5,29 @@
 /// public (no JWT required). Adding an authenticated endpoint to this set
 /// causes [AuthInterceptor] to skip token injection → 401 → logout loop.
 ///
-/// Paths are matched against [RequestOptions.path], which contains only the
-/// path segment (no host), as set by [BaseOptions.baseUrl].
+/// Paths are matched against [RequestOptions.path], which contains the raw
+/// path string passed to Dio (e.g. `/api/v1/auth/login`). Since
+/// [AppConfig.baseUrl] no longer carries the `/api/v1` prefix (fixed in
+/// 2026-05-30 to prevent URL double-prefix), and all API clients use the full
+/// `/api/v1/...` path, every entry here must include the `/api/v1/` prefix.
 const Set<String> kAuthPaths = {
-  '/auth/login',
-  '/auth/logout',
-  '/auth/register',
-  '/auth/register/independent-master',
-  '/auth/refresh',
+  '/api/v1/auth/login',
+  '/api/v1/auth/logout',
+  '/api/v1/auth/register',
+  '/api/v1/auth/register/independent-master',
+  '/api/v1/auth/refresh',
   // Phase 2.11 — OTP verification / resend are unauthenticated endpoints
   // (the user has no session yet when they reach these).
-  '/auth/verify-email',
-  '/auth/resend-verification',
+  '/api/v1/auth/verify-email',
+  '/api/v1/auth/resend-verification',
   // Phase 2.13 — password-reset flow. Both endpoints are unauthenticated
   // (the user is not logged in when they reach the reset flow).
-  '/auth/forgot-password',
-  '/auth/reset-password',
+  '/api/v1/auth/forgot-password',
+  '/api/v1/auth/reset-password',
   // Phase 2.20 — invite flow. Both endpoints are unauthenticated (the invitee
   // has no session; they authenticate by presenting the invite token).
-  '/auth/invite/validate',
-  '/auth/invite/accept',
+  '/api/v1/auth/invite/validate',
+  '/api/v1/auth/invite/accept',
 };
 
 /// Paths whose request bodies must be redacted in debug logs — used by
@@ -44,9 +47,9 @@ const Set<String> kPiiPaths = {
   // Phase 4.2 — master/provider profile endpoints carry precise work address
   // (street, buildingNo, locationNote). Bodies must be redacted in logs even
   // though these endpoints require authentication.
-  '/independent-masters/me',
+  '/api/v1/independent-masters/me',
   // Phase 4.3 — profile edit endpoint carries phone number and other PII.
   // Must be a separate entry because the path differs from the locality endpoint.
-  '/independent-masters/me/profile',
-  '/masters/me',
+  '/api/v1/independent-masters/me/profile',
+  '/api/v1/masters/me',
 };

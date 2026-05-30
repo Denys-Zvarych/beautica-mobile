@@ -1951,18 +1951,20 @@ void main() {
         // sentinel=null, which is correct — the sentinel has not been set yet.
         // We skip these early snapshots by tracking whether the sentinel was
         // ever non-null.
-        final snapshots = <({AsyncValue<AuthSession> state, String? sentinel})>[];
+        final snapshots =
+            <({AsyncValue<AuthSession> state, String? sentinel})>[];
         bool sentinelWasEverSet = false;
 
-        final sub = container.listen<AsyncValue<AuthSession>>(
-          authProvider,
-          (_, next) {
-            final currentSentinel =
-                container.read(authProvider.notifier).coldStartAccessToken;
-            if (currentSentinel != null) sentinelWasEverSet = true;
-            snapshots.add((state: next, sentinel: currentSentinel));
-          },
-        );
+        final sub = container.listen<AsyncValue<AuthSession>>(authProvider, (
+          _,
+          next,
+        ) {
+          final currentSentinel = container
+              .read(authProvider.notifier)
+              .coldStartAccessToken;
+          if (currentSentinel != null) sentinelWasEverSet = true;
+          snapshots.add((state: next, sentinel: currentSentinel));
+        });
         addTearDown(sub.close);
 
         await container
@@ -1978,8 +1980,9 @@ void main() {
         // between set and clear). However, `state = AsyncData(Authenticated)`
         // IS emitted while the sentinel is non-null (that is the invariant of
         // the fix). Check via the Authenticated snapshot's sentinel value.
-        final authenticatedSnapshots =
-            snapshots.where((s) => s.state.value is Authenticated).toList();
+        final authenticatedSnapshots = snapshots
+            .where((s) => s.state.value is Authenticated)
+            .toList();
 
         // There must be exactly one Authenticated snapshot.
         expect(
@@ -2073,18 +2076,20 @@ void main() {
         final container = makeContainer(repo: repo, storage: storage);
         await container.read(authProvider.future);
 
-        final snapshots = <({AsyncValue<AuthSession> state, String? sentinel})>[];
+        final snapshots =
+            <({AsyncValue<AuthSession> state, String? sentinel})>[];
         bool sentinelWasEverSet = false;
 
-        final sub = container.listen<AsyncValue<AuthSession>>(
-          authProvider,
-          (_, next) {
-            final currentSentinel =
-                container.read(authProvider.notifier).coldStartAccessToken;
-            if (currentSentinel != null) sentinelWasEverSet = true;
-            snapshots.add((state: next, sentinel: currentSentinel));
-          },
-        );
+        final sub = container.listen<AsyncValue<AuthSession>>(authProvider, (
+          _,
+          next,
+        ) {
+          final currentSentinel = container
+              .read(authProvider.notifier)
+              .coldStartAccessToken;
+          if (currentSentinel != null) sentinelWasEverSet = true;
+          snapshots.add((state: next, sentinel: currentSentinel));
+        });
         addTearDown(sub.close);
 
         await container

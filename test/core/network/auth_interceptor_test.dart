@@ -172,7 +172,7 @@ void main() {
     // Test 3 — Auth path with Authenticated state → no Authorization header
     // -----------------------------------------------------------------------
     test(
-      'auth path (/auth/login) with authenticated state → no Authorization header',
+      'auth path (/api/v1/auth/login) with authenticated state → no Authorization header',
       () async {
         const authState = AsyncData<AuthSession>(
           AuthSession.authenticated(
@@ -187,8 +187,10 @@ void main() {
         final ref = container.read(_refCaptureProvider);
         final interceptor = AuthInterceptor(ref);
         final handler = MockRequestHandler();
-        // /auth/login is in kAuthPaths → interceptor must skip token injection.
-        final opts = _opts('/auth/login');
+        // /api/v1/auth/login is in kAuthPaths → interceptor must skip token
+        // injection. The full /api/v1/ prefix is required since AppConfig.baseUrl
+        // no longer carries the /api/v1 segment (see auth_paths.dart).
+        final opts = _opts('/api/v1/auth/login');
 
         interceptor.onRequest(opts, handler);
 

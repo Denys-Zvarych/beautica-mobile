@@ -7,10 +7,15 @@
 # override BEAUTICA_BASE_URL on the command line — see ARCHITECTURE-mobile.md
 # § 0.7 (network routing note).
 #
+# NOTE: The URL must NOT include an /api/v1 suffix. The generated API client
+# and all raw Dio calls already include the /api/v1/ prefix in their paths.
+# Appending /api/v1 to the base URL produces double-prefix URLs that Spring
+# Security blocks with 401 Unauthorized.
+#
 # Usage:
 #   ./scripts/run_local.sh [debug|profile|release]   (default: debug)
 #   ./scripts/run_local.sh                  # default local URL, debug mode
-#   BEAUTICA_BASE_URL=http://192.168.56.1:8080/api/v1 ./scripts/run_local.sh
+#   BEAUTICA_BASE_URL=http://192.168.56.1:8080 ./scripts/run_local.sh
 #   ./scripts/run_local.sh profile          # profile mode — removes JIT overhead
 #
 # Prerequisites:
@@ -28,7 +33,7 @@ case "$MODE" in
     exit 1
     ;;
 esac
-BASE_URL="${BEAUTICA_BASE_URL:-http://10.0.2.2:8080/api/v1}"
+BASE_URL="${BEAUTICA_BASE_URL:-http://10.0.2.2:8080}"
 
 cd "$(dirname "$0")/.."
 

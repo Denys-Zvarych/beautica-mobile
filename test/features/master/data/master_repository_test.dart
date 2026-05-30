@@ -21,8 +21,8 @@ class _MockDio extends Mock implements Dio {}
 
 class _MockMasterControllerApi extends Mock implements MasterControllerApi {}
 
-const _patchPath = '/independent-masters/me';
-const _profilePatchPath = '/independent-masters/me/profile';
+const _patchPath = '/api/v1/independent-masters/me';
+const _profilePatchPath = '/api/v1/independent-masters/me/profile';
 const _getMasterPath = '/masters/master-1';
 
 Response<Map<String, dynamic>> _okEnvelope() => Response<Map<String, dynamic>>(

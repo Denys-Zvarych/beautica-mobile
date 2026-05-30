@@ -14,7 +14,8 @@
 //   PATCH /api/v1/independent-masters/me — see Phase 2.19 comment.
 //   GET   /api/v1/masters/{masterId}     — returns ApiResponse<MasterDetailResponse>.
 //
-// The base URL already carries the `/api/v1` prefix (see AppConfig.baseUrl).
+// AppConfig.baseUrl does NOT carry the `/api/v1` prefix (see app_config.dart).
+// All paths here must include the full `/api/v1/` segment explicitly.
 
 import 'dart:developer';
 
@@ -106,7 +107,7 @@ final class HttpMasterRepository implements MasterRepository {
 
     try {
       await _dio.patch<Map<String, dynamic>>(
-        '/independent-masters/me',
+        '/api/v1/independent-masters/me',
         data: body,
       );
     } on DioException catch (e, st) {
@@ -178,7 +179,7 @@ final class HttpMasterRepository implements MasterRepository {
 
     try {
       await _dio.patch<Map<String, dynamic>>(
-        '/independent-masters/me/profile',
+        '/api/v1/independent-masters/me/profile',
         data: body,
       );
     } on DioException catch (e, st) {

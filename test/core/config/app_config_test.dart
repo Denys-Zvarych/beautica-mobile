@@ -36,14 +36,23 @@ void main() {
     // Test 2 — AppConfig.baseUrl defaults to the localhost fallback
     //
     // When BEAUTICA_BASE_URL dart-define is absent, falls back to
-    // `http://localhost:8080/api/v1` — the backend reachable from the Ubuntu
-    // VM where `flutter run` executes.  Dev workflows targeting the emulator
-    // override via `--dart-define=BEAUTICA_BASE_URL=http://<host-ip>:8080/api/v1`,
-    // and CI/release builds bake in the production HTTPS URL via build args.
+    // `http://localhost:8080` — the backend reachable from the Ubuntu
+    // VM where `flutter run` executes. The URL must NOT include an `/api/v1`
+    // suffix because the generated API client and all raw Dio calls already
+    // include the `/api/v1/` prefix in their paths. A double-prefix like
+    // `http://localhost:8080/api/v1/api/v1/users/me` causes Spring Security
+    // to return 401 for unrecognised paths.
+    //
+    // Dev workflows targeting the emulator override via:
+    //   `--dart-define=BEAUTICA_BASE_URL=http://<host-ip>:8080`
+    // CI/release builds bake in the production HTTPS URL via build args.
     // -----------------------------------------------------------------------
-    test('baseUrl defaults to the localhost fallback', () {
-      expect(AppConfig.baseUrl, equals('http://localhost:8080/api/v1'));
-    });
+    test(
+      'baseUrl defaults to the localhost fallback (without /api/v1 suffix)',
+      () {
+        expect(AppConfig.baseUrl, equals('http://localhost:8080'));
+      },
+    );
 
     // -----------------------------------------------------------------------
     // Test 3 — isPrivateOrLoopbackUrl whitelist
