@@ -213,6 +213,35 @@ void main() {
         );
       },
     );
+
+    testWidgets('phone field is pre-populated from master.phoneNumber', (
+      tester,
+    ) async {
+      final masterWithPhone = _stubMaster.copyWith(
+        phoneNumber: '+380501234567',
+      );
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo, master: masterWithPhone),
+      );
+      // Two pumps: one for the router, one for the Future.value microtask.
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('field-phone')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        '+380501234567',
+      );
+    });
   });
 
   // ── 2. Save disabled when pristine ──────────────────────────────────────

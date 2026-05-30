@@ -103,6 +103,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
   final PublicSalonResponse? salon;
   @override
   final BuiltList<WorkingHoursResponse>? workingHours;
+  @override
+  final String? phoneNumber;
 
   factory _$MasterDetailResponse(
           [void Function(MasterDetailResponseBuilder)? updates]) =>
@@ -122,7 +124,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
       this.reviewCount,
       this.masterType,
       this.salon,
-      this.workingHours})
+      this.workingHours,
+      this.phoneNumber})
       : super._();
   @override
   MasterDetailResponse rebuild(
@@ -150,7 +153,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
         reviewCount == other.reviewCount &&
         masterType == other.masterType &&
         salon == other.salon &&
-        workingHours == other.workingHours;
+        workingHours == other.workingHours &&
+        phoneNumber == other.phoneNumber;
   }
 
   @override
@@ -170,6 +174,7 @@ class _$MasterDetailResponse extends MasterDetailResponse {
     _$hash = $jc(_$hash, masterType.hashCode);
     _$hash = $jc(_$hash, salon.hashCode);
     _$hash = $jc(_$hash, workingHours.hashCode);
+    _$hash = $jc(_$hash, phoneNumber.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -190,7 +195,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
           ..add('reviewCount', reviewCount)
           ..add('masterType', masterType)
           ..add('salon', salon)
-          ..add('workingHours', workingHours))
+          ..add('workingHours', workingHours)
+          ..add('phoneNumber', phoneNumber))
         .toString();
   }
 }
@@ -259,6 +265,10 @@ class MasterDetailResponseBuilder
   set workingHours(ListBuilder<WorkingHoursResponse>? workingHours) =>
       _$this._workingHours = workingHours;
 
+  String? _phoneNumber;
+  String? get phoneNumber => _$this._phoneNumber;
+  set phoneNumber(String? phoneNumber) => _$this._phoneNumber = phoneNumber;
+
   MasterDetailResponseBuilder() {
     MasterDetailResponse._defaults(this);
   }
@@ -280,6 +290,7 @@ class MasterDetailResponseBuilder
       _masterType = $v.masterType;
       _salon = $v.salon?.toBuilder();
       _workingHours = $v.workingHours?.toBuilder();
+      _phoneNumber = $v.phoneNumber;
       _$v = null;
     }
     return this;
@@ -317,6 +328,7 @@ class MasterDetailResponseBuilder
             masterType: masterType,
             salon: _salon?.build(),
             workingHours: _workingHours?.build(),
+            phoneNumber: phoneNumber,
           );
     } catch (_) {
       late String _$failedField;

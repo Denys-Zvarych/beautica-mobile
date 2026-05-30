@@ -76,5 +76,8 @@ abstract class Master with _$Master {
 
     /// UUID of the affiliated salon; `null` for [MasterType.independentMaster].
     String? salonId,
+
+    /// Contact phone number as entered by the master.
+    String? phoneNumber,
   }) = _Master;
 }

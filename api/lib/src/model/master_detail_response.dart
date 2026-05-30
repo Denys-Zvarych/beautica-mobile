@@ -28,6 +28,7 @@ part 'master_detail_response.g.dart';
 /// * [masterType]
 /// * [salon]
 /// * [workingHours]
+/// * [phoneNumber]
 @BuiltValue()
 abstract class MasterDetailResponse
     implements Built<MasterDetailResponse, MasterDetailResponseBuilder> {
@@ -73,6 +74,13 @@ abstract class MasterDetailResponse
 
   @BuiltValueField(wireName: r'workingHours')
   BuiltList<WorkingHoursResponse>? get workingHours;
+
+  /// Owner-only PII — visible only to the authenticated master on `/masters/me`.
+  /// Do NOT render this on any screen that displays a foreign master's public
+  /// profile (e.g. a future browse/search screen). Suppress or show null regardless
+  /// of what the backend sends.
+  @BuiltValueField(wireName: r'phoneNumber')
+  String? get phoneNumber;
 
   MasterDetailResponse._();
 
@@ -202,6 +210,13 @@ class _$MasterDetailResponseSerializer
             const FullType(BuiltList, [FullType(WorkingHoursResponse)]),
       );
     }
+    if (object.phoneNumber != null) {
+      yield r'phoneNumber';
+      yield serializers.serialize(
+        object.phoneNumber,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -325,6 +340,13 @@ class _$MasterDetailResponseSerializer
                 const FullType(BuiltList, [FullType(WorkingHoursResponse)]),
           ) as BuiltList<WorkingHoursResponse>;
           result.workingHours.replace(valueDes);
+          break;
+        case r'phoneNumber':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.phoneNumber = valueDes;
           break;
         default:
           unhandled.add(key);

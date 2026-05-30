@@ -57,6 +57,7 @@ abstract final class MasterMapper {
           ? _masterTypeFromDto(dto.masterType!)
           : MasterType.salonMaster,
       salonId: dto.salon?.id,
+      phoneNumber: dto.phoneNumber,
     );
   }
 

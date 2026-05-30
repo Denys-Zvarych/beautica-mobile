@@ -592,10 +592,8 @@ class _ProfileBody extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // 6 — Contacts skeleton (phone + Instagram placeholder).
-        // Master domain model has no phone/instagram yet (Phase 13 concern).
-        // Section shows structural skeleton matching the approved design so the
-        // layout is complete and signals that contacts will appear here.
+        // 6 — Contacts section: phone from domain model; Instagram placeholder
+        // until that field is wired (future phase).
         _revealWith(
           anim5,
           slide5,
@@ -615,8 +613,11 @@ class _ProfileBody extends StatelessWidget {
               ContactTile(
                 key: const Key('master-contact-phone'),
                 icon: Icons.phone_outlined,
-                value: '—',
+                value: master.phoneNumber ?? '—',
                 semanticLabel: 'Телефон',
+                // When wiring tel: URL launching, validate phoneNumber against
+                // RegExp(r'^[+\d\s\-()]*$') before constructing the URI to
+                // prevent USSD injection (e.g. *21*+...# codes on Android tel: intent).
                 onTap: () {},
               ),
               const SizedBox(height: VelvetSpacing.sm),

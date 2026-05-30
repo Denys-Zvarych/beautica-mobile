@@ -378,6 +378,50 @@ void main() {
         throwsA(same(mapped)),
       );
     });
+
+    test('phoneNumber forwarded to Master when set in DTO', () async {
+      final dto =
+          (MasterDetailResponseBuilder()
+                ..masterId = 'master-1'
+                ..firstName = 'Оля'
+                ..lastName = 'Коваль'
+                ..avgRating = 4.5
+                ..reviewCount = 10
+                ..masterType =
+                    MasterDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
+                ..phoneNumber = '+380501234567')
+              .build();
+
+      when(
+        () => masterApi.getMasterMe(),
+      ).thenAnswer((_) async => apiResponse(dto));
+
+      final master = await repository.getMyProfile('master-1');
+
+      expect(
+        master.phoneNumber,
+        '+380501234567',
+        reason: 'phoneNumber from DTO must be forwarded to the Master entity',
+      );
+    });
+
+    test('phoneNumber is null on Master when DTO has no phoneNumber', () async {
+      // buildDto() does not set phoneNumber — it remains null in the DTO.
+      final dto = buildDto();
+
+      when(
+        () => masterApi.getMasterMe(),
+      ).thenAnswer((_) async => apiResponse(dto));
+
+      final master = await repository.getMyProfile('master-1');
+
+      expect(
+        master.phoneNumber,
+        isNull,
+        reason:
+            'phoneNumber must be null on Master when the DTO omits phoneNumber',
+      );
+    });
   });
 
   group('updateMyProfile', () {

@@ -530,10 +530,57 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Both tiles render '—' until Phase 13 wires real contact fields.
+      // Instagram tile renders '—' until Phase 13 wires real contact fields;
+      // phone tile now reads from master.phoneNumber.
       // findWidgets (plural) because both tiles display the same dash.
       final dashFinder = find.text('—');
       expect(dashFinder, findsWidgets);
+    });
+
+    testWidgets('phone ContactTile shows real value when phoneNumber is set', (
+      tester,
+    ) async {
+      final masterWithPhone = _stubMaster.copyWith(
+        phoneNumber: '+380501234567',
+      );
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: AsyncData<Master>(masterWithPhone),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('master-contact-phone')),
+          matching: find.text('+380501234567'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('phone ContactTile shows dash when phoneNumber is null', (
+      tester,
+    ) async {
+      // _stubMaster has no phoneNumber set (null) — dash expected.
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('master-contact-phone')),
+          matching: find.text('—'),
+        ),
+        findsOneWidget,
+      );
     });
   });
 

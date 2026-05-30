@@ -192,7 +192,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
     _origFirstName = master.firstName;
     _origLastName = master.lastName;
     _origBio = master.bio ?? '';
-    _origPhone = '';
+    _origPhone = master.phoneNumber ?? '';
     _origInstagram = '';
 
     _firstName = TextEditingController(text: _origFirstName);
