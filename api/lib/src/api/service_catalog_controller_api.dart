@@ -42,20 +42,14 @@ class ServiceCatalogControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/service-categories';
+    final _path = r'/api/v1/service-categories';
     final _options = Options(
       method: r'GET',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -127,20 +121,14 @@ class ServiceCatalogControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/service-types';
+    final _path = r'/api/v1/service-types';
     final _options = Options(
       method: r'GET',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -218,20 +206,14 @@ class ServiceCatalogControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/service-types/suggest';
+    final _path = r'/api/v1/service-types/suggest';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',

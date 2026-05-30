@@ -46,20 +46,14 @@ class ServiceControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/independent-masters/me/services';
+    final _path = r'/api/v1/independent-masters/me/services';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -150,7 +144,7 @@ class ServiceControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/salons/{salonId}/services'.replaceAll(
+    final _path = r'/api/v1/salons/{salonId}/services'.replaceAll(
         '{' r'salonId' '}',
         encodeQueryParameter(_serializers, salonId, const FullType(String))
             .toString());
@@ -160,13 +154,7 @@ class ServiceControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -260,7 +248,7 @@ class ServiceControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/salons/{salonId}/masters/{masterId}/services'
+    final _path = r'/api/v1/salons/{salonId}/masters/{masterId}/services'
         .replaceAll(
             '{' r'salonId' '}',
             encodeQueryParameter(_serializers, salonId, const FullType(String))
@@ -275,13 +263,7 @@ class ServiceControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -370,7 +352,7 @@ class ServiceControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/services/{serviceDefId}'.replaceAll(
+    final _path = r'/api/v1/services/{serviceDefId}'.replaceAll(
         '{' r'serviceDefId' '}',
         encodeQueryParameter(_serializers, serviceDefId, const FullType(String))
             .toString());
@@ -380,13 +362,7 @@ class ServiceControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -426,7 +402,7 @@ class ServiceControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/masters/{masterId}/services'.replaceAll(
+    final _path = r'/api/v1/masters/{masterId}/services'.replaceAll(
         '{' r'masterId' '}',
         encodeQueryParameter(_serializers, masterId, const FullType(String))
             .toString());
@@ -436,13 +412,7 @@ class ServiceControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,

@@ -5,13 +5,13 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**createReview**](ReviewControllerApi.md#createreview) | **POST** /reviews | 
-[**getReview**](ReviewControllerApi.md#getreview) | **GET** /reviews/{reviewId} | 
-[**getReviewsByMaster**](ReviewControllerApi.md#getreviewsbymaster) | **GET** /masters/{masterId}/reviews | 
+[**createReview**](ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
+[**getReview**](ReviewControllerApi.md#getreview) | **GET** /api/v1/reviews/{reviewId} | 
+[**getReviewsByMaster**](ReviewControllerApi.md#getreviewsbymaster) | **GET** /api/v1/masters/{masterId}/reviews | 
 
 
 # **createReview**
@@ -46,7 +46,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -87,7 +87,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -130,7 +130,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 

@@ -61,6 +61,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:beautica_mobile/features/master/data/master_repository.dart';
+
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 
@@ -77,6 +79,13 @@ class _MockUserRepository extends Mock implements UserRepository {}
 // ---------------------------------------------------------------------------
 
 class _MockSalonRepository extends Mock implements SalonRepository {}
+
+// ---------------------------------------------------------------------------
+// Mock MasterRepository for the INDEPENDENT_MASTER missing-city regression
+// guard (Test 18 — Fix 3 / ProviderMissingCityFailure).
+// ---------------------------------------------------------------------------
+
+class _MockMasterRepository extends Mock implements MasterRepository {}
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -1263,6 +1272,95 @@ void main() {
       },
     );
     // -----------------------------------------------------------------------
+    // Test 8b — NetworkFailure thrown by verifyEmail resets spinner.
+    //           Regression guard for the bug where the catch block inside
+    //           AuthNotifier.verifyEmail() did NOT set state = AsyncError,
+    //           causing the spinner to stay forever after any exception.
+    //
+    //           After the fix (state = AsyncError(e, st) before rethrow):
+    //             - authProvider.isLoading becomes false → button.loading = false.
+    //             - The VerificationScreen catch block sets _inlineError →
+    //               AuthBanner appears.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '8b. NetworkFailure from verifyEmail: spinner stops and AuthBanner appears '
+      '(state = AsyncError fix regression guard)',
+      (tester) async {
+        final repo = FakeAuthRepository()
+          ..verifyEmailResult = const NetworkFailure();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        // Fill all 6 digits so the submit button is active.
+        await _fillOtp(tester, '123456');
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+
+        // Confirm the button is enabled before tapping.
+        final btnBefore = tester.widget<NeumorphicButton>(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        expect(
+          btnBefore.onPressed,
+          isNotNull,
+          reason: 'Button must be enabled before submit (sanity check)',
+        );
+
+        // Tap submit — triggers AuthNotifier.verifyEmail() which throws
+        // NetworkFailure → state = AsyncError(e, st) → rethrow.
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        // Three pumps mirror the existing pattern for async resolution:
+        //   pump 1: starts async (state = AsyncLoading emitted)
+        //   pump 2: completes microtasks (catch fires, state = AsyncError)
+        //   pump 3 (+50ms): animations / setState in VerificationScreen
+        await tester.pump(); // begin async
+        await tester.pump(); // microtasks (catch → state = AsyncError, rethrow)
+        await tester.pump(const Duration(milliseconds: 50)); // animations
+
+        // After the fix: authProvider is in AsyncError → isLoading = false
+        // → NeumorphicButton.loading must be false (spinner stopped).
+        final btnAfter = tester.widget<NeumorphicButton>(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        expect(
+          btnAfter.loading,
+          isFalse,
+          reason:
+              'NeumorphicButton.loading must be false after NetworkFailure — '
+              'authProvider must be in AsyncError, not AsyncLoading. '
+              'Without the fix (state = AsyncError before rethrow), this '
+              'stays true and the spinner never stops.',
+        );
+
+        // The VerificationScreen catch re-enables the button (onPressed non-null)
+        // because the OTP is still filled.
+        expect(
+          btnAfter.onPressed,
+          isNotNull,
+          reason:
+              'Button must be re-enabled after a failed verify so the user '
+              'can retry (onPressed must be non-null with 6 digits still filled)',
+        );
+
+        // An AuthBanner must appear — the VerificationScreen catch sets
+        // _inlineError which renders the banner.
+        expect(
+          find.byType(AuthBanner),
+          findsOneWidget,
+          reason:
+              'An AuthBanner must appear after a failed verify so the user '
+              'sees the error message.',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // Test 11 — Countdown text is rendered mid-cooldown.
     //           After a successful resend, the resend row displays the
     //           verificationResendTimer(N) l10n string while the cooldown
@@ -1826,6 +1924,264 @@ void main() {
               'SalonCreateDto.toJson() must omit the phone key when phone is '
               'empty — sending an empty string to the backend triggers '
               '@Pattern validation failure (HIGH gap fix).',
+        );
+      },
+    );
+    // -----------------------------------------------------------------------
+    // Test 18 — INDEPENDENT_MASTER with null cityId: verify submit shows
+    //           ProviderMissingCityFailure inline error (Fix 3 regression guard).
+    //
+    // When a INDEPENDENT_MASTER draft loses cityId (e.g. navigation edge case
+    // clears Step 3 after Step 3 was already completed), _saveProviderProfile
+    // must throw ProviderMissingCityFailure instead of silently calling PATCH
+    // /independent-masters/me without a city, which would produce a verified
+    // account with no location in the database.
+    //
+    // This test also implicitly guards that resetCooldown() is called after a
+    // post-OTP profile save failure (_emailVerified = true path in _submit).
+    // See Test 19 for the explicit resetCooldown isolation.
+    // -----------------------------------------------------------------------
+    testWidgets('18. INDEPENDENT_MASTER with null cityId: verify success then '
+        '_saveProviderProfile throws ProviderMissingCityFailure and shows error banner', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final masterRepo = _MockMasterRepository();
+      // updateLocality must NOT be called — the guard throws before reaching it.
+
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      final storage = FakeSecureStorage();
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          masterRepositoryProvider.overrideWith((_) => masterRepo),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Seed an INDEPENDENT_MASTER draft WITHOUT a Step 3 cityId.
+      // The draft has Step 1 + Step 2 only — Step 3 was never completed,
+      // so cityId is null and isCityMissing is true.
+      final notifier = container.read(registerDraftProvider.notifier)
+        ..start(UserRole.independentMaster);
+      notifier.updateStep1(
+        email: _testEmail,
+        password: 'Password1!',
+        confirmPassword: 'Password1!',
+      );
+      notifier.updateStep2(
+        firstName: 'Іванна',
+        lastName: 'Ковальчук',
+        phone: '+380501112233',
+      );
+      // No updateStep3 — cityId stays null.
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // No error banner before submit.
+      expect(find.byType(AuthBanner), findsNothing);
+
+      await _fillOtp(tester, '654321');
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('verify_submit')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+      // Cannot pumpAndSettle: the resend timer may fire setState every second
+      // after resetCooldown() is invoked by the Fix 2B path in _submit.
+      await tester.pump(); // begin async
+      await tester.pump(); // microtasks (verifyEmail success)
+      await tester.pump(); // microtasks (_saveProviderProfile throw)
+      await tester.pump(const Duration(milliseconds: 50)); // animations
+
+      // Must remain on the verification screen — NOT navigate to /done.
+      expect(
+        find.text('home'),
+        findsNothing,
+        reason:
+            'INDEPENDENT_MASTER with null cityId must NOT navigate to /done '
+            '— _saveProviderProfile threw ProviderMissingCityFailure.',
+      );
+
+      // An error banner must appear.
+      expect(
+        find.byType(AuthBanner),
+        findsOneWidget,
+        reason:
+            'An AuthBanner must appear after ProviderMissingCityFailure '
+            '(Fix 3 — provider roles must not silently create accounts without city).',
+      );
+
+      // The banner message must be the verificationErrProviderMissingCity copy.
+      final l10n = AppLocalizations.of(tester.element(find.byType(AuthBanner)));
+      expect(
+        tester
+            .widgetList<Text>(find.byType(Text))
+            .any((t) => t.data == l10n.verificationErrProviderMissingCity),
+        isTrue,
+        reason:
+            'Expected verificationErrProviderMissingCity banner copy after '
+            'ProviderMissingCityFailure. '
+            'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
+      );
+
+      // MasterRepository.updateLocality must NOT have been called — the guard
+      // threw before reaching the PATCH call.
+      verifyNever(
+        () => masterRepo.updateLocality(
+          cityId: any(named: 'cityId'),
+          districtId: any(named: 'districtId'),
+          street: any(named: 'street'),
+          buildingNo: any(named: 'buildingNo'),
+          locationNote: any(named: 'locationNote'),
+        ),
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 19 — resetCooldown() re-enables the resend link immediately.
+    //
+    // Fix 2B: when _saveProviderProfile fails after the OTP has been accepted
+    // (_emailVerified becomes true before the throw), the parent calls
+    // _resendRowKey.currentState?.resetCooldown(). This must cancel the
+    // running 30-second countdown and set _cooldown to 0 so the user can
+    // request a new OTP right away — they cannot retry with the same code
+    // because it was consumed by the successful verifyEmail call.
+    //
+    // Setup: use a FakeAuthRepository that accepts the OTP (verifyEmail
+    // returns success) plus a _MockMasterRepository whose updateLocality
+    // throws a NetworkFailure. The submit path therefore:
+    //   1. verifyEmail succeeds → _emailVerified = true
+    //   2. _saveProviderProfile → updateLocality throws NetworkFailure
+    //   3. catch: _emailVerified is true → resetCooldown() called
+    //   4. resend GestureDetector.onTap must be non-null immediately
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '19. resetCooldown() after post-OTP profile save failure: resend link '
+      're-enabled immediately (Fix 2B regression guard)',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final masterRepo = _MockMasterRepository();
+        // updateLocality throws a NetworkFailure to simulate a transient save
+        // failure after a successful OTP verification.
+        when(
+          () => masterRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenThrow(const NetworkFailure());
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            masterRepositoryProvider.overrideWith((_) => masterRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Seed an INDEPENDENT_MASTER draft WITH a full Step 3 locality so the
+        // guard does NOT throw — the failure must come from updateLocality.
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.independentMaster);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Іванна',
+          lastName: 'Ковальчук',
+          phone: '+380501112233',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Центральна',
+          buildingNo: '5Б',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '123456');
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        // Do NOT pumpAndSettle — the resend timer may be active at this point.
+        await tester.pump(); // begin async
+        await tester.pump(); // verifyEmail microtasks
+        await tester.pump(); // _saveProviderProfile / updateLocality throw
+        await tester.pump(
+          const Duration(milliseconds: 50),
+        ); // animations + setState
+
+        // Must remain on the verification screen — the save failed.
+        expect(
+          find.text('home'),
+          findsNothing,
+          reason:
+              'The screen must NOT navigate to /done when _saveProviderProfile '
+              'throws — the user stays to retry.',
+        );
+
+        // An error banner must appear (NetworkFailure message).
+        expect(
+          find.byType(AuthBanner),
+          findsOneWidget,
+          reason:
+              'An AuthBanner must appear after a post-OTP profile save failure.',
+        );
+
+        // The resend GestureDetector must be enabled immediately
+        // (_cooldown == 0 after resetCooldown() was called via Fix 2B).
+        // The initial 30 s mount cooldown was running, but resetCooldown()
+        // cancels it so the user can request a fresh OTP right away.
+        final gesture = tester.widget<GestureDetector>(
+          find.byKey(const ValueKey<String>('verify_resend')),
+        );
+        expect(
+          gesture.onTap,
+          isNotNull,
+          reason:
+              'verify_resend GestureDetector.onTap must be non-null after '
+              'resetCooldown() is called by Fix 2B — the OTP was consumed by '
+              'the successful verifyEmail call, so the user must be able to '
+              'request a new code immediately without waiting 30 seconds.',
         );
       },
     );

@@ -250,6 +250,26 @@ final class EmailAlreadyRegisteredFailure extends Failure {
       AppLocalizations.of(ctx).errEmailAlreadyRegistered;
 }
 
+/// Emitted when a provider role ([UserRole.independentMaster] or
+/// [UserRole.salonOwner]) reaches the post-OTP profile save step without a
+/// `cityId` in the registration draft.
+///
+/// This means the Step 3 address wizard data was lost (e.g. the draft was
+/// cleared by a navigation edge case) after the user already filled it. The
+/// account has been verified, but the PATCH /independent-masters/me (or
+/// POST /salons) cannot run without a city. Surface this failure to the user
+/// so they can go back and re-enter their address rather than silently
+/// producing a verified account with no location in the DB.
+///
+/// Not thrown for [UserRole.client] — clients are allowed to skip Step 3.
+final class ProviderMissingCityFailure extends Failure {
+  const ProviderMissingCityFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).verificationErrProviderMissingCity;
+}
+
 /// Emitted when `POST /auth/reset-password` returns the backend's generic
 /// 400 for an invalid, used, or expired reset token (backend Phase 11.3).
 ///

@@ -19,6 +19,8 @@ Name | Type | Description | Notes
 **street** | **String** |  | [optional] 
 **buildingNo** | **String** |  | [optional] 
 **locationNote** | **String** |  | [optional] 
+**bio** | **String** |  | [optional] 
+**instagram** | **String** |  | [optional] 
 **isActive** | **bool** |  | [optional] 
 **emailVerified** | **bool** |  | [optional] 
 **salonId** | **String** |  | [optional] 

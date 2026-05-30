@@ -34,6 +34,39 @@ void main() {
       expect(kAuthPaths, contains('/auth/invite/accept'));
     });
 
+    test(
+      'Phase 4.2 master profile endpoints are in kPiiPaths (body redaction), NOT kAuthPaths (token skip)',
+      () {
+        expect(
+          kPiiPaths,
+          contains('/independent-masters/me'),
+          reason:
+              'street/buildingNo/locationNote are PII; LoggingInterceptor must '
+              'redact the request body when this path is called.',
+        );
+        expect(
+          kPiiPaths,
+          contains('/masters/me'),
+          reason:
+              'street/buildingNo/locationNote are PII; LoggingInterceptor must '
+              'redact the request body when this path is called.',
+        );
+        expect(
+          kAuthPaths,
+          isNot(contains('/independent-masters/me')),
+          reason:
+              'Authenticated endpoints must not be in kAuthPaths — AuthInterceptor '
+              'skips Bearer token injection for paths in this set, which would '
+              'cause a 401 on PATCH /independent-masters/me.',
+        );
+        expect(
+          kAuthPaths,
+          isNot(contains('/masters/me')),
+          reason: 'Same as above — /masters/me is an authenticated endpoint.',
+        );
+      },
+    );
+
     test('is a Set (no duplicate entries)', () {
       expect(kAuthPaths.length, equals(kAuthPaths.toSet().length));
     });

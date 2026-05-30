@@ -39,7 +39,9 @@ import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/validators/email_validator.dart';
 import '../../../shared/validators/password_validator.dart';
+import '../domain/user_role.dart';
 import 'auth_notifier.dart';
+import 'auth_selectors.dart';
 import 'widgets/auth_scaffold.dart';
 
 // ---------------------------------------------------------------------------
@@ -139,7 +141,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         }
         // Signal the OS password manager to save the credential.
         TextInput.finishAutofillContext();
-        context.go(RouteNames.home);
+        final role = ref.read(currentUserProvider)?.role;
+        final destination = switch (role) {
+          UserRole.independentMaster => RouteNames.masterProfile,
+          _ => RouteNames.home,
+        };
+        context.go(destination);
       },
       loading: () {
         // Still loading — shouldn't happen right after await; guard only.

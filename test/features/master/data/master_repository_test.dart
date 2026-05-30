@@ -1,48 +1,65 @@
 // Phase 2.19 — Unit tests for [HttpMasterRepository.updateLocality].
+// Phase 4.1 — Added unit tests for [HttpMasterRepository.getMyProfile].
 //
-// Mirrors test/features/salon/data/salon_repository_test.dart.
-//
-// Strategy: mock the [Dio] instance with mocktail and drive `updateLocality`.
-// Verifies:
-//   1. PATCH /independent-masters/me with the full body when all fields present.
-//   2. Body-omission: null/empty/whitespace districtId + locationNote are
-//      dropped (not sent as null) — backlog pattern 5.
-//   3. Trimmed-value mapping: street / buildingNo / locationNote are trimmed.
-//   4. A bad-response DioException surfaces as ServerFailure (with status).
-//   5. A connectionError DioException surfaces as NetworkFailure.
-//   6. A pre-mapped Failure attached as e.error is re-thrown unchanged.
+// Strategy:
+//   updateLocality — mock [Dio] with mocktail; verify PATCH call shape + errors.
+//   getMyProfile   — mock [MasterControllerApi] with mocktail; verify domain
+//                    mapping and error propagation.
 //
 // Pure Dart: no ProviderScope, no widget tree.
 
+import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockDio extends Mock implements Dio {}
 
-const _path = '/independent-masters/me';
+class _MockMasterControllerApi extends Mock implements MasterControllerApi {}
+
+const _patchPath = '/independent-masters/me';
+const _profilePatchPath = '/independent-masters/me/profile';
+const _getMasterPath = '/masters/master-1';
 
 Response<Map<String, dynamic>> _okEnvelope() => Response<Map<String, dynamic>>(
-  requestOptions: RequestOptions(path: _path),
+  requestOptions: RequestOptions(path: _patchPath),
   statusCode: 200,
   data: const {'success': true, 'data': <String, dynamic>{}, 'message': 'ok'},
 );
 
+Response<Map<String, dynamic>> _okProfileEnvelope() =>
+    Response<Map<String, dynamic>>(
+      requestOptions: RequestOptions(path: _profilePatchPath),
+      statusCode: 200,
+      data: const {
+        'success': true,
+        'data': <String, dynamic>{},
+        'message': 'ok',
+      },
+    );
+
 void main() {
   late _MockDio dio;
+  late _MockMasterControllerApi masterApi;
   late HttpMasterRepository repository;
 
   setUp(() {
     dio = _MockDio();
-    repository = HttpMasterRepository(dio);
+    masterApi = _MockMasterControllerApi();
+    repository = HttpMasterRepository(dio, masterApi);
   });
 
   group('updateLocality — request body', () {
     test('PATCHes /independent-masters/me with the full body', () async {
       when(
-        () => dio.patch<Map<String, dynamic>>(_path, data: any(named: 'data')),
+        () => dio.patch<Map<String, dynamic>>(
+          _patchPath,
+          data: any(named: 'data'),
+        ),
       ).thenAnswer((_) async => _okEnvelope());
 
       await repository.updateLocality(
@@ -55,7 +72,7 @@ void main() {
 
       verify(
         () => dio.patch<Map<String, dynamic>>(
-          _path,
+          _patchPath,
           data: {
             'cityId': 'city-1',
             'street': 'вул. Хрещатик',
@@ -69,7 +86,10 @@ void main() {
 
     test('omits null districtId and null locationNote', () async {
       when(
-        () => dio.patch<Map<String, dynamic>>(_path, data: any(named: 'data')),
+        () => dio.patch<Map<String, dynamic>>(
+          _patchPath,
+          data: any(named: 'data'),
+        ),
       ).thenAnswer((_) async => _okEnvelope());
 
       await repository.updateLocality(
@@ -83,7 +103,7 @@ void main() {
       final captured =
           verify(
                 () => dio.patch<Map<String, dynamic>>(
-                  _path,
+                  _patchPath,
                   data: captureAny(named: 'data'),
                 ),
               ).captured.single
@@ -98,7 +118,10 @@ void main() {
 
     test('omits empty / whitespace-only districtId and note', () async {
       when(
-        () => dio.patch<Map<String, dynamic>>(_path, data: any(named: 'data')),
+        () => dio.patch<Map<String, dynamic>>(
+          _patchPath,
+          data: any(named: 'data'),
+        ),
       ).thenAnswer((_) async => _okEnvelope());
 
       await repository.updateLocality(
@@ -112,7 +135,7 @@ void main() {
       final captured =
           verify(
                 () => dio.patch<Map<String, dynamic>>(
-                  _path,
+                  _patchPath,
                   data: captureAny(named: 'data'),
                 ),
               ).captured.single
@@ -124,7 +147,10 @@ void main() {
 
     test('trims street, buildingNo, and locationNote values', () async {
       when(
-        () => dio.patch<Map<String, dynamic>>(_path, data: any(named: 'data')),
+        () => dio.patch<Map<String, dynamic>>(
+          _patchPath,
+          data: any(named: 'data'),
+        ),
       ).thenAnswer((_) async => _okEnvelope());
 
       await repository.updateLocality(
@@ -138,7 +164,7 @@ void main() {
       final captured =
           verify(
                 () => dio.patch<Map<String, dynamic>>(
-                  _path,
+                  _patchPath,
                   data: captureAny(named: 'data'),
                 ),
               ).captured.single
@@ -153,13 +179,16 @@ void main() {
   group('updateLocality — error mapping', () {
     test('bad-response DioException → ServerFailure with status', () async {
       when(
-        () => dio.patch<Map<String, dynamic>>(_path, data: any(named: 'data')),
+        () => dio.patch<Map<String, dynamic>>(
+          _patchPath,
+          data: any(named: 'data'),
+        ),
       ).thenThrow(
         DioException(
-          requestOptions: RequestOptions(path: _path),
+          requestOptions: RequestOptions(path: _patchPath),
           type: DioExceptionType.badResponse,
           response: Response<dynamic>(
-            requestOptions: RequestOptions(path: _path),
+            requestOptions: RequestOptions(path: _patchPath),
             statusCode: 422,
           ),
         ),
@@ -179,10 +208,13 @@ void main() {
 
     test('connectionError DioException → NetworkFailure', () async {
       when(
-        () => dio.patch<Map<String, dynamic>>(_path, data: any(named: 'data')),
+        () => dio.patch<Map<String, dynamic>>(
+          _patchPath,
+          data: any(named: 'data'),
+        ),
       ).thenThrow(
         DioException(
-          requestOptions: RequestOptions(path: _path),
+          requestOptions: RequestOptions(path: _patchPath),
           type: DioExceptionType.connectionError,
         ),
       );
@@ -200,10 +232,13 @@ void main() {
     test('pre-mapped Failure on e.error is re-thrown unchanged', () async {
       const mapped = ValidationFailure(fieldErrors: {'cityId': 'invalid'});
       when(
-        () => dio.patch<Map<String, dynamic>>(_path, data: any(named: 'data')),
+        () => dio.patch<Map<String, dynamic>>(
+          _patchPath,
+          data: any(named: 'data'),
+        ),
       ).thenThrow(
         DioException(
-          requestOptions: RequestOptions(path: _path),
+          requestOptions: RequestOptions(path: _patchPath),
           type: DioExceptionType.badResponse,
           error: mapped,
         ),
@@ -216,6 +251,441 @@ void main() {
           buildingNo: '8',
         ),
         throwsA(same(mapped)),
+      );
+    });
+  });
+
+  group('getMyProfile', () {
+    /// Builds a minimal [MasterDetailResponse] DTO for happy-path assertions.
+    MasterDetailResponse buildDto({
+      String masterId = 'master-1',
+      String firstName = 'Оля',
+      String lastName = 'Коваль',
+      double avgRating = 4.5,
+      int reviewCount = 10,
+      MasterDetailResponseMasterTypeEnum masterType =
+          MasterDetailResponseMasterTypeEnum.INDEPENDENT_MASTER,
+    }) =>
+        (MasterDetailResponseBuilder()
+              ..masterId = masterId
+              ..firstName = firstName
+              ..lastName = lastName
+              ..avgRating = avgRating
+              ..reviewCount = reviewCount
+              ..masterType = masterType)
+            .build();
+
+    Response<ApiResponseMasterDetailResponse> apiResponse(
+      MasterDetailResponse dto,
+    ) {
+      final envelope = ApiResponseMasterDetailResponse(
+        (b) => b
+          ..data.replace(dto)
+          ..success = true,
+      );
+      return Response<ApiResponseMasterDetailResponse>(
+        data: envelope,
+        requestOptions: RequestOptions(path: _getMasterPath),
+        statusCode: 200,
+      );
+    }
+
+    test('success: maps MasterDetailResponse to Master', () async {
+      final dto = buildDto();
+      when(
+        () => masterApi.getMyProfile(),
+      ).thenAnswer((_) async => apiResponse(dto));
+
+      final master = await repository.getMyProfile('master-1');
+
+      expect(master.id, 'master-1');
+      expect(master.firstName, 'Оля');
+      expect(master.lastName, 'Коваль');
+      expect(master.avgRating, 4.5);
+      expect(master.reviewCount, 10);
+      expect(master.type, MasterType.independentMaster);
+      expect(master.salonId, isNull);
+    });
+
+    test('success: salonOwner type is mapped correctly', () async {
+      final dto = buildDto(
+        masterId: 'master-2',
+        masterType: MasterDetailResponseMasterTypeEnum.SALON_OWNER,
+      );
+      when(() => masterApi.getMyProfile()).thenAnswer(
+        (_) async => Response<ApiResponseMasterDetailResponse>(
+          data: ApiResponseMasterDetailResponse(
+            (b) => b
+              ..data.replace(dto)
+              ..success = true,
+          ),
+          requestOptions: RequestOptions(path: '/masters/me'),
+          statusCode: 200,
+        ),
+      );
+
+      final master = await repository.getMyProfile('master-2');
+
+      expect(master.type, MasterType.salonOwner);
+    });
+
+    test('DioException connectionError → NetworkFailure', () async {
+      when(() => masterApi.getMyProfile()).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: _getMasterPath),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+
+      await expectLater(
+        repository.getMyProfile('master-1'),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test('DioException badResponse 404 → ServerFailure(404)', () async {
+      when(() => masterApi.getMyProfile()).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: _getMasterPath),
+          type: DioExceptionType.badResponse,
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(path: _getMasterPath),
+            statusCode: 404,
+          ),
+        ),
+      );
+
+      await expectLater(
+        repository.getMyProfile('master-1'),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 404),
+        ),
+      );
+    });
+
+    test('pre-mapped Failure on e.error is re-thrown unchanged', () async {
+      const mapped = UnauthorizedFailure();
+      when(() => masterApi.getMyProfile()).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: _getMasterPath),
+          type: DioExceptionType.badResponse,
+          error: mapped,
+        ),
+      );
+
+      await expectLater(
+        repository.getMyProfile('master-1'),
+        throwsA(same(mapped)),
+      );
+    });
+
+    test('phoneNumber forwarded to Master when set in DTO', () async {
+      final dto =
+          (MasterDetailResponseBuilder()
+                ..masterId = 'master-1'
+                ..firstName = 'Оля'
+                ..lastName = 'Коваль'
+                ..avgRating = 4.5
+                ..reviewCount = 10
+                ..masterType =
+                    MasterDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
+                ..phoneNumber = '+380501234567')
+              .build();
+
+      when(
+        () => masterApi.getMyProfile(),
+      ).thenAnswer((_) async => apiResponse(dto));
+
+      final master = await repository.getMyProfile('master-1');
+
+      expect(
+        master.phoneNumber,
+        '+380501234567',
+        reason: 'phoneNumber from DTO must be forwarded to the Master entity',
+      );
+    });
+
+    test('phoneNumber is null on Master when DTO has no phoneNumber', () async {
+      // buildDto() does not set phoneNumber — it remains null in the DTO.
+      final dto = buildDto();
+
+      when(
+        () => masterApi.getMyProfile(),
+      ).thenAnswer((_) async => apiResponse(dto));
+
+      final master = await repository.getMyProfile('master-1');
+
+      expect(
+        master.phoneNumber,
+        isNull,
+        reason:
+            'phoneNumber must be null on Master when the DTO omits phoneNumber',
+      );
+    });
+
+    test('instagram forwarded to Master when set in DTO', () async {
+      final dto =
+          (MasterDetailResponseBuilder()
+                ..masterId = 'master-1'
+                ..firstName = 'Оля'
+                ..lastName = 'Коваль'
+                ..avgRating = 4.5
+                ..reviewCount = 10
+                ..masterType =
+                    MasterDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
+                ..instagram = '@test_handle')
+              .build();
+
+      when(
+        () => masterApi.getMyProfile(),
+      ).thenAnswer((_) async => apiResponse(dto));
+
+      final master = await repository.getMyProfile('master-1');
+
+      expect(
+        master.instagram,
+        '@test_handle',
+        reason: 'instagram from DTO must be forwarded to the Master entity',
+      );
+    });
+
+    test('instagram is null on Master when DTO has no instagram', () async {
+      // buildDto() does not set instagram — it remains null in the DTO.
+      final dto = buildDto();
+
+      when(
+        () => masterApi.getMyProfile(),
+      ).thenAnswer((_) async => apiResponse(dto));
+
+      final master = await repository.getMyProfile('master-1');
+
+      expect(
+        master.instagram,
+        isNull,
+        reason: 'instagram must be null on Master when the DTO omits instagram',
+      );
+    });
+  });
+
+  group('updateMyProfile', () {
+    // ── A — correct endpoint ────────────────────────────────────────────────
+
+    test('PATCHes /independent-masters/me/profile (not /me)', () async {
+      when(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async => _okProfileEnvelope());
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '',
+          instagram: '',
+        ),
+      );
+
+      verify(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).called(1);
+
+      verifyNever(
+        () => dio.patch<Map<String, dynamic>>(
+          _patchPath,
+          data: any(named: 'data'),
+        ),
+      );
+    });
+
+    // ── B — phoneNumber field name (not contactPhone) ───────────────────────
+
+    test('sends phoneNumber (not contactPhone) in request body', () async {
+      when(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async => _okProfileEnvelope());
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '+380501234567',
+          instagram: '',
+        ),
+      );
+
+      final captured =
+          verify(
+                () => dio.patch<Map<String, dynamic>>(
+                  _profilePatchPath,
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+
+      expect(
+        captured.containsKey('phoneNumber'),
+        isTrue,
+        reason: 'request body must use the backend field name "phoneNumber"',
+      );
+      expect(
+        captured.containsKey('contactPhone'),
+        isFalse,
+        reason:
+            'contactPhone is the Dart param name — must not leak into the body',
+      );
+      expect(
+        captured['phoneNumber'],
+        '+380501234567',
+        reason: 'phoneNumber value must match the supplied contactPhone',
+      );
+    });
+
+    // ── C — blank contactPhone is omitted ───────────────────────────────────
+
+    test('omits phoneNumber when contactPhone is blank', () async {
+      when(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async => _okProfileEnvelope());
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '   ',
+          instagram: '',
+        ),
+      );
+
+      final captured =
+          verify(
+                () => dio.patch<Map<String, dynamic>>(
+                  _profilePatchPath,
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+
+      expect(
+        captured.containsKey('phoneNumber'),
+        isFalse,
+        reason:
+            'whitespace-only contactPhone must be omitted from the request body',
+      );
+    });
+
+    // ── E — instagram value included in body when set ──────────────────────
+
+    test('instagram value included in body when set', () async {
+      when(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async => _okProfileEnvelope());
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '',
+          instagram: '@beauty_ua',
+        ),
+      );
+
+      final captured =
+          verify(
+                () => dio.patch<Map<String, dynamic>>(
+                  _profilePatchPath,
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+
+      expect(
+        captured['instagram'],
+        '@beauty_ua',
+        reason: 'instagram value must be forwarded to the request body',
+      );
+    });
+
+    // ── F — blank instagram is omitted ──────────────────────────────────────
+
+    test('instagram omitted from body when blank', () async {
+      when(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async => _okProfileEnvelope());
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '',
+          instagram: '   ',
+        ),
+      );
+
+      final captured =
+          verify(
+                () => dio.patch<Map<String, dynamic>>(
+                  _profilePatchPath,
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+
+      expect(
+        captured.containsKey('instagram'),
+        isFalse,
+        reason:
+            'whitespace-only instagram must be omitted from the request body',
+      );
+    });
+
+    // ── D — connectionError → NetworkFailure ────────────────────────────────
+
+    test('throws NetworkFailure on connectionError', () async {
+      when(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: _profilePatchPath),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+
+      await expectLater(
+        repository.updateMyProfile(
+          const MasterUpdate(
+            firstName: 'Аня',
+            lastName: 'Коваль',
+            bio: '',
+            contactPhone: '',
+            instagram: '',
+          ),
+        ),
+        throwsA(isA<NetworkFailure>()),
       );
     });
   });

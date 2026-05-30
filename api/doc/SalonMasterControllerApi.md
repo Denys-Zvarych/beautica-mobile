@@ -5,12 +5,12 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**disableOwnerMaster**](SalonMasterControllerApi.md#disableownermaster) | **DELETE** /salons/{salonId}/master | 
-[**enableOwnerMaster**](SalonMasterControllerApi.md#enableownermaster) | **POST** /salons/{salonId}/master | 
+[**disableOwnerMaster**](SalonMasterControllerApi.md#disableownermaster) | **DELETE** /api/v1/salons/{salonId}/master | 
+[**enableOwnerMaster**](SalonMasterControllerApi.md#enableownermaster) | **POST** /api/v1/salons/{salonId}/master | 
 
 
 # **disableOwnerMaster**
@@ -44,7 +44,7 @@ void (empty response body)
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -85,7 +85,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 

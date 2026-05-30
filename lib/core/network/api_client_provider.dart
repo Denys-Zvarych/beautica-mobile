@@ -1,13 +1,10 @@
 // Phase 3.2 — Riverpod providers for generated API classes.
+// Phase 4.1 — Added [masterApiProvider] for [MasterControllerApi].
 //
-// Wires the generated [AuthControllerApi] and [UserControllerApi] with the
-// singleton [dioProvider] Dio instance and [standardSerializers] from the
-// generated package. Kept alive because these API objects are stateless
-// value types — keeping them alive avoids repeated construction on every
-// provider read.
-//
-// All other generated API classes (MasterControllerApi, etc.) will be added
-// here as their respective features ship in later phases.
+// Wires the generated API classes with the singleton [dioProvider] Dio
+// instance and [standardSerializers] from the generated package. Kept alive
+// because these API objects are stateless value types — keeping them alive
+// avoids repeated construction on every provider read.
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -32,3 +29,12 @@ AuthControllerApi authApi(Ref ref) =>
 @Riverpod(keepAlive: true)
 UserControllerApi userApi(Ref ref) =>
     UserControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the generated [MasterControllerApi] singleton.
+///
+/// Used by [HttpMasterRepository.getMyProfile] to fetch master profile data
+/// via `GET /masters/{masterId}`. Same Dio instance and serializers as the
+/// other API providers in this file.
+@Riverpod(keepAlive: true)
+MasterControllerApi masterApi(Ref ref) =>
+    MasterControllerApi(ref.watch(dioProvider), standardSerializers);

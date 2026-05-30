@@ -55,20 +55,14 @@ class AuthControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/auth/invite/accept';
+    final _path = r'/api/v1/auth/invite/accept';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -157,20 +151,14 @@ class AuthControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/auth/forgot-password';
+    final _path = r'/api/v1/auth/forgot-password';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -259,20 +247,14 @@ class AuthControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/auth/login';
+    final _path = r'/api/v1/auth/login';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -358,20 +340,14 @@ class AuthControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/auth/logout';
+    final _path = r'/api/v1/auth/logout';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -411,20 +387,14 @@ class AuthControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/auth/refresh';
+    final _path = r'/api/v1/auth/refresh';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -512,20 +482,14 @@ class AuthControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/auth/register';
+    final _path = r'/api/v1/auth/register';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -613,20 +577,14 @@ class AuthControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/auth/register/independent-master';
+    final _path = r'/api/v1/auth/register/independent-master';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -715,20 +673,14 @@ class AuthControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/auth/resend-verification';
+    final _path = r'/api/v1/auth/resend-verification';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -817,20 +769,14 @@ class AuthControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/auth/reset-password';
+    final _path = r'/api/v1/auth/reset-password';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -919,20 +865,14 @@ class AuthControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/auth/invite';
+    final _path = r'/api/v1/auth/invite';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -1020,20 +960,14 @@ class AuthControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/auth/invite/validate';
+    final _path = r'/api/v1/auth/invite/validate';
     final _options = Options(
       method: r'GET',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -1108,20 +1042,14 @@ class AuthControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/auth/verify-email';
+    final _path = r'/api/v1/auth/verify-email';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',

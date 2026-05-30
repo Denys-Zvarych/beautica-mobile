@@ -17,8 +17,13 @@ part 'master_detail_response.g.dart';
 /// * [masterId]
 /// * [firstName]
 /// * [lastName]
+/// * [phoneNumber]
 /// * [city]
+/// * [street]
+/// * [buildingNo]
+/// * [locationNote]
 /// * [bio]
+/// * [instagram]
 /// * [avatarUrl]
 /// * [avgRating]
 /// * [reviewCount]
@@ -37,11 +42,26 @@ abstract class MasterDetailResponse
   @BuiltValueField(wireName: r'lastName')
   String? get lastName;
 
+  @BuiltValueField(wireName: r'phoneNumber')
+  String? get phoneNumber;
+
   @BuiltValueField(wireName: r'city')
   String? get city;
 
+  @BuiltValueField(wireName: r'street')
+  String? get street;
+
+  @BuiltValueField(wireName: r'buildingNo')
+  String? get buildingNo;
+
+  @BuiltValueField(wireName: r'locationNote')
+  String? get locationNote;
+
   @BuiltValueField(wireName: r'bio')
   String? get bio;
+
+  @BuiltValueField(wireName: r'instagram')
+  String? get instagram;
 
   @BuiltValueField(wireName: r'avatarUrl')
   String? get avatarUrl;
@@ -112,6 +132,13 @@ class _$MasterDetailResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.phoneNumber != null) {
+      yield r'phoneNumber';
+      yield serializers.serialize(
+        object.phoneNumber,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.city != null) {
       yield r'city';
       yield serializers.serialize(
@@ -119,10 +146,38 @@ class _$MasterDetailResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.street != null) {
+      yield r'street';
+      yield serializers.serialize(
+        object.street,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.buildingNo != null) {
+      yield r'buildingNo';
+      yield serializers.serialize(
+        object.buildingNo,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.locationNote != null) {
+      yield r'locationNote';
+      yield serializers.serialize(
+        object.locationNote,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.bio != null) {
       yield r'bio';
       yield serializers.serialize(
         object.bio,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.instagram != null) {
+      yield r'instagram';
+      yield serializers.serialize(
+        object.instagram,
         specifiedType: const FullType(String),
       );
     }
@@ -215,6 +270,13 @@ class _$MasterDetailResponseSerializer
           ) as String;
           result.lastName = valueDes;
           break;
+        case r'phoneNumber':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.phoneNumber = valueDes;
+          break;
         case r'city':
           final valueDes = serializers.deserialize(
             value,
@@ -222,12 +284,40 @@ class _$MasterDetailResponseSerializer
           ) as String;
           result.city = valueDes;
           break;
+        case r'street':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.street = valueDes;
+          break;
+        case r'buildingNo':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.buildingNo = valueDes;
+          break;
+        case r'locationNote':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.locationNote = valueDes;
+          break;
         case r'bio':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
           result.bio = valueDes;
+          break;
+        case r'instagram':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.instagram = valueDes;
           break;
         case r'avatarUrl':
           final valueDes = serializers.deserialize(

@@ -5,12 +5,12 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**searchMasters**](SearchControllerApi.md#searchmasters) | **GET** /search/masters | 
-[**searchSalons**](SearchControllerApi.md#searchsalons) | **GET** /search/salons | 
+[**searchMasters**](SearchControllerApi.md#searchmasters) | **GET** /api/v1/search/masters | 
+[**searchSalons**](SearchControllerApi.md#searchsalons) | **GET** /api/v1/search/salons | 
 
 
 # **searchMasters**
@@ -45,7 +45,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -86,7 +86,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 

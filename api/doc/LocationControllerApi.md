@@ -5,13 +5,13 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**getCitiesByOblast**](LocationControllerApi.md#getcitiesbyoblast) | **GET** /locations/oblasts/{oblastId}/cities | 
-[**getDistrictsByCity**](LocationControllerApi.md#getdistrictsbycity) | **GET** /locations/cities/{cityId}/districts | 
-[**getOblasts**](LocationControllerApi.md#getoblasts) | **GET** /locations/oblasts | 
+[**getCitiesByOblast**](LocationControllerApi.md#getcitiesbyoblast) | **GET** /api/v1/locations/oblasts/{oblastId}/cities | 
+[**getDistrictsByCity**](LocationControllerApi.md#getdistrictsbycity) | **GET** /api/v1/locations/cities/{cityId}/districts | 
+[**getOblasts**](LocationControllerApi.md#getoblasts) | **GET** /api/v1/locations/oblasts | 
 
 
 # **getCitiesByOblast**
@@ -46,7 +46,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -87,7 +87,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -124,7 +124,7 @@ This endpoint does not need any parameter.
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 

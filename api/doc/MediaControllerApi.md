@@ -5,16 +5,16 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**deleteAvatar**](MediaControllerApi.md#deleteavatar) | **DELETE** /media/avatar | 
-[**deletePortfolioPhoto**](MediaControllerApi.md#deleteportfoliophoto) | **DELETE** /media/portfolio/{mediaId} | 
-[**getMasterPortfolio**](MediaControllerApi.md#getmasterportfolio) | **GET** /masters/{masterId}/portfolio | 
-[**getSalonPortfolio**](MediaControllerApi.md#getsalonportfolio) | **GET** /salons/{salonId}/portfolio | 
-[**uploadAvatar**](MediaControllerApi.md#uploadavatar) | **POST** /media/avatar | 
-[**uploadPortfolioPhoto**](MediaControllerApi.md#uploadportfoliophoto) | **POST** /media/portfolio | 
+[**deleteAvatar**](MediaControllerApi.md#deleteavatar) | **DELETE** /api/v1/media/avatar | 
+[**deletePortfolioPhoto**](MediaControllerApi.md#deleteportfoliophoto) | **DELETE** /api/v1/media/portfolio/{mediaId} | 
+[**getMasterPortfolio**](MediaControllerApi.md#getmasterportfolio) | **GET** /api/v1/masters/{masterId}/portfolio | 
+[**getSalonPortfolio**](MediaControllerApi.md#getsalonportfolio) | **GET** /api/v1/salons/{salonId}/portfolio | 
+[**uploadAvatar**](MediaControllerApi.md#uploadavatar) | **POST** /api/v1/media/avatar | 
+[**uploadPortfolioPhoto**](MediaControllerApi.md#uploadportfoliophoto) | **POST** /api/v1/media/portfolio | 
 
 
 # **deleteAvatar**
@@ -44,7 +44,7 @@ void (empty response body)
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -84,7 +84,7 @@ void (empty response body)
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -125,7 +125,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -166,7 +166,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -207,7 +207,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -248,7 +248,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 

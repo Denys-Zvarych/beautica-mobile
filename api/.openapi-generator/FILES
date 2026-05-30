@@ -17,6 +17,7 @@ doc/ApiResponseListSalonResponse.md
 doc/ApiResponseListServiceTypeResponse.md
 doc/ApiResponseListWorkingHoursResponse.md
 doc/ApiResponseMasterDetailResponse.md
+doc/ApiResponseMasterPublicProfileResponse.md
 doc/ApiResponseMasterServiceResponse.md
 doc/ApiResponseMediaFileResponse.md
 doc/ApiResponsePageMediaFileResponse.md
@@ -64,6 +65,8 @@ doc/LocationFilter.md
 doc/LoginRequest.md
 doc/MasterControllerApi.md
 doc/MasterDetailResponse.md
+doc/MasterProfileUpdateRequest.md
+doc/MasterPublicProfileResponse.md
 doc/MasterSearchRequest.md
 doc/MasterSearchResult.md
 doc/MasterServiceResponse.md
@@ -156,6 +159,7 @@ lib/src/model/api_response_list_salon_response.dart
 lib/src/model/api_response_list_service_type_response.dart
 lib/src/model/api_response_list_working_hours_response.dart
 lib/src/model/api_response_master_detail_response.dart
+lib/src/model/api_response_master_public_profile_response.dart
 lib/src/model/api_response_master_service_response.dart
 lib/src/model/api_response_media_file_response.dart
 lib/src/model/api_response_page_media_file_response.dart
@@ -197,6 +201,8 @@ lib/src/model/invite_response.dart
 lib/src/model/location_filter.dart
 lib/src/model/login_request.dart
 lib/src/model/master_detail_response.dart
+lib/src/model/master_profile_update_request.dart
+lib/src/model/master_public_profile_response.dart
 lib/src/model/master_search_request.dart
 lib/src/model/master_search_result.dart
 lib/src/model/master_service_response.dart
@@ -243,3 +249,6 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/api_response_master_public_profile_response_test.dart
+test/master_profile_update_request_test.dart
+test/master_public_profile_response_test.dart

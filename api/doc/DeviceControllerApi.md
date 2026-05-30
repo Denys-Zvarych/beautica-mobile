@@ -5,12 +5,12 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**registerToken**](DeviceControllerApi.md#registertoken) | **POST** /devices/token | 
-[**unregisterToken**](DeviceControllerApi.md#unregistertoken) | **DELETE** /devices/token | 
+[**registerToken**](DeviceControllerApi.md#registertoken) | **POST** /api/v1/devices/token | 
+[**unregisterToken**](DeviceControllerApi.md#unregistertoken) | **DELETE** /api/v1/devices/token | 
 
 
 # **registerToken**
@@ -44,7 +44,7 @@ void (empty response body)
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -84,7 +84,7 @@ void (empty response body)
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 

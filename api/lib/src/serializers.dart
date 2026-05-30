@@ -30,6 +30,7 @@ import 'package:beautica_api/src/model/api_response_list_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_list_service_type_response.dart';
 import 'package:beautica_api/src/model/api_response_list_working_hours_response.dart';
 import 'package:beautica_api/src/model/api_response_master_detail_response.dart';
+import 'package:beautica_api/src/model/api_response_master_public_profile_response.dart';
 import 'package:beautica_api/src/model/api_response_master_service_response.dart';
 import 'package:beautica_api/src/model/api_response_media_file_response.dart';
 import 'package:beautica_api/src/model/api_response_page_media_file_response.dart';
@@ -70,6 +71,8 @@ import 'package:beautica_api/src/model/invite_response.dart';
 import 'package:beautica_api/src/model/location_filter.dart';
 import 'package:beautica_api/src/model/login_request.dart';
 import 'package:beautica_api/src/model/master_detail_response.dart';
+import 'package:beautica_api/src/model/master_profile_update_request.dart';
+import 'package:beautica_api/src/model/master_public_profile_response.dart';
 import 'package:beautica_api/src/model/master_search_request.dart';
 import 'package:beautica_api/src/model/master_search_result.dart';
 import 'package:beautica_api/src/model/master_service_response.dart';
@@ -134,6 +137,7 @@ part 'serializers.g.dart';
   ApiResponseListServiceTypeResponse,
   ApiResponseListWorkingHoursResponse,
   ApiResponseMasterDetailResponse,
+  ApiResponseMasterPublicProfileResponse,
   ApiResponseMasterServiceResponse,
   ApiResponseMediaFileResponse,
   ApiResponsePageMediaFileResponse,
@@ -174,6 +178,8 @@ part 'serializers.g.dart';
   LocationFilter,
   LoginRequest,
   MasterDetailResponse,
+  MasterProfileUpdateRequest,
+  MasterPublicProfileResponse,
   MasterSearchRequest,
   MasterSearchResult,
   MasterServiceResponse,

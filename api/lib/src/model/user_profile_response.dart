@@ -22,6 +22,8 @@ part 'user_profile_response.g.dart';
 /// * [street]
 /// * [buildingNo]
 /// * [locationNote]
+/// * [bio]
+/// * [instagram]
 /// * [isActive]
 /// * [emailVerified]
 /// * [salonId]
@@ -60,6 +62,12 @@ abstract class UserProfileResponse
 
   @BuiltValueField(wireName: r'locationNote')
   String? get locationNote;
+
+  @BuiltValueField(wireName: r'bio')
+  String? get bio;
+
+  @BuiltValueField(wireName: r'instagram')
+  String? get instagram;
 
   @BuiltValueField(wireName: r'isActive')
   bool? get isActive;
@@ -173,6 +181,20 @@ class _$UserProfileResponseSerializer
       yield r'locationNote';
       yield serializers.serialize(
         object.locationNote,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.bio != null) {
+      yield r'bio';
+      yield serializers.serialize(
+        object.bio,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.instagram != null) {
+      yield r'instagram';
+      yield serializers.serialize(
+        object.instagram,
         specifiedType: const FullType(String),
       );
     }
@@ -298,6 +320,20 @@ class _$UserProfileResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.locationNote = valueDes;
+          break;
+        case r'bio':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.bio = valueDes;
+          break;
+        case r'instagram':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.instagram = valueDes;
           break;
         case r'isActive':
           final valueDes = serializers.deserialize(

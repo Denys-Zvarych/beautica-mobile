@@ -5,18 +5,18 @@
 import 'package:beautica_api/api.dart';
 ```
 
-All URIs are relative to *http://localhost:8080/api/v1*
+All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**cancelBooking**](BookingControllerApi.md#cancelbooking) | **PATCH** /bookings/{bookingId}/cancel | 
-[**completeBooking**](BookingControllerApi.md#completebooking) | **PATCH** /bookings/{bookingId}/complete | 
-[**confirmBooking**](BookingControllerApi.md#confirmbooking) | **PATCH** /bookings/{bookingId}/confirm | 
-[**createBooking**](BookingControllerApi.md#createbooking) | **POST** /bookings | 
-[**declineBooking**](BookingControllerApi.md#declinebooking) | **PATCH** /bookings/{bookingId}/decline | 
-[**getBooking**](BookingControllerApi.md#getbooking) | **GET** /bookings/{bookingId} | 
-[**listMyBookings**](BookingControllerApi.md#listmybookings) | **GET** /bookings/me | 
-[**notCompleteBooking**](BookingControllerApi.md#notcompletebooking) | **PATCH** /bookings/{bookingId}/not-complete | 
+[**cancelBooking**](BookingControllerApi.md#cancelbooking) | **PATCH** /api/v1/bookings/{bookingId}/cancel | 
+[**completeBooking**](BookingControllerApi.md#completebooking) | **PATCH** /api/v1/bookings/{bookingId}/complete | 
+[**confirmBooking**](BookingControllerApi.md#confirmbooking) | **PATCH** /api/v1/bookings/{bookingId}/confirm | 
+[**createBooking**](BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
+[**declineBooking**](BookingControllerApi.md#declinebooking) | **PATCH** /api/v1/bookings/{bookingId}/decline | 
+[**getBooking**](BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 
+[**listMyBookings**](BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
+[**notCompleteBooking**](BookingControllerApi.md#notcompletebooking) | **PATCH** /api/v1/bookings/{bookingId}/not-complete | 
 
 
 # **cancelBooking**
@@ -52,7 +52,7 @@ void (empty response body)
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -92,7 +92,7 @@ void (empty response body)
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -132,7 +132,7 @@ void (empty response body)
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -175,7 +175,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -217,7 +217,7 @@ void (empty response body)
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -258,7 +258,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -301,7 +301,7 @@ Name | Type | Description  | Notes
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 
@@ -343,7 +343,7 @@ void (empty response body)
 
 ### Authorization
 
-[BearerAuth](../README.md#BearerAuth)
+No authorization required
 
 ### HTTP request headers
 

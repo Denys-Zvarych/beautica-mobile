@@ -30,6 +30,10 @@ class _$UserProfileResponse extends UserProfileResponse {
   @override
   final String? locationNote;
   @override
+  final String? bio;
+  @override
+  final String? instagram;
+  @override
   final bool? isActive;
   @override
   final bool? emailVerified;
@@ -52,6 +56,8 @@ class _$UserProfileResponse extends UserProfileResponse {
       this.street,
       this.buildingNo,
       this.locationNote,
+      this.bio,
+      this.instagram,
       this.isActive,
       this.emailVerified,
       this.salonId})
@@ -80,6 +86,8 @@ class _$UserProfileResponse extends UserProfileResponse {
         street == other.street &&
         buildingNo == other.buildingNo &&
         locationNote == other.locationNote &&
+        bio == other.bio &&
+        instagram == other.instagram &&
         isActive == other.isActive &&
         emailVerified == other.emailVerified &&
         salonId == other.salonId;
@@ -99,6 +107,8 @@ class _$UserProfileResponse extends UserProfileResponse {
     _$hash = $jc(_$hash, street.hashCode);
     _$hash = $jc(_$hash, buildingNo.hashCode);
     _$hash = $jc(_$hash, locationNote.hashCode);
+    _$hash = $jc(_$hash, bio.hashCode);
+    _$hash = $jc(_$hash, instagram.hashCode);
     _$hash = $jc(_$hash, isActive.hashCode);
     _$hash = $jc(_$hash, emailVerified.hashCode);
     _$hash = $jc(_$hash, salonId.hashCode);
@@ -120,6 +130,8 @@ class _$UserProfileResponse extends UserProfileResponse {
           ..add('street', street)
           ..add('buildingNo', buildingNo)
           ..add('locationNote', locationNote)
+          ..add('bio', bio)
+          ..add('instagram', instagram)
           ..add('isActive', isActive)
           ..add('emailVerified', emailVerified)
           ..add('salonId', salonId))
@@ -175,6 +187,14 @@ class UserProfileResponseBuilder
   String? get locationNote => _$this._locationNote;
   set locationNote(String? locationNote) => _$this._locationNote = locationNote;
 
+  String? _bio;
+  String? get bio => _$this._bio;
+  set bio(String? bio) => _$this._bio = bio;
+
+  String? _instagram;
+  String? get instagram => _$this._instagram;
+  set instagram(String? instagram) => _$this._instagram = instagram;
+
   bool? _isActive;
   bool? get isActive => _$this._isActive;
   set isActive(bool? isActive) => _$this._isActive = isActive;
@@ -206,6 +226,8 @@ class UserProfileResponseBuilder
       _street = $v.street;
       _buildingNo = $v.buildingNo;
       _locationNote = $v.locationNote;
+      _bio = $v.bio;
+      _instagram = $v.instagram;
       _isActive = $v.isActive;
       _emailVerified = $v.emailVerified;
       _salonId = $v.salonId;
@@ -241,6 +263,8 @@ class UserProfileResponseBuilder
           street: street,
           buildingNo: buildingNo,
           locationNote: locationNote,
+          bio: bio,
+          instagram: instagram,
           isActive: isActive,
           emailVerified: emailVerified,
           salonId: salonId,

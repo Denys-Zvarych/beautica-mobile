@@ -26,6 +26,7 @@ import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../domain/user.dart';
+import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_selectors.dart';
 import 'user_role_l10n.dart';
@@ -75,12 +76,25 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
     final roleLabel = user?.role.label(l10n) ?? l10n.registerDoneChipRoleClient;
     final roleIcon = user?.role.icon ?? Icons.person_outline_rounded;
 
+    final descText =
+        (user?.role == UserRole.independentMaster ||
+            user?.role == UserRole.salonMaster)
+        ? l10n.registerDoneDescMaster
+        : l10n.registerDoneDesc;
+
     return AuthScaffold(
       showBack: false,
       bottomBar: NeumorphicButton(
         key: const ValueKey<String>('done_to_app'),
         label: l10n.registerDoneCtaPrimary,
-        onPressed: () => context.go(RouteNames.home),
+        onPressed: () {
+          final role = ref.read(currentUserProvider)?.role;
+          final destination = switch (role) {
+            UserRole.independentMaster => RouteNames.masterProfile,
+            _ => RouteNames.home,
+          };
+          context.go(destination);
+        },
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -128,38 +142,38 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
           ),
           const SizedBox(height: VelvetSpacing.md),
 
-          // Description body copy.
+          // Description body copy — role-aware.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
             child: Text(
-              l10n.registerDoneDesc,
+              key: const Key('done-desc'),
+              descText,
               style: VelvetText.bodySmall,
               textAlign: TextAlign.center,
             ),
           ),
           const SizedBox(height: VelvetSpacing.xl),
 
-          // Summary chips — three inset neumorphic pills in a 2-row layout.
-          // Row 1: role + email chips side-by-side, centred.
-          // Row 2: ready chip centred below.
+          // Summary chips — three inset neumorphic pills, each on its own
+          // centred line so long labels (e.g. 'Незалежний майстер') never
+          // crowd a sibling chip.
           Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  _SummaryChip(
-                    key: const ValueKey<String>('done_chip_role'),
-                    icon: roleIcon,
-                    label: roleLabel,
-                  ),
-                  const SizedBox(width: VelvetSpacing.sm),
-                  _SummaryChip(
-                    key: const ValueKey<String>('done_chip_email'),
-                    icon: Icons.mark_email_read_outlined,
-                    label: l10n.registerDoneChipEmailVerified,
-                  ),
-                ],
+              Center(
+                child: _SummaryChip(
+                  key: const ValueKey<String>('done_chip_role'),
+                  icon: roleIcon,
+                  label: roleLabel,
+                ),
+              ),
+              const SizedBox(height: VelvetSpacing.sm),
+              Center(
+                child: _SummaryChip(
+                  key: const ValueKey<String>('done_chip_email'),
+                  icon: Icons.mark_email_read_outlined,
+                  label: l10n.registerDoneChipEmailVerified,
+                ),
               ),
               const SizedBox(height: VelvetSpacing.sm),
               Center(
@@ -222,7 +236,13 @@ class _SummaryChip extends StatelessWidget {
           children: <Widget>[
             Icon(icon, size: 15, color: BrandColors.accent),
             const SizedBox(width: VelvetSpacing.sm),
-            Text(label, style: VelvetText.chipLabel),
+            Flexible(
+              child: Text(
+                label,
+                style: VelvetText.chipLabel,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
       ),

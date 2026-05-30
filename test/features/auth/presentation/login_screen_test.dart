@@ -31,6 +31,8 @@ import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/auth/presentation/login_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/widgets/auth_scaffold.dart';
@@ -424,17 +426,130 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 9 — Successful login → navigates to /home
+    // Test 9 — Successful login as CLIENT → navigates to /home
+    //
+    // FakeAuthRepository._defaultUser has role=independentMaster, so we must
+    // override meResult to return a client-role user — otherwise the screen
+    // dispatches to /master/profile (not /home) and the test router has no
+    // such route.
     // -----------------------------------------------------------------------
-    testWidgets('9. successful login → navigates to home screen', (
-      tester,
-    ) async {
-      // FakeAuthRepository.login defaults to success (returns _defaultUser +
-      // _defaultTokens) when loginResult is null, which puts authProvider into
-      // AsyncData(authenticated). The screen should then call context.go('/home').
-      final repo = FakeAuthRepository();
+    testWidgets(
+      '9. successful login (CLIENT role) → navigates to home screen',
+      (tester) async {
+        const clientUser = User(
+          id: 'u-client',
+          email: 'client@example.com',
+          role: UserRole.client,
+          firstName: 'Test',
+          lastName: 'Client',
+        );
+        final repo = FakeAuthRepository()..meResult = clientUser;
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith((_) => repo),
+              secureStorageProvider.overrideWith((_) => storage),
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('login_email')),
+          'client@example.com',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('login_password')),
+          'secret123',
+        );
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('login_submit')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('login_submit')));
+        await tester.pumpAndSettle();
+
+        // CLIENT role → LoginScreen must call context.go(RouteNames.home).
+        expect(
+          find.text('home'),
+          findsOneWidget,
+          reason:
+              'LoginScreen must navigate to /home for a CLIENT role; '
+              'the test router renders "home" text on that route',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 9b — Successful login as INDEPENDENT_MASTER → navigates to
+    //           /master/profile
+    //
+    // LoginScreen dispatches post-login navigation based on role:
+    //   - INDEPENDENT_MASTER → RouteNames.masterProfile (/master/profile)
+    //   - all other roles    → RouteNames.home (/)
+    //
+    // A dedicated router is used here because the shared _makeRouter() does
+    // not register /master/profile; adding it there would make other tests
+    // that assert "home" fragile if the default user role ever changes.
+    // -----------------------------------------------------------------------
+    testWidgets('9b. successful login (INDEPENDENT_MASTER role) → navigates to '
+        '/master/profile', (tester) async {
+      const masterUser = User(
+        id: 'u-master',
+        email: 'master@example.com',
+        role: UserRole.independentMaster,
+        firstName: 'Test',
+        lastName: 'Master',
+      );
+      final repo = FakeAuthRepository()..meResult = masterUser;
       final storage = FakeSecureStorage();
-      final router = _makeRouter();
+
+      // Local router that adds /master/profile to the standard routes.
+      final router = GoRouter(
+        initialLocation: RouteNames.login,
+        redirect: (context, state) => null,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.login,
+            builder: (context, state) => const LoginScreen(),
+          ),
+          GoRoute(
+            path: RouteNames.registerRole,
+            builder: (context, state) =>
+                const Scaffold(body: Center(child: Text('role-selection'))),
+          ),
+          GoRoute(
+            path: RouteNames.home,
+            builder: (context, state) =>
+                const Scaffold(body: Center(child: Text('home'))),
+          ),
+          GoRoute(
+            path: RouteNames.forgotPassword,
+            builder: (context, state) =>
+                const Scaffold(body: Center(child: Text('forgot-password'))),
+          ),
+          GoRoute(
+            path: RouteNames.verification,
+            builder: (context, state) =>
+                const Scaffold(body: Center(child: Text('verification'))),
+          ),
+          GoRoute(
+            path: RouteNames.masterProfile,
+            builder: (context, state) =>
+                const Scaffold(body: Center(child: Text('master-profile'))),
+          ),
+        ],
+      );
       addTearDown(router.dispose);
 
       await tester.pumpWidget(
@@ -455,7 +570,7 @@ void main() {
 
       await tester.enterText(
         find.byKey(const ValueKey<String>('login_email')),
-        'test@example.com',
+        'master@example.com',
       );
       await tester.enterText(
         find.byKey(const ValueKey<String>('login_password')),
@@ -468,14 +583,24 @@ void main() {
       await tester.tap(find.byKey(const ValueKey<String>('login_submit')));
       await tester.pumpAndSettle();
 
-      // After a successful login authProvider transitions to authenticated and
-      // LoginScreen calls context.go(RouteNames.home).
+      // INDEPENDENT_MASTER → LoginScreen must call
+      // context.go(RouteNames.masterProfile).
       expect(
-        find.text('home'),
+        find.text('master-profile'),
         findsOneWidget,
         reason:
-            'LoginScreen must navigate to /home after a successful login; '
-            'the test router renders "home" text on that route',
+            'LoginScreen must navigate to /master/profile for an '
+            'INDEPENDENT_MASTER role; the test router renders '
+            '"master-profile" text on that route',
+      );
+
+      // Confirm home screen was NOT rendered.
+      expect(
+        find.text('home'),
+        findsNothing,
+        reason:
+            'INDEPENDENT_MASTER must not land on the home screen — '
+            'only CLIENT and other non-master roles go there',
       );
     });
 

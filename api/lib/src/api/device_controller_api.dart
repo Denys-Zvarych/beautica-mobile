@@ -41,20 +41,14 @@ class DeviceControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/devices/token';
+    final _path = r'/api/v1/devices/token';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -114,20 +108,14 @@ class DeviceControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/devices/token';
+    final _path = r'/api/v1/devices/token';
     final _options = Options(
       method: r'DELETE',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',

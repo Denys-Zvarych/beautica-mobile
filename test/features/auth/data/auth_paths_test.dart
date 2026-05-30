@@ -18,16 +18,20 @@
 //   /auth/resend-verification — re-send verification email
 //
 // Covered scenarios:
-//   1. kAuthPaths contains /auth/login.
-//   2. kAuthPaths contains /auth/logout.
-//   3. kAuthPaths contains /auth/refresh.
-//   4. kAuthPaths contains /auth/register (CLIENT + SALON_OWNER unified endpoint).
-//   5. kAuthPaths contains /auth/register/independent-master.
-//   6. kAuthPaths contains /auth/verify-email (OTP redaction — Phase 2.11).
-//   7. kAuthPaths contains /auth/resend-verification (OTP redaction — Phase 2.11).
-//   8. kAuthPaths contains /auth/forgot-password (email PII redaction — Phase 2.13).
-//   9. kAuthPaths contains /auth/reset-password (token + password redaction — Phase 2.13).
-//  10. kAuthPaths has exactly 11 entries — no undocumented extras.
+//   1.  kAuthPaths contains /auth/login.
+//   2.  kAuthPaths contains /auth/logout.
+//   3.  kAuthPaths contains /auth/refresh.
+//   4.  kAuthPaths contains /auth/register (CLIENT + SALON_OWNER unified endpoint).
+//   5.  kAuthPaths contains /auth/register/independent-master.
+//   6.  kAuthPaths contains /auth/verify-email (OTP redaction — Phase 2.11).
+//   7.  kAuthPaths contains /auth/resend-verification (OTP redaction — Phase 2.11).
+//   8.  kAuthPaths contains /auth/forgot-password (email PII redaction — Phase 2.13).
+//   9.  kAuthPaths contains /auth/reset-password (token + password redaction — Phase 2.13).
+//  10.  kAuthPaths contains /auth/invite/validate (Phase 2.20).
+//  11.  kAuthPaths contains /auth/invite/accept (Phase 2.20).
+//  12.  kAuthPaths contains /independent-masters/me (Phase 4.2 — PII address body redaction).
+//  13.  kAuthPaths contains /masters/me (Phase 4.2 — PII address body redaction).
+//  14.  kAuthPaths has exactly 13 entries — no undocumented extras.
 
 import 'package:beautica_mobile/core/network/auth_paths.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -116,19 +120,128 @@ void main() {
       },
     );
 
+    test(
+      '10. contains /auth/invite/validate (Phase 2.20 — invite token must not be logged)',
+      () {
+        expect(
+          kAuthPaths,
+          contains('/auth/invite/validate'),
+          reason:
+              'AuthInterceptor must NOT inject a bearer token; '
+              'LoggingInterceptor must redact the single-use invite token.',
+        );
+      },
+    );
+
+    test(
+      '11. contains /auth/invite/accept (Phase 2.20 — invite token + password must not be logged)',
+      () {
+        expect(
+          kAuthPaths,
+          contains('/auth/invite/accept'),
+          reason:
+              'AuthInterceptor must NOT inject a bearer token; '
+              'LoggingInterceptor must redact the plaintext password and '
+              'single-use invite token.',
+        );
+      },
+    );
+
+    test(
+      '12. /independent-masters/me is in kPiiPaths (body redaction) but NOT kAuthPaths (token skip)',
+      () {
+        expect(
+          kPiiPaths,
+          contains('/independent-masters/me'),
+          reason:
+              'LoggingInterceptor must redact the request body in debug builds; '
+              'street/buildingNo/locationNote are PII (MS5 pattern).',
+        );
+        expect(
+          kAuthPaths,
+          isNot(contains('/independent-masters/me')),
+          reason:
+              'Authenticated endpoint — must carry a Bearer token; placing it in '
+              'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
+        );
+      },
+    );
+
+    test(
+      '13. /masters/me is in kPiiPaths (body redaction) but NOT kAuthPaths (token skip)',
+      () {
+        expect(
+          kPiiPaths,
+          contains('/masters/me'),
+          reason:
+              'LoggingInterceptor must redact the request body in debug builds; '
+              'street/buildingNo/locationNote are PII (MS5 pattern).',
+        );
+        expect(
+          kAuthPaths,
+          isNot(contains('/masters/me')),
+          reason:
+              'Authenticated endpoint — must carry a Bearer token; placing it in '
+              'kAuthPaths causes AuthInterceptor to skip token injection → 401.',
+        );
+      },
+    );
+
     // -----------------------------------------------------------------------
-    // Test 10: exact cardinality — catches undocumented additions/removals
+    // Test 14: exact cardinality — catches undocumented additions/removals
     // -----------------------------------------------------------------------
 
-    test('10. has exactly 11 entries — no undocumented paths', () {
+    test(
+      '14. kAuthPaths has exactly 11 entries (unauthenticated endpoints only)',
+      () {
+        expect(
+          kAuthPaths.length,
+          equals(11),
+          reason:
+              'A path was added to or removed from kAuthPaths without a '
+              'corresponding test update. kAuthPaths must only contain unauthenticated '
+              'endpoints. PII-bearing authenticated paths go in kPiiPaths instead.',
+        );
+      },
+    );
+
+    test('14b. kPiiPaths is a strict superset of kAuthPaths — every unauthenticated '
+        'path is also redacted in logs', () {
+      // Every path in kAuthPaths must appear in kPiiPaths. The reverse is not
+      // required — kPiiPaths may contain additional authenticated PII paths.
+      for (final path in kAuthPaths) {
+        expect(
+          kPiiPaths,
+          contains(path),
+          reason:
+              'kPiiPaths must contain every path in kAuthPaths. '
+              'Missing: $path. All unauthenticated endpoints carry credentials '
+              'or OTPs and must therefore also be redacted in debug logs.',
+        );
+      }
+      // kPiiPaths must be strictly larger than kAuthPaths (Phase 4.2 added
+      // 2 authenticated PII paths that are NOT in kAuthPaths).
       expect(
-        kAuthPaths.length,
-        equals(11),
+        kPiiPaths.length,
+        greaterThan(kAuthPaths.length),
         reason:
-            'A path was added to or removed from kAuthPaths without a '
-            'corresponding test update. Update this test and confirm the '
-            'interceptors handle the new path correctly.',
+            'kPiiPaths must contain additional entries beyond kAuthPaths '
+            '(/independent-masters/me, /independent-masters/me/profile, and /masters/me).',
       );
     });
+
+    test(
+      '15. kPiiPaths has exactly 14 entries (kAuthPaths union + 3 authenticated PII paths)',
+      () {
+        expect(
+          kPiiPaths.length,
+          equals(14),
+          reason:
+              'kPiiPaths must equal kAuthPaths plus /independent-masters/me, '
+              '/independent-masters/me/profile, and /masters/me. '
+              'Update this count if new PII endpoints are added.',
+        );
+      },
+    );
   });
 }

@@ -63,6 +63,7 @@ import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/domain/invite_details.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -146,12 +147,18 @@ void main() {
   // -------------------------------------------------------------------------
   group('authRedirectForLocation — wizard route guard gaps', () {
     // NL-G01
-    test('NL-G01: authenticated user at /register/role is redirected to /', () {
-      expect(
-        authRedirectForLocation(_authenticatedSession, RouteNames.registerRole),
-        equals(RouteNames.home),
-      );
-    });
+    test(
+      'NL-G01: INDEPENDENT_MASTER at /register/role is redirected to /master/profile',
+      () {
+        expect(
+          authRedirectForLocation(
+            _authenticatedSession,
+            RouteNames.registerRole,
+          ),
+          equals(RouteNames.masterProfile),
+        );
+      },
+    );
 
     // NL-G02
     test('NL-G02: unauthenticated user at /register/role stays (null)', () {
@@ -166,14 +173,14 @@ void main() {
 
     // NL-G03
     test(
-      'NL-G03: authenticated user at /register/step-2 is redirected to /',
+      'NL-G03: INDEPENDENT_MASTER at /register/step-2 is redirected to /master/profile',
       () {
         expect(
           authRedirectForLocation(
             _authenticatedSession,
             RouteNames.registerStep2,
           ),
-          equals(RouteNames.home),
+          equals(RouteNames.masterProfile),
         );
       },
     );
@@ -353,6 +360,21 @@ void main() {
       // The router's redirect calls authRedirectForLocation with a captured
       // session — we capture it via authProvider.
       final repo = FakeAuthRepository();
+      // Force acceptInvite() to return a salonMaster user so the role-based
+      // router redirect lands on /home (salonMaster has no dedicated route yet).
+      repo.acceptInviteResult = (
+        const User(
+          id: 'invited-u1',
+          email: 'masha@salon.ua',
+          role: UserRole.salonMaster,
+          firstName: 'Марія',
+          lastName: 'Бондар',
+        ),
+        const AuthTokens(
+          accessToken: 'access-token',
+          refreshToken: 'refresh-token',
+        ),
+      );
       final storage = FakeSecureStorage();
 
       // A container that starts with an unauthenticated session and

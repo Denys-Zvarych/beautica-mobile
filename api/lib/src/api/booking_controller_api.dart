@@ -49,7 +49,7 @@ class BookingControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/bookings/{bookingId}/cancel'.replaceAll(
+    final _path = r'/api/v1/bookings/{bookingId}/cancel'.replaceAll(
         '{' r'bookingId' '}',
         encodeQueryParameter(_serializers, bookingId, const FullType(String))
             .toString());
@@ -59,13 +59,7 @@ class BookingControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -125,7 +119,7 @@ class BookingControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/bookings/{bookingId}/complete'.replaceAll(
+    final _path = r'/api/v1/bookings/{bookingId}/complete'.replaceAll(
         '{' r'bookingId' '}',
         encodeQueryParameter(_serializers, bookingId, const FullType(String))
             .toString());
@@ -135,13 +129,7 @@ class BookingControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -181,7 +169,7 @@ class BookingControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/bookings/{bookingId}/confirm'.replaceAll(
+    final _path = r'/api/v1/bookings/{bookingId}/confirm'.replaceAll(
         '{' r'bookingId' '}',
         encodeQueryParameter(_serializers, bookingId, const FullType(String))
             .toString());
@@ -191,13 +179,7 @@ class BookingControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -239,7 +221,7 @@ class BookingControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/bookings';
+    final _path = r'/api/v1/bookings';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
@@ -247,13 +229,7 @@ class BookingControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -344,7 +320,7 @@ class BookingControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/bookings/{bookingId}/decline'.replaceAll(
+    final _path = r'/api/v1/bookings/{bookingId}/decline'.replaceAll(
         '{' r'bookingId' '}',
         encodeQueryParameter(_serializers, bookingId, const FullType(String))
             .toString());
@@ -354,13 +330,7 @@ class BookingControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -420,7 +390,7 @@ class BookingControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/bookings/{bookingId}'.replaceAll(
+    final _path = r'/api/v1/bookings/{bookingId}'.replaceAll(
         '{' r'bookingId' '}',
         encodeQueryParameter(_serializers, bookingId, const FullType(String))
             .toString());
@@ -430,13 +400,7 @@ class BookingControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -507,20 +471,14 @@ class BookingControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/bookings/me';
+    final _path = r'/api/v1/bookings/me';
     final _options = Options(
       method: r'GET',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -601,7 +559,7 @@ class BookingControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/bookings/{bookingId}/not-complete'.replaceAll(
+    final _path = r'/api/v1/bookings/{bookingId}/not-complete'.replaceAll(
         '{' r'bookingId' '}',
         encodeQueryParameter(_serializers, bookingId, const FullType(String))
             .toString());
@@ -611,13 +569,7 @@ class BookingControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',

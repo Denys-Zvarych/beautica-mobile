@@ -624,6 +624,10 @@
   "@registerDoneDesc": {
     "description": "Body description below the headline on the registration-done screen (done-page.html .celebrate-desc)."
   },
+  "registerDoneDescMaster": "You can now accept clients, manage your schedule and grow your business.",
+  "@registerDoneDescMaster": {
+    "description": "Description body copy on the done screen for INDEPENDENT_MASTER and SALON_MASTER roles — replaces the client-focused registerDoneDesc."
+  },
   "registerDoneChipRoleClient": "Client",
   "@registerDoneChipRoleClient": {
     "description": "Role summary chip text on the registration-done screen when the user registered as a CLIENT (done-page.html .chip — first chip in the .chips-row)."
@@ -1102,5 +1106,139 @@
   "registerStep3ShellHeadlineOwner": "Salon address",
   "@registerStep3ShellHeadlineOwner": {
     "description": "Wizard shell headline for SALON_OWNER role on /register/step-3 (design: VelvetTouchDesign/address_screen.dart _headline OWNER)."
+  },
+
+  "masterProfileTitle": "My Profile",
+  "@masterProfileTitle": {
+    "description": "Title shown in the ProfileScaffold top bar on the master profile screen."
+  },
+
+  "masterBioLabel": "About",
+  "@masterBioLabel": {
+    "description": "Section label above the bio inset card on the master profile screen."
+  },
+
+  "masterRatingLabel": "Rating",
+  "@masterRatingLabel": {
+    "description": "Caption under the rating stat tile on the master profile screen."
+  },
+
+  "masterServicesLabel": "Services",
+  "@masterServicesLabel": {
+    "description": "Caption under the services stat tile and section header on the master profile screen."
+  },
+
+  "masterPortfolioLabel": "Portfolio",
+  "@masterPortfolioLabel": {
+    "description": "Section label above the portfolio horizontal row on the master profile screen."
+  },
+
+  "masterStatsBookingsLabel": "Bookings\nthis month",
+  "@masterStatsBookingsLabel": {
+    "description": "Two-line caption under the bookings-this-month stat tile on the master profile screen."
+  },
+
+  "masterStatsReviewsLabel": "Reviews",
+  "@masterStatsReviewsLabel": {
+    "description": "Caption under the reviews stat tile on the master profile screen."
+  },
+
+  "masterEditButton": "Edit profile",
+  "@masterEditButton": {
+    "description": "Semantic label for the edit IconButton in the master profile top bar."
+  },
+
+  "masterRoleIndependent": "Independent master",
+  "@masterRoleIndependent": {
+    "description": "Role chip label for INDEPENDENT_MASTER type on the master profile screen."
+  },
+
+  "masterRoleSalonMaster": "Salon master",
+  "@masterRoleSalonMaster": {
+    "description": "Role chip label for SALON_MASTER type on the master profile screen."
+  },
+
+  "masterRoleSalonOwner": "Salon owner",
+  "@masterRoleSalonOwner": {
+    "description": "Role chip label for SALON_OWNER type on the master profile screen."
+  },
+
+  "masterContactsLabel": "Contacts",
+  "@masterContactsLabel": {
+    "description": "Section label above the contacts rows (phone + Instagram) on the master profile screen."
+  },
+
+  "verificationErrProviderMissingCity": "No city selected. Please go back to step 3 and enter your address.",
+  "@verificationErrProviderMissingCity": {
+    "description": "Inline error on the verification screen when a provider role (INDEPENDENT_MASTER or SALON_OWNER) reaches the post-OTP save step with no cityId in the draft — the user must go back to Step 3 and pick a city."
+  },
+
+  "masterEditTitle": "Edit profile",
+  "@masterEditTitle": {
+    "description": "Title shown in the top bar of the master edit screen (Phase 4.3)."
+  },
+  "masterSaveButton": "Save",
+  "@masterSaveButton": {
+    "description": "Label for the save CTA button on the master edit screen (Phase 4.3)."
+  },
+  "masterCancelButton": "Cancel",
+  "@masterCancelButton": {
+    "description": "Semantic label for the cancel icon button in the top bar of the master edit screen (Phase 4.3)."
+  },
+  "bioLabel": "Bio",
+  "@bioLabel": {
+    "description": "Field label above the bio textarea on the master edit screen (Phase 4.3)."
+  },
+  "phoneLabel": "Phone",
+  "@phoneLabel": {
+    "description": "Field label above the phone input on the master edit screen (Phase 4.3)."
+  },
+  "instagramLabel": "Instagram",
+  "@instagramLabel": {
+    "description": "Field label above the Instagram handle input on the master edit screen (Phase 4.3)."
+  },
+  "savedSnackbar": "Changes saved",
+  "@savedSnackbar": {
+    "description": "SnackBar message shown after a successful profile save on the master edit screen (Phase 4.3)."
+  },
+  "errPhoneInvalidEdit": "Invalid phone format",
+  "@errPhoneInvalidEdit": {
+    "description": "Validation error shown under the phone field on the master edit screen when the value does not match the accepted phone pattern (Phase 4.3)."
+  },
+  "errPhoneTooLongEdit": "Phone number is too long (max 20 characters)",
+  "@errPhoneTooLongEdit": {
+    "description": "Validation error shown under the phone field on the master edit screen when the raw value exceeds 20 characters (Phase 4.3)."
+  },
+  "phonePrivacyNote": "Clients will not see your number — it is used only for internal contact",
+  "@phonePrivacyNote": {
+    "description": "Privacy helper note rendered below the phone field (lock icon + text) on the master edit screen (Phase 4.3)."
+  },
+  "changePhotoCaption": "Change photo",
+  "@changePhotoCaption": {
+    "description": "Muted caption below the avatar editor ring on the master edit screen (Phase 4.3)."
+  },
+  "updateDataSubheading": "Update the details clients see",
+  "@updateDataSubheading": {
+    "description": "Quiet sub-heading above the form fields on the master edit screen (Phase 4.3)."
+  },
+  "snackbarAvatarSoon": "Coming soon…",
+  "@snackbarAvatarSoon": {
+    "description": "SnackBar message shown when the user taps the avatar edit badge — photo upload is deferred to Phase 9.4 (Phase 4.3)."
+  },
+  "errBioTooLong": "Bio is too long (max 2000 characters)",
+  "@errBioTooLong": {
+    "description": "Validation error shown under the bio field when the character count exceeds 2000 (Phase 4.3)."
+  },
+  "masterEditInstagramError": "Invalid format. Enter a @handle or an instagram.com link.",
+  "@masterEditInstagramError": {
+    "description": "Validation error shown when the instagram field value is neither a valid handle nor a valid instagram.com URL."
+  },
+  "masterEditBioHint": "Tell us about your experience and specialisation",
+  "@masterEditBioHint": {
+    "description": "Hint text inside the bio textarea on the master edit screen (Phase 4.3)."
+  },
+  "masterEditInstagramHint": "username",
+  "@masterEditInstagramHint": {
+    "description": "Hint text inside the Instagram handle field on the master edit screen (Phase 4.3)."
   }
 }

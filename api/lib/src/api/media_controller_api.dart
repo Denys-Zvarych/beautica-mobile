@@ -42,20 +42,14 @@ class MediaControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/media/avatar';
+    final _path = r'/api/v1/media/avatar';
     final _options = Options(
       method: r'DELETE',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -95,7 +89,7 @@ class MediaControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/media/portfolio/{mediaId}'.replaceAll(
+    final _path = r'/api/v1/media/portfolio/{mediaId}'.replaceAll(
         '{' r'mediaId' '}',
         encodeQueryParameter(_serializers, mediaId, const FullType(String))
             .toString());
@@ -105,13 +99,7 @@ class MediaControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -151,7 +139,7 @@ class MediaControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/masters/{masterId}/portfolio'.replaceAll(
+    final _path = r'/api/v1/masters/{masterId}/portfolio'.replaceAll(
         '{' r'masterId' '}',
         encodeQueryParameter(_serializers, masterId, const FullType(String))
             .toString());
@@ -161,13 +149,7 @@ class MediaControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -236,7 +218,7 @@ class MediaControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/salons/{salonId}/portfolio'.replaceAll(
+    final _path = r'/api/v1/salons/{salonId}/portfolio'.replaceAll(
         '{' r'salonId' '}',
         encodeQueryParameter(_serializers, salonId, const FullType(String))
             .toString());
@@ -246,13 +228,7 @@ class MediaControllerApi {
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       validateStatus: validateStatus,
@@ -321,20 +297,14 @@ class MediaControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/media/avatar';
+    final _path = r'/api/v1/media/avatar';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',
@@ -425,20 +395,14 @@ class MediaControllerApi {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
   }) async {
-    final _path = r'/media/portfolio';
+    final _path = r'/api/v1/media/portfolio';
     final _options = Options(
       method: r'POST',
       headers: <String, dynamic>{
         ...?headers,
       },
       extra: <String, dynamic>{
-        'secure': <Map<String, String>>[
-          {
-            'type': 'http',
-            'scheme': 'bearer',
-            'name': 'BearerAuth',
-          },
-        ],
+        'secure': <Map<String, String>>[],
         ...?extra,
       },
       contentType: 'application/json',

@@ -132,6 +132,37 @@ void main() {
     });
   });
 
+  group('ProviderMissingCityFailure.userMessage', () {
+    testWidgets('returns verificationErrProviderMissingCity l10n string', (
+      tester,
+    ) async {
+      final l10n = await _pumpAndGetL10n(tester);
+      final msg = await _resolveMessage(
+        tester,
+        const ProviderMissingCityFailure(),
+      );
+      expect(
+        msg,
+        equals(l10n.verificationErrProviderMissingCity),
+        reason:
+            'ProviderMissingCityFailure.userMessage must return the '
+            'verificationErrProviderMissingCity l10n key so the UI shows the '
+            '"go back to step 3" recovery message.',
+      );
+    });
+
+    test('cause is nullable and defaults to null', () {
+      const failure = ProviderMissingCityFailure();
+      expect(failure.cause, isNull);
+    });
+
+    test('cause is preserved when supplied', () {
+      final underlying = Exception('draft cleared');
+      final failure = ProviderMissingCityFailure(cause: underlying);
+      expect(failure.cause, same(underlying));
+    });
+  });
+
   group('Failure — cause storage', () {
     test('cause is preserved on NetworkFailure', () {
       final underlying = Exception('socket closed');
