@@ -25,6 +25,8 @@
 //   11. All three chips (done_chip_role, done_chip_email, done_chip_ready) are
 //       on separate centered lines — each chip has a Center ancestor and no
 //       two chips share a Row ancestor.
+//   12. _SummaryChip overflow — Flexible wrapper regression guard: no overflow
+//       in a 200 dp wide viewport and Flexible is present.
 // Note: Test 6 (done_setup_later secondary CTA) was removed — widget no longer exists.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -686,68 +688,6 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 12 — _SummaryChip overflow regression guard [HIGH]
-    //
-    // Regression: without the Flexible wrapper the chip's Text overflows its
-    // Row when the label is long and the viewport is narrow. This test pumps
-    // the done screen inside a 200 dp wide SizedBox so the two side-by-side
-    // chips cannot display "Пошта підтверджена" without truncation. The test
-    // asserts:
-    //   a. No overflow exception is thrown (tester.takeException() is null).
-    //   b. At least one Flexible widget exists in the tree that is a descendant
-    //      of done_chip_email — proving the Flexible wrapper is present.
-    // -----------------------------------------------------------------------
-    testWidgets(
-      '12. _SummaryChip overflow — Flexible wrapper regression guard: '
-      'no overflow in a 200 dp wide viewport and Flexible is present',
-      (tester) async {
-        // Constrain the viewport to 200 logical pixels — narrow enough that
-        // "Пошта підтверджена" would overflow without the Flexible wrapper.
-        tester.view.physicalSize = const Size(200 * 3, 800 * 3);
-        tester.view.devicePixelRatio = 3.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-
-        final router = _makeRouter();
-        addTearDown(router.dispose);
-
-        await _pumpDoneScreen(
-          tester,
-          authenticatedUser: _userWithName,
-          router: router,
-        );
-
-        // a. No overflow exception must be thrown.
-        expect(
-          tester.takeException(),
-          isNull,
-          reason:
-              '_SummaryChip must not throw a layout overflow exception '
-              'in a narrow (200 dp) viewport — Flexible must prevent it',
-        );
-
-        // b. At least one Flexible must be a descendant of done_chip_email,
-        //    confirming the Flexible wrapper is present in the chip tree.
-        final emailChipFinder = find.byKey(
-          const ValueKey<String>('done_chip_email'),
-        );
-        expect(
-          emailChipFinder,
-          findsOneWidget,
-          reason: 'done_chip_email chip must be rendered',
-        );
-        expect(
-          find.descendant(of: emailChipFinder, matching: find.byType(Flexible)),
-          findsAtLeastNWidgets(1),
-          reason:
-              '_SummaryChip.build() must wrap the label Text in a Flexible '
-              'widget to prevent overflow — regression guard for the fix in '
-              'lib/features/auth/presentation/done_screen.dart',
-        );
-      },
-    );
-
-    // -----------------------------------------------------------------------
     // Test 11 — Structural assertion: 3-line centered chip layout
     //
     // All three chips (done_chip_role, done_chip_email, done_chip_ready) must
@@ -821,7 +761,7 @@ void main() {
 
       // No two chips may share a Row ancestor — collect each chip's nearest
       // Row ancestor (null if none exists) and verify they are all distinct.
-      Element? _nearestRow(Element start) {
+      Element? nearestRow(Element start) {
         Element? found;
         start.visitAncestorElements((el) {
           if (el.widget is Row) {
@@ -833,9 +773,9 @@ void main() {
         return found;
       }
 
-      final roleRow = _nearestRow(roleElement);
-      final emailRow = _nearestRow(emailElement);
-      final readyRow = _nearestRow(readyElement);
+      final roleRow = nearestRow(roleElement);
+      final emailRow = nearestRow(emailElement);
+      final readyRow = nearestRow(readyElement);
 
       // If a chip has no Row ancestor at all the constraint is satisfied for
       // that chip; we only need to verify that no two chips share the same Row.
@@ -862,5 +802,67 @@ void main() {
         );
       }
     });
+
+    // -----------------------------------------------------------------------
+    // Test 12 — _SummaryChip overflow regression guard [HIGH]
+    //
+    // Regression: without the Flexible wrapper the chip's Text overflows its
+    // Row when the label is long and the viewport is narrow. This test pumps
+    // the done screen inside a 200 dp wide SizedBox so the two side-by-side
+    // chips cannot display "Пошта підтверджена" without truncation. The test
+    // asserts:
+    //   a. No overflow exception is thrown (tester.takeException() is null).
+    //   b. At least one Flexible widget exists in the tree that is a descendant
+    //      of done_chip_email — proving the Flexible wrapper is present.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '12. _SummaryChip overflow — Flexible wrapper regression guard: '
+      'no overflow in a 200 dp wide viewport and Flexible is present',
+      (tester) async {
+        // Constrain the viewport to 200 logical pixels — narrow enough that
+        // "Пошта підтверджена" would overflow without the Flexible wrapper.
+        tester.view.physicalSize = const Size(200 * 3, 800 * 3);
+        tester.view.devicePixelRatio = 3.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _userWithName,
+          router: router,
+        );
+
+        // a. No overflow exception must be thrown.
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              '_SummaryChip must not throw a layout overflow exception '
+              'in a narrow (200 dp) viewport — Flexible must prevent it',
+        );
+
+        // b. At least one Flexible must be a descendant of done_chip_email,
+        //    confirming the Flexible wrapper is present in the chip tree.
+        final emailChipFinder = find.byKey(
+          const ValueKey<String>('done_chip_email'),
+        );
+        expect(
+          emailChipFinder,
+          findsOneWidget,
+          reason: 'done_chip_email chip must be rendered',
+        );
+        expect(
+          find.descendant(of: emailChipFinder, matching: find.byType(Flexible)),
+          findsAtLeastNWidgets(1),
+          reason:
+              '_SummaryChip.build() must wrap the label Text in a Flexible '
+              'widget to prevent overflow — regression guard for the fix in '
+              'lib/features/auth/presentation/done_screen.dart',
+        );
+      },
+    );
   });
 }
