@@ -82,13 +82,13 @@
   "@loginCreateAccount": {
     "description": "Link label to navigate to the register screen (login-page.html .register-row a)."
   },
-  "loginEmailPlaceholder": "anya@example.com",
+  "loginEmailPlaceholder": "Enter email",
   "@loginEmailPlaceholder": {
     "description": "In-field placeholder for the email input on the login screen (login-page.html input placeholder)."
   },
-  "loginEmailHint": "you@example.com",
+  "loginEmailHint": "Enter email",
   "@loginEmailHint": {
-    "description": "hintText for the email field on the login screen — a generic English placeholder email address."
+    "description": "hintText for the email field on the login screen — descriptive prompt text."
   },
   "loginPasswordPlaceholder": "Your password",
   "@loginPasswordPlaceholder": {
@@ -418,21 +418,21 @@
   "@registerDetailsHeadlineAccent": {
     "description": "Italic Cormorant Garamond accent line under the registration details headline (sign-up-page.html .headline em)."
   },
-  "registerFirstNamePlaceholder": "Anya",
+  "registerFirstNamePlaceholder": "Enter first name",
   "@registerFirstNamePlaceholder": {
     "description": "In-field placeholder for the first name input (sign-up-page.html input placeholder)."
   },
-  "registerLastNamePlaceholder": "Koval",
+  "registerLastNamePlaceholder": "Enter last name",
   "@registerLastNamePlaceholder": {
     "description": "In-field placeholder for the last name input (sign-up-page.html input placeholder)."
   },
-  "registerEmailPlaceholder": "anya@example.com",
+  "registerEmailPlaceholder": "Enter email",
   "@registerEmailPlaceholder": {
     "description": "In-field placeholder for the email input on the registration details screen (sign-up-page.html input placeholder)."
   },
-  "registerEmailHint": "you@beautica.ua",
+  "registerEmailHint": "Enter email",
   "@registerEmailHint": {
-    "description": "hintText for the email field on the Step 1 registration screen — an English-locale placeholder email address."
+    "description": "hintText for the email field on the Step 1 registration screen — descriptive prompt text."
   },
   "registerPhonePlaceholder": "+380 __ ___ ____",
   "@registerPhonePlaceholder": {
@@ -689,11 +689,11 @@
   "@step2FieldSalonLabel": {
     "description": "Uppercase field label above the salon-name input on the Step 2 Profile screen. Only shown for SALON_OWNER role."
   },
-  "step2FieldNamePlaceholder": "Anya",
+  "step2FieldNamePlaceholder": "Enter first name",
   "@step2FieldNamePlaceholder": {
     "description": "In-field placeholder for the first-name input on the Step 2 Profile screen."
   },
-  "step2FieldSurnamePlaceholder": "Koval",
+  "step2FieldSurnamePlaceholder": "Enter last name",
   "@step2FieldSurnamePlaceholder": {
     "description": "In-field placeholder for the last-name input on the Step 2 Profile screen."
   },
@@ -907,7 +907,7 @@
   "@forgotPasswordEmailLabel": {
     "description": "Uppercase label above the email field on the forgot-password request screen."
   },
-  "forgotPasswordEmailPlaceholder": "anya@example.com",
+  "forgotPasswordEmailPlaceholder": "Enter email",
   "@forgotPasswordEmailPlaceholder": {
     "description": "Placeholder for the email field on the forgot-password request screen."
   },

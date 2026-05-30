@@ -111,12 +111,12 @@ void main() {
 
     when(
       () => refreshDio.post<Map<String, dynamic>>(
-        '/auth/refresh',
+        '/api/v1/auth/refresh',
         data: any(named: 'data'),
       ),
     ).thenAnswer(
       (_) async => Response(
-        requestOptions: _opts('/auth/refresh'),
+        requestOptions: _opts('/api/v1/auth/refresh'),
         statusCode: 200,
         data: refreshEnvelope(),
       ),
@@ -151,7 +151,7 @@ void main() {
     // Exactly one refresh call.
     verify(
       () => refreshDio.post<Map<String, dynamic>>(
-        '/auth/refresh',
+        '/api/v1/auth/refresh',
         data: any(named: 'data'),
       ),
     ).called(1);
@@ -218,12 +218,12 @@ void main() {
       // Stub the refresh call to throw a network-level DioException.
       when(
         () => refreshDio.post<Map<String, dynamic>>(
-          '/auth/refresh',
+          '/api/v1/auth/refresh',
           data: any(named: 'data'),
         ),
       ).thenThrow(
         DioException(
-          requestOptions: _opts('/auth/refresh'),
+          requestOptions: _opts('/api/v1/auth/refresh'),
           type: DioExceptionType.connectionError,
           message: 'Network unreachable',
         ),
@@ -270,13 +270,13 @@ void main() {
 
     when(
       () => refreshDio.post<Map<String, dynamic>>(
-        '/auth/refresh',
+        '/api/v1/auth/refresh',
         data: any(named: 'data'),
       ),
     ).thenAnswer((_) async {
       await Future<void>.delayed(const Duration(milliseconds: 30));
       return Response(
-        requestOptions: _opts('/auth/refresh'),
+        requestOptions: _opts('/api/v1/auth/refresh'),
         statusCode: 200,
         data: refreshEnvelope(),
       );
@@ -318,7 +318,7 @@ void main() {
 
     verify(
       () => refreshDio.post<Map<String, dynamic>>(
-        '/auth/refresh',
+        '/api/v1/auth/refresh',
         data: any(named: 'data'),
       ),
     ).called(1);

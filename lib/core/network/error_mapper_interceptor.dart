@@ -85,7 +85,7 @@ final class ErrorMapperInterceptor extends Interceptor {
       // VerificationFailure so the screen can render the right UA copy.
       // Must be checked BEFORE the generic 400/422 → ValidationFailure branch
       // so the typed-code envelope wins over the field-errors fallback.
-      if (statusCode == 400 && path.endsWith('/auth/verify-email')) {
+      if (statusCode == 400 && path == '/api/v1/auth/verify-email') {
         final code = _extractVerificationCode(err);
         if (code != null) {
           return VerificationFailure(code: code, cause: err);
@@ -94,7 +94,7 @@ final class ErrorMapperInterceptor extends Interceptor {
 
       // Phase 2.11 — resend-verification 429 throttle (backend Phase 1.6).
       // Envelope: {success:false, message:"...", data:{retryAfterSeconds:42}}.
-      if (statusCode == 429 && path.endsWith('/auth/resend-verification')) {
+      if (statusCode == 429 && path == '/api/v1/auth/resend-verification') {
         return ResendThrottledFailure(
           retryAfterSeconds: _extractRetryAfterSeconds(err),
           cause: err,

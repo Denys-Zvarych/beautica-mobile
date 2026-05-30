@@ -134,7 +134,7 @@ final class RefreshInterceptor extends Interceptor {
       final response = await _ref
           .read(refreshDioProvider)
           .post<Map<String, dynamic>>(
-            '/auth/refresh',
+            '/api/v1/auth/refresh',
             data: {'refreshToken': rt},
           );
 

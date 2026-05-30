@@ -2053,6 +2053,144 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
+    // Test 20 — INDEPENDENT_MASTER happy path: verifyEmail succeeds and
+    //           updateLocality succeeds — no UnauthorizedFailure, no 401.
+    //
+    // Regression guard for the "Сесія завершилась" bug (2026-05-30):
+    //
+    // Before the fix, AuthNotifier.verifyEmail() cleared coldStartAccessToken
+    // in a `finally` block BEFORE setting state = AsyncData(Authenticated).
+    // This created a one-microtask window where:
+    //   - authProvider.value was still AsyncLoading (not yet Authenticated)
+    //   - coldStartAccessToken was null (already wiped by finally)
+    //
+    // AuthInterceptor checks `notifier.coldStartAccessToken` when
+    // `authProvider.value` is not Authenticated. During that window it found
+    // null → injected no Bearer token → PATCH /independent-masters/me
+    // returned 401 → RefreshInterceptor triggered logout → screen showed
+    // "Сесія завершилась".
+    //
+    // The fix: state = AsyncData(Authenticated) BEFORE coldStartAccessToken = null.
+    // Once state is Authenticated, AuthInterceptor reads the token from the
+    // settled session; the sentinel is no longer needed.
+    //
+    // This test asserts the observable outcome: updateLocality is called
+    // (implying no 401 blocked it) AND the screen navigates to /home
+    // (implying no logout was triggered).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '20. INDEPENDENT_MASTER happy path: updateLocality succeeds after '
+      'verifyEmail — no UnauthorizedFailure, navigates to home '
+      '(regression guard for auth session race fix 2026-05-30)',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final masterRepo = _MockMasterRepository();
+
+        // updateLocality must succeed without throwing — no 401.
+        when(
+          () => masterRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenAnswer((_) async {});
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            masterRepositoryProvider.overrideWith((_) => masterRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Seed an INDEPENDENT_MASTER draft with a full Step 3 locality so
+        // _saveProviderProfile does not throw ProviderMissingCityFailure.
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.independentMaster);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Іванна',
+          lastName: 'Ковальчук',
+          phone: '+380501112233',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Центральна',
+          buildingNo: '5Б',
+          locationNote: 'кв. 12',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // No error banner before submit.
+        expect(find.byType(AuthBanner), findsNothing);
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pumpAndSettle();
+
+        // Must navigate to /home — updateLocality succeeded, no logout fired.
+        expect(
+          find.text('home'),
+          findsOneWidget,
+          reason:
+              'INDEPENDENT_MASTER with full locality must navigate to /done → '
+              '/home after a successful verifyEmail + updateLocality. '
+              'If this fails, the auth session race (coldStartAccessToken wiped '
+              'before state = AsyncData(Authenticated)) is back.',
+        );
+
+        // No error banner — the race did not produce a 401.
+        expect(
+          find.byType(AuthBanner),
+          findsNothing,
+          reason:
+              'No error banner must appear after a successful registration flow. '
+              'An AuthBanner here means the 401 race is back.',
+        );
+
+        // updateLocality must have been called exactly once with the draft values.
+        verify(
+          () => masterRepo.updateLocality(
+            cityId: 'city-1',
+            districtId: 'district-1',
+            street: 'вул. Центральна',
+            buildingNo: '5Б',
+            locationNote: 'кв. 12',
+          ),
+        ).called(1);
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // Test 19 — resetCooldown() re-enables the resend link immediately.
     //
     // Fix 2B: when _saveProviderProfile fails after the OTP has been accepted

@@ -8,7 +8,7 @@
 // [dioProvider] Dio — mirroring [HttpAuthRepository]'s envelope handling.
 //
 // The `/locations/*` endpoints are PUBLIC reads (no auth required), but we
-// reuse [dioProvider] anyway for the shared base URL (`…/api/v1`) and the
+// reuse [dioProvider] anyway for the shared base URL and the
 // ErrorMapper interceptor that converts DioException → typed [Failure]. The
 // AuthInterceptor harmlessly skips attaching a token when none is stored.
 //
@@ -65,21 +65,21 @@ final class HttpLocationRepository implements LocationRepository {
 
   @override
   Future<List<Oblast>> fetchOblasts() => _fetchList(
-    path: '/locations/oblasts',
+    path: '/api/v1/locations/oblasts',
     mapper: Oblast.fromResponse,
     operation: 'fetchOblasts',
   );
 
   @override
   Future<List<City>> fetchCities(String oblastId) => _fetchList(
-    path: '/locations/oblasts/$oblastId/cities',
+    path: '/api/v1/locations/oblasts/$oblastId/cities',
     mapper: City.fromResponse,
     operation: 'fetchCities',
   );
 
   @override
   Future<List<CityDistrict>> fetchDistricts(String cityId) => _fetchList(
-    path: '/locations/cities/$cityId/districts',
+    path: '/api/v1/locations/cities/$cityId/districts',
     mapper: CityDistrict.fromResponse,
     operation: 'fetchDistricts',
   );

@@ -290,7 +290,7 @@ void main() {
         final rejected = _captureRejected(
           _httpError(
             400,
-            path: '/auth/verify-email',
+            path: '/api/v1/auth/verify-email',
             body: {
               'success': false,
               'data': {'code': 'INVALID_CODE'},
@@ -312,7 +312,7 @@ void main() {
         final rejected = _captureRejected(
           _httpError(
             400,
-            path: '/auth/verify-email',
+            path: '/api/v1/auth/verify-email',
             body: {
               'success': false,
               'data': {'code': 'CODE_EXPIRED'},
@@ -334,7 +334,7 @@ void main() {
         final rejected = _captureRejected(
           _httpError(
             400,
-            path: '/auth/verify-email',
+            path: '/api/v1/auth/verify-email',
             body: {
               'success': false,
               'data': {'code': 'ALREADY_VERIFIED'},
@@ -354,7 +354,7 @@ void main() {
       final rejected = _captureRejected(
         _httpError(
           400,
-          path: '/auth/verify-email',
+          path: '/api/v1/auth/verify-email',
           body: {
             'success': false,
             'data': {'code': 'SOME_FUTURE_CODE'},
@@ -376,7 +376,7 @@ void main() {
         final rejected = _captureRejected(
           _httpError(
             400,
-            path: '/auth/verify-email',
+            path: '/api/v1/auth/verify-email',
             body: {
               'success': false,
               'errors': {'code': 'must not be blank'},
@@ -421,7 +421,7 @@ void main() {
     // -------------------------------------------------------------------------
     DioException httpErrorWithRetryAfterHeader(
       String retryAfterValue, {
-      String path = '/auth/resend-verification',
+      String path = '/api/v1/auth/resend-verification',
       dynamic body,
     }) {
       final opts = _opts(path: path);
@@ -457,7 +457,7 @@ void main() {
 
     test('429 with Retry-After: 30 header AND data.retryAfterSeconds: 99 → '
         'header wins (RFC 7231 resolution order)', () {
-      final opts = _opts(path: '/auth/resend-verification');
+      final opts = _opts(path: '/api/v1/auth/resend-verification');
       final rejected = _captureRejected(
         DioException(
           requestOptions: opts,
@@ -504,7 +504,7 @@ void main() {
       '429 with non-integer Retry-After header (HTTP-date form) falls back to '
       'data.retryAfterSeconds in the JSON body',
       () {
-        final opts = _opts(path: '/auth/resend-verification');
+        final opts = _opts(path: '/api/v1/auth/resend-verification');
         final rejected = _captureRejected(
           DioException(
             requestOptions: opts,
@@ -543,7 +543,7 @@ void main() {
         final rejected = _captureRejected(
           _httpError(
             429,
-            path: '/auth/resend-verification',
+            path: '/api/v1/auth/resend-verification',
             body: {
               'success': false,
               'message': 'Too many resend attempts',
@@ -566,7 +566,7 @@ void main() {
         final rejected = _captureRejected(
           _httpError(
             429,
-            path: '/auth/resend-verification',
+            path: '/api/v1/auth/resend-verification',
             body: {'success': false, 'message': 'Too many resend attempts'},
           ),
         );
@@ -583,7 +583,7 @@ void main() {
       final rejected = _captureRejected(
         _httpError(
           429,
-          path: '/auth/resend-verification',
+          path: '/api/v1/auth/resend-verification',
           body: {
             'success': false,
             'data': {'retryAfterSeconds': -7},
@@ -605,7 +605,7 @@ void main() {
       final rejected = _captureRejected(
         _httpError(
           429,
-          path: '/auth/resend-verification',
+          path: '/api/v1/auth/resend-verification',
           body: {
             'success': false,
             'data': {'retryAfterSeconds': 3601},
