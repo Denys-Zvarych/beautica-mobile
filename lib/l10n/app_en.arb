@@ -418,11 +418,11 @@
   "@registerDetailsHeadlineAccent": {
     "description": "Italic Cormorant Garamond accent line under the registration details headline (sign-up-page.html .headline em)."
   },
-  "registerFirstNamePlaceholder": "Anya",
+  "registerFirstNamePlaceholder": "Enter first name",
   "@registerFirstNamePlaceholder": {
     "description": "In-field placeholder for the first name input (sign-up-page.html input placeholder)."
   },
-  "registerLastNamePlaceholder": "Koval",
+  "registerLastNamePlaceholder": "Enter last name",
   "@registerLastNamePlaceholder": {
     "description": "In-field placeholder for the last name input (sign-up-page.html input placeholder)."
   },
@@ -689,11 +689,11 @@
   "@step2FieldSalonLabel": {
     "description": "Uppercase field label above the salon-name input on the Step 2 Profile screen. Only shown for SALON_OWNER role."
   },
-  "step2FieldNamePlaceholder": "Anya",
+  "step2FieldNamePlaceholder": "Enter first name",
   "@step2FieldNamePlaceholder": {
     "description": "In-field placeholder for the first-name input on the Step 2 Profile screen."
   },
-  "step2FieldSurnamePlaceholder": "Koval",
+  "step2FieldSurnamePlaceholder": "Enter last name",
   "@step2FieldSurnamePlaceholder": {
     "description": "In-field placeholder for the last-name input on the Step 2 Profile screen."
   },

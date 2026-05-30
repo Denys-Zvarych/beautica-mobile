@@ -418,11 +418,11 @@
   "@registerDetailsHeadlineAccent": {
     "description": "Italic Cormorant Garamond accent line under the registration details headline (sign-up-page.html .headline em)."
   },
-  "registerFirstNamePlaceholder": "Аня",
+  "registerFirstNamePlaceholder": "Введіть ім'я",
   "@registerFirstNamePlaceholder": {
     "description": "In-field placeholder for the first name input (sign-up-page.html input placeholder)."
   },
-  "registerLastNamePlaceholder": "Коваль",
+  "registerLastNamePlaceholder": "Введіть прізвище",
   "@registerLastNamePlaceholder": {
     "description": "In-field placeholder for the last name input (sign-up-page.html input placeholder)."
   },
@@ -689,13 +689,13 @@
   "@step2FieldSalonLabel": {
     "description": "Uppercase field label above the salon-name input on the Step 2 Profile screen (sign-up-step-2-profile.html label — 'Назва салону'). Only shown for SALON_OWNER role."
   },
-  "step2FieldNamePlaceholder": "Аня",
+  "step2FieldNamePlaceholder": "Введіть ім'я",
   "@step2FieldNamePlaceholder": {
-    "description": "In-field placeholder for the first-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Аня'). Transcribed verbatim from HTML."
+    "description": "In-field placeholder for the first-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Введіть ім'я')."
   },
-  "step2FieldSurnamePlaceholder": "Коваль",
+  "step2FieldSurnamePlaceholder": "Введіть прізвище",
   "@step2FieldSurnamePlaceholder": {
-    "description": "In-field placeholder for the last-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Коваль'). Transcribed verbatim from HTML."
+    "description": "In-field placeholder for the last-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Введіть прізвище')."
   },
   "step2FieldPhonePlaceholder": "+380 __ ___ ____",
   "@step2FieldPhonePlaceholder": {

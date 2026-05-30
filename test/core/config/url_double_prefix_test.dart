@@ -74,10 +74,7 @@ const List<String> _repositoryPaths = [
 /// raw path string (no base URL prepended at the interceptor level). We still
 /// guard against a hypothetical regression where someone re-adds `/api/v1`
 /// to the base URL, which would make `baseUrl + interceptorPath` double-prefixed.
-final List<String> _interceptorPaths = [
-  ...kAuthPaths,
-  ...kPiiPaths,
-];
+final List<String> _interceptorPaths = [...kAuthPaths, ...kPiiPaths];
 
 // ---------------------------------------------------------------------------
 // Combined path set (deduplicated).
@@ -115,18 +112,15 @@ void main() {
       },
     );
 
-    test(
-      'AppConfig.baseUrl default does not end with /api/v1',
-      () {
-        expect(
-          AppConfig.baseUrl.endsWith('/api/v1'),
-          isFalse,
-          reason:
-              'AppConfig.baseUrl must not end with /api/v1. '
-              'Got: "${AppConfig.baseUrl}".',
-        );
-      },
-    );
+    test('AppConfig.baseUrl default does not end with /api/v1', () {
+      expect(
+        AppConfig.baseUrl.endsWith('/api/v1'),
+        isFalse,
+        reason:
+            'AppConfig.baseUrl must not end with /api/v1. '
+            'Got: "${AppConfig.baseUrl}".',
+      );
+    });
 
     test(
       'AppConfig.baseUrl default does not end with /api/v1/ (trailing slash variant)',
