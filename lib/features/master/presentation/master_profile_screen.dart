@@ -552,13 +552,14 @@ class _ProfileBody extends StatelessWidget {
                     ),
                     const Spacer(),
                     GestureDetector(
-                      onTap: () {
-                        // Phase 5 — services catalog route.
-                      },
+                      onTap: () => context.push(RouteNames.services),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
-                          Text('Усі послуги', style: VelvetText.link()),
+                          Text(
+                            l10n.masterAllServices,
+                            style: VelvetText.link(),
+                          ),
                           const SizedBox(width: 2),
                           const Icon(
                             Icons.arrow_forward_ios_rounded,

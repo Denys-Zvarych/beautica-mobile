@@ -418,11 +418,11 @@
   "@registerDetailsHeadlineAccent": {
     "description": "Italic Cormorant Garamond accent line under the registration details headline (sign-up-page.html .headline em)."
   },
-  "registerFirstNamePlaceholder": "Введіть ім'я",
+  "registerFirstNamePlaceholder": "Ваше ім'я",
   "@registerFirstNamePlaceholder": {
     "description": "In-field placeholder for the first name input (sign-up-page.html input placeholder)."
   },
-  "registerLastNamePlaceholder": "Введіть прізвище",
+  "registerLastNamePlaceholder": "Ваше прізвище",
   "@registerLastNamePlaceholder": {
     "description": "In-field placeholder for the last name input (sign-up-page.html input placeholder)."
   },
@@ -689,13 +689,13 @@
   "@step2FieldSalonLabel": {
     "description": "Uppercase field label above the salon-name input on the Step 2 Profile screen (sign-up-step-2-profile.html label — 'Назва салону'). Only shown for SALON_OWNER role."
   },
-  "step2FieldNamePlaceholder": "Введіть ім'я",
+  "step2FieldNamePlaceholder": "Ваше ім'я",
   "@step2FieldNamePlaceholder": {
-    "description": "In-field placeholder for the first-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Введіть ім'я')."
+    "description": "In-field placeholder for the first-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Ваше ім'я')."
   },
-  "step2FieldSurnamePlaceholder": "Введіть прізвище",
+  "step2FieldSurnamePlaceholder": "Ваше прізвище",
   "@step2FieldSurnamePlaceholder": {
-    "description": "In-field placeholder for the last-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Введіть прізвище')."
+    "description": "In-field placeholder for the last-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Ваше прізвище')."
   },
   "step2FieldPhonePlaceholder": "+380 __ ___ ____",
   "@step2FieldPhonePlaceholder": {
@@ -1257,5 +1257,10 @@
   "servicesEmptyBody": "Додайте першу послугу, щоб клієнти могли записатися до вас",
   "@servicesEmptyBody": {
     "description": "Empty state body text (Phase 5.2)."
+  },
+
+  "masterAllServices": "Усі послуги",
+  "@masterAllServices": {
+    "description": "Link label in the master profile services section header that navigates to the full services list screen."
   }
 }

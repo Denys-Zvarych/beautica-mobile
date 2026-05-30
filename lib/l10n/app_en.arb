@@ -1257,5 +1257,10 @@
   "servicesEmptyBody": "Add your first service so clients can book with you",
   "@servicesEmptyBody": {
     "description": "Empty state body text (Phase 5.2)."
+  },
+
+  "masterAllServices": "All services",
+  "@masterAllServices": {
+    "description": "Link label in the master profile services section header that navigates to the full services list screen."
   }
 }
