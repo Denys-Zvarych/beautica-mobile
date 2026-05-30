@@ -228,20 +228,21 @@ void main() {
           greaterThan(kAuthPaths.length),
           reason:
               'kPiiPaths must contain additional entries beyond kAuthPaths '
-              '(/independent-masters/me and /masters/me).',
+              '(/independent-masters/me, /independent-masters/me/profile, and /masters/me).',
         );
       },
     );
 
     test(
-      '15. kPiiPaths has exactly 13 entries (kAuthPaths union + 2 authenticated PII paths)',
+      '15. kPiiPaths has exactly 14 entries (kAuthPaths union + 3 authenticated PII paths)',
       () {
         expect(
           kPiiPaths.length,
-          equals(13),
+          equals(14),
           reason:
-              'kPiiPaths must equal kAuthPaths plus /independent-masters/me and '
-              '/masters/me. Update this count if new PII endpoints are added.',
+              'kPiiPaths must equal kAuthPaths plus /independent-masters/me, '
+              '/independent-masters/me/profile, and /masters/me. '
+              'Update this count if new PII endpoints are added.',
         );
       },
     );

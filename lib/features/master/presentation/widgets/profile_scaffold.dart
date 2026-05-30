@@ -7,7 +7,7 @@
 //   • VelvetColors.* → BrandColors.*
 //   • VelvetSpacing.* → VelvetSpacing.* (same constants in velvet_geometry.dart)
 //   • VelvetText.* unchanged (same names in velvet_text.dart)
-//   • `Navigator.of(context).maybePop()` → `context.pop()` (go_router)
+//   • maybePop() calls migrated to `context.pop()` (go_router)
 //   • `bottomNavBar` parameter dropped — bottom nav is a later-phase shell concern
 
 import 'package:flutter/material.dart';

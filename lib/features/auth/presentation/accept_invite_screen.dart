@@ -9,7 +9,7 @@
 //   - Reads acceptInviteProvider(token) for validate; branches on AsyncValue
 //   - On accept: calls ref.read(authProvider.notifier).acceptInvite(...)
 //   - AuthRole enum → UserRole + UserRoleL10n extension
-//   - Navigator.popUntil → context.go(RouteNames.home) via router redirect
+//   - popUntil migrated to context.go(RouteNames.home) via router redirect
 //   - VelvetColors.* → BrandColors.*; VelvetText.*/VelvetSpacing.* unchanged
 //   - ScreenProtector lifecycle (screen has password field) — !kDebugMode guarded
 //   - All strings via AppLocalizations (both UA + EN ARB keys added Phase 2.20)
