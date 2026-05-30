@@ -143,7 +143,7 @@ void main() {
       'no known API path produces a double-prefix when appended to AppConfig.baseUrl',
       () {
         const doublePrefix = '/api/v1/api/v1/';
-        final base = AppConfig.baseUrl;
+        const base = AppConfig.baseUrl;
 
         final violations = <String>[];
 
