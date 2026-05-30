@@ -82,13 +82,13 @@
   "@loginCreateAccount": {
     "description": "Link label to navigate to the register screen (login-page.html .register-row a)."
   },
-  "loginEmailPlaceholder": "anya@example.com",
+  "loginEmailPlaceholder": "Введіть email",
   "@loginEmailPlaceholder": {
     "description": "In-field placeholder for the email input on the login screen (login-page.html input placeholder)."
   },
-  "loginEmailHint": "olena.kovalenko@gmail.com",
+  "loginEmailHint": "Введіть email",
   "@loginEmailHint": {
-    "description": "hintText for the email field on the login screen — a realistic Ukrainian placeholder email address."
+    "description": "hintText for the email field on the login screen — descriptive prompt text."
   },
   "loginPasswordPlaceholder": "Ваш пароль",
   "@loginPasswordPlaceholder": {
@@ -426,13 +426,13 @@
   "@registerLastNamePlaceholder": {
     "description": "In-field placeholder for the last name input (sign-up-page.html input placeholder)."
   },
-  "registerEmailPlaceholder": "anya@example.com",
+  "registerEmailPlaceholder": "Введіть email",
   "@registerEmailPlaceholder": {
     "description": "In-field placeholder for the email input on the registration details screen (sign-up-page.html input placeholder)."
   },
-  "registerEmailHint": "ви@beautica.ua",
+  "registerEmailHint": "Введіть email",
   "@registerEmailHint": {
-    "description": "hintText for the email field on the Step 1 registration screen — a Ukrainian-locale placeholder email address."
+    "description": "hintText for the email field on the Step 1 registration screen — descriptive prompt text."
   },
   "registerPhonePlaceholder": "+380 __ ___ ____",
   "@registerPhonePlaceholder": {
@@ -907,7 +907,7 @@
   "@forgotPasswordEmailLabel": {
     "description": "Uppercase label above the email field on the forgot-password request screen."
   },
-  "forgotPasswordEmailPlaceholder": "anya@example.com",
+  "forgotPasswordEmailPlaceholder": "Введіть email",
   "@forgotPasswordEmailPlaceholder": {
     "description": "Placeholder for the email field on the forgot-password request screen."
   },

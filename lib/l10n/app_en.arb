@@ -82,13 +82,13 @@
   "@loginCreateAccount": {
     "description": "Link label to navigate to the register screen (login-page.html .register-row a)."
   },
-  "loginEmailPlaceholder": "anya@example.com",
+  "loginEmailPlaceholder": "Enter email",
   "@loginEmailPlaceholder": {
     "description": "In-field placeholder for the email input on the login screen (login-page.html input placeholder)."
   },
-  "loginEmailHint": "you@example.com",
+  "loginEmailHint": "Enter email",
   "@loginEmailHint": {
-    "description": "hintText for the email field on the login screen — a generic English placeholder email address."
+    "description": "hintText for the email field on the login screen — descriptive prompt text."
   },
   "loginPasswordPlaceholder": "Your password",
   "@loginPasswordPlaceholder": {
@@ -426,13 +426,13 @@
   "@registerLastNamePlaceholder": {
     "description": "In-field placeholder for the last name input (sign-up-page.html input placeholder)."
   },
-  "registerEmailPlaceholder": "anya@example.com",
+  "registerEmailPlaceholder": "Enter email",
   "@registerEmailPlaceholder": {
     "description": "In-field placeholder for the email input on the registration details screen (sign-up-page.html input placeholder)."
   },
-  "registerEmailHint": "you@beautica.ua",
+  "registerEmailHint": "Enter email",
   "@registerEmailHint": {
-    "description": "hintText for the email field on the Step 1 registration screen — an English-locale placeholder email address."
+    "description": "hintText for the email field on the Step 1 registration screen — descriptive prompt text."
   },
   "registerPhonePlaceholder": "+380 __ ___ ____",
   "@registerPhonePlaceholder": {
@@ -907,7 +907,7 @@
   "@forgotPasswordEmailLabel": {
     "description": "Uppercase label above the email field on the forgot-password request screen."
   },
-  "forgotPasswordEmailPlaceholder": "anya@example.com",
+  "forgotPasswordEmailPlaceholder": "Enter email",
   "@forgotPasswordEmailPlaceholder": {
     "description": "Placeholder for the email field on the forgot-password request screen."
   },
