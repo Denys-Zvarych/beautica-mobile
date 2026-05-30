@@ -1,0 +1,51 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="pillow" x="-60%" y="-60%" width="220%" height="220%">
+      <feOffset in="SourceAlpha" dx="22" dy="22" result="dkOff"/>
+      <feGaussianBlur in="dkOff" stdDeviation="20" result="dkBlur"/>
+      <feFlood flood-color="#C0AF98" flood-opacity="1" result="dkCol"/>
+      <feComposite in="dkCol" in2="dkBlur" operator="in" result="dkShad"/>
+      <feOffset in="SourceAlpha" dx="-22" dy="-22" result="ltOff"/>
+      <feGaussianBlur in="ltOff" stdDeviation="20" result="ltBlur"/>
+      <feFlood flood-color="#FFFBF4" flood-opacity="1" result="ltCol"/>
+      <feComposite in="ltCol" in2="ltBlur" operator="in" result="ltShad"/>
+      <feMerge>
+        <feMergeNode in="dkShad"/>
+        <feMergeNode in="ltShad"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <radialGradient id="vgn" cx="50%" cy="50%" r="65%">
+      <stop offset="0%" stop-color="#E6DDD0" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#C4B49E" stop-opacity="0.2"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="#E6DDD0"/>
+  <rect width="1200" height="630" fill="url(#vgn)"/>
+
+  <rect x="442" y="107" width="316" height="316" rx="105" fill="#E6DDD0" filter="url(#pillow)"/>
+
+  <text
+    x="600"
+    y="330"
+    font-family="'Comfortaa', 'Trebuchet MS', Georgia, serif"
+    font-size="180"
+    font-weight="700"
+    fill="#C4A988"
+    text-anchor="middle"
+  >B</text>
+
+  <text
+    x="600"
+    y="490"
+    font-family="'Comfortaa', 'Trebuchet MS', Georgia, serif"
+    font-size="52"
+    font-weight="600"
+    letter-spacing="8"
+    fill="#6E5743"
+    text-anchor="middle"
+  >beautica</text>
+
+  <rect x="490" y="524" width="220" height="1.5" rx="1" fill="#B89A7A" opacity="0.5"/>
+</svg>
