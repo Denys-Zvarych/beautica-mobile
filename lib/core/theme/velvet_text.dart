@@ -298,4 +298,36 @@ abstract final class VelvetText {
 
   /// Small caption under a stat tile — Nunito 11/700, secondary.
   static TextStyle statCaption() => _statCaptionStyle;
+
+  // ---------------------------------------------------------------------------
+  // Phase 5.2 — Service list screen styles.
+  //
+  // Transcribed from the approved preview app at
+  // `docs/signup-designs/ServiceListScreen/lib/theme/velvet_tokens.dart`
+  // (VelvetText.cardTitle / VelvetText.pill additive section). Color references
+  // changed from VelvetColors.* to BrandColors.*. Cached as static finals so
+  // build() never allocates a new TextStyle per frame.
+  // ---------------------------------------------------------------------------
+
+  static final TextStyle _cardTitleStyle = GoogleFonts.comfortaa(
+    fontSize: 17,
+    fontWeight: FontWeight.w700,
+    height: 1.2,
+    color: BrandColors.text,
+  );
+
+  static final TextStyle _pillStyle = GoogleFonts.nunito(
+    fontSize: 13,
+    fontWeight: FontWeight.w800,
+    letterSpacing: 0.2,
+    color: BrandColors.accentDeep,
+  );
+
+  /// Service name on a card — Comfortaa 17/700, espresso. A touch heavier than
+  /// [subheading] so the service title is the clear anchor of each row.
+  static TextStyle cardTitle() => _cardTitleStyle;
+
+  /// Pill content (duration / price chips) — Nunito 13/800, accentDeep with
+  /// mild tracking so the short strings sit evenly inside the inset chip.
+  static TextStyle pill() => _pillStyle;
 }

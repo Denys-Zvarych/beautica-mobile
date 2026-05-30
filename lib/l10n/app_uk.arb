@@ -1240,5 +1240,22 @@
   "masterEditInstagramHint": "username",
   "@masterEditInstagramHint": {
     "description": "Hint text inside the Instagram handle field on the master edit screen (Phase 4.3)."
+  },
+
+  "servicesTitle": "Мої послуги",
+  "@servicesTitle": {
+    "description": "Title for services list screen (Phase 5.2)."
+  },
+  "servicesAdd": "Додати послугу",
+  "@servicesAdd": {
+    "description": "FAB and empty state CTA label (Phase 5.2)."
+  },
+  "servicesEmpty": "Послуг ще немає",
+  "@servicesEmpty": {
+    "description": "Empty state heading (Phase 5.2)."
+  },
+  "servicesEmptyBody": "Додайте першу послугу, щоб клієнти могли записатися до вас",
+  "@servicesEmptyBody": {
+    "description": "Empty state body text (Phase 5.2)."
   }
 }

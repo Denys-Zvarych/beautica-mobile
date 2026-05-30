@@ -1240,5 +1240,22 @@
   "masterEditInstagramHint": "username",
   "@masterEditInstagramHint": {
     "description": "Hint text inside the Instagram handle field on the master edit screen (Phase 4.3)."
+  },
+
+  "servicesTitle": "My Services",
+  "@servicesTitle": {
+    "description": "Title for services list screen (Phase 5.2)."
+  },
+  "servicesAdd": "Add service",
+  "@servicesAdd": {
+    "description": "FAB and empty state CTA label (Phase 5.2)."
+  },
+  "servicesEmpty": "No services yet",
+  "@servicesEmpty": {
+    "description": "Empty state heading (Phase 5.2)."
+  },
+  "servicesEmptyBody": "Add your first service so clients can book with you",
+  "@servicesEmptyBody": {
+    "description": "Empty state body text (Phase 5.2)."
   }
 }

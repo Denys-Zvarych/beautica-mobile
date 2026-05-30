@@ -51,4 +51,9 @@ abstract final class RouteNames {
 
   // Phase 4.3 — Master profile edit form (INDEPENDENT_MASTER only).
   static const String masterEdit = '/master/edit';
+
+  // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
+  static const String services = '/services';
+  static const String serviceCreate = '/services/create';
+  static String serviceEdit(String id) => '/services/$id/edit';
 }
