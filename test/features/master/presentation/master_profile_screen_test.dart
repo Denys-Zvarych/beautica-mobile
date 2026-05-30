@@ -608,28 +608,27 @@ void main() {
       },
     );
 
-    testWidgets(
-      'instagram ContactTile shows dash when instagram is null',
-      (tester) async {
-        // _stubMaster has no instagram set (null) — dash expected.
-        await tester.pumpApp(
-          const MasterProfileScreen(),
-          overrides: _buildOverrides(
-            masterState: const AsyncData<Master>(_stubMaster),
-            repo: repo,
-          ),
-        );
-        await tester.pumpAndSettle();
+    testWidgets('instagram ContactTile shows dash when instagram is null', (
+      tester,
+    ) async {
+      // _stubMaster has no instagram set (null) — dash expected.
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('master-contact-instagram')),
-            matching: find.text('—'),
-          ),
-          findsOneWidget,
-        );
-      },
-    );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('master-contact-instagram')),
+          matching: find.text('—'),
+        ),
+        findsOneWidget,
+      );
+    });
   });
 
   // ── 8. Bottom navigation bar ──────────────────────────────────────────────

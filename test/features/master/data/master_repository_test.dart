@@ -462,8 +462,7 @@ void main() {
       expect(
         master.instagram,
         isNull,
-        reason:
-            'instagram must be null on Master when the DTO omits instagram',
+        reason: 'instagram must be null on Master when the DTO omits instagram',
       );
     });
   });

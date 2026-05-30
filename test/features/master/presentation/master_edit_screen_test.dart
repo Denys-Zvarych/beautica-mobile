@@ -246,9 +246,7 @@ void main() {
     testWidgets('instagram field is pre-populated from master.instagram', (
       tester,
     ) async {
-      final masterWithInstagram = _stubMaster.copyWith(
-        instagram: '@my_handle',
-      );
+      final masterWithInstagram = _stubMaster.copyWith(instagram: '@my_handle');
       final router = _buildRouter();
       await tester.pumpRoutedApp(
         router,

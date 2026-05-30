@@ -696,8 +696,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                           // static _validateInstagram method so the RegExps are
                           // allocated only once. Server-side validation remains
                           // the authoritative check.
-                          validator: (_) =>
-                              _validateInstagram(_instagram.text),
+                          validator: (_) => _validateInstagram(_instagram.text),
                           builder: (FormFieldState<String> field) {
                             return VelvetField(
                               label: l10n.instagramLabel,
@@ -715,8 +714,9 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                                 _clearServerError('instagram');
                                 field.didChange(v);
                                 setState(
-                                  () => _errInstagram =
-                                      _validateInstagram(_instagram.text),
+                                  () => _errInstagram = _validateInstagram(
+                                    _instagram.text,
+                                  ),
                                 );
                               },
                             );
