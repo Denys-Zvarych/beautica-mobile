@@ -172,7 +172,10 @@ if [[ "${CHECK_MODE}" == "true" ]]; then
 
   # Strip diff lines that only mention the test/ scaffolding directory (generated
   # stub tests that differ between runs but carry no semantic content).
-  DIFF_OUTPUT="$(echo "${DIFF_OUTPUT}" | grep -v "^Only in.*test/" || true)"
+  # Match both diff output formats:
+  #   "Only in <dir>/test/: <file>"   (directory-only entry)
+  #   "Files <a>/test/<f> and <b>/test/<f> differ"  (file-level diff)
+  DIFF_OUTPUT="$(echo "${DIFF_OUTPUT}" | grep -v "/test/" || true)"
 
   if [[ -n "${DIFF_OUTPUT}" ]]; then
     echo "ERROR: api/ is out of date with the committed spec."
