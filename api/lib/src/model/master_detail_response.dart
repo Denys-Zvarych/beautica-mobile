@@ -18,9 +18,6 @@ part 'master_detail_response.g.dart';
 /// * [firstName]
 /// * [lastName]
 /// * [city]
-/// * [street]
-/// * [buildingNo]
-/// * [locationNote]
 /// * [bio]
 /// * [avatarUrl]
 /// * [avgRating]
@@ -28,8 +25,6 @@ part 'master_detail_response.g.dart';
 /// * [masterType]
 /// * [salon]
 /// * [workingHours]
-/// * [phoneNumber]
-/// * [instagram]
 @BuiltValue()
 abstract class MasterDetailResponse
     implements Built<MasterDetailResponse, MasterDetailResponseBuilder> {
@@ -44,15 +39,6 @@ abstract class MasterDetailResponse
 
   @BuiltValueField(wireName: r'city')
   String? get city;
-
-  @BuiltValueField(wireName: r'street')
-  String? get street;
-
-  @BuiltValueField(wireName: r'buildingNo')
-  String? get buildingNo;
-
-  @BuiltValueField(wireName: r'locationNote')
-  String? get locationNote;
 
   @BuiltValueField(wireName: r'bio')
   String? get bio;
@@ -75,19 +61,6 @@ abstract class MasterDetailResponse
 
   @BuiltValueField(wireName: r'workingHours')
   BuiltList<WorkingHoursResponse>? get workingHours;
-
-  /// Owner-only PII — visible only to the authenticated master on `/masters/me`.
-  /// Do NOT render this on any screen that displays a foreign master's public
-  /// profile (e.g. a future browse/search screen). Suppress or show null regardless
-  /// of what the backend sends.
-  @BuiltValueField(wireName: r'phoneNumber')
-  String? get phoneNumber;
-
-  /// Optional Instagram handle or URL stored and returned by the backend. May
-  /// be a bare handle (e.g. "username"), "@"-prefixed handle, or full
-  /// https://instagram.com/... URL.
-  @BuiltValueField(wireName: r'instagram')
-  String? get instagram;
 
   MasterDetailResponse._();
 
@@ -146,27 +119,6 @@ class _$MasterDetailResponseSerializer
         specifiedType: const FullType(String),
       );
     }
-    if (object.street != null) {
-      yield r'street';
-      yield serializers.serialize(
-        object.street,
-        specifiedType: const FullType(String),
-      );
-    }
-    if (object.buildingNo != null) {
-      yield r'buildingNo';
-      yield serializers.serialize(
-        object.buildingNo,
-        specifiedType: const FullType(String),
-      );
-    }
-    if (object.locationNote != null) {
-      yield r'locationNote';
-      yield serializers.serialize(
-        object.locationNote,
-        specifiedType: const FullType(String),
-      );
-    }
     if (object.bio != null) {
       yield r'bio';
       yield serializers.serialize(
@@ -215,20 +167,6 @@ class _$MasterDetailResponseSerializer
         object.workingHours,
         specifiedType:
             const FullType(BuiltList, [FullType(WorkingHoursResponse)]),
-      );
-    }
-    if (object.phoneNumber != null) {
-      yield r'phoneNumber';
-      yield serializers.serialize(
-        object.phoneNumber,
-        specifiedType: const FullType(String),
-      );
-    }
-    if (object.instagram != null) {
-      yield r'instagram';
-      yield serializers.serialize(
-        object.instagram,
-        specifiedType: const FullType(String),
       );
     }
   }
@@ -284,27 +222,6 @@ class _$MasterDetailResponseSerializer
           ) as String;
           result.city = valueDes;
           break;
-        case r'street':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(String),
-          ) as String;
-          result.street = valueDes;
-          break;
-        case r'buildingNo':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(String),
-          ) as String;
-          result.buildingNo = valueDes;
-          break;
-        case r'locationNote':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(String),
-          ) as String;
-          result.locationNote = valueDes;
-          break;
         case r'bio':
           final valueDes = serializers.deserialize(
             value,
@@ -354,20 +271,6 @@ class _$MasterDetailResponseSerializer
                 const FullType(BuiltList, [FullType(WorkingHoursResponse)]),
           ) as BuiltList<WorkingHoursResponse>;
           result.workingHours.replace(valueDes);
-          break;
-        case r'phoneNumber':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(String),
-          ) as String;
-          result.phoneNumber = valueDes;
-          break;
-        case r'instagram':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(String),
-          ) as String;
-          result.instagram = valueDes;
           break;
         default:
           unhandled.add(key);

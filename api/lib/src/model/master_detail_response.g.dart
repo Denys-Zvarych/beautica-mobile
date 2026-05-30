@@ -84,12 +84,6 @@ class _$MasterDetailResponse extends MasterDetailResponse {
   @override
   final String? city;
   @override
-  final String? street;
-  @override
-  final String? buildingNo;
-  @override
-  final String? locationNote;
-  @override
   final String? bio;
   @override
   final String? avatarUrl;
@@ -103,10 +97,6 @@ class _$MasterDetailResponse extends MasterDetailResponse {
   final PublicSalonResponse? salon;
   @override
   final BuiltList<WorkingHoursResponse>? workingHours;
-  @override
-  final String? phoneNumber;
-  @override
-  final String? instagram;
 
   factory _$MasterDetailResponse(
           [void Function(MasterDetailResponseBuilder)? updates]) =>
@@ -117,18 +107,13 @@ class _$MasterDetailResponse extends MasterDetailResponse {
       this.firstName,
       this.lastName,
       this.city,
-      this.street,
-      this.buildingNo,
-      this.locationNote,
       this.bio,
       this.avatarUrl,
       this.avgRating,
       this.reviewCount,
       this.masterType,
       this.salon,
-      this.workingHours,
-      this.phoneNumber,
-      this.instagram})
+      this.workingHours})
       : super._();
   @override
   MasterDetailResponse rebuild(
@@ -147,18 +132,13 @@ class _$MasterDetailResponse extends MasterDetailResponse {
         firstName == other.firstName &&
         lastName == other.lastName &&
         city == other.city &&
-        street == other.street &&
-        buildingNo == other.buildingNo &&
-        locationNote == other.locationNote &&
         bio == other.bio &&
         avatarUrl == other.avatarUrl &&
         avgRating == other.avgRating &&
         reviewCount == other.reviewCount &&
         masterType == other.masterType &&
         salon == other.salon &&
-        workingHours == other.workingHours &&
-        phoneNumber == other.phoneNumber &&
-        instagram == other.instagram;
+        workingHours == other.workingHours;
   }
 
   @override
@@ -168,9 +148,6 @@ class _$MasterDetailResponse extends MasterDetailResponse {
     _$hash = $jc(_$hash, firstName.hashCode);
     _$hash = $jc(_$hash, lastName.hashCode);
     _$hash = $jc(_$hash, city.hashCode);
-    _$hash = $jc(_$hash, street.hashCode);
-    _$hash = $jc(_$hash, buildingNo.hashCode);
-    _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jc(_$hash, bio.hashCode);
     _$hash = $jc(_$hash, avatarUrl.hashCode);
     _$hash = $jc(_$hash, avgRating.hashCode);
@@ -178,8 +155,6 @@ class _$MasterDetailResponse extends MasterDetailResponse {
     _$hash = $jc(_$hash, masterType.hashCode);
     _$hash = $jc(_$hash, salon.hashCode);
     _$hash = $jc(_$hash, workingHours.hashCode);
-    _$hash = $jc(_$hash, phoneNumber.hashCode);
-    _$hash = $jc(_$hash, instagram.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -191,18 +166,13 @@ class _$MasterDetailResponse extends MasterDetailResponse {
           ..add('firstName', firstName)
           ..add('lastName', lastName)
           ..add('city', city)
-          ..add('street', street)
-          ..add('buildingNo', buildingNo)
-          ..add('locationNote', locationNote)
           ..add('bio', bio)
           ..add('avatarUrl', avatarUrl)
           ..add('avgRating', avgRating)
           ..add('reviewCount', reviewCount)
           ..add('masterType', masterType)
           ..add('salon', salon)
-          ..add('workingHours', workingHours)
-          ..add('phoneNumber', phoneNumber)
-          ..add('instagram', instagram))
+          ..add('workingHours', workingHours))
         .toString();
   }
 }
@@ -226,18 +196,6 @@ class MasterDetailResponseBuilder
   String? _city;
   String? get city => _$this._city;
   set city(String? city) => _$this._city = city;
-
-  String? _street;
-  String? get street => _$this._street;
-  set street(String? street) => _$this._street = street;
-
-  String? _buildingNo;
-  String? get buildingNo => _$this._buildingNo;
-  set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
-
-  String? _locationNote;
-  String? get locationNote => _$this._locationNote;
-  set locationNote(String? locationNote) => _$this._locationNote = locationNote;
 
   String? _bio;
   String? get bio => _$this._bio;
@@ -271,14 +229,6 @@ class MasterDetailResponseBuilder
   set workingHours(ListBuilder<WorkingHoursResponse>? workingHours) =>
       _$this._workingHours = workingHours;
 
-  String? _phoneNumber;
-  String? get phoneNumber => _$this._phoneNumber;
-  set phoneNumber(String? phoneNumber) => _$this._phoneNumber = phoneNumber;
-
-  String? _instagram;
-  String? get instagram => _$this._instagram;
-  set instagram(String? instagram) => _$this._instagram = instagram;
-
   MasterDetailResponseBuilder() {
     MasterDetailResponse._defaults(this);
   }
@@ -290,9 +240,6 @@ class MasterDetailResponseBuilder
       _firstName = $v.firstName;
       _lastName = $v.lastName;
       _city = $v.city;
-      _street = $v.street;
-      _buildingNo = $v.buildingNo;
-      _locationNote = $v.locationNote;
       _bio = $v.bio;
       _avatarUrl = $v.avatarUrl;
       _avgRating = $v.avgRating;
@@ -300,8 +247,6 @@ class MasterDetailResponseBuilder
       _masterType = $v.masterType;
       _salon = $v.salon?.toBuilder();
       _workingHours = $v.workingHours?.toBuilder();
-      _phoneNumber = $v.phoneNumber;
-      _instagram = $v.instagram;
       _$v = null;
     }
     return this;
@@ -329,9 +274,6 @@ class MasterDetailResponseBuilder
             firstName: firstName,
             lastName: lastName,
             city: city,
-            street: street,
-            buildingNo: buildingNo,
-            locationNote: locationNote,
             bio: bio,
             avatarUrl: avatarUrl,
             avgRating: avgRating,
@@ -339,8 +281,6 @@ class MasterDetailResponseBuilder
             masterType: masterType,
             salon: _salon?.build(),
             workingHours: _workingHours?.build(),
-            phoneNumber: phoneNumber,
-            instagram: instagram,
           );
     } catch (_) {
       late String _$failedField;
