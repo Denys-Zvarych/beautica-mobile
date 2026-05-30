@@ -126,11 +126,14 @@ class RoleChip extends StatelessWidget {
               Icon(icon, size: 14, color: BrandColors.accentDeep),
               const SizedBox(width: VelvetSpacing.xs - 2),
             ],
-            Text(
-              label,
-              // Fix 3 (PERF MEDIUM-1): use pre-cached static instead of
-              // calling feedback().copyWith() per build frame.
-              style: VelvetText.feedbackAccentSm,
+            Flexible(
+              child: Text(
+                label,
+                // Fix 3 (PERF MEDIUM-1): use pre-cached static instead of
+                // calling feedback().copyWith() per build frame.
+                style: VelvetText.feedbackAccentSm,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ],
         ),

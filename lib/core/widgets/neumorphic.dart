@@ -519,11 +519,14 @@ class _NeumorphicButtonState extends State<NeumorphicButton> {
                                 // path — VelvetText.cta() already carries
                                 // color: BrandColors.white so no copyWith needed.
                                 // Disabled style cached in _ctaDisabledStyle.
-                                Text(
-                                  widget.label,
-                                  style: _enabled
-                                      ? VelvetText.cta()
-                                      : _ctaDisabledStyle,
+                                Flexible(
+                                  child: Text(
+                                    widget.label,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: _enabled
+                                        ? VelvetText.cta()
+                                        : _ctaDisabledStyle,
+                                  ),
                                 ),
                               ],
                             ),

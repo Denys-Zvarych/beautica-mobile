@@ -108,6 +108,55 @@ void main() {
 
       expect(find.byType(NeumorphicInset), findsOneWidget);
     });
+
+    // -----------------------------------------------------------------------
+    // RoleChip overflow — Flexible wrapper regression guard [HIGH]
+    //
+    // Regression: without the Flexible wrapper the chip's Text overflows the
+    // Row when the label is longer than the chip's available width. This test
+    // constrains the chip to 60 dp — deliberately narrower than any real label
+    // — so overflow is guaranteed unless Flexible is present. Asserts:
+    //   a. No layout overflow exception (tester.takeException() is null).
+    //   b. At least one Flexible widget is present in the chip's subtree.
+    // -----------------------------------------------------------------------
+    testWidgets('overflow — Flexible wrapper regression guard: '
+        'no overflow in a 60 dp constrained SizedBox and Flexible is present', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const SizedBox(
+          width: 60,
+          child: RoleChip(
+            label: 'Дуже довга назва ролі яка точно переповниться',
+            icon: Icons.auto_awesome_rounded,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // a. No overflow exception must be thrown.
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'RoleChip must not throw a layout overflow exception in a '
+            '60 dp SizedBox — the Flexible wrapper must prevent it',
+      );
+
+      // b. At least one Flexible must exist inside the RoleChip subtree,
+      //    confirming the fix is in place.
+      expect(
+        find.descendant(
+          of: find.byType(RoleChip),
+          matching: find.byType(Flexible),
+        ),
+        findsAtLeastNWidgets(1),
+        reason:
+            'RoleChip.build() must wrap the label Text in a Flexible '
+            'widget — regression guard for the fix in '
+            'lib/features/master/presentation/widgets/profile_avatar.dart',
+      );
+    });
   });
 
   // ── StatTile ──────────────────────────────────────────────────────────────

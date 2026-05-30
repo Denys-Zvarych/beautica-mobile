@@ -42,6 +42,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -360,7 +361,11 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppLocalizations.of(context).savedSnackbar)),
       );
-      if (context.canPop()) context.pop();
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go(RouteNames.masterProfile);
+      }
     } on ValidationFailure catch (f) {
       if (kDebugMode) {
         log(
@@ -461,7 +466,11 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                         icon: Icons.close_rounded,
                         semanticLabel: l10n.masterCancelButton,
                         onTap: () {
-                          if (context.canPop()) context.pop();
+                          if (context.canPop()) {
+                            context.pop();
+                          } else {
+                            context.go(RouteNames.masterProfile);
+                          }
                         },
                       ),
                     ),

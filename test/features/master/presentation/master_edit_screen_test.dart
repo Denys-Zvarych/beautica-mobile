@@ -101,6 +101,17 @@ GoRouter _buildRouter() => GoRouter(
       pageBuilder: (context, state) =>
           const NoTransitionPage<void>(child: MasterEditScreen()),
     ),
+    // Stub destination used by cancel-navigation and save-success-navigation
+    // regression tests. The sentinel Key allows assertions that context.go()
+    // actually navigated here rather than staying on the edit screen.
+    GoRoute(
+      path: RouteNames.masterProfile,
+      pageBuilder: (context, state) => const NoTransitionPage<void>(
+        child: Scaffold(
+          body: Center(child: SizedBox(key: Key('stub-master-profile'))),
+        ),
+      ),
+    ),
   ],
 );
 
@@ -391,6 +402,100 @@ void main() {
       await tester.pump();
 
       expect(find.byKey(const Key('avatar-edit-badge')), findsOneWidget);
+    });
+  });
+
+  // ── 9. Cancel button navigates to masterProfile when canPop is false ──────
+  //
+  // Regression guard [HIGH] for the fix:
+  //   `if (context.canPop()) context.pop() else context.go(RouteNames.masterProfile)`
+  //
+  // The router starts directly at /master/edit with no history entry before it,
+  // so context.canPop() is false. Tapping cancel must call context.go() and
+  // land on the stub masterProfile scaffold.
+
+  group('cancel navigation regression guard', () {
+    testWidgets('cancel button navigates to masterProfile via context.go() '
+        'when canPop is false (no prior route in the stack)', (tester) async {
+      // Start at masterEdit with no prior history → canPop() is false.
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo),
+      );
+      // Pump until masterProfileProvider resolves and the form is initialised.
+      await tester.pump();
+      await tester.pump();
+
+      // The edit screen must be visible and the stub destination absent.
+      expect(find.byKey(const Key('btn-cancel-master')), findsOneWidget);
+      expect(find.byKey(const Key('stub-master-profile')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('btn-cancel-master')));
+      await tester.pumpAndSettle();
+
+      // After navigation the stub masterProfile sentinel must be on screen.
+      expect(
+        find.byKey(const Key('stub-master-profile')),
+        findsOneWidget,
+        reason:
+            'Cancel button must call context.go(RouteNames.masterProfile) '
+            'when context.canPop() is false — regression guard for the fix '
+            'in lib/features/master/presentation/master_edit_screen.dart',
+      );
+    });
+  });
+
+  // ── 10. Save success navigates to masterProfile when canPop is false ──────
+  //
+  // Regression guard [MEDIUM] for the save-success path:
+  //   `if (context.canPop()) context.pop() else context.go(RouteNames.masterProfile)`
+  //
+  // Same router fixture (no prior history → canPop false). After a successful
+  // save the screen must navigate to masterProfile via context.go(), not stay
+  // stuck (which happened before the fix when canPop was false and the old code
+  // had no else branch).
+
+  group('save success navigation regression guard', () {
+    testWidgets('save success navigates to masterProfile via context.go() '
+        'when canPop is false (no prior route in the stack)', (tester) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+      // Start at masterEdit with no prior history → canPop() is false.
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Dirty the firstName field so the Save button becomes enabled.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-firstName')),
+          matching: find.byType(TextField),
+        ),
+        'ОленаEdited',
+      );
+      await tester.pump();
+
+      // Stub destination must not be present before save.
+      expect(find.byKey(const Key('stub-master-profile')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('btn-save-master')));
+      await tester.pumpAndSettle();
+
+      // After save success the stub masterProfile sentinel must be on screen.
+      expect(
+        find.byKey(const Key('stub-master-profile')),
+        findsOneWidget,
+        reason:
+            'After a successful save, the edit screen must call '
+            'context.go(RouteNames.masterProfile) when context.canPop() '
+            'is false — regression guard for the fix in '
+            'lib/features/master/presentation/master_edit_screen.dart',
+      );
     });
   });
 }

@@ -156,16 +156,20 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
-                  _SummaryChip(
-                    key: const ValueKey<String>('done_chip_role'),
-                    icon: roleIcon,
-                    label: roleLabel,
+                  Flexible(
+                    child: _SummaryChip(
+                      key: const ValueKey<String>('done_chip_role'),
+                      icon: roleIcon,
+                      label: roleLabel,
+                    ),
                   ),
                   const SizedBox(width: VelvetSpacing.sm),
-                  _SummaryChip(
-                    key: const ValueKey<String>('done_chip_email'),
-                    icon: Icons.mark_email_read_outlined,
-                    label: l10n.registerDoneChipEmailVerified,
+                  Flexible(
+                    child: _SummaryChip(
+                      key: const ValueKey<String>('done_chip_email'),
+                      icon: Icons.mark_email_read_outlined,
+                      label: l10n.registerDoneChipEmailVerified,
+                    ),
                   ),
                 ],
               ),
@@ -230,7 +234,13 @@ class _SummaryChip extends StatelessWidget {
           children: <Widget>[
             Icon(icon, size: 15, color: BrandColors.accent),
             const SizedBox(width: VelvetSpacing.sm),
-            Text(label, style: VelvetText.chipLabel),
+            Flexible(
+              child: Text(
+                label,
+                style: VelvetText.chipLabel,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           ],
         ),
       ),

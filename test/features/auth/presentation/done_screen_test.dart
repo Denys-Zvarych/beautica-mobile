@@ -685,6 +685,68 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
+    // Test 12 — _SummaryChip overflow regression guard [HIGH]
+    //
+    // Regression: without the Flexible wrapper the chip's Text overflows its
+    // Row when the label is long and the viewport is narrow. This test pumps
+    // the done screen inside a 200 dp wide SizedBox so the two side-by-side
+    // chips cannot display "Пошта підтверджена" without truncation. The test
+    // asserts:
+    //   a. No overflow exception is thrown (tester.takeException() is null).
+    //   b. At least one Flexible widget exists in the tree that is a descendant
+    //      of done_chip_email — proving the Flexible wrapper is present.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '12. _SummaryChip overflow — Flexible wrapper regression guard: '
+      'no overflow in a 200 dp wide viewport and Flexible is present',
+      (tester) async {
+        // Constrain the viewport to 200 logical pixels — narrow enough that
+        // "Пошта підтверджена" would overflow without the Flexible wrapper.
+        tester.view.physicalSize = const Size(200 * 3, 800 * 3);
+        tester.view.devicePixelRatio = 3.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _userWithName,
+          router: router,
+        );
+
+        // a. No overflow exception must be thrown.
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              '_SummaryChip must not throw a layout overflow exception '
+              'in a narrow (200 dp) viewport — Flexible must prevent it',
+        );
+
+        // b. At least one Flexible must be a descendant of done_chip_email,
+        //    confirming the Flexible wrapper is present in the chip tree.
+        final emailChipFinder = find.byKey(
+          const ValueKey<String>('done_chip_email'),
+        );
+        expect(
+          emailChipFinder,
+          findsOneWidget,
+          reason: 'done_chip_email chip must be rendered',
+        );
+        expect(
+          find.descendant(of: emailChipFinder, matching: find.byType(Flexible)),
+          findsAtLeastNWidgets(1),
+          reason:
+              '_SummaryChip.build() must wrap the label Text in a Flexible '
+              'widget to prevent overflow — regression guard for the fix in '
+              'lib/features/auth/presentation/done_screen.dart',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // Test 11 — Structural assertion: 2-row chip layout
     //
     // done_chip_role and done_chip_email must be siblings inside the same Row
