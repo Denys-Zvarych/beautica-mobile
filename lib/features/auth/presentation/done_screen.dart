@@ -76,6 +76,12 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
     final roleLabel = user?.role.label(l10n) ?? l10n.registerDoneChipRoleClient;
     final roleIcon = user?.role.icon ?? Icons.person_outline_rounded;
 
+    final descText =
+        (user?.role == UserRole.independentMaster ||
+            user?.role == UserRole.salonMaster)
+        ? l10n.registerDoneDescMaster
+        : l10n.registerDoneDesc;
+
     return AuthScaffold(
       showBack: false,
       bottomBar: NeumorphicButton(
@@ -136,11 +142,12 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
           ),
           const SizedBox(height: VelvetSpacing.md),
 
-          // Description body copy.
+          // Description body copy — role-aware.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
             child: Text(
-              l10n.registerDoneDesc,
+              key: const Key('done-desc'),
+              descText,
               style: VelvetText.bodySmall,
               textAlign: TextAlign.center,
             ),

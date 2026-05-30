@@ -91,6 +91,30 @@ GoRouter _makeRouter() => GoRouter(
   ],
 );
 
+/// Builds a router that additionally includes a /master/profile placeholder.
+///
+/// Required by Test D — independentMaster CTA navigates to masterProfile.
+GoRouter _makeRouterWithMaster() => GoRouter(
+  initialLocation: RouteNames.done,
+  redirect: (context, state) => null,
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.done,
+      builder: (context, state) => const DoneScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.home,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('home-route'))),
+    ),
+    GoRoute(
+      path: RouteNames.masterProfile,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('master-profile-route'))),
+    ),
+  ],
+);
+
 /// Pumps the DoneScreen inside a UncontrolledProviderScope.
 ///
 /// When [authenticatedUser] is non-null the FakeAuthRepository is seeded so
@@ -802,6 +826,162 @@ void main() {
         );
       }
     });
+
+    // -----------------------------------------------------------------------
+    // Test A — shows registerDoneDescMaster when role is independentMaster
+    // -----------------------------------------------------------------------
+    testWidgets('A. shows registerDoneDescMaster description when role is '
+        'independentMaster', (tester) async {
+      // _userWithoutName has role == UserRole.independentMaster.
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await _pumpDoneScreen(
+        tester,
+        authenticatedUser: _userWithoutName,
+        router: router,
+      );
+
+      final l10n = _l10n(tester);
+
+      final descWidget = tester.widget<Text>(
+        find.byKey(const Key('done-desc')),
+      );
+      expect(
+        descWidget.data,
+        equals(l10n.registerDoneDescMaster),
+        reason:
+            'For UserRole.independentMaster the description must use '
+            'registerDoneDescMaster',
+      );
+      expect(
+        descWidget.data,
+        isNot(equals(l10n.registerDoneDesc)),
+        reason:
+            'The client description (registerDoneDesc) must NOT appear '
+            'for an independentMaster user',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test B — shows registerDoneDescMaster when role is salonMaster
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'B. shows registerDoneDescMaster description when role is salonMaster',
+      (tester) async {
+        const userSalonMaster = User(
+          id: 'u6',
+          email: 'master@salon.test',
+          role: UserRole.salonMaster,
+          firstName: 'Марина',
+          lastName: 'Петренко',
+        );
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: userSalonMaster,
+          router: router,
+        );
+
+        final l10n = _l10n(tester);
+
+        final descWidget = tester.widget<Text>(
+          find.byKey(const Key('done-desc')),
+        );
+        expect(
+          descWidget.data,
+          equals(l10n.registerDoneDescMaster),
+          reason:
+              'For UserRole.salonMaster the description must use '
+              'registerDoneDescMaster (same branch as independentMaster)',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test C — shows registerDoneDesc for client role
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'C. shows registerDoneDesc (client description) when role is client',
+      (tester) async {
+        // _userWithName has role == UserRole.client.
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _userWithName,
+          router: router,
+        );
+
+        final l10n = _l10n(tester);
+
+        final descWidget = tester.widget<Text>(
+          find.byKey(const Key('done-desc')),
+        );
+        expect(
+          descWidget.data,
+          equals(l10n.registerDoneDesc),
+          reason:
+              'For UserRole.client the description must use registerDoneDesc',
+        );
+        expect(
+          descWidget.data,
+          isNot(equals(l10n.registerDoneDescMaster)),
+          reason:
+              'The master description (registerDoneDescMaster) must NOT '
+              'appear for a client user',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test D — independentMaster CTA navigates to masterProfile
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'D. tapping done_to_app navigates to masterProfile when role is '
+      'independentMaster',
+      (tester) async {
+        // _userWithoutName has role == UserRole.independentMaster.
+        final router = _makeRouterWithMaster();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _userWithoutName,
+          router: router,
+        );
+
+        // masterProfile placeholder must not be visible yet.
+        expect(find.text('master-profile-route'), findsNothing);
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('done_to_app')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey<String>('done_to_app')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('master-profile-route'),
+          findsOneWidget,
+          reason:
+              'done_to_app must call context.go(RouteNames.masterProfile) '
+              'when the authenticated user has role independentMaster',
+        );
+        // Home placeholder must not be shown — wrong destination.
+        expect(
+          find.text('home-route'),
+          findsNothing,
+          reason:
+              'independentMaster CTA must route to masterProfile, not /home',
+        );
+      },
+    );
 
     // -----------------------------------------------------------------------
     // Test 12 — _SummaryChip overflow regression guard [HIGH]

@@ -624,6 +624,10 @@
   "@registerDoneDesc": {
     "description": "Body description below the headline on the registration-done screen (done-page.html .celebrate-desc)."
   },
+  "registerDoneDescMaster": "Тепер ви можете приймати клієнтів, керувати своїм розкладом та розвивати власну справу.",
+  "@registerDoneDescMaster": {
+    "description": "Description body copy on the done screen for INDEPENDENT_MASTER and SALON_MASTER roles — replaces the client-focused registerDoneDesc."
+  },
   "registerDoneChipRoleClient": "Клієнт",
   "@registerDoneChipRoleClient": {
     "description": "Role summary chip text on the registration-done screen when the user registered as a CLIENT (done-page.html .chip — first chip in the .chips-row)."
