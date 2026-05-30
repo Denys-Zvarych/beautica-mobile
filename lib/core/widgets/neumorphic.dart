@@ -1153,8 +1153,7 @@ class _NeumorphicAvatarEditorState extends State<NeumorphicAvatarEditor> {
                 shape: BoxShape.circle,
                 boxShadow: VelvetShadows.extrudedCard,
               ),
-              // 4 dp gap → inset breathing room around the disc.
-              padding: const EdgeInsets.all(4),
+              padding: const EdgeInsets.all(AppSpacing.xxs),
               child: ClipOval(
                 child: SizedBox(
                   height: NeumorphicAvatarEditor._disc,
