@@ -11,6 +11,11 @@ abstract final class VelvetRadii {
   static const double field = 16;
   static const double button = 16;
   static const double card = 24;
+
+  /// Fully-rounded pill (duration/price chips). Large enough that the ends
+  /// stay perfectly circular regardless of the element's height.
+  /// Transcribed from `docs/signup-designs/ServiceListScreen/lib/theme/velvet_tokens.dart`.
+  static const double pill = 999;
 }
 
 /// Spacing scale (8 dp rhythm with a 4 dp half-step) — VelvetTouch.

@@ -418,11 +418,11 @@
   "@registerDetailsHeadlineAccent": {
     "description": "Italic Cormorant Garamond accent line under the registration details headline (sign-up-page.html .headline em)."
   },
-  "registerFirstNamePlaceholder": "Введіть ім'я",
+  "registerFirstNamePlaceholder": "Ваше ім'я",
   "@registerFirstNamePlaceholder": {
     "description": "In-field placeholder for the first name input (sign-up-page.html input placeholder)."
   },
-  "registerLastNamePlaceholder": "Введіть прізвище",
+  "registerLastNamePlaceholder": "Ваше прізвище",
   "@registerLastNamePlaceholder": {
     "description": "In-field placeholder for the last name input (sign-up-page.html input placeholder)."
   },
@@ -689,13 +689,13 @@
   "@step2FieldSalonLabel": {
     "description": "Uppercase field label above the salon-name input on the Step 2 Profile screen (sign-up-step-2-profile.html label — 'Назва салону'). Only shown for SALON_OWNER role."
   },
-  "step2FieldNamePlaceholder": "Введіть ім'я",
+  "step2FieldNamePlaceholder": "Ваше ім'я",
   "@step2FieldNamePlaceholder": {
-    "description": "In-field placeholder for the first-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Введіть ім'я')."
+    "description": "In-field placeholder for the first-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Ваше ім'я')."
   },
-  "step2FieldSurnamePlaceholder": "Введіть прізвище",
+  "step2FieldSurnamePlaceholder": "Ваше прізвище",
   "@step2FieldSurnamePlaceholder": {
-    "description": "In-field placeholder for the last-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Введіть прізвище')."
+    "description": "In-field placeholder for the last-name input on the Step 2 Profile screen (sign-up-step-2-profile.html input placeholder — 'Ваше прізвище')."
   },
   "step2FieldPhonePlaceholder": "+380 __ ___ ____",
   "@step2FieldPhonePlaceholder": {
@@ -1240,5 +1240,150 @@
   "masterEditInstagramHint": "username",
   "@masterEditInstagramHint": {
     "description": "Hint text inside the Instagram handle field on the master edit screen (Phase 4.3)."
+  },
+
+  "servicesTitle": "Мої послуги",
+  "@servicesTitle": {
+    "description": "Title for services list screen (Phase 5.2)."
+  },
+  "servicesAdd": "Додати послугу",
+  "@servicesAdd": {
+    "description": "FAB and empty state CTA label (Phase 5.2)."
+  },
+  "servicesEmpty": "Послуг ще немає",
+  "@servicesEmpty": {
+    "description": "Empty state heading (Phase 5.2)."
+  },
+  "servicesEmptyBody": "Додайте першу послугу, щоб клієнти могли записатися до вас",
+  "@servicesEmptyBody": {
+    "description": "Empty state body text (Phase 5.2)."
+  },
+
+  "masterAllServices": "Усі послуги",
+  "@masterAllServices": {
+    "description": "Link label in the master profile services section header that navigates to the full services list screen."
+  },
+
+  "servicesCreateTitle": "Новий сервіс",
+  "@servicesCreateTitle": {
+    "description": "Title shown in the top bar of the service create screen (Phase 5.3)."
+  },
+  "serviceNameLabel": "Назва",
+  "@serviceNameLabel": {
+    "description": "Field label above the service name input on the service create/edit form (Phase 5.3)."
+  },
+  "serviceNameHint": "Напр. Манікюр з покриттям",
+  "@serviceNameHint": {
+    "description": "Hint text inside the service name input field on the service create form (Phase 5.3)."
+  },
+  "serviceDurationLabel": "Тривалість",
+  "@serviceDurationLabel": {
+    "description": "Field label above the duration input on the service create/edit form (Phase 5.3)."
+  },
+  "servicePriceLabel": "Ціна",
+  "@servicePriceLabel": {
+    "description": "Field label above the price input on the service create/edit form (Phase 5.3)."
+  },
+  "serviceFormSubheading": "Опишіть послугу, яку ви пропонуєте клієнтам",
+  "@serviceFormSubheading": {
+    "description": "Quiet sub-heading above the fields on the service create form (Phase 5.3)."
+  },
+  "errRequired": "Це поле обов'язкове",
+  "@errRequired": {
+    "description": "Generic required-field validation error used across multiple form fields."
+  },
+  "errDurationPositive": "Тривалість має бути більше 0",
+  "@errDurationPositive": {
+    "description": "Validation error when the duration field value is zero, negative, or not a valid integer (Phase 5.3)."
+  },
+  "errDurationMax": "Тривалість не може перевищувати 1440 хв",
+  "@errDurationMax": {
+    "description": "Validation error when the duration field exceeds 1440 minutes (24 hours) (Phase 5.3)."
+  },
+  "errPriceNonNegative": "Ціна не може бути від'ємною",
+  "@errPriceNonNegative": {
+    "description": "Validation error when the price field value is negative (Phase 5.3)."
+  },
+
+  "servicesEditTitle": "Редагувати сервіс",
+  "@servicesEditTitle": {
+    "description": "Title shown in the top bar of the service edit screen (Phase 5.4)."
+  },
+  "serviceEditSubheading": "Оновіть деталі послуги, яку ви пропонуєте",
+  "@serviceEditSubheading": {
+    "description": "Quiet sub-heading above the form fields on the service edit screen (Phase 5.4)."
+  },
+  "servicesSaveChanges": "Зберегти зміни",
+  "@servicesSaveChanges": {
+    "description": "CTA button label on the service edit screen (Phase 5.4)."
+  },
+  "servicePhotoAdd": "Додати фото",
+  "@servicePhotoAdd": {
+    "description": "Label in the empty-state of the service photo slot (Phase 5.4)."
+  },
+  "servicePhotoChange": "Змінити фото",
+  "@servicePhotoChange": {
+    "description": "Overlay chip label in the filled-state of the service photo slot (Phase 5.4)."
+  },
+  "servicePhotoCoverSubtitle": "Обкладинка сервісу у списку",
+  "@servicePhotoCoverSubtitle": {
+    "description": "Secondary label below the 'Додати фото' prompt in the empty photo slot (Phase 5.4)."
+  },
+  "servicePhotoAddSemantics": "Додати фото сервісу",
+  "@servicePhotoAddSemantics": {
+    "description": "Screen-reader label for the photo slot in the empty state (Phase 5.4)."
+  },
+  "servicePhotoChangeSemantics": "Змінити фото сервісу",
+  "@servicePhotoChangeSemantics": {
+    "description": "Screen-reader label for the photo slot in the filled state (Phase 5.4)."
+  },
+  "serviceUnsavedChanges": "Незбережені зміни",
+  "@serviceUnsavedChanges": {
+    "description": "Dirty-state badge shown beneath the sub-heading when the form diverges from the loaded service values (Phase 5.4)."
+  },
+
+  "deleteServiceTitle": "Видалити послугу?",
+  "@deleteServiceTitle": {
+    "description": "Title of the delete-service confirmation dialog (can-delete variant) and tooltip for the delete icon button in the service edit screen top bar (Phase 5.5)."
+  },
+  "deleteServiceBody": "Послугу буде деактивовано. Минулі бронювання залишаться.",
+  "@deleteServiceBody": {
+    "description": "Body text of the delete-service confirmation dialog (can-delete variant) explaining that past bookings are preserved (Phase 5.5)."
+  },
+  "deleteServiceBlockedTitle": "Не можна видалити",
+  "@deleteServiceBlockedTitle": {
+    "description": "Title of the delete-service confirmation dialog (blocked variant) shown when the service has future bookings (Phase 5.5)."
+  },
+  "deleteServiceBlockedBody": "{count, plural, one{Є {count} майбутнє бронювання. Скасуйте його спочатку.} few{Є {count} майбутніх бронювання. Скасуйте їх спочатку.} many{Є {count} майбутніх бронювань. Скасуйте їх спочатку.} other{Є {count} майбутніх бронювань. Скасуйте їх спочатку.}}",
+  "@deleteServiceBlockedBody": {
+    "description": "Body text of the delete-service blocked dialog. Informs the master how many future bookings exist and asks them to cancel those bookings first (Phase 5.5).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "actionCancel": "Скасувати",
+  "@actionCancel": {
+    "description": "Generic cancel action label used in confirmation dialogs (Phase 5.5)."
+  },
+  "actionDelete": "Видалити",
+  "@actionDelete": {
+    "description": "Generic destructive delete action label used in confirmation dialogs (Phase 5.5)."
+  },
+
+  "cooldownTryLater": "Спробуйте пізніше",
+  "@cooldownTryLater": {
+    "description": "Static message shown instead of a countdown when the server-supplied Retry-After value exceeds the UX ceiling (kMaxUxCooldownSeconds = 600 s). Prevents multi-year timers from rogue or misconfigured backends."
+  },
+
+  "passwordRuleMetSemantics": "виконано",
+  "@passwordRuleMetSemantics": {
+    "description": "Accessibility suffix appended to a password rule label when the rule is satisfied. Read by screen readers as part of the full Semantics.label: '<rule label>: виконано'."
+  },
+  "passwordRuleUnmetSemantics": "не виконано",
+  "@passwordRuleUnmetSemantics": {
+    "description": "Accessibility suffix appended to a password rule label when the rule is not yet satisfied. Read by screen readers as part of the full Semantics.label: '<rule label>: не виконано'."
   }
 }

@@ -179,6 +179,19 @@ String? authRedirectForLocation(
     };
   }
 
+  // Role gate: /services/* is only accessible to INDEPENDENT_MASTER.
+  //
+  // Any other authenticated role (CLIENT, SALON_OWNER, etc.) that navigates
+  // to a /services path is redirected to the home shell which renders the
+  // "coming soon" surface. This mirrors the guard already applied on the
+  // masterProfile/masterEdit routes via the role-dispatch switch above.
+  if (isAuthenticated && location.startsWith('/services')) {
+    final Authenticated auth = session.value! as Authenticated;
+    if (auth.user.role != UserRole.independentMaster) {
+      return RouteNames.home;
+    }
+  }
+
   // No redirect needed.
   return null;
 }

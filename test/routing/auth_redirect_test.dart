@@ -376,6 +376,51 @@ void main() {
         isNull,
       );
     });
+
+    // Phase 5.2 — /services/* role gate (SEC MEDIUM-2).
+    // INDEPENDENT_MASTER may access /services; all other roles are redirected
+    // to / (the "coming soon" home shell).
+
+    test('INDEPENDENT_MASTER at /services stays (null)', () {
+      expect(
+        authRedirectForLocation(_authenticatedSession, RouteNames.services),
+        isNull,
+      );
+    });
+
+    test('INDEPENDENT_MASTER at /services/create stays (null)', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.serviceCreate,
+        ),
+        isNull,
+      );
+    });
+
+    test('CLIENT role at /services is redirected to /', () {
+      expect(
+        authRedirectForLocation(_clientSession, RouteNames.services),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('CLIENT role at /services/create is redirected to /', () {
+      expect(
+        authRedirectForLocation(_clientSession, RouteNames.serviceCreate),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('CLIENT role at /services/:id/edit is redirected to /', () {
+      expect(
+        authRedirectForLocation(
+          _clientSession,
+          RouteNames.serviceEdit('svc-001'),
+        ),
+        equals(RouteNames.home),
+      );
+    });
   });
 
   // Splash duration gate — the animated wordmark (880 ms reveal) must always

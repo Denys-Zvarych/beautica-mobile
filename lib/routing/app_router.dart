@@ -39,6 +39,9 @@ import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
 import '../features/master/presentation/master_edit_screen.dart';
 import '../features/master/presentation/master_profile_screen.dart';
+import '../features/services/presentation/service_create_screen.dart';
+import '../features/services/presentation/service_edit_screen.dart';
+import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
@@ -195,6 +198,34 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.masterEdit,
         pageBuilder: (context, state) =>
             _instantPage(state, const MasterEditScreen()),
+      ),
+      // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
+      GoRoute(
+        path: RouteNames.services,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const ServicesListScreen()),
+      ),
+      // Phase 5.3 — Service create form (INDEPENDENT_MASTER).
+      GoRoute(
+        path: RouteNames.serviceCreate,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const ServiceCreateScreen()),
+      ),
+      // Phase 5.4 — Service edit form (INDEPENDENT_MASTER).
+      // Parameterised route — extracts `id` from the path. An empty id
+      // redirects to /services defensively; this keeps the guard resilient to
+      // programmatic pushes with a missing segment.
+      GoRoute(
+        path: '/services/:id/edit',
+        redirect: (context, state) {
+          final id = state.pathParameters['id'] ?? '';
+          if (id.isEmpty) return RouteNames.services;
+          return null;
+        },
+        pageBuilder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return _instantPage(state, ServiceEditScreen(id: id));
+        },
       ),
     ],
   );

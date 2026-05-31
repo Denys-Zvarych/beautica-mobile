@@ -96,7 +96,7 @@ final class ErrorMapperInterceptor extends Interceptor {
       // Envelope: {success:false, message:"...", data:{retryAfterSeconds:42}}.
       if (statusCode == 429 && path == '/api/v1/auth/resend-verification') {
         return ResendThrottledFailure(
-          retryAfterSeconds: _extractRetryAfterSeconds(err),
+          retryAfterSeconds: _extractRetryAfterSecondsNullable(err),
           cause: err,
         );
       }
@@ -240,15 +240,18 @@ final class ErrorMapperInterceptor extends Interceptor {
   /// Falls back to `0` when both sources are absent or malformed — the screen
   /// still shows the throttle banner and the user can manually retry.
   ///
-  /// Two-tier clamping (Batch-2 A4):
+  /// Two-tier clamping (Batch-2 A4 / UX fix):
   ///   - Security clamp: [0, 2^31] prevents integer overflow from a rogue server.
-  ///   - UX clamp: [0, kMaxUxCooldownSeconds] (10 min) prevents a multi-hour /
-  ///     multi-year countdown from being shown to the user. Values above the UX
-  ///     ceiling are treated as if the server sent the UX ceiling — the throttle
-  ///     banner is still shown but the countdown never exceeds 10 minutes.
-  int _extractRetryAfterSeconds(DioException err) {
+  ///   - UX clamp: values above [kMaxUxCooldownSeconds] (600 s / 10 min) return
+  ///     `null` so the UI shows a static "Спробуйте пізніше" message instead of
+  ///     a multi-year countdown. A rogue or misconfigured backend sending
+  ///     `Retry-After: 999999999` will therefore never display a countdown.
+  ///
+  /// Returns `null` when the server value exceeds [kMaxUxCooldownSeconds].
+  /// Returns `0` when both sources are absent or malformed.
+  int? _extractRetryAfterSecondsNullable(DioException err) {
     const int kMaxCooldown = 1 << 31; // overflow guard (MASVS-PLATFORM)
-    const int kMaxUxCooldownSeconds = 600; // 10 min UX ceiling (Batch-2 A4)
+    const int kMaxUxCooldownSeconds = 600; // 10 min UX ceiling
 
     // 1. Retry-After header (RFC 7231 §7.1.3 — integer seconds form only;
     //    HTTP-date form is intentionally not parsed here since the backend
@@ -258,7 +261,8 @@ final class ErrorMapperInterceptor extends Interceptor {
       if (headerRaw != null) {
         final parsed = int.tryParse(headerRaw.trim());
         if (parsed != null && parsed >= 0) {
-          return parsed.clamp(0, kMaxCooldown).clamp(0, kMaxUxCooldownSeconds);
+          final clamped = parsed.clamp(0, kMaxCooldown);
+          return clamped > kMaxUxCooldownSeconds ? null : clamped;
         }
       }
     } catch (e) {
@@ -279,13 +283,12 @@ final class ErrorMapperInterceptor extends Interceptor {
         if (data is Map<String, dynamic>) {
           final raw = data['retryAfterSeconds'];
           if (raw is int) {
-            return raw.clamp(0, kMaxCooldown).clamp(0, kMaxUxCooldownSeconds);
+            final clamped = raw.clamp(0, kMaxCooldown);
+            return clamped > kMaxUxCooldownSeconds ? null : clamped;
           }
           if (raw is num) {
-            return raw
-                .toInt()
-                .clamp(0, kMaxCooldown)
-                .clamp(0, kMaxUxCooldownSeconds);
+            final clamped = raw.toInt().clamp(0, kMaxCooldown);
+            return clamped > kMaxUxCooldownSeconds ? null : clamped;
           }
         }
       }
