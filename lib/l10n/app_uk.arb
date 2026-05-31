@@ -1303,5 +1303,42 @@
   "errPriceNonNegative": "Ціна не може бути від'ємною",
   "@errPriceNonNegative": {
     "description": "Validation error when the price field value is negative (Phase 5.3)."
+  },
+
+  "servicesEditTitle": "Редагувати сервіс",
+  "@servicesEditTitle": {
+    "description": "Title shown in the top bar of the service edit screen (Phase 5.4)."
+  },
+  "serviceEditSubheading": "Оновіть деталі послуги, яку ви пропонуєте",
+  "@serviceEditSubheading": {
+    "description": "Quiet sub-heading above the form fields on the service edit screen (Phase 5.4)."
+  },
+  "servicesSaveChanges": "Зберегти зміни",
+  "@servicesSaveChanges": {
+    "description": "CTA button label on the service edit screen (Phase 5.4)."
+  },
+  "servicePhotoAdd": "Додати фото",
+  "@servicePhotoAdd": {
+    "description": "Label in the empty-state of the service photo slot (Phase 5.4)."
+  },
+  "servicePhotoChange": "Змінити фото",
+  "@servicePhotoChange": {
+    "description": "Overlay chip label in the filled-state of the service photo slot (Phase 5.4)."
+  },
+  "servicePhotoCoverSubtitle": "Обкладинка сервісу у списку",
+  "@servicePhotoCoverSubtitle": {
+    "description": "Secondary label below the 'Додати фото' prompt in the empty photo slot (Phase 5.4)."
+  },
+  "servicePhotoAddSemantics": "Додати фото сервісу",
+  "@servicePhotoAddSemantics": {
+    "description": "Screen-reader label for the photo slot in the empty state (Phase 5.4)."
+  },
+  "servicePhotoChangeSemantics": "Змінити фото сервісу",
+  "@servicePhotoChangeSemantics": {
+    "description": "Screen-reader label for the photo slot in the filled state (Phase 5.4)."
+  },
+  "serviceUnsavedChanges": "Незбережені зміни",
+  "@serviceUnsavedChanges": {
+    "description": "Dirty-state badge shown beneath the sub-heading when the form diverges from the loaded service values (Phase 5.4)."
   }
 }

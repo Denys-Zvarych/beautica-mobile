@@ -1303,5 +1303,42 @@
   "errPriceNonNegative": "Price cannot be negative",
   "@errPriceNonNegative": {
     "description": "Validation error when the price field value is negative (Phase 5.3)."
+  },
+
+  "servicesEditTitle": "Edit Service",
+  "@servicesEditTitle": {
+    "description": "Title shown in the top bar of the service edit screen (Phase 5.4)."
+  },
+  "serviceEditSubheading": "Update the details of the service you offer",
+  "@serviceEditSubheading": {
+    "description": "Quiet sub-heading above the form fields on the service edit screen (Phase 5.4)."
+  },
+  "servicesSaveChanges": "Save changes",
+  "@servicesSaveChanges": {
+    "description": "CTA button label on the service edit screen (Phase 5.4)."
+  },
+  "servicePhotoAdd": "Add photo",
+  "@servicePhotoAdd": {
+    "description": "Label in the empty-state of the service photo slot (Phase 5.4)."
+  },
+  "servicePhotoChange": "Change photo",
+  "@servicePhotoChange": {
+    "description": "Overlay chip label in the filled-state of the service photo slot (Phase 5.4)."
+  },
+  "servicePhotoCoverSubtitle": "Service cover image in the list",
+  "@servicePhotoCoverSubtitle": {
+    "description": "Secondary label below the 'Add photo' prompt in the empty photo slot (Phase 5.4)."
+  },
+  "servicePhotoAddSemantics": "Add service photo",
+  "@servicePhotoAddSemantics": {
+    "description": "Screen-reader label for the photo slot in the empty state (Phase 5.4)."
+  },
+  "servicePhotoChangeSemantics": "Change service photo",
+  "@servicePhotoChangeSemantics": {
+    "description": "Screen-reader label for the photo slot in the filled state (Phase 5.4)."
+  },
+  "serviceUnsavedChanges": "Unsaved changes",
+  "@serviceUnsavedChanges": {
+    "description": "Dirty-state badge shown beneath the sub-heading when the form diverges from the loaded service values (Phase 5.4)."
   }
 }

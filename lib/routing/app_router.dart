@@ -40,6 +40,7 @@ import '../features/auth/presentation/verification_screen.dart';
 import '../features/master/presentation/master_edit_screen.dart';
 import '../features/master/presentation/master_profile_screen.dart';
 import '../features/services/presentation/service_create_screen.dart';
+import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import 'auth_redirect.dart';
@@ -211,10 +212,9 @@ GoRouter appRouter(Ref ref) {
             _instantPage(state, const ServiceCreateScreen()),
       ),
       // Phase 5.4 — Service edit form (INDEPENDENT_MASTER).
-      // Parameterised route — extracts `id` from the path so the real edit
-      // screen (Phase 5.4) can receive it. An empty id redirects to /services
-      // defensively; this keeps the guard resilient to programmatic pushes
-      // with a missing segment.
+      // Parameterised route — extracts `id` from the path. An empty id
+      // redirects to /services defensively; this keeps the guard resilient to
+      // programmatic pushes with a missing segment.
       GoRoute(
         path: '/services/:id/edit',
         redirect: (context, state) {
@@ -223,8 +223,8 @@ GoRouter appRouter(Ref ref) {
           return null;
         },
         pageBuilder: (context, state) {
-          final id = state.pathParameters['id'] ?? '';
-          return _instantPage(state, _ServiceEditPlaceholder(serviceId: id));
+          final id = state.pathParameters['id']!;
+          return _instantPage(state, ServiceEditScreen(id: id));
         },
       ),
     ],
@@ -241,19 +241,4 @@ class _Placeholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       Scaffold(body: Center(child: Text(label)));
-}
-
-/// Phase 5.4 placeholder for the service edit screen.
-///
-/// Receives [serviceId] from the `/services/:id/edit` path parameter. The
-/// real screen is delivered in Phase 5.4; this stub prevents [GoError] crashes
-/// when the edit route is pushed from [ServicesListScreen].
-class _ServiceEditPlaceholder extends StatelessWidget {
-  const _ServiceEditPlaceholder({required this.serviceId});
-
-  final String serviceId;
-
-  @override
-  Widget build(BuildContext context) =>
-      const Scaffold(body: Center(child: Text('Незабаром')));
 }

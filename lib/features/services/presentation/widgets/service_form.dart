@@ -1,23 +1,31 @@
 // Phase 5.3 — Reusable service form widget.
+// Phase 5.4 — Extended with [initial] MasterService support for the edit flow:
+//   - Pre-populates fields from the loaded service.
+//   - Dirty-state tracking: compares current field values vs the loaded baseline.
+//   - Exposes a "Незбережені зміни" badge via [_DirtyMarker] (fades in whenever
+//     any field diverges from the loaded values).
+//   - [ServiceEditScreen] passes [initial] and a [MasterServiceUpdate]-producing
+//     [onSubmit] callback; [ServiceCreateScreen] passes nothing (blank form).
 //
-// Stateless in terms of Riverpod — owns its own [TextEditingController]s and
-// local [bool] flags through a thin [StatefulWidget]. The parent screen
-// (ServiceCreateScreen, and later ServiceEditScreen in Phase 5.4) provides an
+// The parent screen (ServiceCreateScreen / ServiceEditScreen) provides an
 // [onSubmit] callback that receives the fully-validated [MasterServiceCreate]
 // payload. The form is responsible only for:
 //   - rendering three VelvetTouch fields (name, duration, price);
 //   - running client-side validators on submit;
-//   - toggling a loading state while [onSubmit] is in-flight.
+//   - toggling a loading state while [onSubmit] is in-flight;
+//   - showing the dirty-state marker when [initial] is set.
 //
 // Description is intentionally absent from the UI (user decision: deferred).
 // [MasterServiceCreate.description] is left null when the payload is built.
 
 import 'dart:developer';
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:flutter/foundation.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart';
@@ -33,9 +41,14 @@ import 'package:flutter/services.dart';
 /// submit-triggered: errors surface after the first submit attempt, then clear
 /// live as the user corrects each field.
 ///
-/// [initialName], [initialDurationMinutes], and [initialPrice] seed the fields
-/// for the edit use-case (Phase 5.4). They default to empty/zero, producing a
-/// blank form for the create use-case.
+/// [initial] seeds all fields for the edit use-case (Phase 5.4). When null,
+/// the form starts blank (create use-case). When set, a dirty-state marker
+/// ("Незбережені зміни") fades in beneath the sub-heading the moment any
+/// field diverges from the loaded values, giving the master a quiet signal.
+///
+/// [submitLabel] overrides the CTA label. Defaults to [l10n.masterSaveButton]
+/// when null, so the create screen gets "Зберегти" and the edit screen gets
+/// "Зберегти зміни" by passing the appropriate l10n key.
 ///
 /// [onSubmit] is awaited; the form disables the submit button and shows a
 /// spinner while it is in-flight. Any exception thrown by [onSubmit] propagates
@@ -43,20 +56,19 @@ import 'package:flutter/services.dart';
 class ServiceForm extends StatefulWidget {
   const ServiceForm({
     super.key,
-    this.initialName = '',
-    this.initialDurationMinutes,
-    this.initialPrice,
+    this.initial,
+    this.submitLabel,
     required this.onSubmit,
   });
 
-  /// Pre-filled name (edit mode). Empty string = blank field (create mode).
-  final String initialName;
+  /// Pre-filled service values (edit mode). Null = blank form (create mode).
+  ///
+  /// When set, the dirty-state marker is shown whenever any field value
+  /// diverges from the baseline established by this object.
+  final MasterService? initial;
 
-  /// Pre-filled duration in minutes. Null = blank field.
-  final int? initialDurationMinutes;
-
-  /// Pre-filled price in UAH. Null = blank field.
-  final double? initialPrice;
+  /// Override for the CTA button label. When null, uses [l10n.masterSaveButton].
+  final String? submitLabel;
 
   /// Called with the validated payload when the user taps Save.
   ///
@@ -84,24 +96,44 @@ class _ServiceFormState extends State<ServiceForm> {
 
   bool _submitted = false;
   bool _submitting = false;
+  bool _wasDirty = false;
+
+  // Dirty-state baseline values (edit mode only). These are the string
+  // representations of widget.initial fields — compared character-by-character
+  // against the current field texts to determine if the form is dirty.
+  late final String _baselineName;
+  late final String _baselineDuration;
+  late final String _baselinePrice;
+
+  /// True when the form is in edit mode ([widget.initial] is set) and at
+  /// least one field differs from the loaded service values.
+  bool get _isDirty {
+    if (widget.initial == null) return false;
+    return _nameCtrl.text != _baselineName ||
+        _durationCtrl.text != _baselineDuration ||
+        _priceCtrl.text != _baselinePrice;
+  }
 
   @override
   void initState() {
     super.initState();
-    _nameCtrl = TextEditingController(text: widget.initialName);
-    _durationCtrl = TextEditingController(
-      text: widget.initialDurationMinutes != null
-          ? widget.initialDurationMinutes.toString()
-          : '',
-    );
-    _priceCtrl = TextEditingController(
-      text: widget.initialPrice != null
-          ? widget.initialPrice!.toInt().toString()
-          : '',
-    );
+
+    final MasterService? initial = widget.initial;
+
+    // Price display: always integer — never "750.0" (backlog price-precision rule).
+    _baselineName = initial?.name ?? '';
+    _baselineDuration = initial != null
+        ? initial.durationMinutes.toString()
+        : '';
+    _baselinePrice = initial != null ? initial.price.toInt().toString() : '';
+
+    _nameCtrl = TextEditingController(text: _baselineName);
+    _durationCtrl = TextEditingController(text: _baselineDuration);
+    _priceCtrl = TextEditingController(text: _baselinePrice);
 
     // After first submit, live-re-validate on every keystroke so errors clear
-    // the instant the field becomes valid.
+    // the instant the field becomes valid. In edit mode, also repaint the dirty
+    // badge on each keystroke.
     for (final TextEditingController c in <TextEditingController>[
       _nameCtrl,
       _durationCtrl,
@@ -112,7 +144,12 @@ class _ServiceFormState extends State<ServiceForm> {
   }
 
   void _onChanged() {
-    if (_submitted && mounted) setState(() {});
+    if (!mounted) return;
+    final dirty = _isDirty;
+    if (_submitted || dirty != _wasDirty) {
+      _wasDirty = dirty;
+      setState(() {});
+    }
   }
 
   @override
@@ -217,18 +254,27 @@ class _ServiceFormState extends State<ServiceForm> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final bool isEditMode = widget.initial != null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         // Intro sub-heading — mirrors the preview's quiet intent line.
         Padding(
-          padding: const EdgeInsets.only(
-            left: VelvetSpacing.xs,
-            bottom: VelvetSpacing.lg,
+          padding: const EdgeInsets.only(left: VelvetSpacing.xs),
+          child: Text(
+            isEditMode
+                ? l10n.serviceEditSubheading
+                : l10n.serviceFormSubheading,
+            style: _subheadingStyle,
           ),
-          child: Text(l10n.serviceFormSubheading, style: _subheadingStyle),
         ),
+
+        // Dirty-state marker (edit mode only) — fades in beneath the intro
+        // line when any field diverges from the loaded service values.
+        if (isEditMode) _DirtyMarker(visible: _isDirty, l10n: l10n),
+
+        const SizedBox(height: VelvetSpacing.lg),
 
         // 1 — Service name (required, 1–255 chars).
         _buildField(
@@ -282,15 +328,77 @@ class _ServiceFormState extends State<ServiceForm> {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // CTA — Save button.
+        // CTA — Save / Save changes button.
         NeumorphicButton(
           key: const Key('btn-submit-service'),
-          label: l10n.masterSaveButton,
+          label: widget.submitLabel ?? l10n.masterSaveButton,
           icon: Icons.check_rounded,
           loading: _submitting,
           onPressed: _submitting ? null : () => _handleSubmit(l10n),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dirty-state marker
+//
+// A small camel inset pill that fades + slides in when the form diverges from
+// its loaded values, and fades out when the user reverts every field. Mirrors
+// the `_DirtyMarker` in the approved ServiceEditForm preview app exactly.
+// ---------------------------------------------------------------------------
+
+// Label styles extracted to `static final` to avoid per-frame allocations.
+class _DirtyMarker extends StatelessWidget {
+  const _DirtyMarker({required this.visible, required this.l10n});
+
+  final bool visible;
+  final AppLocalizations l10n;
+
+  // Hoisted: never construct inside build().
+  // feedbackAccentSm = Nunito 13/700, accentDeep, 12 sp — the closest
+  // pre-cached variant to the approved preview's "caption accentDeep w800".
+  // One cheap copyWith for the weight and tracking delta — far cheaper than
+  // a full GoogleFonts.nunito() call on every frame.
+  static final TextStyle _captionStyle = VelvetText.feedbackAccentSm.copyWith(
+    fontWeight: FontWeight.w800,
+    letterSpacing: 0.2,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      alignment: Alignment.topLeft,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 220),
+        opacity: visible ? 1.0 : 0.0,
+        child: visible
+            ? Padding(
+                padding: const EdgeInsets.only(
+                  left: VelvetSpacing.xs,
+                  top: VelvetSpacing.sm,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Container(
+                      height: 7,
+                      width: 7,
+                      decoration: const BoxDecoration(
+                        color: BrandColors.accent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: VelvetSpacing.sm),
+                    Text(l10n.serviceUnsavedChanges, style: _captionStyle),
+                  ],
+                ),
+              )
+            : const SizedBox(width: double.infinity, height: 0),
+      ),
     );
   }
 }
