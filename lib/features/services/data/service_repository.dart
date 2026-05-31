@@ -10,10 +10,11 @@
 //                          (hand-written; no generated update request exists)
 //   - deactivate(id)    → DELETE /api/v1/services/{id}
 //
-// The [masterId] required by [getMasterServices] is resolved from the
-// authenticated session at provider construction time via [authProvider] so
-// the repository interface remains parameter-free for list/get operations.
-// This mirrors how [MasterProfileNotifier] resolves the user ID.
+// The [masterId] required by [getMasterServices] is resolved from
+// [masterProfileProvider] at provider construction time — this is the
+// Master-row UUID (from MasterDetailResponse.masterId), NOT the User UUID
+// from the auth session. User.id != Master.id; using the wrong UUID caused
+// GET /api/v1/masters/{masterId}/services to always return [].
 //
 // All DioExceptions are mapped to typed [Failure] subclasses. No raw Dio
 // types cross this boundary into the domain or presentation layers.
@@ -23,8 +24,7 @@ import 'dart:developer';
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
-import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
-import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:dio/dio.dart';
@@ -291,21 +291,29 @@ final class HttpServiceRepository implements ServiceRepository {
 }
 
 /// Provides the [ServiceRepository] singleton backed by the authenticated Dio,
-/// the generated [ServiceControllerApi], and the current user's ID from the
-/// auth session.
+/// the generated [ServiceControllerApi], and the current master's UUID from
+/// [masterProfileProvider].
 ///
-/// The provider re-creates the repository whenever the auth session changes
-/// (e.g. after login or logout) so the [_masterId] is always current.
+/// IMPORTANT: [_masterId] must be the Master-row UUID
+/// (from MasterDetailResponse.masterId), NOT the User UUID from the auth
+/// session. User.id != Master.id. The list endpoint
+/// `GET /api/v1/masters/{masterId}/services` matches against the masters table
+/// primary key; passing a user UUID always returns [].
+///
+/// Both this provider and [masterProfileProvider] are [keepAlive: true], so
+/// the watch is stable. The repository is re-created whenever the master
+/// profile loads or changes (e.g. on first login after the profile resolves).
 ///
 /// Override in tests with a mocktail mock — never construct
 /// [HttpServiceRepository] directly in production or test code.
 @Riverpod(keepAlive: true)
 ServiceRepository serviceRepository(Ref ref) {
-  final session = ref.watch(authProvider).value;
-  final masterId = switch (session) {
-    Authenticated(:final user) => user.id,
-    _ => '',
-  };
+  // masterId is the Master-row UUID (from MasterDetailResponse.masterId),
+  // NOT the User UUID from the auth session. User.id != Master.id.
+  // AsyncValue.value returns null when loading/error; ?? '' keeps the
+  // _assertAuthenticated() guard intact until the profile resolves.
+  // masterProfileProvider is also keepAlive: true, so this watch is stable.
+  final masterId = ref.watch(masterProfileProvider).value?.id ?? '';
   return HttpServiceRepository(
     serviceApi: ref.watch(serviceApiProvider),
     dio: ref.watch(dioProvider),
