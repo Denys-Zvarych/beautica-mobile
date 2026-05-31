@@ -4,7 +4,7 @@
 // scrollable body, pinned CTA footer). On successful submit:
 //   1. Calls [ServiceRepository.create] via [serviceRepositoryProvider].
 //   2. Invalidates [servicesListProvider] so the list refreshes on pop.
-//   3. Pops the screen via [context.pop] (go_router, never Navigator.pop).
+//   3. Pops the screen via [context.pop] (go_router, raw navigator avoided).
 //
 // The [ServiceForm] handles its own loading state and propagates exceptions —
 // this screen catches them and shows a [SnackBar] so the user can retry without

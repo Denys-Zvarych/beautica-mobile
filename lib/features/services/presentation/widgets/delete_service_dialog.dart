@@ -14,6 +14,7 @@
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 /// Confirmation dialog for the service deactivation (soft-delete) action.
 ///
@@ -42,7 +43,7 @@ class DeleteServiceDialog extends StatelessWidget {
       actions: <Widget>[
         TextButton(
           key: const Key('btn-cancel-delete-service'),
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: () => context.pop(false),
           child: Text(l10n.actionCancel),
         ),
         FilledButton(
@@ -52,7 +53,7 @@ class DeleteServiceDialog extends StatelessWidget {
               Theme.of(context).colorScheme.error,
             ),
           ),
-          onPressed: () => Navigator.of(context).pop(true),
+          onPressed: () => context.pop(true),
           child: Text(l10n.actionDelete),
         ),
       ],
