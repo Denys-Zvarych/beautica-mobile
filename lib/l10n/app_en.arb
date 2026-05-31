@@ -1371,5 +1371,10 @@
   "actionDelete": "Delete",
   "@actionDelete": {
     "description": "Generic destructive delete action label used in confirmation dialogs (Phase 5.5)."
+  },
+
+  "cooldownTryLater": "Please try again later",
+  "@cooldownTryLater": {
+    "description": "Static message shown instead of a countdown when the server-supplied Retry-After value exceeds the UX ceiling (kMaxUxCooldownSeconds = 600 s). Prevents multi-year timers from rogue or misconfigured backends."
   }
 }

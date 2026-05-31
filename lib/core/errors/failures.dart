@@ -209,16 +209,28 @@ final class VerificationFailure extends Failure {
 ///
 /// [retryAfterSeconds] is the server-supplied number of seconds the client
 /// must wait before retrying. May be 0 if the body is malformed.
+///
+/// `null` means the server value exceeded [kMaxUxCooldownSeconds] (10 min).
+/// The UI must show a static "try later" message instead of a countdown when
+/// this field is null.
 final class ResendThrottledFailure extends Failure {
   const ResendThrottledFailure({required this.retryAfterSeconds, super.cause});
 
-  /// Seconds until the next resend is allowed. Always ≥ 0.
-  final int retryAfterSeconds;
+  /// Seconds until the next resend is allowed, or `null` when the server
+  /// value exceeded the UX ceiling (10 min / 600 s).
+  ///
+  /// When `null`, show a static message instead of a countdown timer.
+  /// When 0, no cooldown should be started — allow immediate retry.
+  final int? retryAfterSeconds;
 
   @override
-  String userMessage(BuildContext ctx) => AppLocalizations.of(
-    ctx,
-  ).verificationErrResendThrottled(retryAfterSeconds);
+  String userMessage(BuildContext ctx) {
+    final seconds = retryAfterSeconds;
+    if (seconds == null) {
+      return AppLocalizations.of(ctx).cooldownTryLater;
+    }
+    return AppLocalizations.of(ctx).verificationErrResendThrottled(seconds);
+  }
 }
 
 /// Emitted when `POST /auth/register` (or its role-specific variant) returns

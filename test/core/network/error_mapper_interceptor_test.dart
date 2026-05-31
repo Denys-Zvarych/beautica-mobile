@@ -600,8 +600,8 @@ void main() {
 
     // ---- kMaxUxCooldownSeconds = 600 ceiling tests (Batch-2 A4) ----
 
-    test('429 with data.retryAfterSeconds = 3601 → clamped to 600 '
-        '(kMaxUxCooldownSeconds UX ceiling via JSON body path)', () {
+    test('429 with data.retryAfterSeconds = 3601 → null '
+        '(exceeds kMaxUxCooldownSeconds UX ceiling via JSON body path)', () {
       final rejected = _captureRejected(
         _httpError(
           429,
@@ -616,24 +616,26 @@ void main() {
       expect(rejected.error, isA<ResendThrottledFailure>());
       expect(
         (rejected.error as ResendThrottledFailure).retryAfterSeconds,
-        equals(600),
+        isNull,
         reason:
-            'data.retryAfterSeconds of 3601 must be clamped to '
-            'kMaxUxCooldownSeconds (600)',
+            'data.retryAfterSeconds of 3601 exceeds kMaxUxCooldownSeconds (600) '
+            '— must return null so the UI shows a static message instead of '
+            'a multi-minute countdown',
       );
     });
 
-    test('429 with Retry-After: "7200" header → clamped to 600 '
-        '(kMaxUxCooldownSeconds UX ceiling via header path)', () {
+    test('429 with Retry-After: "7200" header → null '
+        '(exceeds kMaxUxCooldownSeconds UX ceiling via header path)', () {
       final rejected = _captureRejected(httpErrorWithRetryAfterHeader('7200'));
 
       expect(rejected.error, isA<ResendThrottledFailure>());
       expect(
         (rejected.error as ResendThrottledFailure).retryAfterSeconds,
-        equals(600),
+        isNull,
         reason:
-            'Retry-After header value of 7200 must be clamped to '
-            'kMaxUxCooldownSeconds (600)',
+            'Retry-After header value of 7200 exceeds kMaxUxCooldownSeconds (600) '
+            '— must return null so the UI shows a static message instead of '
+            'a multi-hour countdown',
       );
     });
 

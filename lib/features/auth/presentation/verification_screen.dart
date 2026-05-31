@@ -703,7 +703,10 @@ class _ResendRowState extends State<_ResendRow> {
     final int? serverSeconds = await widget.onResend();
     if (!mounted) return;
     if (serverSeconds == null) {
-      // Generic error — cancel the cooldown and let the user retry immediately.
+      // null = generic error OR server cooldown exceeded the UX ceiling (10 min).
+      // Either way: cancel the optimistic countdown and let the user retry
+      // immediately. The inline error banner already carries the appropriate
+      // static message ("Спробуйте пізніше" for ceiling-exceeded cases).
       _timer?.cancel();
       setState(() => _cooldown = 0);
     } else if (serverSeconds != _kResendCooldownSeconds) {
