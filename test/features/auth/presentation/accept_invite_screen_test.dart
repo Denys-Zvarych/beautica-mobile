@@ -335,6 +335,27 @@ void main() {
         expect(repo.acceptInviteCalls.first.password, 'StrongPassword12');
         expect(repo.acceptInviteCalls.first.firstName, 'Марія');
         expect(repo.acceptInviteCalls.first.lastName, 'Бондар');
+
+        // Navigation to / is triggered by the router redirect reacting to the
+        // AuthSession becoming Authenticated. In this test router the redirect
+        // is stubbed to null (the full redirect path is covered by NL-22).
+        //
+        // The observable proxy here is the success snackbar that the screen
+        // shows immediately before the router fires — its presence confirms
+        // the success branch (data state) was reached and that the screen
+        // *would* navigate to / in the production router.
+        await tester.pump(const Duration(milliseconds: 50));
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AcceptInviteScreen)),
+        );
+        expect(
+          find.text(l10n.inviteSuccessSnackbar),
+          findsOneWidget,
+          reason:
+              'Successful invite accept must show the success snackbar, '
+              'which is the on-screen indicator that the screen is about '
+              'to navigate to home (/)',
+        );
       },
     );
 

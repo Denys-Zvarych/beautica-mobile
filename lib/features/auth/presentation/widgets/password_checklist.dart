@@ -87,7 +87,7 @@ class PasswordChecklist extends StatelessWidget {
           for (final PasswordRule rule in rules)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 3),
-              child: _RuleRow(met: rule.test(value), label: rule.label),
+              child: _RuleRow(met: rule.test(value), label: rule.label, l10n: l10n),
             ),
         ],
       ),
@@ -96,15 +96,20 @@ class PasswordChecklist extends StatelessWidget {
 }
 
 class _RuleRow extends StatelessWidget {
-  const _RuleRow({required this.met, required this.label});
+  const _RuleRow({
+    required this.met,
+    required this.label,
+    required this.l10n,
+  });
 
   final bool met;
   final String label;
+  final AppLocalizations l10n;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: '$label: ${met ? 'виконано' : 'не виконано'}',
+      label: '$label: ${met ? l10n.passwordRuleMetSemantics : l10n.passwordRuleUnmetSemantics}',
       excludeSemantics: true,
       child: Row(
         children: <Widget>[

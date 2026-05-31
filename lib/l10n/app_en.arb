@@ -1376,5 +1376,14 @@
   "cooldownTryLater": "Please try again later",
   "@cooldownTryLater": {
     "description": "Static message shown instead of a countdown when the server-supplied Retry-After value exceeds the UX ceiling (kMaxUxCooldownSeconds = 600 s). Prevents multi-year timers from rogue or misconfigured backends."
+  },
+
+  "passwordRuleMetSemantics": "met",
+  "@passwordRuleMetSemantics": {
+    "description": "Accessibility suffix appended to a password rule label when the rule is satisfied. Read by screen readers as part of the full Semantics.label: '<rule label>: met'."
+  },
+  "passwordRuleUnmetSemantics": "not met",
+  "@passwordRuleUnmetSemantics": {
+    "description": "Accessibility suffix appended to a password rule label when the rule is not yet satisfied. Read by screen readers as part of the full Semantics.label: '<rule label>: not met'."
   }
 }
