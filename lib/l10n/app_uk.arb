@@ -1340,5 +1340,36 @@
   "serviceUnsavedChanges": "Незбережені зміни",
   "@serviceUnsavedChanges": {
     "description": "Dirty-state badge shown beneath the sub-heading when the form diverges from the loaded service values (Phase 5.4)."
+  },
+
+  "deleteServiceTitle": "Видалити послугу?",
+  "@deleteServiceTitle": {
+    "description": "Title of the delete-service confirmation dialog (can-delete variant) and tooltip for the delete icon button in the service edit screen top bar (Phase 5.5)."
+  },
+  "deleteServiceBody": "Послугу буде деактивовано. Минулі бронювання залишаться.",
+  "@deleteServiceBody": {
+    "description": "Body text of the delete-service confirmation dialog (can-delete variant) explaining that past bookings are preserved (Phase 5.5)."
+  },
+  "deleteServiceBlockedTitle": "Не можна видалити",
+  "@deleteServiceBlockedTitle": {
+    "description": "Title of the delete-service confirmation dialog (blocked variant) shown when the service has future bookings (Phase 5.5)."
+  },
+  "deleteServiceBlockedBody": "{count, plural, one{Є {count} майбутнє бронювання. Скасуйте його спочатку.} few{Є {count} майбутніх бронювання. Скасуйте їх спочатку.} many{Є {count} майбутніх бронювань. Скасуйте їх спочатку.} other{Є {count} майбутніх бронювань. Скасуйте їх спочатку.}}",
+  "@deleteServiceBlockedBody": {
+    "description": "Body text of the delete-service blocked dialog. Informs the master how many future bookings exist and asks them to cancel those bookings first (Phase 5.5).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "actionCancel": "Скасувати",
+  "@actionCancel": {
+    "description": "Generic cancel action label used in confirmation dialogs (Phase 5.5)."
+  },
+  "actionDelete": "Видалити",
+  "@actionDelete": {
+    "description": "Generic destructive delete action label used in confirmation dialogs (Phase 5.5)."
   }
 }

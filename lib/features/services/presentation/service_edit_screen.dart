@@ -29,6 +29,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/presentation/service_by_id_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/delete_service_dialog.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_photo_slot.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -99,6 +100,39 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
     super.dispose();
   }
 
+  /// Shows the [DeleteServiceDialog] and, if confirmed, deactivates the service.
+  ///
+  /// On success the services list is invalidated and the edit screen is popped.
+  /// On failure a snackbar is shown via [_showServiceEditFailureSnackbar].
+  Future<void> _onDelete(
+    BuildContext context,
+    WidgetRef ref,
+    MasterService service,
+    AppLocalizations l10n,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => const DeleteServiceDialog(),
+    );
+    if (confirmed != true || !context.mounted) return;
+    try {
+      await ref.read(serviceRepositoryProvider).deactivate(service.id);
+      ref.invalidate(servicesListProvider);
+      if (context.mounted) _popServiceEditScreen(context);
+    } catch (e) {
+      if (kDebugMode) {
+        log(
+          'ServiceEditScreen: deactivate error for id=${service.id} — $e',
+          name: _tag,
+          level: 900,
+        );
+      }
+      if (context.mounted) {
+        _showServiceEditFailureSnackbar(context, e, l10n);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -157,6 +191,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
             _showServiceEditFailureSnackbar(context, e, l10n);
           }
         },
+        onDelete: (MasterService svc) => _onDelete(context, ref, svc, l10n),
       ),
     );
   }
@@ -172,12 +207,18 @@ class _EditBody extends StatefulWidget {
     required this.l10n,
     required this.onSave,
     required this.onError,
+    required this.onDelete,
   });
 
   final MasterService service;
   final AppLocalizations l10n;
   final Future<void> Function(MasterServiceCreate input) onSave;
   final void Function(Object error) onError;
+
+  /// Called when the master taps the destructive delete icon button in the top
+  /// bar and the dialog has been shown. Handed off to [_ServiceEditScreenState]
+  /// which owns the `ref` needed to call the repository and invalidate providers.
+  final Future<void> Function(MasterService service) onDelete;
 
   @override
   State<_EditBody> createState() => _EditBodyState();
@@ -218,18 +259,15 @@ class _EditBodyState extends State<_EditBody>
   }
 
   Widget _reveal(Animation<double> curve, Widget child) {
-    return AnimatedBuilder(
-      animation: curve,
-      builder: (BuildContext ctx, Widget? c) {
-        return Opacity(
-          opacity: curve.value,
-          child: Transform.translate(
-            offset: Offset(0, (1 - curve.value) * 18),
-            child: c,
-          ),
-        );
-      },
-      child: child,
+    return FadeTransition(
+      opacity: curve,
+      child: SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0, 0.04),
+          end: Offset.zero,
+        ).animate(curve),
+        child: child,
+      ),
     );
   }
 
@@ -268,6 +306,16 @@ class _EditBodyState extends State<_EditBody>
                       l10n.servicesEditTitle,
                       style: VelvetText.subheading(),
                       textAlign: TextAlign.center,
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: IconButton(
+                        key: const Key('btn-delete-service'),
+                        icon: const Icon(Icons.delete_outline),
+                        color: Theme.of(context).colorScheme.error,
+                        tooltip: l10n.deleteServiceTitle,
+                        onPressed: () => widget.onDelete(widget.service),
+                      ),
                     ),
                   ],
                 ),

@@ -50,5 +50,13 @@ abstract class MasterService with _$MasterService {
 
     /// Whether this service is currently active and bookable.
     @Default(true) bool isActive,
+
+    /// Number of future (upcoming) bookings that reference this service.
+    ///
+    /// Defaults to `0` because the current backend API does not yet expose this
+    /// field in [MasterServiceResponse]. When the backend adds the field, the
+    /// mapper will read it and this default will only apply on cache-miss.
+    /// A value > 0 blocks deactivation until those bookings are resolved.
+    @Default(0) int futureBookingCount,
   }) = _MasterService;
 }

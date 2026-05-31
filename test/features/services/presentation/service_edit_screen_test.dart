@@ -32,6 +32,8 @@ import 'package:mocktail/mocktail.dart';
 // Fakes + Mocks
 // ---------------------------------------------------------------------------
 
+class _FakeMasterServiceCreate extends Fake implements MasterServiceCreate {}
+
 class _FakeMasterServiceUpdate extends Fake implements MasterServiceUpdate {}
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
@@ -113,6 +115,7 @@ Future<void> _pumpEdit(
 
 void main() {
   setUpAll(() {
+    registerFallbackValue(_FakeMasterServiceCreate());
     registerFallbackValue(_FakeMasterServiceUpdate());
   });
 
@@ -132,6 +135,8 @@ void main() {
     when(
       () => repo.update(_stubService.id, any()),
     ).thenAnswer((_) async => _stubService);
+    // Default: deactivate succeeds (used in tests 7 & 8).
+    when(() => repo.deactivate(_stubService.id)).thenAnswer((_) async {});
   });
 
   // ── 1. Form pre-populated from cache ──────────────────────────────────────
@@ -343,6 +348,53 @@ void main() {
       expect(find.byIcon(Icons.photo_camera_rounded), findsOneWidget);
       // The "add photo" camera icon must NOT be shown.
       expect(find.byIcon(Icons.add_a_photo_rounded), findsNothing);
+    },
+  );
+
+  // ── 7. Tapping btn-delete-service opens the dialog ───────────────────────
+
+  testWidgets('7. tapping btn-delete-service opens DeleteServiceDialog', (
+    tester,
+  ) async {
+    await _pumpEdit(tester, repo);
+
+    // The delete button should be visible in the loaded data state.
+    expect(find.byKey(const Key('btn-delete-service')), findsOneWidget);
+
+    // Tap the delete button.
+    await tester.tap(find.byKey(const Key('btn-delete-service')));
+    await tester.pumpAndSettle();
+
+    // The dialog should now be open.
+    expect(
+      find.byKey(const Key('delete-service-dialog')),
+      findsOneWidget,
+      reason:
+          'DeleteServiceDialog must be shown after tapping btn-delete-service',
+    );
+
+    // Dismiss with cancel to avoid dangling timer / dialog in subsequent tests.
+    await tester.tap(find.byKey(const Key('btn-cancel-delete-service')));
+    await tester.pumpAndSettle();
+  });
+
+  // ── 8. Confirming delete calls deactivate(id) and pops ───────────────────
+
+  testWidgets(
+    '8. confirming delete calls repository.deactivate(id) and pops screen',
+    (tester) async {
+      await _pumpEdit(tester, repo);
+
+      // Open the dialog.
+      await tester.tap(find.byKey(const Key('btn-delete-service')));
+      await tester.pumpAndSettle();
+
+      // Confirm deletion.
+      await tester.tap(find.byKey(const Key('btn-confirm-delete-service')));
+      await tester.pumpAndSettle();
+
+      // deactivate must have been called exactly once.
+      verify(() => repo.deactivate(_stubService.id)).called(1);
     },
   );
 

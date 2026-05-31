@@ -65,6 +65,22 @@ abstract final class MasterServiceMapper {
         dto.effectiveDurationMinutes ?? def?.baseDurationMinutes ?? 0;
     final price = (dto.effectivePrice ?? def?.basePrice ?? 0).toDouble();
 
+    // futureBookingCount is not yet returned by the backend API. Log a
+    // development-mode reminder so engineers are aware the field is absent.
+    // This is NOT an assert — the field being absent is expected and safe.
+    // TODO: read dto.futureBookingCount once backend exposes it in
+    // MasterServiceResponse and remove this log.
+    assert(() {
+      log(
+        'MasterServiceMapper.fromDto: futureBookingCount not yet populated '
+        'by backend (defaults to 0). Blocked-delete variant is suppressed '
+        'until the field is exposed in MasterServiceResponse.',
+        name: 'feature.services.mapper',
+        level: 700,
+      );
+      return true;
+    }());
+
     return MasterService(
       id: id,
       name: def?.name ?? '',

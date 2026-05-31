@@ -1340,5 +1340,36 @@
   "serviceUnsavedChanges": "Unsaved changes",
   "@serviceUnsavedChanges": {
     "description": "Dirty-state badge shown beneath the sub-heading when the form diverges from the loaded service values (Phase 5.4)."
+  },
+
+  "deleteServiceTitle": "Delete service?",
+  "@deleteServiceTitle": {
+    "description": "Title of the delete-service confirmation dialog (can-delete variant) and tooltip for the delete icon button in the service edit screen top bar (Phase 5.5)."
+  },
+  "deleteServiceBody": "The service will be deactivated. Past bookings are preserved.",
+  "@deleteServiceBody": {
+    "description": "Body text of the delete-service confirmation dialog (can-delete variant) explaining that past bookings are preserved (Phase 5.5)."
+  },
+  "deleteServiceBlockedTitle": "Cannot delete",
+  "@deleteServiceBlockedTitle": {
+    "description": "Title of the delete-service confirmation dialog (blocked variant) shown when the service has future bookings (Phase 5.5)."
+  },
+  "deleteServiceBlockedBody": "{count, plural, one{{count} future booking exists. Cancel it first.} other{{count} future bookings exist. Cancel them first.}}",
+  "@deleteServiceBlockedBody": {
+    "description": "Body text of the delete-service blocked dialog. Informs the master how many future bookings exist and asks them to cancel those bookings first (Phase 5.5).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "actionCancel": "Cancel",
+  "@actionCancel": {
+    "description": "Generic cancel action label used in confirmation dialogs (Phase 5.5)."
+  },
+  "actionDelete": "Delete",
+  "@actionDelete": {
+    "description": "Generic destructive delete action label used in confirmation dialogs (Phase 5.5)."
   }
 }
