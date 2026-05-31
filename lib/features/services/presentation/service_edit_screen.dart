@@ -296,14 +296,14 @@ class _EditBodyState extends State<_EditBody>
   /// [fadeAnim] drives opacity; [slideAnim] is the pre-built [Animation<Offset>]
   /// that drives the vertical offset. Both are initialised once in [initState]
   /// — no heap allocations occur during build frames.
-  Widget _reveal(Animation<double> fadeAnim, Animation<Offset> slideAnim,
-      Widget child) {
+  Widget _reveal(
+    Animation<double> fadeAnim,
+    Animation<Offset> slideAnim,
+    Widget child,
+  ) {
     return FadeTransition(
       opacity: fadeAnim,
-      child: SlideTransition(
-        position: slideAnim,
-        child: child,
-      ),
+      child: SlideTransition(position: slideAnim, child: child),
     );
   }
 

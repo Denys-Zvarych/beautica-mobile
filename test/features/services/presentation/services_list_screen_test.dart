@@ -57,6 +57,15 @@ const _stubService = MasterService(
 
 const _stubServiceList = <MasterService>[_stubService];
 
+/// Minimal [MasterService] factory for generating lists of arbitrary length.
+/// Only the required fields are set; freezed defaults cover the rest.
+MasterService _makeService(int i) => MasterService(
+  id: 'svc-$i',
+  name: 'Test $i',
+  durationMinutes: 30,
+  price: 100,
+);
+
 // ---------------------------------------------------------------------------
 // Stub notifiers
 // ---------------------------------------------------------------------------
@@ -286,5 +295,82 @@ void main() {
     // Verify the correct path was resolved.
     final expectedPath = RouteNames.serviceEdit(_stubService.id);
     expect(expectedPath, '/services/svc-001/edit');
+  });
+
+  // ── 7. Ukrainian plural forms for _serviceWordUk ───────────────────────────
+
+  group('_serviceWordUk plural forms', () {
+    /// Pumps [ServicesListScreen] with [count] stub services, advances through
+    /// the entrance animation, then asserts that the count label contains
+    /// [expectedWord].
+    Future<void> expectPluralLabel(
+      WidgetTester tester, {
+      required int count,
+      required String expectedWord,
+    }) async {
+      final services = List<MasterService>.generate(count, _makeService);
+      await tester.pumpApp(
+        const ServicesListScreen(),
+        overrides: [
+          _servicesOverride(AsyncData(services)),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+        ],
+      );
+      // Loading frame → microtask delivers data → data frame.
+      await tester.pump();
+      await tester.pump();
+      // Advance past the longest possible stagger delay.
+      // Each _ServiceCard at index i gets appearDelay = 90 * (i-1) ms.
+      // For the largest list (count=100) the last card fires at 90*99 = 8910 ms.
+      // Pumping 10 s of fake time drains all outstanding timers so the
+      // test harness does not report "pending timers".
+      await tester.pump(const Duration(seconds: 10));
+
+      expect(
+        find.text('$count $expectedWord'),
+        findsOneWidget,
+        reason: '_serviceWordUk($count) should return "$expectedWord"',
+      );
+    }
+
+    testWidgets(
+      'count=1 → "послуга" (n%10==1, not in exception class 11–14)',
+      (tester) => expectPluralLabel(tester, count: 1, expectedWord: 'послуга'),
+    );
+
+    testWidgets(
+      'count=2 → "послуги" (n%10==2)',
+      (tester) => expectPluralLabel(tester, count: 2, expectedWord: 'послуги'),
+    );
+
+    testWidgets(
+      'count=4 → "послуги" (n%10==4)',
+      (tester) => expectPluralLabel(tester, count: 4, expectedWord: 'послуги'),
+    );
+
+    testWidgets(
+      'count=5 → "послуг" (n%10==5 → default branch)',
+      (tester) => expectPluralLabel(tester, count: 5, expectedWord: 'послуг'),
+    );
+
+    testWidgets(
+      'count=11 → "послуг" (n%100==11 — exception class overrides n%10==1)',
+      (tester) => expectPluralLabel(tester, count: 11, expectedWord: 'послуг'),
+    );
+
+    testWidgets(
+      'count=14 → "послуг" (n%100==14 — boundary of exception class)',
+      (tester) => expectPluralLabel(tester, count: 14, expectedWord: 'послуг'),
+    );
+
+    testWidgets(
+      'count=21 → "послуга" (n%10==1, n%100==21 — NOT in exception class)',
+      (tester) => expectPluralLabel(tester, count: 21, expectedWord: 'послуга'),
+    );
+
+    testWidgets(
+      'count=100 → "послуг" (n%10==0 → default branch)',
+      (tester) => expectPluralLabel(tester, count: 100, expectedWord: 'послуг'),
+    );
   });
 }

@@ -28,7 +28,6 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:beautica_mobile/features/master/presentation/master_edit_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -922,67 +921,66 @@ void main() {
     // cascade, the location section is "touched" but incomplete. _validateLocation
     // must block the save and updateLocality must never be called.
 
-    testWidgets(
-      'validation_requires_street_when_street_filled_but_no_city',
-      (tester) async {
-        final router = _buildRouter();
-        await tester.pumpRoutedApp(
-          router,
-          overrides: _buildOverrides(repo: repo),
-        );
-        await tester.pump();
-        await tester.pump();
+    testWidgets('validation_requires_street_when_street_filled_but_no_city', (
+      tester,
+    ) async {
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo),
+      );
+      await tester.pump();
+      await tester.pump();
 
-        // Dirty the firstName field so the save button becomes enabled.
-        // This is necessary because NeumorphicButton with onPressed:null is
-        // non-interactive — tapping it would be a no-op.
-        await tester.enterText(
-          find.descendant(
-            of: find.byKey(const Key('field-firstName')),
-            matching: find.byType(TextField),
-          ),
-          'ОленаEdited',
-        );
-        await tester.pump();
+      // Dirty the firstName field so the save button becomes enabled.
+      // This is necessary because NeumorphicButton with onPressed:null is
+      // non-interactive — tapping it would be a no-op.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-firstName')),
+          matching: find.byType(TextField),
+        ),
+        'ОленаEdited',
+      );
+      await tester.pump();
 
-        // Fill street but leave the city cascade untouched — touches the
-        // location section (streetFilled = true) without providing a cityId.
-        await tester.enterText(
-          find.descendant(
-            of: find.byKey(const Key('field-street')),
-            matching: find.byType(TextField),
-          ),
-          'вул. Хрещатик',
-        );
-        await tester.pump();
+      // Fill street but leave the city cascade untouched — touches the
+      // location section (streetFilled = true) without providing a cityId.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-street')),
+          matching: find.byType(TextField),
+        ),
+        'вул. Хрещатик',
+      );
+      await tester.pump();
 
-        // Tap Save — button is enabled (firstName is dirty);
-        // _validateLocation must fail (city absent) and block _save() entirely.
-        await tester.tap(find.byKey(const Key('btn-save-master')));
-        await tester.pumpAndSettle();
+      // Tap Save — button is enabled (firstName is dirty);
+      // _validateLocation must fail (city absent) and block _save() entirely.
+      await tester.tap(find.byKey(const Key('btn-save-master')));
+      await tester.pumpAndSettle();
 
-        // The screen must not have navigated away — validation blocked the save.
-        expect(
-          find.byKey(const Key('field-street')),
-          findsOneWidget,
-          reason:
-              'MasterEditScreen must remain visible when location validation fails',
-        );
+      // The screen must not have navigated away — validation blocked the save.
+      expect(
+        find.byKey(const Key('field-street')),
+        findsOneWidget,
+        reason:
+            'MasterEditScreen must remain visible when location validation fails',
+      );
 
-        // NEITHER update should be called — _save() returns early when
-        // _validateAndUpdateErrors() returns false (locationOk = false means
-        // the whole save is aborted, not just the location part).
-        verifyNever(
-          () => repo.updateLocality(
-            cityId: any(named: 'cityId'),
-            districtId: any(named: 'districtId'),
-            street: any(named: 'street'),
-            buildingNo: any(named: 'buildingNo'),
-            locationNote: any(named: 'locationNote'),
-          ),
-        );
-        verifyNever(() => repo.updateMyProfile(any()));
-      },
-    );
+      // NEITHER update should be called — _save() returns early when
+      // _validateAndUpdateErrors() returns false (locationOk = false means
+      // the whole save is aborted, not just the location part).
+      verifyNever(
+        () => repo.updateLocality(
+          cityId: any(named: 'cityId'),
+          districtId: any(named: 'districtId'),
+          street: any(named: 'street'),
+          buildingNo: any(named: 'buildingNo'),
+          locationNote: any(named: 'locationNote'),
+        ),
+      );
+      verifyNever(() => repo.updateMyProfile(any()));
+    });
   });
 }

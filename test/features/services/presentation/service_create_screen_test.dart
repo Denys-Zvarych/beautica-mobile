@@ -597,75 +597,74 @@ void main() {
   // ---------------------------------------------------------------------------
   // 12. masterProfileProvider is invalidated after successful create (gap 7).
   // ---------------------------------------------------------------------------
-  testWidgets(
-    'masterProfileProvider is invalidated after successful create',
-    (tester) async {
-      final masterStates = <AsyncValue<Object?>>[];
+  testWidgets('masterProfileProvider is invalidated after successful create', (
+    tester,
+  ) async {
+    final masterStates = <AsyncValue<Object?>>[];
 
-      final listStates = <AsyncValue<Object?>>[];
-      final Widget screen = _MasterProfileWatcher(
-        states: masterStates,
-        child: _ListWatcher(
-          states: listStates,
-          child: const ServiceCreateScreen(),
-        ),
-      );
+    final listStates = <AsyncValue<Object?>>[];
+    final Widget screen = _MasterProfileWatcher(
+      states: masterStates,
+      child: _ListWatcher(
+        states: listStates,
+        child: const ServiceCreateScreen(),
+      ),
+    );
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            ..._overrides(mockRepo),
-            masterProfileProvider.overrideWith(
-              () => _StubMasterProfileNotifier(),
-            ),
-          ].cast(),
-          child: MaterialApp(
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            locale: const Locale('uk'),
-            home: screen,
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          ..._overrides(mockRepo),
+          masterProfileProvider.overrideWith(
+            () => _StubMasterProfileNotifier(),
           ),
+        ].cast(),
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          home: screen,
         ),
-      );
-      await tester.pump(); // settle initial build
-      await tester.pumpAndSettle(); // settle initial provider load
+      ),
+    );
+    await tester.pump(); // settle initial build
+    await tester.pumpAndSettle(); // settle initial provider load
 
-      final int stateCountBefore = masterStates.length;
+    final int stateCountBefore = masterStates.length;
 
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('field-service-name')),
-          matching: find.byType(TextField),
-        ),
-        'Манікюр',
-      );
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('field-service-duration')),
-          matching: find.byType(TextField),
-        ),
-        '60',
-      );
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('field-service-price')),
-          matching: find.byType(TextField),
-        ),
-        '500',
-      );
-      await tapSubmit(tester);
-      await tester.pump(); // let Riverpod fire the invalidation rebuild
-      await tester.pumpAndSettle(); // settle through loading → data
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-name')),
+        matching: find.byType(TextField),
+      ),
+      'Манікюр',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-duration')),
+        matching: find.byType(TextField),
+      ),
+      '60',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-price')),
+        matching: find.byType(TextField),
+      ),
+      '500',
+    );
+    await tapSubmit(tester);
+    await tester.pump(); // let Riverpod fire the invalidation rebuild
+    await tester.pumpAndSettle(); // settle through loading → data
 
-      // masterProfileProvider must have emitted additional states after
-      // ref.invalidate(masterProfileProvider) is called on the success path.
-      expect(
-        masterStates.length,
-        greaterThan(stateCountBefore),
-        reason:
-            'masterProfileProvider must be invalidated after a successful '
-            'service create',
-      );
-    },
-  );
+    // masterProfileProvider must have emitted additional states after
+    // ref.invalidate(masterProfileProvider) is called on the success path.
+    expect(
+      masterStates.length,
+      greaterThan(stateCountBefore),
+      reason:
+          'masterProfileProvider must be invalidated after a successful '
+          'service create',
+    );
+  });
 }

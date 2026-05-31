@@ -333,7 +333,9 @@ void main() {
         // listMyServices() returns an empty list — narrow the check to those tiles.
         expect(
           tester
-              .widget<Text>(find.byKey(const Key('master-profile-rating-value')))
+              .widget<Text>(
+                find.byKey(const Key('master-profile-rating-value')),
+              )
               .data,
           isNot('0'),
         );
@@ -942,51 +944,50 @@ void main() {
 
     // ── D. Data state — service tile + count stat tile rendered ────────────
 
-    testWidgets(
-      'D. services data state renders tile and services count stat',
-      (tester) async {
-        const stubServices = <MasterService>[
-          MasterService(
-            id: 'svc-1',
-            name: 'Манікюр',
-            durationMinutes: 30,
-            price: 500,
-          ),
-        ];
-        when(
-          () => mockServiceRepo.listMyServices(),
-        ).thenAnswer((_) async => stubServices);
+    testWidgets('D. services data state renders tile and services count stat', (
+      tester,
+    ) async {
+      const stubServices = <MasterService>[
+        MasterService(
+          id: 'svc-1',
+          name: 'Манікюр',
+          durationMinutes: 30,
+          price: 500,
+        ),
+      ];
+      when(
+        () => mockServiceRepo.listMyServices(),
+      ).thenAnswer((_) async => stubServices);
 
-        await tester.pumpApp(
-          const MasterProfileScreen(),
-          overrides: _buildOverrides(
-            masterState: const AsyncData<Master>(_stubMaster),
-            repo: repo,
-            serviceRepo: mockServiceRepo,
-          ),
-        );
-        await tester.pumpAndSettle();
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        // Service tile for svc-1 must be present in the profile body.
-        expect(
-          find.byKey(const Key('profile-service-tile-svc-1')),
-          findsOneWidget,
-        );
+      // Service tile for svc-1 must be present in the profile body.
+      expect(
+        find.byKey(const Key('profile-service-tile-svc-1')),
+        findsOneWidget,
+      );
 
-        // The services stat tile must display the count '1'.
-        expect(
-          find.byKey(const Key('master-profile-services-value')),
-          findsOneWidget,
-        );
-        final countText = tester.widget<Text>(
-          find.byKey(const Key('master-profile-services-value')),
-        );
-        expect(
-          countText.data,
-          '1',
-          reason: 'Services stat tile must show the live service count',
-        );
-      },
-    );
+      // The services stat tile must display the count '1'.
+      expect(
+        find.byKey(const Key('master-profile-services-value')),
+        findsOneWidget,
+      );
+      final countText = tester.widget<Text>(
+        find.byKey(const Key('master-profile-services-value')),
+      );
+      expect(
+        countText.data,
+        '1',
+        reason: 'Services stat tile must show the live service count',
+      );
+    });
   });
 }

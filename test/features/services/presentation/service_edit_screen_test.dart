@@ -70,9 +70,7 @@ List<Object> _overrides(
   return <Object>[
     serviceRepositoryProvider.overrideWithValue(repo),
     if (includeMasterProfile)
-      masterProfileProvider.overrideWith(
-        () => _StubMasterProfileNotifier(),
-      ),
+      masterProfileProvider.overrideWith(() => _StubMasterProfileNotifier()),
   ];
 }
 
@@ -465,36 +463,31 @@ void main() {
 
   // ── Gap 9. masterProfileProvider invalidated after save ──────────────────
 
-  testWidgets(
-    'gap 9. masterProfileProvider is invalidated after valid save',
-    (tester) async {
-      final masterProfileStates = <AsyncValue<Object?>>[];
-      await _pumpEdit(
-        tester,
-        repo,
-        masterProfileStates: masterProfileStates,
-      );
+  testWidgets('gap 9. masterProfileProvider is invalidated after valid save', (
+    tester,
+  ) async {
+    final masterProfileStates = <AsyncValue<Object?>>[];
+    await _pumpEdit(tester, repo, masterProfileStates: masterProfileStates);
 
-      await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
-      await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
+    await tester.pump();
 
-      // All fields pre-filled; tap save.
-      await tester.tap(find.byKey(const Key('btn-submit-service')));
-      await tester.pump();
-      await tester.pumpAndSettle();
+    // All fields pre-filled; tap save.
+    await tester.tap(find.byKey(const Key('btn-submit-service')));
+    await tester.pump();
+    await tester.pumpAndSettle();
 
-      // masterProfileProvider must have emitted additional states (AsyncLoading
-      // or a rebuild) after ref.invalidate(masterProfileProvider) is called on
-      // the successful save path.
-      expect(
-        masterProfileStates.length,
-        greaterThan(1),
-        reason:
-            'masterProfileProvider must be invalidated after a successful '
-            'service save',
-      );
-    },
-  );
+    // masterProfileProvider must have emitted additional states (AsyncLoading
+    // or a rebuild) after ref.invalidate(masterProfileProvider) is called on
+    // the successful save path.
+    expect(
+      masterProfileStates.length,
+      greaterThan(1),
+      reason:
+          'masterProfileProvider must be invalidated after a successful '
+          'service save',
+    );
+  });
 
   // ── Gap 10. masterProfileProvider invalidated after confirmed delete ──────
 

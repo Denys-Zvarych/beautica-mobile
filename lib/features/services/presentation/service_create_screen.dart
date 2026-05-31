@@ -86,19 +86,22 @@ class ServiceCreateScreen extends ConsumerWidget {
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(
-                  VelvetSpacing.lg,
+                  VelvetSpacing.md,
+                  VelvetSpacing.sm,
                   VelvetSpacing.md,
                   VelvetSpacing.lg,
-                  VelvetSpacing.xl,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    const ServicePhotoSlot(
-                      key: Key('service-create-photo-slot'),
-                      // onTap is null — slot shows empty state; real picker is Phase 9.x.
+                    const SizedBox(
+                      height: 140,
+                      child: ServicePhotoSlot(
+                        key: Key('service-create-photo-slot'),
+                        // onTap is null — slot shows empty state; real picker is Phase 9.x.
+                      ),
                     ),
-                    const SizedBox(height: VelvetSpacing.lg),
+                    const SizedBox(height: VelvetSpacing.sm),
                     ServiceForm(
                       onSubmit: (MasterServiceCreate input) async {
                         try {

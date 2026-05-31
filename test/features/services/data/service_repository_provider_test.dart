@@ -60,10 +60,11 @@ void main() {
       () => mockApi.getMasterServices(masterId: any(named: 'masterId')),
     ).thenAnswer(
       (_) async => Response(
-        data: (ApiResponseListMasterServiceResponseBuilder()
-              ..success = true
-              ..data = ListBuilder<MasterServiceResponse>())
-            .build(),
+        data:
+            (ApiResponseListMasterServiceResponseBuilder()
+                  ..success = true
+                  ..data = ListBuilder<MasterServiceResponse>())
+                .build(),
         statusCode: 200,
         requestOptions: RequestOptions(
           path: '/api/v1/masters/master-row-uuid/services',
@@ -104,9 +105,7 @@ void main() {
       ).called(1);
 
       // Confirm the user UUID was never sent (guards against dual-call bugs).
-      verifyNever(
-        () => mockApi.getMasterServices(masterId: 'user-uuid'),
-      );
+      verifyNever(() => mockApi.getMasterServices(masterId: 'user-uuid'));
     },
   );
 }

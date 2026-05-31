@@ -86,6 +86,7 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
               ),
         orElse: () => null,
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       body: RefreshIndicator(
         onRefresh: () => ref.read(servicesListProvider.notifier).refresh(),
         color: BrandColors.accentDeep,
@@ -313,7 +314,10 @@ class _ServiceCardState extends State<_ServiceCard>
                 borderRadius: BorderRadius.circular(VelvetRadii.card),
                 boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
               ),
-              padding: const EdgeInsets.all(VelvetSpacing.lg),
+              padding: const EdgeInsets.symmetric(
+                horizontal: VelvetSpacing.md,
+                vertical: VelvetSpacing.sm + 2,
+              ),
               child: Row(
                 children: <Widget>[
                   _PhotoThumbnail(key: Key('thumb_${s.id}')),
@@ -341,16 +345,16 @@ class _ServiceCardState extends State<_ServiceCard>
 // Photo thumbnail (no-photo placeholder — service photo deferred to Phase 9.x)
 // ---------------------------------------------------------------------------
 
-/// 72×72 recessed inset well with a centred camel spa icon.
+/// 48×48 recessed inset well with a centred camel spa icon.
 ///
 /// When actual photo upload is implemented (Phase 9.x), this widget will
 /// accept a `photoUrl` and render an [Image.network] inside the same
-/// 72×72 rounded [ClipRRect]. Until then, every service shows the icon
+/// 48×48 rounded [ClipRRect]. Until then, every service shows the icon
 /// placeholder so depth always comes from shadows, never a flat grey box.
 class _PhotoThumbnail extends StatelessWidget {
   const _PhotoThumbnail({super.key});
 
-  static const double _size = 72;
+  static const double _size = 48;
 
   @override
   Widget build(BuildContext context) {
@@ -362,7 +366,7 @@ class _PhotoThumbnail extends StatelessWidget {
         child: Center(
           child: Icon(
             Icons.spa_rounded,
-            size: 28,
+            size: 20,
             color: BrandColors.accent.withValues(alpha: 0.9),
           ),
         ),
@@ -397,7 +401,7 @@ class _ServiceInfo extends StatelessWidget {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
-        const SizedBox(height: VelvetSpacing.md),
+        const SizedBox(height: VelvetSpacing.sm),
         Wrap(
           spacing: VelvetSpacing.sm,
           runSpacing: VelvetSpacing.sm,
@@ -473,7 +477,7 @@ class _Pill extends StatelessWidget {
 // Trailing edit button
 // ---------------------------------------------------------------------------
 
-/// 40×40 neumorphic raised pillow with the edit icon. Signals tap-to-edit.
+/// 32×32 neumorphic raised pillow with the edit icon. Signals tap-to-edit.
 class _EditButton extends StatelessWidget {
   const _EditButton();
 
@@ -485,8 +489,8 @@ class _EditButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 40,
-      width: 40,
+      height: 32,
+      width: 32,
       decoration: const BoxDecoration(
         color: BrandColors.base,
         borderRadius: _radius,
@@ -495,7 +499,7 @@ class _EditButton extends StatelessWidget {
       child: const Icon(
         Icons.edit_outlined,
         color: BrandColors.accent,
-        size: 22,
+        size: 18,
       ),
     );
   }
@@ -574,8 +578,8 @@ class _SkeletonCardState extends State<_SkeletonCard>
         children: <Widget>[
           _ShimmerBar(
             controller: _shimmer,
-            height: 72,
-            width: 72,
+            height: 48,
+            width: 48,
             radius: VelvetRadii.field,
           ),
           const SizedBox(width: VelvetSpacing.md),
@@ -613,8 +617,8 @@ class _SkeletonCardState extends State<_SkeletonCard>
           const SizedBox(width: VelvetSpacing.md),
           _ShimmerBar(
             controller: _shimmer,
-            height: 40,
-            width: 40,
+            height: 32,
+            width: 32,
             radius: VelvetRadii.field,
           ),
         ],

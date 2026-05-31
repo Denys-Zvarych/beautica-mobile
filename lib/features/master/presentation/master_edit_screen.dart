@@ -48,6 +48,7 @@ import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
+import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -107,6 +108,19 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
   String _origPhone = '';
   String _origInstagram = '';
 
+  // Original locality IDs — set once from master data in _maybeInit and
+  // updated in _prePopulateLocality when the async lookup completes.
+  // _isDirty compares current selections against these values so that a
+  // pre-populated city does not immediately mark the form as dirty.
+  String? _origCityId;
+  String? _origOblastId;
+  String? _origDistrictId;
+
+  // Original address text values for pristine detection.
+  String _origStreet = '';
+  String _origBuildingNo = '';
+  String _origLocationNote = '';
+
   /// Server-side field errors from the last [ValidationFailure].
   Map<String, String> _fieldErrors = const <String, String>{};
 
@@ -123,8 +137,9 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
   // -------------------------------------------------------------------------
   // Location state — cascade selections + text controllers.
   // Controllers are seeded in _maybeInit from master.street / buildingNo /
-  // locationNote. _selectedCity is intentionally never pre-populated because
-  // MasterDetailResponse returns only the display name, not the cityId.
+  // locationNote. _selectedOblast, _selectedCity and _selectedDistrict are
+  // pre-populated asynchronously in _maybeInit using master.oblastId,
+  // master.cityId and master.districtId once the locality providers resolve.
   // -------------------------------------------------------------------------
   Oblast? _selectedOblast;
   City? _selectedCity;
@@ -221,6 +236,10 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
   ///
   /// Called from [build] the first time [masterProfileProvider] resolves to
   /// a non-null [Master]. Subsequent calls are no-ops (guarded by [_initialized]).
+  ///
+  /// Text controllers are initialised synchronously. The locality cascade
+  /// pre-population (oblast → city → district) runs asynchronously in a
+  /// [Future.microtask] so that [setState] is never called during [build].
   void _maybeInit(Master master) {
     if (_initialized) return;
     _initialized = true;
@@ -237,15 +256,106 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
     _phone = TextEditingController(text: _origPhone);
     _instagram = TextEditingController(text: _origInstagram);
 
-    // Location controllers — pre-populated from master data where available.
-    // _selectedCity is intentionally NOT set here: MasterDetailResponse carries
-    // only the city display name, not the cityId needed for updateLocality.
-    _street = TextEditingController(text: master.street ?? '');
-    _buildingNo = TextEditingController(text: master.buildingNo ?? '');
-    _locationNote = TextEditingController(text: master.locationNote ?? '');
+    // Location text controllers — pre-populated from master data where available.
+    _origStreet = master.street ?? '';
+    _origBuildingNo = master.buildingNo ?? '';
+    _origLocationNote = master.locationNote ?? '';
+    _street = TextEditingController(text: _origStreet);
+    _buildingNo = TextEditingController(text: _origBuildingNo);
+    _locationNote = TextEditingController(text: _origLocationNote);
+
+    // Snapshot the original locality IDs for pristine detection. These are
+    // updated again in _prePopulateLocality once the domain objects resolve,
+    // but setting them here from the raw UUIDs ensures _isDirty is correct
+    // even before the async lookup completes.
+    _origOblastId = master.oblastId;
+    _origCityId = master.cityId;
+    _origDistrictId = master.districtId;
 
     // Start the entrance animation now that we have content to reveal.
     _controller.forward();
+
+    // Async locality pre-population — deferred to a microtask so that this
+    // synchronous _maybeInit call (invoked inside build via whenData) does not
+    // call setState during the build phase.
+    //
+    // If any provider lookup fails (e.g. network error), we leave the cascade
+    // empty — the user can re-select. We never surface the error here because
+    // the locality cascade already has its own retry/error state.
+    if (master.oblastId != null) {
+      Future.microtask(() => _prePopulateLocality(master));
+    }
+  }
+
+  /// Async helper: resolves [Oblast], [City], and [CityDistrict] objects from
+  /// UUIDs stored on [master] and calls [setState] once all lookups complete.
+  ///
+  /// Uses [ref.read] (one-shot) — no continuous watching needed here.
+  /// Silently no-ops on any exception (provider not yet loaded / network error).
+  Future<void> _prePopulateLocality(Master master) async {
+    try {
+      // ----- Oblast -----
+      final oblastId = master.oblastId;
+      if (oblastId == null) return;
+
+      final oblasts = await ref.read(oblastListProvider.future);
+      Oblast? matchedOblast;
+      for (final o in oblasts) {
+        if (o.id == oblastId) {
+          matchedOblast = o;
+          break;
+        }
+      }
+      if (matchedOblast == null) return;
+
+      // ----- City -----
+      final cityId = master.cityId;
+      City? matchedCity;
+      if (cityId != null) {
+        final cities = await ref.read(
+          cityListProvider(matchedOblast.id).future,
+        );
+        for (final c in cities) {
+          if (c.id == cityId) {
+            matchedCity = c;
+            break;
+          }
+        }
+      }
+
+      // ----- District (optional) -----
+      final districtId = master.districtId;
+      CityDistrict? matchedDistrict;
+      if (districtId != null &&
+          matchedCity != null &&
+          matchedCity.hasDistricts) {
+        final districts = await ref.read(
+          districtListProvider(matchedCity.id).future,
+        );
+        for (final d in districts) {
+          if (d.id == districtId) {
+            matchedDistrict = d;
+            break;
+          }
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _selectedOblast = matchedOblast;
+        _selectedCity = matchedCity;
+        _selectedDistrict = matchedDistrict;
+      });
+    } catch (e, st) {
+      log(
+        'Locality pre-population failed — cascade will be empty',
+        name: 'feature.master.edit',
+        level: 800,
+        error: e,
+        stackTrace: st,
+      );
+      // Leave the cascade empty; the user can re-select.
+    }
   }
 
   @override
@@ -287,10 +397,12 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
           _bio.text.trim() != _origBio ||
           _phone.text.trim() != _origPhone ||
           _instagram.text.trim() != _origInstagram ||
-          _selectedCity != null ||
-          _street.text.trim().isNotEmpty ||
-          _buildingNo.text.trim().isNotEmpty ||
-          _locationNote.text.trim().isNotEmpty);
+          _selectedOblast?.id != _origOblastId ||
+          _selectedCity?.id != _origCityId ||
+          _selectedDistrict?.id != _origDistrictId ||
+          _street.text.trim() != _origStreet ||
+          _buildingNo.text.trim() != _origBuildingNo ||
+          _locationNote.text.trim() != _origLocationNote);
 
   Widget _reveal(CurvedAnimation anim, Widget child) {
     // Fix 2: reuse the static _slideTween — only the lightweight
@@ -404,10 +516,8 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
 
     // Presence checks — city, street and buildingNo are all required when touched.
     String? errCity = !citySelected ? l10n.errRequired : null;
-    String? errStreet =
-        !streetFilled ? l10n.errRequired : null;
-    String? errBuildingNo =
-        !buildingFilled ? l10n.errRequired : null;
+    String? errStreet = !streetFilled ? l10n.errRequired : null;
+    String? errBuildingNo = !buildingFilled ? l10n.errRequired : null;
 
     setState(() {
       _errCity = errCity;
@@ -420,7 +530,8 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
     final streetLen = _street.text.trim().length;
     final buildingLen = _buildingNo.text.trim().length;
     final noteLen = _locationNote.text.trim().length;
-    if (streetLen > _streetMax || buildingLen > _buildingNoMax ||
+    if (streetLen > _streetMax ||
+        buildingLen > _buildingNoMax ||
         noteLen > _locationNoteMax) {
       return false;
     }
