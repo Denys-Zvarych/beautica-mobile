@@ -382,6 +382,12 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final isLoading = ref.watch(authProvider.select((s) => s.isLoading));
+    // Keep _emailVerifiedProvider alive for the widget's entire lifetime.
+    // Without this watch the autoDispose provider resets to false between the
+    // two submit taps (Defect 8 retry path), causing verifyEmail to be called
+    // again on re-submit even though the OTP was already consumed.
+    // The value itself is not needed in build() — only the subscription matters.
+    ref.watch(_emailVerifiedProvider);
     final maskedEmail = maskEmail(widget.email);
 
     // Fix A (MEDIUM-1): ValueListenableBuilder scopes OTP-cell AND submit-button

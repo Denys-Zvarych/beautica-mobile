@@ -2323,6 +2323,222 @@ void main() {
         );
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Test 21 — Defect 8 retry: second submit does NOT re-call verifyEmail
+    //           when the OTP was already accepted (_emailVerifiedProvider =
+    //           true) but _saveProviderProfile threw on the first attempt.
+    //
+    // Setup:
+    //   - FakeAuthRepository: verifyEmail succeeds on every call.
+    //   - _MockMasterRepository: updateLocality throws ServerFailure on the
+    //     first call, then succeeds on the second (call-count driven by a
+    //     local variable closed over by the mock answer).
+    //   - Draft: INDEPENDENT_MASTER with full Step 3 locality (so the
+    //     ProviderMissingCityFailure guard does not trigger).
+    //
+    // Flow:
+    //   1st submit: verifyEmail succeeds → _emailVerifiedProvider = true →
+    //               updateLocality throws → error banner shown, stays on screen.
+    //   2nd submit: _emailVerifiedProvider is still true → verifyEmail skipped →
+    //               updateLocality called again (second call) → succeeds →
+    //               navigates to /done → /home.
+    //
+    // Asserts:
+    //   - verifyEmailCalls.length == 1 (called only on the first submit).
+    //   - updateLocality called twice total (once failing, once succeeding).
+    //   - After the first submit: AuthBanner visible, still on screen.
+    //   - After the second submit: /home visible.
+    //
+    // Regression guard for the Defect 8 retry branch introduced in Phase 2.x.
+    // The backlog row "LOW — VerificationScreen _saveProviderProfile retry
+    // branch untested" is resolved by this test.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '21. retry: second submit does not re-call verifyEmail when OTP already '
+      'accepted (_emailVerifiedProvider = true) but _saveProviderProfile threw',
+      (tester) async {
+        final repo = FakeAuthRepository(); // verifyEmail succeeds by default
+
+        // Track the call count manually so the mock answer can alternate.
+        int updateLocalityCalls = 0;
+        final masterRepo = _MockMasterRepository();
+        when(
+          () => masterRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenAnswer((_) async {
+          updateLocalityCalls++;
+          if (updateLocalityCalls == 1) {
+            // First call — simulate a transient server error.
+            throw const ServerFailure(statusCode: 500);
+          }
+          // Second call — succeeds (returns normally).
+        });
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            masterRepositoryProvider.overrideWith((_) => masterRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Seed an INDEPENDENT_MASTER draft with a full Step 3 locality so
+        // _saveProviderProfile reaches the updateLocality call (does not
+        // throw ProviderMissingCityFailure).
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.independentMaster);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Іванна',
+          lastName: 'Ковальчук',
+          phone: '+380501112233',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Центральна',
+          buildingNo: '5Б',
+          locationNote: 'кв. 12',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // No error banner before any submit.
+        expect(find.byType(AuthBanner), findsNothing);
+
+        // ── First submit ────────────────────────────────────────────────────
+        // Fill the OTP and tap submit.
+        await _fillOtp(tester, '654321');
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        // Cannot pumpAndSettle — the resend timer fires every second after
+        // resetCooldown() is invoked by the Fix 2B path.
+        await tester.pump(); // begin async
+        await tester
+            .pump(); // verifyEmail microtasks → _emailVerifiedProvider = true
+        await tester.pump(); // _saveProviderProfile → updateLocality throw
+        await tester.pump(
+          const Duration(milliseconds: 50),
+        ); // setState / animations
+
+        // Must remain on the verification screen — the save failed.
+        expect(
+          find.text('home'),
+          findsNothing,
+          reason:
+              'Screen must NOT navigate to /done after the first submit when '
+              '_saveProviderProfile throws — the user stays to retry.',
+        );
+
+        // An error banner must be shown (ServerFailure message).
+        expect(
+          find.byType(AuthBanner),
+          findsOneWidget,
+          reason:
+              'An AuthBanner must appear after the first _saveProviderProfile '
+              'failure (ServerFailure from updateLocality).',
+        );
+
+        // Exactly one verifyEmail call — it was consumed by the first submit.
+        expect(
+          repo.verifyEmailCalls,
+          hasLength(1),
+          reason:
+              'verifyEmail must have been called exactly once after the first '
+              'submit (OTP was accepted and _emailVerifiedProvider set to true).',
+        );
+
+        // updateLocality was called once (the failing call).
+        expect(
+          updateLocalityCalls,
+          equals(1),
+          reason:
+              'updateLocality must have been called once after the first submit '
+              '(the call that threw ServerFailure).',
+        );
+
+        // ── Second submit ───────────────────────────────────────────────────
+        // The OTP field still shows the same digits (they were not cleared
+        // by the profile-save failure — only cleared on a successful resend).
+        // The submit button must still be enabled (6 digits present).
+        final btnBeforeRetry = tester.widget<NeumorphicButton>(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        expect(
+          btnBeforeRetry.onPressed,
+          isNotNull,
+          reason:
+              'Submit button must be re-enabled after a failed profile save '
+              '(6 digits are still in the OTP field).',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pump(); // begin async
+        await tester.pump(); // _saveProviderProfile → updateLocality succeeds
+        await tester.pump(); // context.go(RouteNames.done) → redirect → /home
+        await tester.pumpAndSettle(); // router navigation settles
+
+        // Must navigate to /home — the second updateLocality call succeeded.
+        expect(
+          find.text('home'),
+          findsOneWidget,
+          reason:
+              'After the second submit, _saveProviderProfile must succeed and '
+              'the screen must navigate to /done → /home.',
+        );
+
+        // verifyEmail must still have been called only once — the second submit
+        // skipped it because _emailVerifiedProvider was already true.
+        expect(
+          repo.verifyEmailCalls,
+          hasLength(1),
+          reason:
+              'verifyEmail must NOT be called on the second submit — '
+              '_emailVerifiedProvider was already true (OTP consumed on first '
+              'submit). Calling it again would replay an already-consumed OTP '
+              'and produce an INVALID_CODE or ALREADY_VERIFIED error.',
+        );
+
+        // updateLocality must have been called exactly twice in total.
+        expect(
+          updateLocalityCalls,
+          equals(2),
+          reason:
+              'updateLocality must have been called twice: once on the first '
+              'submit (ServerFailure) and once on the second submit (success).',
+        );
+      },
+    );
   });
 }
 
