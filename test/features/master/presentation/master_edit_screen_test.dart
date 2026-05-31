@@ -28,6 +28,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:beautica_mobile/features/master/presentation/master_edit_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -62,6 +63,20 @@ const _stubMaster = Master(
   avgRating: 4.8,
   reviewCount: 10,
   type: MasterType.independentMaster,
+);
+
+/// Stub master that already has location data pre-set, used by Test B.
+const _stubMasterWithLocation = Master(
+  id: 'user-1',
+  firstName: 'Олена',
+  lastName: 'Ковальчук',
+  bio: 'Майстер манікюру.',
+  avgRating: 4.8,
+  reviewCount: 10,
+  type: MasterType.independentMaster,
+  street: 'вул. Хрещатик',
+  buildingNo: '10',
+  locationNote: 'кв. 5',
 );
 
 // ---------------------------------------------------------------------------
@@ -153,6 +168,18 @@ void main() {
 
   setUp(() {
     repo = _MockMasterRepository();
+    // Default stub for updateLocality so every test that doesn't care about it
+    // doesn't need to configure the mock explicitly. Tests that assert it is
+    // *not* called use verifyNever after this default is in place.
+    when(
+      () => repo.updateLocality(
+        cityId: any(named: 'cityId'),
+        districtId: any(named: 'districtId'),
+        street: any(named: 'street'),
+        buildingNo: any(named: 'buildingNo'),
+        locationNote: any(named: 'locationNote'),
+      ),
+    ).thenAnswer((_) async {});
   });
 
   // ── 1. Form pre-populated from provider ─────────────────────────────────
@@ -761,5 +788,201 @@ void main() {
       // The repository must have been called exactly once.
       verify(() => repo.updateMyProfile(any())).called(1);
     });
+  });
+
+  // ── 12. Location section ─────────────────────────────────────────────────
+  //
+  // Four CRITICAL tests covering:
+  //   A. Location fields are present in the rendered tree.
+  //   B. Location fields are pre-populated from master data.
+  //   C. updateLocality is NOT called when no location fields are touched.
+  //   D. Validation blocks save (and updateLocality) when street is filled but
+  //      no city is selected via the cascade.
+
+  group('location section', () {
+    // ── 12.A  Location fields render ─────────────────────────────────────────
+
+    testWidgets('location_section_renders_correctly', (tester) async {
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('field-street')), findsOneWidget);
+      expect(find.byKey(const Key('field-buildingNo')), findsOneWidget);
+      expect(find.byKey(const Key('field-locationNote')), findsOneWidget);
+    });
+
+    // ── 12.B  Location fields pre-populated from master data ─────────────────
+
+    testWidgets('location_fields_pre_populated_from_master_data', (
+      tester,
+    ) async {
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo, master: _stubMasterWithLocation),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('field-street')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        'вул. Хрещатик',
+        reason: 'street field must be pre-populated from master.street',
+      );
+
+      expect(
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('field-buildingNo')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        '10',
+        reason: 'buildingNo field must be pre-populated from master.buildingNo',
+      );
+
+      expect(
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('field-locationNote')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        'кв. 5',
+        reason:
+            'locationNote field must be pre-populated from master.locationNote',
+      );
+    });
+
+    // ── 12.C  save without location does not call updateLocality ─────────────
+
+    testWidgets('save_without_location_does_not_call_updateLocality', (
+      tester,
+    ) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Dirty only firstName — no location fields touched.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-firstName')),
+          matching: find.byType(TextField),
+        ),
+        'ОленаEdited',
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-save-master')));
+      await tester.pumpAndSettle();
+
+      // updateLocality must never be called when no location field is touched.
+      verifyNever(
+        () => repo.updateLocality(
+          cityId: any(named: 'cityId'),
+          districtId: any(named: 'districtId'),
+          street: any(named: 'street'),
+          buildingNo: any(named: 'buildingNo'),
+          locationNote: any(named: 'locationNote'),
+        ),
+      );
+
+      // The profile update must still have been called exactly once.
+      verify(() => repo.updateMyProfile(any())).called(1);
+    });
+
+    // ── 12.D  Validation requires city when street is filled ─────────────────
+    //
+    // When the user fills the street field but does NOT select a city via the
+    // cascade, the location section is "touched" but incomplete. _validateLocation
+    // must block the save and updateLocality must never be called.
+
+    testWidgets(
+      'validation_requires_street_when_street_filled_but_no_city',
+      (tester) async {
+        final router = _buildRouter();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(repo: repo),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        // Dirty the firstName field so the save button becomes enabled.
+        // This is necessary because NeumorphicButton with onPressed:null is
+        // non-interactive — tapping it would be a no-op.
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-firstName')),
+            matching: find.byType(TextField),
+          ),
+          'ОленаEdited',
+        );
+        await tester.pump();
+
+        // Fill street but leave the city cascade untouched — touches the
+        // location section (streetFilled = true) without providing a cityId.
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-street')),
+            matching: find.byType(TextField),
+          ),
+          'вул. Хрещатик',
+        );
+        await tester.pump();
+
+        // Tap Save — button is enabled (firstName is dirty);
+        // _validateLocation must fail (city absent) and block _save() entirely.
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        // The screen must not have navigated away — validation blocked the save.
+        expect(
+          find.byKey(const Key('field-street')),
+          findsOneWidget,
+          reason:
+              'MasterEditScreen must remain visible when location validation fails',
+        );
+
+        // NEITHER update should be called — _save() returns early when
+        // _validateAndUpdateErrors() returns false (locationOk = false means
+        // the whole save is aborted, not just the location part).
+        verifyNever(
+          () => repo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        );
+        verifyNever(() => repo.updateMyProfile(any()));
+      },
+    );
   });
 }

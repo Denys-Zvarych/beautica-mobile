@@ -1394,5 +1394,22 @@
   "serviceUpdatedSuccess": "Послугу успішно оновлено",
   "@serviceUpdatedSuccess": {
     "description": "SnackBar message shown after a service is successfully updated (Phase 5.4)."
+  },
+
+  "masterEditLocationSection": "Місцезнаходження",
+  "@masterEditLocationSection": {
+    "description": "Section label above the location fields on the master edit screen."
+  },
+  "streetLabel": "Вулиця",
+  "@streetLabel": {
+    "description": "Field label above the street input on the master edit screen."
+  },
+  "buildingNoLabel": "Будинок",
+  "@buildingNoLabel": {
+    "description": "Field label above the building-number input on the master edit screen."
+  },
+  "locationNoteLabel": "Примітки до адреси",
+  "@locationNoteLabel": {
+    "description": "Field label above the location-note input on the master edit screen."
   }
 }
