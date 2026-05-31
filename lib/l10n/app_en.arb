@@ -1262,5 +1262,46 @@
   "masterAllServices": "All services",
   "@masterAllServices": {
     "description": "Link label in the master profile services section header that navigates to the full services list screen."
+  },
+
+  "servicesCreateTitle": "New Service",
+  "@servicesCreateTitle": {
+    "description": "Title shown in the top bar of the service create screen (Phase 5.3)."
+  },
+  "serviceNameLabel": "Name",
+  "@serviceNameLabel": {
+    "description": "Field label above the service name input on the service create/edit form (Phase 5.3)."
+  },
+  "serviceNameHint": "e.g. Gel-polish manicure",
+  "@serviceNameHint": {
+    "description": "Hint text inside the service name input field on the service create form (Phase 5.3)."
+  },
+  "serviceDurationLabel": "Duration",
+  "@serviceDurationLabel": {
+    "description": "Field label above the duration input on the service create/edit form (Phase 5.3)."
+  },
+  "servicePriceLabel": "Price",
+  "@servicePriceLabel": {
+    "description": "Field label above the price input on the service create/edit form (Phase 5.3)."
+  },
+  "serviceFormSubheading": "Describe the service you offer to clients",
+  "@serviceFormSubheading": {
+    "description": "Quiet sub-heading above the fields on the service create form (Phase 5.3)."
+  },
+  "errRequired": "This field is required",
+  "@errRequired": {
+    "description": "Generic required-field validation error used across multiple form fields."
+  },
+  "errDurationPositive": "Duration must be greater than 0",
+  "@errDurationPositive": {
+    "description": "Validation error when the duration field value is zero, negative, or not a valid integer (Phase 5.3)."
+  },
+  "errDurationMax": "Duration cannot exceed 1440 min",
+  "@errDurationMax": {
+    "description": "Validation error when the duration field exceeds 1440 minutes (24 hours) (Phase 5.3)."
+  },
+  "errPriceNonNegative": "Price cannot be negative",
+  "@errPriceNonNegative": {
+    "description": "Validation error when the price field value is negative (Phase 5.3)."
   }
 }

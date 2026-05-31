@@ -39,6 +39,7 @@ import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
 import '../features/master/presentation/master_edit_screen.dart';
 import '../features/master/presentation/master_profile_screen.dart';
+import '../features/services/presentation/service_create_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import 'auth_redirect.dart';
@@ -204,13 +205,10 @@ GoRouter appRouter(Ref ref) {
             _instantPage(state, const ServicesListScreen()),
       ),
       // Phase 5.3 — Service create form (INDEPENDENT_MASTER).
-      // Placeholder scaffold until Phase 5.3 delivers the real screen. The
-      // route must exist now so tapping the FAB on [ServicesListScreen] does
-      // not throw a [GoError] for an unregistered path.
       GoRoute(
         path: RouteNames.serviceCreate,
         pageBuilder: (context, state) =>
-            _instantPage(state, const _Placeholder('service-create')),
+            _instantPage(state, const ServiceCreateScreen()),
       ),
       // Phase 5.4 — Service edit form (INDEPENDENT_MASTER).
       // Parameterised route — extracts `id` from the path so the real edit

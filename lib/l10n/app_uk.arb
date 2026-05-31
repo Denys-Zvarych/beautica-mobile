@@ -1262,5 +1262,46 @@
   "masterAllServices": "Усі послуги",
   "@masterAllServices": {
     "description": "Link label in the master profile services section header that navigates to the full services list screen."
+  },
+
+  "servicesCreateTitle": "Новий сервіс",
+  "@servicesCreateTitle": {
+    "description": "Title shown in the top bar of the service create screen (Phase 5.3)."
+  },
+  "serviceNameLabel": "Назва",
+  "@serviceNameLabel": {
+    "description": "Field label above the service name input on the service create/edit form (Phase 5.3)."
+  },
+  "serviceNameHint": "Напр. Манікюр з покриттям",
+  "@serviceNameHint": {
+    "description": "Hint text inside the service name input field on the service create form (Phase 5.3)."
+  },
+  "serviceDurationLabel": "Тривалість",
+  "@serviceDurationLabel": {
+    "description": "Field label above the duration input on the service create/edit form (Phase 5.3)."
+  },
+  "servicePriceLabel": "Ціна",
+  "@servicePriceLabel": {
+    "description": "Field label above the price input on the service create/edit form (Phase 5.3)."
+  },
+  "serviceFormSubheading": "Опишіть послугу, яку ви пропонуєте клієнтам",
+  "@serviceFormSubheading": {
+    "description": "Quiet sub-heading above the fields on the service create form (Phase 5.3)."
+  },
+  "errRequired": "Це поле обов'язкове",
+  "@errRequired": {
+    "description": "Generic required-field validation error used across multiple form fields."
+  },
+  "errDurationPositive": "Тривалість має бути більше 0",
+  "@errDurationPositive": {
+    "description": "Validation error when the duration field value is zero, negative, or not a valid integer (Phase 5.3)."
+  },
+  "errDurationMax": "Тривалість не може перевищувати 1440 хв",
+  "@errDurationMax": {
+    "description": "Validation error when the duration field exceeds 1440 minutes (24 hours) (Phase 5.3)."
+  },
+  "errPriceNonNegative": "Ціна не може бути від'ємною",
+  "@errPriceNonNegative": {
+    "description": "Validation error when the price field value is negative (Phase 5.3)."
   }
 }
