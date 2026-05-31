@@ -14,7 +14,7 @@
 //       Key('btn-save-step3')          → ValueKey<String>('address_submit')  (CLIENT)
 //       Key('btn-save-continue-step3') → ValueKey<String>('address_submit')  (MASTER/OWNER)
 //   - Skip affordance is now a GestureDetector (was InkWell).
-// - Layout: SizedBox(sm) spacer between sub-text and LocalityCascade.
+// - Layout: SubStepIndicator and its NeumorphicCard wrapper removed; SizedBox(sm) spacer added between sub-text and LocalityCascade.
 //
 // Covered scenarios:
 //   1.   CLIENT renders 3 picker rows + split CTA, NO street/building/note.
