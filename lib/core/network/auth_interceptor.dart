@@ -35,9 +35,18 @@ final class AuthInterceptor extends Interceptor {
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    if (kAuthPaths.contains(options.path)) {
-      // Auth endpoints (login, refresh, register, …) must never carry a
-      // Bearer token — skip injection entirely.
+    final path = options.path;
+
+    // Exact-match skip-list — auth endpoints (login, refresh, register, …).
+    if (kAuthPaths.contains(path)) {
+      handler.next(options);
+      return;
+    }
+
+    // Prefix-match skip-list — public endpoints with dynamic path segments
+    // (e.g. /api/v1/locations/oblasts/{uuid}/cities). Bearer token must not
+    // be attached to these even when the user is authenticated.
+    if (kPublicPathPrefixes.any(path.startsWith)) {
       handler.next(options);
       return;
     }

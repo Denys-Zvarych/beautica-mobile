@@ -30,6 +30,25 @@ const Set<String> kAuthPaths = {
   '/api/v1/auth/invite/accept',
 };
 
+/// Path prefixes for public endpoints whose URLs contain dynamic segments (UUIDs,
+/// slugs) that prevent exact membership in [kAuthPaths].
+///
+/// [AuthInterceptor] checks `options.path.startsWith(prefix)` for each entry.
+/// Order does not matter — first match wins.
+///
+/// IMPORTANT: Only add prefixes that are genuinely public (no JWT required).
+/// Overly broad prefixes (e.g. `/api/v1/`) would suppress token injection for
+/// every authenticated endpoint — breaking the entire auth flow.
+const List<String> kPublicPathPrefixes = [
+  // Phase 2.18 / security fix 2026-05-31 — location reference-data endpoints
+  // are public reads. No Bearer token should be attached even when a logged-in
+  // user triggers the locality picker (master edit, profile settings).
+  //   GET /api/v1/locations/oblasts
+  //   GET /api/v1/locations/oblasts/{oblastId}/cities
+  //   GET /api/v1/locations/cities/{cityId}/districts
+  '/api/v1/locations/',
+];
+
 /// Paths whose request bodies must be redacted in debug logs — used by
 /// [LoggingInterceptor] to suppress PII / credentials from log output.
 ///
