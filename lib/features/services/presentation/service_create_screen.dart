@@ -18,10 +18,12 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_photo_slot.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -89,18 +91,40 @@ class ServiceCreateScreen extends ConsumerWidget {
                   VelvetSpacing.lg,
                   VelvetSpacing.xl,
                 ),
-                child: ServiceForm(
-                  onSubmit: (MasterServiceCreate input) async {
-                    try {
-                      await ref.read(serviceRepositoryProvider).create(input);
-                      ref.invalidate(servicesListProvider);
-                      if (context.mounted) _popScreen(context);
-                    } catch (e) {
-                      if (context.mounted) {
-                        ServiceCreateScreen.showFailureSnackbar(context, e);
-                      }
-                    }
-                  },
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    const ServicePhotoSlot(
+                      key: Key('service-create-photo-slot'),
+                      // onTap is null — slot shows empty state; real picker is Phase 9.x.
+                    ),
+                    const SizedBox(height: VelvetSpacing.lg),
+                    ServiceForm(
+                      onSubmit: (MasterServiceCreate input) async {
+                        try {
+                          await ref
+                              .read(serviceRepositoryProvider)
+                              .create(input);
+                          ref.invalidate(servicesListProvider);
+                          ref.invalidate(masterProfileProvider);
+                          if (context.mounted) {
+                            final l10n = AppLocalizations.of(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(l10n.serviceCreatedSuccess),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                            _popScreen(context);
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ServiceCreateScreen.showFailureSnackbar(context, e);
+                          }
+                        }
+                      },
+                    ),
+                  ],
                 ),
               ),
             ),

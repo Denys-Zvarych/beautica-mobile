@@ -15,7 +15,11 @@
 //   7. ServicePhotoSlot shows empty state by default.
 //   8. ServicePhotoSlot shows filled state when imageUrl is provided (widget test).
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
@@ -55,8 +59,21 @@ AppLocalizations _l10n(WidgetTester tester) =>
     AppLocalizations.of(tester.element(find.byType(ServiceEditScreen)));
 
 /// Overrides [serviceRepositoryProvider] so no HTTP calls are made.
-List<Object> _overrides(_MockServiceRepository repo) {
-  return <Object>[serviceRepositoryProvider.overrideWithValue(repo)];
+///
+/// [includeMasterProfile] — when true also overrides [masterProfileProvider]
+/// with a stub notifier so tests that track its invalidation have an active
+/// subscriber. Defaults to false so existing tests are unaffected.
+List<Object> _overrides(
+  _MockServiceRepository repo, {
+  bool includeMasterProfile = false,
+}) {
+  return <Object>[
+    serviceRepositoryProvider.overrideWithValue(repo),
+    if (includeMasterProfile)
+      masterProfileProvider.overrideWith(
+        () => _StubMasterProfileNotifier(),
+      ),
+  ];
 }
 
 /// A minimal [ConsumerWidget] that watches [servicesListProvider] and appends
@@ -74,27 +91,72 @@ class _ListWatcher extends ConsumerWidget {
   }
 }
 
+/// A minimal [ConsumerWidget] that watches [masterProfileProvider] and appends
+/// every received [AsyncValue] to [states]. Used to assert masterProfileProvider
+/// invalidation after save and delete operations.
+class _MasterProfileWatcher extends ConsumerWidget {
+  const _MasterProfileWatcher({required this.child, required this.states});
+
+  final Widget child;
+  final List<AsyncValue<Object?>> states;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    states.add(ref.watch(masterProfileProvider));
+    return child;
+  }
+}
+
+/// Stub [MasterProfile] notifier — resolves immediately with dummy data so
+/// that [ref.invalidate] produces a visible AsyncData → AsyncLoading transition.
+/// A never-completing future would keep the state at AsyncLoading, making
+/// Riverpod's equality check suppress watcher notifications on re-invalidation.
+class _StubMasterProfileNotifier extends MasterProfile {
+  static const _stub = Master(
+    id: 'stub',
+    firstName: 'T',
+    lastName: 'T',
+    avgRating: 0,
+    reviewCount: 0,
+    type: MasterType.independentMaster,
+  );
+
+  @override
+  Future<Master> build() async => _stub;
+}
+
 /// Pumps [ServiceEditScreen] (for the given [id]) with the mocked repository.
 ///
 /// [watcherStates] — when supplied a [_ListWatcher] wraps the screen so that
 /// [servicesListProvider] has an active subscriber and its state transitions
 /// are captured.
+///
+/// [masterProfileStates] — when supplied a [_MasterProfileWatcher] wraps the
+/// screen (outside the list watcher) so that [masterProfileProvider] state
+/// transitions are captured. Requires [includeMasterProfile] = true to also
+/// install the stub notifier override.
 Future<void> _pumpEdit(
   WidgetTester tester,
   _MockServiceRepository repo, {
   String id = 'svc-edit-1',
   List<AsyncValue<Object?>>? watcherStates,
+  List<AsyncValue<Object?>>? masterProfileStates,
 }) async {
-  final Widget screen = watcherStates != null
-      ? _ListWatcher(
-          states: watcherStates,
-          child: ServiceEditScreen(id: id),
-        )
-      : ServiceEditScreen(id: id);
+  Widget screen = ServiceEditScreen(id: id);
+
+  if (watcherStates != null) {
+    screen = _ListWatcher(states: watcherStates, child: screen);
+  }
+  if (masterProfileStates != null) {
+    screen = _MasterProfileWatcher(states: masterProfileStates, child: screen);
+  }
 
   await tester.pumpWidget(
     ProviderScope(
-      overrides: _overrides(repo).cast(),
+      overrides: _overrides(
+        repo,
+        includeMasterProfile: masterProfileStates != null,
+      ).cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
@@ -231,6 +293,9 @@ void main() {
             'servicesListProvider should have entered AsyncLoading after '
             'ref.invalidate()',
       );
+
+      // Gap 8: a success SnackBar must be shown after a valid save.
+      expect(find.byType(SnackBar), findsOneWidget);
     },
   );
 
@@ -395,6 +460,80 @@ void main() {
 
       // deactivate must have been called exactly once.
       verify(() => repo.deactivate(_stubService.id)).called(1);
+    },
+  );
+
+  // ── Gap 9. masterProfileProvider invalidated after save ──────────────────
+
+  testWidgets(
+    'gap 9. masterProfileProvider is invalidated after valid save',
+    (tester) async {
+      final masterProfileStates = <AsyncValue<Object?>>[];
+      await _pumpEdit(
+        tester,
+        repo,
+        masterProfileStates: masterProfileStates,
+      );
+
+      await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+
+      // All fields pre-filled; tap save.
+      await tester.tap(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      // masterProfileProvider must have emitted additional states (AsyncLoading
+      // or a rebuild) after ref.invalidate(masterProfileProvider) is called on
+      // the successful save path.
+      expect(
+        masterProfileStates.length,
+        greaterThan(1),
+        reason:
+            'masterProfileProvider must be invalidated after a successful '
+            'service save',
+      );
+    },
+  );
+
+  // ── Gap 10. masterProfileProvider invalidated after confirmed delete ──────
+
+  testWidgets(
+    'gap 10. masterProfileProvider is invalidated after confirmed delete',
+    (tester) async {
+      final listStates = <AsyncValue<Object?>>[];
+      final masterProfileStates = <AsyncValue<Object?>>[];
+      await _pumpEdit(
+        tester,
+        repo,
+        watcherStates: listStates,
+        masterProfileStates: masterProfileStates,
+      );
+
+      // Open the delete dialog.
+      await tester.tap(find.byKey(const Key('btn-delete-service')));
+      await tester.pumpAndSettle();
+
+      // Confirm deletion.
+      await tester.tap(find.byKey(const Key('btn-confirm-delete-service')));
+      await tester.pumpAndSettle();
+
+      // servicesListProvider must have been invalidated (emitted AsyncLoading).
+      final listHasLoading = listStates.any((s) => s is AsyncLoading);
+      expect(
+        listHasLoading,
+        isTrue,
+        reason:
+            'servicesListProvider should be invalidated after confirmed delete',
+      );
+
+      // masterProfileProvider must also have been invalidated.
+      expect(
+        masterProfileStates.length,
+        greaterThan(1),
+        reason:
+            'masterProfileProvider must be invalidated after confirmed delete',
+      );
     },
   );
 

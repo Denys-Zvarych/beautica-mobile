@@ -24,6 +24,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
@@ -118,6 +119,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
     try {
       await ref.read(serviceRepositoryProvider).deactivate(service.id);
       ref.invalidate(servicesListProvider);
+      ref.invalidate(masterProfileProvider);
       if (context.mounted) _popServiceEditScreen(context);
     } catch (e) {
       if (kDebugMode) {
@@ -177,7 +179,16 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
           );
           await ref.read(serviceRepositoryProvider).update(service.id, patch);
           ref.invalidate(servicesListProvider);
-          if (context.mounted) _popServiceEditScreen(context);
+          ref.invalidate(masterProfileProvider);
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(l10n.serviceUpdatedSuccess),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            _popServiceEditScreen(context);
+          }
         },
         onError: (Object e) {
           if (kDebugMode) {
@@ -232,6 +243,13 @@ class _EditBodyState extends State<_EditBody>
   late final CurvedAnimation _photoCurve;
   late final CurvedAnimation _formCurve;
 
+  // PERF MEDIUM-1 fix: Pre-built Animation<Offset> instances so _reveal() never
+  // allocates a new Tween+_AnimatedEvaluation on each build frame during the
+  // 1000 ms entrance animation. Pattern mirrors _MasterProfileScreenState
+  // (_slide0.._slide5) in master_profile_screen.dart.
+  late final Animation<Offset> _photoSlide;
+  late final Animation<Offset> _formSlide;
+
   @override
   void initState() {
     super.initState();
@@ -248,6 +266,17 @@ class _EditBodyState extends State<_EditBody>
       parent: _enter,
       curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
     );
+    // Derive the slide animations once from their parent CurvedAnimation.
+    // Animation<Offset> instances do not own resources and need no dispose().
+    const slideBegin = Offset(0, 0.04);
+    _photoSlide = Tween<Offset>(
+      begin: slideBegin,
+      end: Offset.zero,
+    ).animate(_photoCurve);
+    _formSlide = Tween<Offset>(
+      begin: slideBegin,
+      end: Offset.zero,
+    ).animate(_formCurve);
   }
 
   @override
@@ -258,14 +287,17 @@ class _EditBodyState extends State<_EditBody>
     super.dispose();
   }
 
-  Widget _reveal(Animation<double> curve, Widget child) {
+  /// Wraps [child] in a staggered fade-up animation.
+  ///
+  /// [fadeAnim] drives opacity; [slideAnim] is the pre-built [Animation<Offset>]
+  /// that drives the vertical offset. Both are initialised once in [initState]
+  /// — no heap allocations occur during build frames.
+  Widget _reveal(Animation<double> fadeAnim, Animation<Offset> slideAnim,
+      Widget child) {
     return FadeTransition(
-      opacity: curve,
+      opacity: fadeAnim,
       child: SlideTransition(
-        position: Tween<Offset>(
-          begin: const Offset(0, 0.04),
-          end: Offset.zero,
-        ).animate(curve),
+        position: slideAnim,
         child: child,
       ),
     );
@@ -338,6 +370,7 @@ class _EditBodyState extends State<_EditBody>
                     // Cover-photo slot (placeholder tap — Phase 9.x wires real upload).
                     _reveal(
                       _photoCurve,
+                      _photoSlide,
                       const ServicePhotoSlot(
                         key: Key('service-photo-slot'),
                         // imageUrl: widget.service.photoUrl (Phase 9.x)
@@ -350,6 +383,7 @@ class _EditBodyState extends State<_EditBody>
                     // ServiceForm with pre-populated values + dirty-state badge.
                     _reveal(
                       _formCurve,
+                      _formSlide,
                       ServiceForm(
                         key: Key('service-edit-form-${widget.service.id}'),
                         initial: widget.service,

@@ -49,6 +49,9 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
+import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
@@ -63,6 +66,8 @@ import '../../../helpers/pump_app.dart';
 // ---------------------------------------------------------------------------
 
 class _MockMasterRepository extends Mock implements MasterRepository {}
+
+class _MockServiceRepository extends Mock implements ServiceRepository {}
 
 // ---------------------------------------------------------------------------
 // Stub data
@@ -193,6 +198,7 @@ class _StubAuthNotifier extends AuthNotifier {
 List<Object> _buildOverrides({
   required AsyncValue<Master> masterState,
   required _MockMasterRepository repo,
+  required _MockServiceRepository serviceRepo,
 }) {
   return <Object>[
     authProvider.overrideWith(() => _StubAuthNotifier(_stubUser)),
@@ -200,6 +206,7 @@ List<Object> _buildOverrides({
       () => _StubMasterProfileNotifier(masterState),
     ),
     masterRepositoryProvider.overrideWithValue(repo),
+    serviceRepositoryProvider.overrideWithValue(serviceRepo),
   ];
 }
 
@@ -209,9 +216,16 @@ List<Object> _buildOverrides({
 
 void main() {
   late _MockMasterRepository repo;
+  late _MockServiceRepository mockServiceRepo;
 
   setUp(() {
     repo = _MockMasterRepository();
+    mockServiceRepo = _MockServiceRepository();
+    // Default stub: services list returns empty list so MasterProfileScreen's
+    // servicesListProvider Consumer widget resolves without hanging.
+    when(
+      () => mockServiceRepo.listMyServices(),
+    ).thenAnswer((_) async => const <MasterService>[]);
     registerFallbackValue('');
   });
 
@@ -226,6 +240,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncLoading<Master>(),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       // First frame is AsyncLoading — skeleton should be present.
@@ -243,6 +258,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMaster),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -259,6 +275,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMaster),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -286,6 +303,7 @@ void main() {
           overrides: _buildOverrides(
             masterState: const AsyncData<Master>(_stubMasterNoBio),
             repo: repo,
+            serviceRepo: mockServiceRepo,
           ),
         );
         await tester.pumpAndSettle();
@@ -310,8 +328,23 @@ void main() {
           reason: 'Reviews tile must show dash when reviewCount == 0',
         );
 
-        // Confirm no numeric rating or review count leaked into the tree.
-        expect(find.text('0'), findsNothing);
+        // Confirm no numeric rating or review count leaked into the rating/reviews
+        // tiles. Note: the services stat tile may legitimately show '0' when
+        // listMyServices() returns an empty list — narrow the check to those tiles.
+        expect(
+          tester
+              .widget<Text>(find.byKey(const Key('master-profile-rating-value')))
+              .data,
+          isNot('0'),
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('master-profile-reviews-value')),
+              )
+              .data,
+          isNot('0'),
+        );
         expect(find.text('0.0'), findsNothing);
       },
     );
@@ -334,6 +367,7 @@ void main() {
           overrides: _buildOverrides(
             masterState: const AsyncData<Master>(stubWithRatings),
             repo: repo,
+            serviceRepo: mockServiceRepo,
           ),
         );
         await tester.pumpAndSettle();
@@ -371,6 +405,7 @@ void main() {
             StackTrace.empty,
           ),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -420,6 +455,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMasterNoBio),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -457,6 +493,7 @@ void main() {
             StackTrace.empty,
           ),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -496,6 +533,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMaster),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -511,6 +549,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMaster),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -526,6 +565,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMaster),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -548,6 +588,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: AsyncData<Master>(masterWithPhone),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -570,6 +611,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMaster),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -594,6 +636,7 @@ void main() {
           overrides: _buildOverrides(
             masterState: AsyncData<Master>(masterWithInstagram),
             repo: repo,
+            serviceRepo: mockServiceRepo,
           ),
         );
         await tester.pumpAndSettle();
@@ -617,6 +660,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMaster),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -642,6 +686,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMaster),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -664,6 +709,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMasterCityOnly),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -682,6 +728,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMasterCityOnly),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -698,6 +745,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMasterCityOnly),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -720,6 +768,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMasterStreetAndCity),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -739,6 +788,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMasterFullAddress),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -755,6 +805,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMasterFullAddress),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -774,6 +825,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMasterNoLocation),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -790,6 +842,7 @@ void main() {
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMasterNoLocation),
           repo: repo,
+          serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
@@ -798,5 +851,142 @@ void main() {
       expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
       expect(find.byIcon(Icons.location_on_outlined), findsNothing);
     });
+  });
+
+  // ── 13. Services section states ──────────────────────────────────────────
+
+  /// Four sub-tests exercise all three [servicesListProvider] states rendered
+  /// inside [_ProfileBody]'s services section, plus the data/count path.
+  ///
+  /// [serviceRepositoryProvider] is overridden via [_buildOverrides] so the
+  /// real HTTP stack is never touched.
+  group('services section', () {
+    // ── A. Loading state — two skeleton rows visible ────────────────────────
+
+    testWidgets('A. services loading state shows SkeletonBlock rows', (
+      tester,
+    ) async {
+      // Override so listMyServices() never completes — provider stays loading.
+      when(
+        () => mockServiceRepo.listMyServices(),
+      ).thenAnswer((_) => Completer<List<MasterService>>().future);
+
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      // Advance past the 1100 ms entrance animation without calling pumpAndSettle —
+      // pumpAndSettle would block forever because listMyServices() never completes.
+      await tester.pump(const Duration(milliseconds: 1200));
+
+      // The services section renders two SkeletonBlock rows while loading.
+      // The profile skeleton (AsyncLoading for master) also emits SkeletonBlocks
+      // but here master is AsyncData so only the services skeleton contributes.
+      expect(find.byType(SkeletonBlock), findsWidgets);
+    });
+
+    // ── B. Error state — errUnknown text rendered ───────────────────────────
+
+    testWidgets('B. services error state shows errUnknown text', (
+      tester,
+    ) async {
+      when(
+        () => mockServiceRepo.listMyServices(),
+      ).thenThrow(const NetworkFailure());
+
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Resolve l10n from the widget tree — no raw Ukrainian strings.
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterProfileScreen)),
+      );
+      expect(find.text(l10n.errUnknown), findsOneWidget);
+    });
+
+    // ── C. Empty state — servicesEmpty text rendered ────────────────────────
+
+    testWidgets('C. services empty state shows servicesEmpty text', (
+      tester,
+    ) async {
+      when(
+        () => mockServiceRepo.listMyServices(),
+      ).thenAnswer((_) async => const <MasterService>[]);
+
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterProfileScreen)),
+      );
+      expect(find.text(l10n.servicesEmpty), findsOneWidget);
+    });
+
+    // ── D. Data state — service tile + count stat tile rendered ────────────
+
+    testWidgets(
+      'D. services data state renders tile and services count stat',
+      (tester) async {
+        const stubServices = <MasterService>[
+          MasterService(
+            id: 'svc-1',
+            name: 'Манікюр',
+            durationMinutes: 30,
+            price: 500,
+          ),
+        ];
+        when(
+          () => mockServiceRepo.listMyServices(),
+        ).thenAnswer((_) async => stubServices);
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Service tile for svc-1 must be present in the profile body.
+        expect(
+          find.byKey(const Key('profile-service-tile-svc-1')),
+          findsOneWidget,
+        );
+
+        // The services stat tile must display the count '1'.
+        expect(
+          find.byKey(const Key('master-profile-services-value')),
+          findsOneWidget,
+        );
+        final countText = tester.widget<Text>(
+          find.byKey(const Key('master-profile-services-value')),
+        );
+        expect(
+          countText.data,
+          '1',
+          reason: 'Services stat tile must show the live service count',
+        );
+      },
+    );
   });
 }

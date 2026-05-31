@@ -1385,5 +1385,14 @@
   "passwordRuleUnmetSemantics": "not met",
   "@passwordRuleUnmetSemantics": {
     "description": "Accessibility suffix appended to a password rule label when the rule is not yet satisfied. Read by screen readers as part of the full Semantics.label: '<rule label>: not met'."
+  },
+
+  "serviceCreatedSuccess": "Service added successfully",
+  "@serviceCreatedSuccess": {
+    "description": "SnackBar message shown after a service is successfully created (Phase 5.3)."
+  },
+  "serviceUpdatedSuccess": "Service updated successfully",
+  "@serviceUpdatedSuccess": {
+    "description": "SnackBar message shown after a service is successfully updated (Phase 5.4)."
   }
 }

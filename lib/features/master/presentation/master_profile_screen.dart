@@ -12,10 +12,11 @@
 // Design source: `docs/signup-designs/MasterProfileScreen/` — transcribed 1:1.
 //
 // Domain-model gaps (fields absent from [Master]):
-//   • serviceCount        → shows '—' in the Services stat tile and header
 //   • bookingsThisMonth   → shows '—' in the Bookings stat tile
 //   • contactPhone        → populated from [Master.phoneNumber]
 //   • instagram           → populated from [Master.instagram]; shows '—' when null
+//
+// Services section and stat tile use live [servicesListProvider] data (Phase 5).
 //
 // Navigation: back uses `context.pop()`; edit button (Key('btn-edit-master'))
 // navigates to RouteNames.masterEdit (Phase 4.3).
@@ -32,7 +33,11 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/currency_uah.dart';
+import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
@@ -408,11 +413,21 @@ class _ProfileBody extends StatelessWidget {
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
-                  child: StatTile(
-                    icon: Icons.design_services_outlined,
-                    // serviceCount absent from domain model — show dash.
-                    value: '—',
-                    caption: l10n.masterServicesLabel,
+                  child: Consumer(
+                    builder: (context, ref, _) {
+                      final servicesAsync = ref.watch(servicesListProvider);
+                      final String countValue = servicesAsync.when(
+                        data: (list) => list.length.toString(),
+                        loading: () => '—',
+                        error: (_, __) => '—',
+                      );
+                      return StatTile(
+                        icon: Icons.design_services_outlined,
+                        value: countValue,
+                        caption: l10n.masterServicesLabel,
+                        valueKey: const Key('master-profile-services-value'),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
@@ -529,65 +544,124 @@ class _ProfileBody extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // 5 — Services section: label (with '—' count) + placeholder ServiceTile
-        // rows. Real tiles arrive in Phase 5; the placeholders match the approved
-        // design's visual structure so the screen looks complete now.
+        // 5 — Services section: live service list from [servicesListProvider].
+        // Three states: loading → 2 skeleton rows; error → small error text;
+        // data → service tiles (empty state shows "Послуг немає" prompt).
         _revealWith(
           anim4,
           slide4,
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.only(
-                  left: 4,
-                  bottom: VelvetSpacing.xs,
-                ),
-                child: Row(
-                  children: <Widget>[
-                    // '—' count shows unknown total; real count arrives in Phase 5.
-                    Text(
-                      '${l10n.masterServicesLabel} · —',
-                      style: VelvetText.sectionLabel(),
+          Consumer(
+            builder: (context, ref, _) {
+              final servicesAsync = ref.watch(servicesListProvider);
+              final String countLabel = servicesAsync.when(
+                data: (list) => '${l10n.masterServicesLabel} · ${list.length}',
+                loading: () => '${l10n.masterServicesLabel} · —',
+                error: (_, __) => '${l10n.masterServicesLabel} · —',
+              );
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Padding(
+                    padding: const EdgeInsets.only(
+                      left: 4,
+                      bottom: VelvetSpacing.xs,
                     ),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: () => context.push(RouteNames.services),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Text(
-                            l10n.masterAllServices,
-                            style: VelvetText.link(),
+                    child: Row(
+                      children: <Widget>[
+                        Text(countLabel, style: VelvetText.sectionLabel()),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () => context.push(RouteNames.services),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Text(
+                                l10n.masterAllServices,
+                                style: VelvetText.link(),
+                              ),
+                              const SizedBox(width: 2),
+                              const Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                size: 12,
+                                color: BrandColors.accentDeep,
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 2),
-                          const Icon(
-                            Icons.arrow_forward_ios_rounded,
-                            size: 12,
-                            color: BrandColors.accentDeep,
+                        ),
+                      ],
+                    ),
+                  ),
+                  servicesAsync.when(
+                    loading: () => const SkeletonShimmerScope(
+                      child: Column(
+                        children: <Widget>[
+                          SkeletonBlock(
+                            width: double.infinity,
+                            height: 60,
+                            radius: VelvetRadii.field,
+                          ),
+                          SizedBox(height: VelvetSpacing.xs + 4),
+                          SkeletonBlock(
+                            width: double.infinity,
+                            height: 60,
+                            radius: VelvetRadii.field,
                           ),
                         ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-              // Static placeholder rows — replaced by live data in Phase 5.
-              for (
-                int i = 0;
-                i < _ProfileBody._kServicePlaceholders.length;
-                i++
-              ) ...<Widget>[
-                ServiceTile(
-                  name: _ProfileBody._kServicePlaceholders[i].name,
-                  duration: _ProfileBody._kServicePlaceholders[i].duration,
-                  price: _ProfileBody._kServicePlaceholders[i].price,
-                  photoGradient: _ProfileBody._kServicePlaceholders[i].gradient,
-                ),
-                if (i < _ProfileBody._kServicePlaceholders.length - 1)
-                  const SizedBox(height: VelvetSpacing.md - 4),
-              ],
-            ],
+                    error: (_, __) => Padding(
+                      padding: const EdgeInsets.only(top: VelvetSpacing.xs),
+                      child: Text(
+                        l10n.errUnknown,
+                        style: VelvetText.feedbackMutedXs,
+                      ),
+                    ),
+                    data: (List<MasterService> services) {
+                      if (services.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.only(top: VelvetSpacing.xs),
+                          child: Text(
+                            l10n.servicesEmpty,
+                            style: VelvetText.feedbackMutedXs,
+                          ),
+                        );
+                      }
+                      // Render up to 3 tiles on the profile; tap "Усі послуги"
+                      // to see the full list in ServicesListScreen.
+                      final displayed = services.length > 3
+                          ? services.sublist(0, 3)
+                          : services;
+                      return Column(
+                        children: <Widget>[
+                          for (
+                            int i = 0;
+                            i < displayed.length;
+                            i++
+                          ) ...<Widget>[
+                            ServiceTile(
+                              key: Key(
+                                'profile-service-tile-${displayed[i].id}',
+                              ),
+                              name: displayed[i].name,
+                              duration: DurationMinutes.format(
+                                displayed[i].durationMinutes,
+                              ),
+                              price: CurrencyUah.format(displayed[i].price),
+                              photoGradient: const <Color>[
+                                Color(0xFFD4B896),
+                                Color(0xFF8A6840),
+                              ],
+                            ),
+                            if (i < displayed.length - 1)
+                              const SizedBox(height: VelvetSpacing.md - 4),
+                          ],
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              );
+            },
           ),
         ),
         const SizedBox(height: VelvetSpacing.xl),
@@ -638,24 +712,6 @@ class _ProfileBody extends StatelessWidget {
       ],
     );
   }
-
-  /// Static service placeholder entries — displayed until Phase 5 wires the
-  /// real service list from the server.
-  static const List<_ServicePlaceholder> _kServicePlaceholders =
-      <_ServicePlaceholder>[
-        _ServicePlaceholder(
-          name: 'Манікюр',
-          duration: '60 хв',
-          price: '500 грн',
-          gradient: <Color>[Color(0xFFD4B896), Color(0xFF8A6840)],
-        ),
-        _ServicePlaceholder(
-          name: 'Педикюр',
-          duration: '90 хв',
-          price: '700 грн',
-          gradient: <Color>[Color(0xFFB89A7A), Color(0xFF6A4A28)],
-        ),
-      ];
 
   /// Maps [MasterType] to a localized role label string.
   String _roleLabel(MasterType type, AppLocalizations l10n) {
@@ -709,26 +765,6 @@ class _ProfileBody extends StatelessWidget {
     }
     return buf.toString();
   }
-}
-
-// ---------------------------------------------------------------------------
-// _ServicePlaceholder
-// ---------------------------------------------------------------------------
-
-/// Immutable data holder for a static service row displayed before Phase 5
-/// wires the real service list from the server.
-class _ServicePlaceholder {
-  const _ServicePlaceholder({
-    required this.name,
-    required this.duration,
-    required this.price,
-    required this.gradient,
-  });
-
-  final String name;
-  final String duration;
-  final String price;
-  final List<Color> gradient;
 }
 
 // ---------------------------------------------------------------------------

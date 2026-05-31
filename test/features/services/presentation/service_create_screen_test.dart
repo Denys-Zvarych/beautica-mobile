@@ -24,6 +24,8 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
@@ -82,6 +84,40 @@ class _ListWatcher extends ConsumerWidget {
     states.add(value);
     return child;
   }
+}
+
+/// A minimal [ConsumerWidget] that watches [masterProfileProvider] and appends
+/// every received [AsyncValue] to [states]. Used to assert invalidation of
+/// [masterProfileProvider] after a successful create.
+class _MasterProfileWatcher extends ConsumerWidget {
+  const _MasterProfileWatcher({required this.child, required this.states});
+
+  final Widget child;
+
+  /// Mutable list populated by the watcher on every state change.
+  final List<AsyncValue<Object?>> states;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    states.add(ref.watch(masterProfileProvider));
+    return child;
+  }
+}
+
+/// Stub [MasterProfile] notifier — resolves immediately with dummy data so
+/// [ref.invalidate] produces an observable AsyncData → AsyncLoading transition.
+class _StubMasterProfileNotifier extends MasterProfile {
+  static const _stub = Master(
+    id: 'stub',
+    firstName: 'T',
+    lastName: 'T',
+    avgRating: 0,
+    reviewCount: 0,
+    type: MasterType.independentMaster,
+  );
+
+  @override
+  Future<Master> build() async => _stub;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,8 +181,12 @@ void main() {
     await tester.pump(); // settle initial build
   }
 
-  // Convenience: tap the submit button and settle one frame.
+  // Convenience: scroll the submit button into view, then tap and settle.
+  // ensureVisible is needed because ServicePhotoSlot (4:3 tile) pushes the
+  // form below the test viewport; the pointer event must land on the button.
   Future<void> tapSubmit(WidgetTester tester) async {
+    await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
+    await tester.pump();
     await tester.tap(find.byKey(const Key('btn-submit-service')));
     await tester.pump();
   }
@@ -509,6 +549,123 @@ void main() {
 
       // The create screen must still be in the tree (not popped).
       expect(find.byType(ServiceCreateScreen), findsOneWidget);
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // 11. Success SnackBar shown after valid create (gap 6).
+  // ---------------------------------------------------------------------------
+  testWidgets('success SnackBar is shown after a valid create', (tester) async {
+    // Default stub: create() succeeds (set up in setUp).
+    await pumpCreate(tester);
+
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-name')),
+        matching: find.byType(TextField),
+      ),
+      'Манікюр',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-duration')),
+        matching: find.byType(TextField),
+      ),
+      '60',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-price')),
+        matching: find.byType(TextField),
+      ),
+      '500',
+    );
+    await tapSubmit(tester);
+    await tester.pumpAndSettle();
+
+    // Resolve l10n from the pumped widget tree — no raw Ukrainian strings.
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(ServiceCreateScreen)),
+    );
+
+    // SnackBar must be visible after a successful create.
+    expect(find.byType(SnackBar), findsOneWidget);
+    // The SnackBar content must match the localised success message.
+    expect(find.text(l10n.serviceCreatedSuccess), findsOneWidget);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 12. masterProfileProvider is invalidated after successful create (gap 7).
+  // ---------------------------------------------------------------------------
+  testWidgets(
+    'masterProfileProvider is invalidated after successful create',
+    (tester) async {
+      final masterStates = <AsyncValue<Object?>>[];
+
+      final listStates = <AsyncValue<Object?>>[];
+      final Widget screen = _MasterProfileWatcher(
+        states: masterStates,
+        child: _ListWatcher(
+          states: listStates,
+          child: const ServiceCreateScreen(),
+        ),
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            ..._overrides(mockRepo),
+            masterProfileProvider.overrideWith(
+              () => _StubMasterProfileNotifier(),
+            ),
+          ].cast(),
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+            home: screen,
+          ),
+        ),
+      );
+      await tester.pump(); // settle initial build
+      await tester.pumpAndSettle(); // settle initial provider load
+
+      final int stateCountBefore = masterStates.length;
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.byType(TextField),
+        ),
+        'Манікюр',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-duration')),
+          matching: find.byType(TextField),
+        ),
+        '60',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-price')),
+          matching: find.byType(TextField),
+        ),
+        '500',
+      );
+      await tapSubmit(tester);
+      await tester.pump(); // let Riverpod fire the invalidation rebuild
+      await tester.pumpAndSettle(); // settle through loading → data
+
+      // masterProfileProvider must have emitted additional states after
+      // ref.invalidate(masterProfileProvider) is called on the success path.
+      expect(
+        masterStates.length,
+        greaterThan(stateCountBefore),
+        reason:
+            'masterProfileProvider must be invalidated after a successful '
+            'service create',
+      );
     },
   );
 }
