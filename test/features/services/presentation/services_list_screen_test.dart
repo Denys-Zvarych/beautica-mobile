@@ -26,6 +26,7 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
@@ -215,7 +216,10 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(find.text('Послуг ще немає'), findsOneWidget);
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(ServicesListScreen)),
+    );
+    expect(find.text(l10n.servicesEmpty), findsOneWidget);
     expect(find.byKey(const Key('btn-create-service-empty')), findsOneWidget);
     // FAB must NOT appear in the empty state — the inline CTA is the only
     // first-run path.

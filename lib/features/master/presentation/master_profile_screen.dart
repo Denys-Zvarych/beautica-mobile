@@ -505,7 +505,7 @@ class _ProfileBody extends StatelessWidget {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: <Widget>[
-                          Text('Усі фото', style: VelvetText.link()),
+                          Text(l10n.masterAllPhotos, style: VelvetText.link()),
                           const SizedBox(width: 2),
                           const Icon(
                             Icons.arrow_forward_ios_rounded,
@@ -688,7 +688,7 @@ class _ProfileBody extends StatelessWidget {
                 key: const Key('master-contact-phone'),
                 icon: Icons.phone_outlined,
                 value: master.phoneNumber ?? '—',
-                semanticLabel: 'Телефон',
+                semanticLabel: l10n.masterPhoneSemantics,
                 // When wiring tel: URL launching, validate phoneNumber against
                 // RegExp(r'^[+\d\s\-()]*$') before constructing the URI to
                 // prevent USSD injection (e.g. *21*+...# codes on Android tel: intent).
@@ -698,12 +698,12 @@ class _ProfileBody extends StatelessWidget {
               ContactTile(
                 key: const Key('master-contact-instagram'),
                 icon: Icons.alternate_email,
-                label: 'Instagram',
+                label: l10n.masterInstagramLabel,
                 // Value is stored verbatim from user input — may be a bare
                 // handle, "@"-prefixed, or a full https://instagram.com/...
                 // URL depending on what the user entered.
                 value: master.instagram ?? '—',
-                semanticLabel: 'Instagram',
+                semanticLabel: l10n.masterInstagramLabel,
                 onTap: () {},
               ),
             ],
@@ -799,7 +799,9 @@ class _PortfolioPlaceholderTileState extends State<_PortfolioPlaceholderTile> {
   Widget build(BuildContext context) {
     final List<Color> fill = _fills[widget.index % _fills.length];
     return Semantics(
-      label: 'Фото портфоліо ${widget.index + 1}',
+      label: AppLocalizations.of(
+        context,
+      ).masterPortfolioTileSemantics(widget.index + 1),
       button: true,
       child: GestureDetector(
         onTapDown: (_) => setState(() => _pressed = true),

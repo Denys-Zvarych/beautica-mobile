@@ -1411,5 +1411,31 @@
   "locationNoteLabel": "Address notes",
   "@locationNoteLabel": {
     "description": "Field label above the location-note input on the master edit screen."
+  },
+
+  "masterAllPhotos": "All photos",
+  "@masterAllPhotos": {
+    "description": "Link label in the master profile portfolio section header that navigates to the full portfolio gallery."
+  },
+
+  "masterPhoneSemantics": "Phone",
+  "@masterPhoneSemantics": {
+    "description": "Accessibility semantic label for the phone ContactTile on the master profile screen."
+  },
+
+  "masterInstagramLabel": "Instagram",
+  "@masterInstagramLabel": {
+    "description": "Label and semantic label for the Instagram ContactTile on the master profile screen."
+  },
+
+  "masterPortfolioTileSemantics": "Portfolio photo {index}",
+  "@masterPortfolioTileSemantics": {
+    "description": "Accessibility semantic label for each portfolio placeholder tile on the master profile screen.",
+    "placeholders": {
+      "index": {
+        "type": "int",
+        "example": "1"
+      }
+    }
   }
 }
