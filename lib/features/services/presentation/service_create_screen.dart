@@ -105,8 +105,6 @@ class ServiceCreateScreen extends ConsumerWidget {
                           await ref
                               .read(serviceRepositoryProvider)
                               .create(input);
-                          ref.invalidate(servicesListProvider);
-                          ref.invalidate(masterProfileProvider);
                           if (context.mounted) {
                             final l10n = AppLocalizations.of(context);
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -117,6 +115,12 @@ class ServiceCreateScreen extends ConsumerWidget {
                             );
                             _popScreen(context);
                           }
+                          // Invalidate AFTER pop so ServicesListScreen is
+                          // active and listening when the re-fetch arrives.
+                          // ref remains valid because this ConsumerWidget's
+                          // ref outlives the navigation frame.
+                          ref.invalidate(servicesListProvider);
+                          ref.invalidate(masterProfileProvider);
                         } catch (e) {
                           if (context.mounted) {
                             ServiceCreateScreen.showFailureSnackbar(context, e);

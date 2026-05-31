@@ -45,6 +45,7 @@ import '../domain/user.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
 import '../../master/presentation/master_profile_notifier.dart';
+import '../../services/presentation/services_list_notifier.dart';
 
 part 'auth_notifier.g.dart';
 
@@ -632,6 +633,9 @@ class AuthNotifier extends _$AuthNotifier {
     // Riverpod container after logout. Mirrors the registerDraftProvider.reset()
     // pattern above.
     ref.invalidate(masterProfileProvider);
+    // keepAlive service list holds the previous user's data — clear on logout
+    // mirroring the masterProfileProvider invalidation above.
+    ref.invalidate(servicesListProvider);
     if (kDebugMode) {
       log('Logout: session cleared', name: 'auth', level: 800);
     }

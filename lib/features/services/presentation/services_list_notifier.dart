@@ -8,6 +8,11 @@
 //
 // [refresh] sets [AsyncLoading] immediately, re-fetches, and updates state.
 // Callers (e.g. [RefreshIndicator]) should await this method; it never throws.
+//
+// keepAlive: true so that navigation away (e.g. push to create/edit screen)
+// does not dispose the provider — enabling ref.invalidate(servicesListProvider)
+// called after a save/delete to land on the active provider rather than a
+// disposed one.
 
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -17,15 +22,17 @@ part 'services_list_notifier.g.dart';
 
 /// Async notifier for the services list screen.
 ///
-/// Watches [serviceRepositoryProvider] so the list is automatically re-fetched
-/// when the auth session changes (e.g. after login).
-@riverpod
+/// Kept alive (`keepAlive: true`) so that navigation away does not dispose
+/// the provider; `ref.invalidate(servicesListProvider)` after create/edit/delete
+/// always lands on the live provider and triggers a re-fetch.
+@Riverpod(keepAlive: true)
 class ServicesList extends _$ServicesList {
   bool _refreshing = false;
 
   @override
-  Future<List<MasterService>> build() =>
-      ref.watch(serviceRepositoryProvider).listMyServices();
+  Future<List<MasterService>> build() {
+    return ref.watch(serviceRepositoryProvider).listMyServices();
+  }
 
   /// Pull-to-refresh: shows loading spinner immediately, re-fetches, updates.
   ///

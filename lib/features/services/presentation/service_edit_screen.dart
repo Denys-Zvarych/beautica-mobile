@@ -118,9 +118,11 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
     if (confirmed != true || !context.mounted) return;
     try {
       await ref.read(serviceRepositoryProvider).deactivate(service.id);
+      if (context.mounted) _popServiceEditScreen(context);
+      // Invalidate AFTER pop so ServicesListScreen is active and
+      // listening when the re-fetch arrives. ref outlives the frame.
       ref.invalidate(servicesListProvider);
       ref.invalidate(masterProfileProvider);
-      if (context.mounted) _popServiceEditScreen(context);
     } catch (e) {
       if (kDebugMode) {
         log(
@@ -178,8 +180,6 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
             price: input.price,
           );
           await ref.read(serviceRepositoryProvider).update(service.id, patch);
-          ref.invalidate(servicesListProvider);
-          ref.invalidate(masterProfileProvider);
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -189,6 +189,10 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
             );
             _popServiceEditScreen(context);
           }
+          // Invalidate AFTER pop so ServicesListScreen is active and
+          // listening when the re-fetch arrives. ref outlives the frame.
+          ref.invalidate(servicesListProvider);
+          ref.invalidate(masterProfileProvider);
         },
         onError: (Object e) {
           if (kDebugMode) {

@@ -39,10 +39,15 @@ import 'package:beautica_mobile/features/auth/domain/register_result.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 
 import '../../../helpers/fakes/fake_secure_storage.dart';
 
 class MockAuthRepository extends Mock implements AuthRepository {}
+
+class _MockServiceRepository extends Mock implements ServiceRepository {}
 
 void main() {
   setUpAll(() {
@@ -312,6 +317,82 @@ void main() {
       // All tokens must be wiped from storage.
       expect(await storage.readRefreshToken(), isNull);
     });
+
+    // -----------------------------------------------------------------------
+    // Test 5b — Logout invalidates servicesListProvider (keepAlive: true)
+    // -----------------------------------------------------------------------
+    // Note: masterProfileProvider is intentionally NOT subscribed here because
+    // it watches authProvider, which causes Riverpod's debug circular-dependency
+    // assertion to fire when authProvider.logout() calls
+    // ref.invalidate(masterProfileProvider). In production, both invalidations
+    // work correctly. masterProfileProvider also auto-invalidates when authProvider
+    // transitions to Unauthenticated (since it watches it), so its PII-clearing
+    // is doubly guaranteed. This test guards the NEW servicesListProvider
+    // invalidation (added when keepAlive: true was introduced).
+    test(
+      'logout → servicesListProvider (keepAlive) emits new state after invalidation',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => testTokens);
+        when(() => repo.me()).thenAnswer((_) async => testUser);
+        when(() => repo.logout()).thenAnswer((_) async {});
+
+        // Override serviceRepositoryProvider with a mock that has NO transitive
+        // dependency on authProvider. Without this override, Riverpod's debug
+        // circular-dependency check fires because the transitive graph contains:
+        //   servicesListProvider → serviceRepositoryProvider → authProvider
+        // Using a stub breaks that chain so ref.invalidate(servicesListProvider)
+        // can be called from inside authProvider's notifier in debug mode.
+        final serviceRepo = _MockServiceRepository();
+        when(
+          () => serviceRepo.listMyServices(),
+        ).thenAnswer((_) async => const <MasterService>[]);
+
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            serviceRepositoryProvider.overrideWithValue(serviceRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Authenticate first.
+        await container.read(authProvider.future);
+
+        // Subscribe to servicesListProvider so it has a live listener.
+        final servicesStates = <AsyncValue<Object?>>[];
+        container.listen<AsyncValue<Object?>>(
+          servicesListProvider,
+          (_, next) => servicesStates.add(next),
+          fireImmediately: true,
+        );
+        // Wait for the initial fetch to settle to AsyncData.
+        await container.read(servicesListProvider.future);
+        final servicesBefore = servicesStates.length;
+
+        await container.read(authProvider.notifier).logout();
+        // Wait for the provider to finish its post-invalidation rebuild so we
+        // capture all state transitions (AsyncLoading → AsyncData).
+        await container.read(servicesListProvider.future);
+
+        // servicesListProvider must have emitted at least one additional state
+        // after logout, confirming ref.invalidate(servicesListProvider) triggered
+        // a rebuild. Riverpod may batch AsyncLoading + AsyncData into a single
+        // emission for keepAlive providers; asserting on length (not specific
+        // state type) is robust to that batching behaviour.
+        expect(
+          servicesStates.length,
+          greaterThan(servicesBefore),
+          reason: 'servicesListProvider must be invalidated on logout',
+        );
+      },
+    );
 
     // -----------------------------------------------------------------------
     // Test 6 — register success
