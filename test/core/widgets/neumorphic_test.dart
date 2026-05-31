@@ -91,9 +91,7 @@ void main() {
       expect(find.text('Продовжити'), findsNothing);
     });
 
-    testWidgets('onPressed is null when disabled', (
-      WidgetTester tester,
-    ) async {
+    testWidgets('onPressed is null when disabled', (WidgetTester tester) async {
       await tester.pumpWidget(
         _wrap(
           const NeumorphicButton(

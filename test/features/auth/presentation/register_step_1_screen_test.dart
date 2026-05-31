@@ -871,7 +871,9 @@ void main() {
         final router = _makeRouter();
         addTearDown(router.dispose);
 
-        await tester.pumpWidget(_buildApp(router: router, container: container));
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
         await tester.pumpAndSettle();
 
         expect(

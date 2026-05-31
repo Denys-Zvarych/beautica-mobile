@@ -123,8 +123,7 @@ class _SpyLocationRepository extends _FakeLocationRepository {
 /// when the oblast warm-up fails (error state rendered instead of picker data).
 class _FailingLocationRepository implements LocationRepository {
   @override
-  Future<List<Oblast>> fetchOblasts() async =>
-      throw const NetworkFailure();
+  Future<List<Oblast>> fetchOblasts() async => throw const NetworkFailure();
 
   @override
   Future<List<City>> fetchCities(String oblastId) async => const [];
@@ -1375,47 +1374,46 @@ void main() {
   // test failure. Pumping Duration(milliseconds: 250) advances fake time past
   // the retry tick, the timer fires harmlessly (retries → same error), and
   // pumpAndSettle then drains any resulting microtasks so the tree is clean.
-  testWidgets(
-    'fetchOblasts throws NetworkFailure — screen does not crash; '
-    'RegisterStep3Screen remains mounted (oblast prefetch error path)',
-    (tester) async {
-      final container = _container(
-        role: UserRole.client,
-        authRepo: _MockAuthRepository(),
-        locationRepo: _FailingLocationRepository(),
-      );
-      addTearDown(container.dispose);
+  testWidgets('fetchOblasts throws NetworkFailure — screen does not crash; '
+      'RegisterStep3Screen remains mounted (oblast prefetch error path)', (
+    tester,
+  ) async {
+    final container = _container(
+      role: UserRole.client,
+      authRepo: _MockAuthRepository(),
+      locationRepo: _FailingLocationRepository(),
+    );
+    addTearDown(container.dispose);
 
-      await tester.pumpWidget(_app(_makeRouter(), container));
-      // Flush the addPostFrameCallback queue so the prefetch read fires.
-      await tester.pump();
-      // Let the rejected Future propagate.
-      await tester.pumpAndSettle();
-      // Advance past Riverpod's 200 ms keepAlive-provider retry timer so it
-      // fires (another failed attempt) and is removed before teardown.
-      await tester.pump(const Duration(milliseconds: 250));
-      // Drain microtasks from the retry attempt.
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(_app(_makeRouter(), container));
+    // Flush the addPostFrameCallback queue so the prefetch read fires.
+    await tester.pump();
+    // Let the rejected Future propagate.
+    await tester.pumpAndSettle();
+    // Advance past Riverpod's 200 ms keepAlive-provider retry timer so it
+    // fires (another failed attempt) and is removed before teardown.
+    await tester.pump(const Duration(milliseconds: 250));
+    // Drain microtasks from the retry attempt.
+    await tester.pumpAndSettle();
 
-      // The screen widget must still be in the tree — no crash, no blank screen.
-      expect(
-        find.byType(RegisterStep3Screen),
-        findsOneWidget,
-        reason:
-            'fetchOblasts() NetworkFailure during initState prefetch must not '
-            'unmount the screen. The widget tree must remain intact so the user '
-            'can still interact with the form.',
-      );
+    // The screen widget must still be in the tree — no crash, no blank screen.
+    expect(
+      find.byType(RegisterStep3Screen),
+      findsOneWidget,
+      reason:
+          'fetchOblasts() NetworkFailure during initState prefetch must not '
+          'unmount the screen. The widget tree must remain intact so the user '
+          'can still interact with the form.',
+    );
 
-      // The oblast tap row must be present — it renders in its empty/error state
-      // when the prefetch fails before any user interaction.
-      expect(
-        find.byKey(const Key('locality_row_oblast')),
-        findsOneWidget,
-        reason:
-            'The oblast LocalityTapRow must remain in the tree after a '
-            'fetchOblasts() failure so the user can retry by tapping it.',
-      );
-    },
-  );
+    // The oblast tap row must be present — it renders in its empty/error state
+    // when the prefetch fails before any user interaction.
+    expect(
+      find.byKey(const Key('locality_row_oblast')),
+      findsOneWidget,
+      reason:
+          'The oblast LocalityTapRow must remain in the tree after a '
+          'fetchOblasts() failure so the user can retry by tapping it.',
+    );
+  });
 }
