@@ -53,7 +53,9 @@ const _stubService = MasterService(
   serviceDefId: 'def-edit-1',
   name: 'Стрижка жіноча',
   durationMinutes: 60,
-  price: 750.0,
+  priceType: ServicePriceType.fixed,
+  priceMin: 750.0,
+  priceDisplay: '750 грн',
   // Category is required by the backend; the edit form pre-selects it so a
   // pristine save passes validation.
   category: 'HAIRCUT',
@@ -266,14 +268,19 @@ void main() {
     expect(nameField.controller!.text, equals(_stubService.name));
   });
 
-  // ── 3. Price shows as "750" not "750.0" ───────────────────────────────────
+  // ── 3. Price pre-fills as "750" (FIXED mode) not "750.0" ────────────────────
+  //
+  // Phase 5.6: the single price field was replaced by PricingField. For a FIXED
+  // service the toggle opens in FIXED mode and the fixed-amount field is pre-filled
+  // from priceMin. The test checks via the pricing-fixed-amount inset key.
 
   testWidgets('3. price displays as integer string not double', (tester) async {
     await _pumpEdit(tester, repo);
 
+    // The fixed-amount field is keyed as 'pricing-fixed-amount' inside PricingField.
     final priceField = tester.widget<TextField>(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
     );
@@ -580,7 +587,8 @@ void main() {
         serviceDefId: 'def-haircut',
         name: 'Стрижка',
         durationMinutes: 45,
-        price: 400.0,
+        priceMin: 400.0,
+        priceDisplay: '400 грн',
         category: 'HAIRCUT',
       );
 
@@ -624,7 +632,8 @@ void main() {
       serviceDefId: 'def-eyelash',
       name: 'Вії',
       durationMinutes: 90,
-      price: 600.0,
+      priceMin: 600.0,
+      priceDisplay: '600 грн',
       category: 'EYELASH',
     );
 
@@ -676,7 +685,8 @@ void main() {
         serviceDefId: 'def-mani',
         name: 'Манікюр класичний',
         durationMinutes: 60,
-        price: 500.0,
+        priceMin: 500.0,
+        priceDisplay: '500 грн',
         category: 'MANICURE',
       );
 
@@ -734,6 +744,61 @@ void main() {
             'the newly-selected category must be threaded into '
             'MasterServiceUpdate (FIX 3)',
       );
+    },
+  );
+
+  // ── B3. RANGE pre-fill (HIGH gap) ─────────────────────────────────────────
+  //
+  // Pumps the edit screen with a RANGE service and verifies:
+  //   - The toggle rests on RANGE (range fields visible, fixed field absent).
+  //   - pricing-range-min pre-fills from priceMin.
+  //   - pricing-range-max pre-fills from priceMax.
+
+  testWidgets(
+    'B3. RANGE service pre-fills toggle in RANGE mode with correct min/max',
+    (tester) async {
+      const rangeService = MasterService(
+        id: 'svc-range-1',
+        serviceDefId: 'def-range-1',
+        name: 'Процедура',
+        durationMinutes: 60,
+        priceType: ServicePriceType.range,
+        priceMin: 500.0,
+        priceMax: 800.0,
+        priceDisplay: 'від 500 до 800 грн',
+      );
+
+      when(
+        () => repo.listMyServices(),
+      ).thenAnswer((_) async => const <MasterService>[rangeService]);
+      when(
+        () => repo.getMyService(rangeService.id),
+      ).thenAnswer((_) async => rangeService);
+
+      await _pumpEdit(tester, repo, id: rangeService.id);
+
+      // Toggle rests on RANGE: range fields visible, fixed field absent.
+      expect(find.byKey(const Key('pricing-range-min')), findsOneWidget);
+      expect(find.byKey(const Key('pricing-range-max')), findsOneWidget);
+      expect(find.byKey(const Key('pricing-fixed-amount')), findsNothing);
+
+      // Min field text must equal '500' (integer, not '500.0').
+      final minField = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('pricing-range-min')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(minField.controller!.text, equals('500'));
+
+      // Max field text must equal '800'.
+      final maxField = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('pricing-range-max')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(maxField.controller!.text, equals('800'));
     },
   );
 

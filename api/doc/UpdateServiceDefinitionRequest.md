@@ -12,8 +12,11 @@ Name | Type | Description | Notes
 **description** | **String** |  | [optional] 
 **category** | **String** |  | [optional] 
 **baseDurationMinutes** | **int** |  | [optional] 
-**basePrice** | **num** |  | [optional] 
 **bufferMinutesAfter** | **int** |  | [optional] 
+**priceType** | **String** |  | [optional] 
+**price** | **num** |  | [optional] 
+**priceMin** | **num** |  | [optional] 
+**priceMax** | **num** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

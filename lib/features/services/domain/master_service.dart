@@ -1,4 +1,6 @@
 // Phase 5.1 — MasterService domain model.
+// Phase 5.6 — Flexible pricing: replaced single `price` field with a four-field
+//             pricing block matching the backend's FIXED / RANGE pricing model.
 //
 // Immutable value object representing a beauty service offered by a master.
 // Uses `freezed` for value equality, copyWith, and pattern matching.
@@ -6,10 +8,13 @@
 // Mapping notes:
 //   - [id] corresponds to the `MasterServiceResponse.id` (the master-service
 //     assignment UUID, not the underlying service-definition UUID).
-//   - [price] is a `double` in the domain; the backend's `MasterServiceResponse`
-//     delivers it as `num` via the `effectivePrice` field. The mapper calls
-//     `.toDouble()` once at the data-layer boundary so this entity never
-//     contains raw `num`.
+//   - [priceType] is either "FIXED" or "RANGE" — mirrors the backend PriceType enum.
+//   - [priceMin] is the canonical floor (base_price on the backend). For FIXED
+//     mode this IS the price. For RANGE mode this is the minimum.
+//   - [priceMax] is only set for RANGE mode; null for FIXED.
+//   - [priceDisplay] is the server-formatted display string (e.g. "500 грн" or
+//     "від 500 до 800 грн"). Always render from this field — never build the
+//     string client-side.
 //   - [durationMinutes] maps from `effectiveDurationMinutes` (or
 //     `serviceDefinition.baseDurationMinutes` as a fallback).
 //
@@ -18,6 +23,17 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 part 'master_service.freezed.dart';
+
+/// Pricing mode for a service — mirrors the backend `PriceType` enum.
+enum ServicePriceType {
+  /// A single fixed amount. [MasterService.priceMin] holds the price;
+  /// [MasterService.priceMax] is null.
+  fixed,
+
+  /// A min–max price band. [MasterService.priceMin] is the floor;
+  /// [MasterService.priceMax] is the ceiling (strictly greater than [priceMin]).
+  range,
+}
 
 /// A service offered by a Beautica master.
 ///
@@ -59,8 +75,30 @@ abstract class MasterService with _$MasterService {
     /// Effective duration of this service in minutes.
     required int durationMinutes,
 
-    /// Effective price charged by this master in UAH (whole units, no kopecks).
-    required double price,
+    /// Pricing mode — FIXED (single amount) or RANGE (min–max band).
+    ///
+    /// Defaults to [ServicePriceType.fixed] as a safe fallback when the backend
+    /// omits the field (pre-V67 data or broken contract).
+    @Default(ServicePriceType.fixed) ServicePriceType priceType,
+
+    /// Canonical price floor in UAH.
+    ///
+    /// For FIXED mode this IS the price. For RANGE mode this is the minimum.
+    /// Maps from `priceMin` on the backend response (which equals `base_price`).
+    @Default(0.0) double priceMin,
+
+    /// RANGE mode ceiling in UAH. Null for FIXED mode.
+    ///
+    /// Maps from `priceMax` on the backend response. Always null when
+    /// [priceType] is [ServicePriceType.fixed].
+    double? priceMax,
+
+    /// Server-formatted display string for the price.
+    ///
+    /// Examples: `"500 грн"` (FIXED) or `"від 500 до 800 грн"` (RANGE).
+    /// ALWAYS render from this field — never build a price string client-side.
+    /// Falls back to the empty string when the backend omits the field.
+    @Default('') String priceDisplay,
 
     /// Optional buffer in minutes after the appointment before the next booking.
     @Default(0) int bufferMinutesAfter,

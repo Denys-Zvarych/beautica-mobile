@@ -58,7 +58,8 @@ const _stubService = MasterService(
   serviceDefId: 'def-new',
   name: 'Тест',
   durationMinutes: 30,
-  price: 100,
+  priceMin: 100,
+  priceDisplay: '100 грн',
 );
 
 /// Resolves the [AppLocalizations] from the pumped widget tree.
@@ -171,6 +172,15 @@ void main() {
     WidgetTester tester, {
     List<AsyncValue<Object?>>? watcherStates,
   }) async {
+    // Phase 5.6: the PricingField expands the form height significantly. Set a
+    // taller test viewport (1200 px) so that `ensureVisible` / `tap` on the
+    // submit button is not at the edge of the visible area. The 1:1 pixel
+    // ratio keeps coordinates directly comparable to logical pixels.
+    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     final Widget screen = watcherStates != null
         ? _ListWatcher(
             states: watcherStates,
@@ -193,8 +203,9 @@ void main() {
   }
 
   // Convenience: scroll the submit button into view, then tap and settle.
-  // ensureVisible is needed because ServicePhotoSlot (4:3 tile) pushes the
-  // form below the test viewport; the pointer event must land on the button.
+  // ensureVisible is needed because the form may extend beyond the test viewport.
+  // Phase 5.6: viewport is set to 1200px tall in pumpCreate so ensureVisible
+  // positions the button well within hittable bounds.
   Future<void> tapSubmit(WidgetTester tester) async {
     await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
     await tester.pump();
@@ -219,7 +230,7 @@ void main() {
     );
     await tester.enterText(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
       '100',
@@ -246,7 +257,7 @@ void main() {
     // Leave duration empty.
     await tester.enterText(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
       '100',
@@ -279,7 +290,7 @@ void main() {
     );
     await tester.enterText(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
       '100',
@@ -312,7 +323,7 @@ void main() {
     );
     await tester.enterText(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
       '100',
@@ -332,7 +343,7 @@ void main() {
     await pumpCreate(tester);
 
     final priceFinder = find.descendant(
-      of: find.byKey(const Key('field-service-price')),
+      of: find.byKey(const Key('pricing-fixed-amount')),
       matching: find.byType(TextField),
     );
 
@@ -368,7 +379,7 @@ void main() {
     );
     await tester.enterText(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
       '500',
@@ -386,6 +397,8 @@ void main() {
     final input = captured.first as MasterServiceCreate;
     expect(input.name, 'Манікюр');
     expect(input.durationMinutes, 60);
+    // Phase 5.6: FIXED mode, price goes to input.price.
+    expect(input.priceType, ServicePriceType.fixed);
     expect(input.price, 500.0);
     expect(input.category, 'MANICURE');
     // Description must be null — not included in the form (user decision).
@@ -420,7 +433,7 @@ void main() {
       );
       await tester.enterText(
         find.descendant(
-          of: find.byKey(const Key('field-service-price')),
+          of: find.byKey(const Key('pricing-fixed-amount')),
           matching: find.byType(TextField),
         ),
         '200',
@@ -520,7 +533,7 @@ void main() {
     );
     await tester.enterText(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
       '500',
@@ -567,7 +580,7 @@ void main() {
       );
       await tester.enterText(
         find.descendant(
-          of: find.byKey(const Key('field-service-price')),
+          of: find.byKey(const Key('pricing-fixed-amount')),
           matching: find.byType(TextField),
         ),
         '500',
@@ -612,7 +625,7 @@ void main() {
     );
     await tester.enterText(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
       '500',
@@ -667,7 +680,7 @@ void main() {
     );
     await tester.enterText(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
       '500',
@@ -716,7 +729,7 @@ void main() {
     );
     await tester.enterText(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
       '300',
@@ -799,7 +812,7 @@ void main() {
       );
       await tester.enterText(
         find.descendant(
-          of: find.byKey(const Key('field-service-price')),
+          of: find.byKey(const Key('pricing-fixed-amount')),
           matching: find.byType(TextField),
         ),
         '200',
@@ -874,7 +887,7 @@ void main() {
     );
     await tester.enterText(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
       '500',
@@ -897,6 +910,172 @@ void main() {
           'service create',
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // B2-RANGE-SUBMIT — RANGE mode submit carries correct payload (HIGH gap).
+  // ---------------------------------------------------------------------------
+  testWidgets(
+    'B2-RANGE-SUBMIT: RANGE submit sends priceType=range, priceMin=400, '
+    'priceMax=700, price=null',
+    (tester) async {
+      await pumpCreate(tester);
+      await tester.pumpAndSettle(); // resolve approvedCategoriesProvider
+
+      // Switch to RANGE mode.
+      await tester.tap(find.byKey(const Key('pricing-toggle-range')));
+      await tester.pump();
+      await tester.pumpAndSettle(); // AnimatedSwitcher cross-fade
+
+      // Fill min and max price fields.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('pricing-range-min')),
+          matching: find.byType(TextField),
+        ),
+        '400',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('pricing-range-max')),
+          matching: find.byType(TextField),
+        ),
+        '700',
+      );
+
+      // Fill required non-price fields.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.byType(TextField),
+        ),
+        'Манікюр',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-duration')),
+          matching: find.byType(TextField),
+        ),
+        '60',
+      );
+      // Select category.
+      await tester.ensureVisible(
+        find.byKey(const Key('chip-category-MANICURE')),
+      );
+      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+      await tester.pump();
+
+      await tapSubmit(tester);
+      await tester.pumpAndSettle();
+
+      final captured = verify(() => mockRepo.create(captureAny())).captured;
+      expect(captured.length, 1);
+      final input = captured.first as MasterServiceCreate;
+      expect(input.priceType, ServicePriceType.range);
+      expect(input.priceMin, 400.0);
+      expect(input.priceMax, 700.0);
+      expect(input.price, isNull);
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // B2-RANGE-VAL-MIN — Empty min in RANGE mode shows errPriceMinRequired (HIGH).
+  // ---------------------------------------------------------------------------
+  testWidgets(
+    'B2-RANGE-VAL-MIN: empty range min shows errPriceMinRequired after submit',
+    (tester) async {
+      await pumpCreate(tester);
+      await tester.pumpAndSettle();
+
+      // Switch to RANGE mode.
+      await tester.tap(find.byKey(const Key('pricing-toggle-range')));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      // Fill name, duration, max; leave min empty.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.byType(TextField),
+        ),
+        'Педикюр',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-duration')),
+          matching: find.byType(TextField),
+        ),
+        '45',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('pricing-range-max')),
+          matching: find.byType(TextField),
+        ),
+        '700',
+      );
+      // Leave pricing-range-min empty.
+
+      await tapSubmit(tester);
+      await tester.pump();
+
+      final l10n = _l10n(tester);
+      expect(find.text(l10n.errPriceMinRequired), findsOneWidget);
+      // create() must NOT be called when min is missing.
+      verifyNever(() => mockRepo.create(any()));
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // B2-RANGE-VAL-MAXGTMIN — min > max shows errPriceMaxGtMin (HIGH).
+  // ---------------------------------------------------------------------------
+  testWidgets(
+    'B2-RANGE-VAL-MAXGTMIN: min=800 max=500 shows errPriceMaxGtMin after submit',
+    (tester) async {
+      await pumpCreate(tester);
+      await tester.pumpAndSettle();
+
+      // Switch to RANGE mode.
+      await tester.tap(find.byKey(const Key('pricing-toggle-range')));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.byType(TextField),
+        ),
+        'Педикюр',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-duration')),
+          matching: find.byType(TextField),
+        ),
+        '45',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('pricing-range-min')),
+          matching: find.byType(TextField),
+        ),
+        '800',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('pricing-range-max')),
+          matching: find.byType(TextField),
+        ),
+        '500',
+      );
+
+      await tapSubmit(tester);
+      await tester.pump();
+
+      final l10n = _l10n(tester);
+      expect(find.text(l10n.errPriceMaxGtMin), findsOneWidget);
+      verifyNever(() => mockRepo.create(any()));
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // 11. ScreenProtector lifecycle (security MS — anti-screenshot).

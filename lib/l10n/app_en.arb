@@ -1304,6 +1304,50 @@
   "@errPriceNonNegative": {
     "description": "Validation error when the price field value is negative (Phase 5.3)."
   },
+  "errPricePositive": "Price must be greater than 0",
+  "@errPricePositive": {
+    "description": "Validation error when a fixed price or range minimum is zero or negative (Phase 5.6 flexible pricing)."
+  },
+  "errPriceMaxGtMin": "Maximum must be greater than minimum",
+  "@errPriceMaxGtMin": {
+    "description": "Cross-field validation error when range max is not strictly greater than range min (Phase 5.6 flexible pricing)."
+  },
+  "errPriceMinRequired": "Enter minimum price",
+  "@errPriceMinRequired": {
+    "description": "Validation error when the range min field is empty (Phase 5.6 flexible pricing)."
+  },
+  "errPriceMaxRequired": "Enter maximum price",
+  "@errPriceMaxRequired": {
+    "description": "Validation error when the range max field is empty (Phase 5.6 flexible pricing)."
+  },
+  "pricingModeFixed": "Fixed",
+  "@pricingModeFixed": {
+    "description": "Label for the fixed-price segment of the pricing mode toggle (Phase 5.6 flexible pricing)."
+  },
+  "pricingModeRange": "Range",
+  "@pricingModeRange": {
+    "description": "Label for the range-price segment of the pricing mode toggle (Phase 5.6 flexible pricing)."
+  },
+  "pricingAmountLabel": "Amount",
+  "@pricingAmountLabel": {
+    "description": "Field label for the fixed price amount field (Phase 5.6 flexible pricing)."
+  },
+  "pricingFromLabel": "From",
+  "@pricingFromLabel": {
+    "description": "Field label for the range minimum price field (Phase 5.6 flexible pricing)."
+  },
+  "pricingToLabel": "To",
+  "@pricingToLabel": {
+    "description": "Field label for the range maximum price field (Phase 5.6 flexible pricing)."
+  },
+  "pricingRangeHint": "Maximum must be greater than minimum",
+  "@pricingRangeHint": {
+    "description": "Static hint displayed below the range price pair when there is no validation error (Phase 5.6 flexible pricing)."
+  },
+  "pricingSectionLabel": "PRICE",
+  "@pricingSectionLabel": {
+    "description": "Uppercase section label above the entire pricing control (Phase 5.6 flexible pricing)."
+  },
 
   "servicesEditTitle": "Edit Service",
   "@servicesEditTitle": {

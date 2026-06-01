@@ -6,6 +6,68 @@ part of 'service_definition_response.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
+const ServiceDefinitionResponsePriceTypeEnum
+    _$serviceDefinitionResponsePriceTypeEnum_FIXED =
+    const ServiceDefinitionResponsePriceTypeEnum._('FIXED');
+const ServiceDefinitionResponsePriceTypeEnum
+    _$serviceDefinitionResponsePriceTypeEnum_RANGE =
+    const ServiceDefinitionResponsePriceTypeEnum._('RANGE');
+
+ServiceDefinitionResponsePriceTypeEnum
+    _$serviceDefinitionResponsePriceTypeEnumValueOf(String name) {
+  switch (name) {
+    case 'FIXED':
+      return _$serviceDefinitionResponsePriceTypeEnum_FIXED;
+    case 'RANGE':
+      return _$serviceDefinitionResponsePriceTypeEnum_RANGE;
+    default:
+      throw ArgumentError(name);
+  }
+}
+
+final BuiltSet<ServiceDefinitionResponsePriceTypeEnum>
+    _$serviceDefinitionResponsePriceTypeEnumValues = BuiltSet<
+        ServiceDefinitionResponsePriceTypeEnum>(const <ServiceDefinitionResponsePriceTypeEnum>[
+  _$serviceDefinitionResponsePriceTypeEnum_FIXED,
+  _$serviceDefinitionResponsePriceTypeEnum_RANGE,
+]);
+
+Serializer<ServiceDefinitionResponsePriceTypeEnum>
+    _$serviceDefinitionResponsePriceTypeEnumSerializer =
+    _$ServiceDefinitionResponsePriceTypeEnumSerializer();
+
+class _$ServiceDefinitionResponsePriceTypeEnumSerializer
+    implements PrimitiveSerializer<ServiceDefinitionResponsePriceTypeEnum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'FIXED': 'FIXED',
+    'RANGE': 'RANGE',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'FIXED': 'FIXED',
+    'RANGE': 'RANGE',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[
+    ServiceDefinitionResponsePriceTypeEnum
+  ];
+  @override
+  final String wireName = 'ServiceDefinitionResponsePriceTypeEnum';
+
+  @override
+  Object serialize(Serializers serializers,
+          ServiceDefinitionResponsePriceTypeEnum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  ServiceDefinitionResponsePriceTypeEnum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      ServiceDefinitionResponsePriceTypeEnum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
   @override
   final String? id;
@@ -18,8 +80,6 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
   @override
   final int? baseDurationMinutes;
   @override
-  final num? basePrice;
-  @override
   final int? bufferMinutesAfter;
   @override
   final bool? isActive;
@@ -29,6 +89,14 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
   final String? serviceTypeNameUk;
   @override
   final String? photoUrl;
+  @override
+  final ServiceDefinitionResponsePriceTypeEnum? priceType;
+  @override
+  final num? priceMin;
+  @override
+  final num? priceMax;
+  @override
+  final String? priceDisplay;
 
   factory _$ServiceDefinitionResponse(
           [void Function(ServiceDefinitionResponseBuilder)? updates]) =>
@@ -40,12 +108,15 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
       this.description,
       this.category,
       this.baseDurationMinutes,
-      this.basePrice,
       this.bufferMinutesAfter,
       this.isActive,
       this.serviceTypeId,
       this.serviceTypeNameUk,
-      this.photoUrl})
+      this.photoUrl,
+      this.priceType,
+      this.priceMin,
+      this.priceMax,
+      this.priceDisplay})
       : super._();
   @override
   ServiceDefinitionResponse rebuild(
@@ -65,12 +136,15 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
         description == other.description &&
         category == other.category &&
         baseDurationMinutes == other.baseDurationMinutes &&
-        basePrice == other.basePrice &&
         bufferMinutesAfter == other.bufferMinutesAfter &&
         isActive == other.isActive &&
         serviceTypeId == other.serviceTypeId &&
         serviceTypeNameUk == other.serviceTypeNameUk &&
-        photoUrl == other.photoUrl;
+        photoUrl == other.photoUrl &&
+        priceType == other.priceType &&
+        priceMin == other.priceMin &&
+        priceMax == other.priceMax &&
+        priceDisplay == other.priceDisplay;
   }
 
   @override
@@ -81,12 +155,15 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
     _$hash = $jc(_$hash, description.hashCode);
     _$hash = $jc(_$hash, category.hashCode);
     _$hash = $jc(_$hash, baseDurationMinutes.hashCode);
-    _$hash = $jc(_$hash, basePrice.hashCode);
     _$hash = $jc(_$hash, bufferMinutesAfter.hashCode);
     _$hash = $jc(_$hash, isActive.hashCode);
     _$hash = $jc(_$hash, serviceTypeId.hashCode);
     _$hash = $jc(_$hash, serviceTypeNameUk.hashCode);
     _$hash = $jc(_$hash, photoUrl.hashCode);
+    _$hash = $jc(_$hash, priceType.hashCode);
+    _$hash = $jc(_$hash, priceMin.hashCode);
+    _$hash = $jc(_$hash, priceMax.hashCode);
+    _$hash = $jc(_$hash, priceDisplay.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -99,12 +176,15 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
           ..add('description', description)
           ..add('category', category)
           ..add('baseDurationMinutes', baseDurationMinutes)
-          ..add('basePrice', basePrice)
           ..add('bufferMinutesAfter', bufferMinutesAfter)
           ..add('isActive', isActive)
           ..add('serviceTypeId', serviceTypeId)
           ..add('serviceTypeNameUk', serviceTypeNameUk)
-          ..add('photoUrl', photoUrl))
+          ..add('photoUrl', photoUrl)
+          ..add('priceType', priceType)
+          ..add('priceMin', priceMin)
+          ..add('priceMax', priceMax)
+          ..add('priceDisplay', priceDisplay))
         .toString();
   }
 }
@@ -135,10 +215,6 @@ class ServiceDefinitionResponseBuilder
   set baseDurationMinutes(int? baseDurationMinutes) =>
       _$this._baseDurationMinutes = baseDurationMinutes;
 
-  num? _basePrice;
-  num? get basePrice => _$this._basePrice;
-  set basePrice(num? basePrice) => _$this._basePrice = basePrice;
-
   int? _bufferMinutesAfter;
   int? get bufferMinutesAfter => _$this._bufferMinutesAfter;
   set bufferMinutesAfter(int? bufferMinutesAfter) =>
@@ -162,6 +238,23 @@ class ServiceDefinitionResponseBuilder
   String? get photoUrl => _$this._photoUrl;
   set photoUrl(String? photoUrl) => _$this._photoUrl = photoUrl;
 
+  ServiceDefinitionResponsePriceTypeEnum? _priceType;
+  ServiceDefinitionResponsePriceTypeEnum? get priceType => _$this._priceType;
+  set priceType(ServiceDefinitionResponsePriceTypeEnum? priceType) =>
+      _$this._priceType = priceType;
+
+  num? _priceMin;
+  num? get priceMin => _$this._priceMin;
+  set priceMin(num? priceMin) => _$this._priceMin = priceMin;
+
+  num? _priceMax;
+  num? get priceMax => _$this._priceMax;
+  set priceMax(num? priceMax) => _$this._priceMax = priceMax;
+
+  String? _priceDisplay;
+  String? get priceDisplay => _$this._priceDisplay;
+  set priceDisplay(String? priceDisplay) => _$this._priceDisplay = priceDisplay;
+
   ServiceDefinitionResponseBuilder() {
     ServiceDefinitionResponse._defaults(this);
   }
@@ -174,12 +267,15 @@ class ServiceDefinitionResponseBuilder
       _description = $v.description;
       _category = $v.category;
       _baseDurationMinutes = $v.baseDurationMinutes;
-      _basePrice = $v.basePrice;
       _bufferMinutesAfter = $v.bufferMinutesAfter;
       _isActive = $v.isActive;
       _serviceTypeId = $v.serviceTypeId;
       _serviceTypeNameUk = $v.serviceTypeNameUk;
       _photoUrl = $v.photoUrl;
+      _priceType = $v.priceType;
+      _priceMin = $v.priceMin;
+      _priceMax = $v.priceMax;
+      _priceDisplay = $v.priceDisplay;
       _$v = null;
     }
     return this;
@@ -206,12 +302,15 @@ class ServiceDefinitionResponseBuilder
           description: description,
           category: category,
           baseDurationMinutes: baseDurationMinutes,
-          basePrice: basePrice,
           bufferMinutesAfter: bufferMinutesAfter,
           isActive: isActive,
           serviceTypeId: serviceTypeId,
           serviceTypeNameUk: serviceTypeNameUk,
           photoUrl: photoUrl,
+          priceType: priceType,
+          priceMin: priceMin,
+          priceMax: priceMax,
+          priceDisplay: priceDisplay,
         );
     replace(_$result);
     return _$result;

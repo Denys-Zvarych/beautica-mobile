@@ -178,10 +178,15 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
         service: service,
         l10n: l10n,
         onSave: (MasterServiceCreate input) async {
+          // Build the pricing patch block — all four price fields must be
+          // sent together when the price is being updated (backend rule).
           final patch = MasterServiceUpdate(
             name: input.name,
             durationMinutes: input.durationMinutes,
+            priceType: input.priceType,
             price: input.price,
+            priceMin: input.priceMin,
+            priceMax: input.priceMax,
             category: input.category,
           );
           // Backend keys PATCH /api/v1/services/{serviceDefId} on the

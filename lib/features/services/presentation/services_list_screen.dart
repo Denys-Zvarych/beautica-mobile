@@ -319,7 +319,12 @@ class _ServiceCardState extends State<_ServiceCard>
   Widget build(BuildContext context) {
     final MasterService s = widget.service;
     final durationLabel = DurationMinutes.format(s.durationMinutes);
-    final priceLabel = CurrencyUah.format(s.price);
+    // Phase 5.6: render from the server-formatted priceDisplay field.
+    // Fallback: if priceDisplay is somehow empty (pre-V67 data or broken
+    // contract), do not crash — show an empty string rather than a bad format.
+    final priceLabel = s.priceDisplay.isNotEmpty
+        ? s.priceDisplay
+        : CurrencyUah.format(s.priceMin);
 
     return AnimatedBuilder(
       animation: _curve,
@@ -335,6 +340,8 @@ class _ServiceCardState extends State<_ServiceCard>
       child: Semantics(
         button: true,
         label: '${s.name}. $durationLabel, $priceLabel. Редагувати',
+        // priceLabel renders from priceDisplay (server-formatted) so the
+        // accessibility label always matches what the user sees in the card.
         child: GestureDetector(
           onTapDown: (_) => setState(() => _pressed = true),
           onTapCancel: () => setState(() => _pressed = false),
@@ -437,6 +444,12 @@ class _ServiceInfo extends StatelessWidget {
   final String priceLabel;
   final String? category;
 
+  // Hoisted to avoid per-build allocation (MEDIUM-3).
+  static final TextStyle _nameStyle = VelvetText.cardTitle().copyWith(
+    fontSize: 15,
+    height: 1.15,
+  );
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -447,7 +460,7 @@ class _ServiceInfo extends StatelessWidget {
           name,
           // Compact row: single line, slightly smaller than the full cardTitle
           // so the dense list reads as rows rather than tall cards.
-          style: VelvetText.cardTitle().copyWith(fontSize: 15, height: 1.15),
+          style: _nameStyle,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -510,6 +523,11 @@ class _MetaItem extends StatelessWidget {
   final IconData icon;
   final String value;
 
+  // Hoisted to avoid per-build allocation (MEDIUM-3).
+  static final TextStyle _valueStyle = VelvetText.pill().copyWith(
+    fontSize: 12.5,
+  );
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -520,7 +538,7 @@ class _MetaItem extends StatelessWidget {
         Flexible(
           child: Text(
             value,
-            style: VelvetText.pill().copyWith(fontSize: 12.5),
+            style: _valueStyle,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

@@ -55,7 +55,8 @@ const _stubService = MasterService(
   serviceDefId: 'def-001',
   name: 'Стрижка',
   durationMinutes: 45,
-  price: 750,
+  priceMin: 750,
+  priceDisplay: '750 грн',
 );
 
 const _stubServiceList = <MasterService>[_stubService];
@@ -67,7 +68,8 @@ MasterService _makeService(int i) => MasterService(
   serviceDefId: 'def-$i',
   name: 'Test $i',
   durationMinutes: 30,
-  price: 100,
+  priceMin: 100,
+  priceDisplay: '100 грн',
 );
 
 // ---------------------------------------------------------------------------
@@ -257,7 +259,8 @@ void main() {
 
       expect(find.byType(ListView), findsOneWidget);
       expect(find.text('Стрижка'), findsOneWidget);
-      expect(find.text('₴ 750'), findsOneWidget);
+      // Phase 5.6: price rendered from priceDisplay (server-formatted).
+      expect(find.text('750 грн'), findsOneWidget);
       expect(find.text('45 хв'), findsOneWidget);
     },
   );
@@ -403,7 +406,8 @@ void main() {
       serviceDefId: 'def-brows',
       name: 'Корекція брів',
       durationMinutes: 30,
-      price: 250,
+      priceMin: 250,
+      priceDisplay: '250 грн',
       category: 'BROWS',
     );
 

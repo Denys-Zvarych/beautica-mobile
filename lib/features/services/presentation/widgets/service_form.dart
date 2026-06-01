@@ -7,17 +7,17 @@
 //   - [ServiceEditScreen] passes [initial] and a [MasterServiceUpdate]-producing
 //     [onSubmit] callback; [ServiceCreateScreen] passes nothing (blank form).
 // Phase 5.x — Category chip selector added between the name field and the
-//   duration+price row. Supports both create (blank) and edit (pre-populated)
+//   duration+pricing row. Supports both create (blank) and edit (pre-populated)
 //   modes. Dirty-state tracking includes the selected category.
-//
-// The parent screen (ServiceCreateScreen / ServiceEditScreen) provides an
-// [onSubmit] callback that receives the fully-validated [MasterServiceCreate]
-// payload. The form is responsible only for:
-//   - rendering three VelvetTouch fields (name, duration, price);
-//   - rendering a category chip selector (seven neumorphic pills);
-//   - running client-side validators on submit;
-//   - toggling a loading state while [onSubmit] is in-flight;
-//   - showing the dirty-state marker when [initial] is set.
+// Phase 5.6 — Flexible pricing: replaced the single price field with
+//   [PricingField] — a two-mode segmented control (Фіксована / Діапазон).
+//   - FIXED mode: one "Сума" amount field with "грн" suffix.
+//   - RANGE mode: side-by-side "Від" / "До" fields with an inline range error hint.
+//   - Edit form pre-fills the toggle + fields from [MasterService.priceType],
+//     [priceMin], [priceMax].
+//   - Dirty-state tracking includes priceType + all price field values.
+//   - Price display in cards/lists uses [MasterService.priceDisplay] (server-
+//     formatted) — no client-side string building.
 //
 // Description is intentionally absent from the UI (user decision: deferred).
 // [MasterServiceCreate.description] is left null when the payload is built.
@@ -35,6 +35,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/category_request_dialog.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart';
 import 'package:beautica_mobile/shared/validators/numeric_validators.dart';
@@ -95,13 +96,18 @@ class _ServiceFormState extends State<ServiceForm> {
   // Label styles — cached to avoid per-frame TextStyle allocations.
   static final TextStyle _labelStyle = VelvetText.label();
   static final TextStyle _feedbackError = VelvetText.feedback(
-    const Color(0xFFB0452F), // BrandColors.error
+    BrandColors.error,
   );
   static final TextStyle _subheadingStyle = VelvetText.body();
 
   late final TextEditingController _nameCtrl;
   late final TextEditingController _durationCtrl;
-  late final TextEditingController _priceCtrl;
+
+  // Pricing controllers and mode state (Phase 5.6 flexible pricing).
+  late final TextEditingController _priceFixedCtrl;
+  late final TextEditingController _priceMinCtrl;
+  late final TextEditingController _priceMaxCtrl;
+  ServicePriceType _pricingMode = ServicePriceType.fixed;
 
   bool _submitted = false;
   bool _submitting = false;
@@ -109,23 +115,30 @@ class _ServiceFormState extends State<ServiceForm> {
 
   // Dirty-state baseline values (edit mode only). These are the string
   // representations of widget.initial fields — compared against current
-  // field texts and the selected category to determine if the form is dirty.
+  // field texts, the selected category, and pricing mode to determine if
+  // the form is dirty.
   late final String _baselineName;
   late final String _baselineDuration;
-  late final String _baselinePrice;
+  late final ServicePriceType _baselinePricingMode;
+  late final String _baselinePriceFixed;
+  late final String _baselinePriceMin;
+  late final String _baselinePriceMax;
   late final String? _baselineCategory;
 
   /// Currently selected category wire name. Null = no category selected.
   String? _selectedCategory;
 
   /// True when the form is in edit mode ([widget.initial] is set) and at
-  /// least one field (including the category chip) differs from the loaded
+  /// least one field (including category or pricing) differs from the loaded
   /// service values.
   bool get _isDirty {
     if (widget.initial == null) return false;
     return _nameCtrl.text != _baselineName ||
         _durationCtrl.text != _baselineDuration ||
-        _priceCtrl.text != _baselinePrice ||
+        _pricingMode != _baselinePricingMode ||
+        _priceFixedCtrl.text != _baselinePriceFixed ||
+        _priceMinCtrl.text != _baselinePriceMin ||
+        _priceMaxCtrl.text != _baselinePriceMax ||
         _selectedCategory != _baselineCategory;
   }
 
@@ -135,19 +148,39 @@ class _ServiceFormState extends State<ServiceForm> {
 
     final MasterService? initial = widget.initial;
 
-    // Price display: always integer — never "750.0" (backlog price-precision rule).
     _baselineName = initial?.name ?? '';
     _baselineDuration = initial != null
         ? initial.durationMinutes.toString()
         : '';
-    _baselinePrice = initial != null ? initial.price.toInt().toString() : '';
     _baselineCategory = initial?.category;
+    _baselinePricingMode = initial?.priceType ?? ServicePriceType.fixed;
+
+    // Seed pricing baseline from the loaded service.
+    // priceMin is the canonical floor for both modes; display as integer.
+    _baselinePriceFixed =
+        (initial?.priceType == ServicePriceType.fixed &&
+            initial?.priceMin != null)
+        ? initial!.priceMin.toInt().toString()
+        : '';
+    _baselinePriceMin =
+        (initial?.priceType == ServicePriceType.range &&
+            initial?.priceMin != null)
+        ? initial!.priceMin.toInt().toString()
+        : '';
+    _baselinePriceMax =
+        (initial?.priceType == ServicePriceType.range &&
+            initial?.priceMax != null)
+        ? initial!.priceMax!.toInt().toString()
+        : '';
 
     _selectedCategory = initial?.category;
+    _pricingMode = _baselinePricingMode;
 
     _nameCtrl = TextEditingController(text: _baselineName);
     _durationCtrl = TextEditingController(text: _baselineDuration);
-    _priceCtrl = TextEditingController(text: _baselinePrice);
+    _priceFixedCtrl = TextEditingController(text: _baselinePriceFixed);
+    _priceMinCtrl = TextEditingController(text: _baselinePriceMin);
+    _priceMaxCtrl = TextEditingController(text: _baselinePriceMax);
 
     // After first submit, live-re-validate on every keystroke so errors clear
     // the instant the field becomes valid. In edit mode, also repaint the dirty
@@ -155,7 +188,9 @@ class _ServiceFormState extends State<ServiceForm> {
     for (final TextEditingController c in <TextEditingController>[
       _nameCtrl,
       _durationCtrl,
-      _priceCtrl,
+      _priceFixedCtrl,
+      _priceMinCtrl,
+      _priceMaxCtrl,
     ]) {
       c.addListener(_onChanged);
     }
@@ -174,7 +209,9 @@ class _ServiceFormState extends State<ServiceForm> {
   void dispose() {
     _nameCtrl.dispose();
     _durationCtrl.dispose();
-    _priceCtrl.dispose();
+    _priceFixedCtrl.dispose();
+    _priceMinCtrl.dispose();
+    _priceMaxCtrl.dispose();
     super.dispose();
   }
 
@@ -190,9 +227,52 @@ class _ServiceFormState extends State<ServiceForm> {
     return validateDurationMinutes(_durationCtrl.text, l10n);
   }
 
-  String? _priceError(AppLocalizations l10n) {
-    if (!_submitted) return null;
-    return validatePriceUah(_priceCtrl.text, l10n);
+  // --- Pricing validators (Phase 5.6) ----------------------------------------
+
+  /// Inline error for the fixed-amount field (FIXED mode only).
+  String? _fixedPriceError(AppLocalizations l10n) {
+    if (!_submitted || _pricingMode != ServicePriceType.fixed) return null;
+    final String v = _priceFixedCtrl.text.trim();
+    if (v.isEmpty) return l10n.errRequired;
+    final int? n = int.tryParse(v);
+    if (n == null || n <= 0) return l10n.errPricePositive;
+    return null;
+  }
+
+  /// Inline error for the "Від" (min) field (RANGE mode only).
+  String? _rangeMinError(AppLocalizations l10n) {
+    if (!_submitted || _pricingMode != ServicePriceType.range) return null;
+    final String v = _priceMinCtrl.text.trim();
+    if (v.isEmpty) return l10n.errPriceMinRequired;
+    final int? n = int.tryParse(v);
+    if (n == null || n <= 0) return l10n.errPricePositive;
+    return null;
+  }
+
+  /// Cross-field error: max must be present and strictly greater than min.
+  String? _rangeMaxError(AppLocalizations l10n) {
+    if (!_submitted || _pricingMode != ServicePriceType.range) return null;
+    final String maxV = _priceMaxCtrl.text.trim();
+    if (maxV.isEmpty) return l10n.errPriceMaxRequired;
+    final int? min = int.tryParse(_priceMinCtrl.text.trim());
+    final int? max = int.tryParse(maxV);
+    if (min != null && max != null && max <= min) {
+      return l10n.errPriceMaxGtMin;
+    }
+    return null;
+  }
+
+  bool _pricingValid(AppLocalizations l10n) {
+    switch (_pricingMode) {
+      case ServicePriceType.fixed:
+        return _fixedPriceError(l10n) == null &&
+            _priceFixedCtrl.text.trim().isNotEmpty;
+      case ServicePriceType.range:
+        return _rangeMinError(l10n) == null &&
+            _rangeMaxError(l10n) == null &&
+            _priceMinCtrl.text.trim().isNotEmpty &&
+            _priceMaxCtrl.text.trim().isNotEmpty;
+    }
   }
 
   /// Category is required by the backend (`@NotBlank`); surface a required
@@ -207,28 +287,42 @@ class _ServiceFormState extends State<ServiceForm> {
   bool _isValid(AppLocalizations l10n) =>
       _nameError(l10n) == null &&
       _durationError(l10n) == null &&
-      _priceError(l10n) == null &&
-      _categoryError(l10n) == null;
+      _pricingValid(l10n) &&
+      _categoryError(l10n) == null &&
+      _nameCtrl.text.trim().isNotEmpty &&
+      _durationCtrl.text.trim().isNotEmpty;
 
   // --- Submit ---------------------------------------------------------------
 
   Future<void> _handleSubmit(AppLocalizations l10n) async {
     setState(() => _submitted = true);
     if (!_isValid(l10n)) {
-      // Surface the freshly-computed errors.
       setState(() {});
       return;
     }
     setState(() => _submitting = true);
     try {
-      final input = MasterServiceCreate(
-        name: _nameCtrl.text.trim(),
-        durationMinutes: int.parse(_durationCtrl.text.trim()),
-        price: double.parse(_priceCtrl.text.trim()),
-        // Description is intentionally omitted from the form (user decision,
-        // Phase 5.3). The domain model accepts null.
-        category: _selectedCategory,
-      );
+      final MasterServiceCreate input;
+      switch (_pricingMode) {
+        case ServicePriceType.fixed:
+          input = MasterServiceCreate(
+            name: _nameCtrl.text.trim(),
+            durationMinutes: int.parse(_durationCtrl.text.trim()),
+            priceType: ServicePriceType.fixed,
+            price: double.parse(_priceFixedCtrl.text.trim()),
+            // Description intentionally omitted (user decision, Phase 5.3).
+            category: _selectedCategory,
+          );
+        case ServicePriceType.range:
+          input = MasterServiceCreate(
+            name: _nameCtrl.text.trim(),
+            durationMinutes: int.parse(_durationCtrl.text.trim()),
+            priceType: ServicePriceType.range,
+            priceMin: double.parse(_priceMinCtrl.text.trim()),
+            priceMax: double.parse(_priceMaxCtrl.text.trim()),
+            category: _selectedCategory,
+          );
+      }
       await widget.onSubmit(input);
     } catch (e, st) {
       if (kDebugMode) {
@@ -251,9 +345,8 @@ class _ServiceFormState extends State<ServiceForm> {
   // --- Field builder --------------------------------------------------------
 
   /// Builds a labelled neumorphic inset field with optional suffix text and
-  /// inline error rendering. Mirrors the [VelvetField] pattern from the
-  /// approved preview app but uses the project's existing [NeumorphicInset]
-  /// and [NeumorphicTextField] primitives.
+  /// inline error rendering. Used for the name and duration fields only;
+  /// pricing is handled by [PricingField].
   Widget _buildField({
     required Key fieldKey,
     required String label,
@@ -333,44 +426,41 @@ class _ServiceFormState extends State<ServiceForm> {
         ),
         const SizedBox(height: VelvetSpacing.lg),
 
-        // 2 — Duration + Price side-by-side (master thinks of them together).
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Expanded(
-              child: _buildField(
-                fieldKey: const Key('field-service-duration'),
-                label: l10n.serviceDurationLabel,
-                controller: _durationCtrl,
-                errorText: _durationError(l10n),
-                hintText: '60',
-                suffixText: 'хв',
-                keyboardType: TextInputType.number,
-                inputFormatters: <TextInputFormatter>[
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(4),
-                ],
-                enabled: !_submitting,
-              ),
-            ),
-            const SizedBox(width: VelvetSpacing.md),
-            Expanded(
-              child: _buildField(
-                fieldKey: const Key('field-service-price'),
-                label: l10n.servicePriceLabel,
-                controller: _priceCtrl,
-                errorText: _priceError(l10n),
-                hintText: '500',
-                suffixText: '₴',
-                keyboardType: TextInputType.number,
-                inputFormatters: <TextInputFormatter>[
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(7),
-                ],
-                enabled: !_submitting,
-              ),
-            ),
+        // 2 — Duration field (required, 1–1440 min).
+        _buildField(
+          fieldKey: const Key('field-service-duration'),
+          label: l10n.serviceDurationLabel,
+          controller: _durationCtrl,
+          errorText: _durationError(l10n),
+          hintText: '60',
+          suffixText: 'хв',
+          keyboardType: TextInputType.number,
+          inputFormatters: <TextInputFormatter>[
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(4),
           ],
+          enabled: !_submitting,
+        ),
+        const SizedBox(height: VelvetSpacing.lg),
+
+        // 3 — Pricing: FIXED (single amount) or RANGE (min–max) via the
+        //     two-mode segmented toggle + conditional field area.
+        PricingField(
+          key: const Key('pricing-field'),
+          mode: _pricingMode,
+          enabled: !_submitting,
+          onModeChanged: (ServicePriceType m) {
+            setState(() {
+              _pricingMode = m;
+              _wasDirty = _isDirty;
+            });
+          },
+          fixedController: _priceFixedCtrl,
+          minController: _priceMinCtrl,
+          maxController: _priceMaxCtrl,
+          fixedError: _fixedPriceError(l10n),
+          minError: _rangeMinError(l10n),
+          rangeError: _rangeMaxError(l10n),
         ),
         const SizedBox(height: VelvetSpacing.xl),
 

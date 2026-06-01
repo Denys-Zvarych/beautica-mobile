@@ -953,7 +953,8 @@ void main() {
           serviceDefId: 'def-1',
           name: 'Манікюр',
           durationMinutes: 30,
-          price: 500,
+          priceMin: 500,
+          priceDisplay: '500 грн',
         ),
       ];
       when(

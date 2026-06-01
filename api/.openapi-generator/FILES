@@ -277,17 +277,3 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
-test/api_response_category_request_response_test.dart
-test/api_response_list_approved_category_response_test.dart
-test/api_response_list_platform_category_usage_response_test.dart
-test/api_response_platform_category_response_test.dart
-test/approved_category_response_test.dart
-test/category_request_controller_api_test.dart
-test/category_request_response_test.dart
-test/create_category_request_request_test.dart
-test/create_platform_category_request_test.dart
-test/internal_category_controller_api_test.dart
-test/platform_category_response_test.dart
-test/platform_category_usage_response_test.dart
-test/update_service_definition_request_test.dart
-test/update_service_photo_request_test.dart

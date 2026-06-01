@@ -16,6 +16,10 @@ Name | Type | Description | Notes
 **effectivePrice** | **num** |  | [optional] 
 **effectiveDurationMinutes** | **int** |  | [optional] 
 **isActive** | **bool** |  | [optional] 
+**priceType** | **String** |  | [optional] 
+**priceMin** | **num** |  | [optional] 
+**priceMax** | **num** |  | [optional] 
+**priceDisplay** | **String** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

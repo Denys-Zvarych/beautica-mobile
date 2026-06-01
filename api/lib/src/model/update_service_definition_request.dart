@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -15,8 +16,11 @@ part 'update_service_definition_request.g.dart';
 /// * [description]
 /// * [category]
 /// * [baseDurationMinutes]
-/// * [basePrice]
 /// * [bufferMinutesAfter]
+/// * [priceType]
+/// * [price]
+/// * [priceMin]
+/// * [priceMax]
 @BuiltValue()
 abstract class UpdateServiceDefinitionRequest
     implements
@@ -34,11 +38,21 @@ abstract class UpdateServiceDefinitionRequest
   @BuiltValueField(wireName: r'baseDurationMinutes')
   int? get baseDurationMinutes;
 
-  @BuiltValueField(wireName: r'basePrice')
-  num? get basePrice;
-
   @BuiltValueField(wireName: r'bufferMinutesAfter')
   int? get bufferMinutesAfter;
+
+  @BuiltValueField(wireName: r'priceType')
+  UpdateServiceDefinitionRequestPriceTypeEnum? get priceType;
+  // enum priceTypeEnum {  FIXED,  RANGE,  };
+
+  @BuiltValueField(wireName: r'price')
+  num? get price;
+
+  @BuiltValueField(wireName: r'priceMin')
+  num? get priceMin;
+
+  @BuiltValueField(wireName: r'priceMax')
+  num? get priceMax;
 
   UpdateServiceDefinitionRequest._();
 
@@ -98,18 +112,40 @@ class _$UpdateServiceDefinitionRequestSerializer
         specifiedType: const FullType(int),
       );
     }
-    if (object.basePrice != null) {
-      yield r'basePrice';
-      yield serializers.serialize(
-        object.basePrice,
-        specifiedType: const FullType(num),
-      );
-    }
     if (object.bufferMinutesAfter != null) {
       yield r'bufferMinutesAfter';
       yield serializers.serialize(
         object.bufferMinutesAfter,
         specifiedType: const FullType(int),
+      );
+    }
+    if (object.priceType != null) {
+      yield r'priceType';
+      yield serializers.serialize(
+        object.priceType,
+        specifiedType:
+            const FullType(UpdateServiceDefinitionRequestPriceTypeEnum),
+      );
+    }
+    if (object.price != null) {
+      yield r'price';
+      yield serializers.serialize(
+        object.price,
+        specifiedType: const FullType(num),
+      );
+    }
+    if (object.priceMin != null) {
+      yield r'priceMin';
+      yield serializers.serialize(
+        object.priceMin,
+        specifiedType: const FullType(num),
+      );
+    }
+    if (object.priceMax != null) {
+      yield r'priceMax';
+      yield serializers.serialize(
+        object.priceMax,
+        specifiedType: const FullType(num),
       );
     }
   }
@@ -165,19 +201,41 @@ class _$UpdateServiceDefinitionRequestSerializer
           ) as int;
           result.baseDurationMinutes = valueDes;
           break;
-        case r'basePrice':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(num),
-          ) as num;
-          result.basePrice = valueDes;
-          break;
         case r'bufferMinutesAfter':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(int),
           ) as int;
           result.bufferMinutesAfter = valueDes;
+          break;
+        case r'priceType':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType(UpdateServiceDefinitionRequestPriceTypeEnum),
+          ) as UpdateServiceDefinitionRequestPriceTypeEnum;
+          result.priceType = valueDes;
+          break;
+        case r'price':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.price = valueDes;
+          break;
+        case r'priceMin':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.priceMin = valueDes;
+          break;
+        case r'priceMax':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.priceMax = valueDes;
           break;
         default:
           unhandled.add(key);
@@ -206,4 +264,24 @@ class _$UpdateServiceDefinitionRequestSerializer
     );
     return result.build();
   }
+}
+
+class UpdateServiceDefinitionRequestPriceTypeEnum extends EnumClass {
+  @BuiltValueEnumConst(wireName: r'FIXED')
+  static const UpdateServiceDefinitionRequestPriceTypeEnum FIXED =
+      _$updateServiceDefinitionRequestPriceTypeEnum_FIXED;
+  @BuiltValueEnumConst(wireName: r'RANGE')
+  static const UpdateServiceDefinitionRequestPriceTypeEnum RANGE =
+      _$updateServiceDefinitionRequestPriceTypeEnum_RANGE;
+
+  static Serializer<UpdateServiceDefinitionRequestPriceTypeEnum>
+      get serializer => _$updateServiceDefinitionRequestPriceTypeEnumSerializer;
+
+  const UpdateServiceDefinitionRequestPriceTypeEnum._(String name)
+      : super(name);
+
+  static BuiltSet<UpdateServiceDefinitionRequestPriceTypeEnum> get values =>
+      _$updateServiceDefinitionRequestPriceTypeEnumValues;
+  static UpdateServiceDefinitionRequestPriceTypeEnum valueOf(String name) =>
+      _$updateServiceDefinitionRequestPriceTypeEnumValueOf(name);
 }

@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:beautica_api/src/model/service_definition_response.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -20,6 +21,10 @@ part 'master_service_response.g.dart';
 /// * [effectivePrice]
 /// * [effectiveDurationMinutes]
 /// * [isActive]
+/// * [priceType]
+/// * [priceMin]
+/// * [priceMax]
+/// * [priceDisplay]
 @BuiltValue()
 abstract class MasterServiceResponse
     implements Built<MasterServiceResponse, MasterServiceResponseBuilder> {
@@ -46,6 +51,19 @@ abstract class MasterServiceResponse
 
   @BuiltValueField(wireName: r'isActive')
   bool? get isActive;
+
+  @BuiltValueField(wireName: r'priceType')
+  MasterServiceResponsePriceTypeEnum? get priceType;
+  // enum priceTypeEnum {  FIXED,  RANGE,  };
+
+  @BuiltValueField(wireName: r'priceMin')
+  num? get priceMin;
+
+  @BuiltValueField(wireName: r'priceMax')
+  num? get priceMax;
+
+  @BuiltValueField(wireName: r'priceDisplay')
+  String? get priceDisplay;
 
   MasterServiceResponse._();
 
@@ -132,6 +150,34 @@ class _$MasterServiceResponseSerializer
         specifiedType: const FullType(bool),
       );
     }
+    if (object.priceType != null) {
+      yield r'priceType';
+      yield serializers.serialize(
+        object.priceType,
+        specifiedType: const FullType(MasterServiceResponsePriceTypeEnum),
+      );
+    }
+    if (object.priceMin != null) {
+      yield r'priceMin';
+      yield serializers.serialize(
+        object.priceMin,
+        specifiedType: const FullType(num),
+      );
+    }
+    if (object.priceMax != null) {
+      yield r'priceMax';
+      yield serializers.serialize(
+        object.priceMax,
+        specifiedType: const FullType(num),
+      );
+    }
+    if (object.priceDisplay != null) {
+      yield r'priceDisplay';
+      yield serializers.serialize(
+        object.priceDisplay,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -213,6 +259,34 @@ class _$MasterServiceResponseSerializer
           ) as bool;
           result.isActive = valueDes;
           break;
+        case r'priceType':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(MasterServiceResponsePriceTypeEnum),
+          ) as MasterServiceResponsePriceTypeEnum;
+          result.priceType = valueDes;
+          break;
+        case r'priceMin':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.priceMin = valueDes;
+          break;
+        case r'priceMax':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.priceMax = valueDes;
+          break;
+        case r'priceDisplay':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.priceDisplay = valueDes;
+          break;
         default:
           unhandled.add(key);
           unhandled.add(value);
@@ -240,4 +314,23 @@ class _$MasterServiceResponseSerializer
     );
     return result.build();
   }
+}
+
+class MasterServiceResponsePriceTypeEnum extends EnumClass {
+  @BuiltValueEnumConst(wireName: r'FIXED')
+  static const MasterServiceResponsePriceTypeEnum FIXED =
+      _$masterServiceResponsePriceTypeEnum_FIXED;
+  @BuiltValueEnumConst(wireName: r'RANGE')
+  static const MasterServiceResponsePriceTypeEnum RANGE =
+      _$masterServiceResponsePriceTypeEnum_RANGE;
+
+  static Serializer<MasterServiceResponsePriceTypeEnum> get serializer =>
+      _$masterServiceResponsePriceTypeEnumSerializer;
+
+  const MasterServiceResponsePriceTypeEnum._(String name) : super(name);
+
+  static BuiltSet<MasterServiceResponsePriceTypeEnum> get values =>
+      _$masterServiceResponsePriceTypeEnumValues;
+  static MasterServiceResponsePriceTypeEnum valueOf(String name) =>
+      _$masterServiceResponsePriceTypeEnumValueOf(name);
 }
