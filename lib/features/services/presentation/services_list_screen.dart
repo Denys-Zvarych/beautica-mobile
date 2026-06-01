@@ -327,6 +327,7 @@ class _ServiceCardState extends State<_ServiceCard>
                       name: s.name,
                       durationLabel: durationLabel,
                       priceLabel: priceLabel,
+                      category: s.category,
                     ),
                   ),
                   const SizedBox(width: VelvetSpacing.md),
@@ -384,11 +385,13 @@ class _ServiceInfo extends StatelessWidget {
     required this.name,
     required this.durationLabel,
     required this.priceLabel,
+    this.category,
   });
 
   final String name;
   final String durationLabel;
   final String priceLabel;
+  final String? category;
 
   @override
   Widget build(BuildContext context) {
@@ -408,6 +411,7 @@ class _ServiceInfo extends StatelessWidget {
           children: <Widget>[
             _DurationPill(value: durationLabel),
             _PricePill(value: priceLabel),
+            if (category != null) _CategoryPill(value: category!),
           ],
         ),
       ],
@@ -442,6 +446,17 @@ class _PricePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _Pill(icon: Icons.sell_rounded, value: value);
+  }
+}
+
+class _CategoryPill extends StatelessWidget {
+  const _CategoryPill({required this.value});
+
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return _Pill(icon: Icons.category_rounded, value: value);
   }
 }
 
