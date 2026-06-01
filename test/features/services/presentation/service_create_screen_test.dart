@@ -595,6 +595,172 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // A. Select category chip — payload carries the selected category.
+  // ---------------------------------------------------------------------------
+  testWidgets('A. selecting a category chip sends it in the create payload', (
+    tester,
+  ) async {
+    await pumpCreate(tester);
+
+    // Tap the MANICURE chip.
+    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
+    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await tester.pumpAndSettle();
+
+    // Fill the required text fields.
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-name')),
+        matching: find.byType(TextField),
+      ),
+      'Манікюр',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-duration')),
+        matching: find.byType(TextField),
+      ),
+      '60',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-price')),
+        matching: find.byType(TextField),
+      ),
+      '500',
+    );
+    await tapSubmit(tester);
+    await tester.pumpAndSettle();
+
+    final captured = verify(() => mockRepo.create(captureAny())).captured;
+    expect(captured.length, 1);
+    final input = captured.first as MasterServiceCreate;
+    expect(
+      input.category,
+      'MANICURE',
+      reason: 'category must equal the selected chip wire name',
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // B. Submit without selecting a chip — category is null in the payload.
+  // ---------------------------------------------------------------------------
+  testWidgets('B. submitting without selecting a chip sends null category', (
+    tester,
+  ) async {
+    await pumpCreate(tester);
+
+    // Fill valid fields only — do NOT tap any chip.
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-name')),
+        matching: find.byType(TextField),
+      ),
+      'Педикюр',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-duration')),
+        matching: find.byType(TextField),
+      ),
+      '45',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-price')),
+        matching: find.byType(TextField),
+      ),
+      '300',
+    );
+    await tapSubmit(tester);
+    await tester.pumpAndSettle();
+
+    final captured = verify(() => mockRepo.create(captureAny())).captured;
+    expect(captured.length, 1);
+    final input = captured.first as MasterServiceCreate;
+    expect(
+      input.category,
+      isNull,
+      reason: 'category must be null when no chip was tapped',
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // C. Tapping a selected chip deselects it — payload reverts to null category.
+  // ---------------------------------------------------------------------------
+  testWidgets(
+    'C. tapping a selected chip a second time deselects it (category → null)',
+    (tester) async {
+      await pumpCreate(tester);
+
+      // First tap — selects HAIRCUT.
+      await tester.ensureVisible(
+        find.byKey(const Key('chip-category-HAIRCUT')),
+      );
+      await tester.tap(find.byKey(const Key('chip-category-HAIRCUT')));
+      await tester.pumpAndSettle();
+
+      // Verify it is selected: a check icon should be present inside the chip.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('chip-category-HAIRCUT')),
+          matching: find.byIcon(Icons.check_rounded),
+        ),
+        findsOneWidget,
+        reason: 'chip must show a check icon when selected',
+      );
+
+      // Second tap — deselects HAIRCUT.
+      await tester.tap(find.byKey(const Key('chip-category-HAIRCUT')));
+      await tester.pumpAndSettle();
+
+      // The check icon must be gone after deselection.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('chip-category-HAIRCUT')),
+          matching: find.byIcon(Icons.check_rounded),
+        ),
+        findsNothing,
+        reason: 'check icon must disappear after second tap (deselect)',
+      );
+
+      // Fill valid fields and submit; category must be null.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.byType(TextField),
+        ),
+        'Стрижка',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-duration')),
+          matching: find.byType(TextField),
+        ),
+        '30',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-service-price')),
+          matching: find.byType(TextField),
+        ),
+        '200',
+      );
+      await tapSubmit(tester);
+      await tester.pumpAndSettle();
+
+      final captured = verify(() => mockRepo.create(captureAny())).captured;
+      expect(captured.length, 1);
+      final input = captured.first as MasterServiceCreate;
+      expect(
+        input.category,
+        isNull,
+        reason: 'category must be null after deselecting the chip',
+      );
+    },
+  );
+
+  // ---------------------------------------------------------------------------
   // 12. masterProfileProvider is invalidated after successful create (gap 7).
   // ---------------------------------------------------------------------------
   testWidgets('masterProfileProvider is invalidated after successful create', (

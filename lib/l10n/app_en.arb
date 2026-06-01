@@ -1342,6 +1342,11 @@
     "description": "Dirty-state badge shown beneath the sub-heading when the form diverges from the loaded service values (Phase 5.4)."
   },
 
+  "serviceCategoryLabel": "Category",
+  "@serviceCategoryLabel": {
+    "description": "Section label above the category chip selector row on the service create/edit form."
+  },
+
   "deleteServiceTitle": "Delete service?",
   "@deleteServiceTitle": {
     "description": "Title of the delete-service confirmation dialog (can-delete variant) and tooltip for the delete icon button in the service edit screen top bar (Phase 5.5)."

@@ -136,9 +136,33 @@ abstract final class MasterServiceMapper {
 
       if (input.description != null) b.description = input.description;
       if (buffer != null) b.bufferMinutesAfter = buffer;
-      // category is not exposed in [MasterServiceCreate] for Phase 5.1;
-      // left unset so the backend defaults to the service-type category.
+      if (input.category != null) {
+        b.category = _categoryEnum(input.category!);
+      }
     });
+  }
+
+  /// Maps a category wire-name string to [CreateServiceDefinitionRequestCategoryEnum].
+  ///
+  /// Returns [CreateServiceDefinitionRequestCategoryEnum.OTHER] for any
+  /// unrecognised wire value so the call never throws at the data boundary.
+  static CreateServiceDefinitionRequestCategoryEnum _categoryEnum(String wire) {
+    switch (wire) {
+      case 'MANICURE':
+        return CreateServiceDefinitionRequestCategoryEnum.MANICURE;
+      case 'PEDICURE':
+        return CreateServiceDefinitionRequestCategoryEnum.PEDICURE;
+      case 'EYELASH':
+        return CreateServiceDefinitionRequestCategoryEnum.EYELASH;
+      case 'HAIRCUT':
+        return CreateServiceDefinitionRequestCategoryEnum.HAIRCUT;
+      case 'MAKEUP':
+        return CreateServiceDefinitionRequestCategoryEnum.MAKEUP;
+      case 'BROWS':
+        return CreateServiceDefinitionRequestCategoryEnum.BROWS;
+      default:
+        return CreateServiceDefinitionRequestCategoryEnum.OTHER;
+    }
   }
 
   /// Converts [MasterServiceUpdate] to a plain body map for PATCH.

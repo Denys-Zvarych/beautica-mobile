@@ -15,8 +15,6 @@
 //   7. ServicePhotoSlot shows empty state by default.
 //   8. ServicePhotoSlot shows filled state when imageUrl is provided (widget test).
 
-import 'dart:async';
-
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
@@ -529,6 +527,97 @@ void main() {
       );
     },
   );
+
+  // ── D. Category pre-populated from initial service ───────────────────────
+
+  testWidgets(
+    'D. category chip pre-populated from initial service (HAIRCUT shown selected)',
+    (tester) async {
+      // Stub service has category 'HAIRCUT'.
+      const haircutService = MasterService(
+        id: 'svc-haircut',
+        name: 'Стрижка',
+        durationMinutes: 45,
+        price: 400.0,
+        category: 'HAIRCUT',
+      );
+
+      when(
+        () => repo.listMyServices(),
+      ).thenAnswer((_) async => const <MasterService>[haircutService]);
+      when(
+        () => repo.getMyService(haircutService.id),
+      ).thenAnswer((_) async => haircutService);
+
+      await _pumpEdit(tester, repo, id: haircutService.id);
+
+      // The HAIRCUT chip must be in the widget tree.
+      expect(
+        find.byKey(const Key('chip-category-HAIRCUT')),
+        findsOneWidget,
+        reason: 'HAIRCUT chip must be rendered when category is pre-populated',
+      );
+
+      // The check icon inside the chip confirms it is in the selected state.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('chip-category-HAIRCUT')),
+          matching: find.byIcon(Icons.check_rounded),
+        ),
+        findsOneWidget,
+        reason:
+            'HAIRCUT chip must show check icon when pre-populated as selected',
+      );
+    },
+  );
+
+  // ── E. Changing category triggers dirty marker ────────────────────────────
+
+  testWidgets('E. changing category chip alone triggers dirty marker', (
+    tester,
+  ) async {
+    // Stub service has category 'EYELASH'.
+    const eyelashService = MasterService(
+      id: 'svc-eyelash',
+      name: 'Вії',
+      durationMinutes: 90,
+      price: 600.0,
+      category: 'EYELASH',
+    );
+
+    when(
+      () => repo.listMyServices(),
+    ).thenAnswer((_) async => const <MasterService>[eyelashService]);
+    when(
+      () => repo.getMyService(eyelashService.id),
+    ).thenAnswer((_) async => eyelashService);
+
+    await _pumpEdit(tester, repo, id: eyelashService.id);
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(ServiceEditScreen)),
+    );
+
+    // Dirty marker must NOT be visible when the form is pristine.
+    expect(
+      find.text(l10n.serviceUnsavedChanges),
+      findsNothing,
+      reason: 'dirty marker must be hidden for a pristine form',
+    );
+
+    // Tap a different category chip (HAIRCUT ≠ EYELASH).
+    await tester.ensureVisible(find.byKey(const Key('chip-category-HAIRCUT')));
+    await tester.tap(find.byKey(const Key('chip-category-HAIRCUT')));
+    await tester.pump();
+
+    // Dirty marker must now be visible.
+    expect(
+      find.text(l10n.serviceUnsavedChanges),
+      findsOneWidget,
+      reason:
+          'dirty marker must appear after changing the category from the '
+          'baseline value',
+    );
+  });
 
   tearDownAll(() {});
 }
