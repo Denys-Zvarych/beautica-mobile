@@ -117,7 +117,11 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
     );
     if (confirmed != true || !context.mounted) return;
     try {
-      await ref.read(serviceRepositoryProvider).deactivate(service.id);
+      // Backend keys DELETE /api/v1/services/{serviceDefId} on the
+      // service-definition id, NOT the assignment id (service.id).
+      await ref
+          .read(serviceRepositoryProvider)
+          .deactivate(service.serviceDefId);
       if (context.mounted) _popServiceEditScreen(context);
       // Invalidate AFTER pop so ServicesListScreen is active and
       // listening when the re-fetch arrives. ref outlives the frame.
@@ -179,7 +183,12 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
             durationMinutes: input.durationMinutes,
             price: input.price,
           );
-          await ref.read(serviceRepositoryProvider).update(service.id, patch);
+          // Backend keys PATCH /api/v1/services/{serviceDefId} on the
+          // service-definition id; the assignment id (service.id) is threaded
+          // through so the returned domain object keeps a stable id.
+          await ref
+              .read(serviceRepositoryProvider)
+              .update(service.serviceDefId, patch, assignmentId: service.id);
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(

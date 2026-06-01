@@ -5,10 +5,12 @@
 //   - listMyServices()  → GET  /api/v1/masters/{masterId}/services
 //   - getMyService(id)  → GET  /api/v1/masters/{masterId}/services (filter by id;
 //                          no single-resource endpoint exists in the current API)
-//   - create(input)     → POST /api/v1/independent-masters/me/services
-//   - update(id, patch) → PATCH /api/v1/independent-masters/me/services/{id}
-//                          (hand-written; no generated update request exists)
-//   - deactivate(id)    → DELETE /api/v1/services/{id}
+//   - create(input)     → POST  /api/v1/independent-masters/me/services
+//   - update(defId, …)  → PATCH /api/v1/services/{serviceDefId}
+//                          (generated updateServiceDefinition; keyed on the
+//                           service-definition id, NOT the assignment id)
+//   - deactivate(defId) → DELETE /api/v1/services/{serviceDefId}
+//                          (keyed on the service-definition id)
 //
 // The [masterId] required by [getMasterServices] is resolved from
 // [masterProfileProvider] at provider construction time — this is the
@@ -61,19 +63,34 @@ abstract interface class ServiceRepository {
   /// newly-created [MasterService] as mapped from the backend response.
   Future<MasterService> create(MasterServiceCreate input);
 
-  /// Partially updates an existing service identified by [id].
+  /// Partially updates an existing service identified by its
+  /// service-definition id ([serviceDefId]).
   ///
-  /// Wraps `PATCH /api/v1/independent-masters/me/services/{id}`. Only fields
-  /// present in [patch] (non-null) are sent; absent fields are left unchanged
-  /// on the backend. Returns the updated [MasterService].
-  Future<MasterService> update(String id, MasterServiceUpdate patch);
+  /// Wraps `PATCH /api/v1/services/{serviceDefId}`. [serviceDefId] MUST be
+  /// [MasterService.serviceDefId] (the underlying service-definition UUID), NOT
+  /// [MasterService.id] (the assignment UUID) — the backend keys this endpoint
+  /// on the definition and a wrong id yields a 404 ("Запис не знайдено").
+  ///
+  /// Only fields present in [patch] (non-null) are sent; absent fields are left
+  /// unchanged on the backend. [assignmentId] is carried through onto the
+  /// returned [MasterService.id] (the PATCH response omits the assignment id).
+  /// Returns the updated [MasterService].
+  Future<MasterService> update(
+    String serviceDefId,
+    MasterServiceUpdate patch, {
+    required String assignmentId,
+  });
 
-  /// Deactivates (soft-deletes) a service identified by [id].
+  /// Deactivates (soft-deletes) a service identified by its service-definition
+  /// id ([serviceDefId]).
   ///
-  /// Wraps `DELETE /api/v1/services/{id}`. The backend marks the service as
-  /// inactive rather than removing it. Calling this method twice is
-  /// idempotent — a 200 on either call resolves without throwing.
-  Future<void> deactivate(String id);
+  /// Wraps `DELETE /api/v1/services/{serviceDefId}`. [serviceDefId] MUST be
+  /// [MasterService.serviceDefId] (the underlying service-definition UUID), NOT
+  /// [MasterService.id] (the assignment UUID) — the backend keys this endpoint
+  /// on the definition and a wrong id fails to resolve/authorise. The backend
+  /// marks the service inactive rather than removing it. Calling this method
+  /// twice is idempotent — a 200 on either call resolves without throwing.
+  Future<void> deactivate(String serviceDefId);
 
   /// Returns the list of approved service categories for the picker.
   ///
@@ -107,24 +124,20 @@ abstract interface class ServiceRepository {
 ///
 /// Inject via [serviceRepositoryProvider] — never construct directly.
 ///
-/// [_serviceApi] drives all generated-API calls. [_dio] drives the hand-
-/// written PATCH update call (no generated update request DTO exists).
+/// [_serviceApi] drives all generated-API calls (list/create/update/deactivate).
 /// [_masterId] is resolved from the authenticated session at provider
 /// construction time and used as the path parameter for list/get operations.
 final class HttpServiceRepository implements ServiceRepository {
   HttpServiceRepository({
     required ServiceControllerApi serviceApi,
     required CategoryRequestControllerApi categoryApi,
-    required Dio dio,
     required String masterId,
   }) : _serviceApi = serviceApi,
        _categoryApi = categoryApi,
-       _dio = dio,
        _masterId = masterId;
 
   final ServiceControllerApi _serviceApi;
   final CategoryRequestControllerApi _categoryApi;
-  final Dio _dio;
   final String _masterId;
 
   static const _tag = 'feature.services.repository';
@@ -220,50 +233,47 @@ final class HttpServiceRepository implements ServiceRepository {
   }
 
   @override
-  Future<MasterService> update(String id, MasterServiceUpdate patch) async {
+  Future<MasterService> update(
+    String serviceDefId,
+    MasterServiceUpdate patch, {
+    required String assignmentId,
+  }) async {
     _assertAuthenticated();
-    final body = MasterServiceMapper.toUpdateBody(patch);
+    final request = MasterServiceMapper.toUpdateRequest(patch);
     try {
-      final res = await _dio.patch<Map<String, dynamic>>(
-        '/api/v1/independent-masters/me/services/$id',
-        data: body,
+      // PATCH /api/v1/services/{serviceDefId} — the backend's update endpoint
+      // keys on the service-definition id, NOT the assignment id. Uses the
+      // generated client (UpdateServiceDefinitionRequest now exists after the
+      // OpenAPI regen), so no hand-written Dio path is needed.
+      final res = await _serviceApi.updateServiceDefinition(
+        serviceDefId: serviceDefId,
+        updateServiceDefinitionRequest: request,
       );
-      // The backend returns the updated MasterServiceResponse in the standard
-      // `{success, data}` envelope. Deserialise the inner `data` map directly
-      // using the generated built_value serializer + StandardJsonPlugin — this
-      // avoids a second GET round-trip (perf finding P1-1).
-      final dataMap = res.data?['data'] as Map<String, dynamic>?;
-      if (dataMap == null) {
-        if (kDebugMode) {
-          log(
-            'update: PATCH response data is null for id=$id',
-            name: _tag,
-            level: 1000,
-          );
-        }
-        throw const ServerFailure(statusCode: null);
-      }
-      final dto = standardSerializers.deserializeWith(
-        MasterServiceResponse.serializer,
-        dataMap,
-      );
+      // The update endpoint returns a ServiceDefinitionResponse (not a
+      // MasterServiceResponse) — it carries no assignment id, so we thread the
+      // original assignmentId through to keep MasterService.id stable.
+      final dto = res.data?.data;
       if (dto == null) {
         if (kDebugMode) {
           log(
-            'update: deserializeWith returned null for id=$id',
+            'update: response data is null for serviceDefId=$serviceDefId',
             name: _tag,
             level: 1000,
           );
         }
         throw const ServerFailure(statusCode: null);
       }
-      return MasterServiceMapper.fromDto(dto);
+      return MasterServiceMapper.fromServiceDefinitionDto(
+        dto,
+        assignmentId: assignmentId,
+      );
     } on Failure {
       rethrow;
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
-          'update failed: ${e.type} ${e.response?.statusCode} id=$id',
+          'update failed: ${e.type} ${e.response?.statusCode} '
+          'serviceDefId=$serviceDefId',
           name: _tag,
           level: 900,
           stackTrace: st,
@@ -274,16 +284,19 @@ final class HttpServiceRepository implements ServiceRepository {
   }
 
   @override
-  Future<void> deactivate(String id) async {
+  Future<void> deactivate(String serviceDefId) async {
     _assertAuthenticated();
     try {
-      await _serviceApi.deactivateServiceDefinition(serviceDefId: id);
+      // DELETE /api/v1/services/{serviceDefId} — keyed on the service-definition
+      // id, NOT the assignment id.
+      await _serviceApi.deactivateServiceDefinition(serviceDefId: serviceDefId);
     } on Failure {
       rethrow;
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
-          'deactivate failed: ${e.type} ${e.response?.statusCode} id=$id',
+          'deactivate failed: ${e.type} ${e.response?.statusCode} '
+          'serviceDefId=$serviceDefId',
           name: _tag,
           level: 900,
           stackTrace: st,
@@ -426,7 +439,6 @@ ServiceRepository serviceRepository(Ref ref) {
   return HttpServiceRepository(
     serviceApi: ref.watch(serviceApiProvider),
     categoryApi: ref.watch(categoryRequestApiProvider),
-    dio: ref.watch(dioProvider),
     masterId: masterId,
   );
 }

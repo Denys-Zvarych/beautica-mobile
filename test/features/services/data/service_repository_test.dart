@@ -30,12 +30,15 @@ class _MockServiceControllerApi extends Mock implements ServiceControllerApi {}
 class _MockCategoryRequestControllerApi extends Mock
     implements CategoryRequestControllerApi {}
 
-class _MockDio extends Mock implements Dio {}
-
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const _masterId = 'master-abc';
 const _serviceId = 'svc-001';
+
+/// The service-definition id used for update/deactivate (distinct from the
+/// assignment id [_serviceId]). The backend keys
+/// `PATCH/DELETE /api/v1/services/{serviceDefId}` on this id.
+const _serviceDefId = 'def-001';
 const _listPath = '/api/v1/masters/$_masterId/services';
 
 /// Builds a [ServiceDefinitionResponse] with sensible defaults.
@@ -112,22 +115,36 @@ Response<ApiResponseMasterServiceResponse> _singleResponse(
   );
 }
 
+/// Wraps a single [ServiceDefinitionResponse] DTO in the API envelope returned
+/// by `PATCH /api/v1/services/{serviceDefId}` (updateServiceDefinition).
+Response<ApiResponseServiceDefinitionResponse> _updateResponse(
+  ServiceDefinitionResponse dto,
+) {
+  final envelope = ApiResponseServiceDefinitionResponse(
+    (b) => b
+      ..data.replace(dto)
+      ..success = true,
+  );
+  return Response<ApiResponseServiceDefinitionResponse>(
+    data: envelope,
+    requestOptions: RequestOptions(path: '/api/v1/services/$_serviceDefId'),
+    statusCode: 200,
+  );
+}
+
 // ── Test suite ───────────────────────────────────────────────────────────────
 
 void main() {
   late _MockServiceControllerApi serviceApi;
   late _MockCategoryRequestControllerApi categoryApi;
-  late _MockDio dio;
   late HttpServiceRepository repository;
 
   setUp(() {
     serviceApi = _MockServiceControllerApi();
     categoryApi = _MockCategoryRequestControllerApi();
-    dio = _MockDio();
     repository = HttpServiceRepository(
       serviceApi: serviceApi,
       categoryApi: categoryApi,
-      dio: dio,
       masterId: _masterId,
     );
     // Register fallback values required by mocktail for named-typed matchers.
@@ -146,6 +163,9 @@ void main() {
           ..name = 'FALLBACK'
           ..displayName = 'fallback',
       ),
+    );
+    registerFallbackValue(
+      UpdateServiceDefinitionRequest((b) => b..name = 'fallback'),
     );
   });
 
@@ -378,26 +398,33 @@ void main() {
 
   group('deactivate', () {
     test(
-      'calls deactivateServiceDefinition with the correct serviceDefId',
+      'calls deactivateServiceDefinition with the serviceDefId (not assignment id)',
       () async {
         when(
-          () =>
-              serviceApi.deactivateServiceDefinition(serviceDefId: _serviceId),
+          () => serviceApi.deactivateServiceDefinition(
+            serviceDefId: _serviceDefId,
+          ),
         ).thenAnswer(
           (_) async => Response<void>(
             requestOptions: RequestOptions(
-              path: '/api/v1/services/$_serviceId',
+              path: '/api/v1/services/$_serviceDefId',
             ),
             statusCode: 200,
           ),
         );
 
-        await repository.deactivate(_serviceId);
+        await repository.deactivate(_serviceDefId);
 
+        // The path id must be the service-definition id, NOT the assignment id.
         verify(
+          () => serviceApi.deactivateServiceDefinition(
+            serviceDefId: _serviceDefId,
+          ),
+        ).called(1);
+        verifyNever(
           () =>
               serviceApi.deactivateServiceDefinition(serviceDefId: _serviceId),
-        ).called(1);
+        );
       },
     );
 
@@ -405,39 +432,44 @@ void main() {
       'calling deactivate twice does not throw (idempotent server 200)',
       () async {
         when(
-          () =>
-              serviceApi.deactivateServiceDefinition(serviceDefId: _serviceId),
+          () => serviceApi.deactivateServiceDefinition(
+            serviceDefId: _serviceDefId,
+          ),
         ).thenAnswer(
           (_) async => Response<void>(
             requestOptions: RequestOptions(
-              path: '/api/v1/services/$_serviceId',
+              path: '/api/v1/services/$_serviceDefId',
             ),
             statusCode: 200,
           ),
         );
 
-        await repository.deactivate(_serviceId);
-        await repository.deactivate(_serviceId); // must not throw
+        await repository.deactivate(_serviceDefId);
+        await repository.deactivate(_serviceDefId); // must not throw
 
         verify(
-          () =>
-              serviceApi.deactivateServiceDefinition(serviceDefId: _serviceId),
+          () => serviceApi.deactivateServiceDefinition(
+            serviceDefId: _serviceDefId,
+          ),
         ).called(2);
       },
     );
 
     test('throws NetworkFailure when connectionError', () async {
       when(
-        () => serviceApi.deactivateServiceDefinition(serviceDefId: _serviceId),
+        () =>
+            serviceApi.deactivateServiceDefinition(serviceDefId: _serviceDefId),
       ).thenThrow(
         DioException(
-          requestOptions: RequestOptions(path: '/api/v1/services/$_serviceId'),
+          requestOptions: RequestOptions(
+            path: '/api/v1/services/$_serviceDefId',
+          ),
           type: DioExceptionType.connectionError,
         ),
       );
 
       await expectLater(
-        repository.deactivate(_serviceId),
+        repository.deactivate(_serviceDefId),
         throwsA(isA<NetworkFailure>()),
       );
     });
@@ -447,52 +479,24 @@ void main() {
 
   group('update', () {
     test(
-      'issues PATCH and returns domain object without a second GET (fix P1-1)',
+      'PATCHes /services/{serviceDefId} (not the assignment id) and maps result',
       () async {
-        // Build the DTO that the PATCH response returns in its `data` field.
-        final updatedDto = _buildMasterServiceDto(
-          id: _serviceId,
-          serviceDefinition: _buildDef(
-            name: 'Манікюр Оновлений',
-            baseDurationMinutes: 75,
-            basePrice: 600,
-          ),
-          isActive: true,
+        // The update endpoint returns a ServiceDefinitionResponse.
+        final updatedDef = _buildDef(
+          id: _serviceDefId,
+          name: 'Манікюр Оновлений',
+          baseDurationMinutes: 75,
+          basePrice: 600,
         );
-
-        // The PATCH response envelope — `data` holds the serialised DTO as a
-        // plain Map (StandardJsonPlugin). We can't serialise via built_value in
-        // tests trivially, so we build the map manually mirroring the wire shape
-        // the repository expects from `res.data?['data']`.
-        final patchResponseData = <String, dynamic>{
-          'id': updatedDto.id,
-          'masterId': updatedDto.masterId,
-          'isActive': updatedDto.isActive,
-          'effectivePrice': 600,
-          'effectiveDurationMinutes': 75,
-          'serviceDefinition': <String, dynamic>{
-            'id': 'def-001',
-            'name': 'Манікюр Оновлений',
-            'baseDurationMinutes': 75,
-            'basePrice': 600,
-            'isActive': true,
-          },
-        };
 
         when(
-          () => dio.patch<Map<String, dynamic>>(
-            '/api/v1/independent-masters/me/services/$_serviceId',
-            data: any(named: 'data'),
-          ),
-        ).thenAnswer(
-          (_) async => Response<Map<String, dynamic>>(
-            data: {'success': true, 'data': patchResponseData},
-            requestOptions: RequestOptions(
-              path: '/api/v1/independent-masters/me/services/$_serviceId',
+          () => serviceApi.updateServiceDefinition(
+            serviceDefId: _serviceDefId,
+            updateServiceDefinitionRequest: any(
+              named: 'updateServiceDefinitionRequest',
             ),
-            statusCode: 200,
           ),
-        );
+        ).thenAnswer((_) async => _updateResponse(updatedDef));
 
         const patch = MasterServiceUpdate(
           name: 'Манікюр Оновлений',
@@ -500,14 +504,36 @@ void main() {
           price: 600.0,
         );
 
-        final result = await repository.update(_serviceId, patch);
+        final result = await repository.update(
+          _serviceDefId,
+          patch,
+          assignmentId: _serviceId,
+        );
 
+        // Assignment id is threaded through; serviceDefId comes from the response.
         expect(result.id, _serviceId);
+        expect(result.serviceDefId, _serviceDefId);
         expect(result.name, 'Манікюр Оновлений');
         expect(result.durationMinutes, 75);
         expect(result.price, 600.0);
 
-        // The list endpoint must NOT have been called (no second round-trip).
+        // Verify the call used the serviceDefId path param (not the assignment
+        // id) and forwarded a request with the mapped wire fields.
+        final captured =
+            verify(
+                  () => serviceApi.updateServiceDefinition(
+                    serviceDefId: _serviceDefId,
+                    updateServiceDefinitionRequest: captureAny(
+                      named: 'updateServiceDefinitionRequest',
+                    ),
+                  ),
+                ).captured.single
+                as UpdateServiceDefinitionRequest;
+        expect(captured.name, 'Манікюр Оновлений');
+        expect(captured.baseDurationMinutes, 75);
+        expect(captured.basePrice, 600.0);
+
+        // The list endpoint must NOT have been called (no extra round-trip).
         verifyNever(
           () => serviceApi.getMasterServices(masterId: any(named: 'masterId')),
         );
@@ -519,15 +545,20 @@ void main() {
       () async {
         await expectLater(
           repository.update(
-            _serviceId,
+            _serviceDefId,
             const MasterServiceUpdate(price: -50.0),
+            assignmentId: _serviceId,
           ),
           throwsA(isA<ArgumentError>()),
         );
 
         verifyNever(
-          () =>
-              dio.patch<Map<String, dynamic>>(any(), data: any(named: 'data')),
+          () => serviceApi.updateServiceDefinition(
+            serviceDefId: any(named: 'serviceDefId'),
+            updateServiceDefinitionRequest: any(
+              named: 'updateServiceDefinitionRequest',
+            ),
+          ),
         );
       },
     );
@@ -542,7 +573,6 @@ void main() {
       unauthRepo = HttpServiceRepository(
         serviceApi: serviceApi,
         categoryApi: categoryApi,
-        dio: dio,
         masterId: '',
       );
     });

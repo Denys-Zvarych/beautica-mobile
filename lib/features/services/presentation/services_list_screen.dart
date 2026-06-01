@@ -314,14 +314,19 @@ class _ServiceCardState extends State<_ServiceCard>
                 borderRadius: BorderRadius.circular(VelvetRadii.card),
                 boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
               ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: VelvetSpacing.md,
-                vertical: VelvetSpacing.sm + 2,
+              // Compact dense row: tighter vertical padding (~halved height)
+              // versus the original VelvetSpacing.sm + 2 with a stacked pill
+              // Wrap below the title.
+              padding: const EdgeInsets.fromLTRB(
+                VelvetSpacing.sm + 2,
+                VelvetSpacing.sm,
+                VelvetSpacing.sm + 2,
+                VelvetSpacing.sm,
               ),
               child: Row(
                 children: <Widget>[
                   _PhotoThumbnail(key: Key('thumb_${s.id}')),
-                  const SizedBox(width: VelvetSpacing.md),
+                  const SizedBox(width: VelvetSpacing.sm + 2),
                   Expanded(
                     child: _ServiceInfo(
                       name: s.name,
@@ -330,7 +335,7 @@ class _ServiceCardState extends State<_ServiceCard>
                       category: s.category,
                     ),
                   ),
-                  const SizedBox(width: VelvetSpacing.md),
+                  const SizedBox(width: VelvetSpacing.sm),
                   const _EditButton(),
                 ],
               ),
@@ -346,16 +351,17 @@ class _ServiceCardState extends State<_ServiceCard>
 // Photo thumbnail (no-photo placeholder — service photo deferred to Phase 9.x)
 // ---------------------------------------------------------------------------
 
-/// 48×48 recessed inset well with a centred camel spa icon.
+/// 40×40 recessed inset well with a centred camel spa icon.
 ///
+/// Compact-row sizing (was 48×48) so the dense list fits more rows on screen.
 /// When actual photo upload is implemented (Phase 9.x), this widget will
 /// accept a `photoUrl` and render an [Image.network] inside the same
-/// 48×48 rounded [ClipRRect]. Until then, every service shows the icon
+/// 40×40 rounded [ClipRRect]. Until then, every service shows the icon
 /// placeholder so depth always comes from shadows, never a flat grey box.
 class _PhotoThumbnail extends StatelessWidget {
   const _PhotoThumbnail({super.key});
 
-  static const double _size = 48;
+  static const double _size = 40;
 
   @override
   Widget build(BuildContext context) {
@@ -367,7 +373,7 @@ class _PhotoThumbnail extends StatelessWidget {
         child: Center(
           child: Icon(
             Icons.spa_rounded,
-            size: 20,
+            size: 18,
             color: BrandColors.accent.withValues(alpha: 0.9),
           ),
         ),
@@ -396,23 +402,24 @@ class _ServiceInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Text(
           name,
-          style: VelvetText.cardTitle(),
-          maxLines: 2,
+          // Compact row: single line, slightly smaller than the full cardTitle
+          // so the dense list reads as rows rather than tall cards.
+          style: VelvetText.cardTitle().copyWith(fontSize: 15, height: 1.15),
+          maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        const SizedBox(height: VelvetSpacing.sm),
-        Wrap(
-          spacing: VelvetSpacing.sm,
-          runSpacing: VelvetSpacing.sm,
-          children: <Widget>[
-            _DurationPill(value: durationLabel),
-            _PricePill(value: priceLabel),
-            if (category != null) _CategoryPill(value: category!),
-          ],
+        const SizedBox(height: VelvetSpacing.xs),
+        // Single inline metadata line: duration · price (· category). No inset
+        // pills — flat inline text keeps the row short while staying on-brand.
+        _MetaLine(
+          durationLabel: durationLabel,
+          priceLabel: priceLabel,
+          category: category,
         ),
       ],
     );
@@ -420,68 +427,85 @@ class _ServiceInfo extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Inset pills
+// Inline metadata line (replaces the stacked inset pills for density)
 // ---------------------------------------------------------------------------
 
-/// Inset pill carrying a leading icon + short label value.
+/// A compact, single-line metadata strip: a duration glyph + value, a thin
+/// divider dot, a price glyph + value, and an optional trailing category.
 ///
-/// The recessed well + camel glyph is the VelvetTouch treatment for secondary
-/// data — depth reads as carved into the card rather than raised above it.
-class _DurationPill extends StatelessWidget {
-  const _DurationPill({required this.value});
+/// Overflow-safe: the whole strip clips with an ellipsis if the row is narrow.
+class _MetaLine extends StatelessWidget {
+  const _MetaLine({
+    required this.durationLabel,
+    required this.priceLabel,
+    this.category,
+  });
 
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return _Pill(icon: Icons.schedule_rounded, value: value);
-  }
-}
-
-class _PricePill extends StatelessWidget {
-  const _PricePill({required this.value});
-
-  final String value;
+  final String durationLabel;
+  final String priceLabel;
+  final String? category;
 
   @override
   Widget build(BuildContext context) {
-    return _Pill(icon: Icons.sell_rounded, value: value);
+    final cat = category;
+    return Row(
+      children: <Widget>[
+        _MetaItem(icon: Icons.schedule_rounded, value: durationLabel),
+        const _MetaDot(),
+        _MetaItem(icon: Icons.sell_rounded, value: priceLabel),
+        if (cat != null) ...<Widget>[
+          const _MetaDot(),
+          Flexible(
+            child: _MetaItem(icon: Icons.category_rounded, value: cat),
+          ),
+        ],
+      ],
+    );
   }
 }
 
-class _CategoryPill extends StatelessWidget {
-  const _CategoryPill({required this.value});
-
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return _Pill(icon: Icons.category_rounded, value: value);
-  }
-}
-
-class _Pill extends StatelessWidget {
-  const _Pill({required this.icon, required this.value});
+/// A small icon + value pair used inside [_MetaLine]. Compact glyph (13) and
+/// the existing [VelvetText.pill] tone, but flat (no inset well).
+class _MetaItem extends StatelessWidget {
+  const _MetaItem({required this.icon, required this.value});
 
   final IconData icon;
   final String value;
 
   @override
   Widget build(BuildContext context) {
-    return NeumorphicInset(
-      radius: VelvetRadii.pill,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: VelvetSpacing.md - 2,
-          vertical: VelvetSpacing.sm - 1,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Icon(icon, size: 13, color: BrandColors.accent),
+        const SizedBox(width: VelvetSpacing.xs),
+        Flexible(
+          child: Text(
+            value,
+            style: VelvetText.pill().copyWith(fontSize: 12.5),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(icon, size: 14, color: BrandColors.accent),
-            const SizedBox(width: VelvetSpacing.xs + 2),
-            Text(value, style: VelvetText.pill()),
-          ],
+      ],
+    );
+  }
+}
+
+/// A thin separator dot between metadata items.
+class _MetaDot extends StatelessWidget {
+  const _MetaDot();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.sm - 2),
+      child: Container(
+        width: 3,
+        height: 3,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: BrandColors.accent.withValues(alpha: 0.55),
         ),
       ),
     );
@@ -492,7 +516,10 @@ class _Pill extends StatelessWidget {
 // Trailing edit button
 // ---------------------------------------------------------------------------
 
-/// 32×32 neumorphic raised pillow with the edit icon. Signals tap-to-edit.
+/// 30×30 neumorphic raised pillow with the edit icon. Signals tap-to-edit.
+///
+/// Compact-row sizing (was 32×32). The whole row remains the tap target for
+/// edit, so this remains a non-interactive affordance glyph.
 class _EditButton extends StatelessWidget {
   const _EditButton();
 
@@ -504,8 +531,8 @@ class _EditButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 32,
-      width: 32,
+      height: 30,
+      width: 30,
       decoration: const BoxDecoration(
         color: BrandColors.base,
         borderRadius: _radius,
@@ -514,7 +541,7 @@ class _EditButton extends StatelessWidget {
       child: const Icon(
         Icons.edit_outlined,
         color: BrandColors.accent,
-        size: 18,
+        size: 16,
       ),
     );
   }

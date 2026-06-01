@@ -9,9 +9,12 @@
 //                     String on request.category (enum→String backend change).
 //   F-8.  category: null  → request.category == null.
 //   F-9.  arbitrary wire  → passed through verbatim (no longer coerced).
-//   G-1.  toUpdateBody includes category key when category is provided.
-//   G-2.  toUpdateBody omits category key when category is null.
+//   G-1.  toUpdateRequest sets category when category is provided.
+//   G-2.  toUpdateRequest leaves category null when omitted (PATCH semantics).
+//   G-3.  toUpdateRequest maps durationMinutes/price → baseDurationMinutes/basePrice.
 //   H-1.  fromApprovedCategoryList maps name+displayName and drops blank names.
+//   I-1.  fromDto populates serviceDefId from serviceDefinition.id.
+//   I-2.  fromServiceDefinitionDto carries the assignment id + maps base fields.
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/features/services/data/master_service_mapper.dart';
@@ -131,38 +134,113 @@ void main() {
     });
   });
 
-  // ── G. toUpdateBody — category field inclusion / exclusion ────────────────
+  // ── G. toUpdateRequest — generated UpdateServiceDefinitionRequest ─────────
 
-  group('G. toUpdateBody — category key in PATCH body', () {
-    // G-1: category present in patch → body contains the 'category' key.
-    test('G-1. includes category key when category is provided', () {
-      final body = MasterServiceMapper.toUpdateBody(
+  group('G. toUpdateRequest — UpdateServiceDefinitionRequest fields', () {
+    // G-1: category present in patch → request.category is set.
+    test('G-1. sets category when category is provided', () {
+      final request = MasterServiceMapper.toUpdateRequest(
         const MasterServiceUpdate(category: 'MAKEUP'),
       );
       expect(
-        body.containsKey('category'),
-        isTrue,
-        reason: 'body must contain the category key when a value is provided',
-      );
-      expect(
-        body['category'],
+        request.category,
         equals('MAKEUP'),
-        reason: 'body[category] must equal the provided wire name string',
+        reason: 'request.category must equal the provided wire name string',
       );
     });
 
-    // G-2: no category in patch → body must NOT contain the 'category' key.
-    test('G-2. omits category key when category is null (PATCH semantics)', () {
-      final body = MasterServiceMapper.toUpdateBody(
+    // G-2: no category in patch → request.category stays null (omitted on wire).
+    test('G-2. leaves category null when omitted (PATCH semantics)', () {
+      final request = MasterServiceMapper.toUpdateRequest(
         const MasterServiceUpdate(name: 'Тест'),
       );
       expect(
-        body.containsKey('category'),
-        isFalse,
+        request.category,
+        isNull,
         reason:
-            'body must NOT contain the category key when it is null — '
-            'the backend treats absent keys as "no change" (PATCH semantics)',
+            'request.category must be null when omitted — the generated '
+            'serializer skips null fields so the backend treats it as no-change',
+      );
+      expect(request.name, equals('Тест'));
+    });
+
+    // G-3: domain durationMinutes/price map to wire baseDurationMinutes/basePrice.
+    test('G-3. maps durationMinutes/price → baseDurationMinutes/basePrice', () {
+      final request = MasterServiceMapper.toUpdateRequest(
+        const MasterServiceUpdate(durationMinutes: 75, price: 600.0),
+      );
+      expect(request.baseDurationMinutes, equals(75));
+      expect(request.basePrice, equals(600.0));
+    });
+  });
+
+  // ── I. serviceDefId plumbing ──────────────────────────────────────────────
+
+  group('I. serviceDefId plumbing', () {
+    ServiceDefinitionResponse buildDef({
+      String id = 'def-001',
+      String name = 'Манікюр',
+      int baseDurationMinutes = 60,
+      num basePrice = 500,
+    }) =>
+        (ServiceDefinitionResponseBuilder()
+              ..id = id
+              ..name = name
+              ..baseDurationMinutes = baseDurationMinutes
+              ..basePrice = basePrice
+              ..isActive = true)
+            .build();
+
+    // I-1: fromDto reads serviceDefinition.id into MasterService.serviceDefId.
+    test('I-1. fromDto populates serviceDefId from serviceDefinition.id', () {
+      final dto =
+          (MasterServiceResponseBuilder()
+                ..id = 'assignment-xyz'
+                ..serviceDefinition.replace(buildDef(id: 'def-777'))
+                ..isActive = true)
+              .build();
+
+      final service = MasterServiceMapper.fromDto(dto);
+
+      expect(
+        service.id,
+        equals('assignment-xyz'),
+        reason: 'id must remain the assignment UUID',
+      );
+      expect(
+        service.serviceDefId,
+        equals('def-777'),
+        reason: 'serviceDefId must come from serviceDefinition.id',
       );
     });
+
+    // I-2: fromServiceDefinitionDto carries the passed assignment id through and
+    //      maps the definition base fields.
+    test(
+      'I-2. fromServiceDefinitionDto carries assignmentId + base fields',
+      () {
+        final def = buildDef(
+          id: 'def-888',
+          name: 'Манікюр Оновлений',
+          baseDurationMinutes: 75,
+          basePrice: 600,
+        );
+
+        final service = MasterServiceMapper.fromServiceDefinitionDto(
+          def,
+          assignmentId: 'assignment-abc',
+        );
+
+        expect(
+          service.id,
+          equals('assignment-abc'),
+          reason: 'assignment id is threaded through (response omits it)',
+        );
+        expect(service.serviceDefId, equals('def-888'));
+        expect(service.name, equals('Манікюр Оновлений'));
+        expect(service.durationMinutes, equals(75));
+        expect(service.price, equals(600.0));
+      },
+    );
   });
 }

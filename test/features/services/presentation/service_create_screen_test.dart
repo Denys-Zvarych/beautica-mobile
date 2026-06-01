@@ -55,6 +55,7 @@ class _MockServiceRepository extends Mock implements ServiceRepository {}
 /// Stub [MasterService] returned by the mock on success.
 const _stubService = MasterService(
   id: 'svc-new',
+  serviceDefId: 'def-new',
   name: 'Тест',
   durationMinutes: 30,
   price: 100,

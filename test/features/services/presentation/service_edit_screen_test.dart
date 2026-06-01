@@ -48,6 +48,9 @@ class _MockServiceRepository extends Mock implements ServiceRepository {}
 /// A representative service loaded by the edit screen.
 const _stubService = MasterService(
   id: 'svc-edit-1',
+  // serviceDefId is the id the update/deactivate endpoints key on — distinct
+  // from the assignment id above.
+  serviceDefId: 'def-edit-1',
   name: 'Стрижка жіноча',
   durationMinutes: 60,
   price: 750.0,
@@ -193,12 +196,19 @@ void main() {
     when(
       () => repo.getMyService(_stubService.id),
     ).thenAnswer((_) async => _stubService);
-    // Default: update succeeds.
+    // Default: update succeeds. The screen calls update with the serviceDefId
+    // and threads the assignment id through `assignmentId`.
     when(
-      () => repo.update(_stubService.id, any()),
+      () => repo.update(
+        _stubService.serviceDefId,
+        any(),
+        assignmentId: _stubService.id,
+      ),
     ).thenAnswer((_) async => _stubService);
-    // Default: deactivate succeeds (used in tests 7 & 8).
-    when(() => repo.deactivate(_stubService.id)).thenAnswer((_) async {});
+    // Default: deactivate succeeds (used in tests 7 & 8). Keyed on serviceDefId.
+    when(
+      () => repo.deactivate(_stubService.serviceDefId),
+    ).thenAnswer((_) async {});
     // The category chip selector watches approvedCategoriesProvider, which
     // calls fetchApprovedCategories on the repository. Stub it so the form's
     // category row resolves to the data state.
@@ -291,7 +301,15 @@ void main() {
       // Let the async update + invalidation + re-fetch complete.
       await tester.pumpAndSettle();
 
-      verify(() => repo.update(_stubService.id, any())).called(1);
+      // Must call update with the serviceDefId path id (not the assignment id)
+      // and thread the assignment id through `assignmentId`.
+      verify(
+        () => repo.update(
+          _stubService.serviceDefId,
+          any(),
+          assignmentId: _stubService.id,
+        ),
+      ).called(1);
 
       // The watcher should have received AsyncLoading after invalidation
       // (the provider re-fetches the list).
@@ -456,7 +474,7 @@ void main() {
   // ── 8. Confirming delete calls deactivate(id) and pops ───────────────────
 
   testWidgets(
-    '8. confirming delete calls repository.deactivate(id) and pops screen',
+    '8. confirming delete calls repository.deactivate(serviceDefId) and pops',
     (tester) async {
       await _pumpEdit(tester, repo);
 
@@ -468,8 +486,10 @@ void main() {
       await tester.tap(find.byKey(const Key('btn-confirm-delete-service')));
       await tester.pumpAndSettle();
 
-      // deactivate must have been called exactly once.
-      verify(() => repo.deactivate(_stubService.id)).called(1);
+      // deactivate must have been called exactly once with the serviceDefId
+      // (NOT the assignment id).
+      verify(() => repo.deactivate(_stubService.serviceDefId)).called(1);
+      verifyNever(() => repo.deactivate(_stubService.id));
     },
   );
 
@@ -550,6 +570,7 @@ void main() {
       // Stub service has category 'HAIRCUT'.
       const haircutService = MasterService(
         id: 'svc-haircut',
+        serviceDefId: 'def-haircut',
         name: 'Стрижка',
         durationMinutes: 45,
         price: 400.0,
@@ -593,6 +614,7 @@ void main() {
     // Stub service has category 'EYELASH'.
     const eyelashService = MasterService(
       id: 'svc-eyelash',
+      serviceDefId: 'def-eyelash',
       name: 'Вії',
       durationMinutes: 90,
       price: 600.0,

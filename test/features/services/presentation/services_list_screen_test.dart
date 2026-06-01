@@ -51,6 +51,7 @@ class _MockServiceRepository extends Mock implements ServiceRepository {}
 
 const _stubService = MasterService(
   id: 'svc-001',
+  serviceDefId: 'def-001',
   name: 'Стрижка',
   durationMinutes: 45,
   price: 750,
@@ -62,6 +63,7 @@ const _stubServiceList = <MasterService>[_stubService];
 /// Only the required fields are set; freezed defaults cover the rest.
 MasterService _makeService(int i) => MasterService(
   id: 'svc-$i',
+  serviceDefId: 'def-$i',
   name: 'Test $i',
   durationMinutes: 30,
   price: 100,

@@ -950,6 +950,7 @@ void main() {
       const stubServices = <MasterService>[
         MasterService(
           id: 'svc-1',
+          serviceDefId: 'def-1',
           name: 'Манікюр',
           durationMinutes: 30,
           price: 500,
