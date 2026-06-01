@@ -28,7 +28,24 @@ part 'master_service.freezed.dart';
 abstract class MasterService with _$MasterService {
   const factory MasterService({
     /// Backend-assigned UUID for this master-service assignment record.
+    ///
+    /// This is `MasterServiceResponse.id` — the *assignment* key. Used for
+    /// cache lookup and routing. NOT accepted by the
+    /// `PATCH/DELETE /api/v1/services/{serviceDefId}` endpoints — use
+    /// [serviceDefId] for those.
     required String id,
+
+    /// Backend-assigned UUID for the underlying *service definition*.
+    ///
+    /// Maps from `MasterServiceResponse.serviceDefinition.id`. This is the id
+    /// the backend's `PATCH /api/v1/services/{serviceDefId}` (update) and
+    /// `DELETE /api/v1/services/{serviceDefId}` (deactivate) endpoints key on.
+    /// Passing the assignment [id] to those endpoints yields a 404 / generic
+    /// failure — always pass [serviceDefId].
+    ///
+    /// Empty only when the backend omitted `serviceDefinition.id` (broken
+    /// contract); the mapper logs in that case.
+    required String serviceDefId,
 
     /// Display name of the service.
     required String name,

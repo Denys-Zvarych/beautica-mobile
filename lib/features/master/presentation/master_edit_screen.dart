@@ -9,11 +9,14 @@
 //   Top bar     — cancel icon + centred "Редагувати профіль" title.
 //   Scrollable  — avatar edit ring → "Змінити фото" caption → hairline →
 //                 sub-heading → 5 VelvetField rows (firstName, lastName,
-//                 bio, phone [optional + privacy note], instagram [optional]).
+//                 bio, phone [optional + privacy note], instagram [optional]) →
+//                 section divider → location section (LocalityCascade +
+//                 street, buildingNo, locationNote fields).
 //   Pinned foot — NeumorphicButton "Зберегти" (disabled when pristine,
 //                 spinner when saving).
 //
-// Save flow: validates, calls [MasterRepository.updateMyProfile], invalidates
+// Save flow: validates, calls [MasterRepository.updateMyProfile]; if location
+// fields touched also calls [MasterRepository.updateLocality]; invalidates
 // [masterProfileProvider], shows SnackBar, pops.
 //
 // Server field errors: [ValidationFailure.fieldErrors] keyed by field name.
@@ -23,7 +26,7 @@
 // Avatar edit: tapping the camera badge shows a "Незабаром…" SnackBar.
 // Photo upload is deferred to Phase 9.4.
 //
-// Staggered entrance: a single 900 ms AnimationController drives 6 staggered
+// Staggered entrance: a single 900 ms AnimationController drives 7 staggered
 // fade+translate reveals. CurvedAnimation instances are pre-built in initState
 // — zero allocations in build().
 
@@ -41,6 +44,11 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
+import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/city_district.dart';
+import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
+import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -75,6 +83,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
   late final CurvedAnimation _anim3; // bio
   late final CurvedAnimation _anim4; // phone
   late final CurvedAnimation _anim5; // instagram + footer
+  late final CurvedAnimation _anim6; // location section
 
   // -------------------------------------------------------------------------
   // Form state
@@ -99,6 +108,19 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
   String _origPhone = '';
   String _origInstagram = '';
 
+  // Original locality IDs — set once from master data in _maybeInit and
+  // updated in _prePopulateLocality when the async lookup completes.
+  // _isDirty compares current selections against these values so that a
+  // pre-populated city does not immediately mark the form as dirty.
+  String? _origCityId;
+  String? _origOblastId;
+  String? _origDistrictId;
+
+  // Original address text values for pristine detection.
+  String _origStreet = '';
+  String _origBuildingNo = '';
+  String _origLocationNote = '';
+
   /// Server-side field errors from the last [ValidationFailure].
   Map<String, String> _fieldErrors = const <String, String>{};
 
@@ -112,8 +134,32 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
   String? _errPhone;
   String? _errInstagram;
 
+  // -------------------------------------------------------------------------
+  // Location state — cascade selections + text controllers.
+  // Controllers are seeded in _maybeInit from master.street / buildingNo /
+  // locationNote. _selectedOblast, _selectedCity and _selectedDistrict are
+  // pre-populated asynchronously in _maybeInit using master.oblastId,
+  // master.cityId and master.districtId once the locality providers resolve.
+  // -------------------------------------------------------------------------
+  Oblast? _selectedOblast;
+  City? _selectedCity;
+  CityDistrict? _selectedDistrict;
+
+  // Initialised lazily in _maybeInit along with the other controllers.
+  late final TextEditingController _street;
+  late final TextEditingController _buildingNo;
+  late final TextEditingController _locationNote;
+
+  // Inline validation errors for the location section.
+  String? _errCity;
+  String? _errStreet;
+  String? _errBuildingNo;
+
   static const int _bioMax = 2000;
   static const int _phoneMax = 20;
+  static const int _streetMax = 200;
+  static const int _buildingNoMax = 20;
+  static const int _locationNoteMax = 500;
 
   // Pre-built cached styles — never call copyWith inside build().
   static final TextStyle _titleStyle = VelvetText.subheading();
@@ -180,12 +226,20 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       parent: _controller,
       curve: const Interval(0.38, 0.82, curve: Curves.easeOutCubic),
     );
+    _anim6 = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.60, 1.0, curve: Curves.easeOutCubic),
+    );
   }
 
   /// Initializes text controllers from [master] on the FIRST call only.
   ///
   /// Called from [build] the first time [masterProfileProvider] resolves to
   /// a non-null [Master]. Subsequent calls are no-ops (guarded by [_initialized]).
+  ///
+  /// Text controllers are initialised synchronously. The locality cascade
+  /// pre-population (oblast → city → district) runs asynchronously in a
+  /// [Future.microtask] so that [setState] is never called during [build].
   void _maybeInit(Master master) {
     if (_initialized) return;
     _initialized = true;
@@ -202,8 +256,106 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
     _phone = TextEditingController(text: _origPhone);
     _instagram = TextEditingController(text: _origInstagram);
 
+    // Location text controllers — pre-populated from master data where available.
+    _origStreet = master.street ?? '';
+    _origBuildingNo = master.buildingNo ?? '';
+    _origLocationNote = master.locationNote ?? '';
+    _street = TextEditingController(text: _origStreet);
+    _buildingNo = TextEditingController(text: _origBuildingNo);
+    _locationNote = TextEditingController(text: _origLocationNote);
+
+    // Snapshot the original locality IDs for pristine detection. These are
+    // updated again in _prePopulateLocality once the domain objects resolve,
+    // but setting them here from the raw UUIDs ensures _isDirty is correct
+    // even before the async lookup completes.
+    _origOblastId = master.oblastId;
+    _origCityId = master.cityId;
+    _origDistrictId = master.districtId;
+
     // Start the entrance animation now that we have content to reveal.
     _controller.forward();
+
+    // Async locality pre-population — deferred to a microtask so that this
+    // synchronous _maybeInit call (invoked inside build via whenData) does not
+    // call setState during the build phase.
+    //
+    // If any provider lookup fails (e.g. network error), we leave the cascade
+    // empty — the user can re-select. We never surface the error here because
+    // the locality cascade already has its own retry/error state.
+    if (master.oblastId != null) {
+      Future.microtask(() => _prePopulateLocality(master));
+    }
+  }
+
+  /// Async helper: resolves [Oblast], [City], and [CityDistrict] objects from
+  /// UUIDs stored on [master] and calls [setState] once all lookups complete.
+  ///
+  /// Uses [ref.read] (one-shot) — no continuous watching needed here.
+  /// Silently no-ops on any exception (provider not yet loaded / network error).
+  Future<void> _prePopulateLocality(Master master) async {
+    try {
+      // ----- Oblast -----
+      final oblastId = master.oblastId;
+      if (oblastId == null) return;
+
+      final oblasts = await ref.read(oblastListProvider.future);
+      Oblast? matchedOblast;
+      for (final o in oblasts) {
+        if (o.id == oblastId) {
+          matchedOblast = o;
+          break;
+        }
+      }
+      if (matchedOblast == null) return;
+
+      // ----- City -----
+      final cityId = master.cityId;
+      City? matchedCity;
+      if (cityId != null) {
+        final cities = await ref.read(
+          cityListProvider(matchedOblast.id).future,
+        );
+        for (final c in cities) {
+          if (c.id == cityId) {
+            matchedCity = c;
+            break;
+          }
+        }
+      }
+
+      // ----- District (optional) -----
+      final districtId = master.districtId;
+      CityDistrict? matchedDistrict;
+      if (districtId != null &&
+          matchedCity != null &&
+          matchedCity.hasDistricts) {
+        final districts = await ref.read(
+          districtListProvider(matchedCity.id).future,
+        );
+        for (final d in districts) {
+          if (d.id == districtId) {
+            matchedDistrict = d;
+            break;
+          }
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _selectedOblast = matchedOblast;
+        _selectedCity = matchedCity;
+        _selectedDistrict = matchedDistrict;
+      });
+    } catch (e, st) {
+      log(
+        'Locality pre-population failed — cascade will be empty',
+        name: 'feature.master.edit',
+        level: 800,
+        error: e,
+        stackTrace: st,
+      );
+      // Leave the cascade empty; the user can re-select.
+    }
   }
 
   @override
@@ -216,6 +368,9 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
         _bio,
         _phone,
         _instagram,
+        _street,
+        _buildingNo,
+        _locationNote,
       ]) {
         c.dispose();
       }
@@ -226,6 +381,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
     _anim3.dispose();
     _anim4.dispose();
     _anim5.dispose();
+    _anim6.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -240,7 +396,13 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
           _lastName.text.trim() != _origLastName ||
           _bio.text.trim() != _origBio ||
           _phone.text.trim() != _origPhone ||
-          _instagram.text.trim() != _origInstagram);
+          _instagram.text.trim() != _origInstagram ||
+          _selectedOblast?.id != _origOblastId ||
+          _selectedCity?.id != _origCityId ||
+          _selectedDistrict?.id != _origDistrictId ||
+          _street.text.trim() != _origStreet ||
+          _buildingNo.text.trim() != _origBuildingNo ||
+          _locationNote.text.trim() != _origLocationNote);
 
   Widget _reveal(CurvedAnimation anim, Widget child) {
     // Fix 2: reuse the static _slideTween — only the lightweight
@@ -329,10 +491,58 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
     return null;
   }
 
+  /// Returns true when the location section is fully valid (or untouched).
+  ///
+  /// The location section is considered "touched" when ANY of the following
+  /// is true: a city is selected, street is non-empty, or buildingNo is
+  /// non-empty. When untouched the whole section is optional and this method
+  /// returns true without setting any errors.
+  bool _validateLocation() {
+    final l10n = AppLocalizations.of(context);
+    final citySelected = _selectedCity != null;
+    final streetFilled = _street.text.trim().isNotEmpty;
+    final buildingFilled = _buildingNo.text.trim().isNotEmpty;
+
+    final touched = citySelected || streetFilled || buildingFilled;
+    if (!touched) {
+      // Section is entirely untouched — skip location validation.
+      setState(() {
+        _errCity = null;
+        _errStreet = null;
+        _errBuildingNo = null;
+      });
+      return true;
+    }
+
+    // Presence checks — city, street and buildingNo are all required when touched.
+    String? errCity = !citySelected ? l10n.errRequired : null;
+    String? errStreet = !streetFilled ? l10n.errRequired : null;
+    String? errBuildingNo = !buildingFilled ? l10n.errRequired : null;
+
+    setState(() {
+      _errCity = errCity;
+      _errStreet = errStreet;
+      _errBuildingNo = errBuildingNo;
+    });
+
+    // Length guard — VelvetField maxLength enforces on input, but guard
+    // again here in case the value was seeded programmatically.
+    final streetLen = _street.text.trim().length;
+    final buildingLen = _buildingNo.text.trim().length;
+    final noteLen = _locationNote.text.trim().length;
+    if (streetLen > _streetMax ||
+        buildingLen > _buildingNoMax ||
+        noteLen > _locationNoteMax) {
+      return false;
+    }
+
+    return errCity == null && errStreet == null && errBuildingNo == null;
+  }
+
   /// Runs the form validators and mirrors errors into the inline state so
   /// VelvetField can display them via its [errorText] parameter.
   bool _validateAndUpdateErrors() {
-    final ok = _formKey.currentState!.validate();
+    final profileOk = _formKey.currentState!.validate();
     setState(() {
       _errFirstName = _validateFirstName(_firstName.text);
       _errLastName = _validateLastName(_lastName.text);
@@ -340,7 +550,8 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       _errPhone = _validatePhone(_phone.text);
       _errInstagram = _validateInstagram(_instagram.text);
     });
-    return ok;
+    final locationOk = _validateLocation();
+    return profileOk && locationOk;
   }
 
   // -------------------------------------------------------------------------
@@ -356,6 +567,9 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       _errBio = null;
       _errPhone = null;
       _errInstagram = null;
+      _errCity = null;
+      _errStreet = null;
+      _errBuildingNo = null;
     });
 
     if (!_validateAndUpdateErrors()) return;
@@ -375,9 +589,28 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
             ),
           );
 
-      ref.invalidate(masterProfileProvider);
+      // Call updateLocality only when the user has selected a city (the
+      // locality section was touched and validated). The guard here mirrors
+      // the _validateLocation() "touched" condition.
+      final selectedCity = _selectedCity;
+      if (selectedCity != null) {
+        if (!mounted) return;
+        await ref
+            .read(masterRepositoryProvider)
+            .updateLocality(
+              cityId: selectedCity.id,
+              districtId: _selectedDistrict?.id,
+              street: _street.text.trim(),
+              buildingNo: _buildingNo.text.trim(),
+              locationNote: _locationNote.text.trim().isEmpty
+                  ? null
+                  : _locationNote.text.trim(),
+            );
+      }
 
       if (!mounted) return;
+      ref.invalidate(masterProfileProvider);
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           key: const Key('snackbar-saved'),
@@ -721,6 +954,99 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               },
                             );
                           },
+                        ),
+                      ),
+
+                      // 6 — Location section (city cascade + street/building/note).
+                      _reveal(
+                        _anim6,
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: <Widget>[
+                            const SizedBox(height: VelvetSpacing.xl),
+                            Divider(
+                              thickness: 0.6,
+                              color: BrandColors.accent.withValues(alpha: 0.25),
+                            ),
+                            const SizedBox(height: VelvetSpacing.md),
+                            Padding(
+                              padding: const EdgeInsets.only(
+                                left: 4,
+                                bottom: VelvetSpacing.lg,
+                              ),
+                              child: Text(
+                                l10n.masterEditLocationSection,
+                                style: _bodyStyle,
+                              ),
+                            ),
+                            LocalityCascade(
+                              key: const Key('location-cascade'),
+                              selectedOblast: _selectedOblast,
+                              selectedCity: _selectedCity,
+                              selectedDistrict: _selectedDistrict,
+                              cityError: _errCity,
+                              onOblast: (oblast) {
+                                setState(() {
+                                  _selectedOblast = oblast;
+                                  _selectedCity = null;
+                                  _selectedDistrict = null;
+                                  _errCity = null;
+                                });
+                              },
+                              onCity: (city) {
+                                setState(() {
+                                  _selectedCity = city;
+                                  _selectedDistrict = null;
+                                  if (city != null) _errCity = null;
+                                });
+                              },
+                              onDistrict: (district) {
+                                setState(() {
+                                  _selectedDistrict = district;
+                                });
+                              },
+                            ),
+                            const SizedBox(height: VelvetSpacing.lg),
+                            VelvetField(
+                              key: const Key('field-street'),
+                              label: l10n.streetLabel,
+                              controller: _street,
+                              enabled: !_saving,
+                              hint: l10n.step3FieldStreetPlaceholder,
+                              errorText: _errStreet,
+                              maxLength: _streetMax,
+                              onChanged: (_) {
+                                if (_errStreet != null) {
+                                  setState(() => _errStreet = null);
+                                }
+                              },
+                            ),
+                            const SizedBox(height: VelvetSpacing.lg),
+                            VelvetField(
+                              key: const Key('field-buildingNo'),
+                              label: l10n.buildingNoLabel,
+                              controller: _buildingNo,
+                              enabled: !_saving,
+                              hint: l10n.step3FieldBuildingPlaceholder,
+                              errorText: _errBuildingNo,
+                              maxLength: _buildingNoMax,
+                              onChanged: (_) {
+                                if (_errBuildingNo != null) {
+                                  setState(() => _errBuildingNo = null);
+                                }
+                              },
+                            ),
+                            const SizedBox(height: VelvetSpacing.lg),
+                            VelvetField(
+                              key: const Key('field-locationNote'),
+                              label: l10n.locationNoteLabel,
+                              controller: _locationNote,
+                              enabled: !_saving,
+                              optional: true,
+                              hint: l10n.step3FieldNotePlaceholder,
+                              maxLength: _locationNoteMax,
+                            ),
+                          ],
                         ),
                       ),
                     ],

@@ -169,7 +169,7 @@ class _ServicePhotoSlotState extends State<ServicePhotoSlot> {
           child: ClipRRect(
             borderRadius: BorderRadius.circular(VelvetRadii.card),
             child: Padding(
-              padding: EdgeInsets.all(_filled ? 0 : VelvetSpacing.md),
+              padding: EdgeInsets.all(_filled ? 0 : VelvetSpacing.sm),
               child: _filled ? _buildFilled(l10n) : _buildEmpty(l10n),
             ),
           ),

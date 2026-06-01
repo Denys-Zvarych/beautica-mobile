@@ -85,11 +85,15 @@ Class | Method | HTTP request | Description
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**getBooking**](doc/BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookings**](doc/BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**notCompleteBooking**](doc/BookingControllerApi.md#notcompletebooking) | **PATCH** /api/v1/bookings/{bookingId}/not-complete | 
+[*CategoryRequestControllerApi*](doc/CategoryRequestControllerApi.md) | [**listApproved**](doc/CategoryRequestControllerApi.md#listapproved) | **GET** /api/v1/service-categories/approved | 
+[*CategoryRequestControllerApi*](doc/CategoryRequestControllerApi.md) | [**submitRequest**](doc/CategoryRequestControllerApi.md#submitrequest) | **POST** /api/v1/service-categories/requests | 
 [*DashboardControllerApi*](doc/DashboardControllerApi.md) | [**getRevenueSummary**](doc/DashboardControllerApi.md#getrevenuesummary) | **GET** /api/v1/dashboard/revenue | 
 [*DeviceControllerApi*](doc/DeviceControllerApi.md) | [**registerToken**](doc/DeviceControllerApi.md#registertoken) | **POST** /api/v1/devices/token | 
 [*DeviceControllerApi*](doc/DeviceControllerApi.md) | [**unregisterToken**](doc/DeviceControllerApi.md#unregistertoken) | **DELETE** /api/v1/devices/token | 
 [*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateLocality**](doc/IndependentMasterControllerApi.md#updatelocality) | **PATCH** /api/v1/independent-masters/me | 
 [*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateProfile**](doc/IndependentMasterControllerApi.md#updateprofile) | **PATCH** /api/v1/independent-masters/me/profile | 
+[*InternalCategoryControllerApi*](doc/InternalCategoryControllerApi.md) | [**createCategory**](doc/InternalCategoryControllerApi.md#createcategory) | **POST** /api/v1/internal/service-categories | 
+[*InternalCategoryControllerApi*](doc/InternalCategoryControllerApi.md) | [**listCategories**](doc/InternalCategoryControllerApi.md#listcategories) | **GET** /api/v1/internal/service-categories | 
 [*LocationControllerApi*](doc/LocationControllerApi.md) | [**getCitiesByOblast**](doc/LocationControllerApi.md#getcitiesbyoblast) | **GET** /api/v1/locations/oblasts/{oblastId}/cities | 
 [*LocationControllerApi*](doc/LocationControllerApi.md) | [**getDistrictsByCity**](doc/LocationControllerApi.md#getdistrictsbycity) | **GET** /api/v1/locations/cities/{cityId}/districts | 
 [*LocationControllerApi*](doc/LocationControllerApi.md) | [**getOblasts**](doc/LocationControllerApi.md#getoblasts) | **GET** /api/v1/locations/oblasts | 
@@ -131,6 +135,8 @@ Class | Method | HTTP request | Description
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**assignServiceToMaster**](doc/ServiceControllerApi.md#assignservicetomaster) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**deactivateServiceDefinition**](doc/ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMasterServices**](doc/ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServiceDefinition**](doc/ServiceControllerApi.md#updateservicedefinition) | **PATCH** /api/v1/services/{serviceDefId} | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServicePhoto**](doc/ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**getMe**](doc/UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**updateMe**](doc/UserControllerApi.md#updateme) | **PATCH** /api/v1/users/me | 
 
@@ -142,13 +148,16 @@ Class | Method | HTTP request | Description
  - [ApiResponseAvatarResponse](doc/ApiResponseAvatarResponse.md)
  - [ApiResponseBookingDetailResponse](doc/ApiResponseBookingDetailResponse.md)
  - [ApiResponseBookingResponse](doc/ApiResponseBookingResponse.md)
+ - [ApiResponseCategoryRequestResponse](doc/ApiResponseCategoryRequestResponse.md)
  - [ApiResponseInvitePreviewResponse](doc/ApiResponseInvitePreviewResponse.md)
  - [ApiResponseInviteResponse](doc/ApiResponseInviteResponse.md)
+ - [ApiResponseListApprovedCategoryResponse](doc/ApiResponseListApprovedCategoryResponse.md)
  - [ApiResponseListCatalogCategoryResponse](doc/ApiResponseListCatalogCategoryResponse.md)
  - [ApiResponseListCityDistrictResponse](doc/ApiResponseListCityDistrictResponse.md)
  - [ApiResponseListCityResponse](doc/ApiResponseListCityResponse.md)
  - [ApiResponseListMasterServiceResponse](doc/ApiResponseListMasterServiceResponse.md)
  - [ApiResponseListOblastResponse](doc/ApiResponseListOblastResponse.md)
+ - [ApiResponseListPlatformCategoryUsageResponse](doc/ApiResponseListPlatformCategoryUsageResponse.md)
  - [ApiResponseListSalonResponse](doc/ApiResponseListSalonResponse.md)
  - [ApiResponseListServiceTypeResponse](doc/ApiResponseListServiceTypeResponse.md)
  - [ApiResponseListWorkingHoursResponse](doc/ApiResponseListWorkingHoursResponse.md)
@@ -162,6 +171,7 @@ Class | Method | HTTP request | Description
  - [ApiResponsePageResponseMasterSummaryResponse](doc/ApiResponsePageResponseMasterSummaryResponse.md)
  - [ApiResponsePageResponseReviewResponse](doc/ApiResponsePageResponseReviewResponse.md)
  - [ApiResponsePageResponseSalonSearchResult](doc/ApiResponsePageResponseSalonSearchResult.md)
+ - [ApiResponsePlatformCategoryResponse](doc/ApiResponsePlatformCategoryResponse.md)
  - [ApiResponsePublicSalonResponse](doc/ApiResponsePublicSalonResponse.md)
  - [ApiResponseRegistrationResponse](doc/ApiResponseRegistrationResponse.md)
  - [ApiResponseRevenueResponse](doc/ApiResponseRevenueResponse.md)
@@ -170,6 +180,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseServiceDefinitionResponse](doc/ApiResponseServiceDefinitionResponse.md)
  - [ApiResponseUserProfileResponse](doc/ApiResponseUserProfileResponse.md)
  - [ApiResponseVoid](doc/ApiResponseVoid.md)
+ - [ApprovedCategoryResponse](doc/ApprovedCategoryResponse.md)
  - [AssignServiceToMasterRequest](doc/AssignServiceToMasterRequest.md)
  - [AuthResponse](doc/AuthResponse.md)
  - [AvailableSlotResponse](doc/AvailableSlotResponse.md)
@@ -179,9 +190,12 @@ Class | Method | HTTP request | Description
  - [BookingResponse](doc/BookingResponse.md)
  - [CancelBookingRequest](doc/CancelBookingRequest.md)
  - [CatalogCategoryResponse](doc/CatalogCategoryResponse.md)
+ - [CategoryRequestResponse](doc/CategoryRequestResponse.md)
  - [CityDistrictResponse](doc/CityDistrictResponse.md)
  - [CityResponse](doc/CityResponse.md)
  - [CreateBookingRequest](doc/CreateBookingRequest.md)
+ - [CreateCategoryRequestRequest](doc/CreateCategoryRequestRequest.md)
+ - [CreatePlatformCategoryRequest](doc/CreatePlatformCategoryRequest.md)
  - [CreateReviewRequest](doc/CreateReviewRequest.md)
  - [CreateSalonRequest](doc/CreateSalonRequest.md)
  - [CreateServiceDefinitionRequest](doc/CreateServiceDefinitionRequest.md)
@@ -210,6 +224,8 @@ Class | Method | HTTP request | Description
  - [PageResponseSalonSearchResult](doc/PageResponseSalonSearchResult.md)
  - [Pageable](doc/Pageable.md)
  - [PageableObject](doc/PageableObject.md)
+ - [PlatformCategoryResponse](doc/PlatformCategoryResponse.md)
+ - [PlatformCategoryUsageResponse](doc/PlatformCategoryUsageResponse.md)
  - [PublicSalonResponse](doc/PublicSalonResponse.md)
  - [RefreshRequest](doc/RefreshRequest.md)
  - [RegisterDeviceTokenRequest](doc/RegisterDeviceTokenRequest.md)
@@ -235,6 +251,8 @@ Class | Method | HTTP request | Description
  - [UnregisterDeviceTokenRequest](doc/UnregisterDeviceTokenRequest.md)
  - [UpdateProfileRequest](doc/UpdateProfileRequest.md)
  - [UpdateSalonRequest](doc/UpdateSalonRequest.md)
+ - [UpdateServiceDefinitionRequest](doc/UpdateServiceDefinitionRequest.md)
+ - [UpdateServicePhotoRequest](doc/UpdateServicePhotoRequest.md)
  - [UploadPortfolioPhotoRequest](doc/UploadPortfolioPhotoRequest.md)
  - [UserProfileResponse](doc/UserProfileResponse.md)
  - [VerifyEmailRequest](doc/VerifyEmailRequest.md)

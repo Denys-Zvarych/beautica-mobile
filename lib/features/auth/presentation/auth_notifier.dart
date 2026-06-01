@@ -45,6 +45,8 @@ import '../domain/user.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
 import '../../master/presentation/master_profile_notifier.dart';
+import '../../services/data/service_repository.dart';
+import '../../services/presentation/services_list_notifier.dart';
 
 part 'auth_notifier.g.dart';
 
@@ -632,6 +634,11 @@ class AuthNotifier extends _$AuthNotifier {
     // Riverpod container after logout. Mirrors the registerDraftProvider.reset()
     // pattern above.
     ref.invalidate(masterProfileProvider);
+    // serviceRepositoryProvider is keepAlive and holds the master-row UUID;
+    // invalidate it so the next login gets a fresh repository with the correct ID.
+    ref.invalidate(serviceRepositoryProvider);
+    // keepAlive service list holds the previous user's data — clear on logout.
+    ref.invalidate(servicesListProvider);
     if (kDebugMode) {
       log('Logout: session cleared', name: 'auth', level: 800);
     }

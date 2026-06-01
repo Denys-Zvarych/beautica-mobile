@@ -6,11 +6,15 @@
 //     any field diverges from the loaded values).
 //   - [ServiceEditScreen] passes [initial] and a [MasterServiceUpdate]-producing
 //     [onSubmit] callback; [ServiceCreateScreen] passes nothing (blank form).
+// Phase 5.x — Category chip selector added between the name field and the
+//   duration+price row. Supports both create (blank) and edit (pre-populated)
+//   modes. Dirty-state tracking includes the selected category.
 //
 // The parent screen (ServiceCreateScreen / ServiceEditScreen) provides an
 // [onSubmit] callback that receives the fully-validated [MasterServiceCreate]
 // payload. The form is responsible only for:
 //   - rendering three VelvetTouch fields (name, duration, price);
+//   - rendering a category chip selector (seven neumorphic pills);
 //   - running client-side validators on submit;
 //   - toggling a loading state while [onSubmit] is in-flight;
 //   - showing the dirty-state marker when [initial] is set.
@@ -25,13 +29,17 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:flutter/foundation.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/category_request_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart';
 import 'package:beautica_mobile/shared/validators/numeric_validators.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// A form for creating or editing a service.
 ///
@@ -99,19 +107,25 @@ class _ServiceFormState extends State<ServiceForm> {
   bool _wasDirty = false;
 
   // Dirty-state baseline values (edit mode only). These are the string
-  // representations of widget.initial fields — compared character-by-character
-  // against the current field texts to determine if the form is dirty.
+  // representations of widget.initial fields — compared against current
+  // field texts and the selected category to determine if the form is dirty.
   late final String _baselineName;
   late final String _baselineDuration;
   late final String _baselinePrice;
+  late final String? _baselineCategory;
+
+  /// Currently selected category wire name. Null = no category selected.
+  String? _selectedCategory;
 
   /// True when the form is in edit mode ([widget.initial] is set) and at
-  /// least one field differs from the loaded service values.
+  /// least one field (including the category chip) differs from the loaded
+  /// service values.
   bool get _isDirty {
     if (widget.initial == null) return false;
     return _nameCtrl.text != _baselineName ||
         _durationCtrl.text != _baselineDuration ||
-        _priceCtrl.text != _baselinePrice;
+        _priceCtrl.text != _baselinePrice ||
+        _selectedCategory != _baselineCategory;
   }
 
   @override
@@ -126,6 +140,9 @@ class _ServiceFormState extends State<ServiceForm> {
         ? initial.durationMinutes.toString()
         : '';
     _baselinePrice = initial != null ? initial.price.toInt().toString() : '';
+    _baselineCategory = initial?.category;
+
+    _selectedCategory = initial?.category;
 
     _nameCtrl = TextEditingController(text: _baselineName);
     _durationCtrl = TextEditingController(text: _baselineDuration);
@@ -177,10 +194,20 @@ class _ServiceFormState extends State<ServiceForm> {
     return validatePriceUah(_priceCtrl.text, l10n);
   }
 
+  /// Category is required by the backend (`@NotBlank`); surface a required
+  /// error after the first submit attempt when no chip is selected.
+  String? _categoryError(AppLocalizations l10n) {
+    if (!_submitted) return null;
+    return (_selectedCategory == null || _selectedCategory!.isEmpty)
+        ? l10n.serviceCategoryRequired
+        : null;
+  }
+
   bool _isValid(AppLocalizations l10n) =>
       _nameError(l10n) == null &&
       _durationError(l10n) == null &&
-      _priceError(l10n) == null;
+      _priceError(l10n) == null &&
+      _categoryError(l10n) == null;
 
   // --- Submit ---------------------------------------------------------------
 
@@ -199,6 +226,7 @@ class _ServiceFormState extends State<ServiceForm> {
         price: double.parse(_priceCtrl.text.trim()),
         // Description is intentionally omitted from the form (user decision,
         // Phase 5.3). The domain model accepts null.
+        category: _selectedCategory,
       );
       await widget.onSubmit(input);
     } catch (e, st) {
@@ -284,6 +312,23 @@ class _ServiceFormState extends State<ServiceForm> {
           errorText: _nameError(l10n),
           hintText: l10n.serviceNameHint,
           enabled: !_submitting,
+        ),
+        const SizedBox(height: VelvetSpacing.lg),
+
+        // 1b — Category chip selector (optional; tapping a selected chip
+        //      deselects it so the master can clear the category). Chips are
+        //      sourced from the approved-category provider (Ukrainian labels).
+        _CategoryChips(
+          selected: _selectedCategory,
+          disabled: _submitting,
+          label: l10n.serviceCategoryLabel,
+          errorText: _categoryError(l10n),
+          onSelect: (String? wire) {
+            setState(() {
+              _selectedCategory = wire;
+              _wasDirty = _isDirty;
+            });
+          },
         ),
         const SizedBox(height: VelvetSpacing.lg),
 
@@ -398,6 +443,473 @@ class _DirtyMarker extends StatelessWidget {
                 ),
               )
             : const SizedBox(width: double.infinity, height: 0),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Category chip selector
+//
+// A labelled section containing a horizontally-scrollable Wrap of neumorphic
+// category pills. Unselected chips are inset (recessed well), selected chips
+// are extruded with the camel/mocha CTA gradient and a leading check icon.
+//
+// Extracted to a StatelessWidget so that the callback-driven tap response
+// is self-contained and the parent form's rebuild scope is tightly bounded.
+// ---------------------------------------------------------------------------
+
+/// A labelled row of neumorphic category chips for the service form.
+///
+/// Chips are sourced from [approvedCategoriesProvider] — each chip renders the
+/// Ukrainian [ServiceCategoryOption.displayName] as its label while the
+/// [ServiceCategoryOption.name] wire slug is the value sent to [onSelect].
+///
+/// [selected] is the currently-selected wire name, or null for none.
+/// [onSelect] is called with the new wire name (or null when deselected).
+/// [disabled] suppresses tap responses when a submit is in-flight.
+///
+/// The async provider's states are handled compactly so the rest of the form
+/// stays usable (category is optional):
+///   - loading → a single inset "skeleton" chip;
+///   - error   → a compact error line + retry chip;
+///   - data    → the chip row + a trailing "suggest a category" chip.
+class _CategoryChips extends ConsumerWidget {
+  const _CategoryChips({
+    required this.selected,
+    required this.label,
+    required this.onSelect,
+    this.errorText,
+    this.disabled = false,
+  });
+
+  final String? selected;
+  final String label;
+  final ValueChanged<String?> onSelect;
+
+  /// Required-field error surfaced beneath the chip row after a submit attempt
+  /// with no category selected. Null when there is no error.
+  final String? errorText;
+  final bool disabled;
+
+  // Section-label style — hoisted as a static final to avoid per-frame
+  // TextStyle allocations. Matches the field-label convention already used by
+  // _VelvetFieldRow (VelvetText.label(), then uppercased at render time).
+  static final TextStyle _sectionLabelStyle = VelvetText.label();
+
+  Future<void> _openSuggestDialog(BuildContext context) async {
+    final l10n = AppLocalizations.of(context);
+    final submitted = await showCategoryRequestDialog(context);
+    if (submitted == true && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l10n.categoryRequestSuccess),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final categoriesAsync = ref.watch(approvedCategoriesProvider);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        // Section label (uppercased at render time, same as field labels).
+        Padding(
+          padding: const EdgeInsets.only(
+            left: VelvetSpacing.xs,
+            bottom: VelvetSpacing.sm,
+          ),
+          child: Text(label.toUpperCase(), style: _sectionLabelStyle),
+        ),
+        categoriesAsync.when(
+          loading: () => const _CategoryChipsLoading(),
+          error: (_, _) => _CategoryChipsError(
+            l10n: l10n,
+            disabled: disabled,
+            onRetry: () => ref.invalidate(approvedCategoriesProvider),
+          ),
+          data: (List<ServiceCategoryOption> options) {
+            // Guard: if the loaded service's category was deprecated/removed
+            // from the approved list, still render a chip for it so the
+            // selection stays visible (and reversible).
+            final List<ServiceCategoryOption> chips = _withSelected(options);
+            // A Wrap inside a horizontal SingleChildScrollView gets unbounded
+            // width and never wraps, so chips run off-screen on narrow devices.
+            // Letting the Wrap wrap within the form's bounded width keeps every
+            // chip (incl. the selected + "suggest" affordance) visible; the
+            // outer form already provides vertical scrolling.
+            return Wrap(
+              spacing: VelvetSpacing.sm,
+              runSpacing: VelvetSpacing.sm,
+              children: <Widget>[
+                for (final ServiceCategoryOption option in chips)
+                  _CategoryChip(
+                    key: Key('chip-category-${option.name}'),
+                    wire: option.name,
+                    label: option.displayName,
+                    isSelected: _matches(selected, option.name),
+                    disabled: disabled,
+                    onTap: () => onSelect(
+                      _matches(selected, option.name) ? null : option.name,
+                    ),
+                  ),
+                // Trailing affordance — opens the suggest-a-category dialog.
+                _SuggestCategoryChip(
+                  key: const Key('chip-category-suggest'),
+                  label: l10n.serviceCategorySuggest,
+                  disabled: disabled,
+                  onTap: () => _openSuggestDialog(context),
+                ),
+              ],
+            );
+          },
+        ),
+        // Required-field error row (shown after a submit with no selection).
+        if (errorText != null)
+          Padding(
+            padding: const EdgeInsets.only(
+              left: VelvetSpacing.xs,
+              right: VelvetSpacing.xs,
+              top: VelvetSpacing.sm,
+            ),
+            child: Semantics(
+              liveRegion: true,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    size: 15,
+                    color: Color(0xFFB0452F), // BrandColors.error
+                  ),
+                  const SizedBox(width: VelvetSpacing.xs + 2),
+                  Expanded(child: Text(errorText!, style: _categoryErrorStyle)),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // Error style — hoisted; matches the field-error feedback style.
+  static final TextStyle _categoryErrorStyle = VelvetText.feedback(
+    const Color(0xFFB0452F), // BrandColors.error
+  );
+
+  /// Returns [options] with the currently-[selected] category appended when it
+  /// is absent from the approved list, so an existing service's category chip
+  /// never disappears (keeps the toggle reversible).
+  List<ServiceCategoryOption> _withSelected(
+    List<ServiceCategoryOption> options,
+  ) {
+    final String? sel = selected;
+    if (sel == null || sel.isEmpty) return options;
+    final present = options.any((o) => _matches(sel, o.name));
+    if (present) return options;
+    return <ServiceCategoryOption>[
+      ...options,
+      // No Ukrainian displayName available client-side for a category absent
+      // from the approved list (deactivated/retired, or a transient empty list
+      // while the backend is slow). Humanize the wire slug for the visible
+      // label instead of leaking the raw ALL-CAPS slug; the wire value [name]
+      // is preserved unchanged for submission.
+      ServiceCategoryOption(name: sel, displayName: _humanize(sel)),
+    ];
+  }
+
+  /// Case/whitespace-insensitive equality for wire slugs — defends against
+  /// drift between the persisted selection and the approved-list entries.
+  static bool _matches(String? a, String b) {
+    if (a == null) return false;
+    return a.trim().toUpperCase() == b.trim().toUpperCase();
+  }
+
+  /// Graceful degradation for a wire slug with no known Ukrainian label:
+  /// `NAIL_ART` → `Nail Art`, `BROWS` → `Brows`. Pure transform of the slug;
+  /// not user-authored copy, so no l10n key is required. The proper Ukrainian
+  /// label for inactive categories is a backend follow-up (expose category
+  /// displayName on the service DTO).
+  static String _humanize(String slug) {
+    final String trimmed = slug.trim();
+    if (trimmed.isEmpty) return trimmed;
+    return trimmed
+        .split(RegExp(r'[_\s]+'))
+        .where((String word) => word.isNotEmpty)
+        .map((String word) {
+          final String lower = word.toLowerCase();
+          return lower[0].toUpperCase() + lower.substring(1);
+        })
+        .join(' ');
+  }
+}
+
+/// Compact loading state for the category chip row — a single inset skeleton
+/// pill so the row keeps its height while the approved list loads.
+class _CategoryChipsLoading extends StatelessWidget {
+  const _CategoryChipsLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      key: Key('category-chips-loading'),
+      children: <Widget>[
+        NeumorphicInset(
+          radius: VelvetRadii.pill,
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: VelvetSpacing.lg,
+              vertical: VelvetSpacing.md,
+            ),
+            child: SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: BrandColors.accent,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Compact error state for the category chip row — an error line plus a retry
+/// chip. The rest of the form stays usable because the category is optional.
+class _CategoryChipsError extends StatelessWidget {
+  const _CategoryChipsError({
+    required this.l10n,
+    required this.onRetry,
+    this.disabled = false,
+  });
+
+  final AppLocalizations l10n;
+  final VoidCallback onRetry;
+  final bool disabled;
+
+  static final TextStyle _errorStyle = VelvetText.feedback(
+    const Color(0xFFB0452F), // BrandColors.error
+  );
+  static final TextStyle _retryStyle = VelvetText.pill();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      key: const Key('category-chips-error'),
+      children: <Widget>[
+        const Icon(
+          Icons.error_outline_rounded,
+          size: 15,
+          color: Color(0xFFB0452F), // BrandColors.error
+        ),
+        const SizedBox(width: VelvetSpacing.xs + 2),
+        Expanded(
+          child: Text(l10n.serviceCategoryLoadError, style: _errorStyle),
+        ),
+        const SizedBox(width: VelvetSpacing.sm),
+        GestureDetector(
+          key: const Key('btn-category-retry'),
+          onTap: disabled ? null : onRetry,
+          child: Semantics(
+            button: true,
+            label: l10n.serviceCategoryRetry,
+            child: NeumorphicInset(
+              radius: VelvetRadii.pill,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: VelvetSpacing.md,
+                  vertical: VelvetSpacing.sm,
+                ),
+                child: Text(l10n.serviceCategoryRetry, style: _retryStyle),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A dashed-feel "suggest a category" chip rendered after the category list.
+///
+/// Reuses the unselected-chip neumorphic inset look with a leading "+" so it
+/// reads as an additive affordance rather than a selectable category.
+class _SuggestCategoryChip extends StatelessWidget {
+  const _SuggestCategoryChip({
+    super.key,
+    required this.label,
+    required this.onTap,
+    this.disabled = false,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final bool disabled;
+
+  static final TextStyle _labelStyle = VelvetText.pill();
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: disabled ? null : onTap,
+      child: Semantics(
+        button: true,
+        label: label,
+        child: NeumorphicInset(
+          radius: VelvetRadii.pill,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: VelvetSpacing.md,
+              vertical: VelvetSpacing.sm,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(
+                  Icons.add_rounded,
+                  size: 15,
+                  color: BrandColors.accentDeep,
+                ),
+                const SizedBox(width: VelvetSpacing.xs),
+                Text(label, style: _labelStyle),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A single neumorphic category chip.
+///
+/// **Unselected:** inset pill — [NeumorphicInset] with [VelvetText.pill()] in
+/// [BrandColors.accentDeep] color.
+/// **Selected:** extruded pill — camel/mocha gradient fill (identical to the
+/// CTA gradient), white label, leading check icon, [VelvetShadows.extrudedButtonAccent].
+///
+/// [AnimatedContainer] provides the 150 ms cross-fade between states.
+class _CategoryChip extends StatelessWidget {
+  const _CategoryChip({
+    super.key,
+    required this.wire,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+    this.disabled = false,
+  });
+
+  final String wire;
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final bool disabled;
+
+  // ---------------------------------------------------------------------------
+  // Hoisted style constants — zero allocation per frame.
+  // ---------------------------------------------------------------------------
+
+  // Pill border radius (VelvetRadii.pill = 999) — a static const so the
+  // BorderRadius is computed once at compile time.
+  static const BorderRadius _pillRadius = BorderRadius.all(
+    Radius.circular(VelvetRadii.pill),
+  );
+
+  // Selected chip: white label (BrandColors.white = #F5EDE0).
+  static final TextStyle _selectedLabel = VelvetText.pill().copyWith(
+    color: BrandColors.white,
+  );
+
+  // Unselected chip: default pill style (accentDeep, no copyWith needed).
+  static final TextStyle _unselectedLabel = VelvetText.pill();
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: disabled ? null : onTap,
+      child: Semantics(
+        button: true,
+        selected: isSelected,
+        label: label,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeOut,
+          decoration: isSelected
+              ? const BoxDecoration(
+                  borderRadius: _pillRadius,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: <Color>[
+                      BrandColors.accentLatte,
+                      BrandColors.accentDeep,
+                    ],
+                  ),
+                  boxShadow: VelvetShadows.extrudedButtonAccent,
+                )
+              : null,
+          child: isSelected
+              ? _SelectedPillContent(label: label, labelStyle: _selectedLabel)
+              : _UnselectedPillContent(
+                  label: label,
+                  labelStyle: _unselectedLabel,
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Content inside a selected chip (gradient background + check + label).
+class _SelectedPillContent extends StatelessWidget {
+  const _SelectedPillContent({required this.label, required this.labelStyle});
+
+  final String label;
+  final TextStyle labelStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: VelvetSpacing.md,
+        vertical: VelvetSpacing.sm,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(Icons.check_rounded, size: 14, color: BrandColors.white),
+          const SizedBox(width: VelvetSpacing.xs),
+          Text(label, style: labelStyle),
+        ],
+      ),
+    );
+  }
+}
+
+/// Content inside an unselected chip (inset neumorphic well + label).
+class _UnselectedPillContent extends StatelessWidget {
+  const _UnselectedPillContent({required this.label, required this.labelStyle});
+
+  final String label;
+  final TextStyle labelStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    return NeumorphicInset(
+      radius: VelvetRadii.pill,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: VelvetSpacing.md,
+          vertical: VelvetSpacing.sm,
+        ),
+        child: Text(label, style: labelStyle),
       ),
     );
   }

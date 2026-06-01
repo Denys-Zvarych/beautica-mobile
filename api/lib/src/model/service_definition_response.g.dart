@@ -6,108 +6,6 @@ part of 'service_definition_response.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
-const ServiceDefinitionResponseCategoryEnum
-    _$serviceDefinitionResponseCategoryEnum_MANICURE =
-    const ServiceDefinitionResponseCategoryEnum._('MANICURE');
-const ServiceDefinitionResponseCategoryEnum
-    _$serviceDefinitionResponseCategoryEnum_PEDICURE =
-    const ServiceDefinitionResponseCategoryEnum._('PEDICURE');
-const ServiceDefinitionResponseCategoryEnum
-    _$serviceDefinitionResponseCategoryEnum_EYELASH =
-    const ServiceDefinitionResponseCategoryEnum._('EYELASH');
-const ServiceDefinitionResponseCategoryEnum
-    _$serviceDefinitionResponseCategoryEnum_HAIRCUT =
-    const ServiceDefinitionResponseCategoryEnum._('HAIRCUT');
-const ServiceDefinitionResponseCategoryEnum
-    _$serviceDefinitionResponseCategoryEnum_MAKEUP =
-    const ServiceDefinitionResponseCategoryEnum._('MAKEUP');
-const ServiceDefinitionResponseCategoryEnum
-    _$serviceDefinitionResponseCategoryEnum_BROWS =
-    const ServiceDefinitionResponseCategoryEnum._('BROWS');
-const ServiceDefinitionResponseCategoryEnum
-    _$serviceDefinitionResponseCategoryEnum_OTHER =
-    const ServiceDefinitionResponseCategoryEnum._('OTHER');
-
-ServiceDefinitionResponseCategoryEnum
-    _$serviceDefinitionResponseCategoryEnumValueOf(String name) {
-  switch (name) {
-    case 'MANICURE':
-      return _$serviceDefinitionResponseCategoryEnum_MANICURE;
-    case 'PEDICURE':
-      return _$serviceDefinitionResponseCategoryEnum_PEDICURE;
-    case 'EYELASH':
-      return _$serviceDefinitionResponseCategoryEnum_EYELASH;
-    case 'HAIRCUT':
-      return _$serviceDefinitionResponseCategoryEnum_HAIRCUT;
-    case 'MAKEUP':
-      return _$serviceDefinitionResponseCategoryEnum_MAKEUP;
-    case 'BROWS':
-      return _$serviceDefinitionResponseCategoryEnum_BROWS;
-    case 'OTHER':
-      return _$serviceDefinitionResponseCategoryEnum_OTHER;
-    default:
-      throw ArgumentError(name);
-  }
-}
-
-final BuiltSet<ServiceDefinitionResponseCategoryEnum>
-    _$serviceDefinitionResponseCategoryEnumValues = BuiltSet<
-        ServiceDefinitionResponseCategoryEnum>(const <ServiceDefinitionResponseCategoryEnum>[
-  _$serviceDefinitionResponseCategoryEnum_MANICURE,
-  _$serviceDefinitionResponseCategoryEnum_PEDICURE,
-  _$serviceDefinitionResponseCategoryEnum_EYELASH,
-  _$serviceDefinitionResponseCategoryEnum_HAIRCUT,
-  _$serviceDefinitionResponseCategoryEnum_MAKEUP,
-  _$serviceDefinitionResponseCategoryEnum_BROWS,
-  _$serviceDefinitionResponseCategoryEnum_OTHER,
-]);
-
-Serializer<ServiceDefinitionResponseCategoryEnum>
-    _$serviceDefinitionResponseCategoryEnumSerializer =
-    _$ServiceDefinitionResponseCategoryEnumSerializer();
-
-class _$ServiceDefinitionResponseCategoryEnumSerializer
-    implements PrimitiveSerializer<ServiceDefinitionResponseCategoryEnum> {
-  static const Map<String, Object> _toWire = const <String, Object>{
-    'MANICURE': 'MANICURE',
-    'PEDICURE': 'PEDICURE',
-    'EYELASH': 'EYELASH',
-    'HAIRCUT': 'HAIRCUT',
-    'MAKEUP': 'MAKEUP',
-    'BROWS': 'BROWS',
-    'OTHER': 'OTHER',
-  };
-  static const Map<Object, String> _fromWire = const <Object, String>{
-    'MANICURE': 'MANICURE',
-    'PEDICURE': 'PEDICURE',
-    'EYELASH': 'EYELASH',
-    'HAIRCUT': 'HAIRCUT',
-    'MAKEUP': 'MAKEUP',
-    'BROWS': 'BROWS',
-    'OTHER': 'OTHER',
-  };
-
-  @override
-  final Iterable<Type> types = const <Type>[
-    ServiceDefinitionResponseCategoryEnum
-  ];
-  @override
-  final String wireName = 'ServiceDefinitionResponseCategoryEnum';
-
-  @override
-  Object serialize(
-          Serializers serializers, ServiceDefinitionResponseCategoryEnum object,
-          {FullType specifiedType = FullType.unspecified}) =>
-      _toWire[object.name] ?? object.name;
-
-  @override
-  ServiceDefinitionResponseCategoryEnum deserialize(
-          Serializers serializers, Object serialized,
-          {FullType specifiedType = FullType.unspecified}) =>
-      ServiceDefinitionResponseCategoryEnum.valueOf(
-          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
-}
-
 class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
   @override
   final String? id;
@@ -116,7 +14,7 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
   @override
   final String? description;
   @override
-  final ServiceDefinitionResponseCategoryEnum? category;
+  final String? category;
   @override
   final int? baseDurationMinutes;
   @override
@@ -129,6 +27,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
   final String? serviceTypeId;
   @override
   final String? serviceTypeNameUk;
+  @override
+  final String? photoUrl;
 
   factory _$ServiceDefinitionResponse(
           [void Function(ServiceDefinitionResponseBuilder)? updates]) =>
@@ -144,7 +44,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
       this.bufferMinutesAfter,
       this.isActive,
       this.serviceTypeId,
-      this.serviceTypeNameUk})
+      this.serviceTypeNameUk,
+      this.photoUrl})
       : super._();
   @override
   ServiceDefinitionResponse rebuild(
@@ -168,7 +69,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
         bufferMinutesAfter == other.bufferMinutesAfter &&
         isActive == other.isActive &&
         serviceTypeId == other.serviceTypeId &&
-        serviceTypeNameUk == other.serviceTypeNameUk;
+        serviceTypeNameUk == other.serviceTypeNameUk &&
+        photoUrl == other.photoUrl;
   }
 
   @override
@@ -184,6 +86,7 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
     _$hash = $jc(_$hash, isActive.hashCode);
     _$hash = $jc(_$hash, serviceTypeId.hashCode);
     _$hash = $jc(_$hash, serviceTypeNameUk.hashCode);
+    _$hash = $jc(_$hash, photoUrl.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -200,7 +103,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
           ..add('bufferMinutesAfter', bufferMinutesAfter)
           ..add('isActive', isActive)
           ..add('serviceTypeId', serviceTypeId)
-          ..add('serviceTypeNameUk', serviceTypeNameUk))
+          ..add('serviceTypeNameUk', serviceTypeNameUk)
+          ..add('photoUrl', photoUrl))
         .toString();
   }
 }
@@ -222,10 +126,9 @@ class ServiceDefinitionResponseBuilder
   String? get description => _$this._description;
   set description(String? description) => _$this._description = description;
 
-  ServiceDefinitionResponseCategoryEnum? _category;
-  ServiceDefinitionResponseCategoryEnum? get category => _$this._category;
-  set category(ServiceDefinitionResponseCategoryEnum? category) =>
-      _$this._category = category;
+  String? _category;
+  String? get category => _$this._category;
+  set category(String? category) => _$this._category = category;
 
   int? _baseDurationMinutes;
   int? get baseDurationMinutes => _$this._baseDurationMinutes;
@@ -255,6 +158,10 @@ class ServiceDefinitionResponseBuilder
   set serviceTypeNameUk(String? serviceTypeNameUk) =>
       _$this._serviceTypeNameUk = serviceTypeNameUk;
 
+  String? _photoUrl;
+  String? get photoUrl => _$this._photoUrl;
+  set photoUrl(String? photoUrl) => _$this._photoUrl = photoUrl;
+
   ServiceDefinitionResponseBuilder() {
     ServiceDefinitionResponse._defaults(this);
   }
@@ -272,6 +179,7 @@ class ServiceDefinitionResponseBuilder
       _isActive = $v.isActive;
       _serviceTypeId = $v.serviceTypeId;
       _serviceTypeNameUk = $v.serviceTypeNameUk;
+      _photoUrl = $v.photoUrl;
       _$v = null;
     }
     return this;
@@ -303,6 +211,7 @@ class ServiceDefinitionResponseBuilder
           isActive: isActive,
           serviceTypeId: serviceTypeId,
           serviceTypeNameUk: serviceTypeNameUk,
+          photoUrl: photoUrl,
         );
     replace(_$result);
     return _$result;

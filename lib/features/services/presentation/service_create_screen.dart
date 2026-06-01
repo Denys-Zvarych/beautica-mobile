@@ -18,14 +18,17 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_photo_slot.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:screen_protector/screen_protector.dart';
 
 /// Service create screen (INDEPENDENT_MASTER).
 ///
@@ -33,13 +36,31 @@ import 'package:go_router/go_router.dart';
 /// button top-left, centred title, scrollable form body. The form's CTA is
 /// rendered inline (not pinned to the bottom) to keep the screen stateless
 /// at this level.
-class ServiceCreateScreen extends ConsumerWidget {
+class ServiceCreateScreen extends ConsumerStatefulWidget {
   const ServiceCreateScreen({super.key});
 
+  @override
+  ConsumerState<ServiceCreateScreen> createState() =>
+      _ServiceCreateScreenState();
+}
+
+class _ServiceCreateScreenState extends ConsumerState<ServiceCreateScreen> {
   static const _tag = 'feature.services.create_screen';
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void initState() {
+    super.initState();
+    if (!kDebugMode) ScreenProtector.preventScreenshotOn();
+  }
+
+  @override
+  void dispose() {
+    if (!kDebugMode) ScreenProtector.preventScreenshotOff();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
 
     return Scaffold(
@@ -84,23 +105,52 @@ class ServiceCreateScreen extends ConsumerWidget {
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(
-                  VelvetSpacing.lg,
+                  VelvetSpacing.md,
+                  VelvetSpacing.sm,
                   VelvetSpacing.md,
                   VelvetSpacing.lg,
-                  VelvetSpacing.xl,
                 ),
-                child: ServiceForm(
-                  onSubmit: (MasterServiceCreate input) async {
-                    try {
-                      await ref.read(serviceRepositoryProvider).create(input);
-                      ref.invalidate(servicesListProvider);
-                      if (context.mounted) _popScreen(context);
-                    } catch (e) {
-                      if (context.mounted) {
-                        ServiceCreateScreen.showFailureSnackbar(context, e);
-                      }
-                    }
-                  },
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    const SizedBox(
+                      height: 140,
+                      child: ServicePhotoSlot(
+                        key: Key('service-create-photo-slot'),
+                        // onTap is null — slot shows empty state; real picker is Phase 9.x.
+                      ),
+                    ),
+                    const SizedBox(height: VelvetSpacing.sm),
+                    ServiceForm(
+                      onSubmit: (MasterServiceCreate input) async {
+                        try {
+                          await ref
+                              .read(serviceRepositoryProvider)
+                              .create(input);
+                          if (context.mounted) {
+                            final l10n = AppLocalizations.of(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(l10n.serviceCreatedSuccess),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                            _popScreen(context);
+                          }
+                          // Invalidate AFTER pop so ServicesListScreen is
+                          // active and listening when the re-fetch arrives.
+                          // ref remains valid because this ConsumerWidget's
+                          // ref outlives the navigation frame.
+                          ref.invalidate(servicesListProvider);
+                          ref.invalidate(masterProfileProvider);
+                        } catch (e) {
+                          if (context.mounted) {
+                            _showFailureSnackbar(context, e);
+                          }
+                        }
+                      },
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -133,7 +183,7 @@ class ServiceCreateScreen extends ConsumerWidget {
   ///
   /// Called by [ServiceForm] consumers that want to surface submission errors
   /// without coupling the form to [BuildContext]-dependent l10n.
-  static void showFailureSnackbar(BuildContext context, Object failure) {
+  static void _showFailureSnackbar(BuildContext context, Object failure) {
     final l10n = AppLocalizations.of(context);
     final String message;
     if (failure is Failure) {

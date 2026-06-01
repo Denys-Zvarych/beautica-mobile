@@ -1342,6 +1342,83 @@
     "description": "Dirty-state badge shown beneath the sub-heading when the form diverges from the loaded service values (Phase 5.4)."
   },
 
+  "serviceCategoryLabel": "Category",
+  "@serviceCategoryLabel": {
+    "description": "Section label above the category chip selector row on the service create/edit form."
+  },
+  "serviceCategoryRequired": "Select a category",
+  "@serviceCategoryRequired": {
+    "description": "Validation error shown on the service form when no category chip is selected (category is required by the backend)."
+  },
+  "serviceCategoryLoadError": "Couldn’t load categories",
+  "@serviceCategoryLoadError": {
+    "description": "Compact error text shown on the category picker row when the approved-category list fails to load. Accompanied by a retry button."
+  },
+  "serviceCategoryRetry": "Retry",
+  "@serviceCategoryRetry": {
+    "description": "Retry affordance label on the category picker row when category loading failed."
+  },
+  "serviceCategorySuggest": "Suggest a category",
+  "@serviceCategorySuggest": {
+    "description": "Label for the trailing chip/button on the category picker that opens the 'suggest a category' dialog."
+  },
+  "categoryRequestTitle": "Suggest a category",
+  "@categoryRequestTitle": {
+    "description": "Title of the suggest-a-category dialog."
+  },
+  "categoryRequestSubtitle": "An admin will review your request. The new category appears in the list once approved.",
+  "@categoryRequestSubtitle": {
+    "description": "Quiet subline in the suggest-a-category dialog explaining that approval happens out-of-band."
+  },
+  "categoryRequestNameLabel": "Category name",
+  "@categoryRequestNameLabel": {
+    "description": "Field label above the Ukrainian display-name input in the suggest-a-category dialog."
+  },
+  "categoryRequestNameHint": "e.g. Eyelash extensions",
+  "@categoryRequestNameHint": {
+    "description": "Hint text inside the Ukrainian display-name input in the suggest-a-category dialog."
+  },
+  "categoryRequestCodeLabel": "Code",
+  "@categoryRequestCodeLabel": {
+    "description": "Field label above the auto-derived uppercase latin slug input in the suggest-a-category dialog."
+  },
+  "categoryRequestCodeHelper": "The code is generated automatically from the name. You can edit it.",
+  "@categoryRequestCodeHelper": {
+    "description": "Helper caption under the code/slug field explaining it is auto-generated from the name and editable."
+  },
+  "categoryRequestNameError": "Enter a category name",
+  "@categoryRequestNameError": {
+    "description": "Validation error shown when the display-name field is empty in the suggest-a-category dialog."
+  },
+  "categoryRequestNameTooLong": "The name cannot exceed 100 characters",
+  "@categoryRequestNameTooLong": {
+    "description": "Validation error shown when the display-name field exceeds kCategoryDisplayNameMaxLength (100) in the suggest-a-category dialog."
+  },
+  "categoryRequestCodeError": "The code must contain only uppercase latin letters, digits and underscores, and start with a letter",
+  "@categoryRequestCodeError": {
+    "description": "Validation error shown when the slug field does not match ^[A-Z][A-Z0-9_]*$ in the suggest-a-category dialog."
+  },
+  "categoryRequestSubmit": "Send",
+  "@categoryRequestSubmit": {
+    "description": "Primary submit button label in the suggest-a-category dialog."
+  },
+  "categoryRequestCancel": "Cancel",
+  "@categoryRequestCancel": {
+    "description": "Cancel affordance label in the suggest-a-category dialog."
+  },
+  "categoryRequestSuccess": "Request sent for review",
+  "@categoryRequestSuccess": {
+    "description": "SnackBar message shown after a category request is successfully submitted."
+  },
+  "categoryRequestErrExists": "This category already exists",
+  "@categoryRequestErrExists": {
+    "description": "Error message for a 409 response when the requested category already exists or is pending."
+  },
+  "categoryRequestErrThrottled": "Too many requests, try again later",
+  "@categoryRequestErrThrottled": {
+    "description": "Error message for a 429 response when the category-request rate limit (5/hr) is exhausted."
+  },
+
   "deleteServiceTitle": "Delete service?",
   "@deleteServiceTitle": {
     "description": "Title of the delete-service confirmation dialog (can-delete variant) and tooltip for the delete icon button in the service edit screen top bar (Phase 5.5)."
@@ -1385,5 +1462,57 @@
   "passwordRuleUnmetSemantics": "not met",
   "@passwordRuleUnmetSemantics": {
     "description": "Accessibility suffix appended to a password rule label when the rule is not yet satisfied. Read by screen readers as part of the full Semantics.label: '<rule label>: not met'."
+  },
+
+  "serviceCreatedSuccess": "Service added successfully",
+  "@serviceCreatedSuccess": {
+    "description": "SnackBar message shown after a service is successfully created (Phase 5.3)."
+  },
+  "serviceUpdatedSuccess": "Service updated successfully",
+  "@serviceUpdatedSuccess": {
+    "description": "SnackBar message shown after a service is successfully updated (Phase 5.4)."
+  },
+
+  "masterEditLocationSection": "Location",
+  "@masterEditLocationSection": {
+    "description": "Section label above the location fields on the master edit screen."
+  },
+  "streetLabel": "Street",
+  "@streetLabel": {
+    "description": "Field label above the street input on the master edit screen."
+  },
+  "buildingNoLabel": "Building",
+  "@buildingNoLabel": {
+    "description": "Field label above the building-number input on the master edit screen."
+  },
+  "locationNoteLabel": "Address notes",
+  "@locationNoteLabel": {
+    "description": "Field label above the location-note input on the master edit screen."
+  },
+
+  "masterAllPhotos": "All photos",
+  "@masterAllPhotos": {
+    "description": "Link label in the master profile portfolio section header that navigates to the full portfolio gallery."
+  },
+
+  "masterPhoneSemantics": "Phone",
+  "@masterPhoneSemantics": {
+    "description": "Accessibility semantic label for the phone ContactTile on the master profile screen."
+  },
+
+  "masterInstagramLabel": "Instagram",
+  "@masterInstagramLabel": {
+    "description": "Label and semantic label for the Instagram ContactTile on the master profile screen."
+  },
+
+  "masterPortfolioTileSemantics": "Portfolio photo {index}",
+  "@masterPortfolioTileSemantics": {
+    "description": "Accessibility semantic label for each portfolio placeholder tile on the master profile screen.",
+    "placeholders": {
+      "index": {
+        "type": "int",
+        "example": "1"
+      }
+    }
   }
 }

@@ -23,11 +23,15 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:beautica_mobile/features/master/presentation/master_edit_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,6 +39,33 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
+
+// ---------------------------------------------------------------------------
+// _ProfileInvalidationWatcher
+// ---------------------------------------------------------------------------
+
+/// Watches [masterProfileProvider] and appends every received [AsyncValue] to
+/// [states], enabling assertions that the provider was invalidated after save.
+///
+/// Wrap the widget under test with this widget before calling
+/// [tester.pumpRoutedApp]; the first state received is [AsyncLoading] (initial
+/// build), then [AsyncData] once resolved. Each [ref.invalidate] call causes a
+/// fresh [AsyncLoading] → [AsyncData] cycle — detectable by list length growth.
+class _ProfileInvalidationWatcher extends ConsumerWidget {
+  const _ProfileInvalidationWatcher({
+    required this.child,
+    required this.states,
+  });
+
+  final Widget child;
+  final List<AsyncValue<Object?>> states;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    states.add(ref.watch(masterProfileProvider));
+    return child;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -62,6 +93,29 @@ const _stubMaster = Master(
   avgRating: 4.8,
   reviewCount: 10,
   type: MasterType.independentMaster,
+);
+
+/// Stub master that already has location data pre-set, used by Test B.
+const _stubMasterWithLocation = Master(
+  id: 'user-1',
+  firstName: 'Олена',
+  lastName: 'Ковальчук',
+  bio: 'Майстер манікюру.',
+  avgRating: 4.8,
+  reviewCount: 10,
+  type: MasterType.independentMaster,
+  street: 'вул. Хрещатик',
+  buildingNo: '10',
+  locationNote: 'кв. 5',
+);
+
+/// Stub [City] used by the updateLocality success-path test.
+const _stubCity = City(
+  id: 'city-99',
+  oblastId: 'oblast-01',
+  name: 'Київ',
+  katotthCode: 'UA80000000000093317',
+  hasDistricts: false,
 );
 
 // ---------------------------------------------------------------------------
@@ -153,6 +207,18 @@ void main() {
 
   setUp(() {
     repo = _MockMasterRepository();
+    // Default stub for updateLocality so every test that doesn't care about it
+    // doesn't need to configure the mock explicitly. Tests that assert it is
+    // *not* called use verifyNever after this default is in place.
+    when(
+      () => repo.updateLocality(
+        cityId: any(named: 'cityId'),
+        districtId: any(named: 'districtId'),
+        street: any(named: 'street'),
+        buildingNo: any(named: 'buildingNo'),
+        locationNote: any(named: 'locationNote'),
+      ),
+    ).thenAnswer((_) async {});
   });
 
   // ── 1. Form pre-populated from provider ─────────────────────────────────
@@ -761,5 +827,390 @@ void main() {
       // The repository must have been called exactly once.
       verify(() => repo.updateMyProfile(any())).called(1);
     });
+  });
+
+  // ── 12. Location section ─────────────────────────────────────────────────
+  //
+  // Four CRITICAL tests covering:
+  //   A. Location fields are present in the rendered tree.
+  //   B. Location fields are pre-populated from master data.
+  //   C. updateLocality is NOT called when no location fields are touched.
+  //   D. Validation blocks save (and updateLocality) when street is filled but
+  //      no city is selected via the cascade.
+
+  group('location section', () {
+    // ── 12.A  Location fields render ─────────────────────────────────────────
+
+    testWidgets('location_section_renders_correctly', (tester) async {
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('field-street')), findsOneWidget);
+      expect(find.byKey(const Key('field-buildingNo')), findsOneWidget);
+      expect(find.byKey(const Key('field-locationNote')), findsOneWidget);
+    });
+
+    // ── 12.B  Location fields pre-populated from master data ─────────────────
+
+    testWidgets('location_fields_pre_populated_from_master_data', (
+      tester,
+    ) async {
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo, master: _stubMasterWithLocation),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('field-street')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        'вул. Хрещатик',
+        reason: 'street field must be pre-populated from master.street',
+      );
+
+      expect(
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('field-buildingNo')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        '10',
+        reason: 'buildingNo field must be pre-populated from master.buildingNo',
+      );
+
+      expect(
+        tester
+            .widget<TextField>(
+              find.descendant(
+                of: find.byKey(const Key('field-locationNote')),
+                matching: find.byType(TextField),
+              ),
+            )
+            .controller
+            ?.text,
+        'кв. 5',
+        reason:
+            'locationNote field must be pre-populated from master.locationNote',
+      );
+    });
+
+    // ── 12.C  save without location does not call updateLocality ─────────────
+
+    testWidgets('save_without_location_does_not_call_updateLocality', (
+      tester,
+    ) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Dirty only firstName — no location fields touched.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-firstName')),
+          matching: find.byType(TextField),
+        ),
+        'ОленаEdited',
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-save-master')));
+      await tester.pumpAndSettle();
+
+      // updateLocality must never be called when no location field is touched.
+      verifyNever(
+        () => repo.updateLocality(
+          cityId: any(named: 'cityId'),
+          districtId: any(named: 'districtId'),
+          street: any(named: 'street'),
+          buildingNo: any(named: 'buildingNo'),
+          locationNote: any(named: 'locationNote'),
+        ),
+      );
+
+      // The profile update must still have been called exactly once.
+      verify(() => repo.updateMyProfile(any())).called(1);
+    });
+
+    // ── 12.D  Validation requires city when street is filled ─────────────────
+    //
+    // When the user fills the street field but does NOT select a city via the
+    // cascade, the location section is "touched" but incomplete. _validateLocation
+    // must block the save and updateLocality must never be called.
+
+    testWidgets('validation_requires_street_when_street_filled_but_no_city', (
+      tester,
+    ) async {
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Dirty the firstName field so the save button becomes enabled.
+      // This is necessary because NeumorphicButton with onPressed:null is
+      // non-interactive — tapping it would be a no-op.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-firstName')),
+          matching: find.byType(TextField),
+        ),
+        'ОленаEdited',
+      );
+      await tester.pump();
+
+      // Fill street but leave the city cascade untouched — touches the
+      // location section (streetFilled = true) without providing a cityId.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-street')),
+          matching: find.byType(TextField),
+        ),
+        'вул. Хрещатик',
+      );
+      await tester.pump();
+
+      // Tap Save — button is enabled (firstName is dirty);
+      // _validateLocation must fail (city absent) and block _save() entirely.
+      await tester.tap(find.byKey(const Key('btn-save-master')));
+      await tester.pumpAndSettle();
+
+      // The screen must not have navigated away — validation blocked the save.
+      expect(
+        find.byKey(const Key('field-street')),
+        findsOneWidget,
+        reason:
+            'MasterEditScreen must remain visible when location validation fails',
+      );
+
+      // NEITHER update should be called — _save() returns early when
+      // _validateAndUpdateErrors() returns false (locationOk = false means
+      // the whole save is aborted, not just the location part).
+      verifyNever(
+        () => repo.updateLocality(
+          cityId: any(named: 'cityId'),
+          districtId: any(named: 'districtId'),
+          street: any(named: 'street'),
+          buildingNo: any(named: 'buildingNo'),
+          locationNote: any(named: 'locationNote'),
+        ),
+      );
+      verifyNever(() => repo.updateMyProfile(any()));
+    });
+  });
+
+  // ── 13. updateLocality success path ─────────────────────────────────────────
+  //
+  // MEDIUM finding: the save path that calls updateLocality was untested.
+  //
+  // Simulates a city selection via the LocalityCascade onCity callback
+  // (the cascade is a ConsumerWidget — we obtain it via tester.widget and
+  // invoke onCity directly, bypassing the UI picker bottom-sheet which requires
+  // real HTTP calls to the locality providers).
+  //
+  // Steps:
+  //   1. Start with a master whose locality fields are null.
+  //   2. Invoke LocalityCascade.onCity with _stubCity to select a city.
+  //   3. Enter street + buildingNo.
+  //   4. Dirty firstName so the Save button is enabled.
+  //   5. Tap Save.
+  //   6. Verify updateLocality was called once with the expected arguments.
+
+  group('updateLocality success path', () {
+    testWidgets(
+      'saves location — calls updateLocality with correct cityId, street, '
+      'and buildingNo',
+      (tester) async {
+        when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+        when(
+          () => repo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenAnswer((_) async {});
+
+        final router = _buildRouter();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(repo: repo),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        // Simulate city selection by invoking onCity on the LocalityCascade
+        // widget directly — bypasses the bottom-sheet picker that needs HTTP.
+        final cascade = tester.widget<LocalityCascade>(
+          find.byKey(const Key('location-cascade')),
+        );
+        cascade.onCity(_stubCity);
+        await tester.pump();
+
+        // Enter street.
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-street')),
+            matching: find.byType(TextField),
+          ),
+          'вул. Шевченка',
+        );
+        await tester.pump();
+
+        // Enter buildingNo.
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-buildingNo')),
+            matching: find.byType(TextField),
+          ),
+          '1',
+        );
+        await tester.pump();
+
+        // Dirty firstName so the Save button becomes enabled.
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-firstName')),
+            matching: find.byType(TextField),
+          ),
+          'ОленаEdited',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        verify(
+          () => repo.updateLocality(
+            cityId: 'city-99',
+            districtId: null,
+            street: 'вул. Шевченка',
+            buildingNo: '1',
+            locationNote: null,
+          ),
+        ).called(1);
+      },
+    );
+  });
+
+  // ── 14. masterProfileProvider invalidation on save success ──────────────────
+  //
+  // MEDIUM finding: save-success tests did not assert that masterProfileProvider
+  // is invalidated after a successful save.
+  //
+  // Strategy: pump the MasterEditScreen wrapped in a top-level
+  // _ProfileInvalidationWatcher (outside the Router widget tree) so that the
+  // watcher persists even after the inner GoRouter navigates to masterProfile.
+  // The watcher catches the AsyncLoading emission that Riverpod fires when
+  // ref.invalidate(masterProfileProvider) is called.
+
+  group('masterProfileProvider invalidation on save success', () {
+    testWidgets(
+      'ref.invalidate(masterProfileProvider) is called after successful save',
+      (tester) async {
+        when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+        final states = <AsyncValue<Object?>>[];
+
+        final router = GoRouter(
+          initialLocation: RouteNames.masterEdit,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.masterEdit,
+              pageBuilder: (context, state) =>
+                  const NoTransitionPage<void>(child: MasterEditScreen()),
+            ),
+            GoRoute(
+              path: RouteNames.masterProfile,
+              pageBuilder: (context, state) => const NoTransitionPage<void>(
+                child: Scaffold(
+                  body: Center(
+                    child: SizedBox(key: Key('stub-master-profile')),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+
+        // Pump with a _ProfileInvalidationWatcher at the very top of the tree
+        // (wrapping MaterialApp.router) so that the watcher lives outside the
+        // router page stack and persists after navigation.
+        final overrides = _buildOverrides(repo: repo);
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: overrides.cast(),
+            child: _ProfileInvalidationWatcher(
+              states: states,
+              child: MaterialApp.router(
+                routerConfig: router,
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+                locale: const Locale('uk'),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        // Capture the number of states received before the save action.
+        // The watcher receives at least one state (AsyncLoading or AsyncData)
+        // during the initial build.
+        final statesBefore = states.length;
+        expect(statesBefore, greaterThanOrEqualTo(1));
+
+        // Dirty firstName to enable Save.
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-firstName')),
+            matching: find.byType(TextField),
+          ),
+          'ОленаEdited',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        // ref.invalidate(masterProfileProvider) transitions the provider back
+        // to AsyncLoading → AsyncData. The watcher (outside the router page
+        // stack) observes these transitions regardless of navigation.
+        expect(
+          states.length,
+          greaterThan(statesBefore),
+          reason:
+              'masterProfileProvider must be invalidated after a successful '
+              'save — the watcher must receive at least one additional '
+              'AsyncValue emission after ref.invalidate() fires.',
+        );
+      },
+    );
   });
 }

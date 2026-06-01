@@ -7,7 +7,7 @@
 //       * id           ← MasterServiceResponse.id (assignment UUID)
 //       * name         ← serviceDefinition.name
 //       * description  ← serviceDefinition.description
-//       * category     ← serviceDefinition.category?.name (enum wire name)
+//       * category     ← serviceDefinition.category (String wire name)
 //       * durationMinutes ← effectiveDurationMinutes ?? serviceDefinition.baseDurationMinutes
 //       * price        ← effectivePrice ?? serviceDefinition.basePrice (num → double)
 //       * bufferMinutesAfter ← serviceDefinition.bufferMinutesAfter ?? 0
@@ -19,10 +19,13 @@
 //   - [toCreateRequest] converts [MasterServiceCreate] → the generated
 //     [CreateServiceDefinitionRequest] using the built_value builder pattern.
 //
-//   - [toUpdateBody] converts [MasterServiceUpdate] → a plain [Map] for a
-//     hand-written PATCH (no generated update request exists in the API client).
-//     Only non-null fields are included so the backend treats absent keys as
-//     "no change".
+//   - [toUpdateRequest] converts [MasterServiceUpdate] → the generated
+//     [UpdateServiceDefinitionRequest] for PATCH /api/v1/services/{serviceDefId}.
+//     Only non-null fields are set so the backend treats absent keys as
+//     "no change". (Domain durationMinutes/price → wire baseDurationMinutes/basePrice.)
+//   - [fromServiceDefinitionDto] maps the [ServiceDefinitionResponse] returned by
+//     that update endpoint back to [MasterService] (carrying the assignment id
+//     through, since the response omits it).
 //
 // Error contract: a null [MasterServiceResponse.id] throws [ServerFailure]
 // (broken backend contract). All other nulls are substituted with safe
@@ -35,6 +38,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 
 import '../domain/master_service.dart';
 import '../domain/master_service_input.dart';
+import '../domain/service_category_option.dart';
 
 /// Translates generated API types from `beautica_api` into domain entities
 /// and vice-versa for the service feature.
@@ -81,14 +85,71 @@ abstract final class MasterServiceMapper {
       return true;
     }());
 
+    // The backend's update/deactivate endpoints key on the service-definition
+    // id (`/api/v1/services/{serviceDefId}`), NOT the assignment id. Capture it
+    // from the nested serviceDefinition so the repository can route mutations
+    // correctly. A null/empty value means the backend omitted it — log so the
+    // broken contract surfaces, but do not throw (list/read still works).
+    final serviceDefId = def?.id ?? '';
+    if (serviceDefId.isEmpty) {
+      log(
+        'MasterServiceResponse.serviceDefinition.id is null — update/delete '
+        'will fail for assignment id=$id',
+        name: 'feature.services.mapper',
+        level: 1000,
+      );
+    }
+
     return MasterService(
       id: id,
+      serviceDefId: serviceDefId,
       name: def?.name ?? '',
       description: def?.description,
-      category: def?.category?.name,
+      category: def?.category,
       durationMinutes: duration,
       price: price,
       bufferMinutesAfter: def?.bufferMinutesAfter ?? 0,
+      isActive: dto.isActive ?? true,
+    );
+  }
+
+  /// Maps a [ServiceDefinitionResponse] DTO (returned by the update endpoint
+  /// `PATCH /api/v1/services/{serviceDefId}`) to the domain [MasterService].
+  ///
+  /// Unlike [fromDto], this response carries no master-level override fields
+  /// (`effectivePrice` / `effectiveDurationMinutes`); for an INDEPENDENT_MASTER
+  /// the definition's base values *are* the effective values, so we read them
+  /// directly.
+  ///
+  /// The response does not include the master-service *assignment* id, so the
+  /// caller passes the existing [assignmentId] through to keep the returned
+  /// [MasterService.id] stable for cache lookup and routing.
+  ///
+  /// Throws [ServerFailure] (statusCode `null`) when [dto.id] is absent
+  /// (broken backend contract — the serviceDefId is required downstream).
+  static MasterService fromServiceDefinitionDto(
+    ServiceDefinitionResponse dto, {
+    required String assignmentId,
+  }) {
+    final serviceDefId = dto.id;
+    if (serviceDefId == null || serviceDefId.isEmpty) {
+      log(
+        'ServiceDefinitionResponse.id is null — broken backend contract',
+        name: 'feature.services.mapper',
+        level: 1000,
+      );
+      throw const ServerFailure(statusCode: null);
+    }
+
+    return MasterService(
+      id: assignmentId,
+      serviceDefId: serviceDefId,
+      name: dto.name ?? '',
+      description: dto.description,
+      category: dto.category,
+      durationMinutes: dto.baseDurationMinutes ?? 0,
+      price: (dto.basePrice ?? 0).toDouble(),
+      bufferMinutesAfter: dto.bufferMinutesAfter ?? 0,
       isActive: dto.isActive ?? true,
     );
   }
@@ -125,6 +186,15 @@ abstract final class MasterServiceMapper {
         'bufferMinutesAfter must be >= 0',
       );
     }
+    // category is now REQUIRED by the backend (`@NotBlank` on
+    // CreateServiceDefinitionRequest.category) and the generated request types
+    // it as a non-nullable String. Fail fast at the data boundary if the form
+    // somehow submits without a category selected — the create form enforces
+    // selection before reaching here.
+    final category = input.category;
+    if (category == null || category.isEmpty) {
+      throw ArgumentError.value(category, 'category', 'category is required');
+    }
 
     return CreateServiceDefinitionRequest((b) {
       b
@@ -132,28 +202,67 @@ abstract final class MasterServiceMapper {
         ..baseDurationMinutes = input.durationMinutes
         // price is double in the domain; basePrice is num in the generated
         // type — direct assignment is safe (double is a num).
-        ..basePrice = input.price;
+        ..basePrice = input.price
+        // category is a plain String on the generated request (backend changed
+        // the field from a strict enum → String to support self-service
+        // approved categories). Pass the wire name through directly.
+        ..category = category;
 
       if (input.description != null) b.description = input.description;
       if (buffer != null) b.bufferMinutesAfter = buffer;
-      // category is not exposed in [MasterServiceCreate] for Phase 5.1;
-      // left unset so the backend defaults to the service-type category.
     });
   }
 
-  /// Converts [MasterServiceUpdate] to a plain body map for PATCH.
+  /// Maps an [ApprovedCategoryResponse] DTO to the domain
+  /// [ServiceCategoryOption] used by the category picker.
   ///
-  /// Only non-null fields from [patch] are included in the returned map so
-  /// the backend ignores absent keys (PATCH semantics). Returns an empty map
-  /// when all fields are null (no-op update — callers should guard against
-  /// sending a no-op if desired).
+  /// Both [name] and [displayName] are nullable on the generated DTO. A
+  /// category with a null/empty [name] is unusable as a selectable value, so
+  /// it is dropped by [fromApprovedCategoryList] rather than mapped here.
+  /// [displayName] falls back to [name] when absent so the chip always has a
+  /// readable label.
+  static ServiceCategoryOption fromApprovedCategory(
+    ApprovedCategoryResponse dto,
+  ) {
+    final name = dto.name ?? '';
+    return ServiceCategoryOption(
+      name: name,
+      displayName: (dto.displayName?.isNotEmpty ?? false)
+          ? dto.displayName!
+          : name,
+    );
+  }
+
+  /// Maps a list of [ApprovedCategoryResponse] DTOs to domain options,
+  /// dropping any entry whose wire [name] is null or empty (unselectable).
+  static List<ServiceCategoryOption> fromApprovedCategoryList(
+    Iterable<ApprovedCategoryResponse> dtos,
+  ) => dtos
+      .map(fromApprovedCategory)
+      .where((o) => o.name.isNotEmpty)
+      .toList(growable: false);
+
+  /// Converts [MasterServiceUpdate] to the generated
+  /// [UpdateServiceDefinitionRequest] for `PATCH /api/v1/services/{serviceDefId}`.
+  ///
+  /// Only non-null fields from [patch] are set on the builder so the backend
+  /// treats absent keys as "no change" (PATCH semantics). The generated
+  /// serializer omits null builder fields from the wire body.
+  ///
+  /// Field-name boundary: the domain uses [MasterServiceUpdate.durationMinutes]
+  /// / [MasterServiceUpdate.price]; the backend request expects
+  /// `baseDurationMinutes` / `basePrice`. The mapping happens here. Note the
+  /// request has no `isActive` field — deactivation goes through the dedicated
+  /// `DELETE /api/v1/services/{serviceDefId}` endpoint, not this PATCH.
   ///
   /// Throws [ArgumentError] for invalid field values — before the request
   /// reaches the network layer (security MEDIUM-1):
   ///   - [price] present and < 0
   ///   - [durationMinutes] present and < 1
   ///   - [bufferMinutesAfter] present and < 0
-  static Map<String, dynamic> toUpdateBody(MasterServiceUpdate patch) {
+  static UpdateServiceDefinitionRequest toUpdateRequest(
+    MasterServiceUpdate patch,
+  ) {
     final price = patch.price;
     if (price != null && price < 0) {
       throw ArgumentError.value(price, 'price', 'price must be >= 0');
@@ -175,14 +284,13 @@ abstract final class MasterServiceMapper {
       );
     }
 
-    final body = <String, dynamic>{};
-    if (patch.name != null) body['name'] = patch.name;
-    if (patch.description != null) body['description'] = patch.description;
-    if (patch.category != null) body['category'] = patch.category;
-    if (duration != null) body['durationMinutes'] = duration;
-    if (price != null) body['price'] = price;
-    if (buffer != null) body['bufferMinutesAfter'] = buffer;
-    if (patch.isActive != null) body['isActive'] = patch.isActive;
-    return body;
+    return UpdateServiceDefinitionRequest((b) {
+      if (patch.name != null) b.name = patch.name;
+      if (patch.description != null) b.description = patch.description;
+      if (patch.category != null) b.category = patch.category;
+      if (duration != null) b.baseDurationMinutes = duration;
+      if (price != null) b.basePrice = price;
+      if (buffer != null) b.bufferMinutesAfter = buffer;
+    });
   }
 }

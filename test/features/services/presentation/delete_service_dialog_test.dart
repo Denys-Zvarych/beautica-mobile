@@ -36,6 +36,7 @@ class _MockServiceRepository extends Mock implements ServiceRepository {}
 
 const _service = MasterService(
   id: 'svc-del-can',
+  serviceDefId: 'def-del-can',
   name: 'Манікюр',
   durationMinutes: 60,
   price: 300.0,

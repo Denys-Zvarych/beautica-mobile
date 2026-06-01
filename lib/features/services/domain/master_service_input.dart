@@ -43,8 +43,8 @@ abstract class MasterServiceCreate with _$MasterServiceCreate {
 /// Input model for updating an existing service (PATCH semantics).
 ///
 /// All fields are optional. Only non-null fields are sent in the PATCH body
-/// by [MasterServiceMapper.toUpdateBody]. Maps to
-/// `PATCH /api/v1/independent-masters/me/services/{id}`.
+/// by [MasterServiceMapper.toUpdateRequest]. Maps to
+/// `PATCH /api/v1/services/{serviceDefId}`.
 @freezed
 abstract class MasterServiceUpdate with _$MasterServiceUpdate {
   const factory MasterServiceUpdate({

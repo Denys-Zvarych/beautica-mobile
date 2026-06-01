@@ -24,6 +24,9 @@ Name | Type | Description | Notes
 **masterType** | **String** |  | [optional] 
 **salon** | [**PublicSalonResponse**](PublicSalonResponse.md) |  | [optional] 
 **workingHours** | [**BuiltList&lt;WorkingHoursResponse&gt;**](WorkingHoursResponse.md) |  | [optional] 
+**cityId** | **String** |  | [optional] 
+**oblastId** | **String** |  | [optional] 
+**districtId** | **String** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 
