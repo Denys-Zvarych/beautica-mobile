@@ -24,11 +24,13 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -66,6 +68,52 @@ Future<void> _pumpForm(
     ),
   );
   // Resolve the approvedCategoriesProvider future.
+  await tester.pumpAndSettle();
+}
+
+/// A minimal pre-populated [MasterService] seeding the edit-flow form with a
+/// category already selected (the chip selector reads `initial.category`).
+MasterService _serviceWithCategory(String category) => MasterService(
+  id: 'svc-1',
+  serviceDefId: 'def-1',
+  name: 'Послуга',
+  category: category,
+  durationMinutes: 60,
+  price: 500,
+);
+
+/// Pumps a [ServiceForm] seeded with [initial] (edit flow). Optionally clamps
+/// the surface to a narrow [physicalWidth]dp viewport so layout regressions
+/// (e.g. a Wrap that refuses to wrap) push chips off-screen.
+Future<void> _pumpFormWithInitial(
+  WidgetTester tester,
+  _MockServiceRepository repo, {
+  required MasterService initial,
+  double? physicalWidth,
+}) async {
+  if (physicalWidth != null) {
+    tester.view.physicalSize = Size(physicalWidth, 1280);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: <Object>[
+        serviceRepositoryProvider.overrideWithValue(repo),
+      ].cast(),
+      child: MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('uk'),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: ServiceForm(initial: initial, onSubmit: (_) async {}),
+          ),
+        ),
+      ),
+    ),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -544,8 +592,158 @@ void main() {
       );
     },
   );
+
+  // ── 11. Selected category ABSENT from the approved list → humanized label ────
+
+  testWidgets(
+    '11. selected BROWS absent from approved list shows humanized label, '
+    'never the raw slug; wire value preserved on submit',
+    (tester) async {
+      // Approved list does NOT contain BROWS (deactivated/retired category).
+      when(
+        () => repo.fetchApprovedCategories(),
+      ).thenAnswer((_) async => _options);
+
+      await _pumpFormWithInitial(
+        tester,
+        repo,
+        initial: _serviceWithCategory('BROWS'),
+      );
+
+      // The selected chip exists, keyed by the WIRE slug — this is the value
+      // submitted to the backend (Key = `chip-category-${option.name}`), so its
+      // presence proves the wire value is preserved unchanged.
+      final chip = find.byKey(const Key('chip-category-BROWS'));
+      expect(chip, findsOneWidget);
+
+      // The raw ALL-CAPS slug must NOT be rendered as the label.
+      expect(find.text('BROWS'), findsNothing);
+      // The humanized form is shown instead.
+      expect(find.text('Brows'), findsOneWidget);
+
+      // It is rendered as the SELECTED chip (selection stays visible).
+      expect(_isSelectedChip(tester, chip), isTrue);
+    },
+  );
+
+  // ── 12. Empty approved list + a selected category → no raw slug leaked ───────
+
+  testWidgets(
+    '12. empty approved list + selected category renders humanized label, '
+    'never the raw slug',
+    (tester) async {
+      // Transient empty list while the backend is slow / returns nothing.
+      when(
+        () => repo.fetchApprovedCategories(),
+      ).thenAnswer((_) async => const <ServiceCategoryOption>[]);
+
+      await _pumpFormWithInitial(
+        tester,
+        repo,
+        initial: _serviceWithCategory('NAIL_ART'),
+      );
+
+      // Keyed by the wire slug → submission value preserved.
+      final chip = find.byKey(const Key('chip-category-NAIL_ART'));
+      expect(chip, findsOneWidget);
+
+      // Raw slug never shown; multi-word slug humanized to title-case.
+      expect(find.text('NAIL_ART'), findsNothing);
+      expect(find.text('Nail Art'), findsOneWidget);
+      expect(_isSelectedChip(tester, chip), isTrue);
+    },
+  );
+
+  // ── 13. Selected category PRESENT in approved list → Ukrainian displayName ───
+
+  testWidgets(
+    '13. selected category present in approved list shows the Ukrainian '
+    'displayName (happy-path regression guard)',
+    (tester) async {
+      when(
+        () => repo.fetchApprovedCategories(),
+      ).thenAnswer((_) async => _options);
+
+      await _pumpFormWithInitial(
+        tester,
+        repo,
+        initial: _serviceWithCategory('MANICURE'),
+      );
+
+      final chip = find.byKey(const Key('chip-category-MANICURE'));
+      expect(chip, findsOneWidget);
+
+      // Ukrainian label, not the slug nor a humanized fallback.
+      expect(find.text('Манікюр'), findsOneWidget);
+      expect(find.text('MANICURE'), findsNothing);
+      expect(find.text('Manicure'), findsNothing);
+      expect(_isSelectedChip(tester, chip), isTrue);
+    },
+  );
+
+  // ── 14. Narrow viewport: selected chip stays within the visible viewport ─────
+
+  testWidgets(
+    '14. on a narrow ~360dp viewport the selected chip renders inside the '
+    'visible viewport (Wrap-in-horizontal-scroll regression guard)',
+    (tester) async {
+      // A long approved list forces multiple rows; on a narrow viewport a Wrap
+      // nested in a horizontal scroll view would push later chips off-screen.
+      const many = <ServiceCategoryOption>[
+        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+        ServiceCategoryOption(name: 'NAIL_ART', displayName: 'Нейл-арт'),
+        ServiceCategoryOption(name: 'PEDICURE', displayName: 'Педикюр'),
+        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+        ServiceCategoryOption(name: 'COLORING', displayName: 'Фарбування'),
+        ServiceCategoryOption(name: 'MAKEUP', displayName: 'Макіяж'),
+        ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+      ];
+      when(() => repo.fetchApprovedCategories()).thenAnswer((_) async => many);
+
+      await _pumpFormWithInitial(
+        tester,
+        repo,
+        initial: _serviceWithCategory('BROWS'),
+        physicalWidth: 360,
+      );
+
+      final chip = find.byKey(const Key('chip-category-BROWS'));
+      expect(chip, findsOneWidget);
+
+      // The selected chip must lie within the screen bounds — not pushed off the
+      // right edge by a non-wrapping Wrap.
+      final Rect rect = tester.getRect(chip);
+      final Size screen =
+          tester.view.physicalSize / tester.view.devicePixelRatio;
+      expect(
+        rect.left,
+        greaterThanOrEqualTo(0),
+        reason: 'chip must not be clipped off the left edge',
+      );
+      expect(
+        rect.right,
+        lessThanOrEqualTo(screen.width),
+        reason: 'chip must wrap within the viewport, not overflow horizontally',
+      );
+      expect(
+        rect.top,
+        greaterThanOrEqualTo(0),
+        reason: 'chip must be within the visible viewport',
+      );
+    },
+  );
 }
 
 /// Helper for test 5: confirms the dialog is still present (submit did not pop).
 bool _l10nNothing(WidgetTester tester) =>
     find.byKey(const Key('field-category-request-code')).evaluate().isNotEmpty;
+
+/// True when the chip located by [chip] is rendered in its selected state.
+/// The chip wraps its content in `Semantics(selected: isSelected, button: true)`,
+/// so the selected flag is read directly from the merged semantics node.
+bool _isSelectedChip(WidgetTester tester, Finder chip) {
+  final SemanticsNode node = tester.getSemantics(
+    find.descendant(of: chip, matching: find.byType(Semantics)).first,
+  );
+  return node.flagsCollection.isSelected.toBoolOrNull() ?? false;
+}

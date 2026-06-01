@@ -538,32 +538,34 @@ class _CategoryChips extends ConsumerWidget {
             // from the approved list, still render a chip for it so the
             // selection stays visible (and reversible).
             final List<ServiceCategoryOption> chips = _withSelected(options);
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Wrap(
-                spacing: VelvetSpacing.sm,
-                runSpacing: VelvetSpacing.sm,
-                children: <Widget>[
-                  for (final ServiceCategoryOption option in chips)
-                    _CategoryChip(
-                      key: Key('chip-category-${option.name}'),
-                      wire: option.name,
-                      label: option.displayName,
-                      isSelected: selected == option.name,
-                      disabled: disabled,
-                      onTap: () => onSelect(
-                        selected == option.name ? null : option.name,
-                      ),
-                    ),
-                  // Trailing affordance — opens the suggest-a-category dialog.
-                  _SuggestCategoryChip(
-                    key: const Key('chip-category-suggest'),
-                    label: l10n.serviceCategorySuggest,
+            // A Wrap inside a horizontal SingleChildScrollView gets unbounded
+            // width and never wraps, so chips run off-screen on narrow devices.
+            // Letting the Wrap wrap within the form's bounded width keeps every
+            // chip (incl. the selected + "suggest" affordance) visible; the
+            // outer form already provides vertical scrolling.
+            return Wrap(
+              spacing: VelvetSpacing.sm,
+              runSpacing: VelvetSpacing.sm,
+              children: <Widget>[
+                for (final ServiceCategoryOption option in chips)
+                  _CategoryChip(
+                    key: Key('chip-category-${option.name}'),
+                    wire: option.name,
+                    label: option.displayName,
+                    isSelected: _matches(selected, option.name),
                     disabled: disabled,
-                    onTap: () => _openSuggestDialog(context),
+                    onTap: () => onSelect(
+                      _matches(selected, option.name) ? null : option.name,
+                    ),
                   ),
-                ],
-              ),
+                // Trailing affordance — opens the suggest-a-category dialog.
+                _SuggestCategoryChip(
+                  key: const Key('chip-category-suggest'),
+                  label: l10n.serviceCategorySuggest,
+                  disabled: disabled,
+                  onTap: () => _openSuggestDialog(context),
+                ),
+              ],
             );
           },
         ),
@@ -608,13 +610,42 @@ class _CategoryChips extends ConsumerWidget {
   ) {
     final String? sel = selected;
     if (sel == null || sel.isEmpty) return options;
-    final present = options.any((o) => o.name == sel);
+    final present = options.any((o) => _matches(sel, o.name));
     if (present) return options;
     return <ServiceCategoryOption>[
       ...options,
-      // No display name available — fall back to the wire slug as the label.
-      ServiceCategoryOption(name: sel, displayName: sel),
+      // No Ukrainian displayName available client-side for a category absent
+      // from the approved list (deactivated/retired, or a transient empty list
+      // while the backend is slow). Humanize the wire slug for the visible
+      // label instead of leaking the raw ALL-CAPS slug; the wire value [name]
+      // is preserved unchanged for submission.
+      ServiceCategoryOption(name: sel, displayName: _humanize(sel)),
     ];
+  }
+
+  /// Case/whitespace-insensitive equality for wire slugs — defends against
+  /// drift between the persisted selection and the approved-list entries.
+  static bool _matches(String? a, String b) {
+    if (a == null) return false;
+    return a.trim().toUpperCase() == b.trim().toUpperCase();
+  }
+
+  /// Graceful degradation for a wire slug with no known Ukrainian label:
+  /// `NAIL_ART` → `Nail Art`, `BROWS` → `Brows`. Pure transform of the slug;
+  /// not user-authored copy, so no l10n key is required. The proper Ukrainian
+  /// label for inactive categories is a backend follow-up (expose category
+  /// displayName on the service DTO).
+  static String _humanize(String slug) {
+    final String trimmed = slug.trim();
+    if (trimmed.isEmpty) return trimmed;
+    return trimmed
+        .split(RegExp(r'[_\s]+'))
+        .where((String word) => word.isNotEmpty)
+        .map((String word) {
+          final String lower = word.toLowerCase();
+          return lower[0].toUpperCase() + lower.substring(1);
+        })
+        .join(' ');
   }
 }
 
