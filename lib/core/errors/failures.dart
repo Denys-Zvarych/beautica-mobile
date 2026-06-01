@@ -301,3 +301,29 @@ final class ResetTokenInvalidFailure extends Failure {
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).resetErrTokenInvalid;
 }
+
+/// Emitted when `POST /api/v1/service-categories/requests` returns **409**
+/// because the requested category already exists or is already pending review.
+///
+/// Surfaced to the suggestion dialog so it can show a friendly "this category
+/// already exists" message instead of a generic server error.
+final class CategoryAlreadyExistsFailure extends Failure {
+  const CategoryAlreadyExistsFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).categoryRequestErrExists;
+}
+
+/// Emitted when `POST /api/v1/service-categories/requests` returns **429**
+/// because the per-IP category-request rate limit (5/hr) is exhausted.
+///
+/// Surfaced to the suggestion dialog so it can show a "too many requests, try
+/// later" message instead of a generic server error.
+final class CategoryRequestThrottledFailure extends Failure {
+  const CategoryRequestThrottledFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).categoryRequestErrThrottled;
+}

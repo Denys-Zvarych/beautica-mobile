@@ -28,6 +28,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:screen_protector/screen_protector.dart';
 
 /// Service create screen (INDEPENDENT_MASTER).
 ///
@@ -35,13 +36,31 @@ import 'package:go_router/go_router.dart';
 /// button top-left, centred title, scrollable form body. The form's CTA is
 /// rendered inline (not pinned to the bottom) to keep the screen stateless
 /// at this level.
-class ServiceCreateScreen extends ConsumerWidget {
+class ServiceCreateScreen extends ConsumerStatefulWidget {
   const ServiceCreateScreen({super.key});
 
+  @override
+  ConsumerState<ServiceCreateScreen> createState() =>
+      _ServiceCreateScreenState();
+}
+
+class _ServiceCreateScreenState extends ConsumerState<ServiceCreateScreen> {
   static const _tag = 'feature.services.create_screen';
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void initState() {
+    super.initState();
+    if (!kDebugMode) ScreenProtector.preventScreenshotOn();
+  }
+
+  @override
+  void dispose() {
+    if (!kDebugMode) ScreenProtector.preventScreenshotOff();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
 
     return Scaffold(
@@ -126,7 +145,7 @@ class ServiceCreateScreen extends ConsumerWidget {
                           ref.invalidate(masterProfileProvider);
                         } catch (e) {
                           if (context.mounted) {
-                            ServiceCreateScreen.showFailureSnackbar(context, e);
+                            _showFailureSnackbar(context, e);
                           }
                         }
                       },
@@ -164,7 +183,7 @@ class ServiceCreateScreen extends ConsumerWidget {
   ///
   /// Called by [ServiceForm] consumers that want to surface submission errors
   /// without coupling the form to [BuildContext]-dependent l10n.
-  static void showFailureSnackbar(BuildContext context, Object failure) {
+  static void _showFailureSnackbar(BuildContext context, Object failure) {
     final l10n = AppLocalizations.of(context);
     final String message;
     if (failure is Failure) {

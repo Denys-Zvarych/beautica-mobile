@@ -27,6 +27,7 @@ import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -73,6 +74,33 @@ abstract interface class ServiceRepository {
   /// inactive rather than removing it. Calling this method twice is
   /// idempotent — a 200 on either call resolves without throwing.
   Future<void> deactivate(String id);
+
+  /// Returns the list of approved service categories for the picker.
+  ///
+  /// Wraps `GET /api/v1/service-categories/approved` (authenticated). Each
+  /// option carries the wire [ServiceCategoryOption.name] (sent to the
+  /// backend) and the Ukrainian [ServiceCategoryOption.displayName] (shown to
+  /// the user). Returns an empty list when no categories are approved.
+  Future<List<ServiceCategoryOption>> fetchApprovedCategories();
+
+  /// Submits a request to add a new service category for admin review.
+  ///
+  /// Wraps `POST /api/v1/service-categories/requests` (authenticated;
+  /// master/owner/admin only). The new category is created in a PENDING state
+  /// and approved out-of-band by an admin — it does NOT immediately appear in
+  /// [fetchApprovedCategories].
+  ///
+  /// - [name]: uppercase wire slug matching `^[A-Z][A-Z0-9_]*$` (≤50 chars).
+  /// - [displayName]: non-blank Ukrainian label (≤100 chars).
+  ///
+  /// Throws:
+  ///   - [CategoryAlreadyExistsFailure] on **409** (already exists/pending).
+  ///   - [CategoryRequestThrottledFailure] on **429** (rate-limited, 5/hr).
+  ///   - [ValidationFailure] on **400/422** (malformed name/displayName).
+  Future<void> requestCategory({
+    required String name,
+    required String displayName,
+  });
 }
 
 /// HTTP implementation of [ServiceRepository].
@@ -86,13 +114,16 @@ abstract interface class ServiceRepository {
 final class HttpServiceRepository implements ServiceRepository {
   HttpServiceRepository({
     required ServiceControllerApi serviceApi,
+    required CategoryRequestControllerApi categoryApi,
     required Dio dio,
     required String masterId,
   }) : _serviceApi = serviceApi,
+       _categoryApi = categoryApi,
        _dio = dio,
        _masterId = masterId;
 
   final ServiceControllerApi _serviceApi;
+  final CategoryRequestControllerApi _categoryApi;
   final Dio _dio;
   final String _masterId;
 
@@ -262,6 +293,84 @@ final class HttpServiceRepository implements ServiceRepository {
     }
   }
 
+  @override
+  Future<List<ServiceCategoryOption>> fetchApprovedCategories() async {
+    try {
+      final res = await _categoryApi.listApproved();
+      final list = res.data?.data;
+      if (list == null) {
+        if (kDebugMode) {
+          log(
+            'fetchApprovedCategories: '
+            'ApiResponseListApprovedCategoryResponse.data is null',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        return const [];
+      }
+      return MasterServiceMapper.fromApprovedCategoryList(list);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'fetchApprovedCategories failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<void> requestCategory({
+    required String name,
+    required String displayName,
+  }) async {
+    try {
+      final request = CreateCategoryRequestRequest(
+        (b) => b
+          ..name = name
+          ..displayName = displayName,
+      );
+      await _categoryApi.submitRequest(createCategoryRequestRequest: request);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'requestCategory failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapCategoryRequestException(e);
+    }
+  }
+
+  /// Maps a [DioException] from `POST /service-categories/requests` to a typed
+  /// [Failure], distinguishing the two category-specific HTTP statuses:
+  ///   - **409** → [CategoryAlreadyExistsFailure] (already exists/pending).
+  ///   - **429** → [CategoryRequestThrottledFailure] (rate-limited, 5/hr).
+  /// All other statuses defer to the shared [_mapDioException].
+  ///
+  /// The 409/429 status checks run BEFORE deferring to any [Failure] already
+  /// attached by [ErrorMapperInterceptor]. The interceptor maps a non-auth
+  /// 409 to a generic [ServerFailure] and an unmatched 429 to
+  /// [UnknownFailure] — neither of which carries the category-specific copy —
+  /// so we re-map by status code here to surface the friendly messages.
+  Failure _mapCategoryRequestException(DioException e) {
+    final statusCode = e.response?.statusCode;
+    if (statusCode == 409) return CategoryAlreadyExistsFailure(cause: e);
+    if (statusCode == 429) return CategoryRequestThrottledFailure(cause: e);
+    if (e.error is Failure) return e.error as Failure;
+    return _mapDioException(e);
+  }
+
   /// Maps a [DioException] to a typed [Failure].
   ///
   /// If [ErrorMapperInterceptor] has already attached a [Failure] as `e.error`,
@@ -316,6 +425,7 @@ ServiceRepository serviceRepository(Ref ref) {
   final masterId = ref.watch(masterProfileProvider).value?.id ?? '';
   return HttpServiceRepository(
     serviceApi: ref.watch(serviceApiProvider),
+    categoryApi: ref.watch(categoryRequestApiProvider),
     dio: ref.watch(dioProvider),
     masterId: masterId,
   );
@@ -329,3 +439,32 @@ ServiceRepository serviceRepository(Ref ref) {
 @Riverpod(keepAlive: true)
 ServiceControllerApi serviceApi(Ref ref) =>
     ServiceControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the generated [CategoryRequestControllerApi] singleton.
+///
+/// Drives the approved-category picker (`GET /service-categories/approved`)
+/// and the suggestion submission (`POST /service-categories/requests`). Same
+/// authenticated Dio + serializers as the other API providers. Kept alive to
+/// avoid re-construction on every provider read.
+@Riverpod(keepAlive: true)
+CategoryRequestControllerApi categoryRequestApi(Ref ref) =>
+    CategoryRequestControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Async list of approved service categories for the service-form picker.
+///
+/// Watched by the category chip selector in `service_form.dart`. The list is
+/// small and changes rarely, so the provider is [keepAlive: true] — it is
+/// fetched once and shared across the create and edit screens for the lifetime
+/// of the app session.
+///
+/// NOT invalidated after a successful [ServiceRepository.requestCategory]: a
+/// freshly-requested category is PENDING admin review, not yet approved, so it
+/// must not appear in the picker until an admin approves it out-of-band.
+///
+/// On error, the picker row shows a compact retry affordance that calls
+/// `ref.invalidate(approvedCategoriesProvider)` — the rest of the form stays
+/// usable (category is optional).
+@Riverpod(keepAlive: true)
+Future<List<ServiceCategoryOption>> approvedCategories(Ref ref) {
+  return ref.watch(serviceRepositoryProvider).fetchApprovedCategories();
+}

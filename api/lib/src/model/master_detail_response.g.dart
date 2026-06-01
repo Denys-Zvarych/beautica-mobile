@@ -107,6 +107,12 @@ class _$MasterDetailResponse extends MasterDetailResponse {
   final PublicSalonResponse? salon;
   @override
   final BuiltList<WorkingHoursResponse>? workingHours;
+  @override
+  final String? cityId;
+  @override
+  final String? oblastId;
+  @override
+  final String? districtId;
 
   factory _$MasterDetailResponse(
           [void Function(MasterDetailResponseBuilder)? updates]) =>
@@ -128,7 +134,10 @@ class _$MasterDetailResponse extends MasterDetailResponse {
       this.reviewCount,
       this.masterType,
       this.salon,
-      this.workingHours})
+      this.workingHours,
+      this.cityId,
+      this.oblastId,
+      this.districtId})
       : super._();
   @override
   MasterDetailResponse rebuild(
@@ -158,7 +167,10 @@ class _$MasterDetailResponse extends MasterDetailResponse {
         reviewCount == other.reviewCount &&
         masterType == other.masterType &&
         salon == other.salon &&
-        workingHours == other.workingHours;
+        workingHours == other.workingHours &&
+        cityId == other.cityId &&
+        oblastId == other.oblastId &&
+        districtId == other.districtId;
   }
 
   @override
@@ -180,6 +192,9 @@ class _$MasterDetailResponse extends MasterDetailResponse {
     _$hash = $jc(_$hash, masterType.hashCode);
     _$hash = $jc(_$hash, salon.hashCode);
     _$hash = $jc(_$hash, workingHours.hashCode);
+    _$hash = $jc(_$hash, cityId.hashCode);
+    _$hash = $jc(_$hash, oblastId.hashCode);
+    _$hash = $jc(_$hash, districtId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -202,7 +217,10 @@ class _$MasterDetailResponse extends MasterDetailResponse {
           ..add('reviewCount', reviewCount)
           ..add('masterType', masterType)
           ..add('salon', salon)
-          ..add('workingHours', workingHours))
+          ..add('workingHours', workingHours)
+          ..add('cityId', cityId)
+          ..add('oblastId', oblastId)
+          ..add('districtId', districtId))
         .toString();
   }
 }
@@ -279,6 +297,18 @@ class MasterDetailResponseBuilder
   set workingHours(ListBuilder<WorkingHoursResponse>? workingHours) =>
       _$this._workingHours = workingHours;
 
+  String? _cityId;
+  String? get cityId => _$this._cityId;
+  set cityId(String? cityId) => _$this._cityId = cityId;
+
+  String? _oblastId;
+  String? get oblastId => _$this._oblastId;
+  set oblastId(String? oblastId) => _$this._oblastId = oblastId;
+
+  String? _districtId;
+  String? get districtId => _$this._districtId;
+  set districtId(String? districtId) => _$this._districtId = districtId;
+
   MasterDetailResponseBuilder() {
     MasterDetailResponse._defaults(this);
   }
@@ -302,6 +332,9 @@ class MasterDetailResponseBuilder
       _masterType = $v.masterType;
       _salon = $v.salon?.toBuilder();
       _workingHours = $v.workingHours?.toBuilder();
+      _cityId = $v.cityId;
+      _oblastId = $v.oblastId;
+      _districtId = $v.districtId;
       _$v = null;
     }
     return this;
@@ -341,6 +374,9 @@ class MasterDetailResponseBuilder
             masterType: masterType,
             salon: _salon?.build(),
             workingHours: _workingHours?.build(),
+            cityId: cityId,
+            oblastId: oblastId,
+            districtId: districtId,
           );
     } catch (_) {
       late String _$failedField;

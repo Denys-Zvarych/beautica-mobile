@@ -3,7 +3,6 @@
 //
 
 // ignore_for_file: unused_element
-import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -31,8 +30,7 @@ abstract class CreateServiceDefinitionRequest
   String? get description;
 
   @BuiltValueField(wireName: r'category')
-  CreateServiceDefinitionRequestCategoryEnum? get category;
-  // enum categoryEnum {  MANICURE,  PEDICURE,  EYELASH,  HAIRCUT,  MAKEUP,  BROWS,  OTHER,  };
+  String get category;
 
   @BuiltValueField(wireName: r'baseDurationMinutes')
   int get baseDurationMinutes;
@@ -88,14 +86,11 @@ class _$CreateServiceDefinitionRequestSerializer
         specifiedType: const FullType(String),
       );
     }
-    if (object.category != null) {
-      yield r'category';
-      yield serializers.serialize(
-        object.category,
-        specifiedType:
-            const FullType(CreateServiceDefinitionRequestCategoryEnum),
-      );
-    }
+    yield r'category';
+    yield serializers.serialize(
+      object.category,
+      specifiedType: const FullType(String),
+    );
     yield r'baseDurationMinutes';
     yield serializers.serialize(
       object.baseDurationMinutes,
@@ -162,9 +157,8 @@ class _$CreateServiceDefinitionRequestSerializer
         case r'category':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType:
-                const FullType(CreateServiceDefinitionRequestCategoryEnum),
-          ) as CreateServiceDefinitionRequestCategoryEnum;
+            specifiedType: const FullType(String),
+          ) as String;
           result.category = valueDes;
           break;
         case r'baseDurationMinutes':
@@ -222,38 +216,4 @@ class _$CreateServiceDefinitionRequestSerializer
     );
     return result.build();
   }
-}
-
-class CreateServiceDefinitionRequestCategoryEnum extends EnumClass {
-  @BuiltValueEnumConst(wireName: r'MANICURE')
-  static const CreateServiceDefinitionRequestCategoryEnum MANICURE =
-      _$createServiceDefinitionRequestCategoryEnum_MANICURE;
-  @BuiltValueEnumConst(wireName: r'PEDICURE')
-  static const CreateServiceDefinitionRequestCategoryEnum PEDICURE =
-      _$createServiceDefinitionRequestCategoryEnum_PEDICURE;
-  @BuiltValueEnumConst(wireName: r'EYELASH')
-  static const CreateServiceDefinitionRequestCategoryEnum EYELASH =
-      _$createServiceDefinitionRequestCategoryEnum_EYELASH;
-  @BuiltValueEnumConst(wireName: r'HAIRCUT')
-  static const CreateServiceDefinitionRequestCategoryEnum HAIRCUT =
-      _$createServiceDefinitionRequestCategoryEnum_HAIRCUT;
-  @BuiltValueEnumConst(wireName: r'MAKEUP')
-  static const CreateServiceDefinitionRequestCategoryEnum MAKEUP =
-      _$createServiceDefinitionRequestCategoryEnum_MAKEUP;
-  @BuiltValueEnumConst(wireName: r'BROWS')
-  static const CreateServiceDefinitionRequestCategoryEnum BROWS =
-      _$createServiceDefinitionRequestCategoryEnum_BROWS;
-  @BuiltValueEnumConst(wireName: r'OTHER')
-  static const CreateServiceDefinitionRequestCategoryEnum OTHER =
-      _$createServiceDefinitionRequestCategoryEnum_OTHER;
-
-  static Serializer<CreateServiceDefinitionRequestCategoryEnum>
-      get serializer => _$createServiceDefinitionRequestCategoryEnumSerializer;
-
-  const CreateServiceDefinitionRequestCategoryEnum._(String name) : super(name);
-
-  static BuiltSet<CreateServiceDefinitionRequestCategoryEnum> get values =>
-      _$createServiceDefinitionRequestCategoryEnumValues;
-  static CreateServiceDefinitionRequestCategoryEnum valueOf(String name) =>
-      _$createServiceDefinitionRequestCategoryEnumValueOf(name);
 }

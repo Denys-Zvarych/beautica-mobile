@@ -2,16 +2,16 @@
 //
 // Strategy: pure Dart unit tests — no widget tree, no Riverpod container,
 // no HTTP mocks required. [MasterServiceMapper] is a static-method-only
-// abstract final class, so the private [_categoryEnum] helper is tested
-// indirectly through [toCreateRequest].
+// abstract final class.
 //
 // Coverage:
-//   F-1 through F-7.  toCreateRequest maps each of the 7 wire names to the
-//                     corresponding [CreateServiceDefinitionRequestCategoryEnum].
+//   F-1 through F-7.  toCreateRequest passes each wire name through as a plain
+//                     String on request.category (enum→String backend change).
 //   F-8.  category: null  → request.category == null.
-//   F-9.  unknown wire    → fallback to OTHER.
+//   F-9.  arbitrary wire  → passed through verbatim (no longer coerced).
 //   G-1.  toUpdateBody includes category key when category is provided.
 //   G-2.  toUpdateBody omits category key when category is null.
+//   H-1.  fromApprovedCategoryList maps name+displayName and drops blank names.
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/features/services/data/master_service_mapper.dart';
@@ -35,59 +35,99 @@ MasterServiceCreate _createInput({String? category}) => MasterServiceCreate(
 // ---------------------------------------------------------------------------
 
 void main() {
-  // ── F. _categoryEnum via toCreateRequest ──────────────────────────────────
+  // ── F. category String pass-through via toCreateRequest ───────────────────
+  //
+  // The backend changed CreateServiceDefinitionRequest.category from a strict
+  // enum to a plain String, so the mapper now forwards the wire name verbatim
+  // (no enum coercion, no OTHER fallback).
 
-  group('F. toCreateRequest — category mapping via _categoryEnum', () {
-    // F-1 through F-7: each known wire name maps to the matching enum constant.
+  group('F. toCreateRequest — category String pass-through', () {
+    const wireNames = <String>[
+      'MANICURE',
+      'PEDICURE',
+      'EYELASH',
+      'HAIRCUT',
+      'MAKEUP',
+      'BROWS',
+      'OTHER',
+      // A dynamically-approved category that never existed as an enum constant.
+      'NAIL_ART',
+    ];
 
-    const knownMappings =
-        <(String, CreateServiceDefinitionRequestCategoryEnum)>[
-          ('MANICURE', CreateServiceDefinitionRequestCategoryEnum.MANICURE),
-          ('PEDICURE', CreateServiceDefinitionRequestCategoryEnum.PEDICURE),
-          ('EYELASH', CreateServiceDefinitionRequestCategoryEnum.EYELASH),
-          ('HAIRCUT', CreateServiceDefinitionRequestCategoryEnum.HAIRCUT),
-          ('MAKEUP', CreateServiceDefinitionRequestCategoryEnum.MAKEUP),
-          ('BROWS', CreateServiceDefinitionRequestCategoryEnum.BROWS),
-          ('OTHER', CreateServiceDefinitionRequestCategoryEnum.OTHER),
-        ];
-
-    for (final (wire, expectedEnum) in knownMappings) {
-      test('wire "$wire" maps to $expectedEnum', () {
+    for (final wire in wireNames) {
+      test('wire "$wire" is forwarded verbatim as a String', () {
         final request = MasterServiceMapper.toCreateRequest(
           _createInput(category: wire),
         );
         expect(
           request.category,
-          equals(expectedEnum),
-          reason: 'wire name "$wire" must map to the $expectedEnum enum value',
+          equals(wire),
+          reason: 'category must be sent as the plain wire String "$wire"',
         );
       });
     }
 
-    // F-8: null category → request.category is null (field is optional).
-    test('F-8. null category → request.category is null', () {
-      final request = MasterServiceMapper.toCreateRequest(
-        _createInput(category: null),
-      );
+    // F-8: null category → ArgumentError (backend requires category now).
+    test('F-8. null category throws ArgumentError (category is required)', () {
       expect(
-        request.category,
-        isNull,
-        reason: 'category must be absent from the request when input is null',
+        () => MasterServiceMapper.toCreateRequest(_createInput(category: null)),
+        throwsArgumentError,
+        reason:
+            'category is @NotBlank on the backend and non-nullable on the '
+            'generated request — the mapper must fail fast when it is null',
       );
     });
 
-    // F-9: unrecognised wire name → fallback to OTHER.
-    test('F-9. unknown wire name falls back to OTHER', () {
+    // F-9: an arbitrary previously-unknown wire name is passed through as-is.
+    test('F-9. arbitrary wire name passes through unchanged', () {
       final request = MasterServiceMapper.toCreateRequest(
-        _createInput(category: 'UNKNOWN_WIRE'),
+        _createInput(category: 'SOME_NEW_CATEGORY'),
       );
       expect(
         request.category,
-        equals(CreateServiceDefinitionRequestCategoryEnum.OTHER),
+        equals('SOME_NEW_CATEGORY'),
         reason:
-            'unrecognised wire names must fall back to OTHER so the call '
-            'never throws at the data boundary',
+            'dynamically-approved categories must pass through unchanged now '
+            'that category is a String, not a fixed enum',
       );
+    });
+  });
+
+  // ── H. fromApprovedCategoryList ───────────────────────────────────────────
+
+  group('H. fromApprovedCategoryList — DTO → ServiceCategoryOption', () {
+    ApprovedCategoryResponse approvedDto({String? name, String? displayName}) =>
+        (ApprovedCategoryResponseBuilder()
+              ..name = name
+              ..displayName = displayName)
+            .build();
+
+    test('H-1. maps name + displayName and drops blank-name entries', () {
+      final options = MasterServiceMapper.fromApprovedCategoryList(
+        <ApprovedCategoryResponse>[
+          approvedDto(name: 'MANICURE', displayName: 'Манікюр'),
+          approvedDto(name: 'NAIL_ART', displayName: 'Нейл-арт'),
+          // Unusable: null name → dropped.
+          approvedDto(name: null, displayName: 'Ghost'),
+          // Unusable: empty name → dropped.
+          approvedDto(name: '', displayName: 'Empty'),
+        ],
+      );
+
+      expect(options.map((o) => o.name).toList(), <String>[
+        'MANICURE',
+        'NAIL_ART',
+      ]);
+      expect(options.first.displayName, 'Манікюр');
+    });
+
+    test('H-2. displayName falls back to name when absent', () {
+      final options = MasterServiceMapper.fromApprovedCategoryList(
+        <ApprovedCategoryResponse>[
+          approvedDto(name: 'BROWS', displayName: null),
+        ],
+      );
+      expect(options.single.displayName, 'BROWS');
     });
   });
 

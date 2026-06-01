@@ -29,6 +29,7 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/service_create_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -149,6 +150,15 @@ void main() {
     when(
       () => mockRepo.listMyServices(),
     ).thenAnswer((_) async => const <MasterService>[]);
+    // The category chip selector in ServiceForm watches approvedCategoriesProvider
+    // (which calls fetchApprovedCategories on the repository). Stub it so the
+    // form's category row resolves to the data state in these tests.
+    when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
+      (_) async => const <ServiceCategoryOption>[
+        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+      ],
+    );
   });
 
   // Convenience: pump the screen.
@@ -362,6 +372,11 @@ void main() {
       ),
       '500',
     );
+    // Category is required by the backend — select the stubbed MANICURE chip.
+    await tester.pumpAndSettle(); // resolve approvedCategoriesProvider
+    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
+    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await tester.pump();
     await tapSubmit(tester);
     await tester.pumpAndSettle();
 
@@ -371,6 +386,7 @@ void main() {
     expect(input.name, 'Манікюр');
     expect(input.durationMinutes, 60);
     expect(input.price, 500.0);
+    expect(input.category, 'MANICURE');
     // Description must be null — not included in the form (user decision).
     expect(input.description, isNull);
   });
@@ -408,6 +424,15 @@ void main() {
         ),
         '200',
       );
+      // Category is required — settle the category provider, then select a chip.
+      // Settling first also resolves the category loading skeleton so the only
+      // CircularProgressIndicator below is the CTA spinner.
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('chip-category-MANICURE')),
+      );
+      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+      await tester.pump();
 
       await tapSubmit(tester);
       await tester.pump();
@@ -499,6 +524,10 @@ void main() {
       ),
       '500',
     );
+    // Category is required — select the stubbed MANICURE chip.
+    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
+    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await tester.pump();
     await tapSubmit(tester);
     await tester
         .pump(); // one frame — let Riverpod fire the invalidation rebuild
@@ -519,6 +548,7 @@ void main() {
       when(() => mockRepo.create(any())).thenThrow(const ServerFailure());
 
       await pumpCreate(tester);
+      await tester.pumpAndSettle(); // resolve approvedCategoriesProvider
 
       await tester.enterText(
         find.descendant(
@@ -541,6 +571,12 @@ void main() {
         ),
         '500',
       );
+      // Category is required — select the stubbed MANICURE chip.
+      await tester.ensureVisible(
+        find.byKey(const Key('chip-category-MANICURE')),
+      );
+      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+      await tester.pump();
       await tapSubmit(tester);
       await tester.pumpAndSettle();
 
@@ -580,6 +616,11 @@ void main() {
       ),
       '500',
     );
+    // Category is required — select the stubbed MANICURE chip.
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
+    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await tester.pump();
     await tapSubmit(tester);
     await tester.pumpAndSettle();
 
@@ -601,6 +642,7 @@ void main() {
     tester,
   ) async {
     await pumpCreate(tester);
+    await tester.pumpAndSettle(); // resolve approvedCategoriesProvider
 
     // Tap the MANICURE chip.
     await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
@@ -643,12 +685,18 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // B. Submit without selecting a chip — category is null in the payload.
+  // B. Submit without selecting a chip — category is REQUIRED, so submit is
+  //    blocked and the required error is shown (backend @NotBlank contract).
   // ---------------------------------------------------------------------------
-  testWidgets('B. submitting without selecting a chip sends null category', (
+  testWidgets('B. submitting without a category shows the required error', (
     tester,
   ) async {
     await pumpCreate(tester);
+    await tester.pumpAndSettle(); // resolve category provider
+
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(ServiceCreateScreen)),
+    );
 
     // Fill valid fields only — do NOT tap any chip.
     await tester.enterText(
@@ -675,14 +723,10 @@ void main() {
     await tapSubmit(tester);
     await tester.pumpAndSettle();
 
-    final captured = verify(() => mockRepo.create(captureAny())).captured;
-    expect(captured.length, 1);
-    final input = captured.first as MasterServiceCreate;
-    expect(
-      input.category,
-      isNull,
-      reason: 'category must be null when no chip was tapped',
-    );
+    // create() must NOT be called when no category is selected.
+    verifyNever(() => mockRepo.create(any()));
+    // The required-category error must be visible.
+    expect(find.text(l10n.serviceCategoryRequired), findsOneWidget);
   });
 
   // ---------------------------------------------------------------------------
@@ -692,6 +736,7 @@ void main() {
     'C. tapping a selected chip a second time deselects it (category → null)',
     (tester) async {
       await pumpCreate(tester);
+      await tester.pumpAndSettle(); // resolve approvedCategoriesProvider
 
       // First tap — selects HAIRCUT.
       await tester.ensureVisible(
@@ -724,7 +769,19 @@ void main() {
         reason: 'check icon must disappear after second tap (deselect)',
       );
 
-      // Fill valid fields and submit; category must be null.
+      // Third tap — re-select HAIRCUT (toggle cycle must be reversible).
+      await tester.tap(find.byKey(const Key('chip-category-HAIRCUT')));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('chip-category-HAIRCUT')),
+          matching: find.byIcon(Icons.check_rounded),
+        ),
+        findsOneWidget,
+        reason: 'check icon must reappear after re-selecting the chip',
+      );
+
+      // Fill valid fields and submit; category must be the re-selected slug.
       await tester.enterText(
         find.descendant(
           of: find.byKey(const Key('field-service-name')),
@@ -754,8 +811,10 @@ void main() {
       final input = captured.first as MasterServiceCreate;
       expect(
         input.category,
-        isNull,
-        reason: 'category must be null after deselecting the chip',
+        'HAIRCUT',
+        reason:
+            'after select → deselect → reselect, the submitted category must '
+            'be the re-selected wire slug (toggle cycle is reversible)',
       );
     },
   );
@@ -819,6 +878,10 @@ void main() {
       ),
       '500',
     );
+    // Category is required — select the stubbed MANICURE chip.
+    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
+    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await tester.pump();
     await tapSubmit(tester);
     await tester.pump(); // let Riverpod fire the invalidation rebuild
     await tester.pumpAndSettle(); // settle through loading → data
@@ -833,4 +896,44 @@ void main() {
           'service create',
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // 11. ScreenProtector lifecycle (security MS — anti-screenshot).
+  //
+  // ServiceCreateScreen is a ConsumerStatefulWidget that calls
+  // ScreenProtector.preventScreenshotOn() in initState and ...Off() in dispose,
+  // both guarded by !kDebugMode. Because kDebugMode == true under the test
+  // binding, the platform-channel calls are intentionally skipped — so the
+  // assertion is that mount AND unmount complete with no platform-channel
+  // exception (the screen_protector MethodChannel is never invoked, mirroring
+  // the DoneScreen ScreenProtector test pattern). This guards against a
+  // regression where the guard is removed and the un-mocked channel throws.
+  // ---------------------------------------------------------------------------
+  testWidgets(
+    'ScreenProtector guard: screen mounts and unmounts without a platform '
+    'channel exception (kDebugMode skips preventScreenshotOn/Off)',
+    (tester) async {
+      await pumpCreate(tester);
+
+      // Mounted cleanly — initState ran, no channel exception.
+      expect(find.byType(ServiceCreateScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      // Replace the screen so ServiceCreateScreen is disposed (dispose runs the
+      // guarded preventScreenshotOff). Pump a bare app to unmount it.
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+      );
+      await tester.pump();
+
+      expect(find.byType(ServiceCreateScreen), findsNothing);
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'ServiceCreateScreen must dispose cleanly — the ScreenProtector '
+            'call is guarded by !kDebugMode and never hits the platform channel',
+      );
+    },
+  );
 }

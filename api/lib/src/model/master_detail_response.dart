@@ -30,6 +30,9 @@ part 'master_detail_response.g.dart';
 /// * [masterType]
 /// * [salon]
 /// * [workingHours]
+/// * [cityId]
+/// * [oblastId]
+/// * [districtId]
 @BuiltValue()
 abstract class MasterDetailResponse
     implements Built<MasterDetailResponse, MasterDetailResponseBuilder> {
@@ -81,6 +84,15 @@ abstract class MasterDetailResponse
 
   @BuiltValueField(wireName: r'workingHours')
   BuiltList<WorkingHoursResponse>? get workingHours;
+
+  @BuiltValueField(wireName: r'cityId')
+  String? get cityId;
+
+  @BuiltValueField(wireName: r'oblastId')
+  String? get oblastId;
+
+  @BuiltValueField(wireName: r'districtId')
+  String? get districtId;
 
   MasterDetailResponse._();
 
@@ -224,6 +236,27 @@ class _$MasterDetailResponseSerializer
             const FullType(BuiltList, [FullType(WorkingHoursResponse)]),
       );
     }
+    if (object.cityId != null) {
+      yield r'cityId';
+      yield serializers.serialize(
+        object.cityId,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.oblastId != null) {
+      yield r'oblastId';
+      yield serializers.serialize(
+        object.oblastId,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.districtId != null) {
+      yield r'districtId';
+      yield serializers.serialize(
+        object.districtId,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -361,6 +394,27 @@ class _$MasterDetailResponseSerializer
                 const FullType(BuiltList, [FullType(WorkingHoursResponse)]),
           ) as BuiltList<WorkingHoursResponse>;
           result.workingHours.replace(valueDes);
+          break;
+        case r'cityId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.cityId = valueDes;
+          break;
+        case r'oblastId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.oblastId = valueDes;
+          break;
+        case r'districtId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.districtId = valueDes;
           break;
         default:
           unhandled.add(key);

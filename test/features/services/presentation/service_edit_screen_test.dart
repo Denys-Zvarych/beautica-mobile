@@ -20,6 +20,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
@@ -50,6 +51,9 @@ const _stubService = MasterService(
   name: 'Стрижка жіноча',
   durationMinutes: 60,
   price: 750.0,
+  // Category is required by the backend; the edit form pre-selects it so a
+  // pristine save passes validation.
+  category: 'HAIRCUT',
 );
 
 /// Resolves [AppLocalizations] from the currently-mounted widget tree.
@@ -195,6 +199,16 @@ void main() {
     ).thenAnswer((_) async => _stubService);
     // Default: deactivate succeeds (used in tests 7 & 8).
     when(() => repo.deactivate(_stubService.id)).thenAnswer((_) async {});
+    // The category chip selector watches approvedCategoriesProvider, which
+    // calls fetchApprovedCategories on the repository. Stub it so the form's
+    // category row resolves to the data state.
+    when(() => repo.fetchApprovedCategories()).thenAnswer(
+      (_) async => const <ServiceCategoryOption>[
+        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+        ServiceCategoryOption(name: 'EYELASH', displayName: 'Вії'),
+      ],
+    );
   });
 
   // ── 1. Form pre-populated from cache ──────────────────────────────────────

@@ -10,7 +10,7 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **name** | **String** |  | 
 **description** | **String** |  | [optional] 
-**category** | **String** |  | [optional] 
+**category** | **String** |  | 
 **baseDurationMinutes** | **int** |  | 
 **basePrice** | **num** |  | 
 **bufferMinutesAfter** | **int** |  | [optional] 

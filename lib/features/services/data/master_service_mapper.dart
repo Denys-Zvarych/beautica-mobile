@@ -7,7 +7,7 @@
 //       * id           ← MasterServiceResponse.id (assignment UUID)
 //       * name         ← serviceDefinition.name
 //       * description  ← serviceDefinition.description
-//       * category     ← serviceDefinition.category?.name (enum wire name)
+//       * category     ← serviceDefinition.category (String wire name)
 //       * durationMinutes ← effectiveDurationMinutes ?? serviceDefinition.baseDurationMinutes
 //       * price        ← effectivePrice ?? serviceDefinition.basePrice (num → double)
 //       * bufferMinutesAfter ← serviceDefinition.bufferMinutesAfter ?? 0
@@ -35,6 +35,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 
 import '../domain/master_service.dart';
 import '../domain/master_service_input.dart';
+import '../domain/service_category_option.dart';
 
 /// Translates generated API types from `beautica_api` into domain entities
 /// and vice-versa for the service feature.
@@ -85,7 +86,7 @@ abstract final class MasterServiceMapper {
       id: id,
       name: def?.name ?? '',
       description: def?.description,
-      category: def?.category?.name,
+      category: def?.category,
       durationMinutes: duration,
       price: price,
       bufferMinutesAfter: def?.bufferMinutesAfter ?? 0,
@@ -125,6 +126,15 @@ abstract final class MasterServiceMapper {
         'bufferMinutesAfter must be >= 0',
       );
     }
+    // category is now REQUIRED by the backend (`@NotBlank` on
+    // CreateServiceDefinitionRequest.category) and the generated request types
+    // it as a non-nullable String. Fail fast at the data boundary if the form
+    // somehow submits without a category selected — the create form enforces
+    // selection before reaching here.
+    final category = input.category;
+    if (category == null || category.isEmpty) {
+      throw ArgumentError.value(category, 'category', 'category is required');
+    }
 
     return CreateServiceDefinitionRequest((b) {
       b
@@ -132,38 +142,45 @@ abstract final class MasterServiceMapper {
         ..baseDurationMinutes = input.durationMinutes
         // price is double in the domain; basePrice is num in the generated
         // type — direct assignment is safe (double is a num).
-        ..basePrice = input.price;
+        ..basePrice = input.price
+        // category is a plain String on the generated request (backend changed
+        // the field from a strict enum → String to support self-service
+        // approved categories). Pass the wire name through directly.
+        ..category = category;
 
       if (input.description != null) b.description = input.description;
       if (buffer != null) b.bufferMinutesAfter = buffer;
-      if (input.category != null) {
-        b.category = _categoryEnum(input.category!);
-      }
     });
   }
 
-  /// Maps a category wire-name string to [CreateServiceDefinitionRequestCategoryEnum].
+  /// Maps an [ApprovedCategoryResponse] DTO to the domain
+  /// [ServiceCategoryOption] used by the category picker.
   ///
-  /// Returns [CreateServiceDefinitionRequestCategoryEnum.OTHER] for any
-  /// unrecognised wire value so the call never throws at the data boundary.
-  static CreateServiceDefinitionRequestCategoryEnum _categoryEnum(String wire) {
-    switch (wire) {
-      case 'MANICURE':
-        return CreateServiceDefinitionRequestCategoryEnum.MANICURE;
-      case 'PEDICURE':
-        return CreateServiceDefinitionRequestCategoryEnum.PEDICURE;
-      case 'EYELASH':
-        return CreateServiceDefinitionRequestCategoryEnum.EYELASH;
-      case 'HAIRCUT':
-        return CreateServiceDefinitionRequestCategoryEnum.HAIRCUT;
-      case 'MAKEUP':
-        return CreateServiceDefinitionRequestCategoryEnum.MAKEUP;
-      case 'BROWS':
-        return CreateServiceDefinitionRequestCategoryEnum.BROWS;
-      default:
-        return CreateServiceDefinitionRequestCategoryEnum.OTHER;
-    }
+  /// Both [name] and [displayName] are nullable on the generated DTO. A
+  /// category with a null/empty [name] is unusable as a selectable value, so
+  /// it is dropped by [fromApprovedCategoryList] rather than mapped here.
+  /// [displayName] falls back to [name] when absent so the chip always has a
+  /// readable label.
+  static ServiceCategoryOption fromApprovedCategory(
+    ApprovedCategoryResponse dto,
+  ) {
+    final name = dto.name ?? '';
+    return ServiceCategoryOption(
+      name: name,
+      displayName: (dto.displayName?.isNotEmpty ?? false)
+          ? dto.displayName!
+          : name,
+    );
   }
+
+  /// Maps a list of [ApprovedCategoryResponse] DTOs to domain options,
+  /// dropping any entry whose wire [name] is null or empty (unselectable).
+  static List<ServiceCategoryOption> fromApprovedCategoryList(
+    Iterable<ApprovedCategoryResponse> dtos,
+  ) => dtos
+      .map(fromApprovedCategory)
+      .where((o) => o.name.isNotEmpty)
+      .toList(growable: false);
 
   /// Converts [MasterServiceUpdate] to a plain body map for PATCH.
   ///

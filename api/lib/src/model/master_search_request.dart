@@ -19,6 +19,7 @@ part 'master_search_request.g.dart';
 /// * [minRating]
 /// * [page]
 /// * [size]
+/// * [priceRangeValid]
 @BuiltValue()
 abstract class MasterSearchRequest
     implements Built<MasterSearchRequest, MasterSearchRequestBuilder> {
@@ -42,6 +43,9 @@ abstract class MasterSearchRequest
 
   @BuiltValueField(wireName: r'size')
   int? get size;
+
+  @BuiltValueField(wireName: r'priceRangeValid')
+  bool? get priceRangeValid;
 
   MasterSearchRequest._();
 
@@ -121,6 +125,13 @@ class _$MasterSearchRequestSerializer
         specifiedType: const FullType(int),
       );
     }
+    if (object.priceRangeValid != null) {
+      yield r'priceRangeValid';
+      yield serializers.serialize(
+        object.priceRangeValid,
+        specifiedType: const FullType(bool),
+      );
+    }
   }
 
   @override
@@ -194,6 +205,13 @@ class _$MasterSearchRequestSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.size = valueDes;
+          break;
+        case r'priceRangeValid':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.priceRangeValid = valueDes;
           break;
         default:
           unhandled.add(key);

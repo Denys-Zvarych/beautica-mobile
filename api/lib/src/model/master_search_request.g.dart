@@ -21,6 +21,8 @@ class _$MasterSearchRequest extends MasterSearchRequest {
   final int? page;
   @override
   final int? size;
+  @override
+  final bool? priceRangeValid;
 
   factory _$MasterSearchRequest(
           [void Function(MasterSearchRequestBuilder)? updates]) =>
@@ -33,7 +35,8 @@ class _$MasterSearchRequest extends MasterSearchRequest {
       this.maxPrice,
       this.minRating,
       this.page,
-      this.size})
+      this.size,
+      this.priceRangeValid})
       : super._();
   @override
   MasterSearchRequest rebuild(
@@ -54,7 +57,8 @@ class _$MasterSearchRequest extends MasterSearchRequest {
         maxPrice == other.maxPrice &&
         minRating == other.minRating &&
         page == other.page &&
-        size == other.size;
+        size == other.size &&
+        priceRangeValid == other.priceRangeValid;
   }
 
   @override
@@ -67,6 +71,7 @@ class _$MasterSearchRequest extends MasterSearchRequest {
     _$hash = $jc(_$hash, minRating.hashCode);
     _$hash = $jc(_$hash, page.hashCode);
     _$hash = $jc(_$hash, size.hashCode);
+    _$hash = $jc(_$hash, priceRangeValid.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -80,7 +85,8 @@ class _$MasterSearchRequest extends MasterSearchRequest {
           ..add('maxPrice', maxPrice)
           ..add('minRating', minRating)
           ..add('page', page)
-          ..add('size', size))
+          ..add('size', size)
+          ..add('priceRangeValid', priceRangeValid))
         .toString();
   }
 }
@@ -118,6 +124,11 @@ class MasterSearchRequestBuilder
   int? get size => _$this._size;
   set size(int? size) => _$this._size = size;
 
+  bool? _priceRangeValid;
+  bool? get priceRangeValid => _$this._priceRangeValid;
+  set priceRangeValid(bool? priceRangeValid) =>
+      _$this._priceRangeValid = priceRangeValid;
+
   MasterSearchRequestBuilder() {
     MasterSearchRequest._defaults(this);
   }
@@ -132,6 +143,7 @@ class MasterSearchRequestBuilder
       _minRating = $v.minRating;
       _page = $v.page;
       _size = $v.size;
+      _priceRangeValid = $v.priceRangeValid;
       _$v = null;
     }
     return this;
@@ -162,6 +174,7 @@ class MasterSearchRequestBuilder
             minRating: minRating,
             page: page,
             size: size,
+            priceRangeValid: priceRangeValid,
           );
     } catch (_) {
       late String _$failedField;

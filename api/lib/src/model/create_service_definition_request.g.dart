@@ -6,115 +6,13 @@ part of 'create_service_definition_request.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
-const CreateServiceDefinitionRequestCategoryEnum
-    _$createServiceDefinitionRequestCategoryEnum_MANICURE =
-    const CreateServiceDefinitionRequestCategoryEnum._('MANICURE');
-const CreateServiceDefinitionRequestCategoryEnum
-    _$createServiceDefinitionRequestCategoryEnum_PEDICURE =
-    const CreateServiceDefinitionRequestCategoryEnum._('PEDICURE');
-const CreateServiceDefinitionRequestCategoryEnum
-    _$createServiceDefinitionRequestCategoryEnum_EYELASH =
-    const CreateServiceDefinitionRequestCategoryEnum._('EYELASH');
-const CreateServiceDefinitionRequestCategoryEnum
-    _$createServiceDefinitionRequestCategoryEnum_HAIRCUT =
-    const CreateServiceDefinitionRequestCategoryEnum._('HAIRCUT');
-const CreateServiceDefinitionRequestCategoryEnum
-    _$createServiceDefinitionRequestCategoryEnum_MAKEUP =
-    const CreateServiceDefinitionRequestCategoryEnum._('MAKEUP');
-const CreateServiceDefinitionRequestCategoryEnum
-    _$createServiceDefinitionRequestCategoryEnum_BROWS =
-    const CreateServiceDefinitionRequestCategoryEnum._('BROWS');
-const CreateServiceDefinitionRequestCategoryEnum
-    _$createServiceDefinitionRequestCategoryEnum_OTHER =
-    const CreateServiceDefinitionRequestCategoryEnum._('OTHER');
-
-CreateServiceDefinitionRequestCategoryEnum
-    _$createServiceDefinitionRequestCategoryEnumValueOf(String name) {
-  switch (name) {
-    case 'MANICURE':
-      return _$createServiceDefinitionRequestCategoryEnum_MANICURE;
-    case 'PEDICURE':
-      return _$createServiceDefinitionRequestCategoryEnum_PEDICURE;
-    case 'EYELASH':
-      return _$createServiceDefinitionRequestCategoryEnum_EYELASH;
-    case 'HAIRCUT':
-      return _$createServiceDefinitionRequestCategoryEnum_HAIRCUT;
-    case 'MAKEUP':
-      return _$createServiceDefinitionRequestCategoryEnum_MAKEUP;
-    case 'BROWS':
-      return _$createServiceDefinitionRequestCategoryEnum_BROWS;
-    case 'OTHER':
-      return _$createServiceDefinitionRequestCategoryEnum_OTHER;
-    default:
-      throw ArgumentError(name);
-  }
-}
-
-final BuiltSet<CreateServiceDefinitionRequestCategoryEnum>
-    _$createServiceDefinitionRequestCategoryEnumValues = BuiltSet<
-        CreateServiceDefinitionRequestCategoryEnum>(const <CreateServiceDefinitionRequestCategoryEnum>[
-  _$createServiceDefinitionRequestCategoryEnum_MANICURE,
-  _$createServiceDefinitionRequestCategoryEnum_PEDICURE,
-  _$createServiceDefinitionRequestCategoryEnum_EYELASH,
-  _$createServiceDefinitionRequestCategoryEnum_HAIRCUT,
-  _$createServiceDefinitionRequestCategoryEnum_MAKEUP,
-  _$createServiceDefinitionRequestCategoryEnum_BROWS,
-  _$createServiceDefinitionRequestCategoryEnum_OTHER,
-]);
-
-Serializer<CreateServiceDefinitionRequestCategoryEnum>
-    _$createServiceDefinitionRequestCategoryEnumSerializer =
-    _$CreateServiceDefinitionRequestCategoryEnumSerializer();
-
-class _$CreateServiceDefinitionRequestCategoryEnumSerializer
-    implements PrimitiveSerializer<CreateServiceDefinitionRequestCategoryEnum> {
-  static const Map<String, Object> _toWire = const <String, Object>{
-    'MANICURE': 'MANICURE',
-    'PEDICURE': 'PEDICURE',
-    'EYELASH': 'EYELASH',
-    'HAIRCUT': 'HAIRCUT',
-    'MAKEUP': 'MAKEUP',
-    'BROWS': 'BROWS',
-    'OTHER': 'OTHER',
-  };
-  static const Map<Object, String> _fromWire = const <Object, String>{
-    'MANICURE': 'MANICURE',
-    'PEDICURE': 'PEDICURE',
-    'EYELASH': 'EYELASH',
-    'HAIRCUT': 'HAIRCUT',
-    'MAKEUP': 'MAKEUP',
-    'BROWS': 'BROWS',
-    'OTHER': 'OTHER',
-  };
-
-  @override
-  final Iterable<Type> types = const <Type>[
-    CreateServiceDefinitionRequestCategoryEnum
-  ];
-  @override
-  final String wireName = 'CreateServiceDefinitionRequestCategoryEnum';
-
-  @override
-  Object serialize(Serializers serializers,
-          CreateServiceDefinitionRequestCategoryEnum object,
-          {FullType specifiedType = FullType.unspecified}) =>
-      _toWire[object.name] ?? object.name;
-
-  @override
-  CreateServiceDefinitionRequestCategoryEnum deserialize(
-          Serializers serializers, Object serialized,
-          {FullType specifiedType = FullType.unspecified}) =>
-      CreateServiceDefinitionRequestCategoryEnum.valueOf(
-          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
-}
-
 class _$CreateServiceDefinitionRequest extends CreateServiceDefinitionRequest {
   @override
   final String name;
   @override
   final String? description;
   @override
-  final CreateServiceDefinitionRequestCategoryEnum? category;
+  final String category;
   @override
   final int baseDurationMinutes;
   @override
@@ -131,7 +29,7 @@ class _$CreateServiceDefinitionRequest extends CreateServiceDefinitionRequest {
   _$CreateServiceDefinitionRequest._(
       {required this.name,
       this.description,
-      this.category,
+      required this.category,
       required this.baseDurationMinutes,
       required this.basePrice,
       this.bufferMinutesAfter,
@@ -201,10 +99,9 @@ class CreateServiceDefinitionRequestBuilder
   String? get description => _$this._description;
   set description(String? description) => _$this._description = description;
 
-  CreateServiceDefinitionRequestCategoryEnum? _category;
-  CreateServiceDefinitionRequestCategoryEnum? get category => _$this._category;
-  set category(CreateServiceDefinitionRequestCategoryEnum? category) =>
-      _$this._category = category;
+  String? _category;
+  String? get category => _$this._category;
+  set category(String? category) => _$this._category = category;
 
   int? _baseDurationMinutes;
   int? get baseDurationMinutes => _$this._baseDurationMinutes;
@@ -263,7 +160,8 @@ class CreateServiceDefinitionRequestBuilder
           name: BuiltValueNullFieldError.checkNotNull(
               name, r'CreateServiceDefinitionRequest', 'name'),
           description: description,
-          category: category,
+          category: BuiltValueNullFieldError.checkNotNull(
+              category, r'CreateServiceDefinitionRequest', 'category'),
           baseDurationMinutes: BuiltValueNullFieldError.checkNotNull(
               baseDurationMinutes,
               r'CreateServiceDefinitionRequest',

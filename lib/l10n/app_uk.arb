@@ -1346,6 +1346,78 @@
   "@serviceCategoryLabel": {
     "description": "Section label above the category chip selector row on the service create/edit form."
   },
+  "serviceCategoryRequired": "Оберіть категорію",
+  "@serviceCategoryRequired": {
+    "description": "Validation error shown on the service form when no category chip is selected (category is required by the backend)."
+  },
+  "serviceCategoryLoadError": "Не вдалося завантажити категорії",
+  "@serviceCategoryLoadError": {
+    "description": "Compact error text shown on the category picker row when the approved-category list fails to load. Accompanied by a retry button."
+  },
+  "serviceCategoryRetry": "Повторити",
+  "@serviceCategoryRetry": {
+    "description": "Retry affordance label on the category picker row when category loading failed."
+  },
+  "serviceCategorySuggest": "Запропонувати категорію",
+  "@serviceCategorySuggest": {
+    "description": "Label for the trailing chip/button on the category picker that opens the 'suggest a category' dialog."
+  },
+  "categoryRequestTitle": "Запропонувати категорію",
+  "@categoryRequestTitle": {
+    "description": "Title of the suggest-a-category dialog."
+  },
+  "categoryRequestSubtitle": "Адміністратор перегляне ваш запит. Нова категорія з’явиться у списку після підтвердження.",
+  "@categoryRequestSubtitle": {
+    "description": "Quiet subline in the suggest-a-category dialog explaining that approval happens out-of-band."
+  },
+  "categoryRequestNameLabel": "Назва категорії",
+  "@categoryRequestNameLabel": {
+    "description": "Field label above the Ukrainian display-name input in the suggest-a-category dialog."
+  },
+  "categoryRequestNameHint": "Напр. Нарощування вій",
+  "@categoryRequestNameHint": {
+    "description": "Hint text inside the Ukrainian display-name input in the suggest-a-category dialog."
+  },
+  "categoryRequestCodeLabel": "Код",
+  "@categoryRequestCodeLabel": {
+    "description": "Field label above the auto-derived uppercase latin slug input in the suggest-a-category dialog."
+  },
+  "categoryRequestCodeHelper": "Код генерується автоматично з назви. Можна змінити.",
+  "@categoryRequestCodeHelper": {
+    "description": "Helper caption under the code/slug field explaining it is auto-generated from the name and editable."
+  },
+  "categoryRequestNameError": "Введіть назву категорії",
+  "@categoryRequestNameError": {
+    "description": "Validation error shown when the display-name field is empty in the suggest-a-category dialog."
+  },
+  "categoryRequestNameTooLong": "Назва не може перевищувати 100 символів",
+  "@categoryRequestNameTooLong": {
+    "description": "Validation error shown when the display-name field exceeds kCategoryDisplayNameMaxLength (100) in the suggest-a-category dialog."
+  },
+  "categoryRequestCodeError": "Код має містити лише великі латинські літери, цифри й підкреслення та починатися з літери",
+  "@categoryRequestCodeError": {
+    "description": "Validation error shown when the slug field does not match ^[A-Z][A-Z0-9_]*$ in the suggest-a-category dialog."
+  },
+  "categoryRequestSubmit": "Надіслати",
+  "@categoryRequestSubmit": {
+    "description": "Primary submit button label in the suggest-a-category dialog."
+  },
+  "categoryRequestCancel": "Скасувати",
+  "@categoryRequestCancel": {
+    "description": "Cancel affordance label in the suggest-a-category dialog."
+  },
+  "categoryRequestSuccess": "Запит надіслано на розгляд",
+  "@categoryRequestSuccess": {
+    "description": "SnackBar message shown after a category request is successfully submitted."
+  },
+  "categoryRequestErrExists": "Така категорія вже існує",
+  "@categoryRequestErrExists": {
+    "description": "Error message for a 409 response when the requested category already exists or is pending."
+  },
+  "categoryRequestErrThrottled": "Забагато запитів, спробуйте пізніше",
+  "@categoryRequestErrThrottled": {
+    "description": "Error message for a 429 response when the category-request rate limit (5/hr) is exhausted."
+  },
 
   "deleteServiceTitle": "Видалити послугу?",
   "@deleteServiceTitle": {

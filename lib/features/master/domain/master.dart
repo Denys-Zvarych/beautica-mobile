@@ -50,6 +50,19 @@ abstract class Master with _$Master {
     /// City where the master operates (display string, not a UUID).
     String? city,
 
+    /// UUID of the city the master is located in. Used by [LocalityCascade]
+    /// to pre-populate the city picker when opening the edit screen.
+    String? cityId,
+
+    /// UUID of the oblast (region) the master is located in. Used by
+    /// [LocalityCascade] to pre-populate the region picker when opening the
+    /// edit screen.
+    String? oblastId,
+
+    /// UUID of the city district, or `null` when the city has no districts or
+    /// the master hasn't selected one.
+    String? districtId,
+
     /// Street name where the master works.
     String? street,
 

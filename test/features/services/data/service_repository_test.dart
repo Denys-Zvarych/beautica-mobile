@@ -27,6 +27,9 @@ import 'package:mocktail/mocktail.dart';
 
 class _MockServiceControllerApi extends Mock implements ServiceControllerApi {}
 
+class _MockCategoryRequestControllerApi extends Mock
+    implements CategoryRequestControllerApi {}
+
 class _MockDio extends Mock implements Dio {}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -113,14 +116,17 @@ Response<ApiResponseMasterServiceResponse> _singleResponse(
 
 void main() {
   late _MockServiceControllerApi serviceApi;
+  late _MockCategoryRequestControllerApi categoryApi;
   late _MockDio dio;
   late HttpServiceRepository repository;
 
   setUp(() {
     serviceApi = _MockServiceControllerApi();
+    categoryApi = _MockCategoryRequestControllerApi();
     dio = _MockDio();
     repository = HttpServiceRepository(
       serviceApi: serviceApi,
+      categoryApi: categoryApi,
       dio: dio,
       masterId: _masterId,
     );
@@ -130,7 +136,15 @@ void main() {
         (b) => b
           ..name = 'fallback'
           ..baseDurationMinutes = 30
-          ..basePrice = 100,
+          ..basePrice = 100
+          ..category = 'FALLBACK',
+      ),
+    );
+    registerFallbackValue(
+      CreateCategoryRequestRequest(
+        (b) => b
+          ..name = 'FALLBACK'
+          ..displayName = 'fallback',
       ),
     );
   });
@@ -246,6 +260,7 @@ void main() {
         durationMinutes: 45,
         price: 350.0,
         description: 'Оформлення брів',
+        category: 'BROWS',
       );
 
       final result = await repository.create(input);
@@ -269,6 +284,8 @@ void main() {
       expect(captured.baseDurationMinutes, 45);
       expect(captured.basePrice, 350.0);
       expect(captured.description, 'Оформлення брів');
+      // category is now required and forwarded as a plain wire String.
+      expect(captured.category, 'BROWS');
     });
 
     // ── 4. create — invalid input → ArgumentError (local; no network call) ───
@@ -349,6 +366,7 @@ void main() {
             name: 'Test',
             durationMinutes: 30,
             price: 100,
+            category: 'MANICURE',
           ),
         ),
         throwsA(same(mapped)),
@@ -523,6 +541,7 @@ void main() {
     setUp(() {
       unauthRepo = HttpServiceRepository(
         serviceApi: serviceApi,
+        categoryApi: categoryApi,
         dio: dio,
         masterId: '',
       );
@@ -581,5 +600,192 @@ void main() {
         );
       },
     );
+  });
+
+  // ── 8. fetchApprovedCategories ──────────────────────────────────────────────
+
+  group('fetchApprovedCategories', () {
+    Response<ApiResponseListApprovedCategoryResponse> approvedResponse(
+      List<ApprovedCategoryResponse> items,
+    ) {
+      final envelope = ApiResponseListApprovedCategoryResponse(
+        (b) => b
+          ..data = ListBuilder<ApprovedCategoryResponse>(items)
+          ..success = true,
+      );
+      return Response<ApiResponseListApprovedCategoryResponse>(
+        data: envelope,
+        requestOptions: RequestOptions(
+          path: '/api/v1/service-categories/approved',
+        ),
+        statusCode: 200,
+      );
+    }
+
+    ApprovedCategoryResponse approvedDto(String name, String displayName) =>
+        (ApprovedCategoryResponseBuilder()
+              ..name = name
+              ..displayName = displayName)
+            .build();
+
+    test('maps approved categories preserving name + displayName', () async {
+      when(() => categoryApi.listApproved()).thenAnswer(
+        (_) async => approvedResponse(<ApprovedCategoryResponse>[
+          approvedDto('MANICURE', 'Манікюр'),
+          approvedDto('NAIL_ART', 'Нейл-арт'),
+        ]),
+      );
+
+      final result = await repository.fetchApprovedCategories();
+
+      expect(result.map((o) => o.name).toList(), <String>[
+        'MANICURE',
+        'NAIL_ART',
+      ]);
+      expect(result.first.displayName, 'Манікюр');
+    });
+
+    test('returns empty list when envelope data is null', () async {
+      final envelope = ApiResponseListApprovedCategoryResponse(
+        (b) => b..success = true,
+      );
+      when(() => categoryApi.listApproved()).thenAnswer(
+        (_) async => Response<ApiResponseListApprovedCategoryResponse>(
+          data: envelope,
+          requestOptions: RequestOptions(
+            path: '/api/v1/service-categories/approved',
+          ),
+          statusCode: 200,
+        ),
+      );
+
+      expect(await repository.fetchApprovedCategories(), isEmpty);
+    });
+
+    test('maps DioException to a Failure', () async {
+      when(() => categoryApi.listApproved()).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(
+            path: '/api/v1/service-categories/approved',
+          ),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+
+      await expectLater(
+        repository.fetchApprovedCategories(),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+  });
+
+  // ── 9. requestCategory ──────────────────────────────────────────────────────
+
+  group('requestCategory', () {
+    Response<ApiResponseCategoryRequestResponse> createdResponse() {
+      final dto =
+          (CategoryRequestResponseBuilder()
+                ..name = 'NAIL_ART'
+                ..displayName = 'Нейл-арт'
+                ..status = 'PENDING')
+              .build();
+      final envelope = ApiResponseCategoryRequestResponse(
+        (b) => b
+          ..data.replace(dto)
+          ..success = true,
+      );
+      return Response<ApiResponseCategoryRequestResponse>(
+        data: envelope,
+        requestOptions: RequestOptions(
+          path: '/api/v1/service-categories/requests',
+        ),
+        statusCode: 201,
+      );
+    }
+
+    DioException dioWithStatus(int status) => DioException(
+      requestOptions: RequestOptions(
+        path: '/api/v1/service-categories/requests',
+      ),
+      response: Response<dynamic>(
+        requestOptions: RequestOptions(
+          path: '/api/v1/service-categories/requests',
+        ),
+        statusCode: status,
+      ),
+      type: DioExceptionType.badResponse,
+    );
+
+    test('success forwards the correct name + displayName once', () async {
+      when(
+        () => categoryApi.submitRequest(
+          createCategoryRequestRequest: any(
+            named: 'createCategoryRequestRequest',
+          ),
+        ),
+      ).thenAnswer((_) async => createdResponse());
+
+      await repository.requestCategory(
+        name: 'NAIL_ART',
+        displayName: 'Нейл-арт',
+      );
+
+      final captured =
+          verify(
+                () => categoryApi.submitRequest(
+                  createCategoryRequestRequest: captureAny(
+                    named: 'createCategoryRequestRequest',
+                  ),
+                ),
+              ).captured.single
+              as CreateCategoryRequestRequest;
+      expect(captured.name, 'NAIL_ART');
+      expect(captured.displayName, 'Нейл-арт');
+    });
+
+    test('409 → CategoryAlreadyExistsFailure', () async {
+      when(
+        () => categoryApi.submitRequest(
+          createCategoryRequestRequest: any(
+            named: 'createCategoryRequestRequest',
+          ),
+        ),
+      ).thenThrow(dioWithStatus(409));
+
+      await expectLater(
+        repository.requestCategory(name: 'NAIL_ART', displayName: 'Нейл-арт'),
+        throwsA(isA<CategoryAlreadyExistsFailure>()),
+      );
+    });
+
+    test('429 → CategoryRequestThrottledFailure', () async {
+      when(
+        () => categoryApi.submitRequest(
+          createCategoryRequestRequest: any(
+            named: 'createCategoryRequestRequest',
+          ),
+        ),
+      ).thenThrow(dioWithStatus(429));
+
+      await expectLater(
+        repository.requestCategory(name: 'NAIL_ART', displayName: 'Нейл-арт'),
+        throwsA(isA<CategoryRequestThrottledFailure>()),
+      );
+    });
+
+    test('other status → generic Failure (ServerFailure)', () async {
+      when(
+        () => categoryApi.submitRequest(
+          createCategoryRequestRequest: any(
+            named: 'createCategoryRequestRequest',
+          ),
+        ),
+      ).thenThrow(dioWithStatus(500));
+
+      await expectLater(
+        repository.requestCategory(name: 'NAIL_ART', displayName: 'Нейл-арт'),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
   });
 }

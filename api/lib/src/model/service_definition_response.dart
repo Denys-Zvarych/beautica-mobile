@@ -3,7 +3,6 @@
 //
 
 // ignore_for_file: unused_element
-import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -22,6 +21,7 @@ part 'service_definition_response.g.dart';
 /// * [isActive]
 /// * [serviceTypeId]
 /// * [serviceTypeNameUk]
+/// * [photoUrl]
 @BuiltValue()
 abstract class ServiceDefinitionResponse
     implements
@@ -36,8 +36,7 @@ abstract class ServiceDefinitionResponse
   String? get description;
 
   @BuiltValueField(wireName: r'category')
-  ServiceDefinitionResponseCategoryEnum? get category;
-  // enum categoryEnum {  MANICURE,  PEDICURE,  EYELASH,  HAIRCUT,  MAKEUP,  BROWS,  OTHER,  };
+  String? get category;
 
   @BuiltValueField(wireName: r'baseDurationMinutes')
   int? get baseDurationMinutes;
@@ -56,6 +55,9 @@ abstract class ServiceDefinitionResponse
 
   @BuiltValueField(wireName: r'serviceTypeNameUk')
   String? get serviceTypeNameUk;
+
+  @BuiltValueField(wireName: r'photoUrl')
+  String? get photoUrl;
 
   ServiceDefinitionResponse._();
 
@@ -112,7 +114,7 @@ class _$ServiceDefinitionResponseSerializer
       yield r'category';
       yield serializers.serialize(
         object.category,
-        specifiedType: const FullType(ServiceDefinitionResponseCategoryEnum),
+        specifiedType: const FullType(String),
       );
     }
     if (object.baseDurationMinutes != null) {
@@ -154,6 +156,13 @@ class _$ServiceDefinitionResponseSerializer
       yield r'serviceTypeNameUk';
       yield serializers.serialize(
         object.serviceTypeNameUk,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.photoUrl != null) {
+      yield r'photoUrl';
+      yield serializers.serialize(
+        object.photoUrl,
         specifiedType: const FullType(String),
       );
     }
@@ -206,9 +215,8 @@ class _$ServiceDefinitionResponseSerializer
         case r'category':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType:
-                const FullType(ServiceDefinitionResponseCategoryEnum),
-          ) as ServiceDefinitionResponseCategoryEnum;
+            specifiedType: const FullType(String),
+          ) as String;
           result.category = valueDes;
           break;
         case r'baseDurationMinutes':
@@ -253,6 +261,13 @@ class _$ServiceDefinitionResponseSerializer
           ) as String;
           result.serviceTypeNameUk = valueDes;
           break;
+        case r'photoUrl':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.photoUrl = valueDes;
+          break;
         default:
           unhandled.add(key);
           unhandled.add(value);
@@ -280,38 +295,4 @@ class _$ServiceDefinitionResponseSerializer
     );
     return result.build();
   }
-}
-
-class ServiceDefinitionResponseCategoryEnum extends EnumClass {
-  @BuiltValueEnumConst(wireName: r'MANICURE')
-  static const ServiceDefinitionResponseCategoryEnum MANICURE =
-      _$serviceDefinitionResponseCategoryEnum_MANICURE;
-  @BuiltValueEnumConst(wireName: r'PEDICURE')
-  static const ServiceDefinitionResponseCategoryEnum PEDICURE =
-      _$serviceDefinitionResponseCategoryEnum_PEDICURE;
-  @BuiltValueEnumConst(wireName: r'EYELASH')
-  static const ServiceDefinitionResponseCategoryEnum EYELASH =
-      _$serviceDefinitionResponseCategoryEnum_EYELASH;
-  @BuiltValueEnumConst(wireName: r'HAIRCUT')
-  static const ServiceDefinitionResponseCategoryEnum HAIRCUT =
-      _$serviceDefinitionResponseCategoryEnum_HAIRCUT;
-  @BuiltValueEnumConst(wireName: r'MAKEUP')
-  static const ServiceDefinitionResponseCategoryEnum MAKEUP =
-      _$serviceDefinitionResponseCategoryEnum_MAKEUP;
-  @BuiltValueEnumConst(wireName: r'BROWS')
-  static const ServiceDefinitionResponseCategoryEnum BROWS =
-      _$serviceDefinitionResponseCategoryEnum_BROWS;
-  @BuiltValueEnumConst(wireName: r'OTHER')
-  static const ServiceDefinitionResponseCategoryEnum OTHER =
-      _$serviceDefinitionResponseCategoryEnum_OTHER;
-
-  static Serializer<ServiceDefinitionResponseCategoryEnum> get serializer =>
-      _$serviceDefinitionResponseCategoryEnumSerializer;
-
-  const ServiceDefinitionResponseCategoryEnum._(String name) : super(name);
-
-  static BuiltSet<ServiceDefinitionResponseCategoryEnum> get values =>
-      _$serviceDefinitionResponseCategoryEnumValues;
-  static ServiceDefinitionResponseCategoryEnum valueOf(String name) =>
-      _$serviceDefinitionResponseCategoryEnumValueOf(name);
 }
