@@ -30,6 +30,7 @@ import 'package:flutter/foundation.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
@@ -619,34 +620,13 @@ class _CategoryChips extends ConsumerWidget {
       // while the backend is slow). Humanize the wire slug for the visible
       // label instead of leaking the raw ALL-CAPS slug; the wire value [name]
       // is preserved unchanged for submission.
-      ServiceCategoryOption(name: sel, displayName: _humanize(sel)),
+      ServiceCategoryOption(name: sel, displayName: humanizeCategorySlug(sel)),
     ];
   }
 
   /// Case/whitespace-insensitive equality for wire slugs — defends against
   /// drift between the persisted selection and the approved-list entries.
-  static bool _matches(String? a, String b) {
-    if (a == null) return false;
-    return a.trim().toUpperCase() == b.trim().toUpperCase();
-  }
-
-  /// Graceful degradation for a wire slug with no known Ukrainian label:
-  /// `NAIL_ART` → `Nail Art`, `BROWS` → `Brows`. Pure transform of the slug;
-  /// not user-authored copy, so no l10n key is required. The proper Ukrainian
-  /// label for inactive categories is a backend follow-up (expose category
-  /// displayName on the service DTO).
-  static String _humanize(String slug) {
-    final String trimmed = slug.trim();
-    if (trimmed.isEmpty) return trimmed;
-    return trimmed
-        .split(RegExp(r'[_\s]+'))
-        .where((String word) => word.isNotEmpty)
-        .map((String word) {
-          final String lower = word.toLowerCase();
-          return lower[0].toUpperCase() + lower.substring(1);
-        })
-        .join(' ');
-  }
+  static bool _matches(String? a, String b) => categorySlugMatches(a, b);
 }
 
 /// Compact loading state for the category chip row — a single inset skeleton

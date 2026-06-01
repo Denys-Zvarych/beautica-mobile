@@ -1325,10 +1325,6 @@
   "@servicePhotoChange": {
     "description": "Overlay chip label in the filled-state of the service photo slot (Phase 5.4)."
   },
-  "servicePhotoCoverSubtitle": "Обкладинка сервісу у списку",
-  "@servicePhotoCoverSubtitle": {
-    "description": "Secondary label below the 'Додати фото' prompt in the empty photo slot (Phase 5.4)."
-  },
   "servicePhotoAddSemantics": "Додати фото сервісу",
   "@servicePhotoAddSemantics": {
     "description": "Screen-reader label for the photo slot in the empty state (Phase 5.4)."

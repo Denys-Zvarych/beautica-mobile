@@ -28,6 +28,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -162,6 +163,14 @@ void main() {
   setUp(() {
     mockRepo = _MockServiceRepository();
     when(() => mockRepo.listMyServices()).thenAnswer((_) async => const []);
+    // _LoadedBody watches approvedCategoriesProvider to resolve category
+    // labels (FIX 4). Default stub keeps the provider in the data state for
+    // every existing test; FIX 4 tests override it with their own values.
+    when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
+      (_) async => const <ServiceCategoryOption>[
+        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+      ],
+    );
   });
 
   // ── 1. Loading state ───────────────────────────────────────────────────────
@@ -377,6 +386,95 @@ void main() {
     testWidgets(
       'count=100 → "послуг" (n%10==0 → default branch)',
       (tester) => expectPluralLabel(tester, count: 100, expectedWord: 'послуг'),
+    );
+  });
+
+  // ── FIX 4. Category label resolution on the list card ──────────────────────
+  //
+  // Regression: the list rendered the raw uppercase wire slug ("BROWS"), while
+  // the create form rendered the Ukrainian displayName. The list must now
+  // resolve the label via approvedCategoriesProvider (Ukrainian when the slug
+  // is approved) and fall back to a humanized form ("Brows") otherwise — never
+  // an ALL-CAPS wire value.
+
+  group('FIX 4 — category label resolution', () {
+    const browsService = MasterService(
+      id: 'svc-brows',
+      serviceDefId: 'def-brows',
+      name: 'Корекція брів',
+      durationMinutes: 30,
+      price: 250,
+      category: 'BROWS',
+    );
+
+    testWidgets(
+      'approved slug renders Ukrainian displayName (Брови), not raw BROWS',
+      (tester) async {
+        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
+          (_) async => const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+          ],
+        );
+
+        await tester.pumpApp(
+          const ServicesListScreen(),
+          overrides: [
+            _servicesOverride(const AsyncData(<MasterService>[browsService])),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(
+          find.text('Брови'),
+          findsOneWidget,
+          reason:
+              'card must render the Ukrainian displayName from the approved '
+              'category list (FIX 4)',
+        );
+        expect(
+          find.text('BROWS'),
+          findsNothing,
+          reason: 'raw ALL-CAPS wire slug must never leak to the UI',
+        );
+      },
+    );
+
+    testWidgets(
+      'unapproved slug falls back to humanized label (Brows), not raw BROWS',
+      (tester) async {
+        // Approved list does NOT contain BROWS (inactive/retired category).
+        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
+          (_) async => const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+          ],
+        );
+
+        await tester.pumpApp(
+          const ServicesListScreen(),
+          overrides: [
+            _servicesOverride(const AsyncData(<MasterService>[browsService])),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(
+          find.text('Brows'),
+          findsOneWidget,
+          reason:
+              'slug absent from the approved list must be humanized (FIX 4)',
+        );
+        expect(
+          find.text('BROWS'),
+          findsNothing,
+          reason: 'raw ALL-CAPS wire slug must never leak to the UI',
+        );
+      },
     );
   });
 }

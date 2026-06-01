@@ -623,9 +623,14 @@ void main() {
       );
     });
 
-    // ── F — blank instagram is omitted ──────────────────────────────────────
+    // ── F — cleared bio / instagram are sent as '' (NOT omitted) ────────────
+    //
+    // Backend contract: bio / instagram are persisted whenever the key is
+    // non-null, so an empty string clears them. Omitting the key (the old bug)
+    // left the stale server value intact. The repo must therefore ALWAYS
+    // include both keys, with '' when the user cleared the field.
 
-    test('instagram omitted from body when blank', () async {
+    test('includes bio and instagram as empty strings when cleared', () async {
       when(
         () => dio.patch<Map<String, dynamic>>(
           _profilePatchPath,
@@ -638,6 +643,60 @@ void main() {
           firstName: 'Аня',
           lastName: 'Коваль',
           bio: '',
+          contactPhone: '',
+          instagram: '',
+        ),
+      );
+
+      final captured =
+          verify(
+                () => dio.patch<Map<String, dynamic>>(
+                  _profilePatchPath,
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+
+      expect(
+        captured.containsKey('bio'),
+        isTrue,
+        reason:
+            'bio key must always be present so a clear persists server-side',
+      );
+      expect(
+        captured['bio'],
+        '',
+        reason: 'cleared bio must be sent as an empty string, not omitted',
+      );
+      expect(
+        captured.containsKey('instagram'),
+        isTrue,
+        reason:
+            'instagram key must always be present so a clear persists server-side',
+      );
+      expect(
+        captured['instagram'],
+        '',
+        reason:
+            'cleared instagram must be sent as an empty string, not omitted',
+      );
+    });
+
+    // ── F2 — whitespace-only bio / instagram are trimmed to '' and sent ──────
+
+    test('trims whitespace-only bio / instagram to empty string', () async {
+      when(
+        () => dio.patch<Map<String, dynamic>>(
+          _profilePatchPath,
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async => _okProfileEnvelope());
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '   ',
           contactPhone: '',
           instagram: '   ',
         ),
@@ -652,12 +711,8 @@ void main() {
               ).captured.single
               as Map<String, dynamic>;
 
-      expect(
-        captured.containsKey('instagram'),
-        isFalse,
-        reason:
-            'whitespace-only instagram must be omitted from the request body',
-      );
+      expect(captured['bio'], '');
+      expect(captured['instagram'], '');
     });
 
     // ── D — connectionError → NetworkFailure ────────────────────────────────

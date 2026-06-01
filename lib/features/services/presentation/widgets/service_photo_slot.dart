@@ -46,9 +46,6 @@ class ServicePhotoSlot extends StatefulWidget {
 
 class _ServicePhotoSlotState extends State<ServicePhotoSlot> {
   // Hoisted statics — avoids allocating new objects on every build().
-  static final TextStyle _subtitleStyle = VelvetText.body().copyWith(
-    fontSize: 12.5,
-  );
   static final TextStyle _changePhotoLabelStyle = VelvetText.cta().copyWith(
     fontSize: 14,
   );
@@ -84,8 +81,6 @@ class _ServicePhotoSlotState extends State<ServicePhotoSlot> {
         ),
         const SizedBox(height: VelvetSpacing.sm + 2),
         Text(l10n.servicePhotoAdd, style: VelvetText.subheading()),
-        const SizedBox(height: 2),
-        Text(l10n.servicePhotoCoverSubtitle, style: _subtitleStyle),
       ],
     );
   }

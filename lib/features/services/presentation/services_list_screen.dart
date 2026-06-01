@@ -28,7 +28,10 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/currency_uah.dart';
@@ -156,14 +159,38 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
 // Loaded body
 // ---------------------------------------------------------------------------
 
-class _LoadedBody extends StatelessWidget {
+class _LoadedBody extends ConsumerWidget {
   const _LoadedBody({required this.services});
 
   final List<MasterService> services;
 
+  /// Resolves a category wire slug to a display label using the same source the
+  /// service form uses ([approvedCategoriesProvider]):
+  ///   • match found in the approved list → the Ukrainian [displayName];
+  ///   • slug absent (inactive/retired) OR the provider is still loading /
+  ///     errored → [humanizeCategorySlug] so the user sees "Brows", never the
+  ///     raw ALL-CAPS wire value "BROWS".
+  /// Returns null when the service has no category at all.
+  String? _resolveCategoryLabel(
+    String? slug,
+    AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
+  ) {
+    if (slug == null || slug.isEmpty) return null;
+    // `.value` returns the data when in AsyncData state, null otherwise
+    // (loading / error) — the humanized fallback covers those states.
+    final List<ServiceCategoryOption>? options = categoriesAsync.value;
+    if (options != null) {
+      for (final ServiceCategoryOption option in options) {
+        if (categorySlugMatches(slug, option.name)) return option.displayName;
+      }
+    }
+    return humanizeCategorySlug(slug);
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
+    final categoriesAsync = ref.watch(approvedCategoriesProvider);
     return ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(
         parent: BouncingScrollPhysics(),
@@ -192,6 +219,10 @@ class _LoadedBody extends StatelessWidget {
         return _ServiceCard(
           key: Key('service_card_${service.id}'),
           service: service,
+          categoryLabel: _resolveCategoryLabel(
+            service.category,
+            categoriesAsync,
+          ),
           appearDelay: Duration(milliseconds: 90 * (i - 1)),
         );
       },
@@ -233,10 +264,17 @@ class _ServiceCard extends StatefulWidget {
   const _ServiceCard({
     super.key,
     required this.service,
+    this.categoryLabel,
     this.appearDelay = Duration.zero,
   });
 
   final MasterService service;
+
+  /// Pre-resolved, display-ready category label (Ukrainian when the slug is in
+  /// the approved list, humanized otherwise). Null when the service has no
+  /// category. Resolved once in [_LoadedBody] so the card stays a leaf widget.
+  final String? categoryLabel;
+
   final Duration appearDelay;
 
   @override
@@ -332,7 +370,7 @@ class _ServiceCardState extends State<_ServiceCard>
                       name: s.name,
                       durationLabel: durationLabel,
                       priceLabel: priceLabel,
-                      category: s.category,
+                      category: widget.categoryLabel,
                     ),
                   ),
                   const SizedBox(width: VelvetSpacing.sm),
