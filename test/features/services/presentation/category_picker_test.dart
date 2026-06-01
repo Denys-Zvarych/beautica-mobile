@@ -33,6 +33,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
@@ -45,6 +46,26 @@ const _options = <ServiceCategoryOption>[
 AppLocalizations _l10n(WidgetTester tester) =>
     AppLocalizations.of(tester.element(find.byType(ServiceForm)));
 
+/// Builds a minimal single-route [GoRouter] hosting [child].
+///
+/// The suggest-a-category dialog pops itself with go_router's `context.pop`,
+/// which requires a [GoRouter] ancestor in the tree. Hosting the form under a
+/// `MaterialApp.router` (rather than a plain `MaterialApp`) supplies that
+/// ancestor. `showDialog` still inserts the dialog as a root-Navigator overlay
+/// route, and `context.pop` resolves the awaiting `showDialog<bool>` future
+/// with the popped result exactly as `Navigator.of(context).pop` did.
+GoRouter _formRouter(Widget child) {
+  return GoRouter(
+    routes: <RouteBase>[
+      GoRoute(
+        path: '/',
+        builder: (context, state) =>
+            Scaffold(body: SingleChildScrollView(child: child)),
+      ),
+    ],
+  );
+}
+
 Future<void> _pumpForm(
   WidgetTester tester,
   _MockServiceRepository repo, {
@@ -55,14 +76,12 @@ Future<void> _pumpForm(
       overrides: <Object>[
         serviceRepositoryProvider.overrideWithValue(repo),
       ].cast(),
-      child: MaterialApp(
+      child: MaterialApp.router(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         locale: const Locale('uk'),
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: ServiceForm(onSubmit: (input) async => onSubmit(input)),
-          ),
+        routerConfig: _formRouter(
+          ServiceForm(onSubmit: (input) async => onSubmit(input)),
         ),
       ),
     ),
@@ -102,14 +121,12 @@ Future<void> _pumpFormWithInitial(
       overrides: <Object>[
         serviceRepositoryProvider.overrideWithValue(repo),
       ].cast(),
-      child: MaterialApp(
+      child: MaterialApp.router(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         locale: const Locale('uk'),
-        home: Scaffold(
-          body: SingleChildScrollView(
-            child: ServiceForm(initial: initial, onSubmit: (_) async {}),
-          ),
+        routerConfig: _formRouter(
+          ServiceForm(initial: initial, onSubmit: (_) async {}),
         ),
       ),
     ),

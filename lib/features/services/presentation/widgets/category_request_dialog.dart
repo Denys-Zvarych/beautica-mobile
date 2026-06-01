@@ -28,6 +28,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 /// Opens the suggest-a-category dialog.
 ///
@@ -146,7 +147,9 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
       if (mounted) {
         // Return true so the caller surfaces the success SnackBar against the
         // parent screen's messenger (not the dialog's transient context).
-        Navigator.of(context).pop(true);
+        // context.pop pops the dialog route and resolves the awaiting
+        // showDialog<bool> future in _openSuggestDialog with `true`.
+        context.pop(true);
       }
     } catch (e) {
       if (kDebugMode) {
@@ -239,7 +242,7 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
                         key: const Key('btn-cancel-suggest-category'),
                         onPressed: _submitting
                             ? null
-                            : () => Navigator.of(context).pop(false),
+                            : () => context.pop(false),
                         child: Text(
                           l10n.categoryRequestCancel,
                           style: VelvetText.body().copyWith(
