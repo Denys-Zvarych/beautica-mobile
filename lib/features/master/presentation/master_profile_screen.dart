@@ -419,7 +419,7 @@ class _ProfileBody extends StatelessWidget {
                       final String countValue = servicesAsync.when(
                         data: (list) => list.length.toString(),
                         loading: () => '—',
-                        error: (_, __) => '—',
+                        error: (_, _) => '—',
                       );
                       return StatTile(
                         icon: Icons.design_services_outlined,
@@ -556,7 +556,7 @@ class _ProfileBody extends StatelessWidget {
               final String countLabel = servicesAsync.when(
                 data: (list) => '${l10n.masterServicesLabel} · ${list.length}',
                 loading: () => '${l10n.masterServicesLabel} · —',
-                error: (_, __) => '${l10n.masterServicesLabel} · —',
+                error: (_, _) => '${l10n.masterServicesLabel} · —',
               );
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -609,7 +609,7 @@ class _ProfileBody extends StatelessWidget {
                         ],
                       ),
                     ),
-                    error: (_, __) => Padding(
+                    error: (_, _) => Padding(
                       padding: const EdgeInsets.only(top: VelvetSpacing.xs),
                       child: Text(
                         l10n.errUnknown,
