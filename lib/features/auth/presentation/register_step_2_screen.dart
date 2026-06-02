@@ -72,6 +72,14 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
   /// The inline required-error is only surfaced after the first touch.
   bool _phoneTouched = false;
 
+  /// True once the user has interacted with the first-name field at least once.
+  /// The inline required-error is only surfaced after the first touch.
+  bool _firstNameTouched = false;
+
+  /// True once the user has interacted with the last-name field at least once.
+  /// The inline required-error is only surfaced after the first touch.
+  bool _lastNameTouched = false;
+
   /// Set by [_onSubmit] when [validatePhone] rejects the entered value.
   /// Cleared on every [onChanged] so stale format errors disappear while
   /// the user is actively editing.
@@ -93,6 +101,26 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
     if (!_phoneTouched) return null;
     final l10n = AppLocalizations.of(context);
     return _phoneValue.trim().isEmpty ? l10n.registerPhoneRequired : null;
+  }
+
+  /// Inline first-name error — required-field guard, only surfaced after the
+  /// first touch.
+  String? get _firstNameError {
+    if (!_firstNameTouched) return null;
+    final l10n = AppLocalizations.of(context);
+    return _firstNameController.text.trim().isEmpty
+        ? l10n.errNameRequired
+        : null;
+  }
+
+  /// Inline last-name error — required-field guard, only surfaced after the
+  /// first touch.
+  String? get _lastNameError {
+    if (!_lastNameTouched) return null;
+    final l10n = AppLocalizations.of(context);
+    return _lastNameController.text.trim().isEmpty
+        ? l10n.errNameRequired
+        : null;
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -123,6 +151,16 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
   // ── Submit ─────────────────────────────────────────────────────────────────
 
   void _onSubmit() {
+    // Name fields are required for all roles — surface inline errors and block.
+    if (_firstNameController.text.trim().isEmpty ||
+        _lastNameController.text.trim().isEmpty) {
+      setState(() {
+        _firstNameTouched = true;
+        _lastNameTouched = true;
+      });
+      return;
+    }
+
     // Phone is required for all roles — surface the inline error and block.
     if (_phoneController.text.trim().isEmpty) {
       setState(() => _phoneTouched = true);
@@ -217,6 +255,9 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
                   maxLength: 100,
                   prefixIcon: const Icon(Icons.person_outline_rounded),
                   autofillHints: const <String>[AutofillHints.givenName],
+                  errorText: _firstNameError,
+                  onChanged: (String v) =>
+                      setState(() => _firstNameTouched = true),
                 ),
               ),
               const SizedBox(width: VelvetSpacing.md),
@@ -231,6 +272,9 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
                   maxLength: 100,
                   prefixIcon: const Icon(Icons.person_outline_rounded),
                   autofillHints: const <String>[AutofillHints.familyName],
+                  errorText: _lastNameError,
+                  onChanged: (String v) =>
+                      setState(() => _lastNameTouched = true),
                 ),
               ),
             ],
