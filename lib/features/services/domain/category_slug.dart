@@ -139,3 +139,32 @@ String deriveCategorySlug(String input) {
 bool isValidCategorySlug(String slug) =>
     slug.length <= kCategorySlugMaxLength &&
     kCategorySlugPattern.hasMatch(slug);
+
+/// Case/whitespace-insensitive equality for category wire slugs.
+///
+/// Defends against drift between a persisted selection and the approved-list
+/// entries (e.g. `'brows '` vs `'BROWS'`). Returns `false` when [a] is null.
+bool categorySlugMatches(String? a, String b) {
+  if (a == null) return false;
+  return a.trim().toUpperCase() == b.trim().toUpperCase();
+}
+
+/// Graceful degradation for a wire slug with no known Ukrainian label:
+/// `NAIL_ART` → `Nail Art`, `BROWS` → `Brows`. Pure transform of the slug;
+/// not user-authored copy, so no l10n key is required.
+///
+/// Used as the fallback label when a service's category slug is absent from the
+/// approved-category list (deactivated/retired category, or the provider is
+/// still loading / errored) — never leak a raw ALL-CAPS wire value to the user.
+String humanizeCategorySlug(String slug) {
+  final String trimmed = slug.trim();
+  if (trimmed.isEmpty) return trimmed;
+  return trimmed
+      .split(RegExp(r'[_\s]+'))
+      .where((String word) => word.isNotEmpty)
+      .map((String word) {
+        final String lower = word.toLowerCase();
+        return lower[0].toUpperCase() + lower.substring(1);
+      })
+      .join(' ');
+}

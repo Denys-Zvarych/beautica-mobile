@@ -2539,6 +2539,92 @@ void main() {
         );
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Test 19 — Silent-submit guard for a NON-VerificationFailure.
+    //
+    //   Regression net (Step 2.7) for the invalid-OTP "no error shown" fix.
+    //   A non-VerificationFailure from verifyEmail (here ServerFailure(500) —
+    //   the realistic shape when the typed-code mapping is missed and the
+    //   request drifts to a 5xx, or a plain backend 500) must STILL render a
+    //   non-empty inline error banner. The submit must NEVER complete silently.
+    //
+    //   This asserts the end-to-end contract that the _setInlineError catch-all
+    //   guarantees: every failed verify yields a visible, non-empty banner.
+    // -----------------------------------------------------------------------
+    testWidgets('19. non-VerificationFailure (ServerFailure 500) on verify shows a '
+        'non-empty error banner — never a silent submit', (tester) async {
+      final repo = FakeAuthRepository()
+        ..verifyEmailResult = const ServerFailure(statusCode: 500);
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await _pumpVerification(tester, repo: repo, router: router);
+
+      await _fillOtp(tester, '424242');
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('verify_submit')),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+      await tester.pump(); // begin async
+      await tester.pump(); // microtasks (catch → _setInlineError)
+      await tester.pump(const Duration(milliseconds: 50)); // animations
+
+      // Must remain on the verification screen — no silent navigation.
+      expect(
+        find.byKey(const ValueKey<String>('verify_submit')),
+        findsOneWidget,
+        reason: 'A failed verify must keep the user on the screen.',
+      );
+      expect(
+        find.text('home'),
+        findsNothing,
+        reason:
+            'A failed verify must NOT silently navigate away (no silent '
+            'submit).',
+      );
+
+      // The error banner must appear ...
+      final bannerFinder = find.byType(AuthBanner);
+      expect(
+        bannerFinder,
+        findsOneWidget,
+        reason:
+            'A non-VerificationFailure must still surface an AuthBanner — the '
+            'silent-submit bug showed NO banner at all.',
+      );
+
+      // ... with non-empty text. The message must be the resolved ServerFailure
+      // copy (errServer); if a future regression blanks the message, the
+      // _setInlineError catch-all falls back to errUnknown — either way the
+      // banner text is guaranteed non-empty (never a silent/blank submit).
+      final l10n = AppLocalizations.of(tester.element(bannerFinder));
+      final bannerMessages = tester
+          .widgetList<Text>(
+            find.descendant(of: bannerFinder, matching: find.byType(Text)),
+          )
+          .map((t) => t.data)
+          .whereType<String>()
+          .where((s) => s.trim().isNotEmpty)
+          .toList();
+      expect(
+        bannerMessages,
+        isNotEmpty,
+        reason:
+            'The AuthBanner must render non-empty text after a '
+            'non-VerificationFailure — a blank banner is a silent submit.',
+      );
+      expect(
+        bannerMessages,
+        anyElement(anyOf(equals(l10n.errServer), equals(l10n.errUnknown))),
+        reason:
+            'The banner must show the resolved ServerFailure copy (errServer) '
+            'or the catch-all fallback (errUnknown) — never an empty string.',
+      );
+    });
   });
 }
 

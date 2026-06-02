@@ -51,10 +51,53 @@ abstract final class AppConfig {
   ///
   /// In release/profile builds [assertSecureUrl] throws if the URL is not
   /// HTTPS, so the fallback is never reachable in production.
-  static const String baseUrl = String.fromEnvironment(
+  ///
+  /// The raw compile-time value (before normalization). Read directly via
+  /// `String.fromEnvironment` so it stays a compile-time constant; the
+  /// public [baseUrl] is derived from it through [normalizeBaseUrl].
+  static const String _rawBaseUrl = String.fromEnvironment(
     'BEAUTICA_BASE_URL',
     defaultValue: 'http://localhost:8080',
   );
+
+  /// Normalized base URL actually used by Dio.
+  ///
+  /// Computed once from [_rawBaseUrl] via [normalizeBaseUrl]. This is a
+  /// `static final` (not `const`) because the normalization runs at first
+  /// access — the trade-off is intentional: it's the only safe place to kill
+  /// the "double `/api/v1` prefix" bug class regardless of what the build
+  /// pipeline or a careless `--dart-define` injects.
+  static final String baseUrl = normalizeBaseUrl(_rawBaseUrl);
+
+  /// Defensive guard against the double-`/api/v1`-prefix bug class.
+  ///
+  /// WHY: the generated `beautica_api` client AND every raw Dio repository call
+  /// already prepend the full `/api/v1/` segment to each endpoint path. If a
+  /// `--dart-define=BEAUTICA_BASE_URL=...` value ends with `/api/v1` (or
+  /// `/api/v1/`), the assembled URL becomes `.../api/v1/api/v1/...`, which
+  /// Spring Security rejects with 401/404 — every authenticated call (incl.
+  /// profile Save) then fails *silently*. This normalizer strips that
+  /// accidental suffix (and any trailing slash) so the invariant holds no
+  /// matter what the environment injects.
+  ///
+  /// Stripping is applied once: a single trailing `/api/v1` segment
+  /// (case-insensitive, with or without a trailing slash) and any remaining
+  /// trailing slash are removed. A clean `http://localhost:8080` is returned
+  /// unchanged.
+  ///
+  /// Exposed for testing — `String.fromEnvironment` is compile-time-only and
+  /// cannot be varied under `flutter test`, so the logic is verified directly.
+  @visibleForTesting
+  static String normalizeBaseUrl(String raw) {
+    var value = raw.trim();
+    // Drop any trailing slashes first so the suffix match below is reliable.
+    value = value.replaceAll(RegExp(r'/+$'), '');
+    // Strip a single accidental trailing `/api/v1` (case-insensitive).
+    value = value.replaceFirst(RegExp(r'/api/v1$', caseSensitive: false), '');
+    // Re-trim in case stripping the segment exposed a trailing slash.
+    value = value.replaceAll(RegExp(r'/+$'), '');
+    return value;
+  }
 
   /// Validates [baseUrl] at startup.
   ///

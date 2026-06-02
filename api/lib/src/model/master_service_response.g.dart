@@ -6,6 +6,66 @@ part of 'master_service_response.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
+const MasterServiceResponsePriceTypeEnum
+    _$masterServiceResponsePriceTypeEnum_FIXED =
+    const MasterServiceResponsePriceTypeEnum._('FIXED');
+const MasterServiceResponsePriceTypeEnum
+    _$masterServiceResponsePriceTypeEnum_RANGE =
+    const MasterServiceResponsePriceTypeEnum._('RANGE');
+
+MasterServiceResponsePriceTypeEnum _$masterServiceResponsePriceTypeEnumValueOf(
+    String name) {
+  switch (name) {
+    case 'FIXED':
+      return _$masterServiceResponsePriceTypeEnum_FIXED;
+    case 'RANGE':
+      return _$masterServiceResponsePriceTypeEnum_RANGE;
+    default:
+      throw ArgumentError(name);
+  }
+}
+
+final BuiltSet<MasterServiceResponsePriceTypeEnum>
+    _$masterServiceResponsePriceTypeEnumValues = BuiltSet<
+        MasterServiceResponsePriceTypeEnum>(const <MasterServiceResponsePriceTypeEnum>[
+  _$masterServiceResponsePriceTypeEnum_FIXED,
+  _$masterServiceResponsePriceTypeEnum_RANGE,
+]);
+
+Serializer<MasterServiceResponsePriceTypeEnum>
+    _$masterServiceResponsePriceTypeEnumSerializer =
+    _$MasterServiceResponsePriceTypeEnumSerializer();
+
+class _$MasterServiceResponsePriceTypeEnumSerializer
+    implements PrimitiveSerializer<MasterServiceResponsePriceTypeEnum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'FIXED': 'FIXED',
+    'RANGE': 'RANGE',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'FIXED': 'FIXED',
+    'RANGE': 'RANGE',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[MasterServiceResponsePriceTypeEnum];
+  @override
+  final String wireName = 'MasterServiceResponsePriceTypeEnum';
+
+  @override
+  Object serialize(
+          Serializers serializers, MasterServiceResponsePriceTypeEnum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  MasterServiceResponsePriceTypeEnum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      MasterServiceResponsePriceTypeEnum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$MasterServiceResponse extends MasterServiceResponse {
   @override
   final String? id;
@@ -23,6 +83,14 @@ class _$MasterServiceResponse extends MasterServiceResponse {
   final int? effectiveDurationMinutes;
   @override
   final bool? isActive;
+  @override
+  final MasterServiceResponsePriceTypeEnum? priceType;
+  @override
+  final num? priceMin;
+  @override
+  final num? priceMax;
+  @override
+  final String? priceDisplay;
 
   factory _$MasterServiceResponse(
           [void Function(MasterServiceResponseBuilder)? updates]) =>
@@ -36,7 +104,11 @@ class _$MasterServiceResponse extends MasterServiceResponse {
       this.durationOverrideMinutes,
       this.effectivePrice,
       this.effectiveDurationMinutes,
-      this.isActive})
+      this.isActive,
+      this.priceType,
+      this.priceMin,
+      this.priceMax,
+      this.priceDisplay})
       : super._();
   @override
   MasterServiceResponse rebuild(
@@ -58,7 +130,11 @@ class _$MasterServiceResponse extends MasterServiceResponse {
         durationOverrideMinutes == other.durationOverrideMinutes &&
         effectivePrice == other.effectivePrice &&
         effectiveDurationMinutes == other.effectiveDurationMinutes &&
-        isActive == other.isActive;
+        isActive == other.isActive &&
+        priceType == other.priceType &&
+        priceMin == other.priceMin &&
+        priceMax == other.priceMax &&
+        priceDisplay == other.priceDisplay;
   }
 
   @override
@@ -72,6 +148,10 @@ class _$MasterServiceResponse extends MasterServiceResponse {
     _$hash = $jc(_$hash, effectivePrice.hashCode);
     _$hash = $jc(_$hash, effectiveDurationMinutes.hashCode);
     _$hash = $jc(_$hash, isActive.hashCode);
+    _$hash = $jc(_$hash, priceType.hashCode);
+    _$hash = $jc(_$hash, priceMin.hashCode);
+    _$hash = $jc(_$hash, priceMax.hashCode);
+    _$hash = $jc(_$hash, priceDisplay.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -86,7 +166,11 @@ class _$MasterServiceResponse extends MasterServiceResponse {
           ..add('durationOverrideMinutes', durationOverrideMinutes)
           ..add('effectivePrice', effectivePrice)
           ..add('effectiveDurationMinutes', effectiveDurationMinutes)
-          ..add('isActive', isActive))
+          ..add('isActive', isActive)
+          ..add('priceType', priceType)
+          ..add('priceMin', priceMin)
+          ..add('priceMax', priceMax)
+          ..add('priceDisplay', priceDisplay))
         .toString();
   }
 }
@@ -133,6 +217,23 @@ class MasterServiceResponseBuilder
   bool? get isActive => _$this._isActive;
   set isActive(bool? isActive) => _$this._isActive = isActive;
 
+  MasterServiceResponsePriceTypeEnum? _priceType;
+  MasterServiceResponsePriceTypeEnum? get priceType => _$this._priceType;
+  set priceType(MasterServiceResponsePriceTypeEnum? priceType) =>
+      _$this._priceType = priceType;
+
+  num? _priceMin;
+  num? get priceMin => _$this._priceMin;
+  set priceMin(num? priceMin) => _$this._priceMin = priceMin;
+
+  num? _priceMax;
+  num? get priceMax => _$this._priceMax;
+  set priceMax(num? priceMax) => _$this._priceMax = priceMax;
+
+  String? _priceDisplay;
+  String? get priceDisplay => _$this._priceDisplay;
+  set priceDisplay(String? priceDisplay) => _$this._priceDisplay = priceDisplay;
+
   MasterServiceResponseBuilder() {
     MasterServiceResponse._defaults(this);
   }
@@ -148,6 +249,10 @@ class MasterServiceResponseBuilder
       _effectivePrice = $v.effectivePrice;
       _effectiveDurationMinutes = $v.effectiveDurationMinutes;
       _isActive = $v.isActive;
+      _priceType = $v.priceType;
+      _priceMin = $v.priceMin;
+      _priceMax = $v.priceMax;
+      _priceDisplay = $v.priceDisplay;
       _$v = null;
     }
     return this;
@@ -179,6 +284,10 @@ class MasterServiceResponseBuilder
             effectivePrice: effectivePrice,
             effectiveDurationMinutes: effectiveDurationMinutes,
             isActive: isActive,
+            priceType: priceType,
+            priceMin: priceMin,
+            priceMax: priceMax,
+            priceDisplay: priceDisplay,
           );
     } catch (_) {
       late String _$failedField;

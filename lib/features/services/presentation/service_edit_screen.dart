@@ -117,14 +117,21 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
     );
     if (confirmed != true || !context.mounted) return;
     try {
+      // Capture the repository BEFORE any invalidation so the DELETE runs
+      // against a stable auth/master snapshot. serviceRepositoryProvider watches
+      // masterProfileProvider; invalidating that provider while a DELETE is
+      // composing would rebuild the repo (and momentarily unresolve the auth
+      // provider the interceptor reads), causing the request to be sent
+      // tokenless → false 401 ("Сесія завершилась"). Read once, then invalidate
+      // only AFTER the await completes.
+      final repository = ref.read(serviceRepositoryProvider);
       // Backend keys DELETE /api/v1/services/{serviceDefId} on the
       // service-definition id, NOT the assignment id (service.id).
-      await ref
-          .read(serviceRepositoryProvider)
-          .deactivate(service.serviceDefId);
+      await repository.deactivate(service.serviceDefId);
       if (context.mounted) _popServiceEditScreen(context);
-      // Invalidate AFTER pop so ServicesListScreen is active and
-      // listening when the re-fetch arrives. ref outlives the frame.
+      // Invalidate AFTER the delete await completes (and after pop, so
+      // ServicesListScreen is active and listening when the re-fetch arrives).
+      // ref outlives the frame.
       ref.invalidate(servicesListProvider);
       ref.invalidate(masterProfileProvider);
     } catch (e) {
@@ -178,10 +185,16 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
         service: service,
         l10n: l10n,
         onSave: (MasterServiceCreate input) async {
+          // Build the pricing patch block — all four price fields must be
+          // sent together when the price is being updated (backend rule).
           final patch = MasterServiceUpdate(
             name: input.name,
             durationMinutes: input.durationMinutes,
+            priceType: input.priceType,
             price: input.price,
+            priceMin: input.priceMin,
+            priceMax: input.priceMax,
+            category: input.category,
           );
           // Backend keys PATCH /api/v1/services/{serviceDefId} on the
           // service-definition id; the assignment id (service.id) is threaded

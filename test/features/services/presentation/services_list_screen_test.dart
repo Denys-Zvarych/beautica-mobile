@@ -28,6 +28,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -54,7 +55,8 @@ const _stubService = MasterService(
   serviceDefId: 'def-001',
   name: 'Стрижка',
   durationMinutes: 45,
-  price: 750,
+  priceMin: 750,
+  priceDisplay: '750 грн',
 );
 
 const _stubServiceList = <MasterService>[_stubService];
@@ -66,7 +68,8 @@ MasterService _makeService(int i) => MasterService(
   serviceDefId: 'def-$i',
   name: 'Test $i',
   durationMinutes: 30,
-  price: 100,
+  priceMin: 100,
+  priceDisplay: '100 грн',
 );
 
 // ---------------------------------------------------------------------------
@@ -162,6 +165,14 @@ void main() {
   setUp(() {
     mockRepo = _MockServiceRepository();
     when(() => mockRepo.listMyServices()).thenAnswer((_) async => const []);
+    // _LoadedBody watches approvedCategoriesProvider to resolve category
+    // labels (FIX 4). Default stub keeps the provider in the data state for
+    // every existing test; FIX 4 tests override it with their own values.
+    when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
+      (_) async => const <ServiceCategoryOption>[
+        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+      ],
+    );
   });
 
   // ── 1. Loading state ───────────────────────────────────────────────────────
@@ -184,6 +195,52 @@ void main() {
     expect(find.byKey(const Key('skeleton_card_2')), findsOneWidget);
     expect(find.text('Стрижка'), findsNothing);
   });
+
+  // ── 1b. Loading state at a narrow width — no skeleton overflow (Bugfix 3) ──
+  //
+  // Regression: the _SkeletonCard's two shimmer metadata bars were fixed-width
+  // (78 + 92 px). On the narrow loading frame shown immediately after creating
+  // a service (a phone at ≤360 dp), the photo + name + fixed bars + trailing
+  // glyph overran the row and threw a RenderFlex overflow. The fix made the two
+  // metadata bars Expanded (flex 3 / flex 4) so they shrink to fit. This test
+  // pins a 320 dp-wide surface and asserts the loading body lays out with no
+  // overflow exception.
+
+  testWidgets(
+    'Bugfix 3: skeleton cards render at 320 dp width with no overflow',
+    (tester) async {
+      // Narrow phone surface (≤360 dp). 1:1 pixel ratio keeps logical == device.
+      tester.view.physicalSize = const Size(320, 700);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const ServicesListScreen(),
+        overrides: [
+          _servicesOverride(const AsyncLoading()),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+        ],
+      );
+      // Loading frame — the shimmer controllers are running.
+      await tester.pump();
+
+      // All three skeleton cards must be present at this narrow width.
+      expect(find.byKey(const Key('skeleton_card_0')), findsOneWidget);
+      expect(find.byKey(const Key('skeleton_card_1')), findsOneWidget);
+      expect(find.byKey(const Key('skeleton_card_2')), findsOneWidget);
+
+      // The core assertion: no RenderFlex overflow was thrown while laying out
+      // the skeleton row at 320 dp (Bugfix 3 — bars are Expanded, not fixed).
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'Bugfix 3: _SkeletonCard metadata bars must be Expanded so the '
+            'loading row never overflows at narrow phone widths',
+      );
+    },
+  );
 
   // ── 2. Error state ─────────────────────────────────────────────────────────
 
@@ -248,7 +305,8 @@ void main() {
 
       expect(find.byType(ListView), findsOneWidget);
       expect(find.text('Стрижка'), findsOneWidget);
-      expect(find.text('₴ 750'), findsOneWidget);
+      // Phase 5.6: price rendered from priceDisplay (server-formatted).
+      expect(find.text('750 грн'), findsOneWidget);
       expect(find.text('45 хв'), findsOneWidget);
     },
   );
@@ -377,6 +435,330 @@ void main() {
     testWidgets(
       'count=100 → "послуг" (n%10==0 → default branch)',
       (tester) => expectPluralLabel(tester, count: 100, expectedWord: 'послуг'),
+    );
+  });
+
+  // ── FIX 4. Category label resolution on the list card ──────────────────────
+  //
+  // Regression: the list rendered the raw uppercase wire slug ("BROWS"), while
+  // the create form rendered the Ukrainian displayName. The list must now
+  // resolve the label via approvedCategoriesProvider (Ukrainian when the slug
+  // is approved) and fall back to a humanized form ("Brows") otherwise — never
+  // an ALL-CAPS wire value.
+
+  group('FIX 4 — category label resolution', () {
+    const browsService = MasterService(
+      id: 'svc-brows',
+      serviceDefId: 'def-brows',
+      name: 'Корекція брів',
+      durationMinutes: 30,
+      priceMin: 250,
+      priceDisplay: '250 грн',
+      category: 'BROWS',
+    );
+
+    testWidgets(
+      'approved slug renders Ukrainian displayName (Брови), not raw BROWS',
+      (tester) async {
+        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
+          (_) async => const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+          ],
+        );
+
+        await tester.pumpApp(
+          const ServicesListScreen(),
+          overrides: [
+            _servicesOverride(const AsyncData(<MasterService>[browsService])),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(
+          find.text('Брови'),
+          findsOneWidget,
+          reason:
+              'card must render the Ukrainian displayName from the approved '
+              'category list (FIX 4)',
+        );
+        expect(
+          find.text('BROWS'),
+          findsNothing,
+          reason: 'raw ALL-CAPS wire slug must never leak to the UI',
+        );
+      },
+    );
+
+    testWidgets(
+      'unapproved slug falls back to humanized label (Brows), not raw BROWS',
+      (tester) async {
+        // Approved list does NOT contain BROWS (inactive/retired category).
+        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
+          (_) async => const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+          ],
+        );
+
+        await tester.pumpApp(
+          const ServicesListScreen(),
+          overrides: [
+            _servicesOverride(const AsyncData(<MasterService>[browsService])),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(
+          find.text('Brows'),
+          findsOneWidget,
+          reason:
+              'slug absent from the approved list must be humanized (FIX 4)',
+        );
+        expect(
+          find.text('BROWS'),
+          findsNothing,
+          reason: 'raw ALL-CAPS wire slug must never leak to the UI',
+        );
+      },
+    );
+  });
+
+  // ── B. Grouped-list virtualization regression suite ────────────────────────
+  //
+  // These guard the behaviours the services + auth change set exists to deliver:
+  // first-appearance section ordering, creation order within a section,
+  // default-expanded sections with a working collapse toggle, the category
+  // label living ONLY in the section header (never per-card), and the
+  // uncategorized bucket ordering.
+
+  group('B. grouped list', () {
+    // Three services in creation order A, B, C; A & C share HAIRCUT, B is BROWS.
+    const aHaircut = MasterService(
+      id: 'a',
+      serviceDefId: 'def-a',
+      name: 'Сервіс A',
+      durationMinutes: 30,
+      priceMin: 100,
+      priceDisplay: '100 грн',
+      category: 'HAIRCUT',
+    );
+    const bBrows = MasterService(
+      id: 'b',
+      serviceDefId: 'def-b',
+      name: 'Сервіс B',
+      durationMinutes: 30,
+      priceMin: 200,
+      priceDisplay: '200 грн',
+      category: 'BROWS',
+    );
+    const cHaircut = MasterService(
+      id: 'c',
+      serviceDefId: 'def-c',
+      name: 'Сервіс C',
+      durationMinutes: 30,
+      priceMin: 300,
+      priceDisplay: '300 грн',
+      category: 'HAIRCUT',
+    );
+
+    // Section + card key helpers — mirror the production key format
+    // (`category_section_<UPPER_SLUG>` / `category_section__none`;
+    // `service_card_<id>`).
+    Finder sectionKey(String slug) => find.byKey(Key('category_section_$slug'));
+    Finder cardKey(String id) => find.byKey(Key('service_card_$id'));
+
+    Future<void> pumpList(
+      WidgetTester tester,
+      List<MasterService> services,
+    ) async {
+      await tester.pumpApp(
+        const ServicesListScreen(),
+        overrides: [
+          _servicesOverride(AsyncData(services)),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+        ],
+      );
+      // Loading frame → microtask delivers data → data frame.
+      await tester.pump();
+      await tester.pump();
+      // Advance past the entrance stagger so all cards are laid out.
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    // ── B2 (HIGH) — creation order across and within categories ──────────────
+    testWidgets('B2 — preserves creation order across and within categories '
+        '(HAIRCUT before BROWS; A before C in HAIRCUT)', (tester) async {
+      // Approved list covers both slugs so labels resolve to Ukrainian.
+      when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
+        (_) async => const <ServiceCategoryOption>[
+          ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+          ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+        ],
+      );
+
+      await pumpList(tester, const <MasterService>[aHaircut, bBrows, cHaircut]);
+
+      // Exactly two sections.
+      expect(sectionKey('HAIRCUT'), findsOneWidget);
+      expect(sectionKey('BROWS'), findsOneWidget);
+      expect(
+        find.byKey(const Key('category_section__none')),
+        findsNothing,
+        reason: 'no uncategorized service was seeded',
+      );
+
+      // Section order: HAIRCUT (A first-appearance) before BROWS.
+      final double haircutDy = tester.getTopLeft(sectionKey('HAIRCUT')).dy;
+      final double browsDy = tester.getTopLeft(sectionKey('BROWS')).dy;
+      expect(
+        haircutDy,
+        lessThan(browsDy),
+        reason:
+            'HAIRCUT appears first in creation order (A), so its section must '
+            'render above the BROWS section',
+      );
+
+      // Within HAIRCUT: A before C (creation order).
+      final double aDy = tester.getTopLeft(cardKey('a')).dy;
+      final double cDy = tester.getTopLeft(cardKey('c')).dy;
+      expect(
+        aDy,
+        lessThan(cDy),
+        reason:
+            'A was created before C, so within the HAIRCUT section A must '
+            'render above C',
+      );
+    });
+
+    // ── B3 (MEDIUM) — expand / collapse toggle ───────────────────────────────
+    testWidgets(
+      'B3 — sections default-expanded; tapping the header collapses then '
+      're-expands the cards',
+      (tester) async {
+        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
+          (_) async => const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+          ],
+        );
+
+        await pumpList(tester, const <MasterService>[aHaircut, cHaircut]);
+
+        // Default-expanded: both cards visible on first build.
+        expect(cardKey('a'), findsOneWidget);
+        expect(cardKey('c'), findsOneWidget);
+
+        // Tap the section header (its title) to collapse. Tapping the whole
+        // section bounds would land on a card while expanded, so target the
+        // header label text directly.
+        await tester.tap(find.text('Стрижка'));
+        await tester.pumpAndSettle();
+
+        expect(
+          cardKey('a'),
+          findsNothing,
+          reason: 'collapsing the section must remove its cards from the tree',
+        );
+        expect(cardKey('c'), findsNothing);
+
+        // Tap again to re-expand.
+        await tester.tap(sectionKey('HAIRCUT'));
+        await tester.pumpAndSettle();
+
+        expect(
+          cardKey('a'),
+          findsOneWidget,
+          reason: 're-expanding the section must bring its cards back',
+        );
+        expect(cardKey('c'), findsOneWidget);
+      },
+    );
+
+    // ── B4 (MEDIUM) — per-card category label removed ────────────────────────
+    testWidgets(
+      'B4 — the category label appears only in the section header, never '
+      'inside a service card',
+      (tester) async {
+        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
+          (_) async => const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+          ],
+        );
+
+        await pumpList(tester, const <MasterService>[aHaircut]);
+
+        // The label is present (in the header).
+        expect(find.text('Стрижка'), findsOneWidget);
+        // …but NOT inside the card subtree.
+        expect(
+          find.descendant(of: cardKey('a'), matching: find.text('Стрижка')),
+          findsNothing,
+          reason:
+              'the category label is now the section header — it must not be '
+              'duplicated inside the service card',
+        );
+      },
+    );
+
+    // ── B5 (MEDIUM) — uncategorized bucket ordering ──────────────────────────
+    testWidgets(
+      'B5 — a trailing no-category service lands in the single uncategorized '
+      'section after the categorized sections',
+      (tester) async {
+        const noCategory = MasterService(
+          id: 'z',
+          serviceDefId: 'def-z',
+          name: 'Сервіс Z',
+          durationMinutes: 30,
+          priceMin: 400,
+          priceDisplay: '400 грн',
+          // no category → uncategorized bucket
+        );
+
+        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
+          (_) async => const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+          ],
+        );
+
+        await pumpList(tester, const <MasterService>[aHaircut, noCategory]);
+
+        // Exactly one categorized section + one uncategorized section.
+        expect(sectionKey('HAIRCUT'), findsOneWidget);
+        final Finder uncategorized = find.byKey(
+          const Key('category_section__none'),
+        );
+        expect(uncategorized, findsOneWidget);
+
+        // The uncategorized section renders AFTER the categorized one.
+        final double haircutDy = tester.getTopLeft(sectionKey('HAIRCUT')).dy;
+        final double uncategorizedDy = tester.getTopLeft(uncategorized).dy;
+        expect(
+          haircutDy,
+          lessThan(uncategorizedDy),
+          reason:
+              'the no-category service appears last in creation order, so its '
+              'uncategorized section must render below the HAIRCUT section',
+        );
+
+        // The uncategorized header uses the localized label, never a raw slug.
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(ServicesListScreen)),
+        );
+        expect(
+          find.descendant(
+            of: uncategorized,
+            matching: find.text(l10n.serviceCategoryUncategorized),
+          ),
+          findsOneWidget,
+        );
+        // The uncategorized service card is present in that section.
+        expect(cardKey('z'), findsOneWidget);
+      },
     );
   });
 }

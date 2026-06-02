@@ -61,11 +61,16 @@ abstract interface class MasterRepository {
 
   /// Persists the authenticated master's editable profile fields.
   ///
-  /// Wraps `PATCH /independent-masters/me`. All [update] fields are trimmed
-  /// before sending; empty strings are omitted from the body so the backend
-  /// treats them as "no change" / "clear". Throws a typed [Failure] on any
-  /// transport or server error; throws [ValidationFailure] with [fieldErrors]
-  /// when the backend returns HTTP 422.
+  /// Wraps `PATCH /independent-masters/me/profile`. All [update] fields are
+  /// trimmed before sending. Backend contract (`UserService.updateMasterProfile`):
+  ///   - `bio` and `instagram` are written whenever the key is **non-null**, so
+  ///     an empty string `''` clears them server-side. They are therefore ALWAYS
+  ///     included in the body (sending the trimmed value, `''` on clear).
+  ///   - `phoneNumber` / `firstName` / `lastName` are filtered for blank
+  ///     (`!s.isBlank()`) on the backend, so a blank phone is a no-op and cannot
+  ///     clear the value by design — `phoneNumber` is omitted when blank.
+  /// Throws a typed [Failure] on any transport or server error; throws
+  /// [ValidationFailure] with [fieldErrors] when the backend returns HTTP 422.
   Future<void> updateMyProfile(MasterUpdate update);
 }
 
@@ -160,22 +165,29 @@ final class HttpMasterRepository implements MasterRepository {
   @override
   Future<void> updateMyProfile(MasterUpdate update) async {
     // Trim all values before building the body so the backend never receives
-    // untrimmed whitespace. Optional fields are omitted when empty so the
-    // backend treats them as "no change" per its own validation rules.
+    // untrimmed whitespace.
     //
-    // Fix 5: endpoint is PATCH /independent-masters/me/profile (not /me which
-    // is the locality endpoint). Field name is 'phoneNumber' (not 'contactPhone')
-    // to match MasterProfileUpdateRequest on the backend.
+    // Endpoint: PATCH /independent-masters/me/profile (not /me, which is the
+    // locality endpoint). Field name is 'phoneNumber' (not 'contactPhone') to
+    // match MasterProfileUpdateRequest on the backend.
+    //
+    // Backend contract (UserService.updateMasterProfile):
+    //   - bio / instagram are persisted whenever the key is non-null, so an
+    //     empty string '' CLEARS them. We therefore ALWAYS include both keys,
+    //     sending the trimmed value ('' on clear) so a user-cleared field
+    //     actually persists. Omitting the key (the old bug) left the stale
+    //     server value untouched.
+    //   - phoneNumber is filtered for blank server-side (!s.isBlank()), so a
+    //     blank phone is a no-op and cannot clear by design — keep it omitted
+    //     when blank.
     final body = <String, dynamic>{
       'firstName': update.firstName,
       'lastName': update.lastName,
+      'bio': update.bio.trim(), // '' clears server-side
+      'instagram': update.instagram.trim(), // '' clears server-side
     };
-    final trimmedBio = update.bio.trim();
-    if (trimmedBio.isNotEmpty) body['bio'] = trimmedBio;
     final trimmedPhone = update.contactPhone.trim();
     if (trimmedPhone.isNotEmpty) body['phoneNumber'] = trimmedPhone;
-    final trimmedInstagram = update.instagram.trim();
-    if (trimmedInstagram.isNotEmpty) body['instagram'] = trimmedInstagram;
 
     try {
       await _dio.patch<Map<String, dynamic>>(

@@ -80,6 +80,40 @@ class AuthNotifier extends _$AuthNotifier {
   // a lightweight synchronisation primitive purely for the interceptor.
   String? coldStartAccessToken;
 
+  // Last-known access token for the *settled* authenticated session.
+  //
+  // Unlike [coldStartAccessToken] (a transient sentinel cleared the moment the
+  // Authenticated state settles), this field persists for the whole lifetime of
+  // the authenticated session and is only cleared on logout / when the session
+  // goes Unauthenticated. It exists to harden token resolution in
+  // [AuthInterceptor] against the brief window where a watcher of [authProvider]
+  // is mid-rebuild (e.g. the delete flow invalidates [masterProfileProvider],
+  // which [serviceRepositoryProvider] watches) and `_ref.read(authProvider)` is
+  // momentarily not in the `AsyncData(Authenticated)` state. In that window an
+  // in-flight request must still carry the last good Bearer token rather than
+  // be sent tokenless (which the backend correctly answers with a false 401).
+  String? _lastKnownAccessToken;
+
+  /// The best-available access token for an authenticated user, used by
+  /// [AuthInterceptor] as a fallback when [authProvider] is not currently
+  /// resolvable to an [Authenticated] [AsyncData] state.
+  ///
+  /// Resolution order:
+  ///   1. the token on the settled [Authenticated] session ([state.value]);
+  ///   2. the cold-start sentinel ([coldStartAccessToken]);
+  ///   3. the last-known token from the current authenticated session
+  ///      ([_lastKnownAccessToken]).
+  ///
+  /// Returns `null` only when there is genuinely no authenticated session
+  /// (cold start with no stored token, or after logout).
+  String? get lastKnownAccessToken {
+    // `state.value` returns the data when in AsyncData, null while loading /
+    // errored — exactly the "momentarily unresolved" window we fall back for.
+    final settled = state.value;
+    if (settled is Authenticated) return settled.accessToken;
+    return coldStartAccessToken ?? _lastKnownAccessToken;
+  }
+
   // ---------------------------------------------------------------------------
   // JWT exp pre-check (MEDIUM-4, mobile-security 2026-05-27)
   // ---------------------------------------------------------------------------
@@ -181,6 +215,9 @@ class AuthNotifier extends _$AuthNotifier {
       // AuthInterceptor can inject the Bearer header on the subsequent
       // repo.me() call while authProvider is still in AsyncLoading.
       coldStartAccessToken = tokens.accessToken;
+      // Persist the token for the whole session so the interceptor can fall
+      // back to it during any later mid-rebuild window (see [lastKnownAccessToken]).
+      _lastKnownAccessToken = tokens.accessToken;
 
       final user = await repo.me();
 
@@ -207,6 +244,7 @@ class AuthNotifier extends _$AuthNotifier {
         );
       }
       await storage.deleteAll();
+      _lastKnownAccessToken = null;
       return const AuthSession.unauthenticated();
     } catch (e, st) {
       // Catch-all — must not surface as AsyncError; the router handles
@@ -222,6 +260,7 @@ class AuthNotifier extends _$AuthNotifier {
         );
       }
       await storage.deleteAll();
+      _lastKnownAccessToken = null;
       return const AuthSession.unauthenticated();
     } finally {
       // Clear the sentinel regardless of outcome — the settled state (or the
@@ -254,6 +293,7 @@ class AuthNotifier extends _$AuthNotifier {
       // access token to the sentinel so AuthInterceptor injects the Bearer
       // header on repo.me() without triggering RefreshInterceptor.
       coldStartAccessToken = tokens.accessToken;
+      _lastKnownAccessToken = tokens.accessToken;
       final User fullUser;
       try {
         fullUser = await repo.me();
@@ -338,6 +378,7 @@ class AuthNotifier extends _$AuthNotifier {
               level: 800,
             );
           }
+          _lastKnownAccessToken = tokens.accessToken;
           return AuthSession.authenticated(
             user: user,
             accessToken: tokens.accessToken,
@@ -399,6 +440,7 @@ class AuthNotifier extends _$AuthNotifier {
       // from registration. Without this, /users/me returns 401 and firstName
       // stays null — the done screen greeting falls back to "друже".
       coldStartAccessToken = tokens.accessToken;
+      _lastKnownAccessToken = tokens.accessToken;
       final User fullUser;
       try {
         fullUser = await repo.me();
@@ -584,6 +626,7 @@ class AuthNotifier extends _$AuthNotifier {
       if (kDebugMode) {
         log('Invite accepted: user ${user.id}', name: 'auth', level: 800);
       }
+      _lastKnownAccessToken = tokens.accessToken;
       return AuthSession.authenticated(
         user: user,
         accessToken: tokens.accessToken,
@@ -599,6 +642,9 @@ class AuthNotifier extends _$AuthNotifier {
   void setAccessToken(String token) {
     final s = state.value;
     if (s is Authenticated) {
+      // Keep the interceptor's session-lifetime fallback in lock-step with the
+      // freshly-refreshed token so a mid-rebuild window never replays a stale one.
+      _lastKnownAccessToken = token;
       state = AsyncData(
         AuthSession.authenticated(user: s.user, accessToken: token),
       );
@@ -639,6 +685,10 @@ class AuthNotifier extends _$AuthNotifier {
     ref.invalidate(serviceRepositoryProvider);
     // keepAlive service list holds the previous user's data — clear on logout.
     ref.invalidate(servicesListProvider);
+    // Wipe the interceptor's session-lifetime token fallback so no request can
+    // carry a stale Bearer token after an explicit logout.
+    _lastKnownAccessToken = null;
+    coldStartAccessToken = null;
     if (kDebugMode) {
       log('Logout: session cleared', name: 'auth', level: 800);
     }

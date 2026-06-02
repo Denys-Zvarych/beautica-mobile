@@ -98,7 +98,9 @@ MasterService _serviceWithCategory(String category) => MasterService(
   name: 'Послуга',
   category: category,
   durationMinutes: 60,
-  price: 500,
+  priceType: ServicePriceType.fixed,
+  priceMin: 500,
+  priceDisplay: '500 грн',
 );
 
 /// Pumps a [ServiceForm] seeded with [initial] (edit flow). Optionally clamps
@@ -137,7 +139,13 @@ Future<void> _pumpFormWithInitial(
 void main() {
   setUpAll(() {
     registerFallbackValue(
-      const MasterServiceCreate(name: 'x', durationMinutes: 1, price: 1),
+      const MasterServiceCreate(
+        name: 'x',
+        durationMinutes: 1,
+        priceType: ServicePriceType.fixed,
+        price: 1,
+        category: 'MANICURE',
+      ),
     );
   });
 
@@ -189,7 +197,7 @@ void main() {
     );
     await tester.enterText(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
       '500',
@@ -237,7 +245,7 @@ void main() {
     );
     await tester.enterText(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
       '500',

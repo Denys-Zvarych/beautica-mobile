@@ -39,7 +39,8 @@ const _service = MasterService(
   serviceDefId: 'def-del-can',
   name: 'Манікюр',
   durationMinutes: 60,
-  price: 300.0,
+  priceMin: 300.0,
+  priceDisplay: '300 грн',
 );
 
 // ---------------------------------------------------------------------------

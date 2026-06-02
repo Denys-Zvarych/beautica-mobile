@@ -264,6 +264,15 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
     _buildingNo = TextEditingController(text: _origBuildingNo);
     _locationNote = TextEditingController(text: _origLocationNote);
 
+    // Single source of truth for dirty-tracking: a listener on every text
+    // controller rebuilds the pinned footer (and thus re-evaluates _isDirty)
+    // on every keystroke, independent of each field's per-onChanged setState.
+    // This is what guarantees the Save button enables when only firstName is
+    // edited. Listeners are removed in dispose().
+    for (final c in _editableControllers) {
+      c.addListener(_onFormChanged);
+    }
+
     // Snapshot the original locality IDs for pristine detection. These are
     // updated again in _prePopulateLocality once the domain objects resolve,
     // but setting them here from the raw UUIDs ensures _isDirty is correct
@@ -293,59 +302,55 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
   /// Uses [ref.read] (one-shot) — no continuous watching needed here.
   /// Silently no-ops on any exception (provider not yet loaded / network error).
   Future<void> _prePopulateLocality(Master master) async {
+    // Resolved objects — default to null so that any unresolved/failed seed
+    // leaves both the _selected* AND the _orig*Id side null (see reconcile
+    // block below). This keeps the dirty/pristine pair symmetric.
+    Oblast? matchedOblast;
+    City? matchedCity;
+    CityDistrict? matchedDistrict;
+
     try {
       // ----- Oblast -----
       final oblastId = master.oblastId;
-      if (oblastId == null) return;
-
-      final oblasts = await ref.read(oblastListProvider.future);
-      Oblast? matchedOblast;
-      for (final o in oblasts) {
-        if (o.id == oblastId) {
-          matchedOblast = o;
-          break;
-        }
-      }
-      if (matchedOblast == null) return;
-
-      // ----- City -----
-      final cityId = master.cityId;
-      City? matchedCity;
-      if (cityId != null) {
-        final cities = await ref.read(
-          cityListProvider(matchedOblast.id).future,
-        );
-        for (final c in cities) {
-          if (c.id == cityId) {
-            matchedCity = c;
+      if (oblastId != null) {
+        final oblasts = await ref.read(oblastListProvider.future);
+        for (final o in oblasts) {
+          if (o.id == oblastId) {
+            matchedOblast = o;
             break;
           }
         }
-      }
 
-      // ----- District (optional) -----
-      final districtId = master.districtId;
-      CityDistrict? matchedDistrict;
-      if (districtId != null &&
-          matchedCity != null &&
-          matchedCity.hasDistricts) {
-        final districts = await ref.read(
-          districtListProvider(matchedCity.id).future,
-        );
-        for (final d in districts) {
-          if (d.id == districtId) {
-            matchedDistrict = d;
-            break;
+        // ----- City ----- (only reachable if the oblast resolved)
+        final cityId = master.cityId;
+        if (matchedOblast != null && cityId != null) {
+          final cities = await ref.read(
+            cityListProvider(matchedOblast.id).future,
+          );
+          for (final c in cities) {
+            if (c.id == cityId) {
+              matchedCity = c;
+              break;
+            }
+          }
+        }
+
+        // ----- District (optional) -----
+        final districtId = master.districtId;
+        if (districtId != null &&
+            matchedCity != null &&
+            matchedCity.hasDistricts) {
+          final districts = await ref.read(
+            districtListProvider(matchedCity.id).future,
+          );
+          for (final d in districts) {
+            if (d.id == districtId) {
+              matchedDistrict = d;
+              break;
+            }
           }
         }
       }
-
-      if (!mounted) return;
-      setState(() {
-        _selectedOblast = matchedOblast;
-        _selectedCity = matchedCity;
-        _selectedDistrict = matchedDistrict;
-      });
     } catch (e, st) {
       log(
         'Locality pre-population failed — cascade will be empty',
@@ -354,24 +359,34 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
         error: e,
         stackTrace: st,
       );
-      // Leave the cascade empty; the user can re-select.
+      // Swallow: leave whatever resolved so far. The reconcile block below
+      // still runs so the orig/selected pair stays consistent.
     }
+
+    if (!mounted) return;
+    setState(() {
+      _selectedOblast = matchedOblast;
+      _selectedCity = matchedCity;
+      _selectedDistrict = matchedDistrict;
+      // Reconcile the pristine snapshot with what actually resolved. If a seed
+      // UUID could not be resolved to a domain object (lookup miss, network
+      // error, or a swallowed throw), the corresponding _selected* is null —
+      // so clear its _orig*Id too. Otherwise an unresolved seed would leave
+      // _orig*Id non-null while _selected* is null, falsely marking the form
+      // dirty (or, in the inverse, falsely clean). Setting _orig*Id to the
+      // resolved object's id keeps _isDirty correct in every case.
+      _origOblastId = matchedOblast?.id;
+      _origCityId = matchedCity?.id;
+      _origDistrictId = matchedDistrict?.id;
+    });
   }
 
   @override
   void dispose() {
     if (!kDebugMode) ScreenProtector.preventScreenshotOff();
     if (_initialized) {
-      for (final c in <TextEditingController>[
-        _firstName,
-        _lastName,
-        _bio,
-        _phone,
-        _instagram,
-        _street,
-        _buildingNo,
-        _locationNote,
-      ]) {
+      for (final c in _editableControllers) {
+        c.removeListener(_onFormChanged);
         c.dispose();
       }
     }
@@ -389,6 +404,28 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
+
+  /// All editable text controllers, in one place so the dirty-tracking
+  /// listeners are attached (in _maybeInit) and detached (in dispose) from a
+  /// single source of truth. Only valid after _initialized is true.
+  List<TextEditingController> get _editableControllers =>
+      <TextEditingController>[
+        _firstName,
+        _lastName,
+        _bio,
+        _phone,
+        _instagram,
+        _street,
+        _buildingNo,
+        _locationNote,
+      ];
+
+  /// Listener attached to every text controller. Rebuilds the form so the
+  /// pinned footer's enabled/disabled state (driven by [_isDirty]) stays in
+  /// sync with the latest text on every keystroke.
+  void _onFormChanged() {
+    if (mounted) setState(() {});
+  }
 
   bool get _isDirty =>
       _initialized &&
@@ -493,19 +530,33 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
 
   /// Returns true when the location section is fully valid (or untouched).
   ///
-  /// The location section is considered "touched" when ANY of the following
-  /// is true: a city is selected, street is non-empty, or buildingNo is
-  /// non-empty. When untouched the whole section is optional and this method
-  /// returns true without setting any errors.
+  /// The location section's required-address rule only kicks in when the user
+  /// is *actively editing* the address — i.e. the section is dirty relative to
+  /// its saved seed (`_origCityId`/`_origStreet`/`_origBuildingNo`, same fields
+  /// `_isDirty` compares), OR the user has started entering an address (street
+  /// or buildingNo non-empty). A pre-populated city with an empty street/
+  /// building (a saved master with a partial address) must NOT force the fields
+  /// to be required, otherwise Save silently aborts on an untouched section.
   bool _validateLocation() {
     final l10n = AppLocalizations.of(context);
     final citySelected = _selectedCity != null;
     final streetFilled = _street.text.trim().isNotEmpty;
     final buildingFilled = _buildingNo.text.trim().isNotEmpty;
 
-    final touched = citySelected || streetFilled || buildingFilled;
-    if (!touched) {
-      // Section is entirely untouched — skip location validation.
+    // Dirty vs. the saved seed — mirrors the location slice of [_isDirty].
+    final locationDirty =
+        _selectedOblast?.id != _origOblastId ||
+        _selectedCity?.id != _origCityId ||
+        _selectedDistrict?.id != _origDistrictId ||
+        _street.text.trim() != _origStreet ||
+        _buildingNo.text.trim() != _origBuildingNo ||
+        _locationNote.text.trim() != _origLocationNote;
+
+    // The address is only "in play" when the user is actually entering one or
+    // changing the saved value. A seeded-but-unmodified section is optional.
+    final editingAddress = streetFilled || buildingFilled || locationDirty;
+    if (!editingAddress) {
+      // Section unchanged from its seed and no address entered — skip.
       setState(() {
         _errCity = null;
         _errStreet = null;
@@ -514,7 +565,9 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       return true;
     }
 
-    // Presence checks — city, street and buildingNo are all required when touched.
+    // Presence checks — when actively editing an address, city, street and
+    // buildingNo are all required so a half-entered address surfaces inline
+    // errors on the missing fields.
     String? errCity = !citySelected ? l10n.errRequired : null;
     String? errStreet = !streetFilled ? l10n.errRequired : null;
     String? errBuildingNo = !buildingFilled ? l10n.errRequired : null;
@@ -572,7 +625,21 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       _errBuildingNo = null;
     });
 
-    if (!_validateAndUpdateErrors()) return;
+    if (!_validateAndUpdateErrors()) {
+      // Defense-in-depth: the inline errors live higher up the scroll view
+      // while the Save button is pinned at the bottom, so a silent return
+      // looks like a dead button. Surface a summary SnackBar so the user
+      // knows why nothing happened. Matches the success-branch style.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            key: const Key('snackbar-validation-summary'),
+            content: Text(AppLocalizations.of(context).editValidationSummary),
+          ),
+        );
+      }
+      return;
+    }
 
     setState(() => _saving = true);
 
@@ -637,11 +704,47 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       });
       // Re-mirror server errors into VelvetField errorText state.
       _validateAndUpdateErrors();
+      // Defensive guard: a 400 with an EMPTY field map can highlight no input,
+      // so the inline mirroring above renders nothing — the original "dead
+      // Save" bug. Surface a generic SnackBar from the server message (or a
+      // localized fallback) so the user always gets feedback, even if the
+      // backend validation contract drifts again.
+      if (f.fieldErrors.isEmpty) {
+        final serverMessage = f.serverMessage?.trim();
+        final text = (serverMessage != null && serverMessage.isNotEmpty)
+            ? serverMessage
+            : AppLocalizations.of(context).errValidation;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            key: const Key('snackbar-validation-error'),
+            content: Text(text),
+          ),
+        );
+      }
     } on Failure catch (f) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(f.userMessage(context))));
+      setState(() => _saving = false);
+    } catch (e, st) {
+      // Catch-all: any non-Failure throw (e.g. TypeError / StateError) would
+      // otherwise propagate uncaught, the finally would clear _saving, and the
+      // user would see NO feedback — the original "absolutely nothing happens"
+      // bug. Surface a generic error SnackBar so Save always reacts.
+      if (kDebugMode) {
+        log(
+          'updateMyProfile unexpected error',
+          name: 'feature.master',
+          level: 1000,
+          error: e,
+          stackTrace: st,
+        );
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).errUnknown)),
+      );
       setState(() => _saving = false);
     } finally {
       if (mounted && _saving) setState(() => _saving = false);
@@ -898,7 +1001,6 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               label: l10n.phoneLabel,
                               controller: _phone,
                               enabled: !_saving,
-                              optional: true,
                               keyboardType: TextInputType.phone,
                               inputFormatters: const <UaPhoneInputFormatter>[
                                 UaPhoneInputFormatter(),

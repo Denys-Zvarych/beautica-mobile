@@ -53,7 +53,9 @@ const _stubService = MasterService(
   serviceDefId: 'def-edit-1',
   name: 'Стрижка жіноча',
   durationMinutes: 60,
-  price: 750.0,
+  priceType: ServicePriceType.fixed,
+  priceMin: 750.0,
+  priceDisplay: '750 грн',
   // Category is required by the backend; the edit form pre-selects it so a
   // pristine save passes validation.
   category: 'HAIRCUT',
@@ -266,14 +268,19 @@ void main() {
     expect(nameField.controller!.text, equals(_stubService.name));
   });
 
-  // ── 3. Price shows as "750" not "750.0" ───────────────────────────────────
+  // ── 3. Price pre-fills as "750" (FIXED mode) not "750.0" ────────────────────
+  //
+  // Phase 5.6: the single price field was replaced by PricingField. For a FIXED
+  // service the toggle opens in FIXED mode and the fixed-amount field is pre-filled
+  // from priceMin. The test checks via the pricing-fixed-amount inset key.
 
   testWidgets('3. price displays as integer string not double', (tester) async {
     await _pumpEdit(tester, repo);
 
+    // The fixed-amount field is keyed as 'pricing-fixed-amount' inside PricingField.
     final priceField = tester.widget<TextField>(
       find.descendant(
-        of: find.byKey(const Key('field-service-price')),
+        of: find.byKey(const Key('pricing-fixed-amount')),
         matching: find.byType(TextField),
       ),
     );
@@ -415,6 +422,13 @@ void main() {
 
     // Empty state: camera icon is present.
     expect(find.byIcon(Icons.add_a_photo_rounded), findsOneWidget);
+
+    // FIX 2: the "Обкладинка сервісу у списку" cover subtitle was removed.
+    expect(
+      find.text('Обкладинка сервісу у списку'),
+      findsNothing,
+      reason: 'the cover-subtitle line must no longer render (FIX 2)',
+    );
   });
 
   // ── 8. ServicePhotoSlot — filled state ───────────────────────────────────
@@ -573,7 +587,8 @@ void main() {
         serviceDefId: 'def-haircut',
         name: 'Стрижка',
         durationMinutes: 45,
-        price: 400.0,
+        priceMin: 400.0,
+        priceDisplay: '400 грн',
         category: 'HAIRCUT',
       );
 
@@ -617,7 +632,8 @@ void main() {
       serviceDefId: 'def-eyelash',
       name: 'Вії',
       durationMinutes: 90,
-      price: 600.0,
+      priceMin: 600.0,
+      priceDisplay: '600 грн',
       category: 'EYELASH',
     );
 
@@ -654,6 +670,137 @@ void main() {
           'baseline value',
     );
   });
+
+  // ── FIX 3. Changing category is persisted in the saved MasterServiceUpdate ─
+  //
+  // Regression: onSave previously built MasterServiceUpdate WITHOUT category,
+  // so a category change silently never persisted. Assert the captured patch
+  // carries the newly-selected slug.
+
+  testWidgets(
+    'FIX 3. changing category and saving sends category in MasterServiceUpdate',
+    (tester) async {
+      const manicureService = MasterService(
+        id: 'svc-mani',
+        serviceDefId: 'def-mani',
+        name: 'Манікюр класичний',
+        durationMinutes: 60,
+        priceMin: 500.0,
+        priceDisplay: '500 грн',
+        category: 'MANICURE',
+      );
+
+      when(
+        () => repo.listMyServices(),
+      ).thenAnswer((_) async => const <MasterService>[manicureService]);
+      when(
+        () => repo.getMyService(manicureService.id),
+      ).thenAnswer((_) async => manicureService);
+      // Approved categories must include both MANICURE (baseline) and BROWS
+      // (the new selection) so both chips render.
+      when(() => repo.fetchApprovedCategories()).thenAnswer(
+        (_) async => const <ServiceCategoryOption>[
+          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+          ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+        ],
+      );
+      when(
+        () => repo.update(
+          manicureService.serviceDefId,
+          any(),
+          assignmentId: manicureService.id,
+        ),
+      ).thenAnswer((_) async => manicureService);
+
+      await _pumpEdit(tester, repo, id: manicureService.id);
+
+      // Switch category MANICURE → BROWS.
+      await tester.ensureVisible(find.byKey(const Key('chip-category-BROWS')));
+      await tester.tap(find.byKey(const Key('chip-category-BROWS')));
+      await tester.pump();
+
+      // Save.
+      await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      // Capture the patch passed to repository.update and assert its category.
+      final captured =
+          verify(
+                () => repo.update(
+                  manicureService.serviceDefId,
+                  captureAny(),
+                  assignmentId: manicureService.id,
+                ),
+              ).captured.single
+              as MasterServiceUpdate;
+
+      expect(
+        captured.category,
+        'BROWS',
+        reason:
+            'the newly-selected category must be threaded into '
+            'MasterServiceUpdate (FIX 3)',
+      );
+    },
+  );
+
+  // ── B3. RANGE pre-fill (HIGH gap) ─────────────────────────────────────────
+  //
+  // Pumps the edit screen with a RANGE service and verifies:
+  //   - The toggle rests on RANGE (range fields visible, fixed field absent).
+  //   - pricing-range-min pre-fills from priceMin.
+  //   - pricing-range-max pre-fills from priceMax.
+
+  testWidgets(
+    'B3. RANGE service pre-fills toggle in RANGE mode with correct min/max',
+    (tester) async {
+      const rangeService = MasterService(
+        id: 'svc-range-1',
+        serviceDefId: 'def-range-1',
+        name: 'Процедура',
+        durationMinutes: 60,
+        priceType: ServicePriceType.range,
+        priceMin: 500.0,
+        priceMax: 800.0,
+        priceDisplay: 'від 500 до 800 грн',
+      );
+
+      when(
+        () => repo.listMyServices(),
+      ).thenAnswer((_) async => const <MasterService>[rangeService]);
+      when(
+        () => repo.getMyService(rangeService.id),
+      ).thenAnswer((_) async => rangeService);
+
+      await _pumpEdit(tester, repo, id: rangeService.id);
+
+      // Toggle rests on RANGE: range fields visible, fixed field absent.
+      expect(find.byKey(const Key('pricing-range-min')), findsOneWidget);
+      expect(find.byKey(const Key('pricing-range-max')), findsOneWidget);
+      expect(find.byKey(const Key('pricing-fixed-amount')), findsNothing);
+
+      // Min field text must equal '500' (integer, not '500.0').
+      final minField = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('pricing-range-min')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(minField.controller!.text, equals('500'));
+
+      // Max field text must equal '800'.
+      final maxField = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('pricing-range-max')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(maxField.controller!.text, equals('800'));
+    },
+  );
 
   tearDownAll(() {});
 }

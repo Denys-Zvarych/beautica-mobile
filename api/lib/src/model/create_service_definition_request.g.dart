@@ -6,6 +6,69 @@ part of 'create_service_definition_request.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
+const CreateServiceDefinitionRequestPriceTypeEnum
+    _$createServiceDefinitionRequestPriceTypeEnum_FIXED =
+    const CreateServiceDefinitionRequestPriceTypeEnum._('FIXED');
+const CreateServiceDefinitionRequestPriceTypeEnum
+    _$createServiceDefinitionRequestPriceTypeEnum_RANGE =
+    const CreateServiceDefinitionRequestPriceTypeEnum._('RANGE');
+
+CreateServiceDefinitionRequestPriceTypeEnum
+    _$createServiceDefinitionRequestPriceTypeEnumValueOf(String name) {
+  switch (name) {
+    case 'FIXED':
+      return _$createServiceDefinitionRequestPriceTypeEnum_FIXED;
+    case 'RANGE':
+      return _$createServiceDefinitionRequestPriceTypeEnum_RANGE;
+    default:
+      throw ArgumentError(name);
+  }
+}
+
+final BuiltSet<CreateServiceDefinitionRequestPriceTypeEnum>
+    _$createServiceDefinitionRequestPriceTypeEnumValues = BuiltSet<
+        CreateServiceDefinitionRequestPriceTypeEnum>(const <CreateServiceDefinitionRequestPriceTypeEnum>[
+  _$createServiceDefinitionRequestPriceTypeEnum_FIXED,
+  _$createServiceDefinitionRequestPriceTypeEnum_RANGE,
+]);
+
+Serializer<CreateServiceDefinitionRequestPriceTypeEnum>
+    _$createServiceDefinitionRequestPriceTypeEnumSerializer =
+    _$CreateServiceDefinitionRequestPriceTypeEnumSerializer();
+
+class _$CreateServiceDefinitionRequestPriceTypeEnumSerializer
+    implements
+        PrimitiveSerializer<CreateServiceDefinitionRequestPriceTypeEnum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'FIXED': 'FIXED',
+    'RANGE': 'RANGE',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'FIXED': 'FIXED',
+    'RANGE': 'RANGE',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[
+    CreateServiceDefinitionRequestPriceTypeEnum
+  ];
+  @override
+  final String wireName = 'CreateServiceDefinitionRequestPriceTypeEnum';
+
+  @override
+  Object serialize(Serializers serializers,
+          CreateServiceDefinitionRequestPriceTypeEnum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  CreateServiceDefinitionRequestPriceTypeEnum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      CreateServiceDefinitionRequestPriceTypeEnum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$CreateServiceDefinitionRequest extends CreateServiceDefinitionRequest {
   @override
   final String name;
@@ -16,9 +79,15 @@ class _$CreateServiceDefinitionRequest extends CreateServiceDefinitionRequest {
   @override
   final int baseDurationMinutes;
   @override
-  final num basePrice;
-  @override
   final int? bufferMinutesAfter;
+  @override
+  final CreateServiceDefinitionRequestPriceTypeEnum priceType;
+  @override
+  final num? price;
+  @override
+  final num? priceMin;
+  @override
+  final num? priceMax;
   @override
   final String? serviceTypeId;
 
@@ -31,8 +100,11 @@ class _$CreateServiceDefinitionRequest extends CreateServiceDefinitionRequest {
       this.description,
       required this.category,
       required this.baseDurationMinutes,
-      required this.basePrice,
       this.bufferMinutesAfter,
+      required this.priceType,
+      this.price,
+      this.priceMin,
+      this.priceMax,
       this.serviceTypeId})
       : super._();
   @override
@@ -52,8 +124,11 @@ class _$CreateServiceDefinitionRequest extends CreateServiceDefinitionRequest {
         description == other.description &&
         category == other.category &&
         baseDurationMinutes == other.baseDurationMinutes &&
-        basePrice == other.basePrice &&
         bufferMinutesAfter == other.bufferMinutesAfter &&
+        priceType == other.priceType &&
+        price == other.price &&
+        priceMin == other.priceMin &&
+        priceMax == other.priceMax &&
         serviceTypeId == other.serviceTypeId;
   }
 
@@ -64,8 +139,11 @@ class _$CreateServiceDefinitionRequest extends CreateServiceDefinitionRequest {
     _$hash = $jc(_$hash, description.hashCode);
     _$hash = $jc(_$hash, category.hashCode);
     _$hash = $jc(_$hash, baseDurationMinutes.hashCode);
-    _$hash = $jc(_$hash, basePrice.hashCode);
     _$hash = $jc(_$hash, bufferMinutesAfter.hashCode);
+    _$hash = $jc(_$hash, priceType.hashCode);
+    _$hash = $jc(_$hash, price.hashCode);
+    _$hash = $jc(_$hash, priceMin.hashCode);
+    _$hash = $jc(_$hash, priceMax.hashCode);
     _$hash = $jc(_$hash, serviceTypeId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -78,8 +156,11 @@ class _$CreateServiceDefinitionRequest extends CreateServiceDefinitionRequest {
           ..add('description', description)
           ..add('category', category)
           ..add('baseDurationMinutes', baseDurationMinutes)
-          ..add('basePrice', basePrice)
           ..add('bufferMinutesAfter', bufferMinutesAfter)
+          ..add('priceType', priceType)
+          ..add('price', price)
+          ..add('priceMin', priceMin)
+          ..add('priceMax', priceMax)
           ..add('serviceTypeId', serviceTypeId))
         .toString();
   }
@@ -108,14 +189,28 @@ class CreateServiceDefinitionRequestBuilder
   set baseDurationMinutes(int? baseDurationMinutes) =>
       _$this._baseDurationMinutes = baseDurationMinutes;
 
-  num? _basePrice;
-  num? get basePrice => _$this._basePrice;
-  set basePrice(num? basePrice) => _$this._basePrice = basePrice;
-
   int? _bufferMinutesAfter;
   int? get bufferMinutesAfter => _$this._bufferMinutesAfter;
   set bufferMinutesAfter(int? bufferMinutesAfter) =>
       _$this._bufferMinutesAfter = bufferMinutesAfter;
+
+  CreateServiceDefinitionRequestPriceTypeEnum? _priceType;
+  CreateServiceDefinitionRequestPriceTypeEnum? get priceType =>
+      _$this._priceType;
+  set priceType(CreateServiceDefinitionRequestPriceTypeEnum? priceType) =>
+      _$this._priceType = priceType;
+
+  num? _price;
+  num? get price => _$this._price;
+  set price(num? price) => _$this._price = price;
+
+  num? _priceMin;
+  num? get priceMin => _$this._priceMin;
+  set priceMin(num? priceMin) => _$this._priceMin = priceMin;
+
+  num? _priceMax;
+  num? get priceMax => _$this._priceMax;
+  set priceMax(num? priceMax) => _$this._priceMax = priceMax;
 
   String? _serviceTypeId;
   String? get serviceTypeId => _$this._serviceTypeId;
@@ -133,8 +228,11 @@ class CreateServiceDefinitionRequestBuilder
       _description = $v.description;
       _category = $v.category;
       _baseDurationMinutes = $v.baseDurationMinutes;
-      _basePrice = $v.basePrice;
       _bufferMinutesAfter = $v.bufferMinutesAfter;
+      _priceType = $v.priceType;
+      _price = $v.price;
+      _priceMin = $v.priceMin;
+      _priceMax = $v.priceMax;
       _serviceTypeId = $v.serviceTypeId;
       _$v = null;
     }
@@ -166,9 +264,12 @@ class CreateServiceDefinitionRequestBuilder
               baseDurationMinutes,
               r'CreateServiceDefinitionRequest',
               'baseDurationMinutes'),
-          basePrice: BuiltValueNullFieldError.checkNotNull(
-              basePrice, r'CreateServiceDefinitionRequest', 'basePrice'),
           bufferMinutesAfter: bufferMinutesAfter,
+          priceType: BuiltValueNullFieldError.checkNotNull(
+              priceType, r'CreateServiceDefinitionRequest', 'priceType'),
+          price: price,
+          priceMin: priceMin,
+          priceMax: priceMax,
           serviceTypeId: serviceTypeId,
         );
     replace(_$result);

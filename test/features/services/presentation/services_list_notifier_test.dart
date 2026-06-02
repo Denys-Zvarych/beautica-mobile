@@ -35,7 +35,8 @@ const _stubService = MasterService(
   serviceDefId: 'def-001',
   name: 'Стрижка',
   durationMinutes: 45,
-  price: 750,
+  priceMin: 750,
+  priceDisplay: '750 грн',
 );
 
 const _stubServiceList = <MasterService>[_stubService];

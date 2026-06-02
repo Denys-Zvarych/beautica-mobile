@@ -102,7 +102,11 @@ final class InvalidCredentialsFailure extends Failure {
 /// server-supplied message. Screens that show per-field inline errors
 /// should switch on this subtype and read [fieldErrors].
 final class ValidationFailure extends Failure {
-  const ValidationFailure({required this.fieldErrors, super.cause});
+  const ValidationFailure({
+    required this.fieldErrors,
+    this.serverMessage,
+    super.cause,
+  });
 
   /// Server-supplied field error messages keyed by field name / JSON path.
   ///
@@ -110,6 +114,16 @@ final class ValidationFailure extends Failure {
   /// sanitizing or truncating them — server strings are untrusted input.
   /// Use [userMessage] for a safe localized summary.
   final Map<String, String> fieldErrors;
+
+  /// Top-level server `message` from the 400/422 envelope, if any.
+  ///
+  /// Captured so the UI can show a generic SnackBar even when [fieldErrors]
+  /// is empty (no field could be highlighted inline). This is the durable
+  /// guard against a backend contract that returns a 400 with no usable
+  /// field map — without it the Save button could die silently with no
+  /// feedback. Truncated/sanitized by [ErrorMapperInterceptor]; may be `null`
+  /// or blank, in which case callers fall back to a localized string.
+  final String? serverMessage;
 
   @override
   String userMessage(BuildContext ctx) =>

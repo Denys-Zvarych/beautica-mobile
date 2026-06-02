@@ -646,7 +646,12 @@ class _ProfileBody extends StatelessWidget {
                               duration: DurationMinutes.format(
                                 displayed[i].durationMinutes,
                               ),
-                              price: CurrencyUah.format(displayed[i].price),
+                              // Phase 5.6: render from server-formatted priceDisplay.
+                              // Fallback to CurrencyUah.format(priceMin) for pre-V67
+                              // data where priceDisplay may be empty.
+                              price: displayed[i].priceDisplay.isNotEmpty
+                                  ? displayed[i].priceDisplay
+                                  : CurrencyUah.format(displayed[i].priceMin),
                               photoGradient: const <Color>[
                                 Color(0xFFD4B896),
                                 Color(0xFF8A6840),

@@ -17,6 +17,7 @@
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:dio/dio.dart';
@@ -42,12 +43,17 @@ const _serviceDefId = 'def-001';
 const _listPath = '/api/v1/masters/$_masterId/services';
 
 /// Builds a [ServiceDefinitionResponse] with sensible defaults.
+/// Phase 5.6: uses priceType/priceMin/priceMax instead of basePrice.
 ServiceDefinitionResponse _buildDef({
   String id = 'def-001',
   String name = 'Манікюр',
   String? description,
   int baseDurationMinutes = 60,
-  num basePrice = 500,
+  ServiceDefinitionResponsePriceTypeEnum priceType =
+      ServiceDefinitionResponsePriceTypeEnum.FIXED,
+  num priceMin = 500,
+  num? priceMax,
+  String? priceDisplay,
   int? bufferMinutesAfter,
   bool isActive = true,
 }) =>
@@ -56,7 +62,10 @@ ServiceDefinitionResponse _buildDef({
           ..name = name
           ..description = description
           ..baseDurationMinutes = baseDurationMinutes
-          ..basePrice = basePrice
+          ..priceType = priceType
+          ..priceMin = priceMin
+          ..priceMax = priceMax
+          ..priceDisplay = priceDisplay ?? '${priceMin.toInt()} грн'
           ..bufferMinutesAfter = bufferMinutesAfter
           ..isActive = isActive)
         .build();
@@ -153,7 +162,8 @@ void main() {
         (b) => b
           ..name = 'fallback'
           ..baseDurationMinutes = 30
-          ..basePrice = 100
+          ..priceType = CreateServiceDefinitionRequestPriceTypeEnum.FIXED
+          ..price = 100
           ..category = 'FALLBACK',
       ),
     );
@@ -193,7 +203,8 @@ void main() {
         serviceDefinition: _buildDef(
           name: 'Манікюр',
           baseDurationMinutes: 60,
-          basePrice: 500,
+          priceMin: 500,
+          priceDisplay: '500 грн',
         ),
         isActive: true,
       );
@@ -203,9 +214,10 @@ void main() {
           id: 'def-002',
           name: 'Педикюр',
           baseDurationMinutes: 90,
-          basePrice: 700,
+          priceMin: 700,
+          priceDisplay: '700 грн',
         ),
-        // effectivePrice overrides basePrice for dto2
+        // effectivePrice is the floor for booking but priceMin is used for domain.
         effectivePrice: 650,
         isActive: true,
       );
@@ -218,24 +230,21 @@ void main() {
 
       expect(result.length, 2);
 
-      // First item — base price/duration used (no overrides)
+      // First item — priceMin = 500.
       final first = result.first;
       expect(first.id, 'svc-001');
       expect(first.name, 'Манікюр');
       expect(first.durationMinutes, 60);
-      expect(first.price, 500.0);
+      expect(first.priceMin, 500.0);
+      expect(first.priceDisplay, '500 грн');
       expect(first.isActive, isTrue);
 
-      // Second item — effectivePrice override applies
+      // Second item — priceMin = 700 (from serviceDefinition).
       final second = result[1];
       expect(second.id, 'svc-002');
       expect(second.name, 'Педикюр');
       expect(second.durationMinutes, 90);
-      expect(
-        second.price,
-        650.0,
-        reason: 'effectivePrice override must take precedence over basePrice',
-      );
+      expect(second.priceMin, 700.0);
       expect(second.isActive, isTrue);
     });
 
@@ -257,61 +266,69 @@ void main() {
   // ── 3. create — happy path ─────────────────────────────────────────────────
 
   group('create', () {
-    test('calls addIndependentMasterService with correct fields', () async {
-      final dto = _buildMasterServiceDto(
-        id: 'svc-new',
-        serviceDefinition: _buildDef(
-          name: 'Брови',
-          baseDurationMinutes: 45,
-          basePrice: 350,
-        ),
-      );
-
-      when(
-        () => serviceApi.addIndependentMasterService(
-          createServiceDefinitionRequest: any(
-            named: 'createServiceDefinitionRequest',
+    test(
+      'calls addIndependentMasterService with correct fields (FIXED)',
+      () async {
+        final dto = _buildMasterServiceDto(
+          id: 'svc-new',
+          serviceDefinition: _buildDef(
+            name: 'Брови',
+            baseDurationMinutes: 45,
+            priceMin: 350,
+            priceDisplay: '350 грн',
           ),
-        ),
-      ).thenAnswer((_) async => _singleResponse(dto));
+        );
 
-      const input = MasterServiceCreate(
-        name: 'Брови',
-        durationMinutes: 45,
-        price: 350.0,
-        description: 'Оформлення брів',
-        category: 'BROWS',
-      );
+        when(
+          () => serviceApi.addIndependentMasterService(
+            createServiceDefinitionRequest: any(
+              named: 'createServiceDefinitionRequest',
+            ),
+          ),
+        ).thenAnswer((_) async => _singleResponse(dto));
 
-      final result = await repository.create(input);
+        const input = MasterServiceCreate(
+          name: 'Брови',
+          durationMinutes: 45,
+          priceType: ServicePriceType.fixed,
+          price: 350.0,
+          description: 'Оформлення брів',
+          category: 'BROWS',
+        );
 
-      expect(result.id, 'svc-new');
-      expect(result.name, 'Брови');
-      expect(result.price, 350.0);
+        final result = await repository.create(input);
 
-      // Verify the generated request carried the correct fields.
-      final captured =
-          verify(
-                () => serviceApi.addIndependentMasterService(
-                  createServiceDefinitionRequest: captureAny(
-                    named: 'createServiceDefinitionRequest',
+        expect(result.id, 'svc-new');
+        expect(result.name, 'Брови');
+        expect(result.priceMin, 350.0);
+
+        // Verify the generated request carried the correct fields.
+        final captured =
+            verify(
+                  () => serviceApi.addIndependentMasterService(
+                    createServiceDefinitionRequest: captureAny(
+                      named: 'createServiceDefinitionRequest',
+                    ),
                   ),
-                ),
-              ).captured.single
-              as CreateServiceDefinitionRequest;
+                ).captured.single
+                as CreateServiceDefinitionRequest;
 
-      expect(captured.name, 'Брови');
-      expect(captured.baseDurationMinutes, 45);
-      expect(captured.basePrice, 350.0);
-      expect(captured.description, 'Оформлення брів');
-      // category is now required and forwarded as a plain wire String.
-      expect(captured.category, 'BROWS');
-    });
+        expect(captured.name, 'Брови');
+        expect(captured.baseDurationMinutes, 45);
+        expect(
+          captured.priceType,
+          CreateServiceDefinitionRequestPriceTypeEnum.FIXED,
+        );
+        expect(captured.price, 350.0);
+        expect(captured.description, 'Оформлення брів');
+        expect(captured.category, 'BROWS');
+      },
+    );
 
     // ── 4. create — invalid input → ArgumentError (local; no network call) ───
 
     test(
-      'throws ArgumentError for negative price before any network call',
+      'throws ArgumentError for zero price (FIXED) before any network call',
       () async {
         // No mock set up for serviceApi — if the network call were made the
         // test would fail with a "no stub found" error from mocktail, which
@@ -321,7 +338,9 @@ void main() {
             const MasterServiceCreate(
               name: 'Invalid',
               durationMinutes: 30,
-              price: -1,
+              priceType: ServicePriceType.fixed,
+              price: 0,
+              category: 'MANICURE',
             ),
           ),
           throwsA(isA<ArgumentError>()),
@@ -346,7 +365,9 @@ void main() {
             const MasterServiceCreate(
               name: 'Invalid',
               durationMinutes: 0,
+              priceType: ServicePriceType.fixed,
               price: 100,
+              category: 'MANICURE',
             ),
           ),
           throwsA(isA<ArgumentError>()),
@@ -385,6 +406,7 @@ void main() {
           const MasterServiceCreate(
             name: 'Test',
             durationMinutes: 30,
+            priceType: ServicePriceType.fixed,
             price: 100,
             category: 'MANICURE',
           ),
@@ -486,7 +508,8 @@ void main() {
           id: _serviceDefId,
           name: 'Манікюр Оновлений',
           baseDurationMinutes: 75,
-          basePrice: 600,
+          priceMin: 600,
+          priceDisplay: '600 грн',
         );
 
         when(
@@ -501,6 +524,7 @@ void main() {
         const patch = MasterServiceUpdate(
           name: 'Манікюр Оновлений',
           durationMinutes: 75,
+          priceType: ServicePriceType.fixed,
           price: 600.0,
         );
 
@@ -515,7 +539,7 @@ void main() {
         expect(result.serviceDefId, _serviceDefId);
         expect(result.name, 'Манікюр Оновлений');
         expect(result.durationMinutes, 75);
-        expect(result.price, 600.0);
+        expect(result.priceMin, 600.0);
 
         // Verify the call used the serviceDefId path param (not the assignment
         // id) and forwarded a request with the mapped wire fields.
@@ -531,7 +555,11 @@ void main() {
                 as UpdateServiceDefinitionRequest;
         expect(captured.name, 'Манікюр Оновлений');
         expect(captured.baseDurationMinutes, 75);
-        expect(captured.basePrice, 600.0);
+        expect(
+          captured.priceType,
+          UpdateServiceDefinitionRequestPriceTypeEnum.FIXED,
+        );
+        expect(captured.price, 600.0);
 
         // The list endpoint must NOT have been called (no extra round-trip).
         verifyNever(
@@ -541,12 +569,15 @@ void main() {
     );
 
     test(
-      'throws ArgumentError for negative price in update before network call',
+      'throws ArgumentError for zero/invalid FIXED price in update before network call',
       () async {
         await expectLater(
           repository.update(
             _serviceDefId,
-            const MasterServiceUpdate(price: -50.0),
+            const MasterServiceUpdate(
+              priceType: ServicePriceType.fixed,
+              price: 0,
+            ),
             assignmentId: _serviceId,
           ),
           throwsA(isA<ArgumentError>()),
@@ -599,7 +630,9 @@ void main() {
             const MasterServiceCreate(
               name: 'Test',
               durationMinutes: 30,
+              priceType: ServicePriceType.fixed,
               price: 100,
+              category: 'MANICURE',
             ),
           ),
           throwsA(isA<UnauthorizedFailure>()),

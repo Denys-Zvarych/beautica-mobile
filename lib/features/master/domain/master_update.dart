@@ -9,8 +9,10 @@
 /// Editable profile fields for INDEPENDENT_MASTER.
 ///
 /// All fields are optional at the Dart level — pass empty string for fields
-/// the user cleared. The repository trims each value before sending to the
-/// backend; the backend ignores null-equivalent fields.
+/// the user cleared. The repository trims each value before sending. Per the
+/// backend contract: an empty [bio] / [instagram] CLEARS the value server-side
+/// (the key is always sent), whereas a blank [contactPhone] is a no-op (the key
+/// is omitted) — phone cannot be cleared by design.
 final class MasterUpdate {
   const MasterUpdate({
     required this.firstName,

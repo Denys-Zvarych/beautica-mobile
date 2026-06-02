@@ -85,7 +85,11 @@ final class ErrorMapperInterceptor extends Interceptor {
       // VerificationFailure so the screen can render the right UA copy.
       // Must be checked BEFORE the generic 400/422 → ValidationFailure branch
       // so the typed-code envelope wins over the field-errors fallback.
-      if (statusCode == 400 && path == '/api/v1/auth/verify-email') {
+      // Suffix match (not equality) so the mapping is immune to any
+      // AppConfig.baseUrl `/api/v1` prefix drift or generated-path change —
+      // an exact-literal match silently misses and degrades the typed
+      // VerificationFailure to a generic ValidationFailure (silent-submit bug).
+      if (statusCode == 400 && path.endsWith('/auth/verify-email')) {
         final code = _extractVerificationCode(err);
         if (code != null) {
           return VerificationFailure(code: code, cause: err);
@@ -94,7 +98,8 @@ final class ErrorMapperInterceptor extends Interceptor {
 
       // Phase 2.11 — resend-verification 429 throttle (backend Phase 1.6).
       // Envelope: {success:false, message:"...", data:{retryAfterSeconds:42}}.
-      if (statusCode == 429 && path == '/api/v1/auth/resend-verification') {
+      // Suffix match (see verify-email above) — immune to baseUrl prefix drift.
+      if (statusCode == 429 && path.endsWith('/auth/resend-verification')) {
         return ResendThrottledFailure(
           retryAfterSeconds: _extractRetryAfterSecondsNullable(err),
           cause: err,
@@ -129,6 +134,7 @@ final class ErrorMapperInterceptor extends Interceptor {
       if (statusCode == 400 || statusCode == 422) {
         return ValidationFailure(
           fieldErrors: _extractFieldErrors(err),
+          serverMessage: _extractServerMessage(err),
           cause: err,
         );
       }
@@ -345,5 +351,40 @@ final class ErrorMapperInterceptor extends Interceptor {
       }
     }
     return const {};
+  }
+
+  /// Safely extracts the top-level `message` string from a 400/422 envelope.
+  ///
+  /// Expected backend shape:
+  /// ```json
+  /// { "success": false, "message": "Validation failed", "errors": { ... } }
+  /// ```
+  /// Captured onto [ValidationFailure.serverMessage] so the UI can show a
+  /// generic SnackBar even when the `errors` field map is empty — the durable
+  /// guard against a contract that returns a 400 with no usable field map.
+  ///
+  /// Truncated to 200 characters (SECURITY M1: untrusted server strings must
+  /// not reach UI labels unbounded). Returns `null` when the body is absent,
+  /// not a JSON object, has no string `message`, or the message is blank.
+  String? _extractServerMessage(DioException err) {
+    try {
+      final data = err.response?.data;
+      if (data is Map<String, dynamic>) {
+        final message = data['message'];
+        if (message is String && message.trim().isNotEmpty) {
+          final trimmed = message.trim();
+          return trimmed.length > 200 ? trimmed.substring(0, 200) : trimmed;
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        log(
+          'Failed to parse server message from response: $e',
+          name: 'network.error',
+          level: 900,
+        );
+      }
+    }
+    return null;
   }
 }

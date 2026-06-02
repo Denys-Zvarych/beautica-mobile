@@ -1,5 +1,9 @@
 // Phase 5.1 — MasterServiceMapper: data-layer translation between generated
 // DTOs and the domain [MasterService] entity.
+// Phase 5.6 — Flexible pricing: replaced single `price` field with a four-field
+//             pricing block. Mapper reads priceType/priceMin/priceMax/priceDisplay
+//             from both MasterServiceResponse and ServiceDefinitionResponse.
+//             toCreateRequest and toUpdateRequest emit mode-conditional price fields.
 //
 // Translation boundary notes:
 //   - [MasterServiceResponse] wraps a [ServiceDefinitionResponse] nested as
@@ -9,20 +13,24 @@
 //       * description  ← serviceDefinition.description
 //       * category     ← serviceDefinition.category (String wire name)
 //       * durationMinutes ← effectiveDurationMinutes ?? serviceDefinition.baseDurationMinutes
-//       * price        ← effectivePrice ?? serviceDefinition.basePrice (num → double)
+//       * priceType    ← MasterServiceResponse.priceType ?? serviceDefinition.priceType
+//       * priceMin     ← MasterServiceResponse.priceMin ?? serviceDefinition.priceMin (num → double)
+//       * priceMax     ← MasterServiceResponse.priceMax ?? serviceDefinition.priceMax (num → double)
+//       * priceDisplay ← MasterServiceResponse.priceDisplay ?? serviceDefinition.priceDisplay ?? ''
 //       * bufferMinutesAfter ← serviceDefinition.bufferMinutesAfter ?? 0
 //       * isActive     ← MasterServiceResponse.isActive ?? true
 //
-//   - Price is delivered as Dart `num` (not an integer kopeck amount). The
-//     mapper converts to `double` via `.toDouble()`. No divide-by-100 is needed.
+//   - Price fields are delivered as Dart `num` (not kopeck amounts). The mapper
+//     converts to `double` via `.toDouble()`. No divide-by-100 is needed.
 //
 //   - [toCreateRequest] converts [MasterServiceCreate] → the generated
 //     [CreateServiceDefinitionRequest] using the built_value builder pattern.
+//     FIXED mode: sets priceType + price. RANGE mode: sets priceType + priceMin + priceMax.
 //
 //   - [toUpdateRequest] converts [MasterServiceUpdate] → the generated
 //     [UpdateServiceDefinitionRequest] for PATCH /api/v1/services/{serviceDefId}.
-//     Only non-null fields are set so the backend treats absent keys as
-//     "no change". (Domain durationMinutes/price → wire baseDurationMinutes/basePrice.)
+//     Only non-null fields are set so the backend treats absent keys as "no change".
+//     If the price block is present, all relevant price fields are sent.
 //   - [fromServiceDefinitionDto] maps the [ServiceDefinitionResponse] returned by
 //     that update endpoint back to [MasterService] (carrying the assignment id
 //     through, since the response omits it).
@@ -40,6 +48,59 @@ import '../domain/master_service.dart';
 import '../domain/master_service_input.dart';
 import '../domain/service_category_option.dart';
 
+// ---------------------------------------------------------------------------
+// Internal helpers — enum mapping between wire EnumClass values and domain.
+// ---------------------------------------------------------------------------
+
+/// Maps the generated [MasterServiceResponsePriceTypeEnum] to the domain
+/// [ServicePriceType]. Falls back to [ServicePriceType.fixed] for any
+/// unrecognised or null value to avoid breaking the list/detail UI.
+ServicePriceType _domainPriceTypeFromMsrEnum(
+  MasterServiceResponsePriceTypeEnum? raw,
+) {
+  if (raw == MasterServiceResponsePriceTypeEnum.RANGE) {
+    return ServicePriceType.range;
+  }
+  return ServicePriceType.fixed;
+}
+
+/// Maps the generated [ServiceDefinitionResponsePriceTypeEnum] to the domain
+/// [ServicePriceType]. Same safe-default convention as [_domainPriceTypeFromMsrEnum].
+ServicePriceType _domainPriceTypeFromSdrEnum(
+  ServiceDefinitionResponsePriceTypeEnum? raw,
+) {
+  if (raw == ServiceDefinitionResponsePriceTypeEnum.RANGE) {
+    return ServicePriceType.range;
+  }
+  return ServicePriceType.fixed;
+}
+
+/// Maps the domain [ServicePriceType] to the generated
+/// [CreateServiceDefinitionRequestPriceTypeEnum].
+CreateServiceDefinitionRequestPriceTypeEnum _createPriceTypeEnum(
+  ServicePriceType t,
+) {
+  switch (t) {
+    case ServicePriceType.range:
+      return CreateServiceDefinitionRequestPriceTypeEnum.RANGE;
+    case ServicePriceType.fixed:
+      return CreateServiceDefinitionRequestPriceTypeEnum.FIXED;
+  }
+}
+
+/// Maps the domain [ServicePriceType] to the generated
+/// [UpdateServiceDefinitionRequestPriceTypeEnum].
+UpdateServiceDefinitionRequestPriceTypeEnum _updatePriceTypeEnum(
+  ServicePriceType t,
+) {
+  switch (t) {
+    case ServicePriceType.range:
+      return UpdateServiceDefinitionRequestPriceTypeEnum.RANGE;
+    case ServicePriceType.fixed:
+      return UpdateServiceDefinitionRequestPriceTypeEnum.FIXED;
+  }
+}
+
 /// Translates generated API types from `beautica_api` into domain entities
 /// and vice-versa for the service feature.
 ///
@@ -47,6 +108,11 @@ import '../domain/service_category_option.dart';
 /// [HttpServiceRepository].
 abstract final class MasterServiceMapper {
   /// Maps a [MasterServiceResponse] DTO to the domain [MasterService] model.
+  ///
+  /// Pricing fields are read from the top-level MSR envelope (priceType,
+  /// priceMin, priceMax, priceDisplay) which the backend V67+ populates
+  /// directly. A null priceType falls back to FIXED (safe default so
+  /// pre-V67 data or a partially-deployed backend never breaks the UI).
   ///
   /// Throws [ServerFailure] (statusCode `null`) when [dto.id] is absent,
   /// indicating a broken backend contract.
@@ -63,11 +129,30 @@ abstract final class MasterServiceMapper {
 
     final def = dto.serviceDefinition;
 
-    // Effective values (master override) take priority; fall back to the base
-    // service definition values if no override is set.
+    // Duration: master override takes priority; fall back to the base definition.
     final duration =
         dto.effectiveDurationMinutes ?? def?.baseDurationMinutes ?? 0;
-    final price = (dto.effectivePrice ?? def?.basePrice ?? 0).toDouble();
+
+    // Pricing: read from the top-level MSR envelope first (V67+). These fields
+    // are surfaced from the nested ServiceDefinitionResponse by the backend
+    // mapper. Fall back chain:
+    //   dto.priceMin (V67+ top-level)
+    //   → def.priceMin (ServiceDefinitionResponse, also V67+)
+    //   → dto.effectivePrice (legacy floor, still present on MSR)
+    //   → 0 (absolute last resort — service with no price data)
+    //
+    // Pricing mode: A null priceType on the MSR falls back to the nested
+    // ServiceDefinitionResponse's priceType, then to FIXED as a safe default.
+    final priceType = _domainPriceTypeFromMsrEnum(
+      dto.priceType ??
+          (def?.priceType == ServiceDefinitionResponsePriceTypeEnum.RANGE
+              ? MasterServiceResponsePriceTypeEnum.RANGE
+              : null),
+    );
+    final priceMin = (dto.priceMin ?? def?.priceMin ?? dto.effectivePrice ?? 0)
+        .toDouble();
+    final priceMax = (dto.priceMax ?? def?.priceMax)?.toDouble();
+    final priceDisplay = dto.priceDisplay ?? def?.priceDisplay ?? '';
 
     // futureBookingCount is not yet returned by the backend API. Log a
     // development-mode reminder so engineers are aware the field is absent.
@@ -107,7 +192,10 @@ abstract final class MasterServiceMapper {
       description: def?.description,
       category: def?.category,
       durationMinutes: duration,
-      price: price,
+      priceType: priceType,
+      priceMin: priceMin,
+      priceMax: priceMax,
+      priceDisplay: priceDisplay,
       bufferMinutesAfter: def?.bufferMinutesAfter ?? 0,
       isActive: dto.isActive ?? true,
     );
@@ -141,6 +229,13 @@ abstract final class MasterServiceMapper {
       throw const ServerFailure(statusCode: null);
     }
 
+    final priceType = _domainPriceTypeFromSdrEnum(dto.priceType);
+    // ServiceDefinitionResponse carries priceMin (base_price floor) as of V67.
+    // basePrice field was removed in the flexible-pricing migration.
+    final priceMin = (dto.priceMin ?? 0).toDouble();
+    final priceMax = dto.priceMax?.toDouble();
+    final priceDisplay = dto.priceDisplay ?? '';
+
     return MasterService(
       id: assignmentId,
       serviceDefId: serviceDefId,
@@ -148,7 +243,10 @@ abstract final class MasterServiceMapper {
       description: dto.description,
       category: dto.category,
       durationMinutes: dto.baseDurationMinutes ?? 0,
-      price: (dto.basePrice ?? 0).toDouble(),
+      priceType: priceType,
+      priceMin: priceMin,
+      priceMax: priceMax,
+      priceDisplay: priceDisplay,
       bufferMinutesAfter: dto.bufferMinutesAfter ?? 0,
       isActive: dto.isActive ?? true,
     );
@@ -157,20 +255,23 @@ abstract final class MasterServiceMapper {
   /// Converts [MasterServiceCreate] to the generated
   /// [CreateServiceDefinitionRequest] builder type.
   ///
-  /// Required fields ([name], [baseDurationMinutes], [basePrice]) are always
-  /// present. Optional fields are omitted when null.
+  /// Required fields ([name], [baseDurationMinutes], [priceType], and the
+  /// mode-conditional price field(s)) are always present. Optional fields
+  /// are omitted when null.
   ///
-  /// Throws [ArgumentError] for invalid field values — before the request
+  /// FIXED mode: sets priceType + price. priceMin/priceMax must be null.
+  /// RANGE mode: sets priceType + priceMin + priceMax. price must be null.
+  ///
+  /// Throws [ArgumentError] for invalid field values before the request
   /// reaches the network layer (security MEDIUM-1):
-  ///   - [price] < 0
   ///   - [durationMinutes] < 1
+  ///   - FIXED: [price] null or <= 0
+  ///   - RANGE: [priceMin] null or <= 0; [priceMax] null or <= [priceMin]
   ///   - [bufferMinutesAfter] < 0 (when provided)
+  ///   - [category] null or empty (required by backend @NotBlank)
   static CreateServiceDefinitionRequest toCreateRequest(
     MasterServiceCreate input,
   ) {
-    if (input.price < 0) {
-      throw ArgumentError.value(input.price, 'price', 'price must be >= 0');
-    }
     if (input.durationMinutes < 1) {
       throw ArgumentError.value(
         input.durationMinutes,
@@ -186,30 +287,63 @@ abstract final class MasterServiceMapper {
         'bufferMinutesAfter must be >= 0',
       );
     }
-    // category is now REQUIRED by the backend (`@NotBlank` on
-    // CreateServiceDefinitionRequest.category) and the generated request types
-    // it as a non-nullable String. Fail fast at the data boundary if the form
-    // somehow submits without a category selected — the create form enforces
-    // selection before reaching here.
+    // category is REQUIRED by the backend (`@NotBlank` on
+    // CreateServiceDefinitionRequest.category). Fail fast at the data boundary.
     final category = input.category;
     if (category == null || category.isEmpty) {
       throw ArgumentError.value(category, 'category', 'category is required');
+    }
+
+    // Validate mode-conditional price fields.
+    switch (input.priceType) {
+      case ServicePriceType.fixed:
+        final price = input.price;
+        if (price == null || price <= 0) {
+          throw ArgumentError.value(
+            price,
+            'price',
+            'FIXED mode requires price > 0',
+          );
+        }
+      case ServicePriceType.range:
+        final min = input.priceMin;
+        final max = input.priceMax;
+        if (min == null || min <= 0) {
+          throw ArgumentError.value(
+            min,
+            'priceMin',
+            'RANGE mode requires priceMin > 0',
+          );
+        }
+        if (max == null || max <= min) {
+          throw ArgumentError.value(
+            max,
+            'priceMax',
+            'RANGE mode requires priceMax > priceMin',
+          );
+        }
     }
 
     return CreateServiceDefinitionRequest((b) {
       b
         ..name = input.name
         ..baseDurationMinutes = input.durationMinutes
-        // price is double in the domain; basePrice is num in the generated
-        // type — direct assignment is safe (double is a num).
-        ..basePrice = input.price
-        // category is a plain String on the generated request (backend changed
-        // the field from a strict enum → String to support self-service
-        // approved categories). Pass the wire name through directly.
+        ..priceType = _createPriceTypeEnum(input.priceType)
         ..category = category;
 
       if (input.description != null) b.description = input.description;
       if (buffer != null) b.bufferMinutesAfter = buffer;
+
+      // Set the mode-conditional price fields. The generated serializer omits
+      // null builder fields from the wire body so the backend receives only the
+      // appropriate subset.
+      switch (input.priceType) {
+        case ServicePriceType.fixed:
+          b.price = input.price;
+        case ServicePriceType.range:
+          b.priceMin = input.priceMin;
+          b.priceMax = input.priceMax;
+      }
     });
   }
 
@@ -249,24 +383,20 @@ abstract final class MasterServiceMapper {
   /// treats absent keys as "no change" (PATCH semantics). The generated
   /// serializer omits null builder fields from the wire body.
   ///
-  /// Field-name boundary: the domain uses [MasterServiceUpdate.durationMinutes]
-  /// / [MasterServiceUpdate.price]; the backend request expects
-  /// `baseDurationMinutes` / `basePrice`. The mapping happens here. Note the
-  /// request has no `isActive` field — deactivation goes through the dedicated
-  /// `DELETE /api/v1/services/{serviceDefId}` endpoint, not this PATCH.
+  /// Pricing PATCH rule (mirrors the backend): if ALL four price fields
+  /// ([priceType], [price], [priceMin], [priceMax]) are null on [patch], the
+  /// price block is omitted entirely and the existing pricing is preserved.
+  /// When [priceType] is non-null, the full mode payload is sent.
   ///
   /// Throws [ArgumentError] for invalid field values — before the request
   /// reaches the network layer (security MEDIUM-1):
-  ///   - [price] present and < 0
   ///   - [durationMinutes] present and < 1
   ///   - [bufferMinutesAfter] present and < 0
+  ///   - FIXED update: [price] null or <= 0
+  ///   - RANGE update: [priceMin] null or <= 0; [priceMax] null or <= [priceMin]
   static UpdateServiceDefinitionRequest toUpdateRequest(
     MasterServiceUpdate patch,
   ) {
-    final price = patch.price;
-    if (price != null && price < 0) {
-      throw ArgumentError.value(price, 'price', 'price must be >= 0');
-    }
     final duration = patch.durationMinutes;
     if (duration != null && duration < 1) {
       throw ArgumentError.value(
@@ -284,13 +414,57 @@ abstract final class MasterServiceMapper {
       );
     }
 
+    // Validate price block when present.
+    final patchPriceType = patch.priceType;
+    if (patchPriceType != null) {
+      switch (patchPriceType) {
+        case ServicePriceType.fixed:
+          final price = patch.price;
+          if (price == null || price <= 0) {
+            throw ArgumentError.value(
+              price,
+              'price',
+              'FIXED mode requires price > 0',
+            );
+          }
+        case ServicePriceType.range:
+          final min = patch.priceMin;
+          final max = patch.priceMax;
+          if (min == null || min <= 0) {
+            throw ArgumentError.value(
+              min,
+              'priceMin',
+              'RANGE mode requires priceMin > 0',
+            );
+          }
+          if (max == null || max <= min) {
+            throw ArgumentError.value(
+              max,
+              'priceMax',
+              'RANGE mode requires priceMax > priceMin',
+            );
+          }
+      }
+    }
+
     return UpdateServiceDefinitionRequest((b) {
       if (patch.name != null) b.name = patch.name;
       if (patch.description != null) b.description = patch.description;
       if (patch.category != null) b.category = patch.category;
       if (duration != null) b.baseDurationMinutes = duration;
-      if (price != null) b.basePrice = price;
       if (buffer != null) b.bufferMinutesAfter = buffer;
+
+      // Set the price block only when priceType is present.
+      if (patchPriceType != null) {
+        b.priceType = _updatePriceTypeEnum(patchPriceType);
+        switch (patchPriceType) {
+          case ServicePriceType.fixed:
+            b.price = patch.price;
+          case ServicePriceType.range:
+            b.priceMin = patch.priceMin;
+            b.priceMax = patch.priceMax;
+        }
+      }
     });
   }
 }

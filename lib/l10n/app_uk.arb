@@ -1201,6 +1201,10 @@
   "@savedSnackbar": {
     "description": "SnackBar message shown after a successful profile save on the master edit screen (Phase 4.3)."
   },
+  "editValidationSummary": "Перевірте виділені поля",
+  "@editValidationSummary": {
+    "description": "SnackBar shown on the master edit screen when Save is pressed but local validation fails; the inline errors are higher up the scroll view so this summary tells the user why nothing happened."
+  },
   "errPhoneInvalidEdit": "Некоректний формат телефону",
   "@errPhoneInvalidEdit": {
     "description": "Validation error shown under the phone field on the master edit screen when the value does not match the accepted phone pattern (Phase 4.3)."
@@ -1304,6 +1308,50 @@
   "@errPriceNonNegative": {
     "description": "Validation error when the price field value is negative (Phase 5.3)."
   },
+  "errPricePositive": "Ціна має бути більше 0",
+  "@errPricePositive": {
+    "description": "Validation error when a fixed price or range minimum is zero or negative (Phase 5.6 flexible pricing)."
+  },
+  "errPriceMaxGtMin": "Максимум має бути більшим за мінімум",
+  "@errPriceMaxGtMin": {
+    "description": "Cross-field validation error when range max is not strictly greater than range min (Phase 5.6 flexible pricing)."
+  },
+  "errPriceMinRequired": "Вкажіть мінімальну ціну",
+  "@errPriceMinRequired": {
+    "description": "Validation error when the range min field is empty (Phase 5.6 flexible pricing)."
+  },
+  "errPriceMaxRequired": "Вкажіть максимальну ціну",
+  "@errPriceMaxRequired": {
+    "description": "Validation error when the range max field is empty (Phase 5.6 flexible pricing)."
+  },
+  "pricingModeFixed": "Фіксована",
+  "@pricingModeFixed": {
+    "description": "Label for the fixed-price segment of the pricing mode toggle (Phase 5.6 flexible pricing)."
+  },
+  "pricingModeRange": "Діапазон",
+  "@pricingModeRange": {
+    "description": "Label for the range-price segment of the pricing mode toggle (Phase 5.6 flexible pricing)."
+  },
+  "pricingAmountLabel": "Сума",
+  "@pricingAmountLabel": {
+    "description": "Field label for the fixed price amount field (Phase 5.6 flexible pricing)."
+  },
+  "pricingFromLabel": "Від",
+  "@pricingFromLabel": {
+    "description": "Field label for the range minimum price field (Phase 5.6 flexible pricing)."
+  },
+  "pricingToLabel": "До",
+  "@pricingToLabel": {
+    "description": "Field label for the range maximum price field (Phase 5.6 flexible pricing)."
+  },
+  "pricingRangeHint": "Максимум має бути більшим за мінімум",
+  "@pricingRangeHint": {
+    "description": "Static hint displayed below the range price pair when there is no validation error (Phase 5.6 flexible pricing)."
+  },
+  "pricingSectionLabel": "ЦІНА",
+  "@pricingSectionLabel": {
+    "description": "Uppercase section label above the entire pricing control (Phase 5.6 flexible pricing)."
+  },
 
   "servicesEditTitle": "Редагувати сервіс",
   "@servicesEditTitle": {
@@ -1324,10 +1372,6 @@
   "servicePhotoChange": "Змінити фото",
   "@servicePhotoChange": {
     "description": "Overlay chip label in the filled-state of the service photo slot (Phase 5.4)."
-  },
-  "servicePhotoCoverSubtitle": "Обкладинка сервісу у списку",
-  "@servicePhotoCoverSubtitle": {
-    "description": "Secondary label below the 'Додати фото' prompt in the empty photo slot (Phase 5.4)."
   },
   "servicePhotoAddSemantics": "Додати фото сервісу",
   "@servicePhotoAddSemantics": {
@@ -1361,6 +1405,18 @@
   "serviceCategorySuggest": "Запропонувати категорію",
   "@serviceCategorySuggest": {
     "description": "Label for the trailing chip/button on the category picker that opens the 'suggest a category' dialog."
+  },
+  "serviceCategoryUncategorized": "Без категорії",
+  "@serviceCategoryUncategorized": {
+    "description": "Header label for the services-list expandable section that groups services with no category set."
+  },
+  "servicesCategorySectionSemantics": "Категорія {category}, {count} послуг",
+  "@servicesCategorySectionSemantics": {
+    "description": "Accessibility label for a collapsible category section header on the services list, announcing the category name and how many services it contains.",
+    "placeholders": {
+      "category": { "type": "String" },
+      "count": { "type": "int" }
+    }
   },
   "categoryRequestTitle": "Запропонувати категорію",
   "@categoryRequestTitle": {

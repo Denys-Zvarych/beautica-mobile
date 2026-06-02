@@ -13,12 +13,15 @@ Name | Type | Description | Notes
 **description** | **String** |  | [optional] 
 **category** | **String** |  | [optional] 
 **baseDurationMinutes** | **int** |  | [optional] 
-**basePrice** | **num** |  | [optional] 
 **bufferMinutesAfter** | **int** |  | [optional] 
 **isActive** | **bool** |  | [optional] 
 **serviceTypeId** | **String** |  | [optional] 
 **serviceTypeNameUk** | **String** |  | [optional] 
 **photoUrl** | **String** |  | [optional] 
+**priceType** | **String** |  | [optional] 
+**priceMin** | **num** |  | [optional] 
+**priceMax** | **num** |  | [optional] 
+**priceDisplay** | **String** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 
