@@ -19,12 +19,15 @@
 //   • Use pumpRoutedApp from test/helpers/pump_app.dart.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
+import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
@@ -73,6 +76,11 @@ class _ProfileInvalidationWatcher extends ConsumerWidget {
 
 class _MockMasterRepository extends Mock implements MasterRepository {}
 
+/// Ukrainian localizations resolved off-tree for SnackBar text assertions —
+/// mirrors the `lookupAppLocalizations(const Locale('uk'))` pattern used
+/// elsewhere in the suite (e.g. register_step_3_screen_test.dart).
+final AppLocalizations _l10nUk = lookupAppLocalizations(const Locale('uk'));
+
 // ---------------------------------------------------------------------------
 // Stub data
 // ---------------------------------------------------------------------------
@@ -113,6 +121,50 @@ const _stubMasterWithLocation = Master(
 const _stubCity = City(
   id: 'city-99',
   oblastId: 'oblast-01',
+  name: 'Київ',
+  katotthCode: 'UA80000000000093317',
+  hasDistricts: false,
+);
+
+// ── Seeded-locality fixtures (regression for the "Save does nothing" bug) ───
+//
+// A master that already has a NON-NULL cityId/oblastId/districtId. Street and
+// buildingNo are intentionally null/empty so the location section is "seeded
+// but unmodified" — the exact pre-population + dirty-tracking path that broke
+// for real users and was never exercised before (no prior fixture set any of
+// the three locality UUIDs). _prePopulateLocality must resolve _selectedCity /
+// _selectedOblast against the list providers and reconcile _orig*Id so that an
+// unrelated edit (e.g. firstName) correctly enables the Save button.
+const _seededOblastId = 'oblast-seed';
+const _seededCityId = 'city-seed';
+
+const _stubMasterWithLocality = Master(
+  id: 'user-1',
+  firstName: 'Олена',
+  lastName: 'Ковальчук',
+  bio: 'Майстер манікюру.',
+  avgRating: 4.8,
+  reviewCount: 10,
+  type: MasterType.independentMaster,
+  oblastId: _seededOblastId,
+  cityId: _seededCityId,
+  // No districtId, street, or buildingNo — a partial saved address. The city
+  // resolves but no street is present, so the location section stays optional.
+);
+
+/// Reference-data [Oblast] matching [_stubMasterWithLocality.oblastId] so that
+/// `_prePopulateLocality` resolves `_selectedOblast`.
+const _seededOblast = Oblast(
+  id: _seededOblastId,
+  name: 'Київська область',
+  katotthCode: 'UA32000000000000000',
+);
+
+/// Reference-data [City] matching [_stubMasterWithLocality.cityId]. Has no
+/// districts so `_prePopulateLocality` never touches the district provider.
+const _seededCity = City(
+  id: _seededCityId,
+  oblastId: _seededOblastId,
   name: 'Київ',
   katotthCode: 'UA80000000000093317',
   hasDistricts: false,
@@ -176,6 +228,7 @@ GoRouter _buildRouter() => GoRouter(
 List<Object> _buildOverrides({
   required _MockMasterRepository repo,
   Master master = _stubMaster,
+  List<Object> extraOverrides = const <Object>[],
 }) {
   return <Object>[
     authProvider.overrideWith(() => _StubAuthNotifier(_stubUser)),
@@ -183,8 +236,32 @@ List<Object> _buildOverrides({
       () => _StubMasterProfileNotifier(master),
     ),
     masterRepositoryProvider.overrideWithValue(repo),
+    ...extraOverrides,
   ];
 }
+
+/// Overrides the oblast/city list providers so that [_prePopulateLocality]
+/// resolves `_selectedOblast` and `_selectedCity` for a seeded-locality master.
+/// The district provider is left at its default (no districts on [_seededCity]).
+List<Object> _seededLocalityOverrides() => <Object>[
+  oblastListProvider.overrideWith((ref) async => const <Oblast>[_seededOblast]),
+  cityListProvider(
+    _seededOblastId,
+  ).overrideWith((ref) async => const <City>[_seededCity]),
+];
+
+/// Like [_seededLocalityOverrides] but the city-list lookup THROWS, so that the
+/// `_prePopulateLocality` resolution fails and is swallowed. Used to prove that
+/// a failed pre-population does not wedge the Save button.
+List<Object> _failingLocalityOverrides() => <Object>[
+  // The city lookup throws AFTER the oblast resolved, so _prePopulateLocality
+  // partially resolves (oblast matched, city/district unresolved) and the catch
+  // swallows the throw. The reconcile block then runs with matchedCity == null.
+  oblastListProvider.overrideWith((ref) async => const <Oblast>[_seededOblast]),
+  cityListProvider(
+    _seededOblastId,
+  ).overrideWith((ref) async => throw const NetworkFailure()),
+];
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -1210,6 +1287,227 @@ void main() {
               'save — the watcher must receive at least one additional '
               'AsyncValue emission after ref.invalidate() fires.',
         );
+      },
+    );
+  });
+
+  // ── 15. Seeded-locality dirty-tracking regression ───────────────────────────
+  //
+  // [HIGH] The exact gap that let the "Save button does nothing" bug ship green
+  // TWICE: no prior test seeded a master with a non-null cityId/oblastId/
+  // districtId, so the _prePopulateLocality + dirty-tracking reconciliation path
+  // was never exercised. With a seeded locality, _origCityId/_origOblastId start
+  // non-null, then get reconciled against the resolved _selected* objects in the
+  // microtask. If reconciliation is wrong, _isDirty stays false (or true) for the
+  // wrong reasons and the Save button never enables on a plain firstName edit.
+
+  group('seeded-locality dirty tracking regression', () {
+    // ── 15.1  city-only seed → firstName edit enables Save + Save fires ──────
+
+    testWidgets(
+      'with a seeded city locality, editing firstName enables Save and a '
+      'successful tap fires updateMyProfile + shows the saved snackbar',
+      (tester) async {
+        when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+        final router = _buildRouter();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(
+            repo: repo,
+            master: _stubMasterWithLocality,
+            extraOverrides: _seededLocalityOverrides(),
+          ),
+        );
+        // Three pumps: router build, masterProfile Future.value microtask, and
+        // the _prePopulateLocality microtask (oblast + city list resolution +
+        // the setState that reconciles _orig*Id with the resolved _selected*).
+        await tester.pump();
+        await tester.pump();
+        await tester.pumpAndSettle();
+
+        // Before any edit the form is seeded-but-pristine → Save is disabled.
+        expect(
+          tester
+              .widget<NeumorphicButton>(
+                find.byKey(const Key('btn-save-master')),
+              )
+              .onPressed,
+          isNull,
+          reason:
+              'A seeded-but-unmodified master must leave Save disabled — '
+              'reconciliation must NOT falsely mark the form dirty.',
+        );
+
+        // Edit firstName only — the locality section is untouched.
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-firstName')),
+            matching: find.byType(TextField),
+          ),
+          'ОленаEdited',
+        );
+        await tester.pump();
+
+        // THE REGRESSION: the Save button must now be ENABLED. Before the fix
+        // the seeded locality skewed _isDirty and the button stayed disabled.
+        expect(
+          tester
+              .widget<NeumorphicButton>(
+                find.byKey(const Key('btn-save-master')),
+              )
+              .onPressed,
+          isNotNull,
+          reason:
+              'Editing firstName on a seeded-locality master must enable Save. '
+              'This is the core regression — the button previously stayed '
+              'disabled and tapping it did absolutely nothing.',
+        );
+
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        // Save actually fired and produced visible feedback.
+        verify(() => repo.updateMyProfile(any())).called(1);
+        expect(find.byKey(const Key('snackbar-saved')), findsOneWidget);
+      },
+    );
+
+    // ── 15.2  pre-population lookup throws → Save still enables + gives feedback ─
+
+    testWidgets(
+      'when the locality lookup throws during pre-population, editing firstName '
+      'still enables Save and tapping it still produces feedback (no silent '
+      'no-op)',
+      (tester) async {
+        when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+        final router = _buildRouter();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(
+            repo: repo,
+            master: _stubMasterWithLocality,
+            extraOverrides: _failingLocalityOverrides(),
+          ),
+        );
+        // The city lookup throws — _prePopulateLocality swallows it. Drain the
+        // router build, the masterProfile microtask, and the pre-population
+        // microtask before interacting.
+        await tester.pump();
+        await tester.pump();
+        await tester.pumpAndSettle();
+
+        // Dirty firstName (the locality section is also dirty by virtue of the
+        // failed pre-population — see below — but editing firstName makes the
+        // user intent explicit and mirrors the real-world repro).
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-firstName')),
+            matching: find.byType(TextField),
+          ),
+          'ОленаEdited',
+        );
+        await tester.pump();
+
+        // The Save button MUST be interactive — never a dead no-op. (When the
+        // city lookup throws, the section is also dirty because the seeded
+        // _origCityId no longer matches the now-null _selectedCity; either way
+        // the button is enabled and tappable.)
+        expect(
+          tester
+              .widget<NeumorphicButton>(
+                find.byKey(const Key('btn-save-master')),
+              )
+              .onPressed,
+          isNotNull,
+          reason:
+              'A failed locality pre-population must never leave the Save '
+              'button disabled — that was the original dead-button bug.',
+        );
+
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        // Single pump frame: any resulting SnackBar mounts synchronously while
+        // the edit screen is still present (a success path would navigate away
+        // on pumpAndSettle and tear the ScaffoldMessenger down).
+        await tester.pump();
+
+        // CORE GUARANTEE (Fix 1 generic catch): tapping Save after a failed
+        // pre-population MUST produce visible feedback — never the original
+        // "absolutely nothing happens" no-op. Whether the city resolved or not,
+        // SOME SnackBar (saved on success, or the validation summary when the
+        // unresolved-but-seeded city forces an inline location error) must show.
+        expect(
+          find.byType(SnackBar),
+          findsOneWidget,
+          reason:
+              'Tapping Save after a failed locality pre-population must surface '
+              'a SnackBar — never a silent no-op. This is the regression guard '
+              'for the "Save button does nothing" bug.',
+        );
+
+        // Drain any post-save navigation so the test ends on a settled tree.
+        await tester.pumpAndSettle();
+      },
+    );
+
+    // ── 15.3  generic non-Failure throw in save → errUnknown snackbar ────────
+
+    testWidgets(
+      'a non-Failure error thrown by updateMyProfile shows the errUnknown '
+      'snackbar and re-enables the Save button (catch-all guards the no-op bug)',
+      (tester) async {
+        // Throw a raw StateError — NOT a Failure subtype — so the generic
+        // catch (e, st) branch in _save() is the only thing that can react.
+        when(() => repo.updateMyProfile(any())).thenThrow(StateError('boom'));
+
+        final router = _buildRouter();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(
+            repo: repo,
+            master: _stubMasterWithLocality,
+            extraOverrides: _seededLocalityOverrides(),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-firstName')),
+            matching: find.byType(TextField),
+          ),
+          'ОленаEdited',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        // The generic catch must surface the errUnknown localized message.
+        expect(
+          find.text(_l10nUk.errUnknown),
+          findsOneWidget,
+          reason:
+              'A non-Failure throw must be caught by the catch-all and surface '
+              'the errUnknown snackbar — the regression guard for the original '
+              '"absolutely nothing happens" bug.',
+        );
+
+        // _saving must be cleared → Save button is interactive again (still
+        // dirty, so onPressed is non-null).
+        expect(
+          tester
+              .widget<NeumorphicButton>(
+                find.byKey(const Key('btn-save-master')),
+              )
+              .onPressed,
+          isNotNull,
+          reason: '_saving must be cleared after the catch-all fires.',
+        );
+        verify(() => repo.updateMyProfile(any())).called(1);
       },
     );
   });
