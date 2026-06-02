@@ -1201,6 +1201,10 @@
   "@savedSnackbar": {
     "description": "SnackBar message shown after a successful profile save on the master edit screen (Phase 4.3)."
   },
+  "editValidationSummary": "Перевірте виділені поля",
+  "@editValidationSummary": {
+    "description": "SnackBar shown on the master edit screen when Save is pressed but local validation fails; the inline errors are higher up the scroll view so this summary tells the user why nothing happened."
+  },
   "errPhoneInvalidEdit": "Некоректний формат телефону",
   "@errPhoneInvalidEdit": {
     "description": "Validation error shown under the phone field on the master edit screen when the value does not match the accepted phone pattern (Phase 4.3)."

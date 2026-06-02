@@ -493,19 +493,33 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
 
   /// Returns true when the location section is fully valid (or untouched).
   ///
-  /// The location section is considered "touched" when ANY of the following
-  /// is true: a city is selected, street is non-empty, or buildingNo is
-  /// non-empty. When untouched the whole section is optional and this method
-  /// returns true without setting any errors.
+  /// The location section's required-address rule only kicks in when the user
+  /// is *actively editing* the address — i.e. the section is dirty relative to
+  /// its saved seed (`_origCityId`/`_origStreet`/`_origBuildingNo`, same fields
+  /// `_isDirty` compares), OR the user has started entering an address (street
+  /// or buildingNo non-empty). A pre-populated city with an empty street/
+  /// building (a saved master with a partial address) must NOT force the fields
+  /// to be required, otherwise Save silently aborts on an untouched section.
   bool _validateLocation() {
     final l10n = AppLocalizations.of(context);
     final citySelected = _selectedCity != null;
     final streetFilled = _street.text.trim().isNotEmpty;
     final buildingFilled = _buildingNo.text.trim().isNotEmpty;
 
-    final touched = citySelected || streetFilled || buildingFilled;
-    if (!touched) {
-      // Section is entirely untouched — skip location validation.
+    // Dirty vs. the saved seed — mirrors the location slice of [_isDirty].
+    final locationDirty =
+        _selectedOblast?.id != _origOblastId ||
+        _selectedCity?.id != _origCityId ||
+        _selectedDistrict?.id != _origDistrictId ||
+        _street.text.trim() != _origStreet ||
+        _buildingNo.text.trim() != _origBuildingNo ||
+        _locationNote.text.trim() != _origLocationNote;
+
+    // The address is only "in play" when the user is actually entering one or
+    // changing the saved value. A seeded-but-unmodified section is optional.
+    final editingAddress = streetFilled || buildingFilled || locationDirty;
+    if (!editingAddress) {
+      // Section unchanged from its seed and no address entered — skip.
       setState(() {
         _errCity = null;
         _errStreet = null;
@@ -514,7 +528,9 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       return true;
     }
 
-    // Presence checks — city, street and buildingNo are all required when touched.
+    // Presence checks — when actively editing an address, city, street and
+    // buildingNo are all required so a half-entered address surfaces inline
+    // errors on the missing fields.
     String? errCity = !citySelected ? l10n.errRequired : null;
     String? errStreet = !streetFilled ? l10n.errRequired : null;
     String? errBuildingNo = !buildingFilled ? l10n.errRequired : null;
@@ -572,7 +588,21 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       _errBuildingNo = null;
     });
 
-    if (!_validateAndUpdateErrors()) return;
+    if (!_validateAndUpdateErrors()) {
+      // Defense-in-depth: the inline errors live higher up the scroll view
+      // while the Save button is pinned at the bottom, so a silent return
+      // looks like a dead button. Surface a summary SnackBar so the user
+      // knows why nothing happened. Matches the success-branch style.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            key: const Key('snackbar-validation-summary'),
+            content: Text(AppLocalizations.of(context).editValidationSummary),
+          ),
+        );
+      }
+      return;
+    }
 
     setState(() => _saving = true);
 
