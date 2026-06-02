@@ -25,6 +25,7 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
 import 'package:beautica_mobile/features/location/state/location_providers.dart';
@@ -1508,6 +1509,389 @@ void main() {
           reason: '_saving must be cleared after the catch-all fires.',
         );
         verify(() => repo.updateMyProfile(any())).called(1);
+      },
+    );
+  });
+
+  // ── 16. Per-field dirty matrix ───────────────────────────────────────────
+  //
+  // [HIGH] Regression protection for the "Save inert / silent no-op" bug
+  // (commit 26cf884): a stale _isDirty flag failed to rebuild the pinned footer
+  // when a SINGLE field changed. Prior coverage only exercised firstName. Here
+  // every editable field is checked in isolation: pump a fully-seeded pristine
+  // master (Save disabled, onPressed == null), edit ONLY that field, and assert
+  // Save becomes enabled (onPressed != null).
+  //
+  // The footer button is a NeumorphicButton whose onPressed is `_isDirty ? _save
+  // : null`, so onPressed nullability is the direct, locale-neutral proxy for
+  // the dirty flag.
+
+  group('per-field dirty matrix', () {
+    // A master seeded with non-empty values in every editable field so that an
+    // edit to any one of them is unambiguously a change from the pristine seed.
+    final seededMaster = _stubMaster.copyWith(
+      phoneNumber: '+380 50 123 45 67',
+      instagram: '@seed_handle',
+      street: 'вул. Стара',
+      buildingNo: '7',
+      locationNote: 'офіс 2',
+    );
+
+    /// Reads the current onPressed of the pinned Save button.
+    VoidCallback? saveOnPressed(WidgetTester tester) => tester
+        .widget<NeumorphicButton>(find.byKey(const Key('btn-save-master')))
+        .onPressed;
+
+    /// Pumps the edit screen seeded with [seededMaster] and asserts it starts
+    /// pristine (Save disabled). Returns once the form is initialised.
+    Future<void> pumpPristine(WidgetTester tester) async {
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo, master: seededMaster),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        saveOnPressed(tester),
+        isNull,
+        reason: 'A fully-seeded, unmodified master must leave Save disabled.',
+      );
+    }
+
+    Finder fieldInput(String fieldKey) => find.descendant(
+      of: find.byKey(Key(fieldKey)),
+      matching: find.byType(TextField),
+    );
+
+    testWidgets('editing lastName alone enables Save', (tester) async {
+      await pumpPristine(tester);
+      await tester.enterText(fieldInput('field-lastName'), 'Новенька');
+      await tester.pump();
+      expect(saveOnPressed(tester), isNotNull);
+    });
+
+    testWidgets('editing bio alone enables Save', (tester) async {
+      await pumpPristine(tester);
+      await tester.enterText(fieldInput('field-bio'), 'Оновлене біо.');
+      await tester.pump();
+      expect(saveOnPressed(tester), isNotNull);
+    });
+
+    testWidgets('editing phone alone enables Save', (tester) async {
+      await pumpPristine(tester);
+      await tester.enterText(fieldInput('field-phone'), '+380509998877');
+      await tester.pump();
+      expect(saveOnPressed(tester), isNotNull);
+    });
+
+    testWidgets('editing instagram alone enables Save', (tester) async {
+      await pumpPristine(tester);
+      await tester.enterText(fieldInput('field-instagram'), '@brand_new');
+      await tester.pump();
+      expect(saveOnPressed(tester), isNotNull);
+    });
+
+    testWidgets('editing locationNote alone enables Save', (tester) async {
+      await pumpPristine(tester);
+      await tester.enterText(fieldInput('field-locationNote'), 'нова примітка');
+      await tester.pump();
+      expect(saveOnPressed(tester), isNotNull);
+    });
+
+    testWidgets('editing street alone enables Save', (tester) async {
+      await pumpPristine(tester);
+      await tester.enterText(fieldInput('field-street'), 'вул. Нова');
+      await tester.pump();
+      expect(saveOnPressed(tester), isNotNull);
+    });
+
+    testWidgets('editing buildingNo alone enables Save', (tester) async {
+      await pumpPristine(tester);
+      await tester.enterText(fieldInput('field-buildingNo'), '99');
+      await tester.pump();
+      expect(saveOnPressed(tester), isNotNull);
+    });
+
+    // ── oblast / district dirty via the locality cascade callbacks ──────────
+    //
+    // The cascade selection (oblast/city/district) is part of _isDirty. We seed
+    // a master with a resolved city (so the cascade is pristine) and then change
+    // the district through the LocalityCascade.onDistrict callback, proving the
+    // cascade slice of _isDirty also flips Save on. (oblast/city changes follow
+    // the same code path and are covered transitively by the success-path test
+    // group #13, which selects a city from a null seed.)
+
+    testWidgets('changing district via the cascade enables Save', (
+      tester,
+    ) async {
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(
+          repo: repo,
+          master: _stubMasterWithLocality,
+          extraOverrides: _seededLocalityOverrides(),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      // Seeded-but-unmodified → Save disabled.
+      expect(
+        tester
+            .widget<NeumorphicButton>(find.byKey(const Key('btn-save-master')))
+            .onPressed,
+        isNull,
+        reason: 'Seeded locality with no edits must leave Save disabled.',
+      );
+
+      // Select a district through the cascade callback — _selectedDistrict.id
+      // now differs from the seeded _origDistrictId (null), flipping _isDirty.
+      final cascade = tester.widget<LocalityCascade>(
+        find.byKey(const Key('location-cascade')),
+      );
+      cascade.onDistrict(
+        const CityDistrict(
+          id: 'district-1',
+          cityId: _seededCityId,
+          name: 'Шевченківський',
+          katotthCode: 'UA80000000000000001',
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<NeumorphicButton>(find.byKey(const Key('btn-save-master')))
+            .onPressed,
+        isNotNull,
+        reason:
+            'Selecting a district must mark the form dirty and enable Save.',
+      );
+    });
+  });
+
+  // ── 17. Per-field persist assertions (captured-argument matchers) ────────
+  //
+  // [HIGH] Prior save-path verifies all used `any()`, so a regression that sent
+  // a stale/blank value to the backend would pass green. Here each profile field
+  // is edited in isolation, Save is tapped, and the captured MasterUpdate is
+  // asserted field-by-field: the edited field carries its NEW value and the
+  // others retain the seed.
+  //
+  // MasterUpdate is a hand-written value object with NO == override, so equality
+  // matching is impossible — we capture the argument and assert its fields.
+  // _save() trims every value, so captured strings are trimmed. The phone field
+  // is reformatted live by UaPhoneInputFormatter, so contactPhone is asserted
+  // against the FORMATTED string, not the raw keystrokes.
+
+  group('per-field persist assertions', () {
+    // Seed every profile field so a single-field edit is provably isolated.
+    final seededMaster = _stubMaster.copyWith(
+      firstName: 'Олена',
+      lastName: 'Ковальчук',
+      bio: 'Майстер манікюру.',
+      phoneNumber: '+380 50 111 22 33',
+      instagram: '@seed_handle',
+    );
+
+    Finder fieldInput(String fieldKey) => find.descendant(
+      of: find.byKey(Key(fieldKey)),
+      matching: find.byType(TextField),
+    );
+
+    /// Pumps the edit screen seeded, edits [fieldKey] to [value], taps Save,
+    /// and returns the single captured [MasterUpdate].
+    Future<MasterUpdate> editAndCapture(
+      WidgetTester tester, {
+      required String fieldKey,
+      required String value,
+    }) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo, master: seededMaster),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      await tester.enterText(fieldInput(fieldKey), value);
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-save-master')));
+      await tester.pumpAndSettle();
+
+      final captured = verify(
+        () => repo.updateMyProfile(captureAny()),
+      ).captured;
+      expect(
+        captured,
+        hasLength(1),
+        reason: 'updateMyProfile must be called exactly once.',
+      );
+      return captured.single as MasterUpdate;
+    }
+
+    testWidgets('firstName change is carried in MasterUpdate', (tester) async {
+      final update = await editAndCapture(
+        tester,
+        fieldKey: 'field-firstName',
+        value: 'Оксана',
+      );
+      expect(update.firstName, 'Оксана');
+      expect(update.lastName, 'Ковальчук');
+      expect(update.bio, 'Майстер манікюру.');
+      expect(update.contactPhone, '+380 50 111 22 33');
+      expect(update.instagram, '@seed_handle');
+    });
+
+    testWidgets('lastName change is carried in MasterUpdate', (tester) async {
+      final update = await editAndCapture(
+        tester,
+        fieldKey: 'field-lastName',
+        value: 'Петренко',
+      );
+      expect(update.lastName, 'Петренко');
+      expect(update.firstName, 'Олена');
+      expect(update.bio, 'Майстер манікюру.');
+      expect(update.contactPhone, '+380 50 111 22 33');
+      expect(update.instagram, '@seed_handle');
+    });
+
+    testWidgets('bio change is carried in MasterUpdate', (tester) async {
+      final update = await editAndCapture(
+        tester,
+        fieldKey: 'field-bio',
+        value: 'Стиліст-візажист.',
+      );
+      expect(update.bio, 'Стиліст-візажист.');
+      expect(update.firstName, 'Олена');
+      expect(update.lastName, 'Ковальчук');
+      expect(update.contactPhone, '+380 50 111 22 33');
+      expect(update.instagram, '@seed_handle');
+    });
+
+    testWidgets('phone change is carried in MasterUpdate as contactPhone', (
+      tester,
+    ) async {
+      // UaPhoneInputFormatter reformats the raw digits to +380 XX XXX XX XX, so
+      // contactPhone carries the FORMATTED string (trim() leaves it unchanged).
+      final update = await editAndCapture(
+        tester,
+        fieldKey: 'field-phone',
+        value: '+380679998877',
+      );
+      expect(update.contactPhone, '+380 67 999 88 77');
+      expect(update.firstName, 'Олена');
+      expect(update.lastName, 'Ковальчук');
+      expect(update.bio, 'Майстер манікюру.');
+      expect(update.instagram, '@seed_handle');
+    });
+
+    testWidgets('instagram change is carried in MasterUpdate', (tester) async {
+      final update = await editAndCapture(
+        tester,
+        fieldKey: 'field-instagram',
+        value: '@new_handle',
+      );
+      expect(update.instagram, '@new_handle');
+      expect(update.firstName, 'Олена');
+      expect(update.lastName, 'Ковальчук');
+      expect(update.bio, 'Майстер манікюру.');
+      expect(update.contactPhone, '+380 50 111 22 33');
+    });
+  });
+
+  // ── 18. locationNote persist assertion ───────────────────────────────────
+  //
+  // [MEDIUM] The updateLocality success path (#13) only ever asserted
+  // locationNote: null. Here a city is selected (so updateLocality fires) AND a
+  // note is entered — the captured updateLocality call must carry the entered
+  // locationNote verbatim (trimmed). Street + buildingNo are also asserted so
+  // the whole locality payload is pinned.
+
+  group('locationNote persist assertion', () {
+    testWidgets(
+      'entering a locationNote with a selected city sends it to updateLocality',
+      (tester) async {
+        when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+        when(
+          () => repo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenAnswer((_) async {});
+
+        final router = _buildRouter();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(repo: repo),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        // Select a city via the cascade callback so updateLocality fires.
+        final cascade = tester.widget<LocalityCascade>(
+          find.byKey(const Key('location-cascade')),
+        );
+        cascade.onCity(_stubCity);
+        await tester.pump();
+
+        // Enter the required address fields plus the note under test.
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-street')),
+            matching: find.byType(TextField),
+          ),
+          'вул. Шевченка',
+        );
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-buildingNo')),
+            matching: find.byType(TextField),
+          ),
+          '12',
+        );
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-locationNote')),
+            matching: find.byType(TextField),
+          ),
+          'другий поверх',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        // Capture ONLY the locationNote (the field under test) and pin every
+        // other named arg with a literal matcher. Capturing a single named arg
+        // keeps `.captured` unambiguous — mixing multiple captureAny(named:)
+        // matchers flattens them in evaluation order, not declaration order.
+        final captured = verify(
+          () => repo.updateLocality(
+            cityId: 'city-99',
+            districtId: null,
+            street: 'вул. Шевченка',
+            buildingNo: '12',
+            locationNote: captureAny(named: 'locationNote'),
+          ),
+        ).captured;
+
+        expect(captured, hasLength(1));
+        expect(
+          captured.single,
+          'другий поверх',
+          reason: 'locationNote must carry the entered value, not null',
+        );
       },
     );
   });
