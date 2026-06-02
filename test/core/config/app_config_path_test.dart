@@ -25,6 +25,59 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  group('AppConfig.normalizeBaseUrl (defensive double-prefix guard)', () {
+    test('strips a trailing /api/v1', () {
+      expect(
+        AppConfig.normalizeBaseUrl('http://localhost:8080/api/v1'),
+        'http://localhost:8080',
+      );
+    });
+
+    test('strips a trailing /api/v1/ (with slash)', () {
+      expect(
+        AppConfig.normalizeBaseUrl('http://localhost:8080/api/v1/'),
+        'http://localhost:8080',
+      );
+    });
+
+    test('strips /api/v1 case-insensitively', () {
+      expect(
+        AppConfig.normalizeBaseUrl('https://api.beautica.com/API/V1'),
+        'https://api.beautica.com',
+      );
+    });
+
+    test('strips a bare trailing slash', () {
+      expect(
+        AppConfig.normalizeBaseUrl('http://localhost:8080/'),
+        'http://localhost:8080',
+      );
+    });
+
+    test('leaves a clean URL unchanged', () {
+      expect(
+        AppConfig.normalizeBaseUrl('http://localhost:8080'),
+        'http://localhost:8080',
+      );
+    });
+
+    test('leaves an https production URL unchanged', () {
+      expect(
+        AppConfig.normalizeBaseUrl('https://api.beautica.com'),
+        'https://api.beautica.com',
+      );
+    });
+
+    test('strips only a single /api/v1 segment, not a doubled one', () {
+      // A doubled suffix should collapse to a single removal — the first
+      // /api/v1 remains, which still beats a triple prefix at runtime.
+      expect(
+        AppConfig.normalizeBaseUrl('http://host:8080/api/v1/api/v1'),
+        'http://host:8080/api/v1',
+      );
+    });
+  });
+
   group('AppConfig.baseUrl / generated-path consistency', () {
     test('baseUrl does NOT end with /api/v1 (no double-prefix source)', () {
       final normalized = AppConfig.baseUrl.replaceAll(RegExp(r'/+$'), '');
