@@ -1042,18 +1042,22 @@ class _SkeletonCardState extends State<_SkeletonCard>
                 const SizedBox(height: VelvetSpacing.md),
                 Row(
                   children: <Widget>[
-                    _ShimmerBar(
-                      controller: _shimmer,
-                      height: 26,
-                      width: 78,
-                      radius: VelvetRadii.pill,
+                    Expanded(
+                      flex: 3,
+                      child: _ShimmerBar(
+                        controller: _shimmer,
+                        height: 26,
+                        radius: VelvetRadii.pill,
+                      ),
                     ),
                     const SizedBox(width: VelvetSpacing.sm),
-                    _ShimmerBar(
-                      controller: _shimmer,
-                      height: 26,
-                      width: 92,
-                      radius: VelvetRadii.pill,
+                    Expanded(
+                      flex: 4,
+                      child: _ShimmerBar(
+                        controller: _shimmer,
+                        height: 26,
+                        radius: VelvetRadii.pill,
+                      ),
                     ),
                   ],
                 ),

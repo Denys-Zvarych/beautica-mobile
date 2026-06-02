@@ -184,6 +184,78 @@ void main() {
     },
   );
 
+  // ── Bugfix 2 — the always-on RANGE static hint is gone ─────────────────────
+  //
+  // Regression: RANGE mode used to render a permanent static hint line
+  // (l10n.pricingRangeHint, "Максимум має бути більшим за мінімум") beneath the
+  // Від/До pair, even with valid input. The fix removed that always-on hint;
+  // only the cross-field VALIDATION error (l10n.errPriceMaxGtMin) surfaces, and
+  // only when there is an actual range error. Because pricingRangeHint and
+  // errPriceMaxGtMin happen to share the same Ukrainian wording, the difference
+  // is structural: with NO error, neither the hint text NOR the error icon may
+  // appear; with an error, both reappear (covered by B1-RANGE-ERROR above).
+
+  testWidgets(
+    'Bugfix 2: RANGE mode with no error shows neither the static hint text '
+    'nor the error icon',
+    (tester) async {
+      await _pumpField(tester, mode: ServicePriceType.range, rangeError: null);
+      await tester.pumpAndSettle();
+
+      // Resolve the (now-removed) static hint string from l10n so we never
+      // hardcode the Ukrainian literal.
+      final BuildContext ctx = tester.element(find.byType(PricingField));
+      final AppLocalizations l10n = AppLocalizations.of(ctx);
+
+      // The always-on static hint text must NOT be rendered (it was removed).
+      expect(
+        find.text(l10n.pricingRangeHint),
+        findsNothing,
+        reason:
+            'Bugfix 2: the always-on RANGE static hint must not render when '
+            'there is no range error',
+      );
+      // …and there must be no error decoration either, since there is no error.
+      expect(find.byIcon(Icons.error_outline_rounded), findsNothing);
+    },
+  );
+
+  // ── Bugfix 2 — the max≤min VALIDATION error STILL renders on bad input ──────
+  //
+  // The complementary guard: removing the static hint must NOT remove the
+  // cross-field error. When a non-null rangeError is passed (max ≤ min), the
+  // error message AND the error icon must both surface beneath the pair.
+
+  testWidgets(
+    'Bugfix 2: RANGE mode still renders the errPriceMaxGtMin error + icon when '
+    'a range error is present',
+    (tester) async {
+      // The form passes l10n.errPriceMaxGtMin as the rangeError on bad input;
+      // resolve it off-tree so the literal is never hardcoded.
+      final AppLocalizations l10nUk = lookupAppLocalizations(
+        const Locale('uk'),
+      );
+
+      await _pumpField(
+        tester,
+        mode: ServicePriceType.range,
+        rangeError: l10nUk.errPriceMaxGtMin,
+      );
+      await tester.pumpAndSettle();
+
+      // The validation error message must be visible.
+      expect(
+        find.text(l10nUk.errPriceMaxGtMin),
+        findsOneWidget,
+        reason:
+            'Bugfix 2: the max≤min validation error must still surface after '
+            'the static hint removal',
+      );
+      // The error icon must accompany it.
+      expect(find.byIcon(Icons.error_outline_rounded), findsWidgets);
+    },
+  );
+
   // ── B1-DISABLED ───────────────────────────────────────────────────────────
 
   testWidgets(

@@ -196,6 +196,52 @@ void main() {
     expect(find.text('Стрижка'), findsNothing);
   });
 
+  // ── 1b. Loading state at a narrow width — no skeleton overflow (Bugfix 3) ──
+  //
+  // Regression: the _SkeletonCard's two shimmer metadata bars were fixed-width
+  // (78 + 92 px). On the narrow loading frame shown immediately after creating
+  // a service (a phone at ≤360 dp), the photo + name + fixed bars + trailing
+  // glyph overran the row and threw a RenderFlex overflow. The fix made the two
+  // metadata bars Expanded (flex 3 / flex 4) so they shrink to fit. This test
+  // pins a 320 dp-wide surface and asserts the loading body lays out with no
+  // overflow exception.
+
+  testWidgets(
+    'Bugfix 3: skeleton cards render at 320 dp width with no overflow',
+    (tester) async {
+      // Narrow phone surface (≤360 dp). 1:1 pixel ratio keeps logical == device.
+      tester.view.physicalSize = const Size(320, 700);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const ServicesListScreen(),
+        overrides: [
+          _servicesOverride(const AsyncLoading()),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+        ],
+      );
+      // Loading frame — the shimmer controllers are running.
+      await tester.pump();
+
+      // All three skeleton cards must be present at this narrow width.
+      expect(find.byKey(const Key('skeleton_card_0')), findsOneWidget);
+      expect(find.byKey(const Key('skeleton_card_1')), findsOneWidget);
+      expect(find.byKey(const Key('skeleton_card_2')), findsOneWidget);
+
+      // The core assertion: no RenderFlex overflow was thrown while laying out
+      // the skeleton row at 320 dp (Bugfix 3 — bars are Expanded, not fixed).
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'Bugfix 3: _SkeletonCard metadata bars must be Expanded so the '
+            'loading row never overflows at narrow phone widths',
+      );
+    },
+  );
+
   // ── 2. Error state ─────────────────────────────────────────────────────────
 
   testWidgets('error state — ErrorState widget rendered', (tester) async {

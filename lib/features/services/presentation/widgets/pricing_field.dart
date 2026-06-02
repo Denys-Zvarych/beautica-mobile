@@ -88,10 +88,6 @@ class PricingField extends StatelessWidget {
   ];
 
   // Hoisted so _buildRange() allocates nothing on keystroke rebuilds.
-  static final Color _hintIconColor = BrandColors.accent.withValues(alpha: 0.8);
-  static final TextStyle _hintTextStyle = VelvetText.feedback(
-    BrandColors.textSecondary.withValues(alpha: 0.8),
-  );
   static final TextStyle _rangeErrorStyle = VelvetText.feedback(
     BrandColors.error,
   );
@@ -203,39 +199,35 @@ class PricingField extends StatelessWidget {
               ),
             ],
           ),
-          // Inline range hint / validation line beneath the pair.
-          Padding(
-            padding: const EdgeInsets.only(
-              left: VelvetSpacing.xs,
-              right: VelvetSpacing.xs,
-              top: VelvetSpacing.sm - 2,
-            ),
-            child: Semantics(
-              liveRegion: hasRangeError,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Padding(
-                    padding: const EdgeInsets.only(top: 1.5),
-                    child: Icon(
-                      hasRangeError
-                          ? Icons.error_outline_rounded
-                          : Icons.swap_horiz_rounded,
-                      size: hasRangeError ? 15 : 14,
-                      color: hasRangeError ? BrandColors.error : _hintIconColor,
+          // Inline range VALIDATION line beneath the pair — rendered only
+          // when there is a range error. The always-on static hint was removed
+          // per design; the cross-field error message still surfaces here.
+          if (hasRangeError)
+            Padding(
+              padding: const EdgeInsets.only(
+                left: VelvetSpacing.xs,
+                right: VelvetSpacing.xs,
+                top: VelvetSpacing.sm - 2,
+              ),
+              child: Semantics(
+                liveRegion: true,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Padding(
+                      padding: EdgeInsets.only(top: 1.5),
+                      child: Icon(
+                        Icons.error_outline_rounded,
+                        size: 15,
+                        color: BrandColors.error,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: VelvetSpacing.xs + 2),
-                  Expanded(
-                    child: Text(
-                      hasRangeError ? rangeError! : l10n.pricingRangeHint,
-                      style: hasRangeError ? _rangeErrorStyle : _hintTextStyle,
-                    ),
-                  ),
-                ],
+                    const SizedBox(width: VelvetSpacing.xs + 2),
+                    Expanded(child: Text(rangeError!, style: _rangeErrorStyle)),
+                  ],
+                ),
               ),
             ),
-          ),
         ],
       ),
     );

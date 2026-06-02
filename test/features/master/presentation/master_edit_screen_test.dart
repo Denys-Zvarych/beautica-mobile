@@ -587,6 +587,76 @@ void main() {
     });
   });
 
+  // ── 7b. Optional "необов’язково" marker scoping (Bugfix 1 regression) ─────
+  //
+  // Bugfix 1: the phone field no longer renders the muted "необов’язково"
+  // optional marker (VelvetField.optional was removed from the phone field),
+  // while the Instagram and location-note fields STILL show it. The marker is
+  // a permanent design token of VelvetField (a Unicode-apostrophe string baked
+  // into the widget, not an l10n key), so we assert against that exact literal
+  // — scoped per-field via find.descendant so a future accidental re-add to the
+  // phone field, or removal from Instagram / location-note, is caught.
+
+  group('optional marker scoping (Bugfix 1)', () {
+    // The exact token rendered by VelvetField when optional == true. Contains a
+    // Unicode RIGHT SINGLE QUOTATION MARK (U+2019), matching velvet_field.dart.
+    const String optionalMarker = 'необов’язково';
+
+    testWidgets('phone field shows NO optional marker, while Instagram and '
+        'location-note fields STILL show it', (tester) async {
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // All three fields are present.
+      expect(find.byKey(const Key('field-phone')), findsOneWidget);
+      expect(find.byKey(const Key('field-instagram')), findsOneWidget);
+      expect(find.byKey(const Key('field-locationNote')), findsOneWidget);
+
+      // Phone: the optional marker must NOT appear inside the phone field
+      // subtree (Bugfix 1 — the marker was removed from the phone field).
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-phone')),
+          matching: find.text(optionalMarker),
+        ),
+        findsNothing,
+        reason:
+            'Bugfix 1: the phone field must not render the "необов’язково" '
+            'optional marker',
+      );
+
+      // Instagram: the marker MUST still appear (regression guard — removal
+      // must stay scoped to phone only).
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-instagram')),
+          matching: find.text(optionalMarker),
+        ),
+        findsOneWidget,
+        reason:
+            'the Instagram field must keep its optional marker — Bugfix 1 '
+            'scopes the removal to the phone field only',
+      );
+
+      // Location note: the marker MUST still appear.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-locationNote')),
+          matching: find.text(optionalMarker),
+        ),
+        findsOneWidget,
+        reason:
+            'the location-note field must keep its optional marker — '
+            'Bugfix 1 scopes the removal to the phone field only',
+      );
+    });
+  });
+
   // ── 8. Avatar edit badge ─────────────────────────────────────────────────
 
   group('avatar edit badge', () {

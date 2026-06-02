@@ -1001,7 +1001,6 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               label: l10n.phoneLabel,
                               controller: _phone,
                               enabled: !_saving,
-                              optional: true,
                               keyboardType: TextInputType.phone,
                               inputFormatters: const <UaPhoneInputFormatter>[
                                 UaPhoneInputFormatter(),

@@ -331,47 +331,69 @@ class _ServiceTileState extends State<ServiceTile> {
                 ),
               ),
               const SizedBox(width: VelvetSpacing.md),
-              // Name · duration on one line.
+              // Vertical layout: full-width name on top, then a metadata row
+              // pairing the duration (left) with the price pill (right). This
+              // lets long names ellipsize without competing with the price for
+              // horizontal space, eliminating the persistent row overflow.
               Expanded(
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    Flexible(
-                      child: Text(
-                        widget.name,
-                        style: VelvetText.bodyStrong(),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: VelvetSpacing.sm),
-                    const Icon(
-                      Icons.schedule_outlined,
-                      size: 12,
-                      color: BrandColors.muted,
-                    ),
-                    const SizedBox(width: 3),
+                    // Line 1 — service name, full width.
                     Text(
-                      widget.duration,
-                      // M-2 fix: pre-composed static; zero per-frame
-                      // allocation.
-                      style: VelvetText.serviceDurationLabel,
+                      widget.name,
+                      style: VelvetText.bodyStrong(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: VelvetSpacing.xs + 1),
+                    // Line 2 — duration (left) · price pill (right).
+                    Row(
+                      children: <Widget>[
+                        const Icon(
+                          Icons.schedule_outlined,
+                          size: 12,
+                          color: BrandColors.muted,
+                        ),
+                        const SizedBox(width: 3),
+                        Flexible(
+                          child: Text(
+                            widget.duration,
+                            // M-2 fix: pre-composed static; zero per-frame
+                            // allocation.
+                            style: VelvetText.serviceDurationLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const Spacer(),
+                        const SizedBox(width: VelvetSpacing.sm),
+                        // Price pill — capped so an extreme value can never
+                        // push the second row into overflow.
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 140),
+                          child: NeumorphicInset(
+                            radius: 999,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: VelvetSpacing.sm + 2,
+                                vertical: VelvetSpacing.xs + 1,
+                              ),
+                              child: Text(
+                                widget.price,
+                                // M-2 fix: pre-composed static; zero per-frame
+                                // allocation.
+                                style: VelvetText.servicePriceLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
-                ),
-              ),
-              // Price pill.
-              NeumorphicInset(
-                radius: 999,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: VelvetSpacing.sm + 2,
-                    vertical: VelvetSpacing.xs + 1,
-                  ),
-                  child: Text(
-                    widget.price,
-                    // M-2 fix: pre-composed static; zero per-frame
-                    // allocation.
-                    style: VelvetText.servicePriceLabel,
-                  ),
                 ),
               ),
             ],

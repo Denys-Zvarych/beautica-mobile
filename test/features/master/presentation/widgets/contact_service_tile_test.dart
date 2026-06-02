@@ -131,6 +131,88 @@ void main() {
       // in Semantics(button: true, label: '$name, $duration, $price').
       expect(find.byType(Semantics), findsWidgets);
     });
+
+    // ── Bugfix 4 — long service name does not overflow at narrow widths ───────
+    //
+    // Regression: ServiceTile previously laid the name + duration + price in a
+    // single inner Row, so a long Ukrainian service name competed with the
+    // price for horizontal space and produced a RenderFlex overflow on narrow
+    // phones. The fix restructured the tile to name-on-top (single-line,
+    // ellipsis) with a duration/price metadata row below. These tests pin a
+    // realistic narrow width (312–360 dp) and assert:
+    //   (a) no overflow exception is thrown (takeException == null), and
+    //   (b) the name Text uses maxLines: 1 + TextOverflow.ellipsis.
+
+    const String longName =
+        'Комплексний догляд за обличчям з глибоким очищенням та масажем';
+
+    /// Pumps a single [ServiceTile] constrained to [width] logical pixels so the
+    /// narrow-phone overflow path is exercised deterministically (independent of
+    /// the default 800×600 test surface).
+    Future<void> pumpNarrowTile(
+      WidgetTester tester, {
+      required double width,
+      required String name,
+    }) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: width,
+              child: ServiceTile(
+                name: name,
+                duration: '90 хв',
+                price: '2 500 грн',
+                photoGradient: const <Color>[
+                  Color(0xFFB89A7A),
+                  Color(0xFF6A4A28),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets(
+      'Bugfix 4: a long Ukrainian name does not overflow at 312 dp width',
+      (tester) async {
+        await pumpNarrowTile(tester, width: 312, name: longName);
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'Bugfix 4: the restructured ServiceTile must not throw a '
+              'RenderFlex overflow for a long name at a narrow width',
+        );
+
+        // The name Text must be single-line + ellipsized so it can never push
+        // the row into overflow.
+        final Text nameText = tester.widget<Text>(find.text(longName));
+        expect(nameText.maxLines, 1, reason: 'name must be single-line');
+        expect(
+          nameText.overflow,
+          TextOverflow.ellipsis,
+          reason: 'name must ellipsize, not wrap or clip hard',
+        );
+      },
+    );
+
+    testWidgets(
+      'Bugfix 4: a long Ukrainian name does not overflow at 360 dp width either',
+      (tester) async {
+        await pumpNarrowTile(tester, width: 360, name: longName);
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'Bugfix 4: no overflow for a long name at a typical phone width',
+        );
+      },
+    );
   });
 
   // ── VelvetBottomNavBar ───────────────────────────────────────────────────
