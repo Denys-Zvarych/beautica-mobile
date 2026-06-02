@@ -1406,6 +1406,18 @@
   "@serviceCategorySuggest": {
     "description": "Label for the trailing chip/button on the category picker that opens the 'suggest a category' dialog."
   },
+  "serviceCategoryUncategorized": "Uncategorized",
+  "@serviceCategoryUncategorized": {
+    "description": "Header label for the services-list expandable section that groups services with no category set."
+  },
+  "servicesCategorySectionSemantics": "Category {category}, {count} services",
+  "@servicesCategorySectionSemantics": {
+    "description": "Accessibility label for a collapsible category section header on the services list, announcing the category name and how many services it contains.",
+    "placeholders": {
+      "category": { "type": "String" },
+      "count": { "type": "int" }
+    }
+  },
   "categoryRequestTitle": "Suggest a category",
   "@categoryRequestTitle": {
     "description": "Title of the suggest-a-category dialog."

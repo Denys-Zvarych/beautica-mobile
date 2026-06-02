@@ -154,6 +154,79 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
+    // Test 2b — lastKnownAccessToken survives a mid-rebuild AsyncLoading window
+    //
+    // Delete-service false-401 regression guard: serviceRepositoryProvider
+    // watches masterProfileProvider; invalidating it can push a watcher of
+    // authProvider into a momentary AsyncLoading. AuthInterceptor must still be
+    // able to recover the Bearer token via [lastKnownAccessToken] — otherwise
+    // the in-flight DELETE is sent tokenless and the backend answers a false
+    // 401 ("Сесія завершилась").
+    // -----------------------------------------------------------------------
+    test('lastKnownAccessToken: returns session token even while the provider '
+        'is momentarily AsyncLoading (delete-flow race)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => rotatedTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      final notifier = container.read(authProvider.notifier);
+
+      // Settled Authenticated state → token comes straight from the session.
+      expect(notifier.lastKnownAccessToken, equals(rotatedTokens.accessToken));
+
+      // Simulate the mid-rebuild window: provider pushed back to AsyncLoading
+      // with the cold-start sentinel already cleared (its normal settled state).
+      // ignore: invalid_use_of_protected_member
+      notifier.state = const AsyncLoading<AuthSession>();
+
+      expect(
+        notifier.lastKnownAccessToken,
+        equals(rotatedTokens.accessToken),
+        reason:
+            'while AsyncLoading mid-rebuild, the interceptor must still recover '
+            'the last-known access token so requests are not sent tokenless',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 2c — logout wipes the lastKnownAccessToken fallback
+    // -----------------------------------------------------------------------
+    test('logout: clears lastKnownAccessToken so no stale token can be '
+        'attached post-logout', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => rotatedTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      final notifier = container.read(authProvider.notifier);
+      expect(notifier.lastKnownAccessToken, isNotNull);
+
+      await notifier.logout();
+
+      expect(
+        notifier.lastKnownAccessToken,
+        isNull,
+        reason: 'after logout there is no session — no token may be recovered',
+      );
+    });
+
+    // -----------------------------------------------------------------------
     // Test 3 — Cold start with a stale (expired/revoked) refresh token
     // -----------------------------------------------------------------------
     test('cold start: stale token throws UnauthorizedFailure '

@@ -34,8 +34,8 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
-import 'package:beautica_mobile/shared/formatters/currency_uah.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
+import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 
 import 'services_list_notifier.dart';
@@ -194,7 +194,7 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
 // Loaded body
 // ---------------------------------------------------------------------------
 
-class _LoadedBody extends ConsumerWidget {
+class _LoadedBody extends ConsumerStatefulWidget {
   const _LoadedBody({required this.onOpen, required this.services});
 
   /// Pushes a route and invalidates [approvedCategoriesProvider] on return.
@@ -202,6 +202,41 @@ class _LoadedBody extends ConsumerWidget {
   final Future<void> Function(String location) onOpen;
 
   final List<MasterService> services;
+
+  @override
+  ConsumerState<_LoadedBody> createState() => _LoadedBodyState();
+}
+
+class _LoadedBodyState extends ConsumerState<_LoadedBody> {
+  // PERF A2 (MEDIUM): the memoized grouping. Re-run [_group] only when the
+  // identity of (services, categories.value) changes, so a label-only category
+  // refresh ([approvedCategoriesProvider] invalidated on entry / return / pull)
+  // does not re-bucket. Living in [State] keeps the cache alive across the
+  // frequent rebuilds those invalidations trigger.
+  List<MasterService>? _cachedServices;
+  List<ServiceCategoryOption>? _cachedCategories;
+  List<_CategoryGroup>? _cachedGroups;
+
+  List<_CategoryGroup> _resolveGroups(
+    AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
+    String uncategorizedLabel,
+  ) {
+    final List<ServiceCategoryOption>? categoriesValue = categoriesAsync.value;
+    final bool hit =
+        _cachedGroups != null &&
+        identical(_cachedServices, widget.services) &&
+        identical(_cachedCategories, categoriesValue);
+    if (hit) return _cachedGroups!;
+
+    final List<_CategoryGroup> groups = _group(
+      categoriesAsync,
+      uncategorizedLabel,
+    );
+    _cachedServices = widget.services;
+    _cachedCategories = categoriesValue;
+    _cachedGroups = groups;
+    return groups;
+  }
 
   /// Resolves a category wire slug to a display label using the same source the
   /// service form uses ([approvedCategoriesProvider]):
@@ -226,11 +261,75 @@ class _LoadedBody extends ConsumerWidget {
     return humanizeCategorySlug(slug);
   }
 
+  /// Groups the widget's services into ordered category buckets, preserving the
+  /// EXACT creation order the list provider returns.
+  ///
+  /// - Within a bucket, services keep their original relative order.
+  /// - Category buckets are ordered by the FIRST appearance of a service in
+  ///   that category in the creation-ordered list (stable, tied to creation
+  ///   order — never alphabetical or by price).
+  /// - Services with no category share a single trailing bucket keyed on the
+  ///   empty string.
+  ///
+  /// A [LinkedHashMap] preserves insertion order, so iterating the entries
+  /// yields the buckets in first-appearance order without an explicit sort.
+  /// Each bucketed service is paired with a continuous [_CardEntry.staggerIndex]
+  /// (counted across section boundaries) so the entrance cascade is unbroken.
+  List<_CategoryGroup> _group(
+    AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
+    String uncategorizedLabel,
+  ) {
+    // Bucket key: the upper-cased wire slug, or '' for uncategorized — so two
+    // services tagged 'brows' and 'BROWS' land in the same bucket.
+    final Map<String, List<MasterService>> buckets =
+        <String, List<MasterService>>{};
+    for (final MasterService s in widget.services) {
+      final String key = (s.category ?? '').trim().toUpperCase();
+      (buckets[key] ??= <MasterService>[]).add(s);
+    }
+    // Running index across all cards, in first-appearance + creation order, so
+    // the staggered entrance animation keeps a continuous cascade across
+    // section boundaries (preserves the prior behaviour exactly).
+    var cardIndex = 0;
+    return buckets.entries
+        .map((entry) {
+          final bool isUncategorized = entry.key.isEmpty;
+          final String label = isUncategorized
+              ? uncategorizedLabel
+              : _resolveCategoryLabel(entry.key, categoriesAsync) ??
+                    uncategorizedLabel;
+          final List<_CardEntry> cards = <_CardEntry>[
+            for (final MasterService service in entry.value)
+              _CardEntry(service: service, staggerIndex: cardIndex++),
+          ];
+          return _CategoryGroup(key: entry.key, label: label, cards: cards);
+        })
+        .toList(growable: false);
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final categoriesAsync = ref.watch(approvedCategoriesProvider);
-    return ListView.separated(
+
+    final List<_CategoryGroup> groups = _resolveGroups(
+      categoriesAsync,
+      l10n.serviceCategoryUncategorized,
+    );
+
+    // PERF A1 (HIGH): flatten the active-count header + ordered groups into a
+    // single typed item list (header, section, section, …) once, then drive a
+    // lazy [ListView.builder] off it. This restores off-screen / collapsed
+    // construction laziness (resolves M1 + L1) — only visible sections are
+    // built, so off-screen cards never allocate an AnimationController nor
+    // schedule a Future.delayed entrance timer.
+    final List<_ListItem> items = _flatten(
+      l10n,
+      groups,
+      widget.services.length,
+    );
+
+    return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(
         parent: BouncingScrollPhysics(),
       ),
@@ -241,32 +340,62 @@ class _LoadedBody extends ConsumerWidget {
         // Bottom padding so the last card clears the floating FAB.
         VelvetSpacing.xxl + VelvetSpacing.xl,
       ),
-      itemCount: services.length + 1,
-      separatorBuilder: (context, idx) =>
-          const SizedBox(height: VelvetSpacing.md),
-      itemBuilder: (BuildContext context, int i) {
-        if (i == 0) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: VelvetSpacing.xs),
-            child: Text(
-              _activeServicesLabel(l10n, services.length),
-              style: VelvetText.label(),
-            ),
-          );
+      itemCount: items.length,
+      itemBuilder: (BuildContext context, int index) {
+        final _ListItem item = items[index];
+        switch (item) {
+          case _HeaderItem(:final label):
+            return Padding(
+              padding: const EdgeInsets.only(bottom: VelvetSpacing.sm),
+              child: Text(label, style: VelvetText.label()),
+            );
+          case _SectionItem(:final group):
+            return Padding(
+              padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
+              child: _CategorySection(
+                // Stable key per bucket so expand/collapse state survives
+                // rebuilds (e.g. category-cache invalidation on screen return).
+                key: Key(
+                  'category_section_${group.key.isEmpty ? '_none' : group.key}',
+                ),
+                title: group.label,
+                count: group.cards.length,
+                children: <Widget>[
+                  for (final _CardEntry entry in group.cards)
+                    Padding(
+                      padding: const EdgeInsets.only(top: VelvetSpacing.md),
+                      child: _ServiceCard(
+                        key: Key('service_card_${entry.service.id}'),
+                        service: entry.service,
+                        onEdit: () => widget.onOpen(
+                          RouteNames.serviceEdit(entry.service.id),
+                        ),
+                        appearDelay: Duration(
+                          milliseconds: 90 * entry.staggerIndex,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
         }
-        final service = services[i - 1];
-        return _ServiceCard(
-          key: Key('service_card_${service.id}'),
-          service: service,
-          onEdit: () => onOpen(RouteNames.serviceEdit(service.id)),
-          categoryLabel: _resolveCategoryLabel(
-            service.category,
-            categoriesAsync,
-          ),
-          appearDelay: Duration(milliseconds: 90 * (i - 1)),
-        );
       },
     );
+  }
+
+  /// Flattens the active-count header + ordered [groups] into a single typed
+  /// item list for the lazy [ListView.builder]. Each category section carries
+  /// its own cards (with their precomputed continuous stagger index) so the
+  /// builder can construct one section at a time as it scrolls into view.
+  List<_ListItem> _flatten(
+    AppLocalizations l10n,
+    List<_CategoryGroup> groups,
+    int total,
+  ) {
+    return <_ListItem>[
+      _HeaderItem(_activeServicesLabel(l10n, total)),
+      for (final _CategoryGroup group in groups) _SectionItem(group),
+    ];
   }
 
   /// Formats the count sub-heading.
@@ -293,6 +422,204 @@ class _LoadedBody extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
+// Category grouping
+// ---------------------------------------------------------------------------
+
+/// A single service paired with its continuous entrance-stagger index.
+///
+/// [staggerIndex] is assigned in first-appearance + creation order across ALL
+/// sections so the staggered fade/rise cascade is unbroken across section
+/// boundaries — independent of which section the card lives in.
+@immutable
+class _CardEntry {
+  const _CardEntry({required this.service, required this.staggerIndex});
+
+  final MasterService service;
+  final int staggerIndex;
+}
+
+/// An ordered bucket of services that share a category.
+///
+/// [key] is the upper-cased wire slug (or '' for uncategorized) and is used to
+/// derive a stable widget key. [label] is the display-ready Ukrainian header.
+/// [cards] preserve their creation order within the bucket and carry the
+/// continuous stagger index for the entrance animation.
+@immutable
+class _CategoryGroup {
+  const _CategoryGroup({
+    required this.key,
+    required this.label,
+    required this.cards,
+  });
+
+  final String key;
+  final String label;
+  final List<_CardEntry> cards;
+}
+
+// ---------------------------------------------------------------------------
+// Flattened list items (header + sections) for the lazy ListView.builder
+// ---------------------------------------------------------------------------
+
+/// One row in the flattened item list driving [ListView.builder].
+@immutable
+sealed class _ListItem {
+  const _ListItem();
+}
+
+/// The active-count sub-heading row at the top of the list.
+@immutable
+class _HeaderItem extends _ListItem {
+  const _HeaderItem(this.label);
+
+  final String label;
+}
+
+/// A category section (header pillow + its collapsible cards).
+@immutable
+class _SectionItem extends _ListItem {
+  const _SectionItem(this.group);
+
+  final _CategoryGroup group;
+}
+
+// ---------------------------------------------------------------------------
+// Expandable category section
+// ---------------------------------------------------------------------------
+
+/// A soft neumorphic disclosure section: an extruded header pillow (category
+/// name + count badge + rotating chevron) over a collapsible body of service
+/// cards. Defaults to expanded so the master still sees their services on load.
+///
+/// This is the VelvetTouch analogue of an [ExpansionTile] — no raw Material
+/// chrome. The header reuses the same [BrandColors.base] + [VelvetShadows]
+/// language as the cards beneath it so the page reads as one carved surface.
+class _CategorySection extends StatefulWidget {
+  const _CategorySection({
+    super.key,
+    required this.title,
+    required this.count,
+    required this.children,
+  });
+
+  final String title;
+  final int count;
+  final List<Widget> children;
+
+  @override
+  State<_CategorySection> createState() => _CategorySectionState();
+}
+
+class _CategorySectionState extends State<_CategorySection> {
+  // Default-expanded (task requirement: users still see their services).
+  bool _expanded = true;
+
+  void _toggle() => setState(() => _expanded = !_expanded);
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Semantics(
+          button: true,
+          header: true,
+          expanded: _expanded,
+          label: l10n.servicesCategorySectionSemantics(
+            widget.title,
+            widget.count,
+          ),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _toggle,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: VelvetSpacing.md,
+                vertical: VelvetSpacing.sm + 2,
+              ),
+              decoration: BoxDecoration(
+                color: BrandColors.base,
+                borderRadius: BorderRadius.circular(VelvetRadii.card),
+                boxShadow: VelvetShadows.extrudedCard,
+              ),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      style: VelvetText.subheading().copyWith(fontSize: 16),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: VelvetSpacing.sm),
+                  _CategoryCountBadge(count: widget.count),
+                  const SizedBox(width: VelvetSpacing.sm),
+                  AnimatedRotation(
+                    // 0.25 turns = 90°: chevron points down when expanded,
+                    // right when collapsed.
+                    turns: _expanded ? 0.0 : -0.25,
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeOutCubic,
+                    child: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: BrandColors.accent,
+                      size: 22,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        // Collapsible body — AnimatedSize gives a smooth reveal/hide that keeps
+        // the cards' own staggered entrance intact on first build.
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: _expanded
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: widget.children,
+                )
+              : const SizedBox(width: double.infinity, height: 0),
+        ),
+      ],
+    );
+  }
+}
+
+/// A small recessed count badge shown on the right of a category header.
+class _CategoryCountBadge extends StatelessWidget {
+  const _CategoryCountBadge({required this.count});
+
+  final int count;
+
+  // Hoisted to avoid per-build allocation.
+  static final TextStyle _style = VelvetText.pill().copyWith(fontSize: 12.5);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: VelvetSpacing.sm,
+        vertical: 2,
+      ),
+      decoration: BoxDecoration(
+        color: BrandColors.base,
+        borderRadius: BorderRadius.circular(VelvetRadii.pill),
+        boxShadow: VelvetShadows.extrudedSmall,
+      ),
+      child: Text('$count', style: _style),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Service card
 // ---------------------------------------------------------------------------
 
@@ -305,7 +632,6 @@ class _ServiceCard extends StatefulWidget {
     super.key,
     required this.service,
     required this.onEdit,
-    this.categoryLabel,
     this.appearDelay = Duration.zero,
   });
 
@@ -314,11 +640,6 @@ class _ServiceCard extends StatefulWidget {
   /// Opens the edit form for this service and invalidates the category cache
   /// on return. Provided by [_LoadedBody.onOpen].
   final VoidCallback onEdit;
-
-  /// Pre-resolved, display-ready category label (Ukrainian when the slug is in
-  /// the approved list, humanized otherwise). Null when the service has no
-  /// category. Resolved once in [_LoadedBody] so the card stays a leaf widget.
-  final String? categoryLabel;
 
   final Duration appearDelay;
 
@@ -364,12 +685,11 @@ class _ServiceCardState extends State<_ServiceCard>
   Widget build(BuildContext context) {
     final MasterService s = widget.service;
     final durationLabel = DurationMinutes.format(s.durationMinutes);
-    // Phase 5.6: render from the server-formatted priceDisplay field.
-    // Fallback: if priceDisplay is somehow empty (pre-V67 data or broken
-    // contract), do not crash — show an empty string rather than a bad format.
-    final priceLabel = s.priceDisplay.isNotEmpty
-        ? s.priceDisplay
-        : CurrencyUah.format(s.priceMin);
+    // Price label: FIXED renders the server-formatted priceDisplay
+    // ("750 грн"); RANGE is reformatted client-side to a hyphenated band
+    // ("200 - 600 грн") via [ServicePriceDisplay]. Falls back gracefully when
+    // priceDisplay is empty (pre-V67 data / broken contract).
+    final priceLabel = ServicePriceDisplay.format(s);
 
     return AnimatedBuilder(
       animation: _curve,
@@ -422,7 +742,6 @@ class _ServiceCardState extends State<_ServiceCard>
                       name: s.name,
                       durationLabel: durationLabel,
                       priceLabel: priceLabel,
-                      category: widget.categoryLabel,
                     ),
                   ),
                   const SizedBox(width: VelvetSpacing.sm),
@@ -481,13 +800,11 @@ class _ServiceInfo extends StatelessWidget {
     required this.name,
     required this.durationLabel,
     required this.priceLabel,
-    this.category,
   });
 
   final String name;
   final String durationLabel;
   final String priceLabel;
-  final String? category;
 
   // Hoisted to avoid per-build allocation (MEDIUM-3).
   static final TextStyle _nameStyle = VelvetText.cardTitle().copyWith(
@@ -510,13 +827,9 @@ class _ServiceInfo extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
         ),
         const SizedBox(height: VelvetSpacing.xs),
-        // Single inline metadata line: duration · price (· category). No inset
-        // pills — flat inline text keeps the row short while staying on-brand.
-        _MetaLine(
-          durationLabel: durationLabel,
-          priceLabel: priceLabel,
-          category: category,
-        ),
+        // Single inline metadata line: duration · price. The category is no
+        // longer shown here — it is now the section header the card lives under.
+        _MetaLine(durationLabel: durationLabel, priceLabel: priceLabel),
       ],
     );
   }
@@ -527,34 +840,24 @@ class _ServiceInfo extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 /// A compact, single-line metadata strip: a duration glyph + value, a thin
-/// divider dot, a price glyph + value, and an optional trailing category.
+/// divider dot, and a price glyph + value.
 ///
 /// Overflow-safe: the whole strip clips with an ellipsis if the row is narrow.
 class _MetaLine extends StatelessWidget {
-  const _MetaLine({
-    required this.durationLabel,
-    required this.priceLabel,
-    this.category,
-  });
+  const _MetaLine({required this.durationLabel, required this.priceLabel});
 
   final String durationLabel;
   final String priceLabel;
-  final String? category;
 
   @override
   Widget build(BuildContext context) {
-    final cat = category;
     return Row(
       children: <Widget>[
         _MetaItem(icon: Icons.schedule_rounded, value: durationLabel),
         const _MetaDot(),
-        _MetaItem(icon: Icons.sell_rounded, value: priceLabel),
-        if (cat != null) ...<Widget>[
-          const _MetaDot(),
-          Flexible(
-            child: _MetaItem(icon: Icons.category_rounded, value: cat),
-          ),
-        ],
+        Flexible(
+          child: _MetaItem(icon: Icons.sell_rounded, value: priceLabel),
+        ),
       ],
     );
   }
