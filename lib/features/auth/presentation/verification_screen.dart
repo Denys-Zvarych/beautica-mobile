@@ -369,6 +369,15 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       message = l10n.verificationServiceUnavailable;
     }
 
+    // Defensive catch-all (mirrors master_edit_screen.dart empty-message guard):
+    // a non-VerificationFailure that drifts at runtime (interceptor path miss,
+    // 500, network) — or a Failure whose userMessage somehow resolves to a
+    // blank/whitespace string — must NEVER produce a silent submit. Fall back
+    // to a guaranteed non-empty generic banner so the user always sees an error.
+    if (message.trim().isEmpty) {
+      message = l10n.errUnknown;
+    }
+
     setState(() {
       _inlineError = message;
       _inlineErrorActionLabel = actionLabel;
