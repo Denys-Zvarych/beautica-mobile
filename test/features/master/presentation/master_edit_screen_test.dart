@@ -2014,7 +2014,10 @@ void main() {
               'dead Save.',
         );
         expect(
-          find.descendant(of: snack, matching: find.text(_l10nUk.errValidation)),
+          find.descendant(
+            of: snack,
+            matching: find.text(_l10nUk.errValidation),
+          ),
           findsOneWidget,
           reason:
               'A blank serverMessage must fall back to the localized '
