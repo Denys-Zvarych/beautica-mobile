@@ -63,12 +63,35 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
   void initState() {
     super.initState();
     if (!kDebugMode) ScreenProtector.preventScreenshotOn();
+    // The approved-category list ([approvedCategoriesProvider], keepAlive) is
+    // cached in the root container for the whole session, so the picker can go
+    // stale after an admin approves a category server-side. Invalidating on
+    // first entry guarantees a fresh fetch every time this screen mounts.
+    // (Returns to this kept-alive route are handled by [_openAndRefresh],
+    // since initState does NOT re-fire on pop-back.)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.invalidate(approvedCategoriesProvider);
+    });
   }
 
   @override
   void dispose() {
     if (!kDebugMode) ScreenProtector.preventScreenshotOff();
     super.dispose();
+  }
+
+  /// Pushes [location] and, once the pushed flow pops back to this (kept-alive)
+  /// screen, invalidates [approvedCategoriesProvider] so a category approved
+  /// by an admin while the user was away appears without a cold restart.
+  ///
+  /// This is the route-return hook: because the /services route is kept alive,
+  /// [initState] fires only on first entry and will NOT re-run on pop-back —
+  /// awaiting the [GoRouter.push] Future (which completes when the destination
+  /// pops) is the simplest mechanism that reliably re-fires on every return
+  /// from the create / edit / request-category flows.
+  Future<void> _openAndRefresh(String location) async {
+    await context.push<void>(location);
+    if (mounted) ref.invalidate(approvedCategoriesProvider);
   }
 
   @override
@@ -85,13 +108,21 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
             : _NeumorphicExtendedFab(
                 key: const Key('btn-create-service'),
                 label: l10n.servicesAdd,
-                onTap: () => context.push(RouteNames.serviceCreate),
+                onTap: () => _openAndRefresh(RouteNames.serviceCreate),
               ),
         orElse: () => null,
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       body: RefreshIndicator(
-        onRefresh: () => ref.read(servicesListProvider.notifier).refresh(),
+        // Pull-to-refresh refreshes BOTH the master's own services AND the
+        // approved-category cache, so a category approved by an admin appears
+        // on the next pull without a cold restart. `refresh()` awaits the
+        // services reload; the category provider is invalidated (re-fetches
+        // lazily on the next watch) — both are kicked off here.
+        onRefresh: () async {
+          ref.invalidate(approvedCategoriesProvider);
+          await ref.read(servicesListProvider.notifier).refresh();
+        },
         color: BrandColors.accentDeep,
         backgroundColor: BrandColors.base,
         child: asyncServices.when(
@@ -112,8 +143,12 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
             );
           },
           data: (list) {
-            if (list.isEmpty) return const _EmptyState();
-            return _LoadedBody(services: list);
+            if (list.isEmpty) {
+              return _EmptyState(
+                onCreate: () => _openAndRefresh(RouteNames.serviceCreate),
+              );
+            }
+            return _LoadedBody(onOpen: _openAndRefresh, services: list);
           },
         ),
       ),
@@ -160,7 +195,11 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
 // ---------------------------------------------------------------------------
 
 class _LoadedBody extends ConsumerWidget {
-  const _LoadedBody({required this.services});
+  const _LoadedBody({required this.onOpen, required this.services});
+
+  /// Pushes a route and invalidates [approvedCategoriesProvider] on return.
+  /// Provided by [_ServicesListScreenState._openAndRefresh].
+  final Future<void> Function(String location) onOpen;
 
   final List<MasterService> services;
 
@@ -219,6 +258,7 @@ class _LoadedBody extends ConsumerWidget {
         return _ServiceCard(
           key: Key('service_card_${service.id}'),
           service: service,
+          onEdit: () => onOpen(RouteNames.serviceEdit(service.id)),
           categoryLabel: _resolveCategoryLabel(
             service.category,
             categoriesAsync,
@@ -264,11 +304,16 @@ class _ServiceCard extends StatefulWidget {
   const _ServiceCard({
     super.key,
     required this.service,
+    required this.onEdit,
     this.categoryLabel,
     this.appearDelay = Duration.zero,
   });
 
   final MasterService service;
+
+  /// Opens the edit form for this service and invalidates the category cache
+  /// on return. Provided by [_LoadedBody.onOpen].
+  final VoidCallback onEdit;
 
   /// Pre-resolved, display-ready category label (Ukrainian when the slug is in
   /// the approved list, humanized otherwise). Null when the service has no
@@ -347,7 +392,7 @@ class _ServiceCardState extends State<_ServiceCard>
           onTapCancel: () => setState(() => _pressed = false),
           onTapUp: (_) {
             setState(() => _pressed = false);
-            context.push(RouteNames.serviceEdit(s.id));
+            widget.onEdit();
           },
           child: AnimatedScale(
             scale: _pressed ? 0.99 : 1.0,
@@ -787,7 +832,11 @@ class _ShimmerBar extends StatelessWidget {
 /// supporting text + single primary CTA. The empty state does NOT show the
 /// FAB — the inline CTA is the only first-run path so intent is unmistakable.
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  const _EmptyState({required this.onCreate});
+
+  /// Opens the create form and invalidates the category cache on return.
+  /// Provided by [_ServicesListScreenState._openAndRefresh].
+  final VoidCallback onCreate;
 
   @override
   Widget build(BuildContext context) {
@@ -834,7 +883,7 @@ class _EmptyState extends StatelessWidget {
                 key: const Key('btn-create-service-empty'),
                 label: l10n.servicesAdd,
                 icon: Icons.add_rounded,
-                onPressed: () => context.push(RouteNames.serviceCreate),
+                onPressed: onCreate,
               ),
             ),
           ],

@@ -464,14 +464,23 @@ CategoryRequestControllerApi categoryRequestApi(Ref ref) =>
 
 /// Async list of approved service categories for the service-form picker.
 ///
-/// Watched by the category chip selector in `service_form.dart`. The list is
-/// small and changes rarely, so the provider is [keepAlive: true] — it is
-/// fetched once and shared across the create and edit screens for the lifetime
-/// of the app session.
+/// Watched by the category chip selector in `service_form.dart` and by the
+/// services-list cards (slug → display-name resolution). The list is small and
+/// changes rarely, so the provider is [keepAlive: true] — the value is cached
+/// in the root container and shared across the create and edit screens rather
+/// than re-fetched on every watch.
 ///
-/// NOT invalidated after a successful [ServiceRepository.requestCategory]: a
-/// freshly-requested category is PENDING admin review, not yet approved, so it
-/// must not appear in the picker until an admin approves it out-of-band.
+/// Because the cache is long-lived, an admin approving a category out-of-band
+/// would otherwise go unseen until a cold restart. The services-list screen
+/// therefore invalidates this provider explicitly so the picker stays fresh:
+///   • on first entry (post-frame callback in `ServicesListScreen.initState`);
+///   • on return from the create / edit / request-category flows (the screen
+///     awaits each `context.push(...)` and invalidates on pop-back — the
+///     /services route is kept alive, so `initState` does not re-fire there);
+///   • on pull-to-refresh (alongside the services reload).
+/// A successful [ServiceRepository.requestCategory] does NOT itself add a row:
+/// a freshly-requested category is PENDING admin review and only appears once
+/// an admin approves it and one of the refresh paths above re-fetches.
 ///
 /// On error, the picker row shows a compact retry affordance that calls
 /// `ref.invalidate(approvedCategoriesProvider)` — the rest of the form stays
