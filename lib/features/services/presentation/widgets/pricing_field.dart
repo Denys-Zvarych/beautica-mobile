@@ -258,6 +258,11 @@ class _PricingModeToggle extends StatelessWidget {
 
   static const double _height = 50;
 
+  /// Inset between the recessed track and the sliding thumb. The thumb height
+  /// is [_height] minus twice this pad, so referencing the same token keeps the
+  /// two from drifting.
+  static const double _pad = VelvetSpacing.xs;
+
   // Hoisted: VelvetRadii.button (16) - 4 = 12. Avoids per-LayoutBuilder alloc.
   static const BorderRadius _thumbRadius = BorderRadius.all(
     Radius.circular(12),
@@ -270,9 +275,9 @@ class _PricingModeToggle extends StatelessWidget {
       child: NeumorphicInset(
         radius: VelvetRadii.button,
         child: Padding(
-          padding: const EdgeInsets.all(5),
+          padding: const EdgeInsets.all(_pad),
           child: SizedBox(
-            height: _height - 10,
+            height: _height - (_pad * 2),
             child: LayoutBuilder(
               builder: (BuildContext context, BoxConstraints constraints) {
                 final double half = constraints.maxWidth / 2;
@@ -287,7 +292,7 @@ class _PricingModeToggle extends StatelessWidget {
                           : Alignment.centerRight,
                       child: Container(
                         width: half,
-                        height: _height - 10,
+                        height: _height - (_pad * 2),
                         decoration: const BoxDecoration(
                           gradient: LinearGradient(
                             begin: Alignment.topLeft,
