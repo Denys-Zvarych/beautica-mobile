@@ -109,6 +109,19 @@ dev_dependencies:
   mocktail: ^1.0.4
   network_image_mock: ^2.1.1
 
+  # Regression safety net (2026-06-02): http_mock_adapter fakes the HTTP socket
+  # at the Dio transport layer so the REAL repository + REAL Dio + REAL generated
+  # built_value serialization execute end-to-end with no live backend. This
+  # catches contract / serialization drift that mocking the generated API class
+  # (the old master_repository_test.dart blind spot) cannot see.
+  http_mock_adapter: ^0.6.1
+
+  # Integration tests (integration_test/) — drives the real app widget tree
+  # headless under `flutter test integration_test/...` with a faked Dio
+  # transport (no live backend needed in CI).
+  integration_test:
+    sdk: flutter
+
   # Lints — flutter_lints + riverpod_lint via custom_lint.
   # Upgraded custom_lint stack to ^0.8.1 in Phase 1.4 to resolve the
   # analyzer_plugin 0.12.0 vs analyzer 7.6.0 incompatibility that prevented
