@@ -704,6 +704,23 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       });
       // Re-mirror server errors into VelvetField errorText state.
       _validateAndUpdateErrors();
+      // Defensive guard: a 400 with an EMPTY field map can highlight no input,
+      // so the inline mirroring above renders nothing — the original "dead
+      // Save" bug. Surface a generic SnackBar from the server message (or a
+      // localized fallback) so the user always gets feedback, even if the
+      // backend validation contract drifts again.
+      if (f.fieldErrors.isEmpty) {
+        final serverMessage = f.serverMessage?.trim();
+        final text = (serverMessage != null && serverMessage.isNotEmpty)
+            ? serverMessage
+            : AppLocalizations.of(context).errValidation;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            key: const Key('snackbar-validation-error'),
+            content: Text(text),
+          ),
+        );
+      }
     } on Failure catch (f) {
       if (!mounted) return;
       ScaffoldMessenger.of(

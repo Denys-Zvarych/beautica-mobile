@@ -1895,4 +1895,132 @@ void main() {
       },
     );
   });
+
+  // ── 19. Empty-fieldErrors ValidationFailure → generic SnackBar ───────────
+  //
+  // [HIGH] Step 2.7 Rule 3 regression guard for the "silent dead Save" bug.
+  //
+  // A 400 ValidationFailure whose `fieldErrors` map is EMPTY used to highlight
+  // no input (the inline mirroring in `_validateAndUpdateErrors()` renders
+  // nothing) and showed NO SnackBar — tapping Save did absolutely nothing.
+  //
+  // The fix (master_edit_screen.dart, `on ValidationFailure` branch):
+  //   if (f.fieldErrors.isEmpty) → show SnackBar Key('snackbar-validation-error')
+  //   text = serverMessage (trimmed, if non-blank) else l10n.errValidation.
+  //
+  // These two tests pin BOTH branches of that fallback. If the guard is
+  // reverted, no SnackBar mounts and both tests fail — proving they guard the
+  // fix (see the mutation check in the QA report).
+
+  group('empty-fieldErrors validation snackbar regression guard', () {
+    // ── 19.1  empty fieldErrors + non-blank serverMessage → server text ──────
+
+    testWidgets(
+      'ValidationFailure with empty fieldErrors and a non-blank serverMessage '
+      'shows the snackbar-validation-error SnackBar with that server message',
+      (tester) async {
+        const serverMsg = 'Сталася помилка валідації на сервері.';
+        when(() => repo.updateMyProfile(any())).thenThrow(
+          const ValidationFailure(
+            fieldErrors: <String, String>{},
+            serverMessage: serverMsg,
+          ),
+        );
+
+        final router = _buildRouter();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(repo: repo),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        // Dirty firstName so the Save button is enabled.
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-firstName')),
+            matching: find.byType(TextField),
+          ),
+          'ОленаEdited',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        // THE REGRESSION: an empty field map must NOT be a silent no-op — the
+        // generic SnackBar with the dedicated Key must mount and carry the
+        // server message verbatim.
+        final snack = find.byKey(const Key('snackbar-validation-error'));
+        expect(
+          snack,
+          findsOneWidget,
+          reason:
+              'An empty-fieldErrors ValidationFailure must surface the '
+              'snackbar-validation-error SnackBar — never a silent dead Save.',
+        );
+        expect(
+          find.descendant(of: snack, matching: find.text(serverMsg)),
+          findsOneWidget,
+          reason:
+              'The SnackBar must show the non-blank serverMessage from the '
+              'ValidationFailure.',
+        );
+      },
+    );
+
+    // ── 19.2  empty fieldErrors + blank serverMessage → l10n fallback ────────
+
+    testWidgets(
+      'ValidationFailure with empty fieldErrors and a blank serverMessage '
+      'shows the snackbar-validation-error SnackBar with the errValidation '
+      'fallback text',
+      (tester) async {
+        // Blank serverMessage (whitespace-only) → must fall back to errValidation.
+        when(() => repo.updateMyProfile(any())).thenThrow(
+          const ValidationFailure(
+            fieldErrors: <String, String>{},
+            serverMessage: '   ',
+          ),
+        );
+
+        final router = _buildRouter();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(repo: repo),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-firstName')),
+            matching: find.byType(TextField),
+          ),
+          'ОленаEdited',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        final snack = find.byKey(const Key('snackbar-validation-error'));
+        expect(
+          snack,
+          findsOneWidget,
+          reason:
+              'An empty-fieldErrors ValidationFailure with a blank '
+              'serverMessage must still surface the SnackBar — never a silent '
+              'dead Save.',
+        );
+        expect(
+          find.descendant(of: snack, matching: find.text(_l10nUk.errValidation)),
+          findsOneWidget,
+          reason:
+              'A blank serverMessage must fall back to the localized '
+              'errValidation message inside the SnackBar.',
+        );
+      },
+    );
+  });
 }
