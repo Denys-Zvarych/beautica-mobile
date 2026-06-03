@@ -13,6 +13,8 @@
 
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import '../../calendar/domain/working_hours.dart';
+
 part 'master.freezed.dart';
 
 /// The role / tenure type of a master in the Beautica platform.
@@ -97,5 +99,15 @@ abstract class Master with _$Master {
     /// May be a bare handle (e.g. "username"), "@"-prefixed handle, or full
     /// https://instagram.com/... URL — stored verbatim from user input.
     String? instagram,
+
+    /// The master's working week as a dense, ordered 7-entry list
+    /// (Monday(1) … Sunday(7)), gap-filled by [WorkingHoursMapper.toDomainWeek]
+    /// at the data-layer boundary. Carries the working hours bundled in
+    /// `MasterDetailResponse.workingHours` so the calendar feature reads them
+    /// from this cached profile instead of issuing a second `getMyProfile`
+    /// round-trip (PERF M1). Defaults to an empty list only when constructed
+    /// without a mapped profile (e.g. in tests); the mapper always materialises
+    /// all 7 days.
+    @Default(<WorkingHours>[]) List<WorkingHours> workingHours,
   }) = _Master;
 }
