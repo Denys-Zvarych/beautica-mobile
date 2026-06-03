@@ -92,10 +92,14 @@ Future<void> main() async {
   GoogleFonts.comfortaa(
     fontWeight: FontWeight.w700,
   ); // wordmark / heading / cta
+  GoogleFonts.nunito(fontWeight: FontWeight.w400); // nunitoTextTheme default
   GoogleFonts.nunito(fontWeight: FontWeight.w600); // body / input
   GoogleFonts.nunito(
     fontWeight: FontWeight.w700,
   ); // bodyStrong / label / link / feedback
+  GoogleFonts.nunito(
+    fontWeight: FontWeight.w800,
+  ); // pill / field accent / form caption
   await GoogleFonts.pendingFonts();
 
   // MEDIUM-3 (mobile-security 2026-05-27): pre-load ISRG Root X1 cert for

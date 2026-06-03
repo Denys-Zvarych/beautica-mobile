@@ -206,7 +206,7 @@ flutter:
   # build-time inputs for flutter_launcher_icons and flutter_native_splash
   # only and are never loaded via Image.asset() at runtime.
   assets:
-    # Bundled font files for Comfortaa (w600/w700) and Nunito (w600/w700).
+    # Bundled font files for Comfortaa (w600/w700) and Nunito (w400/w600/w700/w800).
     # google_fonts automatically prefers these over network fetches when
     # allowRuntimeFetching = false (see main.dart). Required for release APKs
     # where there is no network fallback and where kDebugMode = false previously
