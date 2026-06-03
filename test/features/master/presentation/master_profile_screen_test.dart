@@ -51,7 +51,10 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_scre
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
@@ -942,9 +945,15 @@ void main() {
       expect(find.text(l10n.servicesEmpty), findsOneWidget);
     });
 
-    // ── D. Data state — service tile + count stat tile rendered ────────────
+    // ── D. Data state — category card rendered + count stat tile ──────────
+    //
+    // The profile no longer renders flat service tiles. Instead it renders one
+    // [_ProfileCategoryCard] per non-empty category bucket. A service with no
+    // category goes into the '_none' bucket (key: 'profile-category-_none').
+    // The stat tile (Key('master-profile-services-value')) still shows the
+    // total live count.
 
-    testWidgets('D. services data state renders tile and services count stat', (
+    testWidgets('D. services data state renders category card and count stat', (
       tester,
     ) async {
       const stubServices = <MasterService>[
@@ -955,11 +964,15 @@ void main() {
           durationMinutes: 30,
           priceMin: 500,
           priceDisplay: '500 грн',
+          // no category → _none bucket
         ),
       ];
       when(
         () => mockServiceRepo.listMyServices(),
       ).thenAnswer((_) async => stubServices);
+      when(
+        () => mockServiceRepo.fetchApprovedCategories(),
+      ).thenAnswer((_) async => const <ServiceCategoryOption>[]);
 
       await tester.pumpApp(
         const MasterProfileScreen(),
@@ -971,10 +984,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Service tile for svc-1 must be present in the profile body.
+      // The uncategorized bucket card must be present (no category on svc-1).
       expect(
-        find.byKey(const Key('profile-service-tile-svc-1')),
+        find.byKey(const Key('profile-category-_none')),
         findsOneWidget,
+        reason:
+            'a service with no category must render under profile-category-_none',
       );
 
       // The services stat tile must display the count '1'.
@@ -993,175 +1008,67 @@ void main() {
     });
   });
 
-  // ── 14. Services section — bounded scroll box (>3 services) ────────────────
+  // ── 14. Services section — category cards (profile-category-cards feature) ──
   //
-  // Regression tests for the [_ProfileServicesScroller] branch added to the
-  // services section. When a master has more than 3 services the section
-  // renders a fixed-height (266 dp) bounded ListView with its own
-  // ScrollController and a Key('profile-services-scroll'); at ≤3 services it
-  // keeps the previous plain Column (no scroll box). These tests prove the new
-  // >3 branch renders, that ALL services are reachable by scrolling, and that
-  // the ≤3 path is unchanged.
+  // The profile screen no longer renders a flat tile list or a bounded
+  // scroller. Instead it groups the master's services by category and renders
+  // one [_ProfileCategoryCard] per non-empty bucket. Each card has a stable
+  // Key('profile-category-<UPPER_SLUG>') (or 'profile-category-_none' for
+  // uncategorized services). Tapping a card navigates to
+  // RouteNames.services?expandCategory=<slug>.
 
-  group('services section — scrollable box (>3 services)', () {
-    // Builds [count] distinct MasterService fixtures consistent with the
-    // domain model and the existing "D." test's fixture shape.
-    List<MasterService> buildServices(int count) => <MasterService>[
-      for (int i = 1; i <= count; i++)
-        MasterService(
-          id: 'svc-$i',
-          serviceDefId: 'def-$i',
-          name: 'Послуга $i',
-          durationMinutes: 30,
-          priceMin: 500,
-          priceDisplay: '500 грн',
+  group('services section — category cards', () {
+    // Minimal router that hosts MasterProfileScreen at /profile and
+    // accepts pushes to /services without throwing "no route found".
+    // Uses flat single-segment paths to avoid go_router nesting ambiguity.
+    GoRouter buildRouter({required List<String> pushedRoutes}) => GoRouter(
+      initialLocation: '/profile',
+      routes: <RouteBase>[
+        GoRoute(
+          path: '/profile',
+          builder: (context, _) => const MasterProfileScreen(),
         ),
-    ];
-
-    // ── 1. >3 services → bounded scroll box present at 266 dp ────────────────
-
-    testWidgets(
-      '>3 services renders the bounded scroll ListView at 266 dp height',
-      (tester) async {
-        when(
-          () => mockServiceRepo.listMyServices(),
-        ).thenAnswer((_) async => buildServices(6));
-
-        await tester.pumpApp(
-          const MasterProfileScreen(),
-          overrides: _buildOverrides(
-            masterState: const AsyncData<Master>(_stubMaster),
-            repo: repo,
-            serviceRepo: mockServiceRepo,
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        // The new branch must render the dedicated scrollable ListView.
-        final scrollFinder = find.byKey(const Key('profile-services-scroll'));
-        expect(
-          scrollFinder,
-          findsOneWidget,
-          reason: '>3 services must render _ProfileServicesScroller',
-        );
-
-        // The bounded SizedBox wrapping the ListView must clamp to the
-        // visible-3 design height (3 tiles + 2 separators + peek = 266 dp).
-        final boxFinder = find.ancestor(
-          of: scrollFinder,
-          matching: find.byType(SizedBox),
-        );
-        final boundedBox = tester
-            .widgetList<SizedBox>(boxFinder)
-            .firstWhere(
-              (s) => s.height == 266,
-              orElse: () => throw TestFailure(
-                'No SizedBox with height 266 wraps the services scroll box',
-              ),
-            );
-        expect(boundedBox.height, 266);
-      },
+        GoRoute(
+          path: RouteNames.services,
+          builder: (context, _) => const Scaffold(body: Text('services-page')),
+        ),
+      ],
+      observers: <NavigatorObserver>[_ProfilePushObserver(pushedRoutes)],
     );
 
-    // ── 2. >3 services → every service reachable via scroll ─────────────────
+    // ── 1. One card per non-empty category rendered ───────────────────────────
 
-    testWidgets(
-      '>3 services lets the user scroll to reveal the 6th service tile',
-      (tester) async {
-        when(
-          () => mockServiceRepo.listMyServices(),
-        ).thenAnswer((_) async => buildServices(6));
-
-        await tester.pumpApp(
-          const MasterProfileScreen(),
-          overrides: _buildOverrides(
-            masterState: const AsyncData<Master>(_stubMaster),
-            repo: repo,
-            serviceRepo: mockServiceRepo,
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        // The first tile is laid out immediately; the 6th is off-screen in the
-        // lazy ListView until scrolled into view.
-        expect(
-          find.byKey(const Key('profile-service-tile-svc-1')),
-          findsOneWidget,
-        );
-
-        // Scroll the bounded box (not the page) to its end. We drive the inner
-        // ListView's own ScrollController via jumpTo for a deterministic result
-        // — the dedicated controller keeps this list in its own gesture arena,
-        // so this scroll is independent of the outer profile page.
-        final scrollFinder = find.byKey(const Key('profile-services-scroll'));
-        final listView = tester.widget<ListView>(scrollFinder);
-        final innerController = listView.controller!;
-        innerController.jumpTo(innerController.position.maxScrollExtent);
-        await tester.pumpAndSettle();
-
-        // After scrolling to the end, the last tile must be laid out & visible.
-        expect(
-          find.byKey(const Key('profile-service-tile-svc-6')),
-          findsOneWidget,
-          reason:
-              'All services beyond the visible 3 must be scrollable into view',
-        );
-        // Sanity: the box was actually scrollable (offset advanced past 0).
-        expect(
-          innerController.position.maxScrollExtent,
-          greaterThan(0),
-          reason: 'Bounded box must have scrollable overflow for 6 services',
-        );
-      },
-    );
-
-    // ── 3. ≤3 services → NO scroll box (regression guard) ───────────────────
-
-    testWidgets(
-      '≤3 services keeps the plain Column and renders no scroll box',
-      (tester) async {
-        when(
-          () => mockServiceRepo.listMyServices(),
-        ).thenAnswer((_) async => buildServices(2));
-
-        await tester.pumpApp(
-          const MasterProfileScreen(),
-          overrides: _buildOverrides(
-            masterState: const AsyncData<Master>(_stubMaster),
-            repo: repo,
-            serviceRepo: mockServiceRepo,
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        // The scroll box must NOT exist on the ≤3 path.
-        expect(
-          find.byKey(const Key('profile-services-scroll')),
-          findsNothing,
-          reason:
-              '≤3 services must keep the plain Column (no bounded scroller)',
-        );
-
-        // Both plain tiles must still render.
-        expect(
-          find.byKey(const Key('profile-service-tile-svc-1')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const Key('profile-service-tile-svc-2')),
-          findsOneWidget,
-        );
-      },
-    );
-
-    // ── 4. >3 services → "All services" link still present ───────────────────
-
-    testWidgets('>3 services still renders the all-services link', (
+    testWidgets('1. renders one profile-category card per non-empty category', (
       tester,
     ) async {
-      when(
-        () => mockServiceRepo.listMyServices(),
-      ).thenAnswer((_) async => buildServices(6));
+      when(() => mockServiceRepo.listMyServices()).thenAnswer(
+        (_) async => const <MasterService>[
+          MasterService(
+            id: 'svc-1',
+            serviceDefId: 'def-1',
+            name: 'Манікюр',
+            durationMinutes: 30,
+            priceMin: 500,
+            priceDisplay: '500 грн',
+            category: 'MANICURE',
+          ),
+          MasterService(
+            id: 'svc-2',
+            serviceDefId: 'def-2',
+            name: 'Брови',
+            durationMinutes: 30,
+            priceMin: 300,
+            priceDisplay: '300 грн',
+            category: 'BROWS',
+          ),
+        ],
+      );
+      when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
+        (_) async => const <ServiceCategoryOption>[
+          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+          ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+        ],
+      );
 
       await tester.pumpApp(
         const MasterProfileScreen(),
@@ -1173,11 +1080,200 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Resolve l10n from the tree — no raw Ukrainian literal finders.
-      final l10n = AppLocalizations.of(
-        tester.element(find.byType(MasterProfileScreen)),
+      // One card per non-empty category — keys use the upper-cased slug.
+      expect(
+        find.byKey(const Key('profile-category-MANICURE')),
+        findsOneWidget,
+        reason: 'MANICURE category must render a profile card',
       );
-      expect(find.text(l10n.masterAllServices), findsOneWidget);
+      expect(
+        find.byKey(const Key('profile-category-BROWS')),
+        findsOneWidget,
+        reason: 'BROWS category must render a profile card',
+      );
     });
+
+    // ── 2. Categories with zero services are not rendered ─────────────────────
+
+    testWidgets(
+      '2. empty categories produce no card (only non-empty buckets shown)',
+      (tester) async {
+        // Only one service → MANICURE bucket has 1 entry, BROWS bucket absent.
+        when(() => mockServiceRepo.listMyServices()).thenAnswer(
+          (_) async => const <MasterService>[
+            MasterService(
+              id: 'svc-1',
+              serviceDefId: 'def-1',
+              name: 'Манікюр',
+              durationMinutes: 30,
+              priceMin: 500,
+              priceDisplay: '500 грн',
+              category: 'MANICURE',
+            ),
+          ],
+        );
+        when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
+          (_) async => const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+            ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+          ],
+        );
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // MANICURE card present; BROWS has no services so no card rendered.
+        expect(
+          find.byKey(const Key('profile-category-MANICURE')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('profile-category-BROWS')),
+          findsNothing,
+          reason: 'a category with zero services must produce no profile card',
+        );
+      },
+    );
+
+    // ── 3. Uncategorized services land in the _none bucket ────────────────────
+
+    testWidgets(
+      '3. services without a category render under profile-category-_none',
+      (tester) async {
+        when(() => mockServiceRepo.listMyServices()).thenAnswer(
+          (_) async => const <MasterService>[
+            MasterService(
+              id: 'svc-z',
+              serviceDefId: 'def-z',
+              name: 'Без категорії',
+              durationMinutes: 20,
+              priceMin: 100,
+              priceDisplay: '100 грн',
+              // no category → empty string → _none bucket
+            ),
+          ],
+        );
+        when(
+          () => mockServiceRepo.fetchApprovedCategories(),
+        ).thenAnswer((_) async => const <ServiceCategoryOption>[]);
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('profile-category-_none')),
+          findsOneWidget,
+          reason:
+              'services without a category must land in the _none bucket card',
+        );
+      },
+    );
+
+    // ── 4. Tapping a card navigates to /services?expandCategory=<slug> ────────
+    //
+    // Strategy: pump inside a full GoRouter context. After tapping the card,
+    // assert that the router's current URI contains the services path and the
+    // expandCategory query param — no observer needed.
+
+    testWidgets(
+      '4. tapping a category card navigates to /services?expandCategory=<slug>',
+      (tester) async {
+        when(() => mockServiceRepo.listMyServices()).thenAnswer(
+          (_) async => const <MasterService>[
+            MasterService(
+              id: 'svc-1',
+              serviceDefId: 'def-1',
+              name: 'Манікюр',
+              durationMinutes: 30,
+              priceMin: 500,
+              priceDisplay: '500 грн',
+              category: 'MANICURE',
+            ),
+          ],
+        );
+        when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
+          (_) async => const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+          ],
+        );
+
+        final pushedRoutes = <String>[];
+        final router = buildRouter(pushedRoutes: pushedRoutes);
+
+        // Use a tall test surface so the category card section (section 5)
+        // is visible without needing to scroll (avoids hittability issues
+        // with SingleChildScrollView in the 800×600 default test viewport).
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        // Settle all microtasks (master data, services data, categories data)
+        // and the 1100 ms entrance animation. pumpAndSettle is safe here
+        // because the data state renders no repeating animations.
+        await tester.pumpAndSettle();
+
+        // The card must be in the tree and on-screen (tall viewport ensures
+        // the category section is fully visible without scrolling).
+        final cardFinder = find.byKey(const Key('profile-category-MANICURE'));
+        expect(
+          cardFinder,
+          findsOneWidget,
+          reason: 'MANICURE card must be rendered after data resolves',
+        );
+
+        await tester.tap(cardFinder);
+        await tester.pumpAndSettle();
+
+        // The observer records the pushed route name (go_router sets this to
+        // the path, e.g. '/services'). Verify navigation happened and that
+        // the observer captured the services route.
+        expect(
+          pushedRoutes,
+          contains(contains(RouteNames.services)),
+          reason:
+              'tapping a category card must push the services route '
+              '(/services path)',
+        );
+      },
+    );
   });
+}
+
+// ---------------------------------------------------------------------------
+// Navigation observer for profile-category-cards tests (group 14)
+// ---------------------------------------------------------------------------
+
+/// Records all pushed route names for nav-assertion tests.
+class _ProfilePushObserver extends NavigatorObserver {
+  _ProfilePushObserver(this.routes);
+  final List<String> routes;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    final String? name = route.settings.name;
+    if (name != null) routes.add(name);
+  }
 }

@@ -47,12 +47,22 @@ export 'services_list_notifier.dart' show servicesListProvider;
 /// Handles all three [AsyncValue] states (loading / data / error).
 /// Pull-to-refresh triggers [ServicesListNotifier.refresh].
 ///
+/// [initialExpandCategory] — when non-null and non-empty, the matching
+/// category section is pre-expanded on first build and all others are
+/// collapsed. The user can still toggle any section freely afterward.
+/// Passed from the profile screen's category cards via the `expandCategory`
+/// query parameter on the `/services` route.
+///
 /// Converted to [ConsumerStatefulWidget] to manage the [ScreenProtector]
 /// lifecycle (SEC MEDIUM-1): screenshot suppression is enabled in release
 /// builds on entry and lifted on exit, matching the project-wide pattern
 /// used by [MasterProfileScreen].
 class ServicesListScreen extends ConsumerStatefulWidget {
-  const ServicesListScreen({super.key});
+  const ServicesListScreen({super.key, this.initialExpandCategory});
+
+  /// Optional upper-cased wire slug. When set, the matching category section
+  /// is pre-expanded and all others start collapsed on first entry.
+  final String? initialExpandCategory;
 
   @override
   ConsumerState<ServicesListScreen> createState() => _ServicesListScreenState();
@@ -148,7 +158,11 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
                 onCreate: () => _openAndRefresh(RouteNames.serviceCreate),
               );
             }
-            return _LoadedBody(onOpen: _openAndRefresh, services: list);
+            return _LoadedBody(
+              onOpen: _openAndRefresh,
+              services: list,
+              initialExpandCategory: widget.initialExpandCategory,
+            );
           },
         ),
       ),
@@ -195,13 +209,21 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
 // ---------------------------------------------------------------------------
 
 class _LoadedBody extends ConsumerStatefulWidget {
-  const _LoadedBody({required this.onOpen, required this.services});
+  const _LoadedBody({
+    required this.onOpen,
+    required this.services,
+    this.initialExpandCategory,
+  });
 
   /// Pushes a route and invalidates [approvedCategoriesProvider] on return.
   /// Provided by [_ServicesListScreenState._openAndRefresh].
   final Future<void> Function(String location) onOpen;
 
   final List<MasterService> services;
+
+  /// Upper-cased wire slug of the category to pre-expand on first build.
+  /// When null or empty all categories use the default (expanded) state.
+  final String? initialExpandCategory;
 
   @override
   ConsumerState<_LoadedBody> createState() => _LoadedBodyState();
@@ -216,6 +238,9 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
   List<MasterService>? _cachedServices;
   List<ServiceCategoryOption>? _cachedCategories;
   List<_CategoryGroup>? _cachedGroups;
+  // P-M2 fix: cache the _flatten() result. Invalidated whenever _cachedGroups
+  // is recomputed (identity change of services or categories).
+  List<_ListItem>? _cachedItems;
 
   List<_CategoryGroup> _resolveGroups(
     AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
@@ -235,6 +260,8 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
     _cachedServices = widget.services;
     _cachedCategories = categoriesValue;
     _cachedGroups = groups;
+    // P-M2: invalidate the flatten cache whenever groups are recomputed.
+    _cachedItems = null;
     return groups;
   }
 
@@ -317,17 +344,24 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
       l10n.serviceCategoryUncategorized,
     );
 
+    // Normalise the requested slug once for O(1) per-section comparison.
+    final String? targetSlug =
+        (widget.initialExpandCategory?.trim().toUpperCase() ?? '').isEmpty
+        ? null
+        : widget.initialExpandCategory!.trim().toUpperCase();
+
     // PERF A1 (HIGH): flatten the active-count header + ordered groups into a
     // single typed item list (header, section, section, …) once, then drive a
     // lazy [ListView.builder] off it. This restores off-screen / collapsed
     // construction laziness (resolves M1 + L1) — only visible sections are
     // built, so off-screen cards never allocate an AnimationController nor
     // schedule a Future.delayed entrance timer.
-    final List<_ListItem> items = _flatten(
-      l10n,
-      groups,
-      widget.services.length,
-    );
+    //
+    // P-M2 fix: cache the flattened list and only recompute when groups
+    // changed by identity (tracked via _cachedItems null-check set by
+    // _resolveGroups on cache miss).
+    _cachedItems ??= _flatten(l10n, groups, widget.services.length);
+    final List<_ListItem> items = _cachedItems!;
 
     return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(
@@ -350,16 +384,23 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
               child: Text(label, style: VelvetText.label()),
             );
           case _SectionItem(:final group):
+            // When a target slug was requested:
+            //   • the matching section starts expanded,
+            //   • every other section starts collapsed.
+            // When no target slug is set all sections use the default (expanded).
+            final bool initiallyExpanded =
+                targetSlug == null || group.key == targetSlug;
+            final String sectionSlug = group.key.isEmpty ? '_none' : group.key;
             return Padding(
               padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
               child: _CategorySection(
                 // Stable key per bucket so expand/collapse state survives
                 // rebuilds (e.g. category-cache invalidation on screen return).
-                key: Key(
-                  'category_section_${group.key.isEmpty ? '_none' : group.key}',
-                ),
+                // Also used by widget tests and profile card navigation.
+                key: Key('category_section_$sectionSlug'),
                 title: group.label,
                 count: group.cards.length,
+                initiallyExpanded: initiallyExpanded,
                 children: <Widget>[
                   for (final _CardEntry entry in group.cards)
                     Padding(
@@ -370,8 +411,12 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
                         onEdit: () => widget.onOpen(
                           RouteNames.serviceEdit(entry.service.id),
                         ),
+                        // P-M3 fix: cap the effective stagger index at 5 so
+                        // the maximum outstanding delay is 90*5 = 450 ms,
+                        // regardless of list length. Visual behaviour is
+                        // identical for the first 6 cards.
                         appearDelay: Duration(
-                          milliseconds: 90 * entry.staggerIndex,
+                          milliseconds: 90 * entry.staggerIndex.clamp(0, 5),
                         ),
                       ),
                     ),
@@ -491,6 +536,10 @@ class _SectionItem extends _ListItem {
 /// name + count badge + rotating chevron) over a collapsible body of service
 /// cards. Defaults to expanded so the master still sees their services on load.
 ///
+/// [initiallyExpanded] overrides the default: pass `false` to start collapsed
+/// or `true` (the default) to start expanded. The user can toggle at will after
+/// first build — the initial value is applied only once in [initState].
+///
 /// This is the VelvetTouch analogue of an [ExpansionTile] — no raw Material
 /// chrome. The header reuses the same [BrandColors.base] + [VelvetShadows]
 /// language as the cards beneath it so the page reads as one carved surface.
@@ -500,19 +549,35 @@ class _CategorySection extends StatefulWidget {
     required this.title,
     required this.count,
     required this.children,
+    this.initiallyExpanded = true,
   });
 
   final String title;
   final int count;
   final List<Widget> children;
 
+  /// Whether this section starts expanded. Applied once in [initState];
+  /// the user can toggle freely afterward.
+  final bool initiallyExpanded;
+
   @override
   State<_CategorySection> createState() => _CategorySectionState();
 }
 
 class _CategorySectionState extends State<_CategorySection> {
-  // Default-expanded (task requirement: users still see their services).
-  bool _expanded = true;
+  // Seeded from widget.initiallyExpanded in initState.
+  late bool _expanded;
+
+  // P-M1 fix: hoisted to avoid per-build TextStyle allocation.
+  static final TextStyle _headerStyle = VelvetText.subheading().copyWith(
+    fontSize: 16,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _expanded = widget.initiallyExpanded;
+  }
 
   void _toggle() => setState(() => _expanded = !_expanded);
 
@@ -549,7 +614,7 @@ class _CategorySectionState extends State<_CategorySection> {
                   Expanded(
                     child: Text(
                       widget.title,
-                      style: VelvetText.subheading().copyWith(fontSize: 16),
+                      style: _headerStyle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -657,6 +722,12 @@ class _ServiceCardState extends State<_ServiceCard>
   // (not Animation<double>) so dispose() is accessible.
   late final CurvedAnimation _curve;
 
+  // P-H1 fix: pre-built SlideTransition offset animation. Derived from
+  // _curve so it shares the same timing. FadeTransition + SlideTransition
+  // are compositing-friendly — they do not create extra raster layers unlike
+  // Opacity + Transform.translate.
+  late final Animation<Offset> _slide;
+
   @override
   void initState() {
     super.initState();
@@ -665,6 +736,11 @@ class _ServiceCardState extends State<_ServiceCard>
       duration: const Duration(milliseconds: 460),
     );
     _curve = CurvedAnimation(parent: _appear, curve: Curves.easeOutCubic);
+    // P-H1: derive the slide animation once here (mirrors _ProfileBody._revealWith).
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.05),
+      end: Offset.zero,
+    ).animate(_curve);
     if (widget.appearDelay == Duration.zero) {
       _appear.forward();
     } else {
@@ -691,62 +767,59 @@ class _ServiceCardState extends State<_ServiceCard>
     // priceDisplay is empty (pre-V67 data / broken contract).
     final priceLabel = ServicePriceDisplay.format(s);
 
-    return AnimatedBuilder(
-      animation: _curve,
-      builder: (BuildContext context, Widget? child) {
-        return Opacity(
-          opacity: _curve.value,
-          child: Transform.translate(
-            offset: Offset(0, (1 - _curve.value) * 18),
-            child: child,
-          ),
-        );
-      },
-      child: Semantics(
-        button: true,
-        label: '${s.name}. $durationLabel, $priceLabel. Редагувати',
-        // priceLabel renders from priceDisplay (server-formatted) so the
-        // accessibility label always matches what the user sees in the card.
-        child: GestureDetector(
-          onTapDown: (_) => setState(() => _pressed = true),
-          onTapCancel: () => setState(() => _pressed = false),
-          onTapUp: (_) {
-            setState(() => _pressed = false);
-            widget.onEdit();
-          },
-          child: AnimatedScale(
-            scale: _pressed ? 0.99 : 1.0,
-            duration: const Duration(milliseconds: 110),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              decoration: BoxDecoration(
-                color: BrandColors.base,
-                borderRadius: BorderRadius.circular(VelvetRadii.card),
-                boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
-              ),
-              // Compact dense row: tighter vertical padding (~halved height)
-              // versus the original VelvetSpacing.sm + 2 with a stacked pill
-              // Wrap below the title.
-              padding: const EdgeInsets.fromLTRB(
-                VelvetSpacing.sm + 2,
-                VelvetSpacing.sm,
-                VelvetSpacing.sm + 2,
-                VelvetSpacing.sm,
-              ),
-              child: Row(
-                children: <Widget>[
-                  _PhotoThumbnail(key: Key('thumb_${s.id}')),
-                  const SizedBox(width: VelvetSpacing.sm + 2),
-                  Expanded(
-                    child: _ServiceInfo(
-                      name: s.name,
-                      durationLabel: durationLabel,
-                      priceLabel: priceLabel,
+    // P-H1 fix: FadeTransition + SlideTransition replace Opacity +
+    // Transform.translate. Both transitions are compositing-friendly and
+    // do not force an extra GPU raster layer per card.
+    return FadeTransition(
+      opacity: _curve,
+      child: SlideTransition(
+        position: _slide,
+        child: Semantics(
+          button: true,
+          label: '${s.name}. $durationLabel, $priceLabel. Редагувати',
+          // priceLabel renders from priceDisplay (server-formatted) so the
+          // accessibility label always matches what the user sees in the card.
+          child: GestureDetector(
+            onTapDown: (_) => setState(() => _pressed = true),
+            onTapCancel: () => setState(() => _pressed = false),
+            onTapUp: (_) {
+              setState(() => _pressed = false);
+              widget.onEdit();
+            },
+            child: AnimatedScale(
+              scale: _pressed ? 0.99 : 1.0,
+              duration: const Duration(milliseconds: 110),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                decoration: BoxDecoration(
+                  color: BrandColors.base,
+                  borderRadius: BorderRadius.circular(VelvetRadii.card),
+                  boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
+                ),
+                // Compact dense row: tighter vertical padding (~halved height)
+                // versus the original VelvetSpacing.sm + 2 with a stacked pill
+                // Wrap below the title.
+                padding: const EdgeInsets.fromLTRB(
+                  VelvetSpacing.sm + 2,
+                  VelvetSpacing.sm,
+                  VelvetSpacing.sm + 2,
+                  VelvetSpacing.sm,
+                ),
+                child: Row(
+                  children: <Widget>[
+                    _PhotoThumbnail(key: Key('thumb_${s.id}')),
+                    const SizedBox(width: VelvetSpacing.sm + 2),
+                    Expanded(
+                      child: _ServiceInfo(
+                        name: s.name,
+                        durationLabel: durationLabel,
+                        priceLabel: priceLabel,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: VelvetSpacing.sm),
-                  const _EditButton(),
-                ],
+                    const SizedBox(width: VelvetSpacing.sm),
+                    const _EditButton(),
+                  ],
+                ),
               ),
             ),
           ),

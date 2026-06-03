@@ -1562,6 +1562,20 @@
     "description": "Field label above the location-note input on the master edit screen."
   },
 
+  "masterProfileCategoriesLabel": "Категорії послуг",
+  "@masterProfileCategoriesLabel": {
+    "description": "Section label above the category cards on the master profile screen."
+  },
+
+  "masterProfileCategorySemantics": "Категорія {category}, {count} послуг. Перейти до списку",
+  "@masterProfileCategorySemantics": {
+    "description": "Accessibility label for a profile category card: announces the category name, how many services it contains, and the navigation action.",
+    "placeholders": {
+      "category": { "type": "String" },
+      "count": { "type": "int" }
+    }
+  },
+
   "masterAllPhotos": "Усі фото",
   "@masterAllPhotos": {
     "description": "Link label in the master profile portfolio section header that navigates to the full portfolio gallery."

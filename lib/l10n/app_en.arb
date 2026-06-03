@@ -1562,6 +1562,20 @@
     "description": "Field label above the location-note input on the master edit screen."
   },
 
+  "masterProfileCategoriesLabel": "Service categories",
+  "@masterProfileCategoriesLabel": {
+    "description": "Section label above the category cards on the master profile screen."
+  },
+
+  "masterProfileCategorySemantics": "Category {category}, {count} services. Go to list",
+  "@masterProfileCategorySemantics": {
+    "description": "Accessibility label for a profile category card: announces the category name, how many services it contains, and the navigation action.",
+    "placeholders": {
+      "category": { "type": "String" },
+      "count": { "type": "int" }
+    }
+  },
+
   "masterAllPhotos": "All photos",
   "@masterAllPhotos": {
     "description": "Link label in the master profile portfolio section header that navigates to the full portfolio gallery."
