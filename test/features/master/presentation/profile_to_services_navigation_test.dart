@@ -119,29 +119,30 @@ class _StubAuthNotifier extends AuthNotifier {
 /// Builds a router that hosts the profile screen and the services screen
 /// with the PRODUCTION expandCategory coercion logic, but no auth redirect.
 GoRouter _buildRouter() => GoRouter(
-      initialLocation: RouteNames.masterProfile,
-      redirect: (context, state) => null,
-      routes: <RouteBase>[
-        GoRoute(
-          path: RouteNames.masterProfile,
-          builder: (context, _) => const MasterProfileScreen(),
-        ),
-        // Production pageBuilder logic — identical to app_router.dart.
-        GoRoute(
-          path: RouteNames.services,
-          pageBuilder: (context, state) {
-            final raw = state.uri.queryParameters['expandCategory']
-                ?.trim()
-                .toUpperCase();
-            final expandCategory =
-                (raw != null && isValidCategorySlug(raw)) ? raw : null;
-            return MaterialPage<void>(
-              child: ServicesListScreen(initialExpandCategory: expandCategory),
-            );
-          },
-        ),
-      ],
-    );
+  initialLocation: RouteNames.masterProfile,
+  redirect: (context, state) => null,
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.masterProfile,
+      builder: (context, _) => const MasterProfileScreen(),
+    ),
+    // Production pageBuilder logic — identical to app_router.dart.
+    GoRoute(
+      path: RouteNames.services,
+      pageBuilder: (context, state) {
+        final raw = state.uri.queryParameters['expandCategory']
+            ?.trim()
+            .toUpperCase();
+        final expandCategory = (raw != null && isValidCategorySlug(raw))
+            ? raw
+            : null;
+        return MaterialPage<void>(
+          child: ServicesListScreen(initialExpandCategory: expandCategory),
+        );
+      },
+    ),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Helper — builds the full provider scope and router app
@@ -155,9 +156,7 @@ ProviderScope _buildApp({
   return ProviderScope(
     overrides: [
       authProvider.overrideWith(() => _StubAuthNotifier()),
-      masterProfileProvider.overrideWith(
-        () => _StubMasterProfileNotifier(),
-      ),
+      masterProfileProvider.overrideWith(() => _StubMasterProfileNotifier()),
       masterRepositoryProvider.overrideWithValue(masterRepo),
       serviceRepositoryProvider.overrideWithValue(serviceRepo),
     ],
@@ -187,9 +186,9 @@ void main() {
     // (no stagger timers, no shimmer repeat — pumpAndSettle can drain).
     // The mock is called twice on the /services screen (once from
     // servicesListProvider, possibly once from approvedCategoriesProvider).
-    when(() => serviceRepo.listMyServices()).thenAnswer(
-      (_) async => const <MasterService>[_manicureService],
-    );
+    when(
+      () => serviceRepo.listMyServices(),
+    ).thenAnswer((_) async => const <MasterService>[_manicureService]);
     when(() => serviceRepo.fetchApprovedCategories()).thenAnswer(
       (_) async => const <ServiceCategoryOption>[
         ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
@@ -199,102 +198,102 @@ void main() {
   });
 
   group('Profile → Services navigation — expandCategory query param', () {
-    testWidgets(
-      'tapping profile-category-MANICURE card navigates to /services and '
-      'ServicesListScreen.initialExpandCategory is MANICURE',
-      (tester) async {
-        // Tall surface so the category cards section (below the stats row)
-        // is visible without scrolling.
-        tester.view.physicalSize = const Size(800, 2400);
-        tester.view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets('tapping profile-category-MANICURE card navigates to /services and '
+        'ServicesListScreen.initialExpandCategory is MANICURE', (tester) async {
+      // Tall surface so the category cards section (below the stats row)
+      // is visible without scrolling.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-        final router = _buildRouter();
-        await tester.pumpWidget(_buildApp(
+      final router = _buildRouter();
+      await tester.pumpWidget(
+        _buildApp(
           masterRepo: masterRepo,
           serviceRepo: serviceRepo,
           router: router,
-        ));
-        // pumpAndSettle drains all providers + the 1100 ms entrance animation.
-        // Works here because serviceRepo.listMyServices() returns a finite
-        // future and the empty-state has no repeating animations.
-        await tester.pumpAndSettle();
+        ),
+      );
+      // pumpAndSettle drains all providers + the 1100 ms entrance animation.
+      // Works here because serviceRepo.listMyServices() returns a finite
+      // future and the empty-state has no repeating animations.
+      await tester.pumpAndSettle();
 
-        // Confirm the MANICURE card is rendered on the profile screen.
-        final cardFinder = find.byKey(const Key('profile-category-MANICURE'));
-        expect(
-          cardFinder,
-          findsOneWidget,
-          reason:
-              'MANICURE category card must be rendered on the profile screen '
-              'before the tap',
-        );
+      // Confirm the MANICURE card is rendered on the profile screen.
+      final cardFinder = find.byKey(const Key('profile-category-MANICURE'));
+      expect(
+        cardFinder,
+        findsOneWidget,
+        reason:
+            'MANICURE category card must be rendered on the profile screen '
+            'before the tap',
+      );
 
-        // Tap the card — triggers context.push('/services?expandCategory=MANICURE').
-        await tester.tap(cardFinder);
-        await tester.pumpAndSettle();
+      // Tap the card — triggers context.push('/services?expandCategory=MANICURE').
+      await tester.tap(cardFinder);
+      await tester.pumpAndSettle();
 
-        // ServicesListScreen must be in the tree.
-        final servicesScreenFinder = find.byType(ServicesListScreen);
-        expect(
-          servicesScreenFinder,
-          findsOneWidget,
-          reason:
-              'ServicesListScreen must be rendered after tapping the category card',
-        );
+      // ServicesListScreen must be in the tree.
+      final servicesScreenFinder = find.byType(ServicesListScreen);
+      expect(
+        servicesScreenFinder,
+        findsOneWidget,
+        reason:
+            'ServicesListScreen must be rendered after tapping the category card',
+      );
 
-        // Ground-truth assertion: the router parsed the query param and wired
-        // it into the widget's initialExpandCategory field.
-        final screen = tester.widget<ServicesListScreen>(servicesScreenFinder);
-        expect(
-          screen.initialExpandCategory,
-          'MANICURE',
-          reason:
-              'initialExpandCategory must be "MANICURE" — the router must '
-              'parse expandCategory=MANICURE, validate it via '
-              'isValidCategorySlug, and pass it to ServicesListScreen',
-        );
-      },
-    );
+      // Ground-truth assertion: the router parsed the query param and wired
+      // it into the widget's initialExpandCategory field.
+      final screen = tester.widget<ServicesListScreen>(servicesScreenFinder);
+      expect(
+        screen.initialExpandCategory,
+        'MANICURE',
+        reason:
+            'initialExpandCategory must be "MANICURE" — the router must '
+            'parse expandCategory=MANICURE, validate it via '
+            'isValidCategorySlug, and pass it to ServicesListScreen',
+      );
+    });
 
-    testWidgets(
-      'navigating directly to /services without expandCategory param '
-      'results in null initialExpandCategory on ServicesListScreen',
-      (tester) async {
-        final router = _buildRouter();
-        await tester.pumpWidget(_buildApp(
+    testWidgets('navigating directly to /services without expandCategory param '
+        'results in null initialExpandCategory on ServicesListScreen', (
+      tester,
+    ) async {
+      final router = _buildRouter();
+      await tester.pumpWidget(
+        _buildApp(
           masterRepo: masterRepo,
           serviceRepo: serviceRepo,
           router: router,
-        ));
-        // One pump to process initial build.
-        await tester.pump();
+        ),
+      );
+      // One pump to process initial build.
+      await tester.pump();
 
-        // Navigate directly to /services with no query param.
-        // Pump twice: first to trigger the route change, second to let
-        // GoRouter's page stack rebuild and mount the new widget.
-        router.go(RouteNames.services);
-        await tester.pump();
-        await tester.pump();
+      // Navigate directly to /services with no query param.
+      // Pump twice: first to trigger the route change, second to let
+      // GoRouter's page stack rebuild and mount the new widget.
+      router.go(RouteNames.services);
+      await tester.pump();
+      await tester.pump();
 
-        // ServicesListScreen must be in the tree after the route change.
-        final servicesScreenFinder = find.byType(ServicesListScreen);
-        expect(
-          servicesScreenFinder,
-          findsOneWidget,
-          reason: 'ServicesListScreen must be rendered after router.go(services)',
-        );
+      // ServicesListScreen must be in the tree after the route change.
+      final servicesScreenFinder = find.byType(ServicesListScreen);
+      expect(
+        servicesScreenFinder,
+        findsOneWidget,
+        reason: 'ServicesListScreen must be rendered after router.go(services)',
+      );
 
-        final screen = tester.widget<ServicesListScreen>(servicesScreenFinder);
-        expect(
-          screen.initialExpandCategory,
-          isNull,
-          reason:
-              'no expandCategory param → null must be passed to '
-              'ServicesListScreen.initialExpandCategory',
-        );
-      },
-    );
+      final screen = tester.widget<ServicesListScreen>(servicesScreenFinder);
+      expect(
+        screen.initialExpandCategory,
+        isNull,
+        reason:
+            'no expandCategory param → null must be passed to '
+            'ServicesListScreen.initialExpandCategory',
+      );
+    });
   });
 }

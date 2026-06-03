@@ -207,10 +207,12 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.services,
         pageBuilder: (context, state) {
-          final raw =
-              state.uri.queryParameters['expandCategory']?.trim().toUpperCase();
-          final expandCategory =
-              (raw != null && isValidCategorySlug(raw)) ? raw : null;
+          final raw = state.uri.queryParameters['expandCategory']
+              ?.trim()
+              .toUpperCase();
+          final expandCategory = (raw != null && isValidCategorySlug(raw))
+              ? raw
+              : null;
           return _instantPage(
             state,
             ServicesListScreen(initialExpandCategory: expandCategory),

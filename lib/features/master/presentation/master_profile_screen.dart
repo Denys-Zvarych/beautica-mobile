@@ -554,11 +554,7 @@ class _ProfileBody extends StatelessWidget {
         // the grouping + card list with identity-equality cache fields so the
         // heavy computation is skipped on every provider tick that does not
         // actually change the data.
-        _revealWith(
-          anim4,
-          slide4,
-          const _ProfileCategoriesSection(),
-        ),
+        _revealWith(anim4, slide4, const _ProfileCategoriesSection()),
         const SizedBox(height: VelvetSpacing.xl),
 
         // 6 — Contacts section: phone and Instagram from domain model;
@@ -1076,6 +1072,7 @@ class _ProfileCategoryCard extends StatefulWidget {
   final String label;
   final int count;
   final String semanticLabel;
+
   /// The raw category slug (upper-cased, e.g. `"MANICURE"`), or `null` for the
   /// uncategorized bucket. Navigation is performed inside [_ProfileCategoryCardState]
   /// using the card's own live [BuildContext] so cached widget instances never
@@ -1090,8 +1087,9 @@ class _ProfileCategoryCardState extends State<_ProfileCategoryCard> {
   bool _pressed = false;
 
   // P-M4 fix: hoisted to avoid per-build TextStyle allocation.
-  static final TextStyle _cardStyle =
-      VelvetText.subheading().copyWith(fontSize: 16);
+  static final TextStyle _cardStyle = VelvetText.subheading().copyWith(
+    fontSize: 16,
+  );
 
   @override
   Widget build(BuildContext context) {

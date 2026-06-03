@@ -54,7 +54,8 @@ class _MockServiceRepository extends Mock implements ServiceRepository {}
 
 class _LoadingServicesList extends ServicesList {
   @override
-  Future<List<MasterService>> build() => Completer<List<MasterService>>().future;
+  Future<List<MasterService>> build() =>
+      Completer<List<MasterService>>().future;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,24 +69,25 @@ class _LoadingServicesList extends ServicesList {
 /// Auth redirect is disabled (no ProviderContainer wiring) — the router is
 /// constructed directly so the test reaches /services immediately.
 GoRouter _buildTestRouter(String uri) => GoRouter(
-      initialLocation: uri,
-      redirect: (context, state) => null, // no auth in this test scope
-      routes: <RouteBase>[
-        GoRoute(
-          path: RouteNames.services,
-          pageBuilder: (context, state) {
-            final raw = state.uri.queryParameters['expandCategory']
-                ?.trim()
-                .toUpperCase();
-            final expandCategory =
-                (raw != null && isValidCategorySlug(raw)) ? raw : null;
-            return MaterialPage<void>(
-              child: ServicesListScreen(initialExpandCategory: expandCategory),
-            );
-          },
-        ),
-      ],
-    );
+  initialLocation: uri,
+  redirect: (context, state) => null, // no auth in this test scope
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.services,
+      pageBuilder: (context, state) {
+        final raw = state.uri.queryParameters['expandCategory']
+            ?.trim()
+            .toUpperCase();
+        final expandCategory = (raw != null && isValidCategorySlug(raw))
+            ? raw
+            : null;
+        return MaterialPage<void>(
+          child: ServicesListScreen(initialExpandCategory: expandCategory),
+        );
+      },
+    ),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Helper — pumps the router and returns the rendered ServicesListScreen
@@ -138,13 +140,19 @@ void main() {
       // The router upper-cases first, but isValidCategorySlug must still
       // reject the pre-upper-case value (it sees the already-upper-cased raw).
       // Test the slug validator directly with a value that would arrive lowercase.
-      expect(isValidCategorySlug('manicure'), isFalse,
-          reason: 'lowercase slug must fail validation');
+      expect(
+        isValidCategorySlug('manicure'),
+        isFalse,
+        reason: 'lowercase slug must fail validation',
+      );
     });
 
     test('slug longer than 50 chars is rejected', () {
-      expect(isValidCategorySlug('A' * 51), isFalse,
-          reason: 'slug of 51 chars exceeds kCategorySlugMaxLength');
+      expect(
+        isValidCategorySlug('A' * 51),
+        isFalse,
+        reason: 'slug of 51 chars exceeds kCategorySlugMaxLength',
+      );
     });
 
     test('slug with symbols is rejected', () {
@@ -176,10 +184,12 @@ void main() {
 
     setUp(() {
       mockRepo = _MockServiceRepository();
-      when(() => mockRepo.listMyServices())
-          .thenAnswer((_) => Completer<List<MasterService>>().future);
-      when(() => mockRepo.fetchApprovedCategories())
-          .thenAnswer((_) async => const <ServiceCategoryOption>[]);
+      when(
+        () => mockRepo.listMyServices(),
+      ).thenAnswer((_) => Completer<List<MasterService>>().future);
+      when(
+        () => mockRepo.fetchApprovedCategories(),
+      ).thenAnswer((_) async => const <ServiceCategoryOption>[]);
     });
 
     testWidgets(
@@ -194,71 +204,63 @@ void main() {
         expect(
           screen.initialExpandCategory,
           'MANICURE',
-          reason:
-              'a valid UPPER_SLUG must reach ServicesListScreen unchanged',
+          reason: 'a valid UPPER_SLUG must reach ServicesListScreen unchanged',
         );
       },
     );
 
-    testWidgets(
-      'lowercase slug is coerced to null (invalid — router rejects)',
-      (tester) async {
-        // The router upper-cases first: 'manicure' → 'MANICURE', which IS valid.
-        // Therefore lowercase is accepted after upper-casing. Verify that the
-        // router's `.trim().toUpperCase()` pipeline passes 'MANICURE'.
-        final screen = await _pumpAndGetScreen(
-          tester,
-          '${RouteNames.services}?expandCategory=manicure',
-          mockRepo,
-        );
+    testWidgets('lowercase slug is coerced to null (invalid — router rejects)', (
+      tester,
+    ) async {
+      // The router upper-cases first: 'manicure' → 'MANICURE', which IS valid.
+      // Therefore lowercase is accepted after upper-casing. Verify that the
+      // router's `.trim().toUpperCase()` pipeline passes 'MANICURE'.
+      final screen = await _pumpAndGetScreen(
+        tester,
+        '${RouteNames.services}?expandCategory=manicure',
+        mockRepo,
+      );
 
-        // 'manicure' → trim().toUpperCase() = 'MANICURE' → isValidCategorySlug = true → passed.
-        expect(
-          screen.initialExpandCategory,
-          'MANICURE',
-          reason:
-              'lowercase is upper-cased by the router pipeline — the resulting '
-              'MANICURE slug is valid and must be passed through',
-        );
-      },
-    );
+      // 'manicure' → trim().toUpperCase() = 'MANICURE' → isValidCategorySlug = true → passed.
+      expect(
+        screen.initialExpandCategory,
+        'MANICURE',
+        reason:
+            'lowercase is upper-cased by the router pipeline — the resulting '
+            'MANICURE slug is valid and must be passed through',
+      );
+    });
 
-    testWidgets(
-      'slug longer than 50 chars is coerced to null',
-      (tester) async {
-        final longSlug = 'A' * 51;
-        final screen = await _pumpAndGetScreen(
-          tester,
-          '${RouteNames.services}?expandCategory=$longSlug',
-          mockRepo,
-        );
+    testWidgets('slug longer than 50 chars is coerced to null', (tester) async {
+      final longSlug = 'A' * 51;
+      final screen = await _pumpAndGetScreen(
+        tester,
+        '${RouteNames.services}?expandCategory=$longSlug',
+        mockRepo,
+      );
 
-        expect(
-          screen.initialExpandCategory,
-          isNull,
-          reason: 'slug > 50 chars fails isValidCategorySlug → null',
-        );
-      },
-    );
+      expect(
+        screen.initialExpandCategory,
+        isNull,
+        reason: 'slug > 50 chars fails isValidCategorySlug → null',
+      );
+    });
 
-    testWidgets(
-      'slug with symbols is coerced to null',
-      (tester) async {
-        final screen = await _pumpAndGetScreen(
-          tester,
-          '${RouteNames.services}?expandCategory=MANICURE!',
-          mockRepo,
-        );
+    testWidgets('slug with symbols is coerced to null', (tester) async {
+      final screen = await _pumpAndGetScreen(
+        tester,
+        '${RouteNames.services}?expandCategory=MANICURE!',
+        mockRepo,
+      );
 
-        // 'MANICURE!' → isValidCategorySlug = false → null.
-        expect(
-          screen.initialExpandCategory,
-          isNull,
-          reason:
-              'slug containing a symbol (!) fails the regex → coerced to null',
-        );
-      },
-    );
+      // 'MANICURE!' → isValidCategorySlug = false → null.
+      expect(
+        screen.initialExpandCategory,
+        isNull,
+        reason:
+            'slug containing a symbol (!) fails the regex → coerced to null',
+      );
+    });
 
     testWidgets(
       'absent expandCategory param results in null initialExpandCategory',
@@ -277,23 +279,22 @@ void main() {
       },
     );
 
-    testWidgets(
-      'empty expandCategory param is coerced to null',
-      (tester) async {
-        // raw = ''.trim().toUpperCase() = '' → isValidCategorySlug('') = false → null.
-        // Note: URL ?expandCategory= (empty value) — queryParameters returns ''.
-        final screen = await _pumpAndGetScreen(
-          tester,
-          '${RouteNames.services}?expandCategory=',
-          mockRepo,
-        );
+    testWidgets('empty expandCategory param is coerced to null', (
+      tester,
+    ) async {
+      // raw = ''.trim().toUpperCase() = '' → isValidCategorySlug('') = false → null.
+      // Note: URL ?expandCategory= (empty value) — queryParameters returns ''.
+      final screen = await _pumpAndGetScreen(
+        tester,
+        '${RouteNames.services}?expandCategory=',
+        mockRepo,
+      );
 
-        expect(
-          screen.initialExpandCategory,
-          isNull,
-          reason: 'empty expandCategory param is coerced to null',
-        );
-      },
-    );
+      expect(
+        screen.initialExpandCategory,
+        isNull,
+        reason: 'empty expandCategory param is coerced to null',
+      );
+    });
   });
 }

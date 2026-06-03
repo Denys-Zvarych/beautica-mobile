@@ -569,8 +569,9 @@ class _CategorySectionState extends State<_CategorySection> {
   late bool _expanded;
 
   // P-M1 fix: hoisted to avoid per-build TextStyle allocation.
-  static final TextStyle _headerStyle =
-      VelvetText.subheading().copyWith(fontSize: 16);
+  static final TextStyle _headerStyle = VelvetText.subheading().copyWith(
+    fontSize: 16,
+  );
 
   @override
   void initState() {

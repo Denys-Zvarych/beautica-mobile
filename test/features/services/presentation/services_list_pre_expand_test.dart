@@ -103,7 +103,9 @@ Future<void> _pumpScreen(
     ServicesListScreen(initialExpandCategory: initialExpandCategory),
     overrides: [
       servicesListProvider.overrideWith(
-        () => _StubServicesList(const AsyncData<List<MasterService>>(_twoServices)),
+        () => _StubServicesList(
+          const AsyncData<List<MasterService>>(_twoServices),
+        ),
       ),
       serviceRepositoryProvider.overrideWithValue(mockRepo),
     ],
@@ -124,10 +126,10 @@ void main() {
 
   setUp(() {
     mockRepo = _MockServiceRepository();
-    when(() => mockRepo.listMyServices())
-        .thenAnswer((_) async => _twoServices);
-    when(() => mockRepo.fetchApprovedCategories())
-        .thenAnswer((_) async => _approvedCategories);
+    when(() => mockRepo.listMyServices()).thenAnswer((_) async => _twoServices);
+    when(
+      () => mockRepo.fetchApprovedCategories(),
+    ).thenAnswer((_) async => _approvedCategories);
   });
 
   group('ServicesListScreen — pre-expand contract (initialExpandCategory)', () {
@@ -137,78 +139,68 @@ void main() {
 
     // ── 1. With a valid slug: matching section expanded, others collapsed ──────
 
-    testWidgets(
-      'MANICURE section is expanded and BROWS is collapsed when '
-      'initialExpandCategory is MANICURE',
-      (tester) async {
-        tester.view.physicalSize = const Size(480, 1200);
-        tester.view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets('MANICURE section is expanded and BROWS is collapsed when '
+        'initialExpandCategory is MANICURE', (tester) async {
+      tester.view.physicalSize = const Size(480, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-        await _pumpScreen(
-          tester,
-          mockRepo,
-          initialExpandCategory: 'MANICURE',
-        );
+      await _pumpScreen(tester, mockRepo, initialExpandCategory: 'MANICURE');
 
-        // Both section headers must be in the tree.
-        expect(
-          find.byKey(const Key('category_section_MANICURE')),
-          findsOneWidget,
-          reason: 'MANICURE section header must be rendered',
-        );
-        expect(
-          find.byKey(const Key('category_section_BROWS')),
-          findsOneWidget,
-          reason: 'BROWS section header must be rendered',
-        );
+      // Both section headers must be in the tree.
+      expect(
+        find.byKey(const Key('category_section_MANICURE')),
+        findsOneWidget,
+        reason: 'MANICURE section header must be rendered',
+      );
+      expect(
+        find.byKey(const Key('category_section_BROWS')),
+        findsOneWidget,
+        reason: 'BROWS section header must be rendered',
+      );
 
-        // The matching section's service card is visible (section expanded).
-        expect(
-          find.byKey(const Key('service_card_svc-m')),
-          findsOneWidget,
-          reason:
-              'MANICURE card must be visible because MANICURE section is '
-              'pre-expanded',
-        );
+      // The matching section's service card is visible (section expanded).
+      expect(
+        find.byKey(const Key('service_card_svc-m')),
+        findsOneWidget,
+        reason:
+            'MANICURE card must be visible because MANICURE section is '
+            'pre-expanded',
+      );
 
-        // The non-matching section's card is absent from the tree (collapsed).
-        expect(
-          find.byKey(const Key('service_card_svc-b')),
-          findsNothing,
-          reason:
-              'BROWS card must NOT be visible because only MANICURE was '
-              'requested as the initial expansion target',
-        );
-      },
-    );
+      // The non-matching section's card is absent from the tree (collapsed).
+      expect(
+        find.byKey(const Key('service_card_svc-b')),
+        findsNothing,
+        reason:
+            'BROWS card must NOT be visible because only MANICURE was '
+            'requested as the initial expansion target',
+      );
+    });
 
     // ── 2. With a different slug: BROWS expanded, MANICURE collapsed ──────────
 
-    testWidgets(
-      'BROWS section is expanded and MANICURE is collapsed when '
-      'initialExpandCategory is BROWS',
-      (tester) async {
-        tester.view.physicalSize = const Size(480, 1200);
-        tester.view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+    testWidgets('BROWS section is expanded and MANICURE is collapsed when '
+        'initialExpandCategory is BROWS', (tester) async {
+      tester.view.physicalSize = const Size(480, 1200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-        await _pumpScreen(tester, mockRepo, initialExpandCategory: 'BROWS');
+      await _pumpScreen(tester, mockRepo, initialExpandCategory: 'BROWS');
 
-        expect(
-          find.byKey(const Key('service_card_svc-b')),
-          findsOneWidget,
-          reason: 'BROWS card must be visible (BROWS section pre-expanded)',
-        );
-        expect(
-          find.byKey(const Key('service_card_svc-m')),
-          findsNothing,
-          reason: 'MANICURE card must be collapsed when BROWS is targeted',
-        );
-      },
-    );
+      expect(
+        find.byKey(const Key('service_card_svc-b')),
+        findsOneWidget,
+        reason: 'BROWS card must be visible (BROWS section pre-expanded)',
+      );
+      expect(
+        find.byKey(const Key('service_card_svc-m')),
+        findsNothing,
+        reason: 'MANICURE card must be collapsed when BROWS is targeted',
+      );
+    });
 
     // ── 3. With null: all sections default to expanded ────────────────────────
 
@@ -256,12 +248,14 @@ void main() {
         expect(
           find.byKey(const Key('service_card_svc-m')),
           findsOneWidget,
-          reason: 'empty string must be treated as null — all sections expanded',
+          reason:
+              'empty string must be treated as null — all sections expanded',
         );
         expect(
           find.byKey(const Key('service_card_svc-b')),
           findsOneWidget,
-          reason: 'empty string must be treated as null — all sections expanded',
+          reason:
+              'empty string must be treated as null — all sections expanded',
         );
       },
     );
@@ -281,11 +275,7 @@ void main() {
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
 
-        await _pumpScreen(
-          tester,
-          mockRepo,
-          initialExpandCategory: 'PEDICURE',
-        );
+        await _pumpScreen(tester, mockRepo, initialExpandCategory: 'PEDICURE');
 
         // PEDICURE does not exist in the data; the code normalises targetSlug to
         // 'PEDICURE'. For every section, `group.key == 'PEDICURE'` is false, so

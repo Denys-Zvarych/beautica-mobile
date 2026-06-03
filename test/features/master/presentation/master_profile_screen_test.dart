@@ -1030,8 +1030,7 @@ void main() {
         ),
         GoRoute(
           path: RouteNames.services,
-          builder: (context, _) =>
-              const Scaffold(body: Text('services-page')),
+          builder: (context, _) => const Scaffold(body: Text('services-page')),
         ),
       ],
       observers: <NavigatorObserver>[_ProfilePushObserver(pushedRoutes)],
@@ -1039,65 +1038,60 @@ void main() {
 
     // ── 1. One card per non-empty category rendered ───────────────────────────
 
-    testWidgets(
-      '1. renders one profile-category card per non-empty category',
-      (tester) async {
-        when(
-          () => mockServiceRepo.listMyServices(),
-        ).thenAnswer(
-          (_) async => const <MasterService>[
-            MasterService(
-              id: 'svc-1',
-              serviceDefId: 'def-1',
-              name: 'Манікюр',
-              durationMinutes: 30,
-              priceMin: 500,
-              priceDisplay: '500 грн',
-              category: 'MANICURE',
-            ),
-            MasterService(
-              id: 'svc-2',
-              serviceDefId: 'def-2',
-              name: 'Брови',
-              durationMinutes: 30,
-              priceMin: 300,
-              priceDisplay: '300 грн',
-              category: 'BROWS',
-            ),
-          ],
-        );
-        when(
-          () => mockServiceRepo.fetchApprovedCategories(),
-        ).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-            ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
-          ],
-        );
-
-        await tester.pumpApp(
-          const MasterProfileScreen(),
-          overrides: _buildOverrides(
-            masterState: const AsyncData<Master>(_stubMaster),
-            repo: repo,
-            serviceRepo: mockServiceRepo,
+    testWidgets('1. renders one profile-category card per non-empty category', (
+      tester,
+    ) async {
+      when(() => mockServiceRepo.listMyServices()).thenAnswer(
+        (_) async => const <MasterService>[
+          MasterService(
+            id: 'svc-1',
+            serviceDefId: 'def-1',
+            name: 'Манікюр',
+            durationMinutes: 30,
+            priceMin: 500,
+            priceDisplay: '500 грн',
+            category: 'MANICURE',
           ),
-        );
-        await tester.pumpAndSettle();
+          MasterService(
+            id: 'svc-2',
+            serviceDefId: 'def-2',
+            name: 'Брови',
+            durationMinutes: 30,
+            priceMin: 300,
+            priceDisplay: '300 грн',
+            category: 'BROWS',
+          ),
+        ],
+      );
+      when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
+        (_) async => const <ServiceCategoryOption>[
+          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+          ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+        ],
+      );
 
-        // One card per non-empty category — keys use the upper-cased slug.
-        expect(
-          find.byKey(const Key('profile-category-MANICURE')),
-          findsOneWidget,
-          reason: 'MANICURE category must render a profile card',
-        );
-        expect(
-          find.byKey(const Key('profile-category-BROWS')),
-          findsOneWidget,
-          reason: 'BROWS category must render a profile card',
-        );
-      },
-    );
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // One card per non-empty category — keys use the upper-cased slug.
+      expect(
+        find.byKey(const Key('profile-category-MANICURE')),
+        findsOneWidget,
+        reason: 'MANICURE category must render a profile card',
+      );
+      expect(
+        find.byKey(const Key('profile-category-BROWS')),
+        findsOneWidget,
+        reason: 'BROWS category must render a profile card',
+      );
+    });
 
     // ── 2. Categories with zero services are not rendered ─────────────────────
 
@@ -1105,9 +1099,7 @@ void main() {
       '2. empty categories produce no card (only non-empty buckets shown)',
       (tester) async {
         // Only one service → MANICURE bucket has 1 entry, BROWS bucket absent.
-        when(
-          () => mockServiceRepo.listMyServices(),
-        ).thenAnswer(
+        when(() => mockServiceRepo.listMyServices()).thenAnswer(
           (_) async => const <MasterService>[
             MasterService(
               id: 'svc-1',
@@ -1120,9 +1112,7 @@ void main() {
             ),
           ],
         );
-        when(
-          () => mockServiceRepo.fetchApprovedCategories(),
-        ).thenAnswer(
+        when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
           (_) async => const <ServiceCategoryOption>[
             ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
             ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
@@ -1147,8 +1137,7 @@ void main() {
         expect(
           find.byKey(const Key('profile-category-BROWS')),
           findsNothing,
-          reason:
-              'a category with zero services must produce no profile card',
+          reason: 'a category with zero services must produce no profile card',
         );
       },
     );
@@ -1158,9 +1147,7 @@ void main() {
     testWidgets(
       '3. services without a category render under profile-category-_none',
       (tester) async {
-        when(
-          () => mockServiceRepo.listMyServices(),
-        ).thenAnswer(
+        when(() => mockServiceRepo.listMyServices()).thenAnswer(
           (_) async => const <MasterService>[
             MasterService(
               id: 'svc-z',
@@ -1175,9 +1162,7 @@ void main() {
         );
         when(
           () => mockServiceRepo.fetchApprovedCategories(),
-        ).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[],
-        );
+        ).thenAnswer((_) async => const <ServiceCategoryOption>[]);
 
         await tester.pumpApp(
           const MasterProfileScreen(),
@@ -1207,9 +1192,7 @@ void main() {
     testWidgets(
       '4. tapping a category card navigates to /services?expandCategory=<slug>',
       (tester) async {
-        when(
-          () => mockServiceRepo.listMyServices(),
-        ).thenAnswer(
+        when(() => mockServiceRepo.listMyServices()).thenAnswer(
           (_) async => const <MasterService>[
             MasterService(
               id: 'svc-1',
@@ -1222,9 +1205,7 @@ void main() {
             ),
           ],
         );
-        when(
-          () => mockServiceRepo.fetchApprovedCategories(),
-        ).thenAnswer(
+        when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
           (_) async => const <ServiceCategoryOption>[
             ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
           ],
