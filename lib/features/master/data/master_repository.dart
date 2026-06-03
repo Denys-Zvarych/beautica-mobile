@@ -111,22 +111,13 @@ final class HttpMasterRepository implements MasterRepository {
       body['locationNote'] = trimmedNote;
     }
 
-    try {
-      await _dio.patch<Map<String, dynamic>>(
+    await _runIdempotentPatch(
+      operation: 'updateLocality',
+      request: () => _dio.patch<Map<String, dynamic>>(
         '/api/v1/independent-masters/me',
         data: body,
-      );
-    } on DioException catch (e, st) {
-      if (kDebugMode) {
-        log(
-          'updateLocality failed: ${e.type} ${e.response?.statusCode}',
-          name: 'master.repository',
-          level: 900,
-          stackTrace: st,
-        );
-      }
-      throw _mapDioException(e);
-    }
+      ),
+    );
   }
 
   @override
@@ -192,21 +183,89 @@ final class HttpMasterRepository implements MasterRepository {
     final trimmedPhone = update.contactPhone.trim();
     if (trimmedPhone.isNotEmpty) body['phoneNumber'] = trimmedPhone;
 
-    try {
-      await _dio.patch<Map<String, dynamic>>(
+    await _runIdempotentPatch(
+      operation: 'updateMyProfile',
+      request: () => _dio.patch<Map<String, dynamic>>(
         '/api/v1/independent-masters/me/profile',
         data: body,
-      );
-    } on DioException catch (e, st) {
-      if (kDebugMode) {
-        log(
-          'updateMyProfile failed: ${e.type} ${e.response?.statusCode}',
-          name: 'master.repository',
-          level: 900,
-          stackTrace: st,
-        );
+      ),
+    );
+  }
+
+  /// Runs an idempotent PATCH upsert with a total catch and a bounded
+  /// single retry for transient auth/network failures.
+  ///
+  /// Both `/independent-masters/me` and `/independent-masters/me/profile` are
+  /// idempotent upserts, so replaying once is safe. The retry only fires for a
+  /// transient [UnauthorizedFailure] (a 401 that triggered a token refresh — by
+  /// the second attempt the token is fresh) or a [NetworkFailure] (a single
+  /// transport hiccup). Real auth expiry / persistent network loss surfaces on
+  /// the second failure, exactly as before, so the retry can never hide a
+  /// genuine logout. All other failures rethrow on the first attempt.
+  ///
+  /// Catch order is total: the [DioException] arm maps to a typed [Failure];
+  /// `on Failure { rethrow }` passes through any [Failure] already produced
+  /// upstream (e.g. by [RefreshInterceptor]); the final `catch` wraps any
+  /// remaining non-[Failure] (a stray `TypeError`/`Error`) as a [ServerFailure]
+  /// so NO raw error can ever escape to the screen as errUnknown.
+  Future<void> _runIdempotentPatch({
+    required String operation,
+    required Future<Response<Map<String, dynamic>>> Function() request,
+  }) async {
+    var attemptedRetry = false;
+    while (true) {
+      try {
+        await request();
+        return;
+      } on Failure catch (f) {
+        if (!attemptedRetry &&
+            (f is UnauthorizedFailure || f is NetworkFailure)) {
+          attemptedRetry = true;
+          if (kDebugMode) {
+            log(
+              '$operation transient ${f.runtimeType} — retrying once',
+              name: 'master.repository',
+              level: 800,
+            );
+          }
+          continue;
+        }
+        rethrow;
+      } on DioException catch (e, st) {
+        if (kDebugMode) {
+          log(
+            '$operation failed: ${e.type} ${e.response?.statusCode}',
+            name: 'master.repository',
+            level: 900,
+            stackTrace: st,
+          );
+        }
+        final failure = _mapDioException(e);
+        if (!attemptedRetry &&
+            (failure is UnauthorizedFailure || failure is NetworkFailure)) {
+          attemptedRetry = true;
+          if (kDebugMode) {
+            log(
+              '$operation transient ${failure.runtimeType} — retrying once',
+              name: 'master.repository',
+              level: 800,
+            );
+          }
+          continue;
+        }
+        throw failure;
+      } catch (e, st) {
+        if (kDebugMode) {
+          log(
+            '$operation unexpected error: ${e.runtimeType}',
+            name: 'master.repository',
+            level: 1000,
+            error: e,
+            stackTrace: st,
+          );
+        }
+        throw ServerFailure(cause: e);
       }
-      throw _mapDioException(e);
     }
   }
 

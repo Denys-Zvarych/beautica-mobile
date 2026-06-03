@@ -2175,7 +2175,8 @@ void main() {
       expect(
         find.text(_l10nUk.editValidationSummary),
         findsOneWidget,
-        reason: 'The summary SnackBar must carry the editValidationSummary text.',
+        reason:
+            'The summary SnackBar must carry the editValidationSummary text.',
       );
 
       // The generic errUnknown message must NOT appear — the old bug surfaced

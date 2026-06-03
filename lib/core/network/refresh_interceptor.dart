@@ -138,9 +138,25 @@ final class RefreshInterceptor extends Interceptor {
             data: {'refreshToken': rt},
           );
 
-      final data = response.data!['data'] as Map<String, dynamic>;
-      final newRefreshToken = data['refreshToken'] as String;
-      final newAccessToken = data['accessToken'] as String;
+      // Null-safe extraction. A transient malformed/empty refresh body
+      // (connection reset, proxy 200-with-empty-body, gateway hiccup) used to
+      // throw a raw TypeError/CastError here, which then escaped _runRefresh,
+      // propagated to concurrent waiters, and bubbled past the repository's
+      // `on DioException` arm out to the screen as errUnknown. Treat any
+      // missing/mistyped field as an auth failure (typed Failure) instead.
+      final data = response.data?['data'];
+      final newRefreshToken = data is Map<String, dynamic>
+          ? data['refreshToken']
+          : null;
+      final newAccessToken = data is Map<String, dynamic>
+          ? data['accessToken']
+          : null;
+      if (newRefreshToken is! String ||
+          newAccessToken is! String ||
+          newRefreshToken.isEmpty ||
+          newAccessToken.isEmpty) {
+        throw const UnauthorizedFailure(cause: 'Malformed refresh response');
+      }
 
       // Persist the rotated refresh token.
       await storage.writeRefreshToken(newRefreshToken);
@@ -167,8 +183,14 @@ final class RefreshInterceptor extends Interceptor {
           stackTrace: st,
         );
       }
-      completer.completeError(e, st);
-      rethrow;
+      // Guarantee the error propagated to concurrent waiters
+      // (lock.pending!.future at onError ~:80) and back to this caller is
+      // ALWAYS a typed Failure — never a raw TypeError/CastError/DioException.
+      // A raw runtime error escaping here is what produced the flaky
+      // errUnknown on profile save.
+      final Failure failure = e is Failure ? e : UnauthorizedFailure(cause: e);
+      completer.completeError(failure, st);
+      throw failure;
     } finally {
       lock.release();
     }

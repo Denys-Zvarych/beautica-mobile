@@ -10,9 +10,14 @@
 //   3. Multiple concurrent 401s → exactly one /auth/refresh call (single-flight).
 //   4. Refresh call throws (network error) → logout() called; handler.next called.
 
+import 'dart:async';
+
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/refresh_dio_provider.dart';
 import 'package:beautica_mobile/core/network/refresh_interceptor.dart';
+import 'package:beautica_mobile/core/network/token_refresh_lock.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:dio/dio.dart';
@@ -32,6 +37,35 @@ part 'refresh_interceptor_test.g.dart';
 class MockDio extends Mock implements Dio {}
 
 class MockInterceptorHandler extends Mock implements ErrorInterceptorHandler {}
+
+// ---------------------------------------------------------------------------
+// Recording lock
+//
+// A [TokenRefreshLock] subclass that records the object passed to the claimed
+// completer's `completeError`. This is the deterministic seam used to assert
+// EXACTLY what `_runRefresh` surfaces to concurrent waiters (and rethrows):
+// the regression we guard requires it to ALWAYS be a typed [Failure], never a
+// raw [TypeError]/[CastError]/[Error] escaping from the cast-based body parse.
+//
+// The production [claim] creates a `Completer<AuthTokens>` and `_runRefresh`
+// calls `completer.completeError(failure, st)` on it. We attach a listener to
+// that completer's future so we capture the error object verbatim, with its
+// real runtime type intact (the `onError` catch later swallows it).
+class _RecordingRefreshLock extends TokenRefreshLock {
+  /// The error object the most recent in-flight completer failed with, if any.
+  Object? capturedError;
+
+  @override
+  Completer<AuthTokens> claim() {
+    final completer = super.claim();
+    // Observe the terminal error without consuming it for real waiters.
+    completer.future.then<void>(
+      (_) {},
+      onError: (Object e, StackTrace _) => capturedError = e,
+    );
+    return completer;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Ref-capture provider
@@ -72,16 +106,36 @@ ProviderContainer makeContainer({
   required FakeSecureStorage storage,
   required FakeAuthRepository repo,
   required Dio refreshDio,
+  TokenRefreshLock? lock,
 }) {
   final container = ProviderContainer(
     overrides: [
       secureStorageProvider.overrideWith((_) => storage),
       authRepositoryProvider.overrideWith((_) => repo),
       refreshDioProvider.overrideWith((_) => refreshDio),
+      if (lock != null) tokenRefreshLockProvider.overrideWith((_) => lock),
     ],
   );
   addTearDown(container.dispose);
   return container;
+}
+
+/// Stubs the `/auth/refresh` POST to return a 200 with a malformed [body] —
+/// the transient empty/mistyped envelope that used to throw a raw
+/// `TypeError`/`CastError` from the `as Map`/`as String` casts in `_runRefresh`.
+void _stubMalformedRefresh(MockDio refreshDio, Map<String, dynamic>? body) {
+  when(
+    () => refreshDio.post<Map<String, dynamic>>(
+      '/api/v1/auth/refresh',
+      data: any(named: 'data'),
+    ),
+  ).thenAnswer(
+    (_) async => Response(
+      requestOptions: _opts('/api/v1/auth/refresh'),
+      statusCode: 200,
+      data: body,
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -361,4 +415,163 @@ void main() {
       verifyNever(() => mainDio.fetch<dynamic>(any()));
     },
   );
+
+  // -------------------------------------------------------------------------
+  // Regression — malformed refresh body must surface a Failure, never a raw
+  // TypeError/CastError. (Profile-save flaky errUnknown root cause.)
+  //
+  // Before the fix, `_runRefresh` parsed the body with
+  // `response.data!['data'] as Map` + `as String`. A transient 200 with an
+  // empty/mistyped body threw a raw TypeError that escaped _runRefresh,
+  // propagated to concurrent waiters via completeError, and bubbled past the
+  // repository's `on DioException` arm out to the screen as errUnknown.
+  // -------------------------------------------------------------------------
+  group('malformed refresh body guard (regression)', () {
+    // The malformed shapes that previously triggered raw cast errors.
+    final malformedBodies = <String, Map<String, dynamic>?>{
+      'null body': null,
+      'empty map': <String, dynamic>{},
+      'null data': {'data': null},
+      'data is not a map (String)': {'data': 'not-a-map'},
+      'data missing tokens': {'data': <String, dynamic>{}},
+      'tokens are wrong type (int)': {
+        'data': {'accessToken': 1, 'refreshToken': 2},
+      },
+      'empty token strings': {
+        'data': {'accessToken': '', 'refreshToken': ''},
+      },
+    };
+
+    for (final entry in malformedBodies.entries) {
+      test(
+        '_runRefresh surfaces a Failure (not a raw Error) for ${entry.key}',
+        () async {
+          final storage = FakeSecureStorage();
+          await storage.writeRefreshToken('stored-refresh');
+          final repo = FakeAuthRepository();
+          final refreshDio = MockDio();
+          final mainDio = MockDio();
+          final lock = _RecordingRefreshLock();
+
+          _stubMalformedRefresh(refreshDio, entry.value);
+
+          final container = makeContainer(
+            storage: storage,
+            repo: repo,
+            refreshDio: refreshDio,
+            lock: lock,
+          );
+          final ref = container.read(testRefProvider);
+          await container.read(authProvider.future);
+
+          final handler = MockInterceptorHandler();
+          final interceptor = RefreshInterceptor(ref, mainDio);
+
+          await interceptor.onError(make401(_opts('/protected')), handler);
+
+          // The error the in-flight completer failed with — i.e. exactly what
+          // `_runRefresh` rethrew and what a concurrent waiter would receive.
+          final captured = lock.capturedError;
+          expect(
+            captured,
+            isNotNull,
+            reason: 'the refresh must fail on a malformed body',
+          );
+          expect(
+            captured,
+            isA<Failure>(),
+            reason: 'a malformed refresh body must surface a typed Failure',
+          );
+          expect(
+            captured,
+            isA<UnauthorizedFailure>(),
+            reason: 'malformed refresh body is treated as an auth failure',
+          );
+          // The crux of the regression: NEVER a raw runtime Error/TypeError.
+          expect(
+            captured,
+            isNot(isA<Error>()),
+            reason: 'a raw TypeError/CastError must never escape _runRefresh',
+          );
+          expect(captured, isNot(isA<TypeError>()));
+
+          // Behavioural guarantee: the failed refresh logs the user out and
+          // forwards the original error (never resolves the request).
+          expect(repo.logoutCallCount, equals(1));
+          verify(() => handler.next(any())).called(1);
+          verifyNever(() => handler.resolve(any()));
+          verifyNever(() => mainDio.fetch<dynamic>(any()));
+        },
+      );
+    }
+
+    test(
+      'concurrent waiter on malformed refresh receives a Failure, not a raw error',
+      () async {
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+        final repo = FakeAuthRepository();
+        final refreshDio = MockDio();
+        final mainDio = MockDio();
+        final lock = _RecordingRefreshLock();
+
+        // Delay so the second onError arrives while the first holds the lock
+        // and is awaiting the (malformed) refresh response — exercising the
+        // `lock.pending != null` concurrent-waiter branch in onError.
+        when(
+          () => refreshDio.post<Map<String, dynamic>>(
+            '/api/v1/auth/refresh',
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async {
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+          return Response(
+            requestOptions: _opts('/api/v1/auth/refresh'),
+            statusCode: 200,
+            // Malformed: empty envelope → typed UnauthorizedFailure.
+            data: const <String, dynamic>{},
+          );
+        });
+
+        final container = makeContainer(
+          storage: storage,
+          repo: repo,
+          refreshDio: refreshDio,
+          lock: lock,
+        );
+        final ref = container.read(testRefProvider);
+        await container.read(authProvider.future);
+
+        final interceptor = RefreshInterceptor(ref, mainDio);
+        final handlers = List.generate(2, (_) => MockInterceptorHandler());
+
+        // Both onError calls await the single shared completer. The waiter
+        // (handler[1]) receives the SAME terminal error as the claimant.
+        await Future.wait(
+          List.generate(
+            2,
+            (i) =>
+                interceptor.onError(make401(_opts('/protected')), handlers[i]),
+          ),
+        );
+
+        // Exactly one refresh issued (single-flight preserved).
+        verify(
+          () => refreshDio.post<Map<String, dynamic>>(
+            '/api/v1/auth/refresh',
+            data: any(named: 'data'),
+          ),
+        ).called(1);
+
+        // The error shared with the concurrent waiter is a typed Failure.
+        expect(lock.capturedError, isA<UnauthorizedFailure>());
+        expect(
+          lock.capturedError,
+          isNot(isA<Error>()),
+          reason:
+              'concurrent waiter must never receive a raw TypeError/CastError',
+        );
+      },
+    );
+  });
 }
