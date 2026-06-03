@@ -992,4 +992,192 @@ void main() {
       );
     });
   });
+
+  // ── 14. Services section — bounded scroll box (>3 services) ────────────────
+  //
+  // Regression tests for the [_ProfileServicesScroller] branch added to the
+  // services section. When a master has more than 3 services the section
+  // renders a fixed-height (266 dp) bounded ListView with its own
+  // ScrollController and a Key('profile-services-scroll'); at ≤3 services it
+  // keeps the previous plain Column (no scroll box). These tests prove the new
+  // >3 branch renders, that ALL services are reachable by scrolling, and that
+  // the ≤3 path is unchanged.
+
+  group('services section — scrollable box (>3 services)', () {
+    // Builds [count] distinct MasterService fixtures consistent with the
+    // domain model and the existing "D." test's fixture shape.
+    List<MasterService> buildServices(int count) => <MasterService>[
+      for (int i = 1; i <= count; i++)
+        MasterService(
+          id: 'svc-$i',
+          serviceDefId: 'def-$i',
+          name: 'Послуга $i',
+          durationMinutes: 30,
+          priceMin: 500,
+          priceDisplay: '500 грн',
+        ),
+    ];
+
+    // ── 1. >3 services → bounded scroll box present at 266 dp ────────────────
+
+    testWidgets(
+      '>3 services renders the bounded scroll ListView at 266 dp height',
+      (tester) async {
+        when(
+          () => mockServiceRepo.listMyServices(),
+        ).thenAnswer((_) async => buildServices(6));
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The new branch must render the dedicated scrollable ListView.
+        final scrollFinder = find.byKey(const Key('profile-services-scroll'));
+        expect(
+          scrollFinder,
+          findsOneWidget,
+          reason: '>3 services must render _ProfileServicesScroller',
+        );
+
+        // The bounded SizedBox wrapping the ListView must clamp to the
+        // visible-3 design height (3 tiles + 2 separators + peek = 266 dp).
+        final boxFinder = find.ancestor(
+          of: scrollFinder,
+          matching: find.byType(SizedBox),
+        );
+        final boundedBox = tester
+            .widgetList<SizedBox>(boxFinder)
+            .firstWhere(
+              (s) => s.height == 266,
+              orElse: () => throw TestFailure(
+                'No SizedBox with height 266 wraps the services scroll box',
+              ),
+            );
+        expect(boundedBox.height, 266);
+      },
+    );
+
+    // ── 2. >3 services → every service reachable via scroll ─────────────────
+
+    testWidgets(
+      '>3 services lets the user scroll to reveal the 6th service tile',
+      (tester) async {
+        when(
+          () => mockServiceRepo.listMyServices(),
+        ).thenAnswer((_) async => buildServices(6));
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The first tile is laid out immediately; the 6th is off-screen in the
+        // lazy ListView until scrolled into view.
+        expect(
+          find.byKey(const Key('profile-service-tile-svc-1')),
+          findsOneWidget,
+        );
+
+        // Scroll the bounded box (not the page) to its end. We drive the inner
+        // ListView's own ScrollController via jumpTo for a deterministic result
+        // — the dedicated controller keeps this list in its own gesture arena,
+        // so this scroll is independent of the outer profile page.
+        final scrollFinder = find.byKey(const Key('profile-services-scroll'));
+        final listView = tester.widget<ListView>(scrollFinder);
+        final innerController = listView.controller!;
+        innerController.jumpTo(innerController.position.maxScrollExtent);
+        await tester.pumpAndSettle();
+
+        // After scrolling to the end, the last tile must be laid out & visible.
+        expect(
+          find.byKey(const Key('profile-service-tile-svc-6')),
+          findsOneWidget,
+          reason:
+              'All services beyond the visible 3 must be scrollable into view',
+        );
+        // Sanity: the box was actually scrollable (offset advanced past 0).
+        expect(
+          innerController.position.maxScrollExtent,
+          greaterThan(0),
+          reason: 'Bounded box must have scrollable overflow for 6 services',
+        );
+      },
+    );
+
+    // ── 3. ≤3 services → NO scroll box (regression guard) ───────────────────
+
+    testWidgets(
+      '≤3 services keeps the plain Column and renders no scroll box',
+      (tester) async {
+        when(
+          () => mockServiceRepo.listMyServices(),
+        ).thenAnswer((_) async => buildServices(2));
+
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The scroll box must NOT exist on the ≤3 path.
+        expect(
+          find.byKey(const Key('profile-services-scroll')),
+          findsNothing,
+          reason:
+              '≤3 services must keep the plain Column (no bounded scroller)',
+        );
+
+        // Both plain tiles must still render.
+        expect(
+          find.byKey(const Key('profile-service-tile-svc-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('profile-service-tile-svc-2')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    // ── 4. >3 services → "All services" link still present ───────────────────
+
+    testWidgets('>3 services still renders the all-services link', (
+      tester,
+    ) async {
+      when(
+        () => mockServiceRepo.listMyServices(),
+      ).thenAnswer((_) async => buildServices(6));
+
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Resolve l10n from the tree — no raw Ukrainian literal finders.
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterProfileScreen)),
+      );
+      expect(find.text(l10n.masterAllServices), findsOneWidget);
+    });
+  });
 }

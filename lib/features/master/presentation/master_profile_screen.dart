@@ -626,42 +626,31 @@ class _ProfileBody extends StatelessWidget {
                           ),
                         );
                       }
-                      // Render up to 3 tiles on the profile; tap "Усі послуги"
-                      // to see the full list in ServicesListScreen.
-                      final displayed = services.length > 3
-                          ? services.sublist(0, 3)
-                          : services;
-                      return Column(
-                        children: <Widget>[
-                          for (
-                            int i = 0;
-                            i < displayed.length;
-                            i++
-                          ) ...<Widget>[
-                            ServiceTile(
-                              key: Key(
-                                'profile-service-tile-${displayed[i].id}',
-                              ),
-                              name: displayed[i].name,
-                              duration: DurationMinutes.format(
-                                displayed[i].durationMinutes,
-                              ),
-                              // Phase 5.6: render from server-formatted priceDisplay.
-                              // Fallback to CurrencyUah.format(priceMin) for pre-V67
-                              // data where priceDisplay may be empty.
-                              price: displayed[i].priceDisplay.isNotEmpty
-                                  ? displayed[i].priceDisplay
-                                  : CurrencyUah.format(displayed[i].priceMin),
-                              photoGradient: const <Color>[
-                                Color(0xFFD4B896),
-                                Color(0xFF8A6840),
-                              ],
-                            ),
-                            if (i < displayed.length - 1)
-                              const SizedBox(height: VelvetSpacing.md - 4),
+                      // ≤ _kProfileServicesVisible: render a plain Column (no
+                      // inner scroll, no wasted fixed height).
+                      // > _kProfileServicesVisible: render a bounded, vertically
+                      // scrollable region showing ~3 tiles with the next tile
+                      // peeking, so the master can scroll through all services
+                      // without leaving the profile. Tap "Усі послуги" to open
+                      // the full list in ServicesListScreen.
+                      if (services.length <= _kProfileServicesVisible) {
+                        return Column(
+                          children: <Widget>[
+                            for (
+                              int i = 0;
+                              i < services.length;
+                              i++
+                            ) ...<Widget>[
+                              _profileServiceTile(services[i]),
+                              if (i < services.length - 1)
+                                const SizedBox(
+                                  height: _kProfileServicesSeparator,
+                                ),
+                            ],
                           ],
-                        ],
-                      );
+                        );
+                      }
+                      return _ProfileServicesScroller(services: services);
                     },
                   ),
                 ],
@@ -980,6 +969,122 @@ class _ProfileSkeleton extends StatelessWidget {
             radius: VelvetRadii.field,
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Profile Services section — bounded scroll region.
+//
+// Tuning constants. The bounded height shows exactly
+// [_kProfileServicesVisible] tiles plus a small peek of the next tile, which
+// signals that more content exists without an extra affordance widget.
+//
+//   tile height ≈ 72 dp — measured from [ServiceTile]:
+//     • vertical padding VelvetSpacing.sm (8) × 2                = 16
+//     • content Row height = max(thumbnail 38, text column 55.7) = 55.7
+//         text column = name (15 × 1.5 = 22.5)
+//                     + gap (VelvetSpacing.xs + 1 = 5)
+//                     + price-pill row (13 × 1.4 + 5 × 2 = 28.2)
+//     • total ≈ 71.7 → rounded to 72.0
+//   separator = VelvetSpacing.md - 4 (12 dp), matching the ≤3 Column.
+// ---------------------------------------------------------------------------
+
+/// Number of [ServiceTile]s fully visible in the bounded profile scroll box.
+const int _kProfileServicesVisible = 3;
+
+/// Measured rendered height of a single [ServiceTile] (see notes above).
+const double _kProfileServiceTileHeight = 72;
+
+/// Gap between tiles — identical to the ≤3 Column separator.
+const double _kProfileServicesSeparator = VelvetSpacing.md - 4;
+
+/// How much of the next tile peeks at the bottom of the bounded box, hinting
+/// that the list scrolls. Small enough not to read as a full extra row.
+const double _kProfileServicesPeek = 26;
+
+/// Fixed height of the bounded services scroll box: three full tiles + two
+/// separators + a peek of the fourth tile.
+const double _kProfileServicesBoxHeight =
+    _kProfileServiceTileHeight * _kProfileServicesVisible +
+    _kProfileServicesSeparator * (_kProfileServicesVisible - 1) +
+    _kProfileServicesPeek;
+
+/// Builds a single profile [ServiceTile] from a [MasterService].
+///
+/// Shared by both the ≤3 plain-[Column] branch and the bounded
+/// [_ProfileServicesScroller] so the tile styling stays identical.
+Widget _profileServiceTile(MasterService service) {
+  return ServiceTile(
+    key: Key('profile-service-tile-${service.id}'),
+    name: service.name,
+    duration: DurationMinutes.format(service.durationMinutes),
+    // Phase 5.6: render from server-formatted priceDisplay. Fallback to
+    // CurrencyUah.format(priceMin) for pre-V67 data where priceDisplay may be
+    // empty.
+    price: service.priceDisplay.isNotEmpty
+        ? service.priceDisplay
+        : CurrencyUah.format(service.priceMin),
+    photoGradient: const <Color>[Color(0xFFD4B896), Color(0xFF8A6840)],
+  );
+}
+
+/// Bounded, vertically scrollable region rendering the *full* [services] list
+/// when the master has more than [_kProfileServicesVisible] services.
+///
+/// The inner [ListView] owns its own [ScrollController], so it lives in a
+/// separate gesture arena from the outer profile scroll view — dragging inside
+/// the box scrolls the box; dragging elsewhere scrolls the page. A soft bottom
+/// fade reinforces the "more below" affordance.
+class _ProfileServicesScroller extends StatefulWidget {
+  const _ProfileServicesScroller({required this.services});
+
+  final List<MasterService> services;
+
+  @override
+  State<_ProfileServicesScroller> createState() =>
+      _ProfileServicesScrollerState();
+}
+
+class _ProfileServicesScrollerState extends State<_ProfileServicesScroller> {
+  final ScrollController _controller = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: _kProfileServicesBoxHeight,
+      child: ShaderMask(
+        // Soft bottom fade — hints that more services lie below the fold.
+        shaderCallback: (Rect bounds) {
+          return const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: <Color>[Colors.white, Colors.white, Colors.transparent],
+            stops: <double>[0.0, 0.88, 1.0],
+          ).createShader(bounds);
+        },
+        blendMode: BlendMode.dstIn,
+        child: ListView.separated(
+          key: const Key('profile-services-scroll'),
+          controller: _controller,
+          padding: EdgeInsets.zero,
+          // BouncingScrollPhysics matches the outer profile scaffold and the
+          // services list; the dedicated controller keeps this scrollable in
+          // its own gesture arena, so nested scrolling resolves cleanly.
+          physics: const BouncingScrollPhysics(),
+          itemCount: widget.services.length,
+          separatorBuilder: (_, _) =>
+              const SizedBox(height: _kProfileServicesSeparator),
+          itemBuilder: (BuildContext context, int index) =>
+              _profileServiceTile(widget.services[index]),
+        ),
       ),
     );
   }
