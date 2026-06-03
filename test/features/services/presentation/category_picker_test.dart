@@ -8,9 +8,16 @@
 //        wire `name` slug (not the displayName).
 //     3. "Suggest" affordance opens the dialog.
 //   DIALOG
-//     4. Valid submit calls repository.requestCategory once with name+displayName.
-//     5. Slug validation rejects bad input (no repository call).
+//     3b. Only the display-name field is shown; the legacy editable code/slug
+//         field is ABSENT (slug is derived internally at submit).
+//     4. Valid submit calls repository.requestCategory once with the derived
+//        slug as `name` and the raw display name as `displayName`.
+//     5. A non-derivable (punctuation-only) name fails validation on the name
+//        field; repository is NOT called.
 //     6. 409 → "already exists" SnackBar; 429 → "too many requests" SnackBar.
+//    15. Valid Ukrainian name → submit sends transliterated slug as `name`,
+//        raw name as `displayName` (exact-arg mock assertion).
+//    16. Empty name → required-field error; repository NOT called.
 //   PICKER (audit-driven additions)
 //     7. error → 'category-chips-error' renders + retry chip; tapping retry
 //        re-fetches (repo called again) and the success chip row renders.
@@ -277,13 +284,15 @@ void main() {
     await tester.tap(suggest);
     await tester.pumpAndSettle();
 
+    // Only the display-name field is shown. The legacy editable code/slug field
+    // was removed — the slug is now derived internally at submit time.
     expect(
       find.byKey(const Key('field-category-request-name')),
       findsOneWidget,
     );
     expect(
       find.byKey(const Key('field-category-request-code')),
-      findsOneWidget,
+      findsNothing,
     );
   });
 
@@ -304,7 +313,8 @@ void main() {
     await tester.tap(find.byKey(const Key('chip-category-suggest')));
     await tester.pumpAndSettle();
 
-    // Typing a Ukrainian display name auto-derives the latin code slug.
+    // Type a Ukrainian display name. The latin wire slug is derived internally
+    // at submit time (no code field) — the captured `name` proves it works.
     await tester.enterText(
       find.descendant(
         of: find.byKey(const Key('field-category-request-name')),
@@ -328,53 +338,58 @@ void main() {
     expect(captured[1], 'Нейл-арт');
   });
 
-  // ── 5. Bad slug fails validation (no repository call) ───────────────────────
+  // ── 5. Non-derivable name fails validation (no repository call) ─────────────
 
-  testWidgets('5. invalid slug blocks submit (no repository call)', (
-    tester,
-  ) async {
-    when(
-      () => repo.requestCategory(
-        name: any(named: 'name'),
-        displayName: any(named: 'displayName'),
-      ),
-    ).thenAnswer((_) async {});
+  testWidgets(
+    '5. punctuation-only name (no derivable slug) blocks submit; '
+    'name-field error shown; repository NOT called',
+    (tester) async {
+      when(
+        () => repo.requestCategory(
+          name: any(named: 'name'),
+          displayName: any(named: 'displayName'),
+        ),
+      ).thenAnswer((_) async {});
 
-    await _pumpForm(tester, repo, onSubmit: (_) {});
-    await tester.ensureVisible(find.byKey(const Key('chip-category-suggest')));
-    await tester.tap(find.byKey(const Key('chip-category-suggest')));
-    await tester.pumpAndSettle();
+      await _pumpForm(tester, repo, onSubmit: (_) {});
+      final l10n = _l10n(tester);
+      await tester.ensureVisible(
+        find.byKey(const Key('chip-category-suggest')),
+      );
+      await tester.tap(find.byKey(const Key('chip-category-suggest')));
+      await tester.pumpAndSettle();
 
-    // Display name present, but the code is forced to an invalid value.
-    await tester.enterText(
-      find.descendant(
-        of: find.byKey(const Key('field-category-request-name')),
-        matching: find.byType(TextField),
-      ),
-      'Манікюр',
-    );
-    // Manually clear the auto-derived code so the slug is empty (invalid).
-    await tester.enterText(
-      find.descendant(
-        of: find.byKey(const Key('field-category-request-code')),
-        matching: find.byType(TextField),
-      ),
-      '',
-    );
-    await tester.pump();
+      // A punctuation-only name derives to an empty (invalid) slug, so the name
+      // field — the only input now — surfaces the slug-contract error itself.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-category-request-name')),
+          matching: find.byType(TextField),
+        ),
+        '!!!',
+      );
+      await tester.pump();
 
-    await tester.tap(find.byKey(const Key('btn-submit-suggest-category')));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-submit-suggest-category')));
+      await tester.pumpAndSettle();
 
-    verifyNever(
-      () => repo.requestCategory(
-        name: any(named: 'name'),
-        displayName: any(named: 'displayName'),
-      ),
-    );
-    // The dialog stays open and shows the code validation error.
-    expect(_l10nNothing(tester), isTrue);
-  });
+      // (a) The slug-contract error is surfaced (the name field is the only
+      // input, and the dialog renders its error row just below it).
+      expect(find.text(l10n.categoryRequestCodeError), findsOneWidget);
+      // (b) The repository was never reached.
+      verifyNever(
+        () => repo.requestCategory(
+          name: any(named: 'name'),
+          displayName: any(named: 'displayName'),
+        ),
+      );
+      // The dialog stays open (submit did not pop).
+      expect(
+        find.byKey(const Key('field-category-request-name')),
+        findsOneWidget,
+      );
+    },
+  );
 
   // ── 6. 409 / 429 surface the right SnackBar ─────────────────────────────────
 
@@ -757,11 +772,88 @@ void main() {
       );
     },
   );
-}
 
-/// Helper for test 5: confirms the dialog is still present (submit did not pop).
-bool _l10nNothing(WidgetTester tester) =>
-    find.byKey(const Key('field-category-request-code')).evaluate().isNotEmpty;
+  // ── 15. Valid Ukrainian name → derived slug + raw displayName (exact args) ───
+
+  testWidgets(
+    '15. valid Ukrainian name submits the transliterated slug as name and the '
+    'raw display name as displayName',
+    (tester) async {
+      // Strict arg match (M4): the stub only matches the EXACT derived slug +
+      // raw name pair, so the test fails if internal derivation drifts.
+      // 'Нарощування вій' → transliterates to 'NAROSHCHUVANNIA_VII'.
+      when(
+        () => repo.requestCategory(
+          name: 'NAROSHCHUVANNIA_VII',
+          displayName: 'Нарощування вій',
+        ),
+      ).thenAnswer((_) async {});
+
+      await _pumpForm(tester, repo, onSubmit: (_) {});
+      await tester.ensureVisible(
+        find.byKey(const Key('chip-category-suggest')),
+      );
+      await tester.tap(find.byKey(const Key('chip-category-suggest')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-category-request-name')),
+          matching: find.byType(TextField),
+        ),
+        'Нарощування вій',
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-submit-suggest-category')));
+      await tester.pumpAndSettle();
+
+      // Exactly one call, matching the strict stub above.
+      verify(
+        () => repo.requestCategory(
+          name: 'NAROSHCHUVANNIA_VII',
+          displayName: 'Нарощування вій',
+        ),
+      ).called(1);
+    },
+  );
+
+  // ── 16. Empty name → required-field error; repository NOT called ─────────────
+
+  testWidgets(
+    '16. empty name shows the required-field error; repository NOT called',
+    (tester) async {
+      when(
+        () => repo.requestCategory(
+          name: any(named: 'name'),
+          displayName: any(named: 'displayName'),
+        ),
+      ).thenAnswer((_) async {});
+
+      await _pumpForm(tester, repo, onSubmit: (_) {});
+      final l10n = _l10n(tester);
+      await tester.ensureVisible(
+        find.byKey(const Key('chip-category-suggest')),
+      );
+      await tester.tap(find.byKey(const Key('chip-category-suggest')));
+      await tester.pumpAndSettle();
+
+      // Submit with the name field left blank.
+      await tester.tap(find.byKey(const Key('btn-submit-suggest-category')));
+      await tester.pumpAndSettle();
+
+      // Required-field error rendered (single input → unambiguous).
+      expect(find.text(l10n.categoryRequestNameError), findsOneWidget);
+      // Repository never reached.
+      verifyNever(
+        () => repo.requestCategory(
+          name: any(named: 'name'),
+          displayName: any(named: 'displayName'),
+        ),
+      );
+    },
+  );
+}
 
 /// True when the chip located by [chip] is rendered in its selected state.
 /// The chip wraps its content in `Semantics(selected: isSelected, button: true)`,
