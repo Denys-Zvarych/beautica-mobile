@@ -55,6 +55,7 @@ import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/user/data/user_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/validators/server_field_error_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -2321,6 +2322,203 @@ void main() {
               'the successful verifyEmail call, so the user must be able to '
               'request a new code immediately without waiting 30 seconds.',
         );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 20b — post-OTP save returns a multi-field ValidationFailure: the
+    //            AuthBanner names the failed register step 2/3 fields inline,
+    //            NOT the generic errValidation banner. (M3 / M11 inline-mapping
+    //            gap — the offending fields live on a previous step.)
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '20b. post-OTP save ValidationFailure with a field map → banner names '
+      'the failed fields (street/buildingNo) inline, not generic',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final masterRepo = _MockMasterRepository();
+        const fieldErrors = <String, String>{
+          'street': 'Вулиця обовʼязкова',
+          'buildingNo': 'Будинок занадто довгий',
+        };
+        when(
+          () => masterRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenThrow(const ValidationFailure(fieldErrors: fieldErrors));
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            masterRepositoryProvider.overrideWith((_) => masterRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.independentMaster);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Іванна',
+          lastName: 'Ковальчук',
+          phone: '+380501112233',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Центральна',
+          buildingNo: '5Б',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Resolve l10n + build the expected banner BEFORE submit consumes the
+        // widget tree.
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(VerificationScreen)),
+        );
+        final expectedBanner = buildFieldErrorBanner(fieldErrors, l10n)!;
+
+        await _fillOtp(tester, '123456');
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pump(); // begin async
+        await tester.pump(); // verifyEmail microtasks
+        await tester.pump(); // updateLocality throws
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // Stays on the verification screen — the save failed.
+        expect(find.text('home'), findsNothing);
+
+        // The AuthBanner carries the field-named multi-line banner, NOT the
+        // generic errValidation string.
+        expect(find.byType(AuthBanner), findsOneWidget);
+        expect(find.text(expectedBanner), findsOneWidget);
+        expect(find.text(l10n.errValidation), findsNothing);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 20c — post-OTP save returns a ValidationFailure with an EMPTY field
+    //            map but a serverMessage: the banner falls back to the server
+    //            message (not the generic errValidation copy).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '20c. post-OTP save ValidationFailure with empty fieldErrors falls back '
+      'to serverMessage in the banner',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final masterRepo = _MockMasterRepository();
+        const serverMsg = 'Адресу не вдалося зберегти';
+        when(
+          () => masterRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenThrow(
+          const ValidationFailure(
+            fieldErrors: <String, String>{},
+            serverMessage: serverMsg,
+          ),
+        );
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            masterRepositoryProvider.overrideWith((_) => masterRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.independentMaster);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Іванна',
+          lastName: 'Ковальчук',
+          phone: '+380501112233',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Центральна',
+          buildingNo: '5Б',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(VerificationScreen)),
+        );
+
+        await _fillOtp(tester, '123456');
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(find.text('home'), findsNothing);
+        expect(find.byType(AuthBanner), findsOneWidget);
+        // serverMessage wins over the generic errValidation fallback.
+        expect(find.text(serverMsg), findsOneWidget);
+        expect(find.text(l10n.errValidation), findsNothing);
       },
     );
 

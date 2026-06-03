@@ -6,12 +6,12 @@
 // Rules (match backend address DTO constraints):
 //   - Required for providers (the field is only attached for MASTER/OWNER).
 //   - Minimum 2 non-whitespace characters (trim before length check).
-//   - Maximum 120 characters (raw length, JPA @Column(length = 120)).
+//   - Maximum 255 characters (raw length, matches backend address DTO).
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 /// Maximum street length accepted by the backend address DTO.
-const int kStreetMaxLength = 120;
+const int kStreetMaxLength = 255;
 
 /// Returns `null` when [v] is a valid street, or a localised error string.
 ///

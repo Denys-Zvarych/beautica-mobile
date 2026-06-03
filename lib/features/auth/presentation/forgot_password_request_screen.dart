@@ -125,7 +125,22 @@ class _ForgotPasswordRequestScreenState
     } catch (e) {
       if (!mounted) return;
       final l10n2 = AppLocalizations.of(context);
-      final message = e is Failure ? e.userMessage(context) : l10n2.errUnknown;
+      final String message;
+      if (e is ValidationFailure) {
+        // Prefer the per-field email error, then the top-level server message,
+        // over the generic errValidation copy (which userMessage returns).
+        final emailErr = e.fieldErrors['email'];
+        final serverMessage = e.serverMessage?.trim();
+        if (emailErr != null && emailErr.isNotEmpty) {
+          message = emailErr;
+        } else if (serverMessage != null && serverMessage.isNotEmpty) {
+          message = serverMessage;
+        } else {
+          message = l10n2.errValidation;
+        }
+      } else {
+        message = e is Failure ? e.userMessage(context) : l10n2.errUnknown;
+      }
       setState(() {
         _submitting = false;
         _inlineError = message;

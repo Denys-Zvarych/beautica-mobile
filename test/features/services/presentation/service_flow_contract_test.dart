@@ -248,7 +248,8 @@ void main() {
     });
 
     testWidgets(
-      'NEGATIVE: 400 with field errors → error SnackBar, screen stays',
+      'NEGATIVE: 400 with a recognised field error → INLINE on the field, no '
+      'generic SnackBar (hardened 2026-06-03)',
       (tester) async {
         final h = _wireRepo();
         h.adapter.onPost(
@@ -266,14 +267,16 @@ void main() {
         await tester.pumpAndSettle();
 
         final l10n = _l10n(tester, ServiceCreateScreen);
-        // ValidationFailure.userMessage → errValidation. NOT a silent dead state.
-        expect(find.byType(SnackBar), findsOneWidget);
-        expect(find.text(l10n.errValidation), findsOneWidget);
+        // The backend field error is now surfaced inline on the name input
+        // instead of being collapsed into the generic errValidation SnackBar.
+        expect(find.text('already exists'), findsOneWidget);
+        expect(find.text(l10n.errValidation), findsNothing);
+        expect(find.byType(SnackBar), findsNothing);
         expect(find.byType(ServiceCreateScreen), findsOneWidget);
       },
     );
 
-    testWidgets('NEGATIVE: 400 with EMPTY errors map → error SnackBar (no '
+    testWidgets('NEGATIVE: 400 with EMPTY errors map → generic SnackBar (no '
         'silent dead Save)', (tester) async {
       final h = _wireRepo();
       h.adapter.onPost(
@@ -287,9 +290,11 @@ void main() {
       await _tapSubmit(tester);
       await tester.pumpAndSettle();
 
-      final l10n = _l10n(tester, ServiceCreateScreen);
+      // No mappable field → the form falls back to a generic SnackBar carrying
+      // the backend's top-level message (or a localized fallback). The Save
+      // never dies silently.
       expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text(l10n.errValidation), findsOneWidget);
+      expect(find.text('Bad request'), findsOneWidget);
       expect(find.byType(ServiceCreateScreen), findsOneWidget);
     });
 

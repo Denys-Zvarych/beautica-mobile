@@ -100,7 +100,11 @@ class _FakeBackend {
   String firstName = 'Олена';
   String lastName = 'Ковальчук';
   String bio = 'Майстер манікюру.';
-  String? phoneNumber;
+  // Phone is REQUIRED by the edit form's validation (a real master always has
+  // one). Seed a valid value so Save passes validation and the PATCH fires;
+  // a null phone would block Save on the required-phone rule and the firstName
+  // mutation under test would never reach the fake backend.
+  String? phoneNumber = '+380501234567';
   String? instagram;
   int getMeCalls = 0;
 

@@ -53,6 +53,7 @@ import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/validators/building_validator.dart';
+import '../../../shared/validators/server_field_error_banner.dart';
 import '../../../shared/validators/locality_validator.dart';
 import '../../../shared/validators/location_note_validator.dart';
 import '../../../shared/validators/street_validator.dart';
@@ -332,6 +333,25 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
         // throwaway notice.
         if (error is EmailAlreadyRegisteredFailure) {
           setState(() => _emailAlreadyRegistered = true);
+          return;
+        }
+        // Map a 400/422 ValidationFailure to a banner naming the failed
+        // field(s) — the offending fields (firstName/lastName/phone/salonName)
+        // live on step 2, so a generic snackbar gives the user no clue what to
+        // fix. Fall back to serverMessage, then the generic string, when the
+        // field map is empty.
+        if (error is ValidationFailure) {
+          final banner = buildFieldErrorBanner(error.fieldErrors, l10n);
+          if (banner != null) {
+            _showSnackBar(banner);
+          } else {
+            final serverMessage = error.serverMessage?.trim();
+            _showSnackBar(
+              (serverMessage != null && serverMessage.isNotEmpty)
+                  ? serverMessage
+                  : l10n.errValidation,
+            );
+          }
           return;
         }
         _showSnackBar(

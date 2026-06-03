@@ -154,12 +154,15 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
   String? _errCity;
   String? _errStreet;
   String? _errBuildingNo;
+  String? _errLocationNote;
 
   static const int _bioMax = 2000;
   static const int _phoneMax = 20;
-  static const int _streetMax = 200;
-  static const int _buildingNoMax = 20;
-  static const int _locationNoteMax = 500;
+  // Aligned to the backend address DTO (was 200/20/500 — stricter than the
+  // server and wrongly rejected valid input).
+  static const int _streetMax = 255;
+  static const int _buildingNoMax = 50;
+  static const int _locationNoteMax = 1000;
 
   // Pre-built cached styles — never call copyWith inside build().
   static final TextStyle _titleStyle = VelvetText.subheading();
@@ -499,9 +502,13 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
   }
 
   String? _validatePhone(String? v) {
-    final serverErr = _fieldErrors['contactPhone'];
+    final serverErr = _fieldErrors['phoneNumber'];
     if (serverErr != null) return serverErr;
-    if (v == null || v.trim().isEmpty) return null; // optional
+    if (v == null || v.trim().isEmpty) {
+      // Phone is REQUIRED for all users — emptying it must block Save with a
+      // field-specific message, never the generic errUnknown SnackBar.
+      return AppLocalizations.of(context).errPhoneRequired;
+    }
     if (v.trim().length > _phoneMax) {
       return AppLocalizations.of(context).errPhoneTooLongEdit;
     }
@@ -539,6 +546,26 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
   /// to be required, otherwise Save silently aborts on an untouched section.
   bool _validateLocation() {
     final l10n = AppLocalizations.of(context);
+
+    // Server-side field errors take precedence over the local rules, mirroring
+    // the profile-field pattern. The backend keys the address errors by
+    // `street` / `buildingNo` / `locationNote`. When any is present, surface it
+    // inline regardless of the touched/dirty heuristic below and fail the
+    // section so Save does not proceed with stale input.
+    final serverStreet = _fieldErrors['street'];
+    final serverBuildingNo = _fieldErrors['buildingNo'];
+    final serverLocationNote = _fieldErrors['locationNote'];
+    if (serverStreet != null ||
+        serverBuildingNo != null ||
+        serverLocationNote != null) {
+      setState(() {
+        _errStreet = serverStreet ?? _errStreet;
+        _errBuildingNo = serverBuildingNo ?? _errBuildingNo;
+        _errLocationNote = serverLocationNote;
+      });
+      return false;
+    }
+
     final citySelected = _selectedCity != null;
     final streetFilled = _street.text.trim().isNotEmpty;
     final buildingFilled = _buildingNo.text.trim().isNotEmpty;
@@ -561,6 +588,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
         _errCity = null;
         _errStreet = null;
         _errBuildingNo = null;
+        _errLocationNote = null;
       });
       return true;
     }
@@ -623,6 +651,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       _errCity = null;
       _errStreet = null;
       _errBuildingNo = null;
+      _errLocationNote = null;
     });
 
     if (!_validateAndUpdateErrors()) {
@@ -918,11 +947,12 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               onChanged: (v) {
                                 _clearServerError('firstName');
                                 field.didChange(v);
-                                setState(
-                                  () => _errFirstName = _validateFirstName(
-                                    _firstName.text,
-                                  ),
+                                final next = _validateFirstName(
+                                  _firstName.text,
                                 );
+                                if (next != _errFirstName) {
+                                  setState(() => _errFirstName = next);
+                                }
                               },
                             );
                           },
@@ -947,11 +977,10 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               onChanged: (v) {
                                 _clearServerError('lastName');
                                 field.didChange(v);
-                                setState(
-                                  () => _errLastName = _validateLastName(
-                                    _lastName.text,
-                                  ),
-                                );
+                                final next = _validateLastName(_lastName.text);
+                                if (next != _errLastName) {
+                                  setState(() => _errLastName = next);
+                                }
                               },
                             );
                           },
@@ -979,9 +1008,10 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               onChanged: (v) {
                                 _clearServerError('bio');
                                 field.didChange(v);
-                                setState(
-                                  () => _errBio = _validateBio(_bio.text),
-                                );
+                                final next = _validateBio(_bio.text);
+                                if (next != _errBio) {
+                                  setState(() => _errBio = next);
+                                }
                               },
                             );
                           },
@@ -1009,7 +1039,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               errorText: _errPhone,
                               helperText: l10n.phonePrivacyNote,
                               onChanged: (v) {
-                                _clearServerError('contactPhone');
+                                _clearServerError('phoneNumber');
                                 field.didChange(v);
                                 setState(
                                   () => _errPhone = _validatePhone(_phone.text),
@@ -1048,11 +1078,12 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               onChanged: (v) {
                                 _clearServerError('instagram');
                                 field.didChange(v);
-                                setState(
-                                  () => _errInstagram = _validateInstagram(
-                                    _instagram.text,
-                                  ),
+                                final next = _validateInstagram(
+                                  _instagram.text,
                                 );
+                                if (next != _errInstagram) {
+                                  setState(() => _errInstagram = next);
+                                }
                               },
                             );
                           },
@@ -1118,6 +1149,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               errorText: _errStreet,
                               maxLength: _streetMax,
                               onChanged: (_) {
+                                _clearServerError('street');
                                 if (_errStreet != null) {
                                   setState(() => _errStreet = null);
                                 }
@@ -1133,6 +1165,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               errorText: _errBuildingNo,
                               maxLength: _buildingNoMax,
                               onChanged: (_) {
+                                _clearServerError('buildingNo');
                                 if (_errBuildingNo != null) {
                                   setState(() => _errBuildingNo = null);
                                 }
@@ -1146,7 +1179,14 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               enabled: !_saving,
                               optional: true,
                               hint: l10n.step3FieldNotePlaceholder,
+                              errorText: _errLocationNote,
                               maxLength: _locationNoteMax,
+                              onChanged: (_) {
+                                _clearServerError('locationNote');
+                                if (_errLocationNote != null) {
+                                  setState(() => _errLocationNote = null);
+                                }
+                              },
                             ),
                           ],
                         ),

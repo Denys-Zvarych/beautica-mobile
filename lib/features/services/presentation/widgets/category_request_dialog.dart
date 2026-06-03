@@ -1,10 +1,14 @@
 // Service-category request feature — "Suggest a category" dialog.
 //
 // Lets a master / salon owner propose a new platform category from the service
-// form's category picker. Two inputs:
+// form's category picker. A single input:
 //   1. Display name (Ukrainian) — what the user types, e.g. "Нарощування вій".
-//   2. Code (slug) — auto-derived uppercase latin slug, editable, validated
-//      against ^[A-Z][A-Z0-9_]*$.
+//
+// The technical wire slug is an internal value the user never sees: it is
+// derived from the display name at submit time via [deriveCategorySlug] (which
+// transliterates Cyrillic → latin) and sent as the request `name`. If the
+// entered name cannot produce a valid slug (e.g. punctuation-only input), the
+// name field surfaces an inline error instead of submitting an invalid slug.
 //
 // On submit the dialog calls [ServiceRepository.requestCategory]. On success it
 // pops returning `true` so the caller can show the success SnackBar (the dialog
@@ -56,77 +60,58 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
   static const _tag = 'feature.services.category_request_dialog';
 
   late final TextEditingController _nameCtrl;
-  late final TextEditingController _codeCtrl;
-
-  /// True once the user manually edits the code field — after which the slug
-  /// stops auto-syncing from the display name.
-  bool _codeManuallyEdited = false;
 
   bool _submitted = false;
   bool _submitting = false;
+
+  /// Server-side validation error for the name field, set when a
+  /// [ValidationFailure] carries a `name` / `displayName` key. Takes precedence
+  /// over the local rules and is cleared on the next edit.
+  String? _serverNameError;
 
   @override
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController();
-    _codeCtrl = TextEditingController();
     _nameCtrl.addListener(_onNameChanged);
-    _codeCtrl.addListener(_onCodeChanged);
   }
 
   void _onNameChanged() {
     if (!mounted) return;
-    // Auto-derive the slug until the user takes manual control of the code.
-    if (!_codeManuallyEdited) {
-      final derived = deriveCategorySlug(_nameCtrl.text);
-      if (derived != _codeCtrl.text) {
-        // Temporarily detach the code listener so this programmatic write is
-        // not mistaken for a manual edit.
-        _codeCtrl.removeListener(_onCodeChanged);
-        _codeCtrl.value = TextEditingValue(
-          text: derived,
-          selection: TextSelection.collapsed(offset: derived.length),
-        );
-        _codeCtrl.addListener(_onCodeChanged);
-      }
-    }
-    if (_submitted) setState(() {});
-  }
-
-  void _onCodeChanged() {
-    if (!mounted) return;
-    _codeManuallyEdited = true;
-    if (_submitted) setState(() {});
+    // Clear a stale server error as soon as the user edits the field, and
+    // rebuild so the live local-validation error tracks the new value.
+    final hadServerError = _serverNameError != null;
+    if (hadServerError) _serverNameError = null;
+    if (_submitted || hadServerError) setState(() {});
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
-    _codeCtrl.dispose();
     super.dispose();
   }
 
   // --- Validation -----------------------------------------------------------
 
   String? _nameError(AppLocalizations l10n) {
+    // Server-side validation error takes precedence over the local rules.
+    if (_serverNameError != null) return _serverNameError;
     if (!_submitted) return null;
     final trimmed = _nameCtrl.text.trim();
     if (trimmed.isEmpty) return l10n.categoryRequestNameError;
     if (trimmed.length > kCategoryDisplayNameMaxLength) {
       return l10n.categoryRequestNameTooLong;
     }
+    // The wire slug is derived internally from the name. Guard the edge case
+    // where a name (e.g. punctuation-only) cannot produce a valid slug so we
+    // never submit a value that fails the backend contract.
+    if (!isValidCategorySlug(deriveCategorySlug(trimmed))) {
+      return l10n.categoryRequestCodeError;
+    }
     return null;
   }
 
-  String? _codeError(AppLocalizations l10n) {
-    if (!_submitted) return null;
-    return isValidCategorySlug(_codeCtrl.text.trim())
-        ? null
-        : l10n.categoryRequestCodeError;
-  }
-
-  bool _isValid(AppLocalizations l10n) =>
-      _nameError(l10n) == null && _codeError(l10n) == null;
+  bool _isValid(AppLocalizations l10n) => _nameError(l10n) == null;
 
   // --- Submit ---------------------------------------------------------------
 
@@ -138,11 +123,15 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
     }
     setState(() => _submitting = true);
     try {
+      final displayName = _nameCtrl.text.trim();
       await ref
           .read(serviceRepositoryProvider)
           .requestCategory(
-            name: _codeCtrl.text.trim(),
-            displayName: _nameCtrl.text.trim(),
+            // The wire slug is derived internally from the display name and is
+            // never shown to or edited by the user. _isValid above guarantees
+            // it satisfies the backend contract before we reach here.
+            name: deriveCategorySlug(displayName),
+            displayName: displayName,
           );
       if (mounted) {
         // Return true so the caller surfaces the success SnackBar against the
@@ -156,6 +145,20 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
         log('CategoryRequestDialog.submit failed: $e', name: _tag, level: 900);
       }
       if (mounted) {
+        // A ValidationFailure carrying a `name` / `displayName` field error maps
+        // to the inline name-field error instead of a transient snackbar, so the
+        // user sees exactly which field the backend rejected.
+        if (e is ValidationFailure) {
+          final fieldMsg =
+              e.fieldErrors['name'] ?? e.fieldErrors['displayName'];
+          if (fieldMsg != null) {
+            setState(() {
+              _submitting = false;
+              _serverNameError = fieldMsg;
+            });
+            return;
+          }
+        }
         setState(() => _submitting = false);
         final message = e is Failure ? e.userMessage(context) : l10n.errUnknown;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -196,7 +199,8 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
                   Text(l10n.categoryRequestSubtitle, style: VelvetText.body()),
                   const SizedBox(height: VelvetSpacing.xl),
 
-                  // Field 1 — display name.
+                  // Sole input — display name. The wire slug is derived from it
+                  // internally at submit time and never surfaced to the user.
                   _DialogField(
                     fieldKey: const Key('field-category-request-name'),
                     label: l10n.categoryRequestNameLabel,
@@ -208,27 +212,6 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
                     inputFormatters: <TextInputFormatter>[
                       LengthLimitingTextInputFormatter(
                         kCategoryDisplayNameMaxLength,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: VelvetSpacing.lg),
-
-                  // Field 2 — code slug (auto-derived, editable).
-                  _DialogField(
-                    fieldKey: const Key('field-category-request-code'),
-                    label: l10n.categoryRequestCodeLabel,
-                    controller: _codeCtrl,
-                    errorText: _codeError(l10n),
-                    helperText: l10n.categoryRequestCodeHelper,
-                    enabled: !_submitting,
-                    inputFormatters: <TextInputFormatter>[
-                      LengthLimitingTextInputFormatter(kCategorySlugMaxLength),
-                      // Upper-case as the user types so the field always mirrors
-                      // the wire shape.
-                      TextInputFormatter.withFunction(
-                        (oldValue, newValue) => newValue.copyWith(
-                          text: newValue.text.toUpperCase(),
-                        ),
                       ),
                     ],
                   ),
@@ -278,9 +261,8 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
 // ---------------------------------------------------------------------------
 // Private dialog field — mirrors _VelvetFieldRow from service_form.dart.
 //
-// Label (uppercased Nunito) → NeumorphicInset well with focus ring → either an
-// inline error row (icon + error text) when [errorText] is set, or a quiet
-// helper caption when [helperText] is set and there is no error.
+// Label (uppercased Nunito) → NeumorphicInset well with focus ring → an inline
+// error row (icon + error text) when [errorText] is set.
 // ---------------------------------------------------------------------------
 
 class _DialogField extends StatefulWidget {
@@ -290,7 +272,6 @@ class _DialogField extends StatefulWidget {
     required this.controller,
     required this.errorText,
     this.hintText,
-    this.helperText,
     this.inputFormatters,
     this.textCapitalization = TextCapitalization.none,
     this.enabled = true,
@@ -301,7 +282,6 @@ class _DialogField extends StatefulWidget {
   final TextEditingController controller;
   final String? errorText;
   final String? hintText;
-  final String? helperText;
   final List<TextInputFormatter>? inputFormatters;
   final TextCapitalization textCapitalization;
   final bool enabled;
@@ -316,9 +296,6 @@ class _DialogFieldState extends State<_DialogField> {
   static final TextStyle _inputStyle = VelvetText.input();
   static final TextStyle _hintStyle = VelvetText.input().copyWith(
     color: const Color(0xFFAD9A82), // BrandColors.placeholder
-  );
-  static final TextStyle _helperStyle = VelvetText.feedback(
-    const Color(0xFF9A8367), // BrandColors.muted
   );
   static final TextStyle _errorStyle = VelvetText.feedback(
     const Color(0xFFB0452F), // BrandColors.error
@@ -347,7 +324,6 @@ class _DialogFieldState extends State<_DialogField> {
   @override
   Widget build(BuildContext context) {
     final bool hasError = widget.errorText != null;
-    final bool showHelper = !hasError && widget.helperText != null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -390,7 +366,7 @@ class _DialogFieldState extends State<_DialogField> {
             ),
           ),
         ),
-        // Error row OR helper caption (animated swap so the dialog doesn't jump).
+        // Inline error row (animated swap so the dialog doesn't jump).
         AnimatedSize(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOut,
@@ -419,15 +395,6 @@ class _DialogFieldState extends State<_DialogField> {
                       ],
                     ),
                   ),
-                )
-              : showHelper
-              ? Padding(
-                  padding: const EdgeInsets.only(
-                    left: VelvetSpacing.xs,
-                    right: VelvetSpacing.xs,
-                    top: VelvetSpacing.sm - 2,
-                  ),
-                  child: Text(widget.helperText!, style: _helperStyle),
                 )
               : const SizedBox(width: double.infinity),
         ),

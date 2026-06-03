@@ -9,8 +9,8 @@
 //   3. whitespace-only string     → errSalonNameRequired (trim rule)
 //   4. 1-char string (too short)  → errSalonNameRequired (< 2 trimmed chars)
 //   5. 2-char string (min valid)  → null
-//   6. 100-char string (max valid)→ null
-//   7. 101-char string (too long) → errSalonNameTooLong
+//   6. 255-char string (max valid)→ null (backend-consistent cap)
+//   7. 256-char string (too long) → errSalonNameTooLong
 //   8. typical name               → null
 //
 // Role-conditional contract:
@@ -36,6 +36,9 @@ final class _FakeL10n extends Fake implements AppLocalizations {
 
   @override
   String get errSalonNameTooLong => 'salon_too_long';
+
+  @override
+  String get errSalonNameInvalid => 'salon_invalid';
 }
 
 // ---------------------------------------------------------------------------
@@ -66,16 +69,36 @@ void main() {
       expect(validateSalonName('AB', l10n), isNull);
     });
 
-    test('returns null for 100-char string (maximum valid length)', () {
-      expect(validateSalonName('a' * 100, l10n), isNull);
+    test('returns null for 255-char string (maximum valid length)', () {
+      expect(validateSalonName('a' * 255, l10n), isNull);
     });
 
-    test('returns errSalonNameTooLong for 101-char string (exceeds max)', () {
-      expect(validateSalonName('a' * 101, l10n), equals('salon_too_long'));
+    test('returns errSalonNameTooLong for 256-char string (exceeds max)', () {
+      expect(validateSalonName('a' * 256, l10n), equals('salon_too_long'));
     });
 
     test('returns null for a typical salon name', () {
       expect(validateSalonName('Salon Lumière', l10n), isNull);
+    });
+
+    test('returns errSalonNameInvalid for an embedded NUL (U+0000)', () {
+      // Construct via fromCharCode so the control byte is unambiguous in source.
+      final withNul = 'Salon${String.fromCharCode(0x00)}Name';
+      expect(validateSalonName(withNul, l10n), equals('salon_invalid'));
+    });
+
+    test('returns errSalonNameInvalid for an embedded DEL (U+007F)', () {
+      final withDel = 'Salon${String.fromCharCode(0x7F)}Name';
+      expect(validateSalonName(withDel, l10n), equals('salon_invalid'));
+    });
+
+    test('returns errSalonNameInvalid for an embedded newline (U+000A)', () {
+      final withNewline = 'Salon${String.fromCharCode(0x0A)}Name';
+      expect(validateSalonName(withNewline, l10n), equals('salon_invalid'));
+    });
+
+    test('returns null for a valid Cyrillic salon name (no control chars)', () {
+      expect(validateSalonName('Салон Краси', l10n), isNull);
     });
   });
 

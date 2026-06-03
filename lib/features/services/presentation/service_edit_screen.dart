@@ -417,6 +417,12 @@ class _EditBodyState extends State<_EditBody>
                         onSubmit: (MasterServiceCreate input) async {
                           try {
                             await widget.onSave(input);
+                          } on ValidationFailure {
+                            // Per-field backend errors are mapped inline by
+                            // ServiceForm. Rethrow so the form can claim them;
+                            // it shows a generic snackbar itself when no field
+                            // matches, so onError is not invoked for 400s.
+                            rethrow;
                           } catch (e) {
                             widget.onError(e);
                           }

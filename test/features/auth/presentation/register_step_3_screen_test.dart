@@ -54,6 +54,7 @@ import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/validators/server_field_error_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -816,6 +817,141 @@ void main() {
           locationNote: any(named: 'locationNote'),
         ),
       );
+      expect(find.textContaining('verification:'), findsNothing);
+    },
+  );
+
+  // ── 10b. Register ValidationFailure with field map → field-named banner ───
+  //
+  // The offending fields (firstName/phone) live on Step 2, so a generic banner
+  // gives the user no clue what to fix. The screen maps fieldErrors through
+  // buildFieldErrorBanner: each line is "<localized field name>: <server msg>".
+  testWidgets(
+    '10b. register ValidationFailure with field map → snackbar names the '
+    'failed fields inline (not the generic banner)',
+    (tester) async {
+      final authRepo = _MockAuthRepository();
+      final masterRepo = _MockMasterRepository();
+      when(
+        () => authRepo.registerIndependentMaster(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          role: any(named: 'role'),
+          businessName: any(named: 'businessName'),
+          address: any(named: 'address'),
+          phone: any(named: 'phone'),
+        ),
+      ).thenThrow(
+        const ValidationFailure(
+          fieldErrors: <String, String>{
+            'firstName': 'Занадто коротке',
+            'phone': 'Невірний формат',
+          },
+        ),
+      );
+
+      final container = _container(
+        role: UserRole.independentMaster,
+        authRepo: authRepo,
+        masterRepo: masterRepo,
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_app(_makeRouter(), container));
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+
+      await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
+      await _pick(tester, const Key('locality_row_city'), 'Львів');
+      await _pick(tester, const Key('locality_row_district'), 'Галицький');
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('address_street')),
+        'вул. Тестова',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('address_building')),
+        '12',
+      );
+      await tester.pumpAndSettle();
+
+      await _tap(tester, const ValueKey<String>('address_submit'));
+
+      // The snackbar carries the field-named banner lines, NOT the generic
+      // errValidation copy.
+      expect(find.byKey(const Key('step3-snackbar')), findsOneWidget);
+      final expected = buildFieldErrorBanner(const <String, String>{
+        'firstName': 'Занадто коротке',
+        'phone': 'Невірний формат',
+      }, l10n)!;
+      expect(find.text(expected), findsOneWidget);
+      expect(find.text(l10n.errValidation), findsNothing);
+      // No navigation.
+      expect(find.textContaining('verification:'), findsNothing);
+    },
+  );
+
+  // ── 10c. Register ValidationFailure, EMPTY map + serverMessage → fallback ──
+  //
+  // When the backend returns a 400 with no usable field map, the banner builder
+  // returns null and the screen falls back to the top-level serverMessage (then
+  // the generic string). Guards the "dead Save with no feedback" regression.
+  testWidgets(
+    '10c. register ValidationFailure with empty fieldErrors falls back to '
+    'serverMessage in the snackbar',
+    (tester) async {
+      final authRepo = _MockAuthRepository();
+      final masterRepo = _MockMasterRepository();
+      const serverMsg = 'Реєстрація тимчасово недоступна';
+      when(
+        () => authRepo.registerIndependentMaster(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          role: any(named: 'role'),
+          businessName: any(named: 'businessName'),
+          address: any(named: 'address'),
+          phone: any(named: 'phone'),
+        ),
+      ).thenThrow(
+        const ValidationFailure(
+          fieldErrors: <String, String>{},
+          serverMessage: serverMsg,
+        ),
+      );
+
+      final container = _container(
+        role: UserRole.independentMaster,
+        authRepo: authRepo,
+        masterRepo: masterRepo,
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_app(_makeRouter(), container));
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+
+      await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
+      await _pick(tester, const Key('locality_row_city'), 'Львів');
+      await _pick(tester, const Key('locality_row_district'), 'Галицький');
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('address_street')),
+        'вул. Тестова',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('address_building')),
+        '12',
+      );
+      await tester.pumpAndSettle();
+
+      await _tap(tester, const ValueKey<String>('address_submit'));
+
+      expect(find.byKey(const Key('step3-snackbar')), findsOneWidget);
+      // Server message wins over the generic errValidation fallback.
+      expect(find.text(serverMsg), findsOneWidget);
+      expect(find.text(l10n.errValidation), findsNothing);
       expect(find.textContaining('verification:'), findsNothing);
     },
   );

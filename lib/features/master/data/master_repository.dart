@@ -66,9 +66,10 @@ abstract interface class MasterRepository {
   ///   - `bio` and `instagram` are written whenever the key is **non-null**, so
   ///     an empty string `''` clears them server-side. They are therefore ALWAYS
   ///     included in the body (sending the trimmed value, `''` on clear).
-  ///   - `phoneNumber` / `firstName` / `lastName` are filtered for blank
-  ///     (`!s.isBlank()`) on the backend, so a blank phone is a no-op and cannot
-  ///     clear the value by design — `phoneNumber` is omitted when blank.
+  ///   - `phoneNumber` / `firstName` / `lastName` are REQUIRED — the edit form
+  ///     blocks Save when any is empty, so they always arrive non-blank. They
+  ///     are also filtered for blank (`!s.isBlank()`) on the backend, so phone
+  ///     can never be cleared by design — `phoneNumber` is omitted when blank.
   /// Throws a typed [Failure] on any transport or server error; throws
   /// [ValidationFailure] with [fieldErrors] when the backend returns HTTP 422.
   Future<void> updateMyProfile(MasterUpdate update);
@@ -110,22 +111,13 @@ final class HttpMasterRepository implements MasterRepository {
       body['locationNote'] = trimmedNote;
     }
 
-    try {
-      await _dio.patch<Map<String, dynamic>>(
+    await _runIdempotentPatch(
+      operation: 'updateLocality',
+      request: () => _dio.patch<Map<String, dynamic>>(
         '/api/v1/independent-masters/me',
         data: body,
-      );
-    } on DioException catch (e, st) {
-      if (kDebugMode) {
-        log(
-          'updateLocality failed: ${e.type} ${e.response?.statusCode}',
-          name: 'master.repository',
-          level: 900,
-          stackTrace: st,
-        );
-      }
-      throw _mapDioException(e);
-    }
+      ),
+    );
   }
 
   @override
@@ -177,9 +169,11 @@ final class HttpMasterRepository implements MasterRepository {
     //     sending the trimmed value ('' on clear) so a user-cleared field
     //     actually persists. Omitting the key (the old bug) left the stale
     //     server value untouched.
-    //   - phoneNumber is filtered for blank server-side (!s.isBlank()), so a
-    //     blank phone is a no-op and cannot clear by design — keep it omitted
-    //     when blank.
+    //   - phoneNumber is REQUIRED — the edit form blocks Save when it is empty,
+    //     so it always arrives non-blank. It is also filtered for blank
+    //     server-side (!s.isBlank()) and cannot clear by design, so the
+    //     omit-on-blank guard below is now purely defensive (unreachable in
+    //     practice) — keep it.
     final body = <String, dynamic>{
       'firstName': update.firstName,
       'lastName': update.lastName,
@@ -189,21 +183,89 @@ final class HttpMasterRepository implements MasterRepository {
     final trimmedPhone = update.contactPhone.trim();
     if (trimmedPhone.isNotEmpty) body['phoneNumber'] = trimmedPhone;
 
-    try {
-      await _dio.patch<Map<String, dynamic>>(
+    await _runIdempotentPatch(
+      operation: 'updateMyProfile',
+      request: () => _dio.patch<Map<String, dynamic>>(
         '/api/v1/independent-masters/me/profile',
         data: body,
-      );
-    } on DioException catch (e, st) {
-      if (kDebugMode) {
-        log(
-          'updateMyProfile failed: ${e.type} ${e.response?.statusCode}',
-          name: 'master.repository',
-          level: 900,
-          stackTrace: st,
-        );
+      ),
+    );
+  }
+
+  /// Runs an idempotent PATCH upsert with a total catch and a bounded
+  /// single retry for transient auth/network failures.
+  ///
+  /// Both `/independent-masters/me` and `/independent-masters/me/profile` are
+  /// idempotent upserts, so replaying once is safe. The retry only fires for a
+  /// transient [UnauthorizedFailure] (a 401 that triggered a token refresh — by
+  /// the second attempt the token is fresh) or a [NetworkFailure] (a single
+  /// transport hiccup). Real auth expiry / persistent network loss surfaces on
+  /// the second failure, exactly as before, so the retry can never hide a
+  /// genuine logout. All other failures rethrow on the first attempt.
+  ///
+  /// Catch order is total: the [DioException] arm maps to a typed [Failure];
+  /// `on Failure { rethrow }` passes through any [Failure] already produced
+  /// upstream (e.g. by [RefreshInterceptor]); the final `catch` wraps any
+  /// remaining non-[Failure] (a stray `TypeError`/`Error`) as a [ServerFailure]
+  /// so NO raw error can ever escape to the screen as errUnknown.
+  Future<void> _runIdempotentPatch({
+    required String operation,
+    required Future<Response<Map<String, dynamic>>> Function() request,
+  }) async {
+    var attemptedRetry = false;
+    while (true) {
+      try {
+        await request();
+        return;
+      } on Failure catch (f) {
+        if (!attemptedRetry &&
+            (f is UnauthorizedFailure || f is NetworkFailure)) {
+          attemptedRetry = true;
+          if (kDebugMode) {
+            log(
+              '$operation transient ${f.runtimeType} — retrying once',
+              name: 'master.repository',
+              level: 800,
+            );
+          }
+          continue;
+        }
+        rethrow;
+      } on DioException catch (e, st) {
+        if (kDebugMode) {
+          log(
+            '$operation failed: ${e.type} ${e.response?.statusCode}',
+            name: 'master.repository',
+            level: 900,
+            stackTrace: st,
+          );
+        }
+        final failure = _mapDioException(e);
+        if (!attemptedRetry &&
+            (failure is UnauthorizedFailure || failure is NetworkFailure)) {
+          attemptedRetry = true;
+          if (kDebugMode) {
+            log(
+              '$operation transient ${failure.runtimeType} — retrying once',
+              name: 'master.repository',
+              level: 800,
+            );
+          }
+          continue;
+        }
+        throw failure;
+      } catch (e, st) {
+        if (kDebugMode) {
+          log(
+            '$operation unexpected error: ${e.runtimeType}',
+            name: 'master.repository',
+            level: 1000,
+            error: e,
+            stackTrace: st,
+          );
+        }
+        throw ServerFailure(cause: e);
       }
-      throw _mapDioException(e);
     }
   }
 

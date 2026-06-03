@@ -1,7 +1,11 @@
 // Phase 2.19 — Pure-Dart unit tests for validateStreet().
 //
-// Bounds from street_validator.dart: min 2 trimmed chars, max 120 raw chars,
-// required (empty/null → error). Used by provider roles only.
+// Bounds from street_validator.dart: min 2 trimmed chars, max 255 raw chars
+// (kStreetMaxLength — aligned to the backend address DTO), required (empty/null
+// → error). Used by provider roles only.
+//
+// The boundary cases key off the kStreetMaxLength constant directly, so they
+// track the backend-aligned limit automatically.
 //
 // Covered scenarios:
 //   1. null                       → errStreetRequired
@@ -9,8 +13,8 @@
 //   3. whitespace-only            → errStreetRequired (trim rule)
 //   4. 1-char (below min)         → errStreetRequired
 //   5. 2-char (min valid)         → null
-//   6. 120-char (max valid)       → null
-//   7. 121-char (exceeds max)     → errStreetTooLong
+//   6. 255-char (max valid)       → null
+//   7. 256-char (exceeds max)     → errStreetTooLong
 //   8. typical street             → null
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';

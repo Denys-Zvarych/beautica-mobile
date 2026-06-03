@@ -744,4 +744,266 @@ void main() {
       );
     });
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Totality + bounded one-shot retry (flaky-errUnknown profile-save fix).
+  //
+  // The screen's `catch (e, st)` → errUnknown arm was reached because a raw
+  // TypeError thrown by RefreshInterceptor escaped the repo's old
+  // `on DioException`-only catch. `_runIdempotentPatch` now has a TOTAL catch
+  // (Failure rethrow → DioException map → final catch → ServerFailure) plus a
+  // bounded ONE-SHOT retry for transient UnauthorizedFailure / NetworkFailure.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  const profileUpdate = MasterUpdate(
+    firstName: 'Аня',
+    lastName: 'Коваль',
+    bio: '',
+    contactPhone: '',
+    instagram: '',
+  );
+
+  group('updateMyProfile — totality + bounded retry', () {
+    test(
+      'non-DioException, non-Failure throw (TypeError) is wrapped as ServerFailure',
+      () async {
+        // Simulates a raw runtime error bubbling from the Dio/interceptor layer
+        // (the exact escape path of the original flaky errUnknown bug).
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(TypeError());
+
+        await expectLater(
+          repository.updateMyProfile(profileUpdate),
+          throwsA(
+            isA<ServerFailure>().having(
+              (f) => f.cause,
+              'cause',
+              isA<TypeError>(),
+            ),
+          ),
+        );
+
+        // A non-retryable raw error must NOT be retried.
+        verify(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'transient UnauthorizedFailure on attempt 1 → succeeds on retry (called twice)',
+      () async {
+        var calls = 0;
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async {
+          calls++;
+          if (calls == 1) {
+            // A Failure already produced upstream (e.g. by RefreshInterceptor).
+            throw const UnauthorizedFailure(cause: 'transient 401');
+          }
+          return _okProfileEnvelope();
+        });
+
+        await repository.updateMyProfile(profileUpdate);
+
+        verify(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).called(2);
+      },
+    );
+
+    test(
+      'transient NetworkFailure on attempt 1 → succeeds on retry (called twice)',
+      () async {
+        var calls = 0;
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async {
+          calls++;
+          if (calls == 1) {
+            throw DioException(
+              requestOptions: RequestOptions(path: _profilePatchPath),
+              type: DioExceptionType.connectionError,
+            );
+          }
+          return _okProfileEnvelope();
+        });
+
+        await repository.updateMyProfile(profileUpdate);
+
+        verify(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).called(2);
+      },
+    );
+
+    test(
+      'persistent UnauthorizedFailure → rethrown after exactly two attempts',
+      () async {
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(const UnauthorizedFailure(cause: 'expired'));
+
+        await expectLater(
+          repository.updateMyProfile(profileUpdate),
+          throwsA(isA<UnauthorizedFailure>()),
+        );
+
+        // Retry is bounded — a genuine auth expiry surfaces, never masked,
+        // after the single retry. Exactly two attempts, no more.
+        verify(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).called(2);
+      },
+    );
+
+    test(
+      'non-retryable Failure (ValidationFailure) → rethrown on first attempt, not retried',
+      () async {
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(
+          const ValidationFailure(fieldErrors: {'instagram': 'invalid'}),
+        );
+
+        await expectLater(
+          repository.updateMyProfile(profileUpdate),
+          throwsA(isA<ValidationFailure>()),
+        );
+
+        verify(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'non-retryable DioException (404 → ServerFailure) → not retried',
+      () async {
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(path: _profilePatchPath),
+            type: DioExceptionType.badResponse,
+            response: Response<dynamic>(
+              requestOptions: RequestOptions(path: _profilePatchPath),
+              statusCode: 404,
+            ),
+          ),
+        );
+
+        await expectLater(
+          repository.updateMyProfile(profileUpdate),
+          throwsA(
+            isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 404),
+          ),
+        );
+
+        verify(
+          () => dio.patch<Map<String, dynamic>>(
+            _profilePatchPath,
+            data: any(named: 'data'),
+          ),
+        ).called(1);
+      },
+    );
+  });
+
+  group('updateLocality — totality + bounded retry', () {
+    test(
+      'transient UnauthorizedFailure on attempt 1 → succeeds on retry (called twice)',
+      () async {
+        var calls = 0;
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _patchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async {
+          calls++;
+          if (calls == 1) {
+            throw const UnauthorizedFailure(cause: 'transient 401');
+          }
+          return _okEnvelope();
+        });
+
+        await repository.updateLocality(
+          cityId: 'city-1',
+          street: 'St.',
+          buildingNo: '8',
+        );
+
+        verify(
+          () => dio.patch<Map<String, dynamic>>(
+            _patchPath,
+            data: any(named: 'data'),
+          ),
+        ).called(2);
+      },
+    );
+
+    test(
+      'non-Failure, non-DioException throw (TypeError) → ServerFailure, not retried',
+      () async {
+        when(
+          () => dio.patch<Map<String, dynamic>>(
+            _patchPath,
+            data: any(named: 'data'),
+          ),
+        ).thenThrow(TypeError());
+
+        await expectLater(
+          repository.updateLocality(
+            cityId: 'city-1',
+            street: 'St.',
+            buildingNo: '8',
+          ),
+          throwsA(isA<ServerFailure>()),
+        );
+
+        verify(
+          () => dio.patch<Map<String, dynamic>>(
+            _patchPath,
+            data: any(named: 'data'),
+          ),
+        ).called(1);
+      },
+    );
+  });
 }

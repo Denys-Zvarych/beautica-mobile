@@ -654,6 +654,146 @@ void main() {
     });
   });
 
+  // ── Salon-name inline validation (SALON_OWNER) ───────────────────────────
+  //
+  // Step 2 now runs validateSalonName for the owner before navigating:
+  // non-blank + ≤255 + control-char-free. These are pure client-side checks
+  // (no server call on Step 2), so the assertion is that the inline error
+  // surfaces on the salon-name field and navigation is blocked.
+  group('Salon-name validation (SALON_OWNER)', () {
+    testWidgets(
+      'blank salon name (valid names + phone) blocks submit and shows '
+      'errSalonNameRequired inline',
+      (tester) async {
+        final container = _containerWithRole(UserRole.salonOwner);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Марія',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Лазаренко',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380501112233',
+        );
+        // Salon name left blank.
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        // Navigation blocked.
+        expect(find.text('step-3'), findsNothing);
+
+        // errSalonNameRequired surfaced inline (resolved via l10n key).
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('step2_salon_name')),
+          ),
+        );
+        expect(find.text(l10n.errSalonNameRequired), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'salon name with an embedded control char blocks submit and shows '
+      'errSalonNameInvalid inline',
+      (tester) async {
+        final container = _containerWithRole(UserRole.salonOwner);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Марія',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Лазаренко',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380501112233',
+        );
+        // Embedded NUL control byte — rejected by the control-char guard.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_salon_name')),
+          'Salon${String.fromCharCode(0x00)}X',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('step-3'), findsNothing);
+
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('step2_salon_name')),
+          ),
+        );
+        expect(find.text(l10n.errSalonNameInvalid), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'valid salon name + names + phone navigates to step-3 (no inline error)',
+      (tester) async {
+        final container = _containerWithRole(UserRole.salonOwner);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('step2_salon_name')),
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Марія',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Лазаренко',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380501112233',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_salon_name')),
+          'Салон Краси',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.errSalonNameRequired), findsNothing);
+        expect(find.text(l10n.errSalonNameInvalid), findsNothing);
+        expect(find.text('step-3'), findsOneWidget);
+      },
+    );
+  });
+
   // ── Test 7 — No BackdropFilter in tree ───────────────────────────────────
   group('VelvetTouch design constraints', () {
     testWidgets('no BackdropFilter widget exists in the tree', (tester) async {

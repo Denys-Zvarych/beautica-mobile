@@ -58,6 +58,7 @@ Master _seedMaster() => const Master(
   firstName: 'Олена',
   lastName: 'Ковальчук',
   bio: 'Майстер манікюру.',
+  phoneNumber: '+380 50 123 45 67',
   avgRating: 4.8,
   reviewCount: 10,
   type: MasterType.independentMaster,
