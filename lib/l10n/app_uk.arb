@@ -717,9 +717,13 @@
   "@errSalonNameRequired": {
     "description": "Validation error when the salon-name field is empty or too short (less than 2 characters). Used only for the SALON_OWNER role variant."
   },
-  "errSalonNameTooLong": "Назва салону не може перевищувати 100 символів",
+  "errSalonNameTooLong": "Назва салону не може перевищувати 255 символів",
   "@errSalonNameTooLong": {
-    "description": "Validation error when the salon-name field exceeds 100 characters. Mirrors the backend JPA column length constraint."
+    "description": "Validation error when the salon-name field exceeds 255 characters. Mirrors the backend salon/business name length constraint."
+  },
+  "errSalonNameInvalid": "Назва салону містить недопустимі символи",
+  "@errSalonNameInvalid": {
+    "description": "Validation error when the salon-name field contains ASCII control characters."
   },
   "localityOblastLabel": "Область",
   "@localityOblastLabel": {
@@ -874,21 +878,21 @@
   "@errStreetRequired": {
     "description": "Validation error when the street field is empty or shorter than 2 characters (MASTER/OWNER only)."
   },
-  "errStreetTooLong": "Назва вулиці не може перевищувати 120 символів",
+  "errStreetTooLong": "Назва вулиці не може перевищувати 255 символів",
   "@errStreetTooLong": {
-    "description": "Validation error when the street field exceeds 120 characters. Mirrors the backend address column length constraint."
+    "description": "Validation error when the street field exceeds 255 characters. Mirrors the backend address column length constraint."
   },
   "errBuildingRequired": "Вкажіть номер будинку",
   "@errBuildingRequired": {
     "description": "Validation error when the building-number field is empty (MASTER/OWNER only)."
   },
-  "errBuildingTooLong": "Номер будинку не може перевищувати 20 символів",
+  "errBuildingTooLong": "Номер будинку не може перевищувати 50 символів",
   "@errBuildingTooLong": {
-    "description": "Validation error when the building-number field exceeds 20 characters. Mirrors the backend address column length constraint."
+    "description": "Validation error when the building-number field exceeds 50 characters. Mirrors the backend address column length constraint."
   },
-  "errLocationNoteTooLong": "Примітка не може перевищувати 250 символів",
+  "errLocationNoteTooLong": "Примітка не може перевищувати 1000 символів",
   "@errLocationNoteTooLong": {
-    "description": "Validation error when the location-note textarea exceeds 250 characters."
+    "description": "Validation error when the location-note textarea exceeds 1000 characters."
   },
 
   "forgotPasswordHeadline": "Відновлення пароля",
@@ -1582,5 +1586,56 @@
         "example": "1"
       }
     }
+  },
+
+  "validationFieldErrorLine": "{field}: {message}",
+  "@validationFieldErrorLine": {
+    "description": "One line of a server-side field-validation banner: a localized field name followed by the server-supplied message. Used when a ValidationFailure carries fieldErrors and the failing field is not rendered on the current screen (e.g. post-OTP save surfaces register step 2/3 field errors).",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "Назва салону"
+      },
+      "message": {
+        "type": "String",
+        "example": "не може перевищувати 255 символів"
+      }
+    }
+  },
+  "fieldNameFirstName": "Ім'я",
+  "@fieldNameFirstName": {
+    "description": "Field name used in server-error validation banners for the first-name field."
+  },
+  "fieldNameLastName": "Прізвище",
+  "@fieldNameLastName": {
+    "description": "Field name used in server-error validation banners for the last-name field."
+  },
+  "fieldNamePhone": "Номер телефону",
+  "@fieldNamePhone": {
+    "description": "Field name used in server-error validation banners for the phone field."
+  },
+  "fieldNameSalonName": "Назва салону",
+  "@fieldNameSalonName": {
+    "description": "Field name used in server-error validation banners for the salon-name field."
+  },
+  "fieldNameStreet": "Вулиця",
+  "@fieldNameStreet": {
+    "description": "Field name used in server-error validation banners for the street field."
+  },
+  "fieldNameBuildingNo": "Будинок",
+  "@fieldNameBuildingNo": {
+    "description": "Field name used in server-error validation banners for the building-number field."
+  },
+  "fieldNameLocationNote": "Примітка",
+  "@fieldNameLocationNote": {
+    "description": "Field name used in server-error validation banners for the location-note field."
+  },
+  "fieldNameCity": "Місто",
+  "@fieldNameCity": {
+    "description": "Field name used in server-error validation banners for the city field."
+  },
+  "fieldNameEmail": "Електронна пошта",
+  "@fieldNameEmail": {
+    "description": "Field name used in server-error validation banners for the email field."
   }
 }

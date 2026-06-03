@@ -27,6 +27,8 @@ import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
 import '../../../shared/formatters/ua_phone_input_formatter.dart';
+import '../../../shared/validators/name_validator.dart';
+import '../../../shared/validators/phone_validator.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
@@ -69,6 +71,15 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   String? _inlineError;
   bool _loading = false;
 
+  /// True once the user tapped Accept at least once — surfaces the client-side
+  /// name/phone validators inline (not before the first submit attempt).
+  bool _submitted = false;
+
+  /// Server-side field errors from the last [ValidationFailure], keyed by the
+  /// backend field name (firstName / lastName / phone / password). Cleared when
+  /// the user edits the corresponding field.
+  Map<String, String> _fieldErrors = const <String, String>{};
+
   /// Password policy rules — 12-char min for the invite path.
   /// Initialised in [didChangeDependencies] so AppLocalizations is available.
   List<PasswordRule>? _rules;
@@ -109,14 +120,72 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
       _firstNameValue.trim().isNotEmpty &&
       _lastNameValue.trim().isNotEmpty;
 
+  /// Inline first-name error: server error first, then client validator
+  /// (non-blank + max-length 100), only after the first submit attempt.
+  String? _firstNameError(AppLocalizations l10n) {
+    final serverErr = _fieldErrors['firstName'];
+    if (serverErr != null) return serverErr;
+    if (!_submitted) return null;
+    return validateName(_firstName.text, l10n);
+  }
+
+  /// Inline last-name error: server error first, then client validator.
+  String? _lastNameError(AppLocalizations l10n) {
+    final serverErr = _fieldErrors['lastName'];
+    if (serverErr != null) return serverErr;
+    if (!_submitted) return null;
+    return validateName(_lastName.text, l10n);
+  }
+
+  /// Inline phone error: server error first, then client format validator. The
+  /// phone is OPTIONAL — an empty value is valid and skips format validation.
+  String? _phoneError(AppLocalizations l10n) {
+    final serverErr = _fieldErrors['phone'] ?? _fieldErrors['phoneNumber'];
+    if (serverErr != null) return serverErr;
+    if (!_submitted) return null;
+    if (_phone.text.trim().isEmpty) return null; // optional
+    return validatePhone(_phone.text.trim(), l10n);
+  }
+
+  /// Inline password error from the server (the client checklist already
+  /// enforces the policy live, so there is no client validator here).
+  String? get _passwordServerError => _fieldErrors['password'];
+
+  void _clearServerError(String key) {
+    if (_fieldErrors.containsKey(key)) {
+      setState(() {
+        _fieldErrors = Map<String, String>.unmodifiable(
+          Map<String, String>.from(_fieldErrors)..remove(key),
+        );
+      });
+    }
+  }
+
   // ── Action ────────────────────────────────────────────────────────────
 
   Future<void> _accept() async {
     if (_loading || !_formValid) return;
 
+    final l10n = AppLocalizations.of(context);
+
+    // Client-side validation before the network call. Names: non-blank +
+    // max-length 100. Phone: OPTIONAL — empty is valid; a non-empty value must
+    // match the Ukrainian phone format. Surfaced inline via the *Error getters.
+    setState(() => _submitted = true);
+    final bool clientInvalid =
+        validateName(_firstName.text, l10n) != null ||
+        validateName(_lastName.text, l10n) != null ||
+        (_phone.text.trim().isNotEmpty &&
+            validatePhone(_phone.text.trim(), l10n) != null);
+    if (clientInvalid) {
+      setState(() {});
+      return;
+    }
+
     setState(() {
       _loading = true;
       _inlineError = null;
+      _fieldErrors = const <String, String>{};
     });
 
     await ref
@@ -153,7 +222,28 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
       },
       error: (e, _) {
         final l10n = AppLocalizations.of(context);
-        final message = e is Failure ? e.userMessage(context) : l10n.errUnknown;
+        // A ValidationFailure with field errors maps onto each field's inline
+        // errorText (firstName / lastName / phone / password) instead of
+        // collapsing to a single banner. The banner is kept only as the
+        // fallback for an empty field map (serverMessage → generic) or any
+        // non-validation failure.
+        if (e is ValidationFailure && e.fieldErrors.isNotEmpty) {
+          setState(() {
+            _loading = false;
+            _fieldErrors = Map<String, String>.unmodifiable(e.fieldErrors);
+            _inlineError = null;
+          });
+          return;
+        }
+        final String message;
+        if (e is ValidationFailure) {
+          final serverMessage = e.serverMessage?.trim();
+          message = (serverMessage != null && serverMessage.isNotEmpty)
+              ? serverMessage
+              : l10n.errValidation;
+        } else {
+          message = e is Failure ? e.userMessage(context) : l10n.errUnknown;
+        }
         setState(() {
           _loading = false;
           _inlineError = message;
@@ -244,7 +334,11 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
             prefixIcon: const Icon(Icons.lock_outline_rounded),
             autofillHints: const <String>[AutofillHints.newPassword],
             enabled: !_loading,
-            onChanged: (String v) => setState(() => _passwordValue = v),
+            errorText: _passwordServerError,
+            onChanged: (String v) {
+              _clearServerError('password');
+              setState(() => _passwordValue = v);
+            },
           ),
           const SizedBox(height: VelvetSpacing.sm),
           // Invite path requires a 12-character minimum (vs 8 for self-register).
@@ -263,7 +357,11 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
                   maxLength: 100,
                   autofillHints: const <String>[AutofillHints.givenName],
                   enabled: !_loading,
-                  onChanged: (String v) => setState(() => _firstNameValue = v),
+                  errorText: _firstNameError(l10n),
+                  onChanged: (String v) {
+                    _clearServerError('firstName');
+                    setState(() => _firstNameValue = v);
+                  },
                 ),
               ),
               const SizedBox(width: VelvetSpacing.md),
@@ -277,7 +375,11 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
                   maxLength: 100,
                   autofillHints: const <String>[AutofillHints.familyName],
                   enabled: !_loading,
-                  onChanged: (String v) => setState(() => _lastNameValue = v),
+                  errorText: _lastNameError(l10n),
+                  onChanged: (String v) {
+                    _clearServerError('lastName');
+                    setState(() => _lastNameValue = v);
+                  },
                 ),
               ),
             ],
@@ -294,9 +396,15 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
             prefixIcon: const Icon(Icons.phone_outlined),
             helperText: l10n.invitePhoneHelper,
             enabled: !_loading,
+            errorText: _phoneError(l10n),
             inputFormatters: const <TextInputFormatter>[
               UaPhoneInputFormatter(),
             ],
+            onChanged: (String v) {
+              _clearServerError('phone');
+              _clearServerError('phoneNumber');
+              if (_submitted) setState(() {});
+            },
             onSubmitted: (!_loading && _formValid) ? (_) => _accept() : null,
           ),
           if (_inlineError != null) ...<Widget>[

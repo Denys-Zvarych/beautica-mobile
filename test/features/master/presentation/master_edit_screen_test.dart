@@ -2316,5 +2316,148 @@ void main() {
         );
       },
     );
+
+    // ── 20.5  Backend address field errors render inline under each field ────
+    //
+    // The address section (street / buildingNo / locationNote) now reads
+    // _fieldErrors in _validateLocation(): a ValidationFailure keyed by those
+    // three backend keys must surface each message inline under its OWN field,
+    // not collapse to a generic banner. Guards the systemic gap where address
+    // field errors were previously never mirrored inline.
+
+    testWidgets(
+      'a backend ValidationFailure keyed by street/buildingNo/locationNote '
+      'renders each message inline under its matching address field',
+      (tester) async {
+        const streetMsg = 'Вулиця обовʼязкова';
+        const buildingMsg = 'Будинок занадто довгий';
+        const noteMsg = 'Примітка занадто довга';
+        when(() => repo.updateMyProfile(any())).thenThrow(
+          const ValidationFailure(
+            fieldErrors: <String, String>{
+              'street': streetMsg,
+              'buildingNo': buildingMsg,
+              'locationNote': noteMsg,
+            },
+          ),
+        );
+
+        final router = _buildRouter();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(repo: repo),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        // Dirty firstName so Save is enabled and the save reaches the repo.
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-firstName')),
+            matching: find.byType(TextField),
+          ),
+          'ОленаEdited',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        // Each server message renders inline UNDER its OWN address field.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('field-street')),
+            matching: find.text(streetMsg),
+          ),
+          findsOneWidget,
+          reason: 'street fieldError must render inline under field-street.',
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('field-buildingNo')),
+            matching: find.text(buildingMsg),
+          ),
+          findsOneWidget,
+          reason:
+              'buildingNo fieldError must render inline under field-buildingNo.',
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('field-locationNote')),
+            matching: find.text(noteMsg),
+          ),
+          findsOneWidget,
+          reason:
+              'locationNote fieldError must render inline under '
+              'field-locationNote (the newly-wired _errLocationNote slot).',
+        );
+
+        // No generic validation banner — the field map was non-empty, so the
+        // inline mirroring covers everything.
+        expect(find.text(_l10nUk.errValidation), findsNothing);
+      },
+    );
+
+    // ── 20.6  Editing an address field clears its stale server error ─────────
+    testWidgets(
+      'editing field-street after a server error clears the inline street error',
+      (tester) async {
+        const streetMsg = 'Вулиця обовʼязкова';
+        when(() => repo.updateMyProfile(any())).thenThrow(
+          const ValidationFailure(
+            fieldErrors: <String, String>{'street': streetMsg},
+          ),
+        );
+
+        final router = _buildRouter();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(repo: repo),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-firstName')),
+            matching: find.byType(TextField),
+          ),
+          'ОленаEdited',
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('field-street')),
+            matching: find.text(streetMsg),
+          ),
+          findsOneWidget,
+        );
+
+        // Editing the street field clears the server error (_clearServerError +
+        // _errStreet reset).
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-street')),
+            matching: find.byType(TextField),
+          ),
+          'вул. Нова',
+        );
+        await tester.pump();
+
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('field-street')),
+            matching: find.text(streetMsg),
+          ),
+          findsNothing,
+          reason:
+              'Editing the street field must clear the stale inline server '
+              'error immediately.',
+        );
+      },
+    );
   });
 }

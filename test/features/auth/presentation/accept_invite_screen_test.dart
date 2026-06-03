@@ -569,11 +569,16 @@ void main() {
       // Repository was called.
       expect(repo.acceptInviteCalls.length, 1);
 
-      // Inline error text is visible (ValidationFailure.userMessage).
+      // A ValidationFailure with a non-empty fieldErrors map maps each message
+      // onto the matching field's inline errorText — no generic banner.
+      // The 'password' field error surfaces inline as 'Too common'.
+      expect(find.text('Too common'), findsOneWidget);
+
+      // The generic validation banner must NOT appear in this path.
       final l10n = AppLocalizations.of(
         tester.element(find.byType(AcceptInviteScreen)),
       );
-      expect(find.text(l10n.errValidation), findsOneWidget);
+      expect(find.text(l10n.errValidation), findsNothing);
 
       // Screen is still on the form (CTA still present).
       expect(
@@ -583,5 +588,180 @@ void main() {
       // Not navigated to /home.
       expect(find.text('home'), findsNothing);
     });
+
+    // ── 7. Multi-field server errors map inline under each field ─────────────
+    testWidgets(
+      '7. ValidationFailure{firstName, phone} maps each message inline under '
+      'its OWN field (no generic banner)',
+      (WidgetTester tester) async {
+        const firstNameMsg = 'Імʼя недопустиме';
+        const phoneMsg = 'Невірний номер';
+        final repo = await _pumpValid(
+          tester,
+          acceptResult: const ValidationFailure(
+            fieldErrors: <String, String>{
+              'firstName': firstNameMsg,
+              'phone': phoneMsg,
+            },
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_password')),
+          'StrongPassword12',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+          'Марія',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+          'Бондар',
+        );
+        // Valid phone so the client check passes and the server error returns.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '+380671234567',
+        );
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(repo.acceptInviteCalls.length, 1);
+
+        // firstName error renders inline under the first-name field.
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('invite_first_name')),
+            matching: find.text(firstNameMsg),
+          ),
+          findsOneWidget,
+        );
+        // phone error renders inline under the phone field.
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('invite_phone')),
+            matching: find.text(phoneMsg),
+          ),
+          findsOneWidget,
+        );
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AcceptInviteScreen)),
+        );
+        expect(find.text(l10n.errValidation), findsNothing);
+      },
+    );
+
+    // ── 8. Client-side phone format validation blocks before the network ─────
+    testWidgets(
+      '8. an invalid phone format blocks submit client-side (acceptInvite '
+      'never called, inline phone error shown)',
+      (WidgetTester tester) async {
+        final repo = await _pumpValid(tester);
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_password')),
+          'StrongPassword12',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+          'Марія',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+          'Бондар',
+        );
+        // Partial phone — formatter yields a too-short number that fails
+        // validatePhone's structural check.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '067',
+        );
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        // Client-side validation blocked the network call entirely.
+        expect(
+          repo.acceptInviteCalls,
+          isEmpty,
+          reason:
+              'An invalid phone must block the accept call client-side before '
+              'any network request.',
+        );
+
+        // Inline phone error is shown.
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AcceptInviteScreen)),
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('invite_phone')),
+            matching: find.text(l10n.errPhoneInvalid),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('home'), findsNothing);
+      },
+    );
+
+    // ── 9. Empty fieldErrors + serverMessage → banner fallback ───────────────
+    testWidgets(
+      '9. ValidationFailure with empty fieldErrors falls back to serverMessage '
+      'in the inline banner',
+      (WidgetTester tester) async {
+        const serverMsg = 'Запрошення недійсне';
+        final repo = await _pumpValid(
+          tester,
+          acceptResult: const ValidationFailure(
+            fieldErrors: <String, String>{},
+            serverMessage: serverMsg,
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_password')),
+          'StrongPassword12',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+          'Марія',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+          'Бондар',
+        );
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        expect(repo.acceptInviteCalls.length, 1);
+
+        // The banner shows the serverMessage, not the generic errValidation.
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AcceptInviteScreen)),
+        );
+        expect(find.text(serverMsg), findsOneWidget);
+        expect(find.text(l10n.errValidation), findsNothing);
+      },
+    );
   });
 }

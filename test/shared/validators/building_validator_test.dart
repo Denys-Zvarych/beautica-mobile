@@ -1,15 +1,19 @@
 // Phase 2.19 — Pure-Dart unit tests for validateBuilding().
 //
-// Bounds from building_validator.dart: min 1 trimmed char, max 20 raw chars,
-// required (empty/null → error). Used by provider roles only.
+// Bounds from building_validator.dart: min 1 trimmed char, max 50 raw chars
+// (kBuildingMaxLength — aligned to the backend address DTO), required
+// (empty/null → error). Used by provider roles only.
+//
+// The boundary cases key off the kBuildingMaxLength constant directly, so they
+// track the backend-aligned limit automatically.
 //
 // Covered scenarios:
 //   1. null                       → errBuildingRequired
 //   2. empty string               → errBuildingRequired
 //   3. whitespace-only            → errBuildingRequired (trim rule)
 //   4. 1-char (min valid)         → null (a single digit "5" is valid)
-//   5. 20-char (max valid)        → null
-//   6. 21-char (exceeds max)      → errBuildingTooLong
+//   5. 50-char (max valid)        → null
+//   6. 51-char (exceeds max)      → errBuildingTooLong
 //   7. typical building "12А"     → null
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';

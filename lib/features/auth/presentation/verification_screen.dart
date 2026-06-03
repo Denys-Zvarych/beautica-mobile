@@ -35,6 +35,7 @@ import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/util/mask_email.dart';
+import '../../../shared/validators/server_field_error_banner.dart';
 import '../../master/data/master_repository.dart';
 import '../../salon/data/salon_repository.dart';
 import '../../user/data/user_repository.dart';
@@ -361,6 +362,20 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           : l10n.verificationErrInvalidCodeWithLoginHint;
       actionLabel = l10n.verificationGoToLogin;
       action = () => context.go(RouteNames.login);
+    } else if (error is ValidationFailure) {
+      // Post-OTP provider save (salon create / locality update) rejected one or
+      // more register step 2/3 fields. Surface the failed field name(s) + their
+      // messages instead of collapsing to the generic banner. The offending
+      // fields live on a previous step, so the user must go back and fix them.
+      final banner = buildFieldErrorBanner(error.fieldErrors, l10n);
+      if (banner != null) {
+        message = banner;
+      } else {
+        final serverMessage = error.serverMessage?.trim();
+        message = (serverMessage != null && serverMessage.isNotEmpty)
+            ? serverMessage
+            : l10n.errValidation;
+      }
     } else if (error is UnimplementedError) {
       message = l10n.verificationServiceUnavailable;
     } else if (error is Failure) {

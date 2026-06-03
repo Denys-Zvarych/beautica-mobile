@@ -64,6 +64,11 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
   bool _submitted = false;
   bool _submitting = false;
 
+  /// Server-side validation error for the name field, set when a
+  /// [ValidationFailure] carries a `name` / `displayName` key. Takes precedence
+  /// over the local rules and is cleared on the next edit.
+  String? _serverNameError;
+
   @override
   void initState() {
     super.initState();
@@ -73,7 +78,11 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
 
   void _onNameChanged() {
     if (!mounted) return;
-    if (_submitted) setState(() {});
+    // Clear a stale server error as soon as the user edits the field, and
+    // rebuild so the live local-validation error tracks the new value.
+    final hadServerError = _serverNameError != null;
+    if (hadServerError) _serverNameError = null;
+    if (_submitted || hadServerError) setState(() {});
   }
 
   @override
@@ -85,6 +94,8 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
   // --- Validation -----------------------------------------------------------
 
   String? _nameError(AppLocalizations l10n) {
+    // Server-side validation error takes precedence over the local rules.
+    if (_serverNameError != null) return _serverNameError;
     if (!_submitted) return null;
     final trimmed = _nameCtrl.text.trim();
     if (trimmed.isEmpty) return l10n.categoryRequestNameError;
@@ -134,6 +145,20 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
         log('CategoryRequestDialog.submit failed: $e', name: _tag, level: 900);
       }
       if (mounted) {
+        // A ValidationFailure carrying a `name` / `displayName` field error maps
+        // to the inline name-field error instead of a transient snackbar, so the
+        // user sees exactly which field the backend rejected.
+        if (e is ValidationFailure) {
+          final fieldMsg =
+              e.fieldErrors['name'] ?? e.fieldErrors['displayName'];
+          if (fieldMsg != null) {
+            setState(() {
+              _submitting = false;
+              _serverNameError = fieldMsg;
+            });
+            return;
+          }
+        }
         setState(() => _submitting = false);
         final message = e is Failure ? e.userMessage(context) : l10n.errUnknown;
         ScaffoldMessenger.of(context).showSnackBar(
