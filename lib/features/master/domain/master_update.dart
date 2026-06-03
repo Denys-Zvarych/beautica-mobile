@@ -8,11 +8,12 @@
 
 /// Editable profile fields for INDEPENDENT_MASTER.
 ///
-/// All fields are optional at the Dart level — pass empty string for fields
-/// the user cleared. The repository trims each value before sending. Per the
-/// backend contract: an empty [bio] / [instagram] CLEARS the value server-side
-/// (the key is always sent), whereas a blank [contactPhone] is a no-op (the key
-/// is omitted) — phone cannot be cleared by design.
+/// [firstName], [lastName] and [contactPhone] are REQUIRED — the edit form
+/// blocks Save when any is empty, so they always arrive non-blank. The
+/// repository trims each value before sending. Per the backend contract: an
+/// empty [bio] / [instagram] CLEARS the value server-side (the key is always
+/// sent), whereas a blank [contactPhone] is a no-op (the key is omitted) —
+/// phone cannot be cleared by design.
 final class MasterUpdate {
   const MasterUpdate({
     required this.firstName,
@@ -31,7 +32,8 @@ final class MasterUpdate {
   /// Short bio text (max 2000 characters). Empty string means "clear the bio".
   final String bio;
 
-  /// Optional contact phone number. Empty string means "clear the phone".
+  /// Contact phone number. REQUIRED for all users — the edit form blocks Save
+  /// when empty, so this never arrives blank and is never cleared.
   final String contactPhone;
 
   /// Optional Instagram handle (without `@`). Empty string means "clear it".

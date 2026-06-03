@@ -99,6 +99,10 @@ const _stubMaster = Master(
   firstName: 'Олена',
   lastName: 'Ковальчук',
   bio: 'Майстер манікюру.',
+  // Phone is now a REQUIRED field on the edit form — seed a valid value so that
+  // Save-tapping tests (firstName-only edit) pass _validatePhone and reach
+  // updateMyProfile, matching the new product contract.
+  phoneNumber: '+380 50 123 45 67',
   avgRating: 4.8,
   reviewCount: 10,
   type: MasterType.independentMaster,
@@ -110,6 +114,7 @@ const _stubMasterWithLocation = Master(
   firstName: 'Олена',
   lastName: 'Ковальчук',
   bio: 'Майстер манікюру.',
+  phoneNumber: '+380 50 123 45 67',
   avgRating: 4.8,
   reviewCount: 10,
   type: MasterType.independentMaster,
@@ -144,6 +149,7 @@ const _stubMasterWithLocality = Master(
   firstName: 'Олена',
   lastName: 'Ковальчук',
   bio: 'Майстер манікюру.',
+  phoneNumber: '+380 50 123 45 67',
   avgRating: 4.8,
   reviewCount: 10,
   type: MasterType.independentMaster,
@@ -503,9 +509,12 @@ void main() {
       tester,
     ) async {
       const serverMsg = 'Поле обов\'язкове';
+      // Server field errors for the phone field are keyed by 'phoneNumber'
+      // (the corrected key — was previously the wrong 'contactPhone'), matching
+      // both the backend contract and _validatePhone's _fieldErrors lookup.
       when(() => repo.updateMyProfile(any())).thenThrow(
         const ValidationFailure(
-          fieldErrors: <String, String>{'firstName': serverMsg},
+          fieldErrors: <String, String>{'phoneNumber': serverMsg},
         ),
       );
 
@@ -2092,6 +2101,217 @@ void main() {
           reason:
               'A blank serverMessage must fall back to the localized '
               'errValidation message inside the SnackBar.',
+        );
+      },
+    );
+  });
+
+  // ── 20. Required-field clearing blocks Save (phone / firstName / lastName) ──
+  //
+  // [HIGH] Regression guard for the required-field fix:
+  //   Phone, first name, and last name are ALL required. Clearing any one of
+  //   them and tapping Save must:
+  //     (a) NEVER call updateMyProfile (the save aborts before the repo call),
+  //     (b) render the field-specific inline error under that field,
+  //     (c) surface the snackbar-validation-summary (editValidationSummary),
+  //     (d) NEVER show the generic errUnknown / "Щось пішло не так" SnackBar.
+  //
+  // Before the fix, clearing phone produced the generic errUnknown SnackBar
+  // (the empty value reached the backend, which 4xx'd into an unmapped error)
+  // instead of an inline "Введіть номер телефону" + the validation summary.
+  //
+  // A required-field edit is also a DIRTY change, so the Save button is enabled
+  // and the tap actually exercises _save() → _validateAndUpdateErrors() → the
+  // early return + summary SnackBar. The seeded _stubMaster carries valid
+  // firstName / lastName / phoneNumber, so each test clears exactly one field.
+
+  group('required-field clearing blocks Save', () {
+    /// Pumps the edit screen seeded with [_stubMaster], clears [fieldKey], taps
+    /// Save, and settles. Returns once the validation outcome has rendered.
+    Future<void> clearFieldAndSave(
+      WidgetTester tester, {
+      required String fieldKey,
+    }) async {
+      // Strict default — if _save() reaches the repo this returns and the
+      // verifyNever in each test will fail loudly, but we set it so the test
+      // never hangs on an unstubbed call.
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(repo: repo),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Clear the required field (emptying a pre-populated field is a dirty
+      // change, so the Save button becomes enabled).
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(Key(fieldKey)),
+          matching: find.byType(TextField),
+        ),
+        '',
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-save-master')));
+      await tester.pumpAndSettle();
+    }
+
+    /// Asserts the shared post-conditions of a blocked save: no repo call, the
+    /// validation-summary SnackBar present, and NO generic errUnknown SnackBar.
+    void expectSaveBlocked(WidgetTester tester) {
+      verifyNever(() => repo.updateMyProfile(any()));
+
+      expect(
+        find.byKey(const Key('snackbar-validation-summary')),
+        findsOneWidget,
+        reason:
+            'Clearing a required field must surface the validation-summary '
+            'SnackBar (editValidationSummary) — never a silent dead Save.',
+      );
+      expect(
+        find.text(_l10nUk.editValidationSummary),
+        findsOneWidget,
+        reason: 'The summary SnackBar must carry the editValidationSummary text.',
+      );
+
+      // The generic errUnknown message must NOT appear — the old bug surfaced
+      // "Щось пішло не так" instead of an inline required-field error.
+      expect(
+        find.text(_l10nUk.errUnknown),
+        findsNothing,
+        reason:
+            'A cleared required field must produce an inline error + summary '
+            'SnackBar, never the generic errUnknown SnackBar.',
+      );
+    }
+
+    // ── 20.1  Clear phone → Save blocked with errPhoneRequired inline ────────
+
+    testWidgets(
+      'clearing the phone field blocks Save, shows errPhoneRequired inline, '
+      'the validation summary, and never errUnknown',
+      (tester) async {
+        await clearFieldAndSave(tester, fieldKey: 'field-phone');
+
+        // (b) phone-specific inline error rendered under the phone field.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('field-phone')),
+            matching: find.text(_l10nUk.errPhoneRequired),
+          ),
+          findsOneWidget,
+          reason:
+              'An empty phone must render the errPhoneRequired ("Введіть '
+              'номер телефону") message inline under the phone field.',
+        );
+
+        // (a) + (c) + (d).
+        expectSaveBlocked(tester);
+      },
+    );
+
+    // ── 20.2  Clear first name → Save blocked with errNameRequired inline ────
+
+    testWidgets(
+      'clearing the first-name field blocks Save, shows errNameRequired '
+      'inline, the validation summary, and never errUnknown',
+      (tester) async {
+        await clearFieldAndSave(tester, fieldKey: 'field-firstName');
+
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('field-firstName')),
+            matching: find.text(_l10nUk.errNameRequired),
+          ),
+          findsOneWidget,
+          reason:
+              'An empty first name must render the errNameRequired message '
+              'inline under the first-name field.',
+        );
+
+        expectSaveBlocked(tester);
+      },
+    );
+
+    // ── 20.3  Clear last name → Save blocked with errNameRequired inline ─────
+
+    testWidgets(
+      'clearing the last-name field blocks Save, shows errNameRequired inline, '
+      'the validation summary, and never errUnknown',
+      (tester) async {
+        await clearFieldAndSave(tester, fieldKey: 'field-lastName');
+
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('field-lastName')),
+            matching: find.text(_l10nUk.errNameRequired),
+          ),
+          findsOneWidget,
+          reason:
+              'An empty last name must render the errNameRequired message '
+              'inline under the last-name field.',
+        );
+
+        expectSaveBlocked(tester);
+      },
+    );
+
+    // ── 20.4  Backend phoneNumber field error renders inline (key alignment) ─
+    //
+    // Proves the contactPhone → phoneNumber rename: a ValidationFailure whose
+    // fieldErrors map is keyed by 'phoneNumber' must surface its message inline
+    // under the phone field. _validatePhone looks up _fieldErrors['phoneNumber']
+    // first, so this only renders if the key matches the backend contract.
+
+    testWidgets(
+      'a backend ValidationFailure keyed by phoneNumber renders inline under '
+      'the phone field (proves the contactPhone→phoneNumber key alignment)',
+      (tester) async {
+        const serverMsg = 'Невірний номер телефону';
+        when(() => repo.updateMyProfile(any())).thenThrow(
+          const ValidationFailure(
+            fieldErrors: <String, String>{'phoneNumber': serverMsg},
+          ),
+        );
+
+        final router = _buildRouter();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(repo: repo),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        // Dirty firstName so Save is enabled, but keep phone valid so the save
+        // reaches the repo and the server field error comes back.
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-firstName')),
+            matching: find.byType(TextField),
+          ),
+          'ОленаEdited',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        // The server message must render inline UNDER the phone field — proving
+        // _fieldErrors['phoneNumber'] (not the old 'contactPhone') is read.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('field-phone')),
+            matching: find.text(serverMsg),
+          ),
+          findsOneWidget,
+          reason:
+              'A backend ValidationFailure keyed by "phoneNumber" must surface '
+              'inline under the phone field — guards the contactPhone→'
+              'phoneNumber rename.',
         );
       },
     );

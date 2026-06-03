@@ -66,9 +66,10 @@ abstract interface class MasterRepository {
   ///   - `bio` and `instagram` are written whenever the key is **non-null**, so
   ///     an empty string `''` clears them server-side. They are therefore ALWAYS
   ///     included in the body (sending the trimmed value, `''` on clear).
-  ///   - `phoneNumber` / `firstName` / `lastName` are filtered for blank
-  ///     (`!s.isBlank()`) on the backend, so a blank phone is a no-op and cannot
-  ///     clear the value by design — `phoneNumber` is omitted when blank.
+  ///   - `phoneNumber` / `firstName` / `lastName` are REQUIRED — the edit form
+  ///     blocks Save when any is empty, so they always arrive non-blank. They
+  ///     are also filtered for blank (`!s.isBlank()`) on the backend, so phone
+  ///     can never be cleared by design — `phoneNumber` is omitted when blank.
   /// Throws a typed [Failure] on any transport or server error; throws
   /// [ValidationFailure] with [fieldErrors] when the backend returns HTTP 422.
   Future<void> updateMyProfile(MasterUpdate update);
@@ -177,9 +178,11 @@ final class HttpMasterRepository implements MasterRepository {
     //     sending the trimmed value ('' on clear) so a user-cleared field
     //     actually persists. Omitting the key (the old bug) left the stale
     //     server value untouched.
-    //   - phoneNumber is filtered for blank server-side (!s.isBlank()), so a
-    //     blank phone is a no-op and cannot clear by design — keep it omitted
-    //     when blank.
+    //   - phoneNumber is REQUIRED — the edit form blocks Save when it is empty,
+    //     so it always arrives non-blank. It is also filtered for blank
+    //     server-side (!s.isBlank()) and cannot clear by design, so the
+    //     omit-on-blank guard below is now purely defensive (unreachable in
+    //     practice) — keep it.
     final body = <String, dynamic>{
       'firstName': update.firstName,
       'lastName': update.lastName,

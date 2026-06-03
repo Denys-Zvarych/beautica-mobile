@@ -499,9 +499,13 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
   }
 
   String? _validatePhone(String? v) {
-    final serverErr = _fieldErrors['contactPhone'];
+    final serverErr = _fieldErrors['phoneNumber'];
     if (serverErr != null) return serverErr;
-    if (v == null || v.trim().isEmpty) return null; // optional
+    if (v == null || v.trim().isEmpty) {
+      // Phone is REQUIRED for all users — emptying it must block Save with a
+      // field-specific message, never the generic errUnknown SnackBar.
+      return AppLocalizations.of(context).errPhoneRequired;
+    }
     if (v.trim().length > _phoneMax) {
       return AppLocalizations.of(context).errPhoneTooLongEdit;
     }
@@ -1009,7 +1013,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               errorText: _errPhone,
                               helperText: l10n.phonePrivacyNote,
                               onChanged: (v) {
-                                _clearServerError('contactPhone');
+                                _clearServerError('phoneNumber');
                                 field.didChange(v);
                                 setState(
                                   () => _errPhone = _validatePhone(_phone.text),
