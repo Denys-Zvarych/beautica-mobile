@@ -152,6 +152,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
 
   // Inline validation errors for the location section.
   String? _errCity;
+  String? _errDistrict;
   String? _errStreet;
   String? _errBuildingNo;
   String? _errLocationNote;
@@ -552,13 +553,16 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
     // `street` / `buildingNo` / `locationNote`. When any is present, surface it
     // inline regardless of the touched/dirty heuristic below and fail the
     // section so Save does not proceed with stale input.
+    final serverDistrict = _fieldErrors['district'];
     final serverStreet = _fieldErrors['street'];
     final serverBuildingNo = _fieldErrors['buildingNo'];
     final serverLocationNote = _fieldErrors['locationNote'];
-    if (serverStreet != null ||
+    if (serverDistrict != null ||
+        serverStreet != null ||
         serverBuildingNo != null ||
         serverLocationNote != null) {
       setState(() {
+        _errDistrict = serverDistrict ?? _errDistrict;
         _errStreet = serverStreet ?? _errStreet;
         _errBuildingNo = serverBuildingNo ?? _errBuildingNo;
         _errLocationNote = serverLocationNote;
@@ -586,6 +590,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       // Section unchanged from its seed and no address entered — skip.
       setState(() {
         _errCity = null;
+        _errDistrict = null;
         _errStreet = null;
         _errBuildingNo = null;
         _errLocationNote = null;
@@ -600,8 +605,20 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
     String? errStreet = !streetFilled ? l10n.errRequired : null;
     String? errBuildingNo = !buildingFilled ? l10n.errRequired : null;
 
+    // District-required rule — mirrors the backend Phase 10.6 contract
+    // (LocalityWriteValidator.validateProviderLocality → DISTRICT_REQUIRED).
+    // When the selected city subdivides into districts (hasDistricts == true),
+    // a district MUST be picked; otherwise the backend rejects the save with a
+    // 400 that carries no field-error map.
+    final cityHasDistricts = _selectedCity?.hasDistricts ?? false;
+    String? errDistrict =
+        (citySelected && cityHasDistricts && _selectedDistrict == null)
+        ? l10n.errRequired
+        : null;
+
     setState(() {
       _errCity = errCity;
+      _errDistrict = errDistrict;
       _errStreet = errStreet;
       _errBuildingNo = errBuildingNo;
     });
@@ -617,7 +634,10 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       return false;
     }
 
-    return errCity == null && errStreet == null && errBuildingNo == null;
+    return errCity == null &&
+        errDistrict == null &&
+        errStreet == null &&
+        errBuildingNo == null;
   }
 
   /// Runs the form validators and mirrors errors into the inline state so
@@ -649,6 +669,7 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       _errPhone = null;
       _errInstagram = null;
       _errCity = null;
+      _errDistrict = null;
       _errStreet = null;
       _errBuildingNo = null;
       _errLocationNote = null;
@@ -1117,13 +1138,16 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                               selectedOblast: _selectedOblast,
                               selectedCity: _selectedCity,
                               selectedDistrict: _selectedDistrict,
+                              districtRequired: true,
                               cityError: _errCity,
+                              districtError: _errDistrict,
                               onOblast: (oblast) {
                                 setState(() {
                                   _selectedOblast = oblast;
                                   _selectedCity = null;
                                   _selectedDistrict = null;
                                   _errCity = null;
+                                  _errDistrict = null;
                                 });
                               },
                               onCity: (city) {
@@ -1131,11 +1155,16 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
                                   _selectedCity = city;
                                   _selectedDistrict = null;
                                   if (city != null) _errCity = null;
+                                  // Changing city invalidates any prior
+                                  // district error; the required rule is
+                                  // re-evaluated on the next save attempt.
+                                  _errDistrict = null;
                                 });
                               },
                               onDistrict: (district) {
                                 setState(() {
                                   _selectedDistrict = district;
+                                  if (district != null) _errDistrict = null;
                                 });
                               },
                             ),

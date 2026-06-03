@@ -2460,4 +2460,292 @@ void main() {
       },
     );
   });
+
+  // ── 21. District-required regression (city WITH districts) ───────────────────
+  //
+  // [HIGH] Step 2.7 Rule 3 regression guard for the district-required fix.
+  //
+  // The bug: the user changed location from a city WITHOUT districts to a city
+  // WITH districts and saved without picking a district. The app sent an
+  // incomplete updateLocality request (districtId: null); the backend rejected
+  // it with 400 DISTRICT_REQUIRED, surfaced only as a generic "Invalid request"
+  // SnackBar.
+  //
+  // The fix (master_edit_screen.dart `_validateLocation`): when the selected
+  // city `hasDistricts == true` and no district is picked, set an inline
+  // `_errDistrict = l10n.errRequired`, wire `districtRequired: true` +
+  // `districtError: _errDistrict` into LocalityCascade, and map a backend
+  // `district` field-error key inline. The save aborts BEFORE any repo call.
+  //
+  // Why these tests pin the fix (would FAIL before it):
+  //   • 21.1 — before the fix, _validateLocation never checked hasDistricts, so
+  //     _save() proceeded and updateLocality was called with districtId: null.
+  //     The verifyNever(updateLocality) assertion would fail (it WAS called),
+  //     and no inline errRequired rendered under the district row.
+  //   • 21.2 — with a district picked the section is valid; updateLocality fires
+  //     once with a NON-NULL districtId and no district error shows.
+  //   • 21.3 — before the fix _validateLocation did not read _fieldErrors
+  //     ['district'], so a backend `district` key never surfaced inline.
+  //
+  // The district selection bypasses the bottom-sheet picker (which needs HTTP)
+  // by invoking the LocalityCascade onCity / onDistrict callbacks directly —
+  // the same technique used by group #13 and the per-field dirty matrix.
+
+  group('district-required regression (city with districts)', () {
+    // Master seeded with a city that has NO districts (the "before" state the
+    // user starts from). districtId is null. This mirrors the real repro: the
+    // user begins on a no-district city and switches to one WITH districts.
+    const stubMasterNoDistrictCity = Master(
+      id: 'user-1',
+      firstName: 'Олена',
+      lastName: 'Ковальчук',
+      bio: 'Майстер манікюру.',
+      phoneNumber: '+380 50 123 45 67',
+      avgRating: 4.8,
+      reviewCount: 10,
+      type: MasterType.independentMaster,
+    );
+
+    // A city that DOES subdivide into districts — selecting it makes a district
+    // mandatory. This is the city the user switches TO.
+    const cityWithDistricts = City(
+      id: 'city-with-districts',
+      oblastId: 'oblast-01',
+      name: 'Львів',
+      katotthCode: 'UA46000000000026241',
+      hasDistricts: true,
+    );
+
+    const districtChoice = CityDistrict(
+      id: 'district-77',
+      cityId: 'city-with-districts',
+      name: 'Галицький',
+      katotthCode: 'UA46060370000000001',
+    );
+
+    /// Pumps the edit screen seeded with a no-district city, selects
+    /// [cityWithDistricts] via the cascade callback, and returns once settled.
+    /// Leaves the district UNPICKED.
+    Future<void> pumpAndSelectCityWithDistricts(WidgetTester tester) async {
+      final router = _buildRouter();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(
+          repo: repo,
+          master: stubMasterNoDistrictCity,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // Switch to a city WITH districts via the cascade callback (bypasses the
+      // HTTP-backed picker sheet). _selectedCity now has hasDistricts == true
+      // and _selectedDistrict stays null.
+      final cascade = tester.widget<LocalityCascade>(
+        find.byKey(const Key('location-cascade')),
+      );
+      cascade.onCity(cityWithDistricts);
+      await tester.pump();
+    }
+
+    // ── 21.1  No district picked → Save blocked, inline errRequired shown ────
+
+    testWidgets(
+      'selecting a city with districts but leaving the district unpicked blocks '
+      'Save: updateLocality is never called and errRequired renders under the '
+      'district row',
+      (tester) async {
+        // Strict default so the test never hangs if _save() wrongly reaches the
+        // repo — the verifyNever assertions below will then fail loudly.
+        when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+        await pumpAndSelectCityWithDistricts(tester);
+
+        // Dirty firstName so the Save button is interactive (the cascade change
+        // also dirties the form, but an explicit edit mirrors the real repro).
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-firstName')),
+            matching: find.byType(TextField),
+          ),
+          'ОленаEdited',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        // (a) NO incomplete request leaves the app — updateLocality must never
+        // be called with districtId: null. THIS is the core regression: before
+        // the fix _validateLocation passed and updateLocality fired here.
+        verifyNever(
+          () => repo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        );
+
+        // The whole save aborts when location validation fails, so the profile
+        // update must not fire either.
+        verifyNever(() => repo.updateMyProfile(any()));
+
+        // (b) An inline required-field error renders under the district row.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('locality_row_district')),
+            matching: find.text(_l10nUk.errRequired),
+          ),
+          findsOneWidget,
+          reason:
+              'When the selected city hasDistricts == true and no district is '
+              'picked, _validateLocation must surface errRequired inline under '
+              'the district row (locality_row_district) — the regression guard '
+              'for the DISTRICT_REQUIRED bug.',
+        );
+
+        // The screen must stay put — validation blocked the save.
+        expect(find.byKey(const Key('field-street')), findsOneWidget);
+      },
+    );
+
+    // ── 21.2  Happy path: district picked → updateLocality fires once ────────
+
+    testWidgets(
+      'after picking a district for a city with districts, Save calls '
+      'updateLocality exactly once with a non-null districtId and shows no '
+      'district error',
+      (tester) async {
+        when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+        when(
+          () => repo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenAnswer((_) async {});
+
+        await pumpAndSelectCityWithDistricts(tester);
+
+        // Pick a valid district via the cascade callback.
+        final cascade = tester.widget<LocalityCascade>(
+          find.byKey(const Key('location-cascade')),
+        );
+        cascade.onDistrict(districtChoice);
+        await tester.pump();
+
+        // Provide the required street + buildingNo so the address section is
+        // complete (city + district + street + buildingNo).
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-street')),
+            matching: find.byType(TextField),
+          ),
+          'вул. Личаківська',
+        );
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-buildingNo')),
+            matching: find.byType(TextField),
+          ),
+          '5',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        // updateLocality fires exactly once with the NON-NULL districtId — the
+        // complete request the backend expects.
+        verify(
+          () => repo.updateLocality(
+            cityId: 'city-with-districts',
+            districtId: 'district-77',
+            street: 'вул. Личаківська',
+            buildingNo: '5',
+            locationNote: null,
+          ),
+        ).called(1);
+
+        // No district error rendered under the district row.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('locality_row_district')),
+            matching: find.text(_l10nUk.errRequired),
+          ),
+          findsNothing,
+          reason:
+              'With a district picked, the district row must show no required '
+              'error and the save must complete.',
+        );
+      },
+    );
+
+    // ── 21.3  Backend `district` field error renders inline ──────────────────
+    //
+    // Mirrors group 20.5 (street/buildingNo/locationNote) for the district key.
+    // _validateLocation reads _fieldErrors['district'] first and mirrors it into
+    // _errDistrict, which LocalityCascade renders under the district row.
+
+    testWidgets(
+      'a backend ValidationFailure keyed by district renders inline under the '
+      'district row',
+      (tester) async {
+        const districtMsg = 'Оберіть район';
+        when(() => repo.updateMyProfile(any())).thenThrow(
+          const ValidationFailure(
+            fieldErrors: <String, String>{'district': districtMsg},
+          ),
+        );
+
+        await pumpAndSelectCityWithDistricts(tester);
+
+        // Pick a district so the client-side rule passes and the save reaches
+        // the repo, where the server returns the district field error.
+        final cascade = tester.widget<LocalityCascade>(
+          find.byKey(const Key('location-cascade')),
+        );
+        cascade.onDistrict(districtChoice);
+        await tester.pump();
+
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-street')),
+            matching: find.byType(TextField),
+          ),
+          'вул. Личаківська',
+        );
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-buildingNo')),
+            matching: find.byType(TextField),
+          ),
+          '5',
+        );
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-save-master')));
+        await tester.pumpAndSettle();
+
+        // The server `district` message renders inline UNDER the district row —
+        // proving _fieldErrors['district'] is read and mirrored into
+        // _errDistrict (the newly-wired districtError slot on LocalityCascade).
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('locality_row_district')),
+            matching: find.text(districtMsg),
+          ),
+          findsOneWidget,
+          reason:
+              'A backend ValidationFailure keyed by "district" must surface '
+              'inline under the district row — guards the inline mapping of the '
+              'DISTRICT_REQUIRED server contract.',
+        );
+      },
+    );
+  });
 }
