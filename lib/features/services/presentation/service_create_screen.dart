@@ -143,6 +143,13 @@ class _ServiceCreateScreenState extends ConsumerState<ServiceCreateScreen> {
                           // ref outlives the navigation frame.
                           ref.invalidate(servicesListProvider);
                           ref.invalidate(masterProfileProvider);
+                        } on ValidationFailure {
+                          // Per-field backend errors are mapped inline by
+                          // ServiceForm itself (it catches ValidationFailure
+                          // before this closure rethrows). Reaching here means
+                          // the failure had NO field this form renders — show
+                          // the generic snackbar fallback.
+                          rethrow;
                         } catch (e) {
                           if (context.mounted) {
                             _showFailureSnackbar(context, e);

@@ -334,10 +334,12 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // 5. Negative price blocked by FilteringTextInputFormatter.
-  //    Typing '-500' into the price field leaves it as '500' (digitsOnly).
+  // 5. Malformed price blocked by _DecimalPriceFormatter (hardened 2026-06-03).
+  //    The formatter now accepts a decimal with ≤ 2 dp but REJECTS a sign or a
+  //    third decimal place wholesale (keeps the previous valid value) rather
+  //    than stripping mid-string.
   // ---------------------------------------------------------------------------
-  testWidgets('price field strips non-digit characters (digitsOnly formatter)', (
+  testWidgets('price field rejects a leading sign and keeps decimals', (
     tester,
   ) async {
     await pumpCreate(tester);
@@ -347,12 +349,20 @@ void main() {
       matching: find.byType(TextField),
     );
 
+    // A leading '-' makes the whole value malformed → rejected → stays empty.
     await tester.enterText(priceFinder, '-500');
     await tester.pump();
+    expect(tester.widget<TextField>(priceFinder).controller?.text, '');
 
-    // FilteringTextInputFormatter.digitsOnly strips the '-'; only '500' remains.
-    final TextField tf = tester.widget<TextField>(priceFinder);
-    expect(tf.controller?.text, '500');
+    // A valid 2-decimal amount is accepted as typed.
+    await tester.enterText(priceFinder, '500.50');
+    await tester.pump();
+    expect(tester.widget<TextField>(priceFinder).controller?.text, '500.50');
+
+    // A third decimal place is rejected → previous valid value retained.
+    await tester.enterText(priceFinder, '500.505');
+    await tester.pump();
+    expect(tester.widget<TextField>(priceFinder).controller?.text, '500.50');
   });
 
   // ---------------------------------------------------------------------------

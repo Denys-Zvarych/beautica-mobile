@@ -82,9 +82,16 @@ class PricingField extends StatelessWidget {
   /// Cross-field range error (max must be > min), shown once beneath the pair.
   final String? rangeError;
 
+  // Price fields accept a decimal amount with up to two fractional digits and
+  // a single separator (',' or '.'). The backend cap is 99 999 999.99, so the
+  // length limiter is generous enough for "99999999.99" (11 chars) without
+  // blocking legitimate input. [_DecimalPriceFormatter] rejects (does not
+  // mangle) any edit that would produce a malformed value — a second separator,
+  // a third decimal digit, or a leading separator. The field validator remains
+  // the authority on submit (hardened 2026-06-03).
   static final List<TextInputFormatter> _priceFormatters = <TextInputFormatter>[
-    FilteringTextInputFormatter.digitsOnly,
-    LengthLimitingTextInputFormatter(7),
+    const _DecimalPriceFormatter(),
+    LengthLimitingTextInputFormatter(11),
   ];
 
   // Hoisted so _buildRange() allocates nothing on keystroke rebuilds.
@@ -556,5 +563,41 @@ class _PricingInputFieldState extends State<_PricingInputField> {
           ),
       ],
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Decimal price input formatter
+//
+// Accepts only a well-formed positive decimal with up to two fractional digits
+// and a single separator (',' or '.'). Unlike FilteringTextInputFormatter, it
+// REJECTS a malformed edit wholesale (returns the old value) rather than
+// silently stripping characters mid-string — so the cursor never jumps and a
+// pasted "12.999" simply doesn't take instead of becoming "12.99".
+//
+// An empty string is always allowed (so the field can be cleared). The intermediate
+// states "12." and "12," are allowed so the user can type the separator before
+// the fractional digits. Final-form validation (bounds, required) is done by
+// validatePriceAmount on submit (hardened 2026-06-03).
+// ---------------------------------------------------------------------------
+
+class _DecimalPriceFormatter extends TextInputFormatter {
+  const _DecimalPriceFormatter();
+
+  // Up to 8 integer digits, optional single separator, up to 2 decimal digits.
+  // The trailing-separator case ("12." / "12,") is permitted as an intermediate
+  // typing state. Hoisted as a static final — allocated once.
+  static final RegExp _allowed = RegExp(r'^\d{0,8}([.,]\d{0,2})?$');
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final String text = newValue.text;
+    if (text.isEmpty) return newValue; // allow clearing the field
+    if (_allowed.hasMatch(text)) return newValue;
+    // Reject the edit: keep the previous (valid) value.
+    return oldValue;
   }
 }

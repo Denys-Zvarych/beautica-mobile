@@ -24,6 +24,7 @@
 
 import 'dart:developer';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:flutter/foundation.dart';
@@ -113,6 +114,27 @@ class _ServiceFormState extends State<ServiceForm> {
   bool _submitting = false;
   bool _wasDirty = false;
 
+  /// Bumped on every keystroke that can change a field's inline error text
+  /// (live re-validation after the first submit, or a cleared server error).
+  /// Only the per-field error sub-trees listen to this — `_CategoryChips`
+  /// (which reads [approvedCategoriesProvider] and rebuilds N chips) stays
+  /// outside its scope, so typing in a price/name field never rebuilds the
+  /// chip row. Replaces the old form-wide `setState(() {})` (perf MEDIUM).
+  final ValueNotifier<int> _revalidateTick = ValueNotifier<int>(0);
+
+  /// Drives only the [_DirtyMarker] repaint when the dirty edge flips, instead
+  /// of rebuilding the whole form to toggle one boolean (perf LOW).
+  final ValueNotifier<bool> _dirtyNotifier = ValueNotifier<bool>(false);
+
+  /// Server-side field errors from the last [ValidationFailure] returned by
+  /// [widget.onSubmit]. Keyed by the BACKEND wire field name
+  /// (`name`, `baseDurationMinutes`, `price`, `priceMin`, `priceMax`,
+  /// `category`, `bufferMinutesAfter`). When a key is present its message
+  /// wins over the client-side validator for that field, so the backend's
+  /// specific reason is surfaced inline instead of a generic snackbar. Each
+  /// entry is cleared the moment the user edits the matching field.
+  Map<String, String> _serverFieldErrors = const <String, String>{};
+
   // Dirty-state baseline values (edit mode only). These are the string
   // representations of widget.initial fields — compared against current
   // field texts, the selected category, and pricing mode to determine if
@@ -184,24 +206,39 @@ class _ServiceFormState extends State<ServiceForm> {
 
     // After first submit, live-re-validate on every keystroke so errors clear
     // the instant the field becomes valid. In edit mode, also repaint the dirty
-    // badge on each keystroke.
-    for (final TextEditingController c in <TextEditingController>[
-      _nameCtrl,
-      _durationCtrl,
-      _priceFixedCtrl,
-      _priceMinCtrl,
-      _priceMaxCtrl,
-    ]) {
-      c.addListener(_onChanged);
-    }
+    // badge on each keystroke. Editing a field also clears any stale
+    // server-side error keyed to that field's backend wire name.
+    _nameCtrl.addListener(() => _onChanged('name'));
+    _durationCtrl.addListener(() => _onChanged('baseDurationMinutes'));
+    _priceFixedCtrl.addListener(() => _onChanged('price'));
+    _priceMinCtrl.addListener(() => _onChanged('priceMin'));
+    _priceMaxCtrl.addListener(() => _onChanged('priceMax'));
   }
 
-  void _onChanged() {
+  /// Re-renders on field change. [serverFieldName] is the backend wire name of
+  /// the field that changed — any stale server error for it is dropped so the
+  /// inline message disappears as soon as the user edits the offending field.
+  void _onChanged([String? serverFieldName]) {
     if (!mounted) return;
+    final bool clearedServerError =
+        serverFieldName != null &&
+        _serverFieldErrors.containsKey(serverFieldName);
+    if (clearedServerError) {
+      _serverFieldErrors = Map<String, String>.unmodifiable(
+        Map<String, String>.from(_serverFieldErrors)..remove(serverFieldName),
+      );
+    }
+    // Live re-validation: bump the error tick so ONLY the per-field error
+    // sub-trees recompute. Never calls setState, so `_CategoryChips` and the
+    // rest of the form do not rebuild on a keystroke.
+    if (_submitted || clearedServerError) {
+      _revalidateTick.value++;
+    }
+    // Dirty edge: repaint only the `_DirtyMarker` via its own notifier.
     final dirty = _isDirty;
-    if (_submitted || dirty != _wasDirty) {
+    if (dirty != _wasDirty) {
       _wasDirty = dirty;
-      setState(() {});
+      _dirtyNotifier.value = dirty;
     }
   }
 
@@ -212,54 +249,68 @@ class _ServiceFormState extends State<ServiceForm> {
     _priceFixedCtrl.dispose();
     _priceMinCtrl.dispose();
     _priceMaxCtrl.dispose();
+    _revalidateTick.dispose();
+    _dirtyNotifier.dispose();
     super.dispose();
   }
 
   // --- Validators -----------------------------------------------------------
 
   String? _nameError(AppLocalizations l10n) {
+    final String? server = _serverFieldErrors['name'];
+    if (server != null) return server;
     if (!_submitted) return null;
     return validateName(_nameCtrl.text, l10n);
   }
 
   String? _durationError(AppLocalizations l10n) {
+    final String? server = _serverFieldErrors['baseDurationMinutes'];
+    if (server != null) return server;
     if (!_submitted) return null;
     return validateDurationMinutes(_durationCtrl.text, l10n);
   }
 
-  // --- Pricing validators (Phase 5.6) ----------------------------------------
+  // --- Pricing validators (Phase 5.6; hardened 2026-06-03) -------------------
+  // Bounds now come from the shared pure validators in
+  // shared/validators/numeric_validators.dart so the form, the unit tests, and
+  // the input formatters all agree on the same backend contract (decimals ≤ 2,
+  // 0.01 ≤ price ≤ 99 999 999.99, RANGE max strictly > min).
 
   /// Inline error for the fixed-amount field (FIXED mode only).
   String? _fixedPriceError(AppLocalizations l10n) {
+    final String? server = _serverFieldErrors['price'];
+    if (server != null) return server;
     if (!_submitted || _pricingMode != ServicePriceType.fixed) return null;
-    final String v = _priceFixedCtrl.text.trim();
-    if (v.isEmpty) return l10n.errRequired;
-    final int? n = int.tryParse(v);
-    if (n == null || n <= 0) return l10n.errPricePositive;
-    return null;
+    return validatePriceAmount(
+      _priceFixedCtrl.text,
+      l10n,
+      requiredMessage: l10n.errRequired,
+    );
   }
 
   /// Inline error for the "Від" (min) field (RANGE mode only).
   String? _rangeMinError(AppLocalizations l10n) {
+    final String? server = _serverFieldErrors['priceMin'];
+    if (server != null) return server;
     if (!_submitted || _pricingMode != ServicePriceType.range) return null;
-    final String v = _priceMinCtrl.text.trim();
-    if (v.isEmpty) return l10n.errPriceMinRequired;
-    final int? n = int.tryParse(v);
-    if (n == null || n <= 0) return l10n.errPricePositive;
-    return null;
+    return validatePriceAmount(
+      _priceMinCtrl.text,
+      l10n,
+      requiredMessage: l10n.errPriceMinRequired,
+    );
   }
 
-  /// Cross-field error: max must be present and strictly greater than min.
+  /// Cross-field error: max must be present, valid, and strictly greater than min.
   String? _rangeMaxError(AppLocalizations l10n) {
+    final String? server = _serverFieldErrors['priceMax'];
+    if (server != null) return server;
     if (!_submitted || _pricingMode != ServicePriceType.range) return null;
-    final String maxV = _priceMaxCtrl.text.trim();
-    if (maxV.isEmpty) return l10n.errPriceMaxRequired;
-    final int? min = int.tryParse(_priceMinCtrl.text.trim());
-    final int? max = int.tryParse(maxV);
-    if (min != null && max != null && max <= min) {
-      return l10n.errPriceMaxGtMin;
-    }
-    return null;
+    return validatePriceMax(
+      _priceMaxCtrl.text,
+      _priceMinCtrl.text,
+      l10n,
+      requiredMessage: l10n.errPriceMaxRequired,
+    );
   }
 
   bool _pricingValid(AppLocalizations l10n) {
@@ -276,8 +327,11 @@ class _ServiceFormState extends State<ServiceForm> {
   }
 
   /// Category is required by the backend (`@NotBlank`); surface a required
-  /// error after the first submit attempt when no chip is selected.
+  /// error after the first submit attempt when no chip is selected. A
+  /// server-side `category` error wins over the client-side required check.
   String? _categoryError(AppLocalizations l10n) {
+    final String? server = _serverFieldErrors['category'];
+    if (server != null) return server;
     if (!_submitted) return null;
     return (_selectedCategory == null || _selectedCategory!.isEmpty)
         ? l10n.serviceCategoryRequired
@@ -294,14 +348,25 @@ class _ServiceFormState extends State<ServiceForm> {
 
   // --- Submit ---------------------------------------------------------------
 
-  Future<void> _handleSubmit(AppLocalizations l10n) async {
-    setState(() => _submitted = true);
+  Future<void> _handleSubmit(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) async {
+    // A fresh submit attempt clears any stale server-side field errors so the
+    // form re-validates from scratch.
+    setState(() {
+      _submitted = true;
+      _serverFieldErrors = const <String, String>{};
+    });
     if (!_isValid(l10n)) {
       setState(() {});
       return;
     }
     setState(() => _submitting = true);
     try {
+      // Prices parsed via the shared parser so the submitted value is computed
+      // exactly as the validator checked it (comma → dot, ≤ 2 dp). _isValid
+      // guarantees these are non-null at this point.
       final MasterServiceCreate input;
       switch (_pricingMode) {
         case ServicePriceType.fixed:
@@ -309,7 +374,7 @@ class _ServiceFormState extends State<ServiceForm> {
             name: _nameCtrl.text.trim(),
             durationMinutes: int.parse(_durationCtrl.text.trim()),
             priceType: ServicePriceType.fixed,
-            price: double.parse(_priceFixedCtrl.text.trim()),
+            price: parsePrice(_priceFixedCtrl.text),
             // Description intentionally omitted (user decision, Phase 5.3).
             category: _selectedCategory,
           );
@@ -318,12 +383,47 @@ class _ServiceFormState extends State<ServiceForm> {
             name: _nameCtrl.text.trim(),
             durationMinutes: int.parse(_durationCtrl.text.trim()),
             priceType: ServicePriceType.range,
-            priceMin: double.parse(_priceMinCtrl.text.trim()),
-            priceMax: double.parse(_priceMaxCtrl.text.trim()),
+            priceMin: parsePrice(_priceMinCtrl.text),
+            priceMax: parsePrice(_priceMaxCtrl.text),
             category: _selectedCategory,
           );
       }
       await widget.onSubmit(input);
+    } on ValidationFailure catch (f) {
+      // Backend per-field validation: surface each error inline on the matching
+      // input instead of letting the screen show a single generic snackbar.
+      // Only rethrow when NONE of the field keys map to a field we render — in
+      // that case the screen falls back to its generic snackbar. The backend
+      // wire field names are name / baseDurationMinutes / price / priceMin /
+      // priceMax / category / bufferMinutesAfter.
+      if (kDebugMode) {
+        log(
+          'ServiceForm.onSubmit validation failure: ${f.fieldErrors}',
+          name: _tag,
+          level: 900,
+        );
+      }
+      final Map<String, String> mapped = _mapServerFieldErrors(f.fieldErrors);
+      if (mapped.isEmpty) {
+        // No recognised field — surface the backend's generic message (or a
+        // localized fallback) as a snackbar so the submit never dies silently.
+        if (context.mounted) {
+          final String msg = (f.serverMessage?.trim().isNotEmpty ?? false)
+              ? f.serverMessage!.trim()
+              : f.userMessage(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+          );
+        }
+        return;
+      }
+      if (mounted) {
+        setState(
+          () => _serverFieldErrors = Map<String, String>.unmodifiable(mapped),
+        );
+      }
+      // Swallow — the inline errors now communicate the problem; rethrowing
+      // would also pop a redundant generic snackbar.
     } catch (e, st) {
       if (kDebugMode) {
         log(
@@ -340,6 +440,35 @@ class _ServiceFormState extends State<ServiceForm> {
         setState(() => _submitting = false);
       }
     }
+  }
+
+  /// Filters [raw] (the backend `errors` field map) down to the keys this form
+  /// renders inline. Unknown keys are dropped so the caller's generic snackbar
+  /// fallback still fires when the backend flags a field we don't show.
+  ///
+  /// `baseDurationMinutes` is also accepted under its legacy `durationMinutes`
+  /// alias for forward/backward compatibility with the backend contract.
+  Map<String, String> _mapServerFieldErrors(Map<String, String> raw) {
+    const Set<String> known = <String>{
+      'name',
+      'baseDurationMinutes',
+      'price',
+      'priceMin',
+      'priceMax',
+      'category',
+      'bufferMinutesAfter',
+    };
+    final Map<String, String> out = <String, String>{};
+    raw.forEach((String key, String message) {
+      // Normalise the legacy duration alias onto the field we render.
+      final String field = key == 'durationMinutes'
+          ? 'baseDurationMinutes'
+          : key;
+      if (known.contains(field) && message.trim().isNotEmpty) {
+        out[field] = message.trim();
+      }
+    });
+    return out;
   }
 
   // --- Field builder --------------------------------------------------------
@@ -393,19 +522,31 @@ class _ServiceFormState extends State<ServiceForm> {
         ),
 
         // Dirty-state marker (edit mode only) — fades in beneath the intro
-        // line when any field diverges from the loaded service values.
-        if (isEditMode) _DirtyMarker(visible: _isDirty, l10n: l10n),
+        // line when any field diverges from the loaded service values. Listens
+        // to `_dirtyNotifier` so a keystroke that flips the dirty edge repaints
+        // ONLY this marker, never the whole form (perf LOW).
+        if (isEditMode)
+          ValueListenableBuilder<bool>(
+            valueListenable: _dirtyNotifier,
+            builder: (BuildContext context, bool dirty, _) =>
+                _DirtyMarker(visible: dirty, l10n: l10n),
+          ),
 
         const SizedBox(height: VelvetSpacing.lg),
 
-        // 1 — Service name (required, 1–255 chars).
-        _buildField(
-          fieldKey: const Key('field-service-name'),
-          label: l10n.serviceNameLabel,
-          controller: _nameCtrl,
-          errorText: _nameError(l10n),
-          hintText: l10n.serviceNameHint,
-          enabled: !_submitting,
+        // 1 — Service name (required, 1–255 chars). Wrapped in a
+        // ValueListenableBuilder so a keystroke re-validates only this field's
+        // inline error — `_CategoryChips` stays out of the rebuild (perf MEDIUM).
+        ValueListenableBuilder<int>(
+          valueListenable: _revalidateTick,
+          builder: (BuildContext context, _, _) => _buildField(
+            fieldKey: const Key('field-service-name'),
+            label: l10n.serviceNameLabel,
+            controller: _nameCtrl,
+            errorText: _nameError(l10n),
+            hintText: l10n.serviceNameHint,
+            enabled: !_submitting,
+          ),
         ),
         const SizedBox(height: VelvetSpacing.lg),
 
@@ -420,47 +561,58 @@ class _ServiceFormState extends State<ServiceForm> {
           onSelect: (String? wire) {
             setState(() {
               _selectedCategory = wire;
-              _wasDirty = _isDirty;
             });
+            _wasDirty = _isDirty;
+            _dirtyNotifier.value = _wasDirty;
           },
         ),
         const SizedBox(height: VelvetSpacing.lg),
 
-        // 2 — Duration field (required, 1–1440 min).
-        _buildField(
-          fieldKey: const Key('field-service-duration'),
-          label: l10n.serviceDurationLabel,
-          controller: _durationCtrl,
-          errorText: _durationError(l10n),
-          hintText: '60',
-          suffixText: 'хв',
-          keyboardType: TextInputType.number,
-          inputFormatters: <TextInputFormatter>[
-            FilteringTextInputFormatter.digitsOnly,
-            LengthLimitingTextInputFormatter(4),
-          ],
-          enabled: !_submitting,
+        // 2 — Duration field (required, integer 1–480 min / 8 h — backend cap).
+        //     Same per-field re-validation isolation as the name field.
+        ValueListenableBuilder<int>(
+          valueListenable: _revalidateTick,
+          builder: (BuildContext context, _, _) => _buildField(
+            fieldKey: const Key('field-service-duration'),
+            label: l10n.serviceDurationLabel,
+            controller: _durationCtrl,
+            errorText: _durationError(l10n),
+            hintText: '60',
+            suffixText: 'хв',
+            keyboardType: TextInputType.number,
+            inputFormatters: <TextInputFormatter>[
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(4),
+            ],
+            enabled: !_submitting,
+          ),
         ),
         const SizedBox(height: VelvetSpacing.lg),
 
         // 3 — Pricing: FIXED (single amount) or RANGE (min–max) via the
-        //     two-mode segmented toggle + conditional field area.
-        PricingField(
-          key: const Key('pricing-field'),
-          mode: _pricingMode,
-          enabled: !_submitting,
-          onModeChanged: (ServicePriceType m) {
-            setState(() {
-              _pricingMode = m;
+        //     two-mode segmented toggle + conditional field area. Wrapped in a
+        //     ValueListenableBuilder so a price keystroke re-validates only the
+        //     pricing sub-tree — the chip row stays out of scope (perf MEDIUM).
+        ValueListenableBuilder<int>(
+          valueListenable: _revalidateTick,
+          builder: (BuildContext context, _, _) => PricingField(
+            key: const Key('pricing-field'),
+            mode: _pricingMode,
+            enabled: !_submitting,
+            onModeChanged: (ServicePriceType m) {
+              setState(() {
+                _pricingMode = m;
+              });
               _wasDirty = _isDirty;
-            });
-          },
-          fixedController: _priceFixedCtrl,
-          minController: _priceMinCtrl,
-          maxController: _priceMaxCtrl,
-          fixedError: _fixedPriceError(l10n),
-          minError: _rangeMinError(l10n),
-          rangeError: _rangeMaxError(l10n),
+              _dirtyNotifier.value = _wasDirty;
+            },
+            fixedController: _priceFixedCtrl,
+            minController: _priceMinCtrl,
+            maxController: _priceMaxCtrl,
+            fixedError: _fixedPriceError(l10n),
+            minError: _rangeMinError(l10n),
+            rangeError: _rangeMaxError(l10n),
+          ),
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
@@ -470,7 +622,7 @@ class _ServiceFormState extends State<ServiceForm> {
           label: widget.submitLabel ?? l10n.masterSaveButton,
           icon: Icons.check_rounded,
           loading: _submitting,
-          onPressed: _submitting ? null : () => _handleSubmit(l10n),
+          onPressed: _submitting ? null : () => _handleSubmit(context, l10n),
         ),
       ],
     );

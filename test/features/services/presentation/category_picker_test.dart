@@ -290,10 +290,7 @@ void main() {
       find.byKey(const Key('field-category-request-name')),
       findsOneWidget,
     );
-    expect(
-      find.byKey(const Key('field-category-request-code')),
-      findsNothing,
-    );
+    expect(find.byKey(const Key('field-category-request-code')), findsNothing);
   });
 
   // ── 4. Valid submit calls requestCategory once ──────────────────────────────
@@ -340,56 +337,51 @@ void main() {
 
   // ── 5. Non-derivable name fails validation (no repository call) ─────────────
 
-  testWidgets(
-    '5. punctuation-only name (no derivable slug) blocks submit; '
-    'name-field error shown; repository NOT called',
-    (tester) async {
-      when(
-        () => repo.requestCategory(
-          name: any(named: 'name'),
-          displayName: any(named: 'displayName'),
-        ),
-      ).thenAnswer((_) async {});
+  testWidgets('5. punctuation-only name (no derivable slug) blocks submit; '
+      'name-field error shown; repository NOT called', (tester) async {
+    when(
+      () => repo.requestCategory(
+        name: any(named: 'name'),
+        displayName: any(named: 'displayName'),
+      ),
+    ).thenAnswer((_) async {});
 
-      await _pumpForm(tester, repo, onSubmit: (_) {});
-      final l10n = _l10n(tester);
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-suggest')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-suggest')));
-      await tester.pumpAndSettle();
+    await _pumpForm(tester, repo, onSubmit: (_) {});
+    final l10n = _l10n(tester);
+    await tester.ensureVisible(find.byKey(const Key('chip-category-suggest')));
+    await tester.tap(find.byKey(const Key('chip-category-suggest')));
+    await tester.pumpAndSettle();
 
-      // A punctuation-only name derives to an empty (invalid) slug, so the name
-      // field — the only input now — surfaces the slug-contract error itself.
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('field-category-request-name')),
-          matching: find.byType(TextField),
-        ),
-        '!!!',
-      );
-      await tester.pump();
+    // A punctuation-only name derives to an empty (invalid) slug, so the name
+    // field — the only input now — surfaces the slug-contract error itself.
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-category-request-name')),
+        matching: find.byType(TextField),
+      ),
+      '!!!',
+    );
+    await tester.pump();
 
-      await tester.tap(find.byKey(const Key('btn-submit-suggest-category')));
-      await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('btn-submit-suggest-category')));
+    await tester.pumpAndSettle();
 
-      // (a) The slug-contract error is surfaced (the name field is the only
-      // input, and the dialog renders its error row just below it).
-      expect(find.text(l10n.categoryRequestCodeError), findsOneWidget);
-      // (b) The repository was never reached.
-      verifyNever(
-        () => repo.requestCategory(
-          name: any(named: 'name'),
-          displayName: any(named: 'displayName'),
-        ),
-      );
-      // The dialog stays open (submit did not pop).
-      expect(
-        find.byKey(const Key('field-category-request-name')),
-        findsOneWidget,
-      );
-    },
-  );
+    // (a) The slug-contract error is surfaced (the name field is the only
+    // input, and the dialog renders its error row just below it).
+    expect(find.text(l10n.categoryRequestCodeError), findsOneWidget);
+    // (b) The repository was never reached.
+    verifyNever(
+      () => repo.requestCategory(
+        name: any(named: 'name'),
+        displayName: any(named: 'displayName'),
+      ),
+    );
+    // The dialog stays open (submit did not pop).
+    expect(
+      find.byKey(const Key('field-category-request-name')),
+      findsOneWidget,
+    );
+  });
 
   // ── 6. 409 / 429 surface the right SnackBar ─────────────────────────────────
 
