@@ -43,6 +43,7 @@ import '../features/services/presentation/service_create_screen.dart';
 import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/services/domain/category_slug.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
 import 'route_names.dart';
@@ -200,10 +201,21 @@ GoRouter appRouter(Ref ref) {
             _instantPage(state, const MasterEditScreen()),
       ),
       // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
+      // Phase 6.x — `expandCategory` query param: when present, the matching
+      // category section is pre-expanded and all others start collapsed. Passed
+      // from profile category cards via context.push('/services?expandCategory=SLUG').
       GoRoute(
         path: RouteNames.services,
-        pageBuilder: (context, state) =>
-            _instantPage(state, const ServicesListScreen()),
+        pageBuilder: (context, state) {
+          final raw =
+              state.uri.queryParameters['expandCategory']?.trim().toUpperCase();
+          final expandCategory =
+              (raw != null && isValidCategorySlug(raw)) ? raw : null;
+          return _instantPage(
+            state,
+            ServicesListScreen(initialExpandCategory: expandCategory),
+          );
+        },
       ),
       // Phase 5.3 — Service create form (INDEPENDENT_MASTER).
       GoRoute(
