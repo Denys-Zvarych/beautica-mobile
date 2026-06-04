@@ -304,9 +304,12 @@ void main() {
           (Widget widget) =>
               widget is Semantics && (widget.properties.liveRegion ?? false),
         );
-        expect(semanticsFinder, findsOneWidget,
-            reason:
-                'Error caption must be wrapped in Semantics(liveRegion: true)');
+        expect(
+          semanticsFinder,
+          findsOneWidget,
+          reason:
+              'Error caption must be wrapped in Semantics(liveRegion: true)',
+        );
 
         // Also verify that the error text IS present via text content, purely
         // as a belt-and-suspenders check that the caption actually rendered.
@@ -354,15 +357,21 @@ void main() {
         // The notifier is now in AsyncError → _ErrorBody is rendered with the
         // retry button (NeumorphicButton whose label is l10n.retryLabel).
         // We assert on the structural presence of the retry widget type.
-        expect(find.byType(NeumorphicButton), findsOneWidget,
-            reason:
-                '_ErrorBody must render a NeumorphicButton retry CTA after save failure');
+        expect(
+          find.byType(NeumorphicButton),
+          findsOneWidget,
+          reason:
+              '_ErrorBody must render a NeumorphicButton retry CTA after save failure',
+        );
 
         // The save-working-hours CTA is gone (it lives in _LoadedBody which is
         // no longer rendered); verify the error branch rendered correctly.
-        expect(find.byKey(const Key('btn-save-working-hours')), findsNothing,
-            reason:
-                'Save CTA must be absent in the error state (_LoadedBody is not rendered)');
+        expect(
+          find.byKey(const Key('btn-save-working-hours')),
+          findsNothing,
+          reason:
+              'Save CTA must be absent in the error state (_LoadedBody is not rendered)',
+        );
       },
     );
 
@@ -397,9 +406,12 @@ void main() {
 
         // Sunday must be present and inactive.
         final sunday = saved.firstWhere((h) => h.dayOfWeek == 7);
-        expect(sunday.isActive, isFalse,
-            reason:
-                'Sunday (dayOfWeek 7) must be sent to replaceAll with isActive: false');
+        expect(
+          sunday.isActive,
+          isFalse,
+          reason:
+              'Sunday (dayOfWeek 7) must be sent to replaceAll with isActive: false',
+        );
 
         // All 7 days sent.
         expect(saved, hasLength(7));
