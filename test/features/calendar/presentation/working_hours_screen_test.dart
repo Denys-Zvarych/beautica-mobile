@@ -112,8 +112,9 @@ Future<void> _pumpScreen(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         locale: Locale('uk'),
-        // No go_router needed — WorkingHoursScreen only uses Navigator.pop
-        // for the back button, which MaterialApp handles correctly.
+        // No go_router needed — the back button uses context.canPop() /
+        // context.pop() (go_router), but none of the tests tap it.
+        // GoRouter is not wired here intentionally.
         home: WorkingHoursScreen(),
       ),
     ),

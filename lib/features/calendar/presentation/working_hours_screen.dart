@@ -29,8 +29,10 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -222,7 +224,13 @@ class _WorkingHoursScreenState extends ConsumerState<WorkingHoursScreen> {
         title: Text(l10n.workingHoursTitle, style: VelvetText.subheading()),
         leading: NeumorphicIconButton(
           icon: Icons.arrow_back_ios_new_rounded,
-          onTap: () => Navigator.of(context).pop(),
+          onTap: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go(RouteNames.masterProfile);
+            }
+          },
           semanticLabel: l10n.registerBackStep,
         ),
       ),
