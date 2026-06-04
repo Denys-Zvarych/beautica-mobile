@@ -1651,5 +1651,83 @@
   "fieldNameEmail": "Email",
   "@fieldNameEmail": {
     "description": "Field name used in server-error validation banners for the email field."
+  },
+
+  "workingHoursTitle": "Working Hours",
+  "@workingHoursTitle": {
+    "description": "Title of the working hours editor screen (Phase 6.2)."
+  },
+  "workingHoursSubtext": "Set your weekly schedule. Clients will only be able to book on open days and hours.",
+  "@workingHoursSubtext": {
+    "description": "Sub-text below the working hours screen headline (Phase 6.2)."
+  },
+  "workingHoursClosedLabel": "Day off",
+  "@workingHoursClosedLabel": {
+    "description": "Status label shown in the day toggle row when the day is closed/inactive (Phase 6.2)."
+  },
+  "workingHoursOpenCount": "{count, plural, =0{No working days} =1{1 working day} other{{count} working days}}",
+  "@workingHoursOpenCount": {
+    "description": "Summary chip showing how many days per week the master works (Phase 6.2).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "errEndAfterStart": "End time must be later than start",
+  "@errEndAfterStart": {
+    "description": "Inline per-row validation error on the working hours screen when end time ≤ start time (Phase 6.2)."
+  },
+  "weekdayMon": "Monday",
+  "@weekdayMon": {
+    "description": "Full English name for Monday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayTue": "Tuesday",
+  "@weekdayTue": {
+    "description": "Full English name for Tuesday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayWed": "Wednesday",
+  "@weekdayWed": {
+    "description": "Full English name for Wednesday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayThu": "Thursday",
+  "@weekdayThu": {
+    "description": "Full English name for Thursday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayFri": "Friday",
+  "@weekdayFri": {
+    "description": "Full English name for Friday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdaySat": "Saturday",
+  "@weekdaySat": {
+    "description": "Full English name for Saturday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdaySun": "Sunday",
+  "@weekdaySun": {
+    "description": "Full English name for Sunday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+
+  "workingHoursActiveLabel": "Open",
+  "@workingHoursActiveLabel": {
+    "description": "Status label shown in the day toggle row when the day is open/active (Phase 6.2). Opposite of workingHoursClosedLabel."
+  },
+  "workingHoursStartSemanticLabel": "Start",
+  "@workingHoursStartSemanticLabel": {
+    "description": "Accessibility semantic label prefix for the start-time well in a working-hours day row (Phase 6.2). The formatted time is appended by the widget."
+  },
+  "workingHoursEndSemanticLabel": "End",
+  "@workingHoursEndSemanticLabel": {
+    "description": "Accessibility semantic label prefix for the end-time well in a working-hours day row (Phase 6.2). The formatted time is appended by the widget."
+  },
+  "workingHoursDayToggleSemantic": "{day} — working day",
+  "@workingHoursDayToggleSemantic": {
+    "description": "Accessibility semantic label for the open/closed toggle in a working-hours day row. {day} is the localised day name (e.g. 'Monday') (Phase 6.2).",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "Monday"
+      }
+    }
   }
 }

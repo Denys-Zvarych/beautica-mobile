@@ -56,4 +56,7 @@ abstract final class RouteNames {
   static const String services = '/services';
   static const String serviceCreate = '/services/create';
   static String serviceEdit(String id) => '/services/$id/edit';
+
+  // Phase 6.2 — Working hours editor (INDEPENDENT_MASTER).
+  static const String workingHours = '/master/working-hours';
 }

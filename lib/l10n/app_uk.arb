@@ -1651,5 +1651,83 @@
   "fieldNameEmail": "Електронна пошта",
   "@fieldNameEmail": {
     "description": "Field name used in server-error validation banners for the email field."
+  },
+
+  "workingHoursTitle": "Робочі години",
+  "@workingHoursTitle": {
+    "description": "Title of the working hours editor screen (Phase 6.2)."
+  },
+  "workingHoursSubtext": "Налаштуйте щотижневий графік. Клієнти зможуть бронювати лише у відчинені дні та години.",
+  "@workingHoursSubtext": {
+    "description": "Sub-text below the working hours screen headline (Phase 6.2)."
+  },
+  "workingHoursClosedLabel": "Вихідний",
+  "@workingHoursClosedLabel": {
+    "description": "Status label shown in the day toggle row when the day is closed/inactive (Phase 6.2)."
+  },
+  "workingHoursOpenCount": "{count, plural, =0{Жодного робочого дня} =1{1 робочий день} few{{count} робочих дні} many{{count} робочих днів} other{{count} робочих днів}}",
+  "@workingHoursOpenCount": {
+    "description": "Summary chip showing how many days per week the master works (Phase 6.2).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "errEndAfterStart": "Час завершення має бути пізніше початку",
+  "@errEndAfterStart": {
+    "description": "Inline per-row validation error on the working hours screen when end time ≤ start time (Phase 6.2)."
+  },
+  "weekdayMon": "Понеділок",
+  "@weekdayMon": {
+    "description": "Full Ukrainian name for Monday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayTue": "Вівторок",
+  "@weekdayTue": {
+    "description": "Full Ukrainian name for Tuesday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayWed": "Середа",
+  "@weekdayWed": {
+    "description": "Full Ukrainian name for Wednesday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayThu": "Четвер",
+  "@weekdayThu": {
+    "description": "Full Ukrainian name for Thursday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayFri": "П'ятниця",
+  "@weekdayFri": {
+    "description": "Full Ukrainian name for Friday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdaySat": "Субота",
+  "@weekdaySat": {
+    "description": "Full Ukrainian name for Saturday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdaySun": "Неділя",
+  "@weekdaySun": {
+    "description": "Full Ukrainian name for Sunday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+
+  "workingHoursActiveLabel": "Відчинено",
+  "@workingHoursActiveLabel": {
+    "description": "Status label shown in the day toggle row when the day is open/active (Phase 6.2). Opposite of workingHoursClosedLabel."
+  },
+  "workingHoursStartSemanticLabel": "Початок",
+  "@workingHoursStartSemanticLabel": {
+    "description": "Accessibility semantic label prefix for the start-time well in a working-hours day row (Phase 6.2). The formatted time is appended by the widget."
+  },
+  "workingHoursEndSemanticLabel": "Завершення",
+  "@workingHoursEndSemanticLabel": {
+    "description": "Accessibility semantic label prefix for the end-time well in a working-hours day row (Phase 6.2). The formatted time is appended by the widget."
+  },
+  "workingHoursDayToggleSemantic": "{day} — робочий день",
+  "@workingHoursDayToggleSemantic": {
+    "description": "Accessibility semantic label for the open/closed toggle in a working-hours day row. {day} is the localised day name (e.g. 'Понеділок') (Phase 6.2).",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "Понеділок"
+      }
+    }
   }
 }

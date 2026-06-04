@@ -43,6 +43,7 @@ import '../features/services/presentation/service_create_screen.dart';
 import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/calendar/presentation/working_hours_screen.dart';
 import '../features/services/domain/category_slug.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
@@ -240,6 +241,12 @@ GoRouter appRouter(Ref ref) {
           final id = state.pathParameters['id']!;
           return _instantPage(state, ServiceEditScreen(id: id));
         },
+      ),
+      // Phase 6.2 — Working hours editor (INDEPENDENT_MASTER).
+      GoRoute(
+        path: RouteNames.workingHours,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const WorkingHoursScreen()),
       ),
     ],
   );
