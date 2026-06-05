@@ -32,6 +32,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import '../domain/schedule_model.dart';
 import '../domain/weekly_schedule.dart';
@@ -195,25 +196,24 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
 
     return Scaffold(
       backgroundColor: BrandColors.base,
-      appBar: AppBar(
-        backgroundColor: BrandColors.base,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: true,
-        title: Text(l10n.scheduleTitle, style: VelvetText.subheading()),
-        leading: NeumorphicIconButton(
-          icon: Icons.arrow_back_ios_new_rounded,
-          semanticLabel: l10n.registerBackStep,
-          onTap: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go(RouteNames.masterProfile);
-            }
-          },
+      body: SafeArea(
+        child: Column(
+          children: <Widget>[
+            VelvetTopBar(
+              title: l10n.scheduleTitle,
+              backSemanticLabel: l10n.registerBackStep,
+              onBack: () {
+                if (context.canPop()) {
+                  context.pop();
+                } else {
+                  context.go(RouteNames.masterProfile);
+                }
+              },
+            ),
+            Expanded(child: _body(l10n, editable, asyncDays, asyncWeekly)),
+          ],
         ),
       ),
-      body: SafeArea(child: _body(l10n, editable, asyncDays, asyncWeekly)),
     );
   }
 

@@ -20,6 +20,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -34,6 +35,7 @@ import 'package:beautica_mobile/features/schedule/presentation/schedule_range.da
 import 'package:beautica_mobile/features/schedule/presentation/widgets/schedule_widgets.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -874,6 +876,95 @@ void main() {
       // without error (the dot logic is unit-covered by hasOverride downstream).
       expect(find.byType(MasterScheduleScreen), findsOneWidget);
     });
+  });
+
+  // ── Header-alignment regression (VelvetTopBar shared widget contract) ───────
+  //
+  // BUG (now fixed): MasterScheduleScreen used a Material AppBar while
+  // MasterProfileScreen used a custom 48 dp VelvetTopBar, causing the back
+  // arrow + title to be misaligned across the two screens. The fix extracted
+  // VelvetTopBar into lib/shared/widgets/velvet_top_bar.dart and replaced the
+  // AppBar in the schedule screen with it.
+  //
+  // The durable guard is STRUCTURAL, not golden-based (regenerated goldens are
+  // self-referential and do not prevent visual-divergence regressions):
+  //   1. VelvetTopBar is present — the schedule screen renders the shared bar.
+  //   2. AppBar is absent       — the old Material AppBar is NOT reintroduced.
+  //   3. Title text matches scheduleTitle and a NeumorphicIconButton back arrow
+  //      is present — alignment contract is fully enforced.
+  //
+  // Assertions (1) and (2) FAIL on the pre-fix code (AppBar present, no
+  // VelvetTopBar) and PASS on the fixed code. Any future refactor that
+  // accidentally swaps VelvetTopBar back to AppBar will be caught immediately.
+
+  group('MasterScheduleScreen — header alignment regression (VelvetTopBar)', () {
+    testWidgets(
+      'renders VelvetTopBar and NOT a Material AppBar '
+      '(regression: schedule screen was misaligned vs profile screen)',
+      (tester) async {
+        // Any valid data state works — we need the screen to build fully so we
+        // can walk the widget tree. Use the simplest editable case (working day).
+        final days = _weekWith(todayDay: _working, filler: _working);
+        await _pump(tester, overrides: _editableData(days));
+
+        // ── Assertion 1: shared VelvetTopBar is present (exactly one) ────────
+        // FAILS on the pre-fix code (no VelvetTopBar in the schedule screen).
+        expect(
+          find.byType(VelvetTopBar),
+          findsOneWidget,
+          reason:
+              'MasterScheduleScreen must render the shared VelvetTopBar widget '
+              'so header alignment matches MasterProfileScreen',
+        );
+
+        // ── Assertion 2: Material AppBar is absent ────────────────────────────
+        // FAILS on the pre-fix code (AppBar was still present).
+        expect(
+          find.byType(AppBar),
+          findsNothing,
+          reason:
+              'MasterScheduleScreen must NOT contain a Material AppBar — it '
+              'was the root cause of the header misalignment vs the profile '
+              'screen; VelvetTopBar is the replacement',
+        );
+
+        // ── Assertion 3: title text and back-arrow button rendered ────────────
+        // Verifies the VelvetTopBar is correctly configured, not merely present.
+        final l10n = _l10n(tester);
+        expect(
+          find.text(l10n.scheduleTitle),
+          findsOneWidget,
+          reason: 'Header title must be scheduleTitle ("Графік роботи")',
+        );
+        expect(
+          find.byType(NeumorphicIconButton),
+          findsOneWidget,
+          reason:
+              'VelvetTopBar must render a NeumorphicIconButton back arrow, '
+              'confirming the onBack handler is wired',
+        );
+      },
+    );
+
+    testWidgets(
+      'NeumorphicIconButton back arrow carries the correct semantic label',
+      (tester) async {
+        final days = _weekWith(todayDay: _working, filler: _working);
+        await _pump(tester, overrides: _editableData(days));
+
+        // The semantic label drives accessibility and is passed from
+        // l10n.registerBackStep ("Назад"). Assert via Semantics finder so the
+        // test is coupled to the accessible name, not a visible text string.
+        final l10n = _l10n(tester);
+        expect(
+          find.bySemanticsLabel(l10n.registerBackStep),
+          findsOneWidget,
+          reason:
+              'Back arrow must carry the localised semantic label from '
+              'l10n.registerBackStep so screen readers announce it correctly',
+        );
+      },
+    );
   });
 
   // ── Week-strip overflow regression (narrow phone widths) ──────────────────

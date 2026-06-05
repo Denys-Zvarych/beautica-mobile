@@ -15,8 +15,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 /// Shared chrome for master-profile screens: a safe-area aware [Scaffold] with
 /// a fixed top bar (back + centred title + optional trailing action) and a
@@ -57,37 +56,10 @@ class ProfileScaffold extends StatelessWidget {
         child: Column(
           children: <Widget>[
             // Top bar — fixed height so the title never shifts between states.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                VelvetSpacing.lg,
-                VelvetSpacing.md,
-                VelvetSpacing.lg,
-                VelvetSpacing.xs,
-              ),
-              child: SizedBox(
-                height: 48,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: <Widget>[
-                    if (showBack)
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: NeumorphicIconButton(
-                          icon: Icons.arrow_back_ios_new_rounded,
-                          semanticLabel: 'Назад',
-                          onTap: () => context.pop(),
-                        ),
-                      ),
-                    Text(
-                      title,
-                      style: VelvetText.subheading(),
-                      textAlign: TextAlign.center,
-                    ),
-                    if (trailing != null)
-                      Align(alignment: Alignment.centerRight, child: trailing),
-                  ],
-                ),
-              ),
+            VelvetTopBar(
+              title: title,
+              onBack: showBack ? () => context.pop() : null,
+              trailing: trailing,
             ),
             // Fix 2 (PERF HIGH-2): RepaintBoundary prevents the static top bar
             // from being rasterized again during animation frames driven by the
