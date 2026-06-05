@@ -436,34 +436,37 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
           const SizedBox(width: VelvetSpacing.sm - 2),
           Expanded(
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: <Widget>[
                 for (int i = 0; i < 7; i++)
-                  Builder(
-                    builder: (_) {
-                      final DateTime d = _weekStart.add(Duration(days: i));
-                      return ValueListenableBuilder<DateTime>(
-                        valueListenable: _selected,
-                        builder: (BuildContext context, DateTime selected, _) =>
-                            WeekStripDay(
-                              weekdayLabel: _weekdayShort[i],
-                              day: d.day,
-                              selected: _sameDate(d, selected),
-                              inMonth: d.month == _visibleMonth.month,
-                              hasOverride: index.hasOverride(d),
-                              past: _isPast(d),
-                              plainSemanticLabel: l10n.scheduleStripDay(
-                                _weekdayShort[i],
-                                d.day,
-                              ),
-                              pastSemanticLabel: l10n.scheduleStripDayPast(
-                                _weekdayShort[i],
-                                d.day,
-                              ),
-                              onTap: () => _selectDate(d),
-                            ),
-                      );
-                    },
+                  Expanded(
+                    child: Builder(
+                      builder: (_) {
+                        final DateTime d = _weekStart.add(Duration(days: i));
+                        return ValueListenableBuilder<DateTime>(
+                          valueListenable: _selected,
+                          builder:
+                              (BuildContext context, DateTime selected, _) =>
+                                  WeekStripDay(
+                                    weekdayLabel: _weekdayShort[i],
+                                    day: d.day,
+                                    selected: _sameDate(d, selected),
+                                    inMonth: d.month == _visibleMonth.month,
+                                    hasOverride: index.hasOverride(d),
+                                    past: _isPast(d),
+                                    plainSemanticLabel: l10n.scheduleStripDay(
+                                      _weekdayShort[i],
+                                      d.day,
+                                    ),
+                                    pastSemanticLabel: l10n
+                                        .scheduleStripDayPast(
+                                          _weekdayShort[i],
+                                          d.day,
+                                        ),
+                                    onTap: () => _selectDate(d),
+                                  ),
+                        );
+                      },
+                    ),
                   ),
               ],
             ),

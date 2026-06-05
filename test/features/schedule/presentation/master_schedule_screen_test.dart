@@ -30,6 +30,7 @@ import 'package:beautica_mobile/features/schedule/presentation/effective_schedul
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_editor_stubs.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
+import 'package:beautica_mobile/features/schedule/presentation/widgets/schedule_widgets.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -514,6 +515,35 @@ void main() {
       // strip goldens. Here we assert the screen built with the overridden data
       // without error (the dot logic is unit-covered by hasOverride downstream).
       expect(find.byType(MasterScheduleScreen), findsOneWidget);
+    });
+  });
+
+  // ── Week-strip overflow regression (narrow phone widths) ──────────────────
+  //
+  // The seven WeekStripDay cells used to be laid out with
+  // MainAxisAlignment.spaceBetween over intrinsic-width children, which cannot
+  // shrink → a ~46px RenderFlex right-overflow on normal phone widths. The
+  // cells are now Expanded (sharing the row) and the day disc is wrapped in a
+  // FittedBox, so the strip fits any width. This test pins a narrow phone width
+  // and fails if a RenderFlex overflow is ever reintroduced.
+  group('MasterScheduleScreen — week strip fits narrow widths', () {
+    testWidgets('no RenderFlex overflow at 320 logical px', (tester) async {
+      tester.view.physicalSize = const Size(320, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final List<EffectiveDay> days = _weekWith(
+        todayDay: _working,
+        filler: _working,
+      );
+      await _pump(tester, overrides: _editableData(days));
+
+      // A RenderFlex overflow is reported as an exception during layout/paint;
+      // takeException returns null only when the strip fits. This is the exact
+      // guard for the original ~46px right-overflow bug.
+      expect(tester.takeException(), isNull);
+      expect(find.byType(WeekStripDay), findsNWidgets(7));
     });
   });
 }

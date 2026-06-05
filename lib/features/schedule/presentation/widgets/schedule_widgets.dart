@@ -289,32 +289,44 @@ class WeekStripDay extends StatelessWidget {
     final Column body = Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Text(weekdayLabel, style: VelvetText.label().copyWith(fontSize: 11)),
+        Text(
+          weekdayLabel,
+          maxLines: 1,
+          overflow: TextOverflow.clip,
+          style: VelvetText.label().copyWith(fontSize: 11),
+        ),
         const SizedBox(height: VelvetSpacing.sm),
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-          height: 38,
-          width: 38,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected
-                ? BrandColors.accent.withValues(alpha: 0.35)
-                : Colors.transparent,
-            shape: BoxShape.circle,
-            border: selected
-                ? Border.all(
-                    color: BrandColors.accent.withValues(alpha: 0.9),
-                    width: 1.6,
-                  )
-                : null,
-          ),
-          child: Text(
-            '$day',
-            style: VelvetText.bodyStrong().copyWith(
-              fontSize: 16,
-              color: numberColor,
-              fontWeight: numberWeight,
+        // The 38px camel disc is the natural pill size, but on narrow phone
+        // widths a single strip cell can be slimmer than 38px once the seven
+        // cells share the row via Expanded. FittedBox scales the disc down to
+        // fit the cell instead of overflowing, preserving the selected ring.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            height: 38,
+            width: 38,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: selected
+                  ? BrandColors.accent.withValues(alpha: 0.35)
+                  : Colors.transparent,
+              shape: BoxShape.circle,
+              border: selected
+                  ? Border.all(
+                      color: BrandColors.accent.withValues(alpha: 0.9),
+                      width: 1.6,
+                    )
+                  : null,
+            ),
+            child: Text(
+              '$day',
+              style: VelvetText.bodyStrong().copyWith(
+                fontSize: 16,
+                color: numberColor,
+                fontWeight: numberWeight,
+              ),
             ),
           ),
         ),
