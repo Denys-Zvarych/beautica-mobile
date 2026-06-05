@@ -10,11 +10,13 @@
 //     value 104 directly via the named constant [ProfileAvatar.kDiameter].
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 
 /// The avatar well — a recessed circular well that "sinks" into the surface,
 /// holding a camel [Icons.person_outline] placeholder. The concave look reads
@@ -498,7 +500,9 @@ class VelvetBottomNavBar extends StatelessWidget {
                   for (int i = 0; i < _navItems.length; i++)
                     Expanded(
                       child: _VelvetNavTile(
+                        key: Key('master-nav-tile-$i'),
                         item: _navItems[i],
+                        index: i,
                         active: i == activeIndex,
                       ),
                     ),
@@ -513,51 +517,75 @@ class VelvetBottomNavBar extends StatelessWidget {
 }
 
 class _VelvetNavTile extends StatelessWidget {
-  const _VelvetNavTile({required this.item, required this.active});
+  const _VelvetNavTile({
+    super.key,
+    required this.item,
+    required this.index,
+    required this.active,
+  });
 
   final _NavItem item;
+  final int index;
   final bool active;
+
+  /// Resolves the go_router path for a nav-bar [index]. Returns `null` when the
+  /// tile has no destination yet (e.g. "Мої записи" has no route) — the tap is
+  /// then a no-op. Tapping the already-active tile also resolves to `null` so
+  /// we never issue a redundant navigation to the current location.
+  String? _routeFor(int index) {
+    if (active) return null;
+    return switch (index) {
+      0 => RouteNames.services, // Послуги
+      2 => RouteNames.workingHours, // Календар
+      _ => null, // Мої записи (1) — no route yet; Профіль (3) — current shell.
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
     final Color color = active ? BrandColors.accentDeep : BrandColors.muted;
+    final String? route = _routeFor(index);
 
     return Semantics(
       label: item.label,
       selected: active,
       button: true,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          // Camel pill indicator above the active icon.
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            width: active ? 26 : 0,
-            height: 3,
-            margin: const EdgeInsets.only(bottom: VelvetSpacing.xs),
-            decoration: BoxDecoration(
-              gradient: active
-                  ? const LinearGradient(
-                      colors: <Color>[
-                        BrandColors.accentDeep,
-                        BrandColors.accent,
-                      ],
-                    )
-                  : null,
-              color: active ? null : Colors.transparent,
-              borderRadius: BorderRadius.circular(2),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: route == null ? null : () => context.go(route),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            // Camel pill indicator above the active icon.
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              width: active ? 26 : 0,
+              height: 3,
+              margin: const EdgeInsets.only(bottom: VelvetSpacing.xs),
+              decoration: BoxDecoration(
+                gradient: active
+                    ? const LinearGradient(
+                        colors: <Color>[
+                          BrandColors.accentDeep,
+                          BrandColors.accent,
+                        ],
+                      )
+                    : null,
+                color: active ? null : Colors.transparent,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
-          ),
-          Icon(active ? item.activeIcon : item.icon, size: 22, color: color),
-          const SizedBox(height: 2),
-          Text(
-            item.label,
-            // M-1 fix: pre-composed base; one copyWith for the dynamic color
-            // instead of two allocations (feedback() + copyWith) per frame.
-            style: VelvetText.navTabLabel.copyWith(color: color),
-          ),
-        ],
+            Icon(active ? item.activeIcon : item.icon, size: 22, color: color),
+            const SizedBox(height: 2),
+            Text(
+              item.label,
+              // M-1 fix: pre-composed base; one copyWith for the dynamic color
+              // instead of two allocations (feedback() + copyWith) per frame.
+              style: VelvetText.navTabLabel.copyWith(color: color),
+            ),
+          ],
+        ),
       ),
     );
   }
