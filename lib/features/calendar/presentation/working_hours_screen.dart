@@ -38,6 +38,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/calendar/domain/working_hours.dart';
+import 'package:beautica_mobile/features/schedule/presentation/widgets/velvet_time_picker.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 import 'working_hours_notifier.dart';
@@ -104,40 +105,26 @@ class _WorkingHoursScreenState extends ConsumerState<WorkingHoursScreen> {
   // Time picker helpers
   // ---------------------------------------------------------------------------
 
-  /// Shows a [showTimePicker] dialog themed to the VelvetTouch palette.
-  Future<TimeOfDay?> _showTimePicker(TimeOfDay initial) {
-    return showTimePicker(
-      context: context,
-      initialTime: initial,
-      initialEntryMode: TimePickerEntryMode.dial,
-      builder: (BuildContext ctx, Widget? child) {
-        return Theme(
-          data: Theme.of(ctx).copyWith(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: BrandColors.accentDeep,
-              brightness: Brightness.light,
-              primary: BrandColors.accentDeep,
-              onPrimary: BrandColors.white,
-              surface: BrandColors.base,
-              onSurface: BrandColors.text,
-            ),
-            timePickerTheme: const TimePickerThemeData(
-              backgroundColor: BrandColors.base,
-              hourMinuteColor: BrandColors.shadowLightStrong,
-              dialBackgroundColor: BrandColors.shadowLightStrong,
-              dialHandColor: BrandColors.accent,
-              entryModeIconColor: BrandColors.accentDeep,
-            ),
-          ),
-          child: child!,
-        );
-      },
+  /// Opens the VelvetTouch wheel time picker (replaces the Material clock dial)
+  /// seeded at [initial], titled [title]. Resolves to the chosen time or null.
+  Future<TimeOfDay?> _pickTime(TimeOfDay initial, String title) {
+    final l10n = AppLocalizations.of(context);
+    return showVelvetTimePicker(
+      context,
+      initial,
+      title: title,
+      confirmLabel: l10n.timePickerConfirm,
+      hoursSemanticLabel: l10n.timePickerHoursSemantic,
+      minutesSemanticLabel: l10n.timePickerMinutesSemantic,
     );
   }
 
   Future<void> _pickStart(int index) async {
     final WorkingHours current = _draft![index];
-    final TimeOfDay? picked = await _showTimePicker(current.start);
+    final TimeOfDay? picked = await _pickTime(
+      current.start,
+      AppLocalizations.of(context).timePickerStartTitle,
+    );
     if (picked == null || !mounted) return;
     setState(() {
       _draft![index] = current.copyWith(
@@ -148,7 +135,10 @@ class _WorkingHoursScreenState extends ConsumerState<WorkingHoursScreen> {
 
   Future<void> _pickEnd(int index) async {
     final WorkingHours current = _draft![index];
-    final TimeOfDay? picked = await _showTimePicker(current.end);
+    final TimeOfDay? picked = await _pickTime(
+      current.end,
+      AppLocalizations.of(context).timePickerEndTitle,
+    );
     if (picked == null || !mounted) return;
     setState(() {
       _draft![index] = current.copyWith(

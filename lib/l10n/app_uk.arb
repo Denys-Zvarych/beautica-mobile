@@ -1861,5 +1861,25 @@
   "scheduleEditorComingSoon": "Цей редактор скоро буде доступний.",
   "@scheduleEditorComingSoon": {
     "description": "Body text shared by the schedule editor stub screens (Phase 15.2)."
+  },
+  "timePickerStartTitle": "Початок робочого дня",
+  "@timePickerStartTitle": {
+    "description": "Title of the VelvetTouch wheel time picker when choosing a working-day start time (replaces the Material clock dial)."
+  },
+  "timePickerEndTitle": "Кінець робочого дня",
+  "@timePickerEndTitle": {
+    "description": "Title of the VelvetTouch wheel time picker when choosing a working-day end time (replaces the Material clock dial)."
+  },
+  "timePickerConfirm": "Готово",
+  "@timePickerConfirm": {
+    "description": "Confirm CTA inside the VelvetTouch wheel time picker bottom sheet."
+  },
+  "timePickerHoursSemantic": "Години",
+  "@timePickerHoursSemantic": {
+    "description": "Accessibility label for the hours scroll wheel in the VelvetTouch time picker."
+  },
+  "timePickerMinutesSemantic": "Хвилини",
+  "@timePickerMinutesSemantic": {
+    "description": "Accessibility label for the minutes scroll wheel in the VelvetTouch time picker (15-minute steps)."
   }
 }
