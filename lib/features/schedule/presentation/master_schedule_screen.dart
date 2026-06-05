@@ -38,6 +38,7 @@ import '../domain/weekly_schedule.dart';
 import 'effective_schedule_notifier.dart';
 import 'schedule_capability.dart';
 import 'schedule_range.dart';
+import 'weekly_schedule_notifier.dart';
 import 'widgets/day_schedule.dart';
 import 'widgets/schedule_widgets.dart';
 
@@ -187,6 +188,10 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     final l10n = AppLocalizations.of(context);
     final editable = ref.watch(scheduleEditableProvider);
     final asyncDays = ref.watch(effectiveScheduleProvider(_range));
+    // The global "has the master published ANY schedule?" signal. Watched
+    // alongside the visible range so the empty-state decision is a global
+    // verdict (no weekly template defined) rather than a per-month one.
+    final asyncWeekly = ref.watch(weeklyScheduleProvider);
 
     return Scaffold(
       backgroundColor: BrandColors.base,
@@ -208,19 +213,62 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
           },
         ),
       ),
-      body: SafeArea(
-        child: asyncDays.when(
-          loading: () => const Center(
-            child: CircularProgressIndicator(color: BrandColors.accent),
-          ),
-          error: (e, _) => _ErrorBody(
-            failure: e,
-            onRetry: () => ref.invalidate(effectiveScheduleProvider(_range)),
-          ),
-          data: (days) => _content(l10n, editable, days),
-        ),
-      ),
+      body: SafeArea(child: _body(l10n, editable, asyncDays, asyncWeekly)),
     );
+  }
+
+  /// Combines the effective-range and weekly-template async states cleanly:
+  ///   • either errored  → the retry body (invalidates both sources);
+  ///   • both have data  → the empty state when the master has NO schedule at
+  ///     all, otherwise the full calendar; the empty-state verdict needs both
+  ///     resolved lists, so a value from one + loading from the other still
+  ///     shows the spinner;
+  ///   • otherwise        → spinner.
+  Widget _body(
+    AppLocalizations l10n,
+    bool editable,
+    AsyncValue<List<EffectiveDay>> asyncDays,
+    AsyncValue<List<WeeklySchedule>> asyncWeekly,
+  ) {
+    // Either source erroring takes precedence: show the retry body.
+    if (asyncDays.hasError) {
+      return _ErrorBody(
+        failure: asyncDays.error!,
+        onRetry: () => ref.invalidate(effectiveScheduleProvider(_range)),
+      );
+    }
+    if (asyncWeekly.hasError) {
+      return _ErrorBody(
+        failure: asyncWeekly.error!,
+        onRetry: () => ref.invalidate(weeklyScheduleProvider),
+      );
+    }
+
+    // Riverpod 3.x: `.value` is the nullable getter (`valueOrNull` was removed).
+    final List<EffectiveDay>? days = asyncDays.value;
+    final List<WeeklySchedule>? weekly = asyncWeekly.value;
+    // Both must be resolved before we can decide empty vs. full.
+    if (days == null || weekly == null) {
+      return const Center(
+        child: CircularProgressIndicator(color: BrandColors.accent),
+      );
+    }
+
+    // "No schedule at all" — no weekly template defined AND no override covers
+    // any visible day (every resolved day is NO_SCHEDULE). Both conditions
+    // guard against a master who has only per-date overrides but no template.
+    final bool noSchedule =
+        weekly.isEmpty &&
+        days.every((d) => d.source == EffectiveSource.noSchedule);
+    if (noSchedule) {
+      return _EmptyScheduleBody(
+        // OQ-2: the CTA is present only for editable viewers (read-only
+        // SALON_MASTER sees the message informationally, no action button).
+        onAddHours: editable ? _openTemplateEditor : null,
+      );
+    }
+
+    return _content(l10n, editable, days);
   }
 
   Widget _content(
@@ -563,6 +611,43 @@ class _ErrorBody extends StatelessWidget {
               onPressed: onRetry,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _EmptyScheduleBody — the focused "no schedule at all" state.
+//
+// When the master has not published any schedule (no weekly template + no
+// override covering the visible range), the whole calendar is replaced by a
+// single centered [NoScheduleBanner]: the «графік не задано» whole-period copy +
+// the «Додати робочі години» CTA → the weekly-template editor. Deliberately
+// renders NONE of the full layout (template card, month navigator, week strip,
+// availability grid, legend, quick actions).
+//
+// Role gating (OQ-2): [onAddHours] is null for read-only viewers, so the banner
+// shows informationally with no action button — identical to the in-grid banner.
+// ─────────────────────────────────────────────────────────────────────────────
+class _EmptyScheduleBody extends StatelessWidget {
+  const _EmptyScheduleBody({required this.onAddHours});
+
+  /// Tap handler for the CTA. Null → read-only viewer → CTA is hidden.
+  final VoidCallback? onAddHours;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return Center(
+      child: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.all(VelvetSpacing.lg),
+        child: NoScheduleBanner(
+          message: l10n.scheduleNoSchedulePeriod,
+          helper: l10n.scheduleNoScheduleHelper,
+          ctaLabel: l10n.scheduleAddHoursCta,
+          onAddHours: onAddHours,
         ),
       ),
     );

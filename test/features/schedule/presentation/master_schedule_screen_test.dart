@@ -28,6 +28,7 @@ import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
+import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_editor_stubs.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/features/schedule/presentation/widgets/schedule_widgets.dart';
@@ -119,6 +120,50 @@ class _ErrorSchedule extends EffectiveScheduleNotifier {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// Fake WeeklySchedule notifier — the global "has any schedule" signal that
+// gates the focused empty state. Every full-layout case must stub this
+// NON-EMPTY so the screen renders the calendar (not the empty state).
+// ───────────────────────────────────────────────────────────────────────────
+
+/// One non-empty template (all seven ISO days closed is fine — its mere
+/// presence means "the master HAS a schedule", so the full layout renders).
+WeeklySchedule _template() => WeeklySchedule(
+  validFrom: _today,
+  validTo: null,
+  days: <TemplateDay>[
+    for (int dow = 1; dow <= 7; dow++)
+      TemplateDay(
+        dayOfWeek: dow,
+        label: 'd$dow',
+        intervals: <WorkInterval>[_interval(9, 0, 18, 0)],
+      ),
+  ],
+);
+
+class _WeeklyData extends WeeklyScheduleNotifier {
+  _WeeklyData(this._templates);
+  final List<WeeklySchedule> _templates;
+  @override
+  Future<List<WeeklySchedule>> build() async => _templates;
+}
+
+/// Never-completing weekly signal — used to assert the empty-state verdict is
+/// deferred until BOTH sources resolve (no premature empty state flash).
+class _LoadingWeekly extends WeeklyScheduleNotifier {
+  @override
+  Future<List<WeeklySchedule>> build() {
+    return Completer<List<WeeklySchedule>>().future; // never completes
+  }
+}
+
+/// Erroring weekly signal — used to assert weekly-error precedence over the
+/// empty-state verdict (the second error branch in `_body`).
+class _ErrorWeekly extends WeeklyScheduleNotifier {
+  @override
+  Future<List<WeeklySchedule>> build() async => throw Exception('weekly boom');
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // Auth session fixtures for the role-gating cases.
 // ───────────────────────────────────────────────────────────────────────────
 
@@ -183,10 +228,27 @@ Future<void> _pump(
 }
 
 /// Editable-by-default overrides: an INDEPENDENT_MASTER session + a data
-/// notifier returning [days].
+/// notifier returning [days] + a NON-EMPTY weekly template (so the full
+/// calendar renders, not the focused empty state).
 List<Object> _editableData(List<EffectiveDay> days) => <Object>[
   authProvider.overrideWith(() => _FixedAuth(UserRole.independentMaster)),
   effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+  weeklyScheduleProvider.overrideWith(
+    () => _WeeklyData(<WeeklySchedule>[_template()]),
+  ),
+];
+
+/// Role + schedule overrides with an explicit weekly-template list. Used by the
+/// role-gating and empty-state cases that need to control the "has any
+/// schedule" signal independently of the effective-range data.
+List<Object> _withWeekly(
+  UserRole role,
+  List<EffectiveDay> days,
+  List<WeeklySchedule> templates,
+) => <Object>[
+  authProvider.overrideWith(() => _FixedAuth(role)),
+  effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+  weeklyScheduleProvider.overrideWith(() => _WeeklyData(templates)),
 ];
 
 AppLocalizations _l10n(WidgetTester tester) =>
@@ -349,10 +411,9 @@ void main() {
         final days = _weekWith(todayDay: _working, filler: _working);
         await _pump(
           tester,
-          overrides: <Object>[
-            authProvider.overrideWith(() => _FixedAuth(UserRole.salonMaster)),
-            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
-          ],
+          overrides: _withWeekly(UserRole.salonMaster, days, <WeeklySchedule>[
+            _template(),
+          ]),
         );
 
         // Read content still renders.
@@ -375,13 +436,15 @@ void main() {
     testWidgets(
       'SALON_MASTER (read-only): NO_SCHEDULE banner shows WITHOUT the CTA',
       (tester) async {
+        // A gap today but a non-empty template + working filler days → this is
+        // NOT the "no schedule at all" empty state; the in-grid banner renders
+        // for the selected gap day. (Read-only role suppresses the CTA.)
         final days = _weekWith(todayDay: _noSchedule, filler: _working);
         await _pump(
           tester,
-          overrides: <Object>[
-            authProvider.overrideWith(() => _FixedAuth(UserRole.salonMaster)),
-            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
-          ],
+          overrides: _withWeekly(UserRole.salonMaster, days, <WeeklySchedule>[
+            _template(),
+          ]),
         );
 
         // Banner shows informationally...
@@ -411,15 +474,197 @@ void main() {
       final days = _weekWith(todayDay: _working, filler: _working);
       await _pump(
         tester,
-        overrides: <Object>[
-          authProvider.overrideWith(() => _FixedAuth(UserRole.salonOwner)),
-          effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
-        ],
+        overrides: _withWeekly(UserRole.salonOwner, days, <WeeklySchedule>[
+          _template(),
+        ]),
       );
 
       expect(find.byKey(const Key('schedule-weekly-card')), findsOneWidget);
       expect(find.byKey(const Key('schedule-day-pencil')), findsOneWidget);
     });
+  });
+
+  // ── Focused "no schedule at all" empty state ──────────────────────────────
+  //
+  // When the master has NO weekly template AND no override covers the visible
+  // range (every day NO_SCHEDULE), the whole calendar is replaced by a single
+  // centered empty-state card — NONE of the full layout renders.
+
+  group('MasterScheduleScreen — no-schedule empty state', () {
+    testWidgets(
+      'editable master with no schedule sees ONLY the add-hours card; full '
+      'layout absent',
+      (tester) async {
+        // No weekly template + an all-NO_SCHEDULE visible week.
+        final days = _weekWith(todayDay: _noSchedule, filler: _noSchedule);
+        await _pump(
+          tester,
+          overrides: _withWeekly(
+            UserRole.independentMaster,
+            days,
+            const <WeeklySchedule>[],
+          ),
+        );
+
+        // The focused empty-state card + whole-period copy + CTA render.
+        expect(find.byKey(const Key('no-schedule-banner')), findsOneWidget);
+        expect(find.byKey(const Key('no-schedule-add-hours')), findsOneWidget);
+        final l10n = _l10n(tester);
+        expect(find.text(l10n.scheduleNoSchedulePeriod), findsOneWidget);
+
+        // The full layout is ABSENT — no week strip, no day cells, no legend,
+        // no template card, no month-navigator "Today" action, no quick actions.
+        expect(find.byType(WeekStripDay), findsNothing);
+        expect(find.byType(SlotLegend), findsNothing);
+        expect(find.byKey(const Key('schedule-weekly-card')), findsNothing);
+        expect(find.byKey(const Key('schedule-today')), findsNothing);
+        expect(find.byKey(const Key('schedule-day-pencil')), findsNothing);
+        expect(find.byKey(const Key('schedule-add-hours')), findsNothing);
+        expect(find.byKey(const Key('schedule-time-off')), findsNothing);
+        expect(find.byKey(const Key('schedule-copy')), findsNothing);
+
+        await expectLater(
+          find.byType(MasterScheduleScreen),
+          matchesGoldenFile('goldens/schedule_empty_state.png'),
+        );
+      },
+    );
+
+    testWidgets(
+      'read-only SALON_MASTER with no schedule sees the empty-state card '
+      'WITHOUT the CTA',
+      (tester) async {
+        final days = _weekWith(todayDay: _noSchedule, filler: _noSchedule);
+        await _pump(
+          tester,
+          overrides: _withWeekly(
+            UserRole.salonMaster,
+            days,
+            const <WeeklySchedule>[],
+          ),
+        );
+
+        // The empty-state card shows informationally...
+        expect(find.byKey(const Key('no-schedule-banner')), findsOneWidget);
+        // ...but the CTA is suppressed for the read-only role (OQ-2).
+        expect(find.byKey(const Key('no-schedule-add-hours')), findsNothing);
+
+        // Full layout still absent.
+        expect(find.byType(WeekStripDay), findsNothing);
+        expect(find.byType(SlotLegend), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'tapping the empty-state CTA routes to the weekly-template editor stub',
+      (tester) async {
+        final days = _weekWith(todayDay: _noSchedule, filler: _noSchedule);
+        await _pump(
+          tester,
+          overrides: _withWeekly(
+            UserRole.independentMaster,
+            days,
+            const <WeeklySchedule>[],
+          ),
+        );
+
+        await tester.ensureVisible(
+          find.byKey(const Key('no-schedule-add-hours')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('no-schedule-add-hours')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('stub-weekly-template-editor')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'a master with an override-only covered day (no template) renders the '
+      'FULL layout, not the empty state',
+      (tester) async {
+        // No weekly template, but a per-date override covers today → this is
+        // NOT "no schedule at all"; the calendar must render.
+        final days = _weekWith(todayDay: _custom, filler: _noSchedule);
+        await _pump(
+          tester,
+          overrides: _withWeekly(
+            UserRole.independentMaster,
+            days,
+            const <WeeklySchedule>[],
+          ),
+        );
+
+        // Full layout present (week strip + legend), empty-state copy absent.
+        expect(find.byType(WeekStripDay), findsNWidgets(7));
+        expect(find.byType(SlotLegend), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'weekly signal still loading + all-NO_SCHEDULE effective data shows the '
+      'spinner, NOT a premature empty state',
+      (tester) async {
+        // The empty-state verdict needs BOTH sources resolved. If only the
+        // effective range has resolved (all NO_SCHEDULE) while the global
+        // "has any schedule" signal is still loading, we must show the spinner
+        // — never flash the empty-state card before the verdict is real.
+        final days = _weekWith(todayDay: _noSchedule, filler: _noSchedule);
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: <Object>[
+              authProvider.overrideWith(
+                () => _FixedAuth(UserRole.independentMaster),
+              ),
+              effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+              weeklyScheduleProvider.overrideWith(() => _LoadingWeekly()),
+            ].cast(),
+            child: MaterialApp.router(
+              routerConfig: _router(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        // Pump (not settle — the weekly future never completes).
+        await tester.pump();
+
+        // Spinner, not the empty-state card.
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(find.byKey(const Key('no-schedule-banner')), findsNothing);
+        expect(find.byKey(const Key('no-schedule-add-hours')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'weekly signal error + all-NO_SCHEDULE effective data shows the retry '
+      'body, NOT the empty state (weekly-error precedence)',
+      (tester) async {
+        // The weekly source erroring must take precedence over the empty-state
+        // verdict (the second error branch in `_body`). Otherwise a failed
+        // global signal would be misread as "no schedule at all".
+        final days = _weekWith(todayDay: _noSchedule, filler: _noSchedule);
+        await _pump(
+          tester,
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith(() => _ErrorWeekly()),
+          ],
+        );
+
+        // Retry body, not the empty-state card.
+        expect(find.byKey(const Key('schedule-retry')), findsOneWidget);
+        expect(find.byKey(const Key('no-schedule-banner')), findsNothing);
+        expect(find.byKey(const Key('no-schedule-add-hours')), findsNothing);
+      },
+    );
   });
 
   // ── Async UI states (M3) ──────────────────────────────────────────────────
@@ -433,6 +678,9 @@ void main() {
               () => _FixedAuth(UserRole.independentMaster),
             ),
             effectiveScheduleProvider.overrideWith(() => _LoadingSchedule()),
+            weeklyScheduleProvider.overrideWith(
+              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            ),
           ].cast(),
           child: MaterialApp.router(
             routerConfig: _router(),
@@ -458,6 +706,9 @@ void main() {
             () => _FixedAuth(UserRole.independentMaster),
           ),
           effectiveScheduleProvider.overrideWith(() => _ErrorSchedule()),
+          weeklyScheduleProvider.overrideWith(
+            () => _WeeklyData(<WeeklySchedule>[_template()]),
+          ),
         ],
       );
 
