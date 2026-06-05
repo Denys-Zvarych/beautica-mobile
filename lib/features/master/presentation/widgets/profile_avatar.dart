@@ -536,7 +536,7 @@ class _VelvetNavTile extends StatelessWidget {
     if (active) return null;
     return switch (index) {
       0 => RouteNames.services, // Послуги
-      2 => RouteNames.workingHours, // Календар
+      2 => RouteNames.masterSchedule, // Календар → Phase 15.2 schedule screen
       _ => null, // Мої записи (1) — no route yet; Профіль (3) — current shell.
     };
   }

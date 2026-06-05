@@ -44,6 +44,8 @@ import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import '../features/calendar/presentation/working_hours_screen.dart';
+import '../features/schedule/presentation/master_schedule_screen.dart';
+import '../features/schedule/presentation/schedule_editor_stubs.dart';
 import '../features/services/domain/category_slug.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
@@ -242,11 +244,36 @@ GoRouter appRouter(Ref ref) {
           return _instantPage(state, ServiceEditScreen(id: id));
         },
       ),
-      // Phase 6.2 — Working hours editor (INDEPENDENT_MASTER).
+      // Phase 6.2 — Working hours editor (INDEPENDENT_MASTER). Reachable as a
+      // sub-editor; the Календар tile now lands on /schedule.
       GoRoute(
         path: RouteNames.workingHours,
         pageBuilder: (context, state) =>
             _instantPage(state, const WorkingHoursScreen()),
+      ),
+      // Phase 15.2 — Master schedule («Графік роботи»), the Календар tile's
+      // destination. Auth-guarded by the global redirect.
+      GoRoute(
+        path: RouteNames.masterSchedule,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const MasterScheduleScreen()),
+      ),
+      // Phase 15.2 — routed editor stubs for 15.3–15.5 (real placeholder
+      // screens; replaced at the same paths when each phase ships).
+      GoRoute(
+        path: RouteNames.scheduleWeeklyEditor,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const WeeklyTemplateEditorStubScreen()),
+      ),
+      GoRoute(
+        path: RouteNames.scheduleDayOverride,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const PerDateOverrideStubScreen()),
+      ),
+      GoRoute(
+        path: RouteNames.schedulePropagate,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const SchedulePropagateStubScreen()),
       ),
     ],
   );

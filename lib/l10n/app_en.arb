@@ -1729,5 +1729,137 @@
         "example": "Monday"
       }
     }
+  },
+
+  "scheduleTitle": "Work schedule",
+  "@scheduleTitle": {
+    "description": "App-bar title of the Master Schedule screen (Phase 15.2)."
+  },
+  "scheduleCalendarSection": "Calendar",
+  "@scheduleCalendarSection": {
+    "description": "Section header above the calendar card on the Master Schedule screen (Phase 15.2)."
+  },
+  "scheduleWeeklyCardTitle": "Working days and hours",
+  "@scheduleWeeklyCardTitle": {
+    "description": "Title of the weekly-template summary card on the Master Schedule screen (Phase 15.2)."
+  },
+  "scheduleWeeklyCardEditSemantic": "Working days and hours. Tap to edit",
+  "@scheduleWeeklyCardEditSemantic": {
+    "description": "Accessibility semantic label for the tappable weekly-template card (editable viewers) on the Master Schedule screen (Phase 15.2)."
+  },
+  "scheduleTodayAction": "Today",
+  "@scheduleTodayAction": {
+    "description": "Label of the 'jump to today' button in the month navigator (Phase 15.2)."
+  },
+  "schedulePrevMonth": "Previous month",
+  "@schedulePrevMonth": {
+    "description": "Accessibility label for the previous-month arrow in the month navigator (Phase 15.2)."
+  },
+  "scheduleNextMonth": "Next month",
+  "@scheduleNextMonth": {
+    "description": "Accessibility label for the next-month arrow in the month navigator (Phase 15.2)."
+  },
+  "schedulePrevWeek": "Previous week",
+  "@schedulePrevWeek": {
+    "description": "Accessibility label for the previous-week chevron on the week strip (Phase 15.2)."
+  },
+  "scheduleNextWeek": "Next week",
+  "@scheduleNextWeek": {
+    "description": "Accessibility label for the next-week chevron on the week strip (Phase 15.2)."
+  },
+  "scheduleStripDay": "{weekday} {day}",
+  "@scheduleStripDay": {
+    "description": "Accessibility label for a present/future day cell in the week strip (Phase 15.2). {weekday} is the short weekday; {day} is the day-of-month number.",
+    "placeholders": {
+      "weekday": { "type": "String", "example": "Mon" },
+      "day": { "type": "int", "example": "13" }
+    }
+  },
+  "scheduleStripDayPast": "{weekday} {day}, past day",
+  "@scheduleStripDayPast": {
+    "description": "Accessibility label for a past day cell in the week strip (Phase 15.2). Same placeholders as scheduleStripDay; suffixed to mark it read-only.",
+    "placeholders": {
+      "weekday": { "type": "String", "example": "Mon" },
+      "day": { "type": "int", "example": "13" }
+    }
+  },
+  "scheduleEditDaySemantic": "Edit day hours",
+  "@scheduleEditDaySemantic": {
+    "description": "Accessibility label for the day edit pencil in the selected-day panel (Phase 15.2)."
+  },
+  "schedulePastDaySemantic": "Past day — view only",
+  "@schedulePastDaySemantic": {
+    "description": "Accessibility label for the read-only badge shown on past days in the selected-day panel (Phase 15.2)."
+  },
+  "scheduleViewOnly": "View only",
+  "@scheduleViewOnly": {
+    "description": "Read-only badge label replacing the edit pencil for past days (Phase 15.2)."
+  },
+  "scheduleDaySummaryWorking": "Working day: {intervals}",
+  "@scheduleDaySummaryWorking": {
+    "description": "Selected-day summary line for a working day (Phase 15.2). {intervals} is the formatted interval list (e.g. '09:00–18:00').",
+    "placeholders": {
+      "intervals": { "type": "String", "example": "09:00–18:00" }
+    }
+  },
+  "scheduleDaySummaryUnset": "No schedule set",
+  "@scheduleDaySummaryUnset": {
+    "description": "Selected-day summary line when the day resolves to NO_SCHEDULE (Phase 15.2)."
+  },
+  "scheduleAddTimeAction": "Add hours",
+  "@scheduleAddTimeAction": {
+    "description": "Day-panel action to add working hours for the selected date — opens the per-date override editor (Phase 15.2)."
+  },
+  "scheduleTimeOffAction": "Time off",
+  "@scheduleTimeOffAction": {
+    "description": "Day-panel action to mark the selected date as time-off — opens the override editor in day-off mode (Phase 15.2)."
+  },
+  "scheduleCopyAction": "Copy",
+  "@scheduleCopyAction": {
+    "description": "Day-panel action to copy/propagate the schedule across a range — opens the propagate surface (Phase 15.2)."
+  },
+  "scheduleSlotWorking": "Working hours",
+  "@scheduleSlotWorking": {
+    "description": "Legend + slot label for an available (working) 30-min slot — green (Phase 15.2)."
+  },
+  "scheduleSlotTimeOff": "Time off",
+  "@scheduleSlotTimeOff": {
+    "description": "Legend + slot label for a time-off slot (deliberate rest / day-off override) — pink (Phase 15.2)."
+  },
+  "scheduleSlotOff": "Non-working hours",
+  "@scheduleSlotOff": {
+    "description": "Legend + slot label for a non-working slot (outside intervals / no schedule) — grey (Phase 15.2)."
+  },
+  "scheduleNoScheduleDay": "No schedule set for this day",
+  "@scheduleNoScheduleDay": {
+    "description": "NO_SCHEDULE banner primary line when a single viewed day has no published hours (Phase 15.2, OQ-3)."
+  },
+  "scheduleNoSchedulePeriod": "No schedule set for this period",
+  "@scheduleNoSchedulePeriod": {
+    "description": "NO_SCHEDULE banner primary line when the whole visible week/period has no published hours (Phase 15.2, OQ-3)."
+  },
+  "scheduleNoScheduleHelper": "Add working hours so clients can book.",
+  "@scheduleNoScheduleHelper": {
+    "description": "NO_SCHEDULE banner secondary helper line (Phase 15.2, OQ-3)."
+  },
+  "scheduleAddHoursCta": "Add working hours",
+  "@scheduleAddHoursCta": {
+    "description": "NO_SCHEDULE banner CTA — opens the weekly-template editor (Phase 15.2, OQ-3). Hidden for read-only viewers."
+  },
+  "scheduleWeeklyEditorTitle": "Working days and hours",
+  "@scheduleWeeklyEditorTitle": {
+    "description": "Title of the weekly-template editor stub screen (Phase 15.2; real editor lands in 15.3)."
+  },
+  "scheduleOverrideEditorTitle": "Day hours",
+  "@scheduleOverrideEditorTitle": {
+    "description": "Title of the per-date override editor stub screen (Phase 15.2; real editor lands in 15.4)."
+  },
+  "schedulePropagateTitle": "Copy schedule",
+  "@schedulePropagateTitle": {
+    "description": "Title of the copy/propagate stub screen (Phase 15.2; real surface lands in 15.5)."
+  },
+  "scheduleEditorComingSoon": "This editor is coming soon.",
+  "@scheduleEditorComingSoon": {
+    "description": "Body text shared by the schedule editor stub screens (Phase 15.2)."
   }
 }

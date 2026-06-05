@@ -11,7 +11,7 @@
 // Keys under test (defined in profile_avatar.dart):
 //   master-nav-tile-0 → Послуги  → context.go('/services')
 //   master-nav-tile-1 → Мої записи → no route yet (onTap == null, no-op)
-//   master-nav-tile-2 → Календар  → context.go('/master/working-hours')
+//   master-nav-tile-2 → Календар  → context.go('/schedule')
 //   master-nav-tile-3 → Профіль   → current shell; active tile is always a no-op
 //
 // pumpAndSettle IS used: the only animation is the 200 ms camel-pill
@@ -31,7 +31,7 @@ import 'package:go_router/go_router.dart';
 // ---------------------------------------------------------------------------
 
 const Key _servicesMarker = Key('stub-services-screen');
-const Key _workingHoursMarker = Key('stub-working-hours-screen');
+const Key _scheduleMarker = Key('stub-schedule-screen');
 
 GoRouter _buildRouter({required int activeIndex}) => GoRouter(
   initialLocation: RouteNames.masterProfile,
@@ -50,9 +50,9 @@ GoRouter _buildRouter({required int activeIndex}) => GoRouter(
           const Scaffold(body: SizedBox.shrink(key: _servicesMarker)),
     ),
     GoRoute(
-      path: RouteNames.workingHours,
+      path: RouteNames.masterSchedule,
       builder: (context, _) =>
-          const Scaffold(body: SizedBox.shrink(key: _workingHoursMarker)),
+          const Scaffold(body: SizedBox.shrink(key: _scheduleMarker)),
     ),
   ],
 );
@@ -64,37 +64,35 @@ String _location(GoRouter router) =>
 
 void main() {
   group('VelvetBottomNavBar tap-to-navigate', () {
-    testWidgets(
-      'tapping Календар (master-nav-tile-2) navigates to /master/working-hours',
-      (tester) async {
-        final router = _buildRouter(activeIndex: 3); // Профіль active
-        await tester.pumpWidget(_app(router));
-        await tester.pumpAndSettle();
+    testWidgets('tapping Календар (master-nav-tile-2) navigates to /schedule', (
+      tester,
+    ) async {
+      final router = _buildRouter(activeIndex: 3); // Профіль active
+      await tester.pumpWidget(_app(router));
+      await tester.pumpAndSettle();
 
-        expect(
-          _location(router),
-          RouteNames.masterProfile,
-          reason: 'precondition: bar hosted on the profile route',
-        );
+      expect(
+        _location(router),
+        RouteNames.masterProfile,
+        reason: 'precondition: bar hosted on the profile route',
+      );
 
-        await tester.tap(find.byKey(const Key('master-nav-tile-2')));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('master-nav-tile-2')));
+      await tester.pumpAndSettle();
 
-        expect(
-          _location(router),
-          RouteNames.workingHours,
-          reason:
-              'tapping the Календар tile must context.go(workingHours) — the '
-              'requested behavior',
-        );
-        expect(
-          find.byKey(_workingHoursMarker),
-          findsOneWidget,
-          reason:
-              'the working-hours destination route must mount after the tap',
-        );
-      },
-    );
+      expect(
+        _location(router),
+        RouteNames.masterSchedule,
+        reason:
+            'tapping the Календар tile must context.go(masterSchedule) — the '
+            'Phase 15.2 behavior',
+      );
+      expect(
+        find.byKey(_scheduleMarker),
+        findsOneWidget,
+        reason: 'the schedule destination route must mount after the tap',
+      );
+    });
 
     testWidgets('tapping Послуги (master-nav-tile-0) navigates to /services', (
       tester,
