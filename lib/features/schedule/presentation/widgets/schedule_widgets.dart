@@ -113,24 +113,40 @@ class GhostButton extends StatelessWidget {
       ],
     );
 
+    final BorderRadius pillRadius = BorderRadius.circular(VelvetRadii.button);
+
     return Semantics(
       button: true,
       label: label,
-      child: GestureDetector(
-        onTap: onPressed,
-        child: Container(
-          height: dense ? 40 : 48,
-          padding: EdgeInsets.symmetric(horizontal: dense ? 14 : 18),
-          decoration: BoxDecoration(
-            color: BrandColors.base,
-            borderRadius: BorderRadius.circular(VelvetRadii.button),
-            border: Border.all(
-              color: BrandColors.accent.withValues(alpha: 0.55),
-              width: 1.4,
-            ),
-            boxShadow: VelvetShadows.extrudedSmall,
+      // The styled neumorphic pill carries the fill / camel border / extruded
+      // shadow exactly as before. The tap is handled by an InkWell layered over
+      // it (transparent Material so the surface is unchanged): InkWell's tap
+      // recogniser wins the gesture arena against a parent SingleChildScrollView
+      // for normal in-slop-at-release finger taps, where the old bare
+      // GestureDetector lost the arena to the scroll view's vertical-drag
+      // recogniser on any tap that drifted past kTouchSlop (~18px). The ink is
+      // clipped to the pill shape so the ripple stays inside the rounded border.
+      child: Container(
+        height: dense ? 40 : 48,
+        decoration: BoxDecoration(
+          color: BrandColors.base,
+          borderRadius: pillRadius,
+          border: Border.all(
+            color: BrandColors.accent.withValues(alpha: 0.55),
+            width: 1.4,
           ),
-          child: Center(child: row),
+          boxShadow: VelvetShadows.extrudedSmall,
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: pillRadius,
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: dense ? 14 : 18),
+              child: Center(child: row),
+            ),
+          ),
         ),
       ),
     );

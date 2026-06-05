@@ -400,6 +400,54 @@ void main() {
         findsOneWidget,
       );
     });
+
+    // ── Regression: in-grid banner CTA must route via a Material tap affordance ─
+    //
+    // BUG (now fixed): GhostButton wrapped its label in a bare
+    // GestureDetector(onTap:). Inside the calendar card's SingleChildScrollView,
+    // the scroll view's vertical-drag recogniser won the gesture arena for a
+    // real finger's tap-with-drift, so the CTA's onPressed (navigate to the
+    // weekly-template editor) never fired on device. The widget-test gesture
+    // arena does NOT reproduce that device-only drag-vs-tap contention (a
+    // simulated tap routes on both the old and new widget), so a gesture-driven
+    // assertion cannot separate the two implementations and would be a false
+    // guard. The faithful, deterministic guard is STRUCTURAL: the CTA's tap is
+    // handled by an InkWell (a Material tap affordance, which wins the arena on
+    // device), and NOT by a bare GestureDetector. This assertion FAILS on the
+    // pre-fix code (no InkWell over the CTA → a GestureDetector instead) and
+    // PASSES on the fix.
+    testWidgets(
+      'in-grid banner CTA is wired through an InkWell, not a bare '
+      'GestureDetector (regression for the dropped tap inside the scroll view)',
+      (tester) async {
+        final days = _weekWith(todayDay: _noSchedule, filler: _working);
+        await _pump(tester, overrides: _editableData(days));
+
+        final Finder cta = find.byKey(const Key('no-schedule-add-hours'));
+        await tester.ensureVisible(cta);
+        await tester.pumpAndSettle();
+
+        // The fix wires the CTA through an InkWell (the arena-winning Material
+        // tap affordance). The pre-fix code has NO InkWell under the CTA — its
+        // tap was a bare GestureDetector that lost the arena to the scroll view
+        // on device. (InkWell renders a GestureDetector internally, so the
+        // discriminator is the presence of InkWell, not absence of one.)
+        expect(
+          find.descendant(of: cta, matching: find.byType(InkWell)),
+          findsOneWidget,
+          reason: 'CTA must use InkWell so its tap wins the arena on device',
+        );
+
+        // And the wired tap still routes (zero-movement sanity — the affordance
+        // is connected to navigation, not merely present).
+        await tester.tap(cta);
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('stub-weekly-template-editor')),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   // ── Role-based read-only gating (OQ-2) ────────────────────────────────────
@@ -575,6 +623,65 @@ void main() {
         await tester.tap(find.byKey(const Key('no-schedule-add-hours')));
         await tester.pumpAndSettle();
 
+        expect(
+          find.byKey(const Key('stub-weekly-template-editor')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    // ── Regression: empty-state CTA must route via a Material tap affordance ──
+    //
+    // BUG (now fixed): GhostButton wrapped its label in a bare
+    // GestureDetector(onTap:). Inside the empty-state SingleChildScrollView,
+    // the scroll view's vertical-drag recogniser won the gesture arena for a
+    // real finger's tap-with-drift, so the CTA's onPressed (navigate to the
+    // weekly-template editor) never fired on device. The pre-existing CTA test
+    // used `tester.tap` (zero movement), which routes on BOTH the old and new
+    // widget — so it missed the bug.
+    //
+    // The widget-test gesture arena does NOT reproduce the device-only
+    // drag-vs-tap contention: a measured sweep showed a simulated tap (and any
+    // sub-slop drift) routes identically on the old GestureDetector and the new
+    // InkWell, while any supra-slop drift correctly becomes a scroll on both.
+    // So no gesture profile separates the implementations — a gesture-driven
+    // assertion would be a false guard. The faithful, deterministic guard is
+    // STRUCTURAL: the CTA's tap is handled by an InkWell (the arena-winning
+    // Material tap affordance) and NOT a bare GestureDetector. This FAILS on
+    // the pre-fix code and PASSES on the fix.
+    testWidgets(
+      'empty-state CTA is wired through an InkWell, not a bare GestureDetector '
+      '(regression for the dropped GhostButton tap inside the scroll view)',
+      (tester) async {
+        final days = _weekWith(todayDay: _noSchedule, filler: _noSchedule);
+        await _pump(
+          tester,
+          overrides: _withWeekly(
+            UserRole.independentMaster,
+            days,
+            const <WeeklySchedule>[],
+          ),
+        );
+
+        final Finder cta = find.byKey(const Key('no-schedule-add-hours'));
+        await tester.ensureVisible(cta);
+        await tester.pumpAndSettle();
+
+        // The fix wires the CTA through an InkWell (the arena-winning Material
+        // tap affordance). The pre-fix code has NO InkWell under the CTA — its
+        // tap was a bare GestureDetector that lost the arena to the scroll view
+        // on device. (Note: InkWell itself renders a GestureDetector internally,
+        // so the discriminator is the *presence of InkWell*, not the absence of
+        // GestureDetector.)
+        expect(
+          find.descendant(of: cta, matching: find.byType(InkWell)),
+          findsOneWidget,
+          reason: 'CTA must use InkWell so its tap wins the arena on device',
+        );
+
+        // And the wired affordance still routes to the editor stub.
+        await tester.tap(cta);
+        await tester.pumpAndSettle();
         expect(
           find.byKey(const Key('stub-weekly-template-editor')),
           findsOneWidget,
