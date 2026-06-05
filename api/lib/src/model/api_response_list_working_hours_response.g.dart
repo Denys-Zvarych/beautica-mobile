@@ -14,6 +14,8 @@ class _$ApiResponseListWorkingHoursResponse
   final BuiltList<WorkingHoursResponse>? data;
   @override
   final String? message;
+  @override
+  final BuiltMap<String, String>? errors;
 
   factory _$ApiResponseListWorkingHoursResponse(
           [void Function(ApiResponseListWorkingHoursResponseBuilder)?
@@ -21,7 +23,7 @@ class _$ApiResponseListWorkingHoursResponse
       (ApiResponseListWorkingHoursResponseBuilder()..update(updates))._build();
 
   _$ApiResponseListWorkingHoursResponse._(
-      {this.success, this.data, this.message})
+      {this.success, this.data, this.message, this.errors})
       : super._();
   @override
   ApiResponseListWorkingHoursResponse rebuild(
@@ -38,7 +40,8 @@ class _$ApiResponseListWorkingHoursResponse
     return other is ApiResponseListWorkingHoursResponse &&
         success == other.success &&
         data == other.data &&
-        message == other.message;
+        message == other.message &&
+        errors == other.errors;
   }
 
   @override
@@ -47,6 +50,7 @@ class _$ApiResponseListWorkingHoursResponse
     _$hash = $jc(_$hash, success.hashCode);
     _$hash = $jc(_$hash, data.hashCode);
     _$hash = $jc(_$hash, message.hashCode);
+    _$hash = $jc(_$hash, errors.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -56,7 +60,8 @@ class _$ApiResponseListWorkingHoursResponse
     return (newBuiltValueToStringHelper(r'ApiResponseListWorkingHoursResponse')
           ..add('success', success)
           ..add('data', data)
-          ..add('message', message))
+          ..add('message', message)
+          ..add('errors', errors))
         .toString();
   }
 }
@@ -80,6 +85,11 @@ class ApiResponseListWorkingHoursResponseBuilder
   String? get message => _$this._message;
   set message(String? message) => _$this._message = message;
 
+  MapBuilder<String, String>? _errors;
+  MapBuilder<String, String> get errors =>
+      _$this._errors ??= MapBuilder<String, String>();
+  set errors(MapBuilder<String, String>? errors) => _$this._errors = errors;
+
   ApiResponseListWorkingHoursResponseBuilder() {
     ApiResponseListWorkingHoursResponse._defaults(this);
   }
@@ -90,6 +100,7 @@ class ApiResponseListWorkingHoursResponseBuilder
       _success = $v.success;
       _data = $v.data?.toBuilder();
       _message = $v.message;
+      _errors = $v.errors?.toBuilder();
       _$v = null;
     }
     return this;
@@ -117,12 +128,16 @@ class ApiResponseListWorkingHoursResponseBuilder
             success: success,
             data: _data?.build(),
             message: message,
+            errors: _errors?.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
         _$failedField = 'data';
         _data?.build();
+
+        _$failedField = 'errors';
+        _errors?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(r'ApiResponseListWorkingHoursResponse',
             _$failedField, e.toString());

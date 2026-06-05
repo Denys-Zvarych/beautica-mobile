@@ -11,19 +11,19 @@ part 'sort_object.g.dart';
 /// SortObject
 ///
 /// Properties:
-/// * [empty]
 /// * [sorted]
 /// * [unsorted]
+/// * [empty]
 @BuiltValue()
 abstract class SortObject implements Built<SortObject, SortObjectBuilder> {
-  @BuiltValueField(wireName: r'empty')
-  bool? get empty;
-
   @BuiltValueField(wireName: r'sorted')
   bool? get sorted;
 
   @BuiltValueField(wireName: r'unsorted')
   bool? get unsorted;
+
+  @BuiltValueField(wireName: r'empty')
+  bool? get empty;
 
   SortObject._();
 
@@ -48,13 +48,6 @@ class _$SortObjectSerializer implements PrimitiveSerializer<SortObject> {
     SortObject object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    if (object.empty != null) {
-      yield r'empty';
-      yield serializers.serialize(
-        object.empty,
-        specifiedType: const FullType(bool),
-      );
-    }
     if (object.sorted != null) {
       yield r'sorted';
       yield serializers.serialize(
@@ -66,6 +59,13 @@ class _$SortObjectSerializer implements PrimitiveSerializer<SortObject> {
       yield r'unsorted';
       yield serializers.serialize(
         object.unsorted,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.empty != null) {
+      yield r'empty';
+      yield serializers.serialize(
+        object.empty,
         specifiedType: const FullType(bool),
       );
     }
@@ -94,13 +94,6 @@ class _$SortObjectSerializer implements PrimitiveSerializer<SortObject> {
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'empty':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(bool),
-          ) as bool;
-          result.empty = valueDes;
-          break;
         case r'sorted':
           final valueDes = serializers.deserialize(
             value,
@@ -114,6 +107,13 @@ class _$SortObjectSerializer implements PrimitiveSerializer<SortObject> {
             specifiedType: const FullType(bool),
           ) as bool;
           result.unsorted = valueDes;
+          break;
+        case r'empty':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.empty = valueDes;
           break;
         default:
           unhandled.add(key);

@@ -14,6 +14,8 @@ class _$ApiResponseCategoryRequestResponse
   final CategoryRequestResponse? data;
   @override
   final String? message;
+  @override
+  final BuiltMap<String, String>? errors;
 
   factory _$ApiResponseCategoryRequestResponse(
           [void Function(ApiResponseCategoryRequestResponseBuilder)?
@@ -21,7 +23,7 @@ class _$ApiResponseCategoryRequestResponse
       (ApiResponseCategoryRequestResponseBuilder()..update(updates))._build();
 
   _$ApiResponseCategoryRequestResponse._(
-      {this.success, this.data, this.message})
+      {this.success, this.data, this.message, this.errors})
       : super._();
   @override
   ApiResponseCategoryRequestResponse rebuild(
@@ -38,7 +40,8 @@ class _$ApiResponseCategoryRequestResponse
     return other is ApiResponseCategoryRequestResponse &&
         success == other.success &&
         data == other.data &&
-        message == other.message;
+        message == other.message &&
+        errors == other.errors;
   }
 
   @override
@@ -47,6 +50,7 @@ class _$ApiResponseCategoryRequestResponse
     _$hash = $jc(_$hash, success.hashCode);
     _$hash = $jc(_$hash, data.hashCode);
     _$hash = $jc(_$hash, message.hashCode);
+    _$hash = $jc(_$hash, errors.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -56,7 +60,8 @@ class _$ApiResponseCategoryRequestResponse
     return (newBuiltValueToStringHelper(r'ApiResponseCategoryRequestResponse')
           ..add('success', success)
           ..add('data', data)
-          ..add('message', message))
+          ..add('message', message)
+          ..add('errors', errors))
         .toString();
   }
 }
@@ -80,6 +85,11 @@ class ApiResponseCategoryRequestResponseBuilder
   String? get message => _$this._message;
   set message(String? message) => _$this._message = message;
 
+  MapBuilder<String, String>? _errors;
+  MapBuilder<String, String> get errors =>
+      _$this._errors ??= MapBuilder<String, String>();
+  set errors(MapBuilder<String, String>? errors) => _$this._errors = errors;
+
   ApiResponseCategoryRequestResponseBuilder() {
     ApiResponseCategoryRequestResponse._defaults(this);
   }
@@ -90,6 +100,7 @@ class ApiResponseCategoryRequestResponseBuilder
       _success = $v.success;
       _data = $v.data?.toBuilder();
       _message = $v.message;
+      _errors = $v.errors?.toBuilder();
       _$v = null;
     }
     return this;
@@ -117,12 +128,16 @@ class ApiResponseCategoryRequestResponseBuilder
             success: success,
             data: _data?.build(),
             message: message,
+            errors: _errors?.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
         _$failedField = 'data';
         _data?.build();
+
+        _$failedField = 'errors';
+        _errors?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'ApiResponseCategoryRequestResponse', _$failedField, e.toString());

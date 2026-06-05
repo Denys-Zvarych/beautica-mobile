@@ -10,6 +10,7 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **totalElements** | **int** |  | [optional] 
 **totalPages** | **int** |  | [optional] 
+**pageable** | [**PageableObject**](PageableObject.md) |  | [optional] 
 **size** | **int** |  | [optional] 
 **content** | [**BuiltList&lt;MediaFileResponse&gt;**](MediaFileResponse.md) |  | [optional] 
 **number** | **int** |  | [optional] 
@@ -17,7 +18,6 @@ Name | Type | Description | Notes
 **first** | **bool** |  | [optional] 
 **last** | **bool** |  | [optional] 
 **numberOfElements** | **int** |  | [optional] 
-**pageable** | [**PageableObject**](PageableObject.md) |  | [optional] 
 **empty** | **bool** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

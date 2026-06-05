@@ -13,12 +13,15 @@ class _$ApiResponseReviewResponse extends ApiResponseReviewResponse {
   final ReviewResponse? data;
   @override
   final String? message;
+  @override
+  final BuiltMap<String, String>? errors;
 
   factory _$ApiResponseReviewResponse(
           [void Function(ApiResponseReviewResponseBuilder)? updates]) =>
       (ApiResponseReviewResponseBuilder()..update(updates))._build();
 
-  _$ApiResponseReviewResponse._({this.success, this.data, this.message})
+  _$ApiResponseReviewResponse._(
+      {this.success, this.data, this.message, this.errors})
       : super._();
   @override
   ApiResponseReviewResponse rebuild(
@@ -35,7 +38,8 @@ class _$ApiResponseReviewResponse extends ApiResponseReviewResponse {
     return other is ApiResponseReviewResponse &&
         success == other.success &&
         data == other.data &&
-        message == other.message;
+        message == other.message &&
+        errors == other.errors;
   }
 
   @override
@@ -44,6 +48,7 @@ class _$ApiResponseReviewResponse extends ApiResponseReviewResponse {
     _$hash = $jc(_$hash, success.hashCode);
     _$hash = $jc(_$hash, data.hashCode);
     _$hash = $jc(_$hash, message.hashCode);
+    _$hash = $jc(_$hash, errors.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -53,7 +58,8 @@ class _$ApiResponseReviewResponse extends ApiResponseReviewResponse {
     return (newBuiltValueToStringHelper(r'ApiResponseReviewResponse')
           ..add('success', success)
           ..add('data', data)
-          ..add('message', message))
+          ..add('message', message)
+          ..add('errors', errors))
         .toString();
   }
 }
@@ -75,6 +81,11 @@ class ApiResponseReviewResponseBuilder
   String? get message => _$this._message;
   set message(String? message) => _$this._message = message;
 
+  MapBuilder<String, String>? _errors;
+  MapBuilder<String, String> get errors =>
+      _$this._errors ??= MapBuilder<String, String>();
+  set errors(MapBuilder<String, String>? errors) => _$this._errors = errors;
+
   ApiResponseReviewResponseBuilder() {
     ApiResponseReviewResponse._defaults(this);
   }
@@ -85,6 +96,7 @@ class ApiResponseReviewResponseBuilder
       _success = $v.success;
       _data = $v.data?.toBuilder();
       _message = $v.message;
+      _errors = $v.errors?.toBuilder();
       _$v = null;
     }
     return this;
@@ -111,12 +123,16 @@ class ApiResponseReviewResponseBuilder
             success: success,
             data: _data?.build(),
             message: message,
+            errors: _errors?.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
         _$failedField = 'data';
         _data?.build();
+
+        _$failedField = 'errors';
+        _errors?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'ApiResponseReviewResponse', _$failedField, e.toString());

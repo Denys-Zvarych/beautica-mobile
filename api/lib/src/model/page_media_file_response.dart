@@ -17,6 +17,7 @@ part 'page_media_file_response.g.dart';
 /// Properties:
 /// * [totalElements]
 /// * [totalPages]
+/// * [pageable]
 /// * [size]
 /// * [content]
 /// * [number]
@@ -24,7 +25,6 @@ part 'page_media_file_response.g.dart';
 /// * [first]
 /// * [last]
 /// * [numberOfElements]
-/// * [pageable]
 /// * [empty]
 @BuiltValue()
 abstract class PageMediaFileResponse
@@ -34,6 +34,9 @@ abstract class PageMediaFileResponse
 
   @BuiltValueField(wireName: r'totalPages')
   int? get totalPages;
+
+  @BuiltValueField(wireName: r'pageable')
+  PageableObject? get pageable;
 
   @BuiltValueField(wireName: r'size')
   int? get size;
@@ -55,9 +58,6 @@ abstract class PageMediaFileResponse
 
   @BuiltValueField(wireName: r'numberOfElements')
   int? get numberOfElements;
-
-  @BuiltValueField(wireName: r'pageable')
-  PageableObject? get pageable;
 
   @BuiltValueField(wireName: r'empty')
   bool? get empty;
@@ -103,6 +103,13 @@ class _$PageMediaFileResponseSerializer
       yield serializers.serialize(
         object.totalPages,
         specifiedType: const FullType(int),
+      );
+    }
+    if (object.pageable != null) {
+      yield r'pageable';
+      yield serializers.serialize(
+        object.pageable,
+        specifiedType: const FullType(PageableObject),
       );
     }
     if (object.size != null) {
@@ -154,13 +161,6 @@ class _$PageMediaFileResponseSerializer
         specifiedType: const FullType(int),
       );
     }
-    if (object.pageable != null) {
-      yield r'pageable';
-      yield serializers.serialize(
-        object.pageable,
-        specifiedType: const FullType(PageableObject),
-      );
-    }
     if (object.empty != null) {
       yield r'empty';
       yield serializers.serialize(
@@ -206,6 +206,13 @@ class _$PageMediaFileResponseSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.totalPages = valueDes;
+          break;
+        case r'pageable':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(PageableObject),
+          ) as PageableObject;
+          result.pageable.replace(valueDes);
           break;
         case r'size':
           final valueDes = serializers.deserialize(
@@ -256,13 +263,6 @@ class _$PageMediaFileResponseSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.numberOfElements = valueDes;
-          break;
-        case r'pageable':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(PageableObject),
-          ) as PageableObject;
-          result.pageable.replace(valueDes);
           break;
         case r'empty':
           final valueDes = serializers.deserialize(

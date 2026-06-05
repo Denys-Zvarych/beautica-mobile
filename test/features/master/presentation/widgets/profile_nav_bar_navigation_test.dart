@@ -46,15 +46,13 @@ GoRouter _buildRouter({required int activeIndex}) => GoRouter(
     ),
     GoRoute(
       path: RouteNames.services,
-      builder: (context, _) => const Scaffold(
-        body: SizedBox.shrink(key: _servicesMarker),
-      ),
+      builder: (context, _) =>
+          const Scaffold(body: SizedBox.shrink(key: _servicesMarker)),
     ),
     GoRoute(
       path: RouteNames.workingHours,
-      builder: (context, _) => const Scaffold(
-        body: SizedBox.shrink(key: _workingHoursMarker),
-      ),
+      builder: (context, _) =>
+          const Scaffold(body: SizedBox.shrink(key: _workingHoursMarker)),
     ),
   ],
 );
@@ -92,33 +90,33 @@ void main() {
         expect(
           find.byKey(_workingHoursMarker),
           findsOneWidget,
-          reason: 'the working-hours destination route must mount after the tap',
+          reason:
+              'the working-hours destination route must mount after the tap',
         );
       },
     );
 
-    testWidgets(
-      'tapping Послуги (master-nav-tile-0) navigates to /services',
-      (tester) async {
-        final router = _buildRouter(activeIndex: 3); // Профіль active
-        await tester.pumpWidget(_app(router));
-        await tester.pumpAndSettle();
+    testWidgets('tapping Послуги (master-nav-tile-0) navigates to /services', (
+      tester,
+    ) async {
+      final router = _buildRouter(activeIndex: 3); // Профіль active
+      await tester.pumpWidget(_app(router));
+      await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const Key('master-nav-tile-0')));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('master-nav-tile-0')));
+      await tester.pumpAndSettle();
 
-        expect(
-          _location(router),
-          RouteNames.services,
-          reason: 'tapping the Послуги tile must context.go(services)',
-        );
-        expect(
-          find.byKey(_servicesMarker),
-          findsOneWidget,
-          reason: 'the services destination route must mount after the tap',
-        );
-      },
-    );
+      expect(
+        _location(router),
+        RouteNames.services,
+        reason: 'tapping the Послуги tile must context.go(services)',
+      );
+      expect(
+        find.byKey(_servicesMarker),
+        findsOneWidget,
+        reason: 'the services destination route must mount after the tap',
+      );
+    });
 
     testWidgets(
       'tapping the active tile (master-nav-tile-3, activeIndex 3) is a no-op',
