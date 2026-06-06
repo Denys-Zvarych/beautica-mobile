@@ -34,6 +34,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
 
+import 'widgets/select_dropdown_test_helpers.dart';
+
 const _baseUrl = 'http://localhost:8080';
 const _masterId = 'master-1';
 const _serviceDefId = 'def-7';
@@ -207,10 +209,8 @@ Future<void> _fillValidCreateForm(WidgetTester tester) async {
     ),
     '500',
   );
-  await tester.pumpAndSettle(); // resolve category provider
-  await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-  await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-  await tester.pump();
+  // Select the category via the dropdown (open menu → tap option → settle).
+  await selectCategoryOption(tester, 'MANICURE');
 }
 
 Future<void> _tapSubmit(WidgetTester tester) async {

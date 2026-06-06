@@ -30,13 +30,17 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:beautica_mobile/features/services/presentation/service_create_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+
+import 'widgets/select_dropdown_test_helpers.dart';
 
 // pump_app.dart intentionally not imported — this test pumps widgets directly.;
 
@@ -129,7 +133,15 @@ class _StubMasterProfileNotifier extends MasterProfile {
 
 /// Overrides [serviceRepositoryProvider] with [mock] in a [ProviderScope].
 List<Object> _overrides(_MockServiceRepository mock) {
-  return <Object>[serviceRepositoryProvider.overrideWithValue(mock)];
+  return <Object>[
+    serviceRepositoryProvider.overrideWithValue(mock),
+    // Selecting a category mounts the second-level service-type dropdown →
+    // serviceTypesProvider. Stub it to a calm empty list so no un-mocked fetch
+    // fires in-tree (the dropdown then resolves to its empty state).
+    serviceTypesProvider.overrideWith(
+      (ref, String categoryName) async => const <ServiceTypeOption>[],
+    ),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -396,8 +408,7 @@ void main() {
     );
     // Category is required by the backend — select the stubbed MANICURE chip.
     await tester.pumpAndSettle(); // resolve approvedCategoriesProvider
-    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await selectCategoryOption(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester.pumpAndSettle();
@@ -448,15 +459,10 @@ void main() {
         ),
         '200',
       );
-      // Category is required — settle the category provider, then select a chip.
-      // Settling first also resolves the category loading skeleton so the only
-      // CircularProgressIndicator below is the CTA spinner.
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
+      // Category is required — select it via the dropdown (which settles the
+      // category provider first, so the only CircularProgressIndicator below is
+      // the CTA spinner).
+      await selectCategoryOption(tester, 'MANICURE');
 
       await tapSubmit(tester);
       await tester.pump();
@@ -549,8 +555,7 @@ void main() {
       '500',
     );
     // Category is required — select the stubbed MANICURE chip.
-    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await selectCategoryOption(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester
@@ -595,12 +600,8 @@ void main() {
         ),
         '500',
       );
-      // Category is required — select the stubbed MANICURE chip.
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
+      // Category is required — select the stubbed MANICURE option.
+      await selectCategoryOption(tester, 'MANICURE');
       await tapSubmit(tester);
       await tester.pumpAndSettle();
 
@@ -642,8 +643,7 @@ void main() {
     );
     // Category is required — select the stubbed MANICURE chip.
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await selectCategoryOption(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester.pumpAndSettle();
@@ -669,8 +669,7 @@ void main() {
     await tester.pumpAndSettle(); // resolve approvedCategoriesProvider
 
     // Tap the MANICURE chip.
-    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await selectCategoryOption(tester, 'MANICURE');
     await tester.pumpAndSettle();
 
     // Fill the required text fields.
@@ -754,94 +753,64 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // C. Tapping a selected chip deselects it — payload reverts to null category.
+  // C. Re-selecting the same category option keeps its wire slug on submit.
+  //    (Dropdowns are select-only; clearing happens via category change, not by
+  //    re-tapping. This locks that re-selection does not corrupt the wire value.)
   // ---------------------------------------------------------------------------
-  testWidgets(
-    'C. tapping a selected chip a second time deselects it (category → null)',
-    (tester) async {
-      await pumpCreate(tester);
-      await tester.pumpAndSettle(); // resolve approvedCategoriesProvider
+  testWidgets('C. re-selecting a category option submits the same wire slug', (
+    tester,
+  ) async {
+    await pumpCreate(tester);
 
-      // First tap — selects HAIRCUT.
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-HAIRCUT')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-HAIRCUT')));
-      await tester.pumpAndSettle();
+    // Select HAIRCUT via the dropdown, then re-select it a second time.
+    await selectCategoryOption(tester, 'HAIRCUT');
+    await selectCategoryOption(tester, 'HAIRCUT');
 
-      // Verify it is selected: a check icon should be present inside the chip.
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('chip-category-HAIRCUT')),
-          matching: find.byIcon(Icons.check_rounded),
-        ),
-        findsOneWidget,
-        reason: 'chip must show a check icon when selected',
-      );
+    // The closed field shows the Ukrainian label (not the raw slug).
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('select-category-field')),
+        matching: find.text('Стрижка'),
+      ),
+      findsOneWidget,
+    );
 
-      // Second tap — deselects HAIRCUT.
-      await tester.tap(find.byKey(const Key('chip-category-HAIRCUT')));
-      await tester.pumpAndSettle();
+    // Fill valid fields and submit; category must be the re-selected slug.
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-name')),
+        matching: find.byType(TextField),
+      ),
+      'Стрижка',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-duration')),
+        matching: find.byType(TextField),
+      ),
+      '30',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('pricing-fixed-amount')),
+        matching: find.byType(TextField),
+      ),
+      '200',
+    );
+    await tapSubmit(tester);
+    await tester.pumpAndSettle();
 
-      // The check icon must be gone after deselection.
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('chip-category-HAIRCUT')),
-          matching: find.byIcon(Icons.check_rounded),
-        ),
-        findsNothing,
-        reason: 'check icon must disappear after second tap (deselect)',
-      );
-
-      // Third tap — re-select HAIRCUT (toggle cycle must be reversible).
-      await tester.tap(find.byKey(const Key('chip-category-HAIRCUT')));
-      await tester.pumpAndSettle();
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('chip-category-HAIRCUT')),
-          matching: find.byIcon(Icons.check_rounded),
-        ),
-        findsOneWidget,
-        reason: 'check icon must reappear after re-selecting the chip',
-      );
-
-      // Fill valid fields and submit; category must be the re-selected slug.
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('field-service-name')),
-          matching: find.byType(TextField),
-        ),
-        'Стрижка',
-      );
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('field-service-duration')),
-          matching: find.byType(TextField),
-        ),
-        '30',
-      );
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('pricing-fixed-amount')),
-          matching: find.byType(TextField),
-        ),
-        '200',
-      );
-      await tapSubmit(tester);
-      await tester.pumpAndSettle();
-
-      final captured = verify(() => mockRepo.create(captureAny())).captured;
-      expect(captured.length, 1);
-      final input = captured.first as MasterServiceCreate;
-      expect(
-        input.category,
-        'HAIRCUT',
-        reason:
-            'after select → deselect → reselect, the submitted category must '
-            'be the re-selected wire slug (toggle cycle is reversible)',
-      );
-    },
-  );
+    final captured = verify(() => mockRepo.create(captureAny())).captured;
+    expect(captured.length, 1);
+    final input = captured.first as MasterServiceCreate;
+    expect(
+      input.category,
+      'HAIRCUT',
+      reason:
+          'after select → deselect → reselect, the submitted category must '
+          'be the re-selected wire slug (toggle cycle is reversible)',
+    );
+  });
 
   // ---------------------------------------------------------------------------
   // 12. masterProfileProvider is invalidated after successful create (gap 7).
@@ -903,8 +872,7 @@ void main() {
       '500',
     );
     // Category is required — select the stubbed MANICURE chip.
-    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await selectCategoryOption(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester.pump(); // let Riverpod fire the invalidation rebuild
@@ -967,12 +935,8 @@ void main() {
         ),
         '60',
       );
-      // Select category.
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
+      // Select category via the dropdown.
+      await selectCategoryOption(tester, 'MANICURE');
 
       await tapSubmit(tester);
       await tester.pumpAndSettle();

@@ -240,6 +240,32 @@ void main() {
       );
     });
 
+    // Phase 16.6 spinner-fix guard: a hung backend manifests as a send- or
+    // connection-timeout once dio_provider added a 15 s sendTimeout. Both MUST
+    // map to a typed NetworkFailure so the picker degrades to a retryable error
+    // state instead of stranding the user on an infinite spinner.
+    test('sendTimeout → NetworkFailure (spinner-fix guard)', () async {
+      when(
+        () => catalogApi.getServiceTypes(categoryName: _category),
+      ).thenThrow(_dio(DioExceptionType.sendTimeout));
+
+      await expectLater(
+        repository.fetchServiceTypes(_category),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test('connectionTimeout → NetworkFailure (spinner-fix guard)', () async {
+      when(
+        () => catalogApi.getServiceTypes(categoryName: _category),
+      ).thenThrow(_dio(DioExceptionType.connectionTimeout));
+
+      await expectLater(
+        repository.fetchServiceTypes(_category),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
     test('400 → ValidationFailure', () async {
       when(
         () => catalogApi.getServiceTypes(categoryName: _category),

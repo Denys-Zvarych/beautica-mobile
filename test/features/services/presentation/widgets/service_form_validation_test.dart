@@ -34,6 +34,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'select_dropdown_test_helpers.dart';
+
 // ---------------------------------------------------------------------------
 // Mocks + fallbacks
 // ---------------------------------------------------------------------------
@@ -135,10 +137,7 @@ void main() {
   Future<void> fillValidExceptDuration(WidgetTester tester) async {
     await tester.enterText(_nameField, 'Манікюр');
     await tester.enterText(_fixedPriceField, '500');
-    await tester.pumpAndSettle(); // resolve category provider
-    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.pump();
+    await selectCategoryOption(tester, 'MANICURE');
   }
 
   // =========================================================================
@@ -221,12 +220,7 @@ void main() {
       await tester.enterText(_nameField, 'Манікюр');
       await tester.enterText(_durationField, '60');
       await tester.enterText(_fixedPriceField, '500');
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
+      await selectCategoryOption(tester, 'MANICURE');
     }
 
     testWidgets(
@@ -286,11 +280,7 @@ void main() {
         await tester.enterText(_durationField, '60');
         await tester.enterText(_rangeMinField, '400');
         await tester.enterText(_rangeMaxField, '700');
-        await tester.ensureVisible(
-          find.byKey(const Key('chip-category-MANICURE')),
-        );
-        await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-        await tester.pump();
+        await selectCategoryOption(tester, 'MANICURE');
         await tapSubmit(tester);
         await tester.pumpAndSettle();
 
@@ -363,11 +353,7 @@ void main() {
       await tester.enterText(_durationField, '60');
       await tester.enterText(_rangeMinField, '400.25');
       await tester.enterText(_rangeMaxField, '700.50');
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
+      await selectCategoryOption(tester, 'MANICURE');
       await tapSubmit(tester);
       await tester.pumpAndSettle();
 
@@ -451,12 +437,7 @@ void main() {
       await pumpForm(tester, onSubmit: shouldNotSubmit);
       await tester.enterText(_durationField, '60');
       await tester.enterText(_fixedPriceField, '500');
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
+      await selectCategoryOption(tester, 'MANICURE');
       await tapSubmit(tester);
 
       expect(find.text(_l10n(tester).errNameRequired), findsOneWidget);
@@ -469,12 +450,7 @@ void main() {
       await tester.enterText(_nameField, '   ');
       await tester.enterText(_durationField, '60');
       await tester.enterText(_fixedPriceField, '500');
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
+      await selectCategoryOption(tester, 'MANICURE');
       await tapSubmit(tester);
 
       expect(find.text(_l10n(tester).errNameRequired), findsOneWidget);

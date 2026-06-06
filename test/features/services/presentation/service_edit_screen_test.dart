@@ -33,6 +33,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'widgets/select_dropdown_test_helpers.dart';
+
 // ---------------------------------------------------------------------------
 // Fakes + Mocks
 // ---------------------------------------------------------------------------
@@ -602,7 +604,8 @@ void main() {
   // ── D. Category pre-populated from initial service ───────────────────────
 
   testWidgets(
-    'D. category chip pre-populated from initial service (HAIRCUT shown selected)',
+    'D. category pre-populated from initial service (HAIRCUT label shown in '
+    'the closed dropdown field)',
     (tester) async {
       // Stub service has category 'HAIRCUT'.
       const haircutService = MasterService(
@@ -624,22 +627,16 @@ void main() {
 
       await _pumpEdit(tester, repo, id: haircutService.id);
 
-      // The HAIRCUT chip must be in the widget tree.
-      expect(
-        find.byKey(const Key('chip-category-HAIRCUT')),
-        findsOneWidget,
-        reason: 'HAIRCUT chip must be rendered when category is pre-populated',
-      );
-
-      // The check icon inside the chip confirms it is in the selected state.
+      // The closed category dropdown field shows the pre-populated selection's
+      // Ukrainian label ('Стрижка' for HAIRCUT), proving it loaded as selected.
+      // (Service name is also 'Стрижка', so scope to the category field.)
       expect(
         find.descendant(
-          of: find.byKey(const Key('chip-category-HAIRCUT')),
-          matching: find.byIcon(Icons.check_rounded),
+          of: find.byKey(const Key('select-category-field')),
+          matching: find.text('Стрижка'),
         ),
         findsOneWidget,
-        reason:
-            'HAIRCUT chip must show check icon when pre-populated as selected',
+        reason: 'category field must show the pre-populated HAIRCUT label',
       );
     },
   );
@@ -679,10 +676,8 @@ void main() {
       reason: 'dirty marker must be hidden for a pristine form',
     );
 
-    // Tap a different category chip (HAIRCUT ≠ EYELASH).
-    await tester.ensureVisible(find.byKey(const Key('chip-category-HAIRCUT')));
-    await tester.tap(find.byKey(const Key('chip-category-HAIRCUT')));
-    await tester.pump();
+    // Select a different category via the dropdown (HAIRCUT ≠ EYELASH).
+    await selectCategoryOption(tester, 'HAIRCUT');
 
     // Dirty marker must now be visible.
     expect(
@@ -737,10 +732,8 @@ void main() {
 
       await _pumpEdit(tester, repo, id: manicureService.id);
 
-      // Switch category MANICURE → BROWS.
-      await tester.ensureVisible(find.byKey(const Key('chip-category-BROWS')));
-      await tester.tap(find.byKey(const Key('chip-category-BROWS')));
-      await tester.pump();
+      // Switch category MANICURE → BROWS via the dropdown.
+      await selectCategoryOption(tester, 'BROWS');
 
       // Save.
       await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));

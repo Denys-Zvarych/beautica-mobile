@@ -34,6 +34,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'select_dropdown_test_helpers.dart';
+
 // ---------------------------------------------------------------------------
 // Mocks + helpers
 // ---------------------------------------------------------------------------
@@ -124,10 +126,7 @@ void main() {
   Future<void> fillExceptName(WidgetTester tester) async {
     await tester.enterText(_durationField, '30');
     await tester.enterText(_fixedPriceField, '500');
-    await tester.pumpAndSettle(); // resolve category provider
-    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.pump();
+    await selectCategoryOption(tester, 'MANICURE');
   }
 
   Future<void> tapSubmit(WidgetTester tester) async {

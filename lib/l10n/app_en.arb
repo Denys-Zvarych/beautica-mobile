@@ -1430,6 +1430,42 @@
   "@serviceTypeEmpty": {
     "description": "Calm passive hint shown on the service-type chip row when the selected category has no service types to choose from. Not an error."
   },
+  "serviceSelectSearchHint": "Search…",
+  "@serviceSelectSearchHint": {
+    "description": "Placeholder text in the search field at the top of the searchable single-select dropdown menu (category / service-type)."
+  },
+  "serviceSelectSearchEmpty": "Nothing found",
+  "@serviceSelectSearchEmpty": {
+    "description": "Calm empty-state text shown inside the searchable dropdown menu when the typed query matches no option."
+  },
+  "serviceSelectRetry": "Try again",
+  "@serviceSelectRetry": {
+    "description": "Retry button label shown inside the searchable dropdown menu when its option list failed to load."
+  },
+  "serviceCategoryPlaceholder": "Choose from the list",
+  "@serviceCategoryPlaceholder": {
+    "description": "Placeholder shown in the closed category dropdown field before a category is selected."
+  },
+  "serviceCategoryMenuTitle": "Category",
+  "@serviceCategoryMenuTitle": {
+    "description": "Header title of the category dropdown bottom-sheet menu."
+  },
+  "serviceTypePlaceholder": "Choose a service type",
+  "@serviceTypePlaceholder": {
+    "description": "Placeholder shown in the closed service-type dropdown field before a type is selected (while options are available)."
+  },
+  "serviceTypeMenuTitle": "Service type",
+  "@serviceTypeMenuTitle": {
+    "description": "Header title of the service-type dropdown bottom-sheet menu."
+  },
+  "serviceTypeLoadError": "Could not load service types",
+  "@serviceTypeLoadError": {
+    "description": "Error text shown inside the service-type dropdown (menu and closed field) when the service-type list fails to load or times out. Accompanied by a retry affordance."
+  },
+  "serviceTypeLoading": "Loading…",
+  "@serviceTypeLoading": {
+    "description": "Text shown in the closed service-type dropdown field while its option list is still loading."
+  },
   "serviceCategoryUncategorized": "Uncategorized",
   "@serviceCategoryUncategorized": {
     "description": "Header label for the services-list expandable section that groups services with no category set."
