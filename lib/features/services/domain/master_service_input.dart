@@ -53,6 +53,15 @@ abstract class MasterServiceCreate with _$MasterServiceCreate {
     /// Optional service category string (e.g. "MANICURE", "HAIRCUT").
     String? category,
 
+    /// Optional id of the chosen platform service type (Phase 16.3).
+    ///
+    /// Null when the master skipped the (optional) service-type picker. When
+    /// set, the mapper assigns it to [CreateServiceDefinitionRequest.serviceTypeId]
+    /// (omitted from the wire body otherwise). The backend cross-validates that
+    /// the type belongs to [category]; a mismatch surfaces as a
+    /// [ValidationFailure] keyed on the `serviceTypeId` field.
+    String? serviceTypeId,
+
     /// Optional buffer in minutes after the appointment.
     int? bufferMinutesAfter,
   }) = _MasterServiceCreate;

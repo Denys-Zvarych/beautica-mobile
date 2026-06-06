@@ -25,6 +25,26 @@
 //   I-PRICE-FIXED.  fromDto maps FIXED pricing fields (priceType/priceMin/priceDisplay).
 //   I-PRICE-RANGE.  fromDto maps RANGE pricing fields (priceType/priceMin/priceMax/priceDisplay).
 //   I-SDR-PRICE.    fromServiceDefinitionDto maps RANGE pricing from ServiceDefinitionResponse.
+//
+//   ── Phase 16.3 — serviceTypeId create wiring + name pre-fill ──────────────
+//   ST-CREATE-SET.    toCreateRequest sets serviceTypeId on the request when the
+//                     input carries one.
+//   ST-CREATE-NULL.   toCreateRequest leaves serviceTypeId null when the input's
+//                     serviceTypeId is null (no regression to the existing create
+//                     path — the generated serializer omits the null wire field).
+//   ST-DTO-MSR.       fromDto reads serviceTypeId + serviceTypeNameUk from the
+//                     top-level MSR envelope (V67+ precedence).
+//   ST-DTO-FALLBACK.  fromDto falls back to the nested serviceDefinition for
+//                     serviceTypeId + serviceTypeNameUk when the MSR envelope
+//                     omits them.
+//   ST-DTO-PRECEDENCE. fromDto prefers the MSR-envelope values over the nested
+//                     serviceDefinition values when both are present.
+//   ST-DTO-NULL.      fromDto carries null serviceTypeId/serviceTypeNameUk back
+//                     when neither level supplies them.
+//   ST-SDR-SET.       fromServiceDefinitionDto carries serviceTypeId +
+//                     serviceTypeNameUk back from the definition response.
+//   ST-SDR-NULL.      fromServiceDefinitionDto carries nulls when the definition
+//                     response omits them.
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/features/services/data/master_service_mapper.dart';
@@ -40,12 +60,14 @@ import 'package:flutter_test/flutter_test.dart';
 MasterServiceCreate _createFixed({
   String? category = 'MANICURE',
   double price = 500.0,
+  String? serviceTypeId,
 }) => MasterServiceCreate(
   name: 'Test',
   durationMinutes: 30,
   priceType: ServicePriceType.fixed,
   price: price,
   category: category,
+  serviceTypeId: serviceTypeId,
 );
 
 /// Builds a minimal RANGE [MasterServiceCreate].
@@ -71,6 +93,8 @@ ServiceDefinitionResponse buildDef({
   num priceMin = 500,
   num? priceMax,
   String? priceDisplay,
+  String? serviceTypeId,
+  String? serviceTypeNameUk,
 }) =>
     (ServiceDefinitionResponseBuilder()
           ..id = id
@@ -80,6 +104,8 @@ ServiceDefinitionResponse buildDef({
           ..priceMin = priceMin
           ..priceMax = priceMax
           ..priceDisplay = priceDisplay ?? '${priceMin.toInt()} грн'
+          ..serviceTypeId = serviceTypeId
+          ..serviceTypeNameUk = serviceTypeNameUk
           ..isActive = true)
         .build();
 
@@ -524,6 +550,178 @@ void main() {
             'a null priceDisplay on both MSR and nested def must resolve to '
             "an empty string (the mapper's '' last-resort default)",
       );
+    });
+  });
+
+  // ── ST. Phase 16.3 — serviceTypeId create wiring + response round-trip ────
+
+  group('ST. toCreateRequest — serviceTypeId wiring', () {
+    test('ST-CREATE-SET. sets serviceTypeId when the input carries one', () {
+      final request = MasterServiceMapper.toCreateRequest(
+        _createFixed(serviceTypeId: 'type-abc'),
+      );
+      expect(
+        request.serviceTypeId,
+        equals('type-abc'),
+        reason: 'a selected service type must reach the create request',
+      );
+    });
+
+    test('ST-CREATE-NULL. leaves serviceTypeId null when input is null', () {
+      // The master skipped the (optional) picker. The generated serializer
+      // omits null builder fields, so this is the "omitted from the wire body"
+      // case — and proves the existing no-type create path is unchanged.
+      final request = MasterServiceMapper.toCreateRequest(
+        _createFixed(),
+      );
+      expect(
+        request.serviceTypeId,
+        isNull,
+        reason:
+            'no service type selected → serviceTypeId must stay null on the '
+            'request (omitted from the wire body — no regression)',
+      );
+      // Sanity: the rest of the request is still well-formed.
+      expect(request.name, equals('Test'));
+      expect(
+        request.priceType,
+        CreateServiceDefinitionRequestPriceTypeEnum.FIXED,
+      );
+      expect(request.price, equals(500.0));
+    });
+  });
+
+  group('ST. response round-trip — serviceTypeId + serviceTypeNameUk', () {
+    test(
+      'ST-DTO-MSR. fromDto reads service type from the top-level MSR envelope',
+      () {
+        final dto =
+            (MasterServiceResponseBuilder()
+                  ..id = 'a-st-msr'
+                  ..serviceDefinition.replace(buildDef(id: 'def-st-msr'))
+                  ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                  ..priceMin = 500
+                  ..priceDisplay = '500 грн'
+                  ..serviceTypeId = 'type-msr'
+                  ..serviceTypeNameUk = 'Класичний манікюр'
+                  ..isActive = true)
+                .build();
+
+        final service = MasterServiceMapper.fromDto(dto);
+
+        expect(service.serviceTypeId, equals('type-msr'));
+        expect(service.serviceTypeNameUk, equals('Класичний манікюр'));
+      },
+    );
+
+    test(
+      'ST-DTO-FALLBACK. fromDto falls back to nested serviceDefinition when the '
+      'MSR envelope omits the service type',
+      () {
+        final dto =
+            (MasterServiceResponseBuilder()
+                  ..id = 'a-st-fb'
+                  ..serviceDefinition.replace(
+                    buildDef(
+                      id: 'def-st-fb',
+                      serviceTypeId: 'type-nested',
+                      serviceTypeNameUk: 'Педикюр',
+                    ),
+                  )
+                  ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                  ..priceMin = 500
+                  ..priceDisplay = '500 грн'
+                  // serviceTypeId / serviceTypeNameUk intentionally unset on MSR
+                  ..isActive = true)
+                .build();
+
+        final service = MasterServiceMapper.fromDto(dto);
+
+        expect(service.serviceTypeId, equals('type-nested'));
+        expect(service.serviceTypeNameUk, equals('Педикюр'));
+      },
+    );
+
+    test(
+      'ST-DTO-PRECEDENCE. fromDto prefers the MSR envelope over the nested '
+      'definition when both supply a service type',
+      () {
+        final dto =
+            (MasterServiceResponseBuilder()
+                  ..id = 'a-st-prec'
+                  ..serviceDefinition.replace(
+                    buildDef(
+                      id: 'def-st-prec',
+                      serviceTypeId: 'type-nested',
+                      serviceTypeNameUk: 'Nested name',
+                    ),
+                  )
+                  ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                  ..priceMin = 500
+                  ..priceDisplay = '500 грн'
+                  ..serviceTypeId = 'type-envelope'
+                  ..serviceTypeNameUk = 'Envelope name'
+                  ..isActive = true)
+                .build();
+
+        final service = MasterServiceMapper.fromDto(dto);
+
+        expect(
+          service.serviceTypeId,
+          equals('type-envelope'),
+          reason: 'MSR-envelope-first precedence (dto.serviceTypeId ?? def…)',
+        );
+        expect(service.serviceTypeNameUk, equals('Envelope name'));
+      },
+    );
+
+    test('ST-DTO-NULL. fromDto carries null when neither level supplies a type',
+        () {
+      final dto =
+          (MasterServiceResponseBuilder()
+                ..id = 'a-st-null'
+                ..serviceDefinition.replace(buildDef(id: 'def-st-null'))
+                ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                ..priceMin = 500
+                ..priceDisplay = '500 грн'
+                ..isActive = true)
+              .build();
+
+      final service = MasterServiceMapper.fromDto(dto);
+
+      expect(service.serviceTypeId, isNull);
+      expect(service.serviceTypeNameUk, isNull);
+    });
+
+    test(
+      'ST-SDR-SET. fromServiceDefinitionDto carries service type back',
+      () {
+        final def = buildDef(
+          id: 'def-st-sdr',
+          serviceTypeId: 'type-sdr',
+          serviceTypeNameUk: 'Стрижка',
+        );
+
+        final service = MasterServiceMapper.fromServiceDefinitionDto(
+          def,
+          assignmentId: 'assign-st-sdr',
+        );
+
+        expect(service.serviceTypeId, equals('type-sdr'));
+        expect(service.serviceTypeNameUk, equals('Стрижка'));
+      },
+    );
+
+    test('ST-SDR-NULL. fromServiceDefinitionDto carries null when omitted', () {
+      final def = buildDef(id: 'def-st-sdr-null');
+
+      final service = MasterServiceMapper.fromServiceDefinitionDto(
+        def,
+        assignmentId: 'assign-st-sdr-null',
+      );
+
+      expect(service.serviceTypeId, isNull);
+      expect(service.serviceTypeNameUk, isNull);
     });
   });
 }

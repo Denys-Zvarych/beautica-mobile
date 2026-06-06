@@ -35,6 +35,7 @@ import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/category_request_dialog.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -87,6 +88,25 @@ class ServiceForm extends StatefulWidget {
   /// [Failure] or any exception to surface an error at the screen level.
   final Future<void> Function(MasterServiceCreate input) onSubmit;
 
+  /// Pre-fill rule for the service name when a service type is selected
+  /// (Phase 16.3). Pure helper — given the current name text and the value this
+  /// form last auto-filled, decide whether the chosen type's `nameUk` may
+  /// overwrite the name.
+  ///
+  /// The name is overwritten ONLY when it is empty (after trim) OR still equals
+  /// the value this form last auto-filled — i.e. the user has not hand-edited
+  /// it. This keeps a user-edited name from being clobbered when the master
+  /// changes the selected type. Lives on the public widget (not the private
+  /// State) so the rule is unit-testable in isolation from the widget tree.
+  @visibleForTesting
+  static bool shouldPrefillName({
+    required String currentName,
+    required String? lastAutoFilledName,
+  }) {
+    if (currentName.trim().isEmpty) return true;
+    return lastAutoFilledName != null && currentName == lastAutoFilledName;
+  }
+
   @override
   State<ServiceForm> createState() => _ServiceFormState();
 }
@@ -113,6 +133,13 @@ class _ServiceFormState extends State<ServiceForm> {
   bool _submitted = false;
   bool _submitting = false;
   bool _wasDirty = false;
+
+  /// True only while [onServiceTypeSelected] is programmatically writing the
+  /// auto-filled name into [_nameCtrl] (Phase 16.3). The name controller's
+  /// listener checks this so it does NOT treat the auto-fill as a manual edit
+  /// (which would immediately reset [_lastAutoFilledName] and defeat the
+  /// don't-clobber tracking).
+  bool _applyingAutoFill = false;
 
   /// Bumped on every keystroke that can change a field's inline error text
   /// (live re-validation after the first submit, or a cleared server error).
@@ -149,6 +176,22 @@ class _ServiceFormState extends State<ServiceForm> {
 
   /// Currently selected category wire name. Null = no category selected.
   String? _selectedCategory;
+
+  /// Currently selected platform service-type id (Phase 16.3). Null = the
+  /// master has not chosen a service type (the picker is optional). Submitted
+  /// as [MasterServiceCreate.serviceTypeId]; a null value sends no type.
+  ///
+  /// The picker UI that drives this lives in Phase 16.4 — it calls
+  /// [onServiceTypeSelected] / [clearServiceType]; this phase only wires the
+  /// behavior.
+  String? _selectedServiceTypeId;
+
+  /// The exact name string this form last auto-filled from a selected service
+  /// type's `nameUk` (Phase 16.3). Used to detect whether the user has since
+  /// hand-edited the name: pre-fill is only allowed to overwrite the name when
+  /// it is still empty OR still equals this value. Reset to null whenever the
+  /// user edits the name themselves, so a manual edit is never clobbered.
+  String? _lastAutoFilledName;
 
   /// True when the form is in edit mode ([widget.initial] is set) and at
   /// least one field (including category or pricing) differs from the loaded
@@ -208,7 +251,7 @@ class _ServiceFormState extends State<ServiceForm> {
     // the instant the field becomes valid. In edit mode, also repaint the dirty
     // badge on each keystroke. Editing a field also clears any stale
     // server-side error keyed to that field's backend wire name.
-    _nameCtrl.addListener(() => _onChanged('name'));
+    _nameCtrl.addListener(_onNameChanged);
     _durationCtrl.addListener(() => _onChanged('baseDurationMinutes'));
     _priceFixedCtrl.addListener(() => _onChanged('price'));
     _priceMinCtrl.addListener(() => _onChanged('priceMin'));
@@ -240,6 +283,84 @@ class _ServiceFormState extends State<ServiceForm> {
       _wasDirty = dirty;
       _dirtyNotifier.value = dirty;
     }
+  }
+
+  /// Drops a stale server-side error keyed by backend wire [field] from
+  /// [_serverFieldErrors], if present. Must be called inside a [setState] (or a
+  /// frame that otherwise rebuilds) — it only mutates the map. Used by the
+  /// service-type handlers, which have no [TextEditingController] to hang an
+  /// edit-clears-error listener on.
+  void _clearServerError(String field) {
+    if (!_serverFieldErrors.containsKey(field)) return;
+    _serverFieldErrors = Map<String, String>.unmodifiable(
+      Map<String, String>.from(_serverFieldErrors)..remove(field),
+    );
+  }
+
+  /// Inline error for the service type, sourced solely from the backend
+  /// cross-field validation (Phase 16.3 — e.g. the chosen type does not belong
+  /// to the selected category). There is no client-side validator because the
+  /// service type is optional; the error is purely the mapped-back
+  /// `serviceTypeId` server message. Null when there is none.
+  String? _serviceTypeError() => _serverFieldErrors['serviceTypeId'];
+
+  /// Name-controller listener. Behaves exactly like `_onChanged('name')` for
+  /// re-validation / dirty tracking, but additionally resets
+  /// [_lastAutoFilledName] when the change is a genuine *user* edit (i.e. not
+  /// the programmatic write performed by [onServiceTypeSelected]). Once the
+  /// user hand-edits the name, the next service-type selection must not
+  /// overwrite it.
+  void _onNameChanged() {
+    if (!_applyingAutoFill && _lastAutoFilledName != null) {
+      _lastAutoFilledName = null;
+    }
+    _onChanged('name');
+  }
+
+  /// Called by the Phase 16.4 picker when the master selects a service type.
+  ///
+  /// Sets [_selectedServiceTypeId] to [option.id] and pre-fills the name field
+  /// with [option.nameUk] — but only when [shouldPrefillName] allows it, so a
+  /// name the user typed by hand is never overwritten. When the name is
+  /// auto-filled, [_lastAutoFilledName] is updated so a *subsequent* selection
+  /// is still allowed to replace this auto-filled value (but a manual edit in
+  /// between resets it and locks the name).
+  void onServiceTypeSelected(ServiceTypeOption option) {
+    if (!mounted) return;
+    final bool prefill = ServiceForm.shouldPrefillName(
+      currentName: _nameCtrl.text,
+      lastAutoFilledName: _lastAutoFilledName,
+    );
+    setState(() {
+      _selectedServiceTypeId = option.id;
+      _clearServerError('serviceTypeId');
+      if (prefill) {
+        // Guard the programmatic write so the name listener does not mistake
+        // the auto-fill for a manual edit.
+        _applyingAutoFill = true;
+        _nameCtrl.text = option.nameUk;
+        _applyingAutoFill = false;
+        _lastAutoFilledName = option.nameUk;
+      }
+    });
+    // Re-evaluate dirty state (name and/or type may have changed).
+    _wasDirty = _isDirty;
+    _dirtyNotifier.value = _wasDirty;
+  }
+
+  /// Called by the Phase 16.4 picker when the master clears the service-type
+  /// selection. Nulls [_selectedServiceTypeId] so the create payload submits
+  /// `serviceTypeId = null`. The name is intentionally left as-is (clearing a
+  /// type never edits the name), though future auto-fills are again permitted
+  /// when the name still matches the last auto-filled value.
+  void clearServiceType() {
+    if (!mounted) return;
+    setState(() {
+      _selectedServiceTypeId = null;
+      _clearServerError('serviceTypeId');
+    });
+    _wasDirty = _isDirty;
+    _dirtyNotifier.value = _wasDirty;
   }
 
   @override
@@ -377,6 +498,8 @@ class _ServiceFormState extends State<ServiceForm> {
             price: parsePrice(_priceFixedCtrl.text),
             // Description intentionally omitted (user decision, Phase 5.3).
             category: _selectedCategory,
+            // Optional service type (Phase 16.3); null when none selected.
+            serviceTypeId: _selectedServiceTypeId,
           );
         case ServicePriceType.range:
           input = MasterServiceCreate(
@@ -386,6 +509,8 @@ class _ServiceFormState extends State<ServiceForm> {
             priceMin: parsePrice(_priceMinCtrl.text),
             priceMax: parsePrice(_priceMaxCtrl.text),
             category: _selectedCategory,
+            // Optional service type (Phase 16.3); null when none selected.
+            serviceTypeId: _selectedServiceTypeId,
           );
       }
       await widget.onSubmit(input);
@@ -456,6 +581,7 @@ class _ServiceFormState extends State<ServiceForm> {
       'priceMin',
       'priceMax',
       'category',
+      'serviceTypeId',
       'bufferMinutesAfter',
     };
     final Map<String, String> out = <String, String>{};
@@ -564,6 +690,42 @@ class _ServiceFormState extends State<ServiceForm> {
             });
             _wasDirty = _isDirty;
             _dirtyNotifier.value = _wasDirty;
+          },
+        ),
+
+        // 1c — Service-type backend error surface (Phase 16.3). The picker UI
+        //      itself is Phase 16.4; until then this row renders the mapped-back
+        //      `serviceTypeId` cross-field validation error (e.g. the chosen
+        //      type does not belong to the selected category) so a backend
+        //      mismatch is never swallowed. Rebuilds only on a revalidate tick.
+        ValueListenableBuilder<int>(
+          valueListenable: _revalidateTick,
+          builder: (BuildContext context, _, _) {
+            final String? err = _serviceTypeError();
+            if (err == null) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(
+                left: VelvetSpacing.xs,
+                right: VelvetSpacing.xs,
+                top: VelvetSpacing.sm,
+              ),
+              child: Semantics(
+                liveRegion: true,
+                child: Row(
+                  key: const Key('error-service-type'),
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Icon(
+                      Icons.error_outline_rounded,
+                      size: 15,
+                      color: Color(0xFFB0452F), // BrandColors.error
+                    ),
+                    const SizedBox(width: VelvetSpacing.xs + 2),
+                    Expanded(child: Text(err, style: _feedbackError)),
+                  ],
+                ),
+              ),
+            );
           },
         ),
         const SizedBox(height: VelvetSpacing.lg),
