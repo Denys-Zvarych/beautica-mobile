@@ -10,11 +10,20 @@
 // the repository degrades gracefully and the picker shows an empty/explanatory
 // state rather than a failure surface.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'service_types_provider.g.dart';
+
+/// How long a fetched type list stays cached after its last listener is gone.
+///
+/// Long enough to span a single form session (toggling the category off→on or
+/// flipping between two categories no longer tears down + re-fetches), short
+/// enough that a genuinely new session re-fetches a fresh catalog.
+const Duration _serviceTypesCacheTtl = Duration(minutes: 3);
 
 /// Async list of platform service types under [categoryName], for the
 /// second-level service-type picker.
@@ -24,11 +33,17 @@ part 'service_types_provider.g.dart';
 /// empty case. Transport errors surface as the future's error state, mapped to
 /// the feature's typed [Failure] subclasses by [ServiceRepository].
 ///
-/// Not [keepAlive]: the family auto-disposes when the picker is dismissed so
-/// each form session fetches a fresh catalog (categories/types can change
-/// out-of-band) without leaking one cached future per category for the app's
-/// lifetime.
+/// Caching (Phase 16.4 perf): a timer-bounded [keepAlive] holds each category's
+/// result for [_serviceTypesCacheTtl] after the last listener drops, then lets
+/// the entry auto-dispose. This preserves Phase 16.2's "fresh catalog per form
+/// session" intent (a later session re-fetches) while avoiding a refetch storm
+/// when the picker is gated behind a category toggle — toggling the category
+/// off→on, or flipping between two categories within one session, now reuses
+/// the cached list instead of re-hitting [ServiceRepository.fetchServiceTypes].
 @riverpod
 Future<List<ServiceTypeOption>> serviceTypes(Ref ref, String categoryName) {
+  final link = ref.keepAlive();
+  final Timer timer = Timer(_serviceTypesCacheTtl, link.close);
+  ref.onDispose(timer.cancel);
   return ref.watch(serviceRepositoryProvider).fetchServiceTypes(categoryName);
 }

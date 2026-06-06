@@ -36,6 +36,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/category_request_dialog.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -688,46 +689,47 @@ class _ServiceFormState extends State<ServiceForm> {
             setState(() {
               _selectedCategory = wire;
             });
-            _wasDirty = _isDirty;
-            _dirtyNotifier.value = _wasDirty;
+            // Category changed: a service-type selected under the previous
+            // category is no longer compatible (the type belongs to one
+            // category). Drop it through the existing 16.3 handler so there is
+            // a single clear code path — the stale selection and any mapped-back
+            // serviceTypeId error don't linger into the new category's picker
+            // (16.4 basic clear-on-change; deeper edit-flow hardening is 16.5).
+            // The name controller is intentionally untouched (16.3 don't-clobber
+            // rule governs the name; only the type selection is cleared here).
+            clearServiceType();
           },
         ),
 
-        // 1c — Service-type backend error surface (Phase 16.3). The picker UI
-        //      itself is Phase 16.4; until then this row renders the mapped-back
-        //      `serviceTypeId` cross-field validation error (e.g. the chosen
-        //      type does not belong to the selected category) so a backend
-        //      mismatch is never swallowed. Rebuilds only on a revalidate tick.
-        ValueListenableBuilder<int>(
-          valueListenable: _revalidateTick,
-          builder: (BuildContext context, _, _) {
-            final String? err = _serviceTypeError();
-            if (err == null) return const SizedBox.shrink();
-            return Padding(
-              padding: const EdgeInsets.only(
-                left: VelvetSpacing.xs,
-                right: VelvetSpacing.xs,
-                top: VelvetSpacing.sm,
-              ),
-              child: Semantics(
-                liveRegion: true,
-                child: Row(
-                  key: const Key('error-service-type'),
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    const Icon(
-                      Icons.error_outline_rounded,
-                      size: 15,
-                      color: Color(0xFFB0452F), // BrandColors.error
-                    ),
-                    const SizedBox(width: VelvetSpacing.xs + 2),
-                    Expanded(child: Text(err, style: _feedbackError)),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
+        // 1c — Second-level service-type chip selector (Phase 16.4). Shown only
+        //      when a category is selected; mirrors `_CategoryChips` 1:1 over
+        //      `serviceTypesProvider(category)`. Selection drives the existing
+        //      16.3 handlers (`onServiceTypeSelected` / `clearServiceType`) so
+        //      there is a single source of truth for `_selectedServiceTypeId`.
+        //      The mapped-back `serviceTypeId` cross-field error (16.3) renders
+        //      beneath the row via [serviceTypeError]; ONLY that inline error
+        //      subtree rebuilds on a revalidate tick so a backend mismatch is
+        //      never swallowed. The label + pill `Wrap` are lifted OUT of the
+        //      tick listener (perf HIGH): a revalidate tick must not re-watch
+        //      `serviceTypesProvider` or reconstruct every pill — the pills
+        //      rebuild only when their real inputs change (category via
+        //      setState, provider data, or selection).
+        if (_selectedCategory != null &&
+            _selectedCategory!.isNotEmpty) ...<Widget>[
+          _ServiceTypeChips(
+            categoryName: _selectedCategory!,
+            selectedId: _selectedServiceTypeId,
+            disabled: _submitting,
+            label: l10n.serviceTypeLabel,
+            onSelect: onServiceTypeSelected,
+            onDeselect: clearServiceType,
+          ),
+          ValueListenableBuilder<int>(
+            valueListenable: _revalidateTick,
+            builder: (BuildContext context, _, _) =>
+                _ServiceTypeError(errorText: _serviceTypeError()),
+          ),
+        ],
         const SizedBox(height: VelvetSpacing.lg),
 
         // 2 — Duration field (required, integer 1–480 min / 8 h — backend cap).
@@ -848,6 +850,177 @@ class _DirtyMarker extends StatelessWidget {
                 ),
               )
             : const SizedBox(width: double.infinity, height: 0),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Service-type chip selector (Phase 16.4)
+//
+// The second-level picker: mirrors `_CategoryChips` 1:1 but sources its pills
+// from `serviceTypesProvider(categoryName)` (the service types under the
+// currently-selected platform category). Single-select, optional — tapping a
+// selected pill deselects it. The parent form is shown this row only when a
+// category is selected, so [categoryName] is always non-empty here.
+//
+// This widget owns NO selection state: it reflects [selectedId] from the form
+// and routes taps back through [onSelect] / [onDeselect], which drive the
+// form's existing 16.3 handlers. Single source of truth lives on the form.
+//
+// Async states (the category is optional, so each state stays compact):
+//   - loading → a single inset skeleton pill (reuses `_CategoryChipsLoading`);
+//   - empty   → a calm one-line hint (NOT an error, NOT a card);
+//   - data    → the Wrap of pills (no "suggest" chip — that's Phase 16.6).
+//
+// The provider never errors for the empty case (Phase 16.2); a transport error
+// would surface as the future's error state — handled with the same compact
+// retry line as `_CategoryChips` so the rest of the form stays usable.
+// ---------------------------------------------------------------------------
+
+/// A labelled row of neumorphic service-type chips for the service form.
+///
+/// Chips are sourced from [serviceTypesProvider] for [categoryName] — each chip
+/// renders [ServiceTypeOption.nameUk] as its label while [ServiceTypeOption]
+/// is passed back to [onSelect] (so the form can pre-fill the name and persist
+/// the id). [selectedId] is the currently-selected service-type id, or null.
+///
+/// Tapping an unselected chip calls [onSelect]; tapping the selected chip calls
+/// [onDeselect]. [disabled] suppresses taps while a submit is in-flight.
+class _ServiceTypeChips extends ConsumerWidget {
+  const _ServiceTypeChips({
+    required this.categoryName,
+    required this.selectedId,
+    required this.label,
+    required this.onSelect,
+    required this.onDeselect,
+    this.disabled = false,
+  });
+
+  final String categoryName;
+  final String? selectedId;
+  final String label;
+  final ValueChanged<ServiceTypeOption> onSelect;
+  final VoidCallback onDeselect;
+
+  final bool disabled;
+
+  // Section-label style — hoisted to avoid per-frame TextStyle allocations.
+  static final TextStyle _sectionLabelStyle = VelvetText.label();
+
+  // Hint style — hoisted; matches the field/category feedback style.
+  static final TextStyle _hintStyle = VelvetText.feedback(
+    const Color(0xFF9A8367), // BrandColors.muted — calm, not an error.
+  );
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final typesAsync = ref.watch(serviceTypesProvider(categoryName));
+
+    return Padding(
+      padding: const EdgeInsets.only(top: VelvetSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          // Section label (uppercased at render time, same as field labels).
+          Padding(
+            padding: const EdgeInsets.only(
+              left: VelvetSpacing.xs,
+              bottom: VelvetSpacing.sm,
+            ),
+            child: Text(label.toUpperCase(), style: _sectionLabelStyle),
+          ),
+          typesAsync.when(
+            loading: () => const _CategoryChipsLoading(),
+            error: (_, _) => _CategoryChipsError(
+              l10n: l10n,
+              disabled: disabled,
+              onRetry: () => ref.invalidate(serviceTypesProvider(categoryName)),
+            ),
+            data: (List<ServiceTypeOption> options) {
+              // Empty category → a calm passive hint, never an error/card.
+              if (options.isEmpty) {
+                return Padding(
+                  key: const Key('service-type-chips-empty'),
+                  padding: const EdgeInsets.only(left: VelvetSpacing.xs),
+                  child: Text(l10n.serviceTypeEmpty, style: _hintStyle),
+                );
+              }
+              return Wrap(
+                spacing: VelvetSpacing.sm,
+                runSpacing: VelvetSpacing.sm,
+                children: <Widget>[
+                  for (final ServiceTypeOption option in options)
+                    _CategoryChip(
+                      key: Key('chip-service-type-${option.id}'),
+                      wire: option.id,
+                      label: option.nameUk,
+                      isSelected: option.id == selectedId,
+                      disabled: disabled,
+                      onTap: () => option.id == selectedId
+                          ? onDeselect()
+                          : onSelect(option),
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Service-type inline error
+//
+// The mapped-back `serviceTypeId` cross-field error (Phase 16.3) — e.g. the
+// chosen type does not belong to the selected category. Rendered as a separate
+// leaf so the parent can wrap ONLY this subtree in the `_revalidateTick`
+// listener: a revalidate tick reflows the error without rebuilding the pill
+// `Wrap` above or re-watching `serviceTypesProvider` (perf HIGH).
+// ---------------------------------------------------------------------------
+
+class _ServiceTypeError extends StatelessWidget {
+  const _ServiceTypeError({required this.errorText});
+
+  /// The backend-mapped error message, or null when there is none. There is no
+  /// client-side validator (the service type is optional).
+  final String? errorText;
+
+  // Error style — hoisted; matches the field/category feedback style.
+  static final TextStyle _errorStyle = VelvetText.feedback(
+    const Color(0xFFB0452F), // BrandColors.error
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final String? message = errorText;
+    if (message == null) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(
+        left: VelvetSpacing.xs,
+        right: VelvetSpacing.xs,
+        top: VelvetSpacing.sm,
+      ),
+      child: Semantics(
+        liveRegion: true,
+        child: Row(
+          key: const Key('error-service-type'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Icon(
+              Icons.error_outline_rounded,
+              size: 15,
+              color: Color(0xFFB0452F), // BrandColors.error
+            ),
+            const SizedBox(width: VelvetSpacing.xs + 2),
+            Expanded(child: Text(message, style: _errorStyle)),
+          ],
+        ),
       ),
     );
   }

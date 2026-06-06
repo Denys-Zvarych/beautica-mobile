@@ -92,8 +92,9 @@ void main() {
 
     final container = _container(repo);
 
-    final eyelash =
-        await container.read(serviceTypesProvider('EYELASH').future);
+    final eyelash = await container.read(
+      serviceTypesProvider('EYELASH').future,
+    );
     final hair = await container.read(serviceTypesProvider('HAIR').future);
 
     expect(eyelash, _eyelashTypes);

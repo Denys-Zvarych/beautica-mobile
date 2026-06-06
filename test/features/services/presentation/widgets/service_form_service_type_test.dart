@@ -26,6 +26,7 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -83,6 +84,10 @@ void main() {
   Future<void> pumpForm(
     WidgetTester tester, {
     required Future<void> Function(MasterServiceCreate) onSubmit,
+    // Service types surfaced by the second-level picker for the selected
+    // category. Defaults to empty (the picker renders its calm empty state);
+    // tests that need to tap / submit a type chip pass a non-empty list.
+    List<ServiceTypeOption> serviceTypes = const <ServiceTypeOption>[],
   }) async {
     tester.view.physicalSize = const Size(800, 1400);
     tester.view.devicePixelRatio = 1.0;
@@ -91,15 +96,21 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
+        overrides: [
+          serviceRepositoryProvider.overrideWithValue(repo),
+          // _ServiceTypeChips mounts as soon as a category is selected and
+          // watches serviceTypesProvider(category) → fetchServiceTypes. Stub it
+          // so no un-mocked repository fetch fires inside the form subtree.
+          serviceTypesProvider.overrideWith(
+            (ref, String categoryName) async => serviceTypes,
+          ),
+        ],
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           locale: const Locale('uk'),
           home: Scaffold(
-            body: SingleChildScrollView(
-              child: ServiceForm(onSubmit: onSubmit),
-            ),
+            body: SingleChildScrollView(child: ServiceForm(onSubmit: onSubmit)),
           ),
         ),
       ),
@@ -175,14 +186,21 @@ void main() {
     tester,
   ) async {
     MasterServiceCreate? captured;
+    final option = _type('type-xyz', 'Манікюр');
     await pumpForm(
       tester,
       onSubmit: (input) async => captured = input,
+      // The picker for the selected category must surface this option so the
+      // type chip renders and the selection survives.
+      serviceTypes: <ServiceTypeOption>[option],
     );
 
-    _formState(tester).onServiceTypeSelected(_type('type-xyz', 'Манікюр'));
-    await tester.pump();
+    // Select the category FIRST. Selecting a category now legitimately clears
+    // any previously-selected service type (16.4 clear-on-category-change), so
+    // the type must be chosen AFTER the category — not before.
     await fillExceptName(tester);
+    _formState(tester).onServiceTypeSelected(option);
+    await tester.pump();
     await tapSubmit(tester);
     await tester.pumpAndSettle();
 
@@ -195,10 +213,7 @@ void main() {
     'W-SUBMIT-NULL. submitting without a selection sends serviceTypeId=null',
     (tester) async {
       MasterServiceCreate? captured;
-      await pumpForm(
-        tester,
-        onSubmit: (input) async => captured = input,
-      );
+      await pumpForm(tester, onSubmit: (input) async => captured = input);
 
       await fillExceptName(tester);
       await tester.enterText(_nameField, 'Манікюр');
@@ -218,10 +233,7 @@ void main() {
     tester,
   ) async {
     MasterServiceCreate? captured;
-    await pumpForm(
-      tester,
-      onSubmit: (input) async => captured = input,
-    );
+    await pumpForm(tester, onSubmit: (input) async => captured = input);
 
     _formState(tester).onServiceTypeSelected(_type('type-xyz', 'Манікюр'));
     await tester.pump();

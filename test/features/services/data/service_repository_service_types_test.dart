@@ -66,19 +66,19 @@ PlatformServiceTypeResponse _platformDto({
 Response<GetServiceTypes200Response> _platformResponse(
   List<PlatformServiceTypeResponse>? items,
 ) {
-  final envelope = ApiResponseListPlatformServiceTypeResponse(
-    (b) {
-      b.success = true;
-      if (items != null) {
-        b.data = ListBuilder<PlatformServiceTypeResponse>(items);
-      }
-    },
-  );
+  final envelope = ApiResponseListPlatformServiceTypeResponse((b) {
+    b.success = true;
+    if (items != null) {
+      b.data = ListBuilder<PlatformServiceTypeResponse>(items);
+    }
+  });
   final body = GetServiceTypes200Response(
     (b) => b
-      ..oneOf = OneOf2<
-          ApiResponseListPlatformServiceTypeResponse,
-          ApiResponseListServiceTypeResponse>(value: envelope, typeIndex: 0),
+      ..oneOf =
+          OneOf2<
+            ApiResponseListPlatformServiceTypeResponse,
+            ApiResponseListServiceTypeResponse
+          >(value: envelope, typeIndex: 0),
   );
   return Response<GetServiceTypes200Response>(
     data: body,
@@ -105,9 +105,11 @@ Response<GetServiceTypes200Response> _legacyResponse() {
   );
   final body = GetServiceTypes200Response(
     (b) => b
-      ..oneOf = OneOf2<
-          ApiResponseListPlatformServiceTypeResponse,
-          ApiResponseListServiceTypeResponse>(value: legacy, typeIndex: 1),
+      ..oneOf =
+          OneOf2<
+            ApiResponseListPlatformServiceTypeResponse,
+            ApiResponseListServiceTypeResponse
+          >(value: legacy, typeIndex: 1),
   );
   return Response<GetServiceTypes200Response>(
     data: body,
@@ -153,16 +155,8 @@ void main() {
         () => catalogApi.getServiceTypes(categoryName: _category),
       ).thenAnswer(
         (_) async => _platformResponse(<PlatformServiceTypeResponse>[
-          _platformDto(
-            id: 'type-1',
-            slug: 'CLASSIC_LASHES',
-            nameUk: 'Класика',
-          ),
-          _platformDto(
-            id: 'type-2',
-            slug: 'VOLUME_LASHES',
-            nameUk: 'Об’ємне',
-          ),
+          _platformDto(id: 'type-1', slug: 'CLASSIC_LASHES', nameUk: 'Класика'),
+          _platformDto(id: 'type-2', slug: 'VOLUME_LASHES', nameUk: 'Об’ємне'),
         ]),
       );
 
@@ -180,7 +174,9 @@ void main() {
 
     test('forwards the categoryName argument to the generated API', () async {
       when(
-        () => catalogApi.getServiceTypes(categoryName: any(named: 'categoryName')),
+        () => catalogApi.getServiceTypes(
+          categoryName: any(named: 'categoryName'),
+        ),
       ).thenAnswer((_) async => _platformResponse(const []));
 
       await repository.fetchServiceTypes('HAIR');
@@ -206,29 +202,26 @@ void main() {
       expect(await repository.fetchServiceTypes(_category), isEmpty);
     });
 
-    test(
-      'oneOf resolves to the legacy ServiceTypeResponse branch → empty list '
-      '(no throw)',
-      () async {
-        // The 16.1 contract nuance: the categoryName path should resolve to the
-        // Platform branch, but if the response ever lands on the legacy branch
-        // the repository must degrade to [] rather than throw an unchecked cast.
-        when(
-          () => catalogApi.getServiceTypes(categoryName: _category),
-        ).thenAnswer((_) async => _legacyResponse());
+    test('oneOf resolves to the legacy ServiceTypeResponse branch → empty list '
+        '(no throw)', () async {
+      // The 16.1 contract nuance: the categoryName path should resolve to the
+      // Platform branch, but if the response ever lands on the legacy branch
+      // the repository must degrade to [] rather than throw an unchecked cast.
+      when(
+        () => catalogApi.getServiceTypes(categoryName: _category),
+      ).thenAnswer((_) async => _legacyResponse());
 
-        final result = await repository.fetchServiceTypes(_category);
+      final result = await repository.fetchServiceTypes(_category);
 
-        expect(result, isEmpty);
-      },
-    );
+      expect(result, isEmpty);
+    });
   });
 
   group('fetchServiceTypes — transport errors → typed Failures', () {
     test('connectionError → NetworkFailure', () async {
-      when(() => catalogApi.getServiceTypes(categoryName: _category)).thenThrow(
-        _dio(DioExceptionType.connectionError),
-      );
+      when(
+        () => catalogApi.getServiceTypes(categoryName: _category),
+      ).thenThrow(_dio(DioExceptionType.connectionError));
 
       await expectLater(
         repository.fetchServiceTypes(_category),
@@ -237,9 +230,9 @@ void main() {
     });
 
     test('receiveTimeout → NetworkFailure', () async {
-      when(() => catalogApi.getServiceTypes(categoryName: _category)).thenThrow(
-        _dio(DioExceptionType.receiveTimeout),
-      );
+      when(
+        () => catalogApi.getServiceTypes(categoryName: _category),
+      ).thenThrow(_dio(DioExceptionType.receiveTimeout));
 
       await expectLater(
         repository.fetchServiceTypes(_category),
@@ -248,9 +241,9 @@ void main() {
     });
 
     test('400 → ValidationFailure', () async {
-      when(() => catalogApi.getServiceTypes(categoryName: _category)).thenThrow(
-        _dio(DioExceptionType.badResponse, status: 400),
-      );
+      when(
+        () => catalogApi.getServiceTypes(categoryName: _category),
+      ).thenThrow(_dio(DioExceptionType.badResponse, status: 400));
 
       await expectLater(
         repository.fetchServiceTypes(_category),
@@ -259,9 +252,9 @@ void main() {
     });
 
     test('422 → ValidationFailure', () async {
-      when(() => catalogApi.getServiceTypes(categoryName: _category)).thenThrow(
-        _dio(DioExceptionType.badResponse, status: 422),
-      );
+      when(
+        () => catalogApi.getServiceTypes(categoryName: _category),
+      ).thenThrow(_dio(DioExceptionType.badResponse, status: 422));
 
       await expectLater(
         repository.fetchServiceTypes(_category),

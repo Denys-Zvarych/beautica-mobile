@@ -65,10 +65,11 @@ void main() {
 
   group('ServiceTypeMapper.fromDtoList', () {
     test('maps a list of selectable rows preserving order', () {
-      final result = ServiceTypeMapper.fromDtoList(<PlatformServiceTypeResponse>[
-        _dto(id: 'type-1', slug: 'CLASSIC_LASHES', nameUk: 'Класика'),
-        _dto(id: 'type-2', slug: 'VOLUME_LASHES', nameUk: 'Об’ємне'),
-      ]);
+      final result =
+          ServiceTypeMapper.fromDtoList(<PlatformServiceTypeResponse>[
+            _dto(id: 'type-1', slug: 'CLASSIC_LASHES', nameUk: 'Класика'),
+            _dto(id: 'type-2', slug: 'VOLUME_LASHES', nameUk: 'Об’ємне'),
+          ]);
 
       expect(result.map((o) => o.id).toList(), <String>['type-1', 'type-2']);
       expect(result.map((o) => o.slug).toList(), <String>[
@@ -78,31 +79,36 @@ void main() {
     });
 
     test('drops a row whose id is absent (empty after fallback)', () {
-      final result = ServiceTypeMapper.fromDtoList(<PlatformServiceTypeResponse>[
-        _dto(id: null, slug: 'VOLUME_LASHES'), // unselectable — no id
-        _dto(id: 'type-2', slug: 'CLASSIC_LASHES'),
-      ]);
+      final result = ServiceTypeMapper.fromDtoList(
+        <PlatformServiceTypeResponse>[
+          _dto(id: null, slug: 'VOLUME_LASHES'), // unselectable — no id
+          _dto(id: 'type-2', slug: 'CLASSIC_LASHES'),
+        ],
+      );
 
       expect(result.length, 1);
       expect(result.single.id, 'type-2');
     });
 
     test('drops a row whose slug is absent (empty after fallback)', () {
-      final result = ServiceTypeMapper.fromDtoList(<PlatformServiceTypeResponse>[
-        _dto(id: 'type-1', slug: null), // unselectable — no slug
-        _dto(id: 'type-2', slug: 'CLASSIC_LASHES'),
-      ]);
+      final result = ServiceTypeMapper.fromDtoList(
+        <PlatformServiceTypeResponse>[
+          _dto(id: 'type-1', slug: null), // unselectable — no slug
+          _dto(id: 'type-2', slug: 'CLASSIC_LASHES'),
+        ],
+      );
 
       expect(result.length, 1);
       expect(result.single.slug, 'CLASSIC_LASHES');
     });
 
     test('returns empty when every row is unselectable', () {
-      final result = ServiceTypeMapper.fromDtoList(<PlatformServiceTypeResponse>[
-        _dto(id: null, slug: null),
-        _dto(id: 'only-id', slug: null),
-        _dto(id: null, slug: 'ONLY_SLUG'),
-      ]);
+      final result =
+          ServiceTypeMapper.fromDtoList(<PlatformServiceTypeResponse>[
+            _dto(id: null, slug: null),
+            _dto(id: 'only-id', slug: null),
+            _dto(id: null, slug: 'ONLY_SLUG'),
+          ]);
 
       expect(result, isEmpty);
     });

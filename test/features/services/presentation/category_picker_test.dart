@@ -34,6 +34,8 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -78,10 +80,24 @@ Future<void> _pumpForm(
   _MockServiceRepository repo, {
   required void Function(MasterServiceCreate) onSubmit,
 }) async {
+  // Selecting a category mounts the second-level _ServiceTypeChips section,
+  // making the form taller. Use a roomy viewport so every chip + the submit CTA
+  // stay laid out and hit-testable (otherwise a select→deselect→reselect cycle
+  // lands on a shifted offset that no longer hits the chip).
+  tester.view.physicalSize = const Size(800, 1600);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
   await tester.pumpWidget(
     ProviderScope(
       overrides: <Object>[
         serviceRepositoryProvider.overrideWithValue(repo),
+        // Selecting a category mounts _ServiceTypeChips → serviceTypesProvider.
+        // Stub it to a calm empty list so no un-mocked fetch fires in-tree.
+        serviceTypesProvider.overrideWith(
+          (ref, String categoryName) async => const <ServiceTypeOption>[],
+        ),
       ].cast(),
       child: MaterialApp.router(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -129,6 +145,11 @@ Future<void> _pumpFormWithInitial(
     ProviderScope(
       overrides: <Object>[
         serviceRepositoryProvider.overrideWithValue(repo),
+        // The seeded initial.category mounts _ServiceTypeChips on pump → stub
+        // serviceTypesProvider to an empty list so no real fetch fires.
+        serviceTypesProvider.overrideWith(
+          (ref, String categoryName) async => const <ServiceTypeOption>[],
+        ),
       ].cast(),
       child: MaterialApp.router(
         localizationsDelegates: AppLocalizations.localizationsDelegates,

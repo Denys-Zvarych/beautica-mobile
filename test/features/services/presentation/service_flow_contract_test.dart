@@ -22,8 +22,10 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:beautica_mobile/features/services/presentation/service_create_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:dio/dio.dart';
@@ -152,6 +154,14 @@ Future<void> _pump(
         // the category picker has data without hitting the socket.
         servicesListProvider.overrideWith(() => _StubServicesList(cachedList)),
         approvedCategoriesProvider.overrideWith((ref) async => categories),
+        // The second-level service-type picker (_ServiceTypeChips) mounts as
+        // soon as a category is selected/seeded and would otherwise drive a
+        // real fetch over the faked socket (an unmatched route → DioException).
+        // Override the provider with a calm empty list so this contract test
+        // stays focused on the create/edit/delete endpoints under test.
+        serviceTypesProvider.overrideWith(
+          (ref, String categoryName) async => const <ServiceTypeOption>[],
+        ),
       ],
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,

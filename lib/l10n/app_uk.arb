@@ -1422,6 +1422,14 @@
   "@serviceCategorySuggest": {
     "description": "Label for the trailing chip/button on the category picker that opens the 'suggest a category' dialog."
   },
+  "serviceTypeLabel": "Тип послуги",
+  "@serviceTypeLabel": {
+    "description": "Section label above the second-level service-type chip selector row on the service create/edit form (shown only once a category is selected)."
+  },
+  "serviceTypeEmpty": "Немає типів послуг для цієї категорії",
+  "@serviceTypeEmpty": {
+    "description": "Calm passive hint shown on the service-type chip row when the selected category has no service types to choose from. Not an error."
+  },
   "serviceCategoryUncategorized": "Без категорії",
   "@serviceCategoryUncategorized": {
     "description": "Header label for the services-list expandable section that groups services with no category set."

@@ -21,8 +21,10 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_photo_slot.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -76,6 +78,13 @@ List<Object> _overrides(
 }) {
   return <Object>[
     serviceRepositoryProvider.overrideWithValue(repo),
+    // The seeded service has a category, so _ServiceTypeChips mounts on pump
+    // and would drive a real fetchServiceTypes for the seeded category (and any
+    // category the test taps). Override with a calm empty list for every
+    // category so no un-mocked fetch fires inside the form subtree.
+    serviceTypesProvider.overrideWith(
+      (ref, String categoryName) async => const <ServiceTypeOption>[],
+    ),
     if (includeMasterProfile)
       masterProfileProvider.overrideWith(() => _StubMasterProfileNotifier()),
   ];
@@ -147,6 +156,15 @@ Future<void> _pumpEdit(
   List<AsyncValue<Object?>>? watcherStates,
   List<AsyncValue<Object?>>? masterProfileStates,
 }) async {
+  // The seeded service has a category, so the form mounts the second-level
+  // _ServiceTypeChips section and grows taller. Use a roomy viewport so the
+  // submit CTA and the category chips stay laid out and hit-testable after the
+  // ensureVisible scroll (a shifted layout otherwise drops the tap).
+  tester.view.physicalSize = const Size(800, 1600);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
   Widget screen = ServiceEditScreen(id: id);
 
   if (watcherStates != null) {
@@ -174,6 +192,11 @@ Future<void> _pumpEdit(
   await tester.pump();
   // Second pump: form renders.
   await tester.pump();
+  // Settle the second-level serviceTypesProvider future so the _ServiceTypeChips
+  // section reaches its final (empty) layout BEFORE any ensureVisible/tap. Left
+  // pending, it would resolve mid-interaction and shift the submit CTA, dropping
+  // the tap (hit-test miss).
+  await tester.pumpAndSettle();
 }
 
 // ---------------------------------------------------------------------------

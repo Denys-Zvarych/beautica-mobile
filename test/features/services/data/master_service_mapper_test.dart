@@ -571,9 +571,7 @@ void main() {
       // The master skipped the (optional) picker. The generated serializer
       // omits null builder fields, so this is the "omitted from the wire body"
       // case — and proves the existing no-type create path is unchanged.
-      final request = MasterServiceMapper.toCreateRequest(
-        _createFixed(),
-      );
+      final request = MasterServiceMapper.toCreateRequest(_createFixed());
       expect(
         request.serviceTypeId,
         isNull,
@@ -642,75 +640,71 @@ void main() {
       },
     );
 
-    test(
-      'ST-DTO-PRECEDENCE. fromDto prefers the MSR envelope over the nested '
-      'definition when both supply a service type',
-      () {
-        final dto =
-            (MasterServiceResponseBuilder()
-                  ..id = 'a-st-prec'
-                  ..serviceDefinition.replace(
-                    buildDef(
-                      id: 'def-st-prec',
-                      serviceTypeId: 'type-nested',
-                      serviceTypeNameUk: 'Nested name',
-                    ),
-                  )
-                  ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
-                  ..priceMin = 500
-                  ..priceDisplay = '500 грн'
-                  ..serviceTypeId = 'type-envelope'
-                  ..serviceTypeNameUk = 'Envelope name'
-                  ..isActive = true)
-                .build();
-
-        final service = MasterServiceMapper.fromDto(dto);
-
-        expect(
-          service.serviceTypeId,
-          equals('type-envelope'),
-          reason: 'MSR-envelope-first precedence (dto.serviceTypeId ?? def…)',
-        );
-        expect(service.serviceTypeNameUk, equals('Envelope name'));
-      },
-    );
-
-    test('ST-DTO-NULL. fromDto carries null when neither level supplies a type',
-        () {
+    test('ST-DTO-PRECEDENCE. fromDto prefers the MSR envelope over the nested '
+        'definition when both supply a service type', () {
       final dto =
           (MasterServiceResponseBuilder()
-                ..id = 'a-st-null'
-                ..serviceDefinition.replace(buildDef(id: 'def-st-null'))
+                ..id = 'a-st-prec'
+                ..serviceDefinition.replace(
+                  buildDef(
+                    id: 'def-st-prec',
+                    serviceTypeId: 'type-nested',
+                    serviceTypeNameUk: 'Nested name',
+                  ),
+                )
                 ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
                 ..priceMin = 500
                 ..priceDisplay = '500 грн'
+                ..serviceTypeId = 'type-envelope'
+                ..serviceTypeNameUk = 'Envelope name'
                 ..isActive = true)
               .build();
 
       final service = MasterServiceMapper.fromDto(dto);
 
-      expect(service.serviceTypeId, isNull);
-      expect(service.serviceTypeNameUk, isNull);
+      expect(
+        service.serviceTypeId,
+        equals('type-envelope'),
+        reason: 'MSR-envelope-first precedence (dto.serviceTypeId ?? def…)',
+      );
+      expect(service.serviceTypeNameUk, equals('Envelope name'));
     });
 
     test(
-      'ST-SDR-SET. fromServiceDefinitionDto carries service type back',
+      'ST-DTO-NULL. fromDto carries null when neither level supplies a type',
       () {
-        final def = buildDef(
-          id: 'def-st-sdr',
-          serviceTypeId: 'type-sdr',
-          serviceTypeNameUk: 'Стрижка',
-        );
+        final dto =
+            (MasterServiceResponseBuilder()
+                  ..id = 'a-st-null'
+                  ..serviceDefinition.replace(buildDef(id: 'def-st-null'))
+                  ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                  ..priceMin = 500
+                  ..priceDisplay = '500 грн'
+                  ..isActive = true)
+                .build();
 
-        final service = MasterServiceMapper.fromServiceDefinitionDto(
-          def,
-          assignmentId: 'assign-st-sdr',
-        );
+        final service = MasterServiceMapper.fromDto(dto);
 
-        expect(service.serviceTypeId, equals('type-sdr'));
-        expect(service.serviceTypeNameUk, equals('Стрижка'));
+        expect(service.serviceTypeId, isNull);
+        expect(service.serviceTypeNameUk, isNull);
       },
     );
+
+    test('ST-SDR-SET. fromServiceDefinitionDto carries service type back', () {
+      final def = buildDef(
+        id: 'def-st-sdr',
+        serviceTypeId: 'type-sdr',
+        serviceTypeNameUk: 'Стрижка',
+      );
+
+      final service = MasterServiceMapper.fromServiceDefinitionDto(
+        def,
+        assignmentId: 'assign-st-sdr',
+      );
+
+      expect(service.serviceTypeId, equals('type-sdr'));
+      expect(service.serviceTypeNameUk, equals('Стрижка'));
+    });
 
     test('ST-SDR-NULL. fromServiceDefinitionDto carries null when omitted', () {
       final def = buildDef(id: 'def-st-sdr-null');
