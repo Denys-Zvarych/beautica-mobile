@@ -25,6 +25,8 @@ part 'master_service_response.g.dart';
 /// * [priceMin]
 /// * [priceMax]
 /// * [priceDisplay]
+/// * [serviceTypeId] - Chosen service type id; null when no service type was selected.
+/// * [serviceTypeNameUk] - Ukrainian display name of the chosen service type; null when none was selected.
 @BuiltValue()
 abstract class MasterServiceResponse
     implements Built<MasterServiceResponse, MasterServiceResponseBuilder> {
@@ -64,6 +66,14 @@ abstract class MasterServiceResponse
 
   @BuiltValueField(wireName: r'priceDisplay')
   String? get priceDisplay;
+
+  /// Chosen service type id; null when no service type was selected.
+  @BuiltValueField(wireName: r'serviceTypeId')
+  String? get serviceTypeId;
+
+  /// Ukrainian display name of the chosen service type; null when none was selected.
+  @BuiltValueField(wireName: r'serviceTypeNameUk')
+  String? get serviceTypeNameUk;
 
   MasterServiceResponse._();
 
@@ -178,6 +188,20 @@ class _$MasterServiceResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.serviceTypeId != null) {
+      yield r'serviceTypeId';
+      yield serializers.serialize(
+        object.serviceTypeId,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.serviceTypeNameUk != null) {
+      yield r'serviceTypeNameUk';
+      yield serializers.serialize(
+        object.serviceTypeNameUk,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
   }
 
   @override
@@ -286,6 +310,22 @@ class _$MasterServiceResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.priceDisplay = valueDes;
+          break;
+        case r'serviceTypeId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.serviceTypeId = valueDes;
+          break;
+        case r'serviceTypeNameUk':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.serviceTypeNameUk = valueDes;
           break;
         default:
           unhandled.add(key);

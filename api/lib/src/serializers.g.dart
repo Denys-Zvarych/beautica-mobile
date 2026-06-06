@@ -23,6 +23,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseListMasterServiceResponse.serializer)
       ..add(ApiResponseListOblastResponse.serializer)
       ..add(ApiResponseListPlatformCategoryUsageResponse.serializer)
+      ..add(ApiResponseListPlatformServiceTypeResponse.serializer)
       ..add(ApiResponseListSalonResponse.serializer)
       ..add(ApiResponseListScheduleOverrideResponse.serializer)
       ..add(ApiResponseListServiceTypeResponse.serializer)
@@ -77,6 +78,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(EffectiveDayResponseReasonEnum.serializer)
       ..add(EffectiveDayResponseSource_Enum.serializer)
       ..add(ForgotPasswordRequest.serializer)
+      ..add(GetServiceTypes200Response.serializer)
       ..add(IndependentMasterUpdateRequest.serializer)
       ..add(InviteAcceptRequest.serializer)
       ..add(InvitePreviewResponse.serializer)
@@ -110,6 +112,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(PageableObject.serializer)
       ..add(PlatformCategoryResponse.serializer)
       ..add(PlatformCategoryUsageResponse.serializer)
+      ..add(PlatformServiceTypeResponse.serializer)
       ..add(PublicSalonResponse.serializer)
       ..add(RefreshRequest.serializer)
       ..add(RegisterDeviceTokenRequest.serializer)
@@ -233,6 +236,14 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(PlatformCategoryUsageResponse)]),
           () => ListBuilder<PlatformCategoryUsageResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(PlatformServiceTypeResponse)]),
+          () => ListBuilder<PlatformServiceTypeResponse>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),

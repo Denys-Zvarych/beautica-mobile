@@ -52,7 +52,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **getServiceTypes**
-> ApiResponseListServiceTypeResponse getServiceTypes(categoryId, q)
+> GetServiceTypes200Response getServiceTypes(categoryName, categoryId, q)
 
 
 
@@ -61,11 +61,12 @@ No authorization required
 import 'package:beautica_api/api.dart';
 
 final api = BeauticaApi().getServiceCatalogControllerApi();
+final String categoryName = categoryName_example; // String | Canonical platform-category name slug (e.g. EYELASH, HAIR). Required.
 final String categoryId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
 final String q = q_example; // String | 
 
 try {
-    final response = api.getServiceTypes(categoryId, q);
+    final response = api.getServiceTypes(categoryName, categoryId, q);
     print(response);
 } catch on DioException (e) {
     print('Exception when calling ServiceCatalogControllerApi->getServiceTypes: $e\n');
@@ -76,12 +77,13 @@ try {
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
+ **categoryName** | **String**| Canonical platform-category name slug (e.g. EYELASH, HAIR). Required. | 
  **categoryId** | **String**|  | [optional] 
  **q** | **String**|  | [optional] 
 
 ### Return type
 
-[**ApiResponseListServiceTypeResponse**](ApiResponseListServiceTypeResponse.md)
+[**GetServiceTypes200Response**](GetServiceTypes200Response.md)
 
 ### Authorization
 

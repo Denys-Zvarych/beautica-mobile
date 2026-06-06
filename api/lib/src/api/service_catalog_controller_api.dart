@@ -10,8 +10,8 @@ import 'package:dio/dio.dart';
 
 import 'package:beautica_api/src/api_util.dart';
 import 'package:beautica_api/src/model/api_response_list_catalog_category_response.dart';
-import 'package:beautica_api/src/model/api_response_list_service_type_response.dart';
 import 'package:beautica_api/src/model/api_response_void.dart';
+import 'package:beautica_api/src/model/get_service_types200_response.dart';
 import 'package:beautica_api/src/model/suggest_service_type_request.dart';
 
 class ServiceCatalogControllerApi {
@@ -100,6 +100,7 @@ class ServiceCatalogControllerApi {
   ///
   ///
   /// Parameters:
+  /// * [categoryName] - Canonical platform-category name slug (e.g. EYELASH, HAIR). Required.
   /// * [categoryId]
   /// * [q]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
@@ -109,9 +110,10 @@ class ServiceCatalogControllerApi {
   /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
   /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
   ///
-  /// Returns a [Future] containing a [Response] with a [ApiResponseListServiceTypeResponse] as data
+  /// Returns a [Future] containing a [Response] with a [GetServiceTypes200Response] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<ApiResponseListServiceTypeResponse>> getServiceTypes({
+  Future<Response<GetServiceTypes200Response>> getServiceTypes({
+    required String categoryName,
     String? categoryId,
     String? q,
     CancelToken? cancelToken,
@@ -140,6 +142,8 @@ class ServiceCatalogControllerApi {
             _serializers, categoryId, const FullType(String)),
       if (q != null)
         r'q': encodeQueryParameter(_serializers, q, const FullType(String)),
+      r'categoryName': encodeQueryParameter(
+          _serializers, categoryName, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(
@@ -151,7 +155,7 @@ class ServiceCatalogControllerApi {
       onReceiveProgress: onReceiveProgress,
     );
 
-    ApiResponseListServiceTypeResponse? _responseData;
+    GetServiceTypes200Response? _responseData;
 
     try {
       final rawResponse = _response.data;
@@ -159,8 +163,8 @@ class ServiceCatalogControllerApi {
           ? null
           : _serializers.deserialize(
               rawResponse,
-              specifiedType: const FullType(ApiResponseListServiceTypeResponse),
-            ) as ApiResponseListServiceTypeResponse;
+              specifiedType: const FullType(GetServiceTypes200Response),
+            ) as GetServiceTypes200Response;
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _response.requestOptions,
@@ -171,7 +175,7 @@ class ServiceCatalogControllerApi {
       );
     }
 
-    return Response<ApiResponseListServiceTypeResponse>(
+    return Response<GetServiceTypes200Response>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

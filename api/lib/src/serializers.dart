@@ -30,6 +30,7 @@ import 'package:beautica_api/src/model/api_response_list_effective_day_response.
 import 'package:beautica_api/src/model/api_response_list_master_service_response.dart';
 import 'package:beautica_api/src/model/api_response_list_oblast_response.dart';
 import 'package:beautica_api/src/model/api_response_list_platform_category_usage_response.dart';
+import 'package:beautica_api/src/model/api_response_list_platform_service_type_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_list_schedule_override_response.dart';
 import 'package:beautica_api/src/model/api_response_list_service_type_response.dart';
@@ -77,6 +78,7 @@ import 'package:beautica_api/src/model/create_salon_request.dart';
 import 'package:beautica_api/src/model/create_service_definition_request.dart';
 import 'package:beautica_api/src/model/effective_day_response.dart';
 import 'package:beautica_api/src/model/forgot_password_request.dart';
+import 'package:beautica_api/src/model/get_service_types200_response.dart';
 import 'package:beautica_api/src/model/independent_master_update_request.dart';
 import 'package:beautica_api/src/model/invite_accept_request.dart';
 import 'package:beautica_api/src/model/invite_preview_response.dart';
@@ -103,6 +105,7 @@ import 'package:beautica_api/src/model/pageable.dart';
 import 'package:beautica_api/src/model/pageable_object.dart';
 import 'package:beautica_api/src/model/platform_category_response.dart';
 import 'package:beautica_api/src/model/platform_category_usage_response.dart';
+import 'package:beautica_api/src/model/platform_service_type_response.dart';
 import 'package:beautica_api/src/model/public_salon_response.dart';
 import 'package:beautica_api/src/model/refresh_request.dart';
 import 'package:beautica_api/src/model/register_device_token_request.dart';
@@ -162,6 +165,7 @@ part 'serializers.g.dart';
   ApiResponseListMasterServiceResponse,
   ApiResponseListOblastResponse,
   ApiResponseListPlatformCategoryUsageResponse,
+  ApiResponseListPlatformServiceTypeResponse,
   ApiResponseListSalonResponse,
   ApiResponseListScheduleOverrideResponse,
   ApiResponseListServiceTypeResponse,
@@ -209,6 +213,7 @@ part 'serializers.g.dart';
   CreateServiceDefinitionRequest,
   EffectiveDayResponse,
   ForgotPasswordRequest,
+  GetServiceTypes200Response,
   IndependentMasterUpdateRequest,
   InviteAcceptRequest,
   InvitePreviewResponse,
@@ -235,6 +240,7 @@ part 'serializers.g.dart';
   PageableObject,
   PlatformCategoryResponse,
   PlatformCategoryUsageResponse,
+  PlatformServiceTypeResponse,
   PublicSalonResponse,
   RefreshRequest,
   RegisterDeviceTokenRequest,

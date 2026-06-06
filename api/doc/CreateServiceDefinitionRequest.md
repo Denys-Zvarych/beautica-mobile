@@ -17,7 +17,7 @@ Name | Type | Description | Notes
 **price** | **num** |  | [optional] 
 **priceMin** | **num** |  | [optional] 
 **priceMax** | **num** |  | [optional] 
-**serviceTypeId** | **String** |  | [optional] 
+**serviceTypeId** | **String** | Optional id of the chosen platform service type. Omit or send null when the master skips the (optional) service-type picker. | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

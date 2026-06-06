@@ -21,7 +21,7 @@ part 'create_service_definition_request.g.dart';
 /// * [price]
 /// * [priceMin]
 /// * [priceMax]
-/// * [serviceTypeId]
+/// * [serviceTypeId] - Optional id of the chosen platform service type. Omit or send null when the master skips the (optional) service-type picker.
 @BuiltValue()
 abstract class CreateServiceDefinitionRequest
     implements
@@ -55,6 +55,7 @@ abstract class CreateServiceDefinitionRequest
   @BuiltValueField(wireName: r'priceMax')
   num? get priceMax;
 
+  /// Optional id of the chosen platform service type. Omit or send null when the master skips the (optional) service-type picker.
   @BuiltValueField(wireName: r'serviceTypeId')
   String? get serviceTypeId;
 
@@ -148,7 +149,7 @@ class _$CreateServiceDefinitionRequestSerializer
       yield r'serviceTypeId';
       yield serializers.serialize(
         object.serviceTypeId,
-        specifiedType: const FullType(String),
+        specifiedType: const FullType.nullable(String),
       );
     }
   }
@@ -243,8 +244,9 @@ class _$CreateServiceDefinitionRequestSerializer
         case r'serviceTypeId':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.serviceTypeId = valueDes;
           break;
         default:

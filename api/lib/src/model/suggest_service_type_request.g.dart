@@ -10,7 +10,7 @@ class _$SuggestServiceTypeRequest extends SuggestServiceTypeRequest {
   @override
   final String name;
   @override
-  final String categoryId;
+  final String categoryName;
   @override
   final String? description;
 
@@ -19,7 +19,7 @@ class _$SuggestServiceTypeRequest extends SuggestServiceTypeRequest {
       (SuggestServiceTypeRequestBuilder()..update(updates))._build();
 
   _$SuggestServiceTypeRequest._(
-      {required this.name, required this.categoryId, this.description})
+      {required this.name, required this.categoryName, this.description})
       : super._();
   @override
   SuggestServiceTypeRequest rebuild(
@@ -35,7 +35,7 @@ class _$SuggestServiceTypeRequest extends SuggestServiceTypeRequest {
     if (identical(other, this)) return true;
     return other is SuggestServiceTypeRequest &&
         name == other.name &&
-        categoryId == other.categoryId &&
+        categoryName == other.categoryName &&
         description == other.description;
   }
 
@@ -43,7 +43,7 @@ class _$SuggestServiceTypeRequest extends SuggestServiceTypeRequest {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, name.hashCode);
-    _$hash = $jc(_$hash, categoryId.hashCode);
+    _$hash = $jc(_$hash, categoryName.hashCode);
     _$hash = $jc(_$hash, description.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -53,7 +53,7 @@ class _$SuggestServiceTypeRequest extends SuggestServiceTypeRequest {
   String toString() {
     return (newBuiltValueToStringHelper(r'SuggestServiceTypeRequest')
           ..add('name', name)
-          ..add('categoryId', categoryId)
+          ..add('categoryName', categoryName)
           ..add('description', description))
         .toString();
   }
@@ -68,9 +68,9 @@ class SuggestServiceTypeRequestBuilder
   String? get name => _$this._name;
   set name(String? name) => _$this._name = name;
 
-  String? _categoryId;
-  String? get categoryId => _$this._categoryId;
-  set categoryId(String? categoryId) => _$this._categoryId = categoryId;
+  String? _categoryName;
+  String? get categoryName => _$this._categoryName;
+  set categoryName(String? categoryName) => _$this._categoryName = categoryName;
 
   String? _description;
   String? get description => _$this._description;
@@ -84,7 +84,7 @@ class SuggestServiceTypeRequestBuilder
     final $v = _$v;
     if ($v != null) {
       _name = $v.name;
-      _categoryId = $v.categoryId;
+      _categoryName = $v.categoryName;
       _description = $v.description;
       _$v = null;
     }
@@ -109,8 +109,8 @@ class SuggestServiceTypeRequestBuilder
         _$SuggestServiceTypeRequest._(
           name: BuiltValueNullFieldError.checkNotNull(
               name, r'SuggestServiceTypeRequest', 'name'),
-          categoryId: BuiltValueNullFieldError.checkNotNull(
-              categoryId, r'SuggestServiceTypeRequest', 'categoryId'),
+          categoryName: BuiltValueNullFieldError.checkNotNull(
+              categoryName, r'SuggestServiceTypeRequest', 'categoryName'),
           description: description,
         );
     replace(_$result);

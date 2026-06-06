@@ -17,6 +17,7 @@ doc/ApiResponseListEffectiveDayResponse.md
 doc/ApiResponseListMasterServiceResponse.md
 doc/ApiResponseListOblastResponse.md
 doc/ApiResponseListPlatformCategoryUsageResponse.md
+doc/ApiResponseListPlatformServiceTypeResponse.md
 doc/ApiResponseListSalonResponse.md
 doc/ApiResponseListScheduleOverrideResponse.md
 doc/ApiResponseListServiceTypeResponse.md
@@ -69,6 +70,7 @@ doc/DashboardControllerApi.md
 doc/DeviceControllerApi.md
 doc/EffectiveDayResponse.md
 doc/ForgotPasswordRequest.md
+doc/GetServiceTypes200Response.md
 doc/IndependentMasterControllerApi.md
 doc/IndependentMasterUpdateRequest.md
 doc/InternalCategoryControllerApi.md
@@ -100,6 +102,7 @@ doc/Pageable.md
 doc/PageableObject.md
 doc/PlatformCategoryResponse.md
 doc/PlatformCategoryUsageResponse.md
+doc/PlatformServiceTypeResponse.md
 doc/PublicSalonResponse.md
 doc/RefreshRequest.md
 doc/RegisterDeviceTokenRequest.md
@@ -188,6 +191,7 @@ lib/src/model/api_response_list_effective_day_response.dart
 lib/src/model/api_response_list_master_service_response.dart
 lib/src/model/api_response_list_oblast_response.dart
 lib/src/model/api_response_list_platform_category_usage_response.dart
+lib/src/model/api_response_list_platform_service_type_response.dart
 lib/src/model/api_response_list_salon_response.dart
 lib/src/model/api_response_list_schedule_override_response.dart
 lib/src/model/api_response_list_service_type_response.dart
@@ -236,6 +240,7 @@ lib/src/model/create_service_definition_request.dart
 lib/src/model/date.dart
 lib/src/model/effective_day_response.dart
 lib/src/model/forgot_password_request.dart
+lib/src/model/get_service_types200_response.dart
 lib/src/model/independent_master_update_request.dart
 lib/src/model/invite_accept_request.dart
 lib/src/model/invite_preview_response.dart
@@ -262,6 +267,7 @@ lib/src/model/pageable.dart
 lib/src/model/pageable_object.dart
 lib/src/model/platform_category_response.dart
 lib/src/model/platform_category_usage_response.dart
+lib/src/model/platform_service_type_response.dart
 lib/src/model/public_salon_response.dart
 lib/src/model/refresh_request.dart
 lib/src/model/register_device_token_request.dart
@@ -303,16 +309,6 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
-test/api_response_list_effective_day_response_test.dart
-test/api_response_list_schedule_override_response_test.dart
-test/api_response_list_weekly_schedule_response_test.dart
-test/api_response_schedule_override_response_test.dart
-test/api_response_weekly_schedule_response_test.dart
-test/effective_day_response_test.dart
-test/schedule_override_request_test.dart
-test/schedule_override_response_test.dart
-test/weekly_schedule_day_request_test.dart
-test/weekly_schedule_day_response_test.dart
-test/weekly_schedule_request_test.dart
-test/weekly_schedule_response_test.dart
-test/work_interval_dto_test.dart
+test/api_response_list_platform_service_type_response_test.dart
+test/get_service_types200_response_test.dart
+test/platform_service_type_response_test.dart

@@ -91,6 +91,10 @@ class _$MasterServiceResponse extends MasterServiceResponse {
   final num? priceMax;
   @override
   final String? priceDisplay;
+  @override
+  final String? serviceTypeId;
+  @override
+  final String? serviceTypeNameUk;
 
   factory _$MasterServiceResponse(
           [void Function(MasterServiceResponseBuilder)? updates]) =>
@@ -108,7 +112,9 @@ class _$MasterServiceResponse extends MasterServiceResponse {
       this.priceType,
       this.priceMin,
       this.priceMax,
-      this.priceDisplay})
+      this.priceDisplay,
+      this.serviceTypeId,
+      this.serviceTypeNameUk})
       : super._();
   @override
   MasterServiceResponse rebuild(
@@ -134,7 +140,9 @@ class _$MasterServiceResponse extends MasterServiceResponse {
         priceType == other.priceType &&
         priceMin == other.priceMin &&
         priceMax == other.priceMax &&
-        priceDisplay == other.priceDisplay;
+        priceDisplay == other.priceDisplay &&
+        serviceTypeId == other.serviceTypeId &&
+        serviceTypeNameUk == other.serviceTypeNameUk;
   }
 
   @override
@@ -152,6 +160,8 @@ class _$MasterServiceResponse extends MasterServiceResponse {
     _$hash = $jc(_$hash, priceMin.hashCode);
     _$hash = $jc(_$hash, priceMax.hashCode);
     _$hash = $jc(_$hash, priceDisplay.hashCode);
+    _$hash = $jc(_$hash, serviceTypeId.hashCode);
+    _$hash = $jc(_$hash, serviceTypeNameUk.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -170,7 +180,9 @@ class _$MasterServiceResponse extends MasterServiceResponse {
           ..add('priceType', priceType)
           ..add('priceMin', priceMin)
           ..add('priceMax', priceMax)
-          ..add('priceDisplay', priceDisplay))
+          ..add('priceDisplay', priceDisplay)
+          ..add('serviceTypeId', serviceTypeId)
+          ..add('serviceTypeNameUk', serviceTypeNameUk))
         .toString();
   }
 }
@@ -234,6 +246,16 @@ class MasterServiceResponseBuilder
   String? get priceDisplay => _$this._priceDisplay;
   set priceDisplay(String? priceDisplay) => _$this._priceDisplay = priceDisplay;
 
+  String? _serviceTypeId;
+  String? get serviceTypeId => _$this._serviceTypeId;
+  set serviceTypeId(String? serviceTypeId) =>
+      _$this._serviceTypeId = serviceTypeId;
+
+  String? _serviceTypeNameUk;
+  String? get serviceTypeNameUk => _$this._serviceTypeNameUk;
+  set serviceTypeNameUk(String? serviceTypeNameUk) =>
+      _$this._serviceTypeNameUk = serviceTypeNameUk;
+
   MasterServiceResponseBuilder() {
     MasterServiceResponse._defaults(this);
   }
@@ -253,6 +275,8 @@ class MasterServiceResponseBuilder
       _priceMin = $v.priceMin;
       _priceMax = $v.priceMax;
       _priceDisplay = $v.priceDisplay;
+      _serviceTypeId = $v.serviceTypeId;
+      _serviceTypeNameUk = $v.serviceTypeNameUk;
       _$v = null;
     }
     return this;
@@ -288,6 +312,8 @@ class MasterServiceResponseBuilder
             priceMin: priceMin,
             priceMax: priceMax,
             priceDisplay: priceDisplay,
+            serviceTypeId: serviceTypeId,
+            serviceTypeNameUk: serviceTypeNameUk,
           );
     } catch (_) {
       late String _$failedField;
