@@ -123,6 +123,7 @@ class _StubMasterProfile extends MasterProfile {
   final repo = HttpServiceRepository(
     serviceApi: ServiceControllerApi(dio, standardSerializers),
     categoryApi: CategoryRequestControllerApi(dio, standardSerializers),
+    catalogApi: ServiceCatalogControllerApi(dio, standardSerializers),
     masterId: _masterId,
   );
   return (dio: dio, adapter: adapter, repo: repo);

@@ -145,9 +145,11 @@ const Map<String, dynamic> _okVoid = <String, dynamic>{
   final adapter = DioAdapter(dio: dio);
   final api = ServiceControllerApi(dio, standardSerializers);
   final categoryApi = CategoryRequestControllerApi(dio, standardSerializers);
+  final catalogApi = ServiceCatalogControllerApi(dio, standardSerializers);
   final repo = HttpServiceRepository(
     serviceApi: api,
     categoryApi: categoryApi,
+    catalogApi: catalogApi,
     masterId: _masterId,
   );
   return (dio: dio, adapter: adapter, repo: repo);
@@ -599,9 +601,11 @@ void main() {
         dio,
         standardSerializers,
       );
+      final catalogApi = ServiceCatalogControllerApi(dio, standardSerializers);
       return HttpServiceRepository(
         serviceApi: api,
         categoryApi: categoryApi,
+        catalogApi: catalogApi,
         masterId: '',
       );
     }

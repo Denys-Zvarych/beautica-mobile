@@ -31,6 +31,9 @@ class _MockServiceControllerApi extends Mock implements ServiceControllerApi {}
 class _MockCategoryRequestControllerApi extends Mock
     implements CategoryRequestControllerApi {}
 
+class _MockServiceCatalogControllerApi extends Mock
+    implements ServiceCatalogControllerApi {}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const _masterId = 'master-abc';
@@ -146,14 +149,17 @@ Response<ApiResponseServiceDefinitionResponse> _updateResponse(
 void main() {
   late _MockServiceControllerApi serviceApi;
   late _MockCategoryRequestControllerApi categoryApi;
+  late _MockServiceCatalogControllerApi catalogApi;
   late HttpServiceRepository repository;
 
   setUp(() {
     serviceApi = _MockServiceControllerApi();
     categoryApi = _MockCategoryRequestControllerApi();
+    catalogApi = _MockServiceCatalogControllerApi();
     repository = HttpServiceRepository(
       serviceApi: serviceApi,
       categoryApi: categoryApi,
+      catalogApi: catalogApi,
       masterId: _masterId,
     );
     // Register fallback values required by mocktail for named-typed matchers.
@@ -604,6 +610,7 @@ void main() {
       unauthRepo = HttpServiceRepository(
         serviceApi: serviceApi,
         categoryApi: categoryApi,
+        catalogApi: catalogApi,
         masterId: '',
       );
     });

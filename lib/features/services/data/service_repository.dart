@@ -30,11 +30,13 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'master_service_mapper.dart';
+import 'service_type_mapper.dart';
 
 part 'service_repository.g.dart';
 
@@ -118,6 +120,21 @@ abstract interface class ServiceRepository {
     required String name,
     required String displayName,
   });
+
+  /// Returns the list of platform service types under [categoryName] for the
+  /// second-level picker.
+  ///
+  /// Wraps `GET /api/v1/service-catalog/service-types?categoryName=...`
+  /// (the slug-contract `PlatformServiceTypeResponse` branch). Each option
+  /// carries the wire [ServiceTypeOption.slug] (persisted on the service) and
+  /// the Ukrainian [ServiceTypeOption.nameUk] (shown to the user and used to
+  /// pre-fill the service name).
+  ///
+  /// Degrades gracefully: an unknown category, an empty backend result, or a
+  /// response that resolves to the legacy alternate branch all yield an **empty
+  /// list** rather than throwing. Transport errors are mapped to the feature's
+  /// typed [Failure] subclasses.
+  Future<List<ServiceTypeOption>> fetchServiceTypes(String categoryName);
 }
 
 /// HTTP implementation of [ServiceRepository].
@@ -131,13 +148,16 @@ final class HttpServiceRepository implements ServiceRepository {
   HttpServiceRepository({
     required ServiceControllerApi serviceApi,
     required CategoryRequestControllerApi categoryApi,
+    required ServiceCatalogControllerApi catalogApi,
     required String masterId,
   }) : _serviceApi = serviceApi,
        _categoryApi = categoryApi,
+       _catalogApi = catalogApi,
        _masterId = masterId;
 
   final ServiceControllerApi _serviceApi;
   final CategoryRequestControllerApi _categoryApi;
+  final ServiceCatalogControllerApi _catalogApi;
   final String _masterId;
 
   static const _tag = 'feature.services.repository';
@@ -365,6 +385,60 @@ final class HttpServiceRepository implements ServiceRepository {
     }
   }
 
+  @override
+  Future<List<ServiceTypeOption>> fetchServiceTypes(String categoryName) async {
+    try {
+      final res = await _catalogApi.getServiceTypes(categoryName: categoryName);
+      // GetServiceTypes200Response is a oneOf over:
+      //   [0] ApiResponseListPlatformServiceTypeResponse (the live slug-contract
+      //       branch the categoryName path resolves to), and
+      //   [1] ApiResponseListServiceTypeResponse (legacy alternate — ignored).
+      // Bind to the Platform branch by checking the unwrapped value's runtime
+      // type rather than typeIndex/isType — a non-Platform branch (which should
+      // never occur on this path) then degrades to an empty list instead of an
+      // unchecked cast that would throw.
+      final value = res.data?.oneOf.value;
+      if (value is! ApiResponseListPlatformServiceTypeResponse) {
+        if (kDebugMode) {
+          log(
+            'fetchServiceTypes($categoryName): response did not resolve to the '
+            'PlatformServiceTypeResponse branch (got ${value.runtimeType}) — '
+            'returning empty list',
+            name: _tag,
+            level: 900,
+          );
+        }
+        return const [];
+      }
+      final list = value.data;
+      if (list == null) {
+        if (kDebugMode) {
+          log(
+            'fetchServiceTypes($categoryName): '
+            'ApiResponseListPlatformServiceTypeResponse.data is null',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        return const [];
+      }
+      return ServiceTypeMapper.fromDtoList(list);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'fetchServiceTypes($categoryName) failed: '
+          '${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
   /// Maps a [DioException] from `POST /service-categories/requests` to a typed
   /// [Failure], distinguishing the two category-specific HTTP statuses:
   ///   - **409** → [CategoryAlreadyExistsFailure] (already exists/pending).
@@ -439,6 +513,7 @@ ServiceRepository serviceRepository(Ref ref) {
   return HttpServiceRepository(
     serviceApi: ref.watch(serviceApiProvider),
     categoryApi: ref.watch(categoryRequestApiProvider),
+    catalogApi: ref.watch(serviceCatalogApiProvider),
     masterId: masterId,
   );
 }
@@ -461,6 +536,16 @@ ServiceControllerApi serviceApi(Ref ref) =>
 @Riverpod(keepAlive: true)
 CategoryRequestControllerApi categoryRequestApi(Ref ref) =>
     CategoryRequestControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the generated [ServiceCatalogControllerApi] singleton.
+///
+/// Drives the platform service-catalog lookups — specifically the second-level
+/// service-type picker (`GET /service-catalog/service-types?categoryName=...`).
+/// Same authenticated Dio + serializers as the other API providers. Kept alive
+/// to avoid re-construction on every provider read.
+@Riverpod(keepAlive: true)
+ServiceCatalogControllerApi serviceCatalogApi(Ref ref) =>
+    ServiceCatalogControllerApi(ref.watch(dioProvider), standardSerializers);
 
 /// Async list of approved service categories for the service-form picker.
 ///
