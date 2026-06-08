@@ -378,7 +378,9 @@ void main() {
 
       tester.view.physicalSize = const Size(400, 900);
       tester.view.devicePixelRatio = 1.0;
-      tester.view.viewInsets = const FakeViewPadding(bottom: kSimulatedKeyboard);
+      tester.view.viewInsets = const FakeViewPadding(
+        bottom: kSimulatedKeyboard,
+      );
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetViewInsets);
@@ -423,35 +425,32 @@ void main() {
     },
   );
 
-  testWidgets(
-    '7b. (Change 2 — baseline) with no keyboard the Dialog outer '
-    'padding.bottom == xl only (no phantom inset term)',
-    (tester) async {
-      const double kXl = 32.0; // VelvetSpacing.xl
+  testWidgets('7b. (Change 2 — baseline) with no keyboard the Dialog outer '
+      'padding.bottom == xl only (no phantom inset term)', (tester) async {
+    const double kXl = 32.0; // VelvetSpacing.xl
 
-      tester.view.physicalSize = const Size(400, 900);
-      tester.view.devicePixelRatio = 1.0;
-      // No viewInsets set — keyboard is absent.
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+    tester.view.physicalSize = const Size(400, 900);
+    tester.view.devicePixelRatio = 1.0;
+    // No viewInsets set — keyboard is absent.
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
-      await _openDialog(tester, repo);
+    await _openDialog(tester, repo);
 
-      final animPaddings = tester
-          .widgetList<AnimatedPadding>(find.byType(AnimatedPadding))
-          .toList();
-      expect(animPaddings, isNotEmpty);
-      final double maxBottom = animPaddings
-          .map((ap) => (ap.padding as EdgeInsets).bottom)
-          .reduce((a, b) => a > b ? a : b);
+    final animPaddings = tester
+        .widgetList<AnimatedPadding>(find.byType(AnimatedPadding))
+        .toList();
+    expect(animPaddings, isNotEmpty);
+    final double maxBottom = animPaddings
+        .map((ap) => (ap.padding as EdgeInsets).bottom)
+        .reduce((a, b) => a > b ? a : b);
 
-      expect(
-        maxBottom,
-        closeTo(kXl, 1.0),
-        reason:
-            'With no keyboard the Dialog outer padding.bottom must equal xl '
-            '($kXl) only — no extra inset term must be added.',
-      );
-    },
-  );
+    expect(
+      maxBottom,
+      closeTo(kXl, 1.0),
+      reason:
+          'With no keyboard the Dialog outer padding.bottom must equal xl '
+          '($kXl) only — no extra inset term must be added.',
+    );
+  });
 }

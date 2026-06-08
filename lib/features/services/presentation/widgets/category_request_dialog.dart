@@ -203,93 +203,91 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: NeumorphicCard(
-          child: Padding(
-            padding: const EdgeInsets.all(VelvetSpacing.lg),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  // Title.
-                  Text(
-                    l10n.categoryRequestTitle,
-                    style: VelvetText.subheading(),
-                  ),
-                  const SizedBox(height: VelvetSpacing.sm),
-                  // Quiet subline — sets the out-of-band approval expectation.
-                  Text(l10n.categoryRequestSubtitle, style: VelvetText.body()),
-                  const SizedBox(height: VelvetSpacing.xl),
+          // NeumorphicCard already applies EdgeInsets.all(VelvetSpacing.lg) as
+          // its default padding. The inner Padding wrapper that used to sit here
+          // has been removed to eliminate the double-padding that consumed
+          // 2 × 24 dp = 48 dp per horizontal side and squeezed the CTA label.
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                // Title.
+                Text(l10n.categoryRequestTitle, style: VelvetText.subheading()),
+                const SizedBox(height: VelvetSpacing.sm),
+                // Quiet subline — sets the out-of-band approval expectation.
+                Text(l10n.categoryRequestSubtitle, style: VelvetText.body()),
+                const SizedBox(height: VelvetSpacing.xl),
 
-                  // Display name (required). The wire slug is derived from it
-                  // internally at submit time and never surfaced to the user.
-                  _DialogField(
-                    fieldKey: const Key('field-category-request-name'),
-                    label: l10n.categoryRequestNameLabel,
-                    controller: _nameCtrl,
-                    hintText: l10n.categoryRequestNameHint,
-                    errorText: _nameError(l10n),
-                    enabled: !_submitting,
-                    textCapitalization: TextCapitalization.sentences,
-                    inputFormatters: <TextInputFormatter>[
-                      LengthLimitingTextInputFormatter(
-                        kCategoryDisplayNameMaxLength,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: VelvetSpacing.lg),
-
-                  // Optional initial service-type name under the new category.
-                  // Forwarded as `initialServiceName` (null when blank). Client
-                  // cap 100; backend cap 255. No inline required-error.
-                  _DialogField(
-                    fieldKey: const Key(
-                      'field-category-request-initial-service-name',
+                // Display name (required). The wire slug is derived from it
+                // internally at submit time and never surfaced to the user.
+                _DialogField(
+                  fieldKey: const Key('field-category-request-name'),
+                  label: l10n.categoryRequestNameLabel,
+                  controller: _nameCtrl,
+                  hintText: l10n.categoryRequestNameHint,
+                  errorText: _nameError(l10n),
+                  enabled: !_submitting,
+                  textCapitalization: TextCapitalization.sentences,
+                  inputFormatters: <TextInputFormatter>[
+                    LengthLimitingTextInputFormatter(
+                      kCategoryDisplayNameMaxLength,
                     ),
-                    label: l10n.categoryRequestInitialServiceLabel,
-                    controller: _serviceNameCtrl,
-                    hintText: l10n.categoryRequestInitialServiceHint,
-                    errorText: null,
-                    enabled: !_submitting,
-                    textCapitalization: TextCapitalization.sentences,
-                    inputFormatters: <TextInputFormatter>[
-                      LengthLimitingTextInputFormatter(100),
-                    ],
-                  ),
-                  const SizedBox(height: VelvetSpacing.xl),
+                  ],
+                ),
+                const SizedBox(height: VelvetSpacing.lg),
 
-                  // Footer — cancel (text) + submit (gradient CTA).
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: <Widget>[
-                      TextButton(
-                        key: const Key('btn-cancel-suggest-category'),
-                        onPressed: _submitting
-                            ? null
-                            : () => dismissOverlay(context, false),
-                        child: Text(
-                          l10n.categoryRequestCancel,
-                          style: VelvetText.body().copyWith(
-                            color: const Color(0xFF9A8367), // BrandColors.muted
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: VelvetSpacing.md),
-                      Flexible(
-                        child: NeumorphicButton(
-                          key: const Key('btn-submit-suggest-category'),
-                          label: l10n.categoryRequestSubmit,
-                          icon: Icons.send_rounded,
-                          loading: _submitting,
-                          onPressed: _submitting
-                              ? null
-                              : () => _handleSubmit(l10n),
-                        ),
-                      ),
-                    ],
+                // Optional initial service-type name under the new category.
+                // Forwarded as `initialServiceName` (null when blank). Client
+                // cap 100; backend cap 255. No inline required-error.
+                _DialogField(
+                  fieldKey: const Key(
+                    'field-category-request-initial-service-name',
                   ),
-                ],
-              ),
+                  label: l10n.categoryRequestInitialServiceLabel,
+                  controller: _serviceNameCtrl,
+                  hintText: l10n.categoryRequestInitialServiceHint,
+                  errorText: null,
+                  enabled: !_submitting,
+                  textCapitalization: TextCapitalization.sentences,
+                  inputFormatters: <TextInputFormatter>[
+                    LengthLimitingTextInputFormatter(100),
+                  ],
+                ),
+                const SizedBox(height: VelvetSpacing.xl),
+
+                // Footer — primary CTA (full-width) then Cancel below it.
+                //
+                // Previously the CTA was wrapped in Flexible inside a Row with
+                // a natural-width Cancel button. On a 360 dp screen the leftover
+                // width for the Flexible CTA was too narrow for "Надіслати" +
+                // the send icon, causing ellipsis. Stacking the actions removes
+                // the squeeze: crossAxisAlignment.stretch on the parent Column
+                // makes NeumorphicButton expand to the full card width.
+                NeumorphicButton(
+                  key: const Key('btn-submit-suggest-category'),
+                  label: l10n.categoryRequestSubmit,
+                  icon: Icons.send_rounded,
+                  loading: _submitting,
+                  onPressed: _submitting ? null : () => _handleSubmit(l10n),
+                ),
+                const SizedBox(height: VelvetSpacing.sm),
+                Center(
+                  child: TextButton(
+                    key: const Key('btn-cancel-suggest-category'),
+                    onPressed: _submitting
+                        ? null
+                        : () => dismissOverlay(context, false),
+                    child: Text(
+                      l10n.categoryRequestCancel,
+                      style: VelvetText.body().copyWith(
+                        color: const Color(0xFF9A8367), // BrandColors.muted
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),

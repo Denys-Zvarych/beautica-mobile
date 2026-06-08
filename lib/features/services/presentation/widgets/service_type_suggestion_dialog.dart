@@ -199,76 +199,72 @@ class _ServiceTypeSuggestionDialogState
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: NeumorphicCard(
-          child: Padding(
-            padding: const EdgeInsets.all(VelvetSpacing.lg),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  // Title.
-                  Text(
-                    l10n.serviceTypeSuggestTitle,
-                    style: VelvetText.subheading(),
-                  ),
-                  const SizedBox(height: VelvetSpacing.sm),
-                  // Quiet subline — sets the out-of-band approval expectation.
-                  Text(
-                    l10n.serviceTypeSuggestSubtitle,
-                    style: VelvetText.body(),
-                  ),
-                  const SizedBox(height: VelvetSpacing.xl),
+          // NeumorphicCard already applies EdgeInsets.all(VelvetSpacing.lg) as
+          // its default padding. The inner Padding wrapper that used to sit here
+          // has been removed to eliminate the double-padding that consumed
+          // 2 × 24 dp = 48 dp per horizontal side and squeezed the CTA label.
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                // Title.
+                Text(
+                  l10n.serviceTypeSuggestTitle,
+                  style: VelvetText.subheading(),
+                ),
+                const SizedBox(height: VelvetSpacing.sm),
+                // Quiet subline — sets the out-of-band approval expectation.
+                Text(l10n.serviceTypeSuggestSubtitle, style: VelvetText.body()),
+                const SizedBox(height: VelvetSpacing.xl),
 
-                  // Name (required).
-                  _DialogField(
-                    fieldKey: const Key('field-service-type-suggest-name'),
-                    label: l10n.serviceTypeSuggestNameLabel,
-                    controller: _nameCtrl,
-                    hintText: l10n.serviceTypeSuggestNameHint,
-                    errorText: _nameError(l10n),
-                    enabled: !_submitting,
-                    textCapitalization: TextCapitalization.sentences,
-                    inputFormatters: <TextInputFormatter>[
-                      LengthLimitingTextInputFormatter(
-                        kServiceTypeNameMaxLength,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: VelvetSpacing.xl),
+                // Name (required).
+                _DialogField(
+                  fieldKey: const Key('field-service-type-suggest-name'),
+                  label: l10n.serviceTypeSuggestNameLabel,
+                  controller: _nameCtrl,
+                  hintText: l10n.serviceTypeSuggestNameHint,
+                  errorText: _nameError(l10n),
+                  enabled: !_submitting,
+                  textCapitalization: TextCapitalization.sentences,
+                  inputFormatters: <TextInputFormatter>[
+                    LengthLimitingTextInputFormatter(kServiceTypeNameMaxLength),
+                  ],
+                ),
+                const SizedBox(height: VelvetSpacing.xl),
 
-                  // Footer — cancel (text) + submit (gradient CTA).
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: <Widget>[
-                      TextButton(
-                        key: const Key('btn-cancel-suggest-service-type'),
-                        onPressed: _submitting
-                            ? null
-                            : () => dismissOverlay(context, false),
-                        child: Text(
-                          l10n.serviceTypeSuggestCancel,
-                          style: VelvetText.body().copyWith(
-                            color: const Color(0xFF9A8367), // BrandColors.muted
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                // Footer — primary CTA (full-width) then Cancel below it.
+                //
+                // Previously the CTA was wrapped in Flexible inside a Row with
+                // a natural-width Cancel button. On a 360 dp screen the leftover
+                // width for the Flexible CTA was too narrow for "Надіслати" +
+                // the send icon, causing ellipsis. Stacking the actions removes
+                // the squeeze: crossAxisAlignment.stretch on the parent Column
+                // makes NeumorphicButton expand to the full card width.
+                NeumorphicButton(
+                  key: const Key('btn-submit-suggest-service-type'),
+                  label: l10n.serviceTypeSuggestSubmit,
+                  icon: Icons.send_rounded,
+                  loading: _submitting,
+                  onPressed: _submitting ? null : () => _handleSubmit(l10n),
+                ),
+                const SizedBox(height: VelvetSpacing.sm),
+                Center(
+                  child: TextButton(
+                    key: const Key('btn-cancel-suggest-service-type'),
+                    onPressed: _submitting
+                        ? null
+                        : () => dismissOverlay(context, false),
+                    child: Text(
+                      l10n.serviceTypeSuggestCancel,
+                      style: VelvetText.body().copyWith(
+                        color: const Color(0xFF9A8367), // BrandColors.muted
+                        fontWeight: FontWeight.w700,
                       ),
-                      const SizedBox(width: VelvetSpacing.md),
-                      Flexible(
-                        child: NeumorphicButton(
-                          key: const Key('btn-submit-suggest-service-type'),
-                          label: l10n.serviceTypeSuggestSubmit,
-                          icon: Icons.send_rounded,
-                          loading: _submitting,
-                          onPressed: _submitting
-                              ? null
-                              : () => _handleSubmit(l10n),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
