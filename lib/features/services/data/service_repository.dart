@@ -2,8 +2,13 @@
 //
 // Wraps the generated [ServiceControllerApi] for the INDEPENDENT_MASTER service
 // management surface:
-//   - listMyServices()  → GET  /api/v1/masters/{masterId}/services
-//   - getMyService(id)  → GET  /api/v1/masters/{masterId}/services (filter by id;
+//   - listMyServices()  → GET  /api/v1/independent-masters/me/services
+//                          (Phase 16.9 — authenticated owner endpoint; derives
+//                           the master from the JWT principal and INCLUDES
+//                           drafts. The public GET /masters/{masterId}/services
+//                           still exists for public-browse but is no longer
+//                           used here because it filters drafts out.)
+//   - getMyService(id)  → GET  /api/v1/independent-masters/me/services (filter by id;
 //                          no single-resource endpoint exists in the current API)
 //   - create(input)     → POST  /api/v1/independent-masters/me/services
 //   - update(defId, …)  → PATCH /api/v1/services/{serviceDefId}
@@ -48,8 +53,12 @@ part 'service_repository.g.dart';
 abstract interface class ServiceRepository {
   /// Returns the full list of services configured for the authenticated master.
   ///
-  /// Wraps `GET /api/v1/masters/{masterId}/services`. Returns an empty list
-  /// when the master has no services configured.
+  /// Wraps `GET /api/v1/independent-masters/me/services` (Phase 16.9 — the
+  /// authenticated owner endpoint, master derived from the JWT principal). This
+  /// list INCLUDES auto-created drafts ([MasterService.isDraft] `true`,
+  /// [MasterService.isActive] `false`), unlike the public
+  /// `GET /masters/{masterId}/services` which filters them out. Returns an empty
+  /// list when the master has no services configured.
   Future<List<MasterService>> listMyServices();
 
   /// Returns a single service by its assignment [id].
@@ -171,7 +180,11 @@ abstract interface class ServiceRepository {
 ///
 /// [_serviceApi] drives all generated-API calls (list/create/update/deactivate).
 /// [_masterId] is resolved from the authenticated session at provider
-/// construction time and used as the path parameter for list/get operations.
+/// construction time. As of Phase 16.9 it is no longer a path parameter (the
+/// list/get/create/update/deactivate endpoints all derive the master from the
+/// JWT principal); it is retained purely as a readiness guard — a non-empty
+/// value means the master profile has resolved, so [_assertAuthenticated] can
+/// fail fast before issuing a call on an unauthenticated session.
 final class HttpServiceRepository implements ServiceRepository {
   HttpServiceRepository({
     required ServiceControllerApi serviceApi,
@@ -192,10 +205,11 @@ final class HttpServiceRepository implements ServiceRepository {
 
   /// Throws [UnauthorizedFailure] immediately if [_masterId] is empty.
   ///
-  /// An empty masterId means the auth session is not [Authenticated]. Letting
-  /// the call proceed would produce a malformed URL
-  /// (`/api/v1/masters//services`) and an opaque [NotFoundFailure]. Failing
-  /// fast here surfaces the real cause to callers.
+  /// An empty masterId means the master profile has not yet resolved (the auth
+  /// session is not [Authenticated]). The owner endpoints derive the master
+  /// from the JWT principal, so this is no longer about a missing path segment;
+  /// it is a readiness guard that surfaces the real cause to callers instead of
+  /// firing a call that would 401 mid-flight.
   void _assertAuthenticated() {
     if (_masterId.isEmpty) {
       throw const UnauthorizedFailure();
@@ -206,7 +220,13 @@ final class HttpServiceRepository implements ServiceRepository {
   Future<List<MasterService>> listMyServices() async {
     _assertAuthenticated();
     try {
-      final res = await _serviceApi.getMasterServices(masterId: _masterId);
+      // Phase 16.9: the owner's own services list uses the authenticated
+      // endpoint `GET /api/v1/independent-masters/me/services`, which derives
+      // the master from the JWT principal (no masterId path param) and — unlike
+      // the public `GET /masters/{masterId}/services` — INCLUDES drafts
+      // (isDraft=true, isActive=false). The public endpoint stays available for
+      // any public-browse use; this caller no longer touches it.
+      final res = await _serviceApi.getMyServices();
       final list = res.data?.data;
       if (list == null) {
         if (kDebugMode) {
@@ -571,11 +591,13 @@ final class HttpServiceRepository implements ServiceRepository {
 /// the generated [ServiceControllerApi], and the current master's UUID from
 /// [masterProfileProvider].
 ///
-/// IMPORTANT: [_masterId] must be the Master-row UUID
-/// (from MasterDetailResponse.masterId), NOT the User UUID from the auth
-/// session. User.id != Master.id. The list endpoint
-/// `GET /api/v1/masters/{masterId}/services` matches against the masters table
-/// primary key; passing a user UUID always returns [].
+/// As of Phase 16.9 the owner list endpoint
+/// (`GET /api/v1/independent-masters/me/services`) derives the master from the
+/// JWT principal, so [_masterId] is no longer sent as a path parameter. It is
+/// still watched here so the repository is re-created once the master profile
+/// resolves and so [_assertAuthenticated] can fail fast on an unready session.
+/// The value remains the Master-row UUID (from MasterDetailResponse.masterId),
+/// NOT the User UUID — User.id != Master.id.
 ///
 /// Both this provider and [masterProfileProvider] are [keepAlive: true], so
 /// the watch is stable. The repository is re-created whenever the master

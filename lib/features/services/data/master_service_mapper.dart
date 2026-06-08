@@ -206,6 +206,11 @@ abstract final class MasterServiceMapper {
       priceDisplay: priceDisplay,
       bufferMinutesAfter: def?.bufferMinutesAfter ?? 0,
       isActive: dto.isActive ?? true,
+      // isDraft (Phase 16.9): an auto-created draft awaiting price/duration.
+      // Read from the top-level MSR envelope first, falling back to the nested
+      // ServiceDefinitionResponse. The public browse endpoint never sets this,
+      // so a null falls back to false (treat as a normal published service).
+      isDraft: dto.isDraft ?? def?.isDraft ?? false,
     );
   }
 
@@ -260,6 +265,10 @@ abstract final class MasterServiceMapper {
       priceDisplay: priceDisplay,
       bufferMinutesAfter: dto.bufferMinutesAfter ?? 0,
       isActive: dto.isActive ?? true,
+      // isDraft (Phase 16.9): preserved across the PATCH round-trip so that, if
+      // the master saved without supplying a valid price/duration, the card
+      // still renders the draft affordance. A null falls back to false.
+      isDraft: dto.isDraft ?? false,
     );
   }
 

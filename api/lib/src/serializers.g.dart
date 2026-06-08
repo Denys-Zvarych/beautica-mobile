@@ -26,7 +26,6 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseListPlatformServiceTypeResponse.serializer)
       ..add(ApiResponseListSalonResponse.serializer)
       ..add(ApiResponseListScheduleOverrideResponse.serializer)
-      ..add(ApiResponseListServiceTypeResponse.serializer)
       ..add(ApiResponseListWeeklyScheduleResponse.serializer)
       ..add(ApiResponseListWorkingHoursResponse.serializer)
       ..add(ApiResponseMasterDetailResponse.serializer)
@@ -139,7 +138,6 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ScheduleOverrideResponseReasonEnum.serializer)
       ..add(ServiceDefinitionResponse.serializer)
       ..add(ServiceDefinitionResponsePriceTypeEnum.serializer)
-      ..add(ServiceTypeResponse.serializer)
       ..add(SortObject.serializer)
       ..add(StatusUpdateRequest.serializer)
       ..add(StatusUpdateRequestCancellationReasonEnum.serializer)
@@ -274,14 +272,6 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(ScheduleOverrideResponse)]),
           () => ListBuilder<ScheduleOverrideResponse>())
-      ..addBuilderFactory(
-          const FullType(
-              BuiltMap, const [const FullType(String), const FullType(String)]),
-          () => MapBuilder<String, String>())
-      ..addBuilderFactory(
-          const FullType(
-              BuiltList, const [const FullType(ServiceTypeResponse)]),
-          () => ListBuilder<ServiceTypeResponse>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),

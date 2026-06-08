@@ -229,45 +229,42 @@ void main() {
     // This is a widget-tree assertion (Column.children list), independent of
     // font metrics, so it is deterministic in the headless test environment.
     // -------------------------------------------------------------------------
-    testWidgets(
-      'A. submit NeumorphicButton is a DIRECT Column child at 360 dp '
-      '(not nested inside a Row)',
-      (tester) async {
-        await _pumpServiceTypeSuggestionDialog(tester, repo);
+    testWidgets('A. submit NeumorphicButton is a DIRECT Column child at 360 dp '
+        '(not nested inside a Row)', (tester) async {
+      await _pumpServiceTypeSuggestionDialog(tester, repo);
 
-        const submitKey = Key('btn-submit-suggest-service-type');
-        const cancelKey = Key('btn-cancel-suggest-service-type');
+      const submitKey = Key('btn-submit-suggest-service-type');
+      const cancelKey = Key('btn-cancel-suggest-service-type');
 
-        expect(find.byKey(submitKey), findsOneWidget);
-        expect(find.byKey(cancelKey), findsOneWidget);
+      expect(find.byKey(submitKey), findsOneWidget);
+      expect(find.byKey(cancelKey), findsOneWidget);
 
-        // Fixed layout: NeumorphicButton is a direct Column child.
-        expect(
-          _isDirectColumnChild(tester, submitKey),
-          isTrue,
-          reason:
-              'NeumorphicButton(btn-submit-suggest-service-type) must be a '
-              'direct child of a Column widget. In the old buggy layout it was '
-              'Column → Row → Flexible → NeumorphicButton and therefore NOT a '
-              'direct Column child — this assertion would fail against the bug.',
-        );
+      // Fixed layout: NeumorphicButton is a direct Column child.
+      expect(
+        _isDirectColumnChild(tester, submitKey),
+        isTrue,
+        reason:
+            'NeumorphicButton(btn-submit-suggest-service-type) must be a '
+            'direct child of a Column widget. In the old buggy layout it was '
+            'Column → Row → Flexible → NeumorphicButton and therefore NOT a '
+            'direct Column child — this assertion would fail against the bug.',
+      );
 
-        // Fixed layout: no Row should contain BOTH the submit and cancel buttons.
-        expect(
-          _anyRowContainsBothButtons(
-            tester,
-            find.byKey(submitKey),
-            find.byKey(cancelKey),
-          ),
-          isFalse,
-          reason:
-              'No Row widget must contain both the submit CTA and the cancel '
-              'TextButton as descendants. The old Row[Cancel, Flexible(Submit)] '
-              'layout placed them side-by-side, squeezing the CTA width on '
-              '360 dp screens and causing label ellipsis.',
-        );
-      },
-    );
+      // Fixed layout: no Row should contain BOTH the submit and cancel buttons.
+      expect(
+        _anyRowContainsBothButtons(
+          tester,
+          find.byKey(submitKey),
+          find.byKey(cancelKey),
+        ),
+        isFalse,
+        reason:
+            'No Row widget must contain both the submit CTA and the cancel '
+            'TextButton as descendants. The old Row[Cancel, Flexible(Submit)] '
+            'layout placed them side-by-side, squeezing the CTA width on '
+            '360 dp screens and causing label ellipsis.',
+      );
+    });
 
     // -------------------------------------------------------------------------
     // Test B: render width — the NeumorphicButton must span the full card
@@ -373,41 +370,38 @@ void main() {
   // ===========================================================================
 
   group('CategoryRequestDialog — footer layout regression', () {
-    testWidgets(
-      'A. submit NeumorphicButton is a DIRECT Column child at 360 dp '
-      '(not nested inside a Row)',
-      (tester) async {
-        await _pumpCategoryRequestDialog(tester, repo);
+    testWidgets('A. submit NeumorphicButton is a DIRECT Column child at 360 dp '
+        '(not nested inside a Row)', (tester) async {
+      await _pumpCategoryRequestDialog(tester, repo);
 
-        const submitKey = Key('btn-submit-suggest-category');
-        const cancelKey = Key('btn-cancel-suggest-category');
+      const submitKey = Key('btn-submit-suggest-category');
+      const cancelKey = Key('btn-cancel-suggest-category');
 
-        expect(find.byKey(submitKey), findsOneWidget);
-        expect(find.byKey(cancelKey), findsOneWidget);
+      expect(find.byKey(submitKey), findsOneWidget);
+      expect(find.byKey(cancelKey), findsOneWidget);
 
-        expect(
-          _isDirectColumnChild(tester, submitKey),
-          isTrue,
-          reason:
-              'NeumorphicButton(btn-submit-suggest-category) must be a direct '
-              'child of a Column. In the old buggy layout it was inside '
-              'Column → Row → Flexible → NeumorphicButton — not a direct child.',
-        );
+      expect(
+        _isDirectColumnChild(tester, submitKey),
+        isTrue,
+        reason:
+            'NeumorphicButton(btn-submit-suggest-category) must be a direct '
+            'child of a Column. In the old buggy layout it was inside '
+            'Column → Row → Flexible → NeumorphicButton — not a direct child.',
+      );
 
-        expect(
-          _anyRowContainsBothButtons(
-            tester,
-            find.byKey(submitKey),
-            find.byKey(cancelKey),
-          ),
-          isFalse,
-          reason:
-              'No Row widget must contain both the submit CTA and the cancel '
-              'TextButton. The old Row[Cancel, Flexible(Submit)] layout caused '
-              'label ellipsis on 360 dp screens.',
-        );
-      },
-    );
+      expect(
+        _anyRowContainsBothButtons(
+          tester,
+          find.byKey(submitKey),
+          find.byKey(cancelKey),
+        ),
+        isFalse,
+        reason:
+            'No Row widget must contain both the submit CTA and the cancel '
+            'TextButton. The old Row[Cancel, Flexible(Submit)] layout caused '
+            'label ellipsis on 360 dp screens.',
+      );
+    });
 
     testWidgets(
       'B. NeumorphicButton rendered width equals full card-content width '
@@ -431,39 +425,36 @@ void main() {
       },
     );
 
-    testWidgets(
-      'C. the Column containing the submit CTA uses stretch alignment '
-      '(CTA is not padded-then-stretched)',
-      (tester) async {
-        await _pumpCategoryRequestDialog(tester, repo);
+    testWidgets('C. the Column containing the submit CTA uses stretch alignment '
+        '(CTA is not padded-then-stretched)', (tester) async {
+      await _pumpCategoryRequestDialog(tester, repo);
 
-        const submitKey = Key('btn-submit-suggest-category');
+      const submitKey = Key('btn-submit-suggest-category');
 
-        Column? parentColumn;
-        for (final col in tester.widgetList<Column>(find.byType(Column))) {
-          for (final child in col.children) {
-            if (child.key == submitKey) {
-              parentColumn = col;
-              break;
-            }
+      Column? parentColumn;
+      for (final col in tester.widgetList<Column>(find.byType(Column))) {
+        for (final child in col.children) {
+          if (child.key == submitKey) {
+            parentColumn = col;
+            break;
           }
-          if (parentColumn != null) break;
         }
+        if (parentColumn != null) break;
+      }
 
-        expect(
-          parentColumn,
-          isNotNull,
-          reason: 'A Column directly containing the submit button must exist.',
-        );
-        expect(
-          parentColumn!.crossAxisAlignment,
-          CrossAxisAlignment.stretch,
-          reason:
-              'The Column that directly parents the NeumorphicButton must use '
-              'CrossAxisAlignment.stretch so the CTA expands to full card width.',
-        );
-      },
-    );
+      expect(
+        parentColumn,
+        isNotNull,
+        reason: 'A Column directly containing the submit button must exist.',
+      );
+      expect(
+        parentColumn!.crossAxisAlignment,
+        CrossAxisAlignment.stretch,
+        reason:
+            'The Column that directly parents the NeumorphicButton must use '
+            'CrossAxisAlignment.stretch so the CTA expands to full card width.',
+      );
+    });
   });
 }
 

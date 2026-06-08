@@ -15,6 +15,7 @@ Name | Type | Description | Notes
 **baseDurationMinutes** | **int** |  | [optional] 
 **bufferMinutesAfter** | **int** |  | [optional] 
 **isActive** | **bool** |  | [optional] 
+**isDraft** | **bool** | True when this is an auto-created draft awaiting price/duration completion (is_draft=true, is_active=false). Always false on the public browse endpoint, which filters drafts out. | [optional] 
 **serviceTypeId** | **String** | Chosen service type id; null when no service type was selected. | [optional] 
 **serviceTypeNameUk** | **String** | Ukrainian display name of the chosen service type; null when none was selected. | [optional] 
 **photoUrl** | **String** |  | [optional] 

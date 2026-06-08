@@ -117,6 +117,21 @@ abstract class MasterService with _$MasterService {
     /// Whether this service is currently active and bookable.
     @Default(true) bool isActive,
 
+    /// Whether this service is an auto-created **draft** awaiting completion.
+    ///
+    /// A draft is produced by the backend when a master picks a service type
+    /// without yet entering a price/duration: it carries the chosen name and
+    /// category but `price = ₴0 / FIXED`, `duration = 0`, [isActive] `false`,
+    /// and `isDraft = true`. The owner's own services list
+    /// (`GET /independent-masters/me/services`) includes drafts; the public
+    /// browse endpoint (`GET /masters/{masterId}/services`) always excludes
+    /// them, so this is `false` on every public-path mapping.
+    ///
+    /// The UI must NOT render a draft's ₴0 as a real price — show a
+    /// "set price to publish" affordance instead. Defaults to `false` so any
+    /// response that omits the field is treated as a normal, published service.
+    @Default(false) bool isDraft,
+
     /// Number of future (upcoming) bookings that reference this service.
     ///
     /// Defaults to `0` because the current backend API does not yet expose this

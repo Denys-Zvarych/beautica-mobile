@@ -33,7 +33,6 @@ import 'package:beautica_api/src/model/api_response_list_platform_category_usage
 import 'package:beautica_api/src/model/api_response_list_platform_service_type_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_list_schedule_override_response.dart';
-import 'package:beautica_api/src/model/api_response_list_service_type_response.dart';
 import 'package:beautica_api/src/model/api_response_list_weekly_schedule_response.dart';
 import 'package:beautica_api/src/model/api_response_list_working_hours_response.dart';
 import 'package:beautica_api/src/model/api_response_master_detail_response.dart';
@@ -125,7 +124,6 @@ import 'package:beautica_api/src/model/schedule_exception_request.dart';
 import 'package:beautica_api/src/model/schedule_override_request.dart';
 import 'package:beautica_api/src/model/schedule_override_response.dart';
 import 'package:beautica_api/src/model/service_definition_response.dart';
-import 'package:beautica_api/src/model/service_type_response.dart';
 import 'package:beautica_api/src/model/sort_object.dart';
 import 'package:beautica_api/src/model/status_update_request.dart';
 import 'package:beautica_api/src/model/suggest_service_type_request.dart';
@@ -167,7 +165,6 @@ part 'serializers.g.dart';
   ApiResponseListPlatformServiceTypeResponse,
   ApiResponseListSalonResponse,
   ApiResponseListScheduleOverrideResponse,
-  ApiResponseListServiceTypeResponse,
   ApiResponseListWeeklyScheduleResponse,
   ApiResponseListWorkingHoursResponse,
   ApiResponseMasterDetailResponse,
@@ -259,7 +256,6 @@ part 'serializers.g.dart';
   ScheduleOverrideRequest,
   ScheduleOverrideResponse,
   ServiceDefinitionResponse,
-  ServiceTypeResponse,
   SortObject,
   StatusUpdateRequest,
   SuggestServiceTypeRequest,

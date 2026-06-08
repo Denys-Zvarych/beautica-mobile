@@ -43,7 +43,9 @@ const _serviceId = 'svc-001';
 /// assignment id [_serviceId]). The backend keys
 /// `PATCH/DELETE /api/v1/services/{serviceDefId}` on this id.
 const _serviceDefId = 'def-001';
-const _listPath = '/api/v1/masters/$_masterId/services';
+// Phase 16.9: listMyServices() now hits the authenticated owner endpoint
+// (no masterId path param). Used only as the mock RequestOptions.path.
+const _listPath = '/api/v1/independent-masters/me/services';
 
 /// Builds a [ServiceDefinitionResponse] with sensible defaults.
 /// Phase 5.6: uses priceType/priceMin/priceMax instead of basePrice.
@@ -81,6 +83,7 @@ MasterServiceResponse _buildMasterServiceDto({
   num? effectivePrice,
   int? effectiveDurationMinutes,
   bool isActive = true,
+  bool? isDraft,
 }) {
   final def = serviceDefinition ?? _buildDef();
   return (MasterServiceResponseBuilder()
@@ -89,7 +92,8 @@ MasterServiceResponse _buildMasterServiceDto({
         ..serviceDefinition.replace(def)
         ..effectivePrice = effectivePrice
         ..effectiveDurationMinutes = effectiveDurationMinutes
-        ..isActive = isActive)
+        ..isActive = isActive
+        ..isDraft = isDraft)
       .build();
 }
 
@@ -192,7 +196,7 @@ void main() {
       'returns empty list when the backend returns an empty array',
       () async {
         when(
-          () => serviceApi.getMasterServices(masterId: _masterId),
+          () => serviceApi.getMyServices(),
         ).thenAnswer((_) async => _listResponse([]));
 
         final result = await repository.listMyServices();
@@ -229,7 +233,7 @@ void main() {
       );
 
       when(
-        () => serviceApi.getMasterServices(masterId: _masterId),
+        () => serviceApi.getMyServices(),
       ).thenAnswer((_) async => _listResponse([dto1, dto2]));
 
       final result = await repository.listMyServices();
@@ -255,7 +259,7 @@ void main() {
     });
 
     test('maps NetworkFailure on connectionError', () async {
-      when(() => serviceApi.getMasterServices(masterId: _masterId)).thenThrow(
+      when(() => serviceApi.getMyServices()).thenThrow(
         DioException(
           requestOptions: RequestOptions(path: _listPath),
           type: DioExceptionType.connectionError,
@@ -265,6 +269,71 @@ void main() {
       await expectLater(
         repository.listMyServices(),
         throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    // ── Phase 16.9 — owner-endpoint repoint ──────────────────────────────────
+    //
+    // The master's own list MUST hit the authenticated owner endpoint
+    // getMyServices() (`GET /independent-masters/me/services`, which INCLUDES
+    // drafts), NOT the public getMasterServices(masterId) browse endpoint
+    // (`GET /masters/{masterId}/services`, which filters drafts out). This test
+    // would FAIL if the repository were reverted to the public endpoint.
+
+    test('calls getMyServices() (owner endpoint) and NEVER getMasterServices() '
+        '(public browse endpoint)', () async {
+      when(
+        () => serviceApi.getMyServices(),
+      ).thenAnswer((_) async => _listResponse([_buildMasterServiceDto()]));
+
+      await repository.listMyServices();
+
+      verify(() => serviceApi.getMyServices()).called(1);
+      verifyNever(
+        () => serviceApi.getMasterServices(masterId: any(named: 'masterId')),
+      );
+    });
+
+    // ── Phase 16.9 — isDraft maps through the owner list ─────────────────────
+    //
+    // A draft MasterServiceResponse (isDraft=true, isActive=false) must surface
+    // as MasterService.isDraft=true so the list card can render the draft
+    // affordance instead of the placeholder ₴0. A normal response (isDraft
+    // absent/false) must map to isDraft=false. This guards the
+    // `dto.isDraft ?? def?.isDraft ?? false` mapper branch end-to-end.
+
+    test('maps isDraft=true for a draft and isDraft=false for a normal '
+        'service', () async {
+      final draftDto = _buildMasterServiceDto(
+        id: 'svc-draft',
+        isDraft: true,
+        isActive: false,
+        serviceDefinition: _buildDef(name: 'Стрижка', isActive: false),
+      );
+      final publishedDto = _buildMasterServiceDto(
+        id: 'svc-pub',
+        // isDraft omitted (null on the wire) → treated as a published service.
+        serviceDefinition: _buildDef(id: 'def-pub', name: 'Манікюр'),
+      );
+
+      when(
+        () => serviceApi.getMyServices(),
+      ).thenAnswer((_) async => _listResponse([draftDto, publishedDto]));
+
+      final result = await repository.listMyServices();
+
+      final draft = result.firstWhere((s) => s.id == 'svc-draft');
+      final published = result.firstWhere((s) => s.id == 'svc-pub');
+
+      expect(
+        draft.isDraft,
+        isTrue,
+        reason: 'a draft DTO (isDraft=true) must map to MasterService.isDraft',
+      );
+      expect(
+        published.isDraft,
+        isFalse,
+        reason: 'an omitted isDraft must default to false (published service)',
       );
     });
   });
@@ -568,9 +637,7 @@ void main() {
         expect(captured.price, 600.0);
 
         // The list endpoint must NOT have been called (no extra round-trip).
-        verifyNever(
-          () => serviceApi.getMasterServices(masterId: any(named: 'masterId')),
-        );
+        verifyNever(() => serviceApi.getMyServices());
       },
     );
 
@@ -623,9 +690,7 @@ void main() {
           throwsA(isA<UnauthorizedFailure>()),
         );
 
-        verifyNever(
-          () => serviceApi.getMasterServices(masterId: any(named: 'masterId')),
-        );
+        verifyNever(() => serviceApi.getMyServices());
       },
     );
 

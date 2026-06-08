@@ -84,6 +84,8 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
   @override
   final bool? isActive;
   @override
+  final bool? isDraft;
+  @override
   final String? serviceTypeId;
   @override
   final String? serviceTypeNameUk;
@@ -110,6 +112,7 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
       this.baseDurationMinutes,
       this.bufferMinutesAfter,
       this.isActive,
+      this.isDraft,
       this.serviceTypeId,
       this.serviceTypeNameUk,
       this.photoUrl,
@@ -138,6 +141,7 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
         baseDurationMinutes == other.baseDurationMinutes &&
         bufferMinutesAfter == other.bufferMinutesAfter &&
         isActive == other.isActive &&
+        isDraft == other.isDraft &&
         serviceTypeId == other.serviceTypeId &&
         serviceTypeNameUk == other.serviceTypeNameUk &&
         photoUrl == other.photoUrl &&
@@ -157,6 +161,7 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
     _$hash = $jc(_$hash, baseDurationMinutes.hashCode);
     _$hash = $jc(_$hash, bufferMinutesAfter.hashCode);
     _$hash = $jc(_$hash, isActive.hashCode);
+    _$hash = $jc(_$hash, isDraft.hashCode);
     _$hash = $jc(_$hash, serviceTypeId.hashCode);
     _$hash = $jc(_$hash, serviceTypeNameUk.hashCode);
     _$hash = $jc(_$hash, photoUrl.hashCode);
@@ -178,6 +183,7 @@ class _$ServiceDefinitionResponse extends ServiceDefinitionResponse {
           ..add('baseDurationMinutes', baseDurationMinutes)
           ..add('bufferMinutesAfter', bufferMinutesAfter)
           ..add('isActive', isActive)
+          ..add('isDraft', isDraft)
           ..add('serviceTypeId', serviceTypeId)
           ..add('serviceTypeNameUk', serviceTypeNameUk)
           ..add('photoUrl', photoUrl)
@@ -224,6 +230,10 @@ class ServiceDefinitionResponseBuilder
   bool? get isActive => _$this._isActive;
   set isActive(bool? isActive) => _$this._isActive = isActive;
 
+  bool? _isDraft;
+  bool? get isDraft => _$this._isDraft;
+  set isDraft(bool? isDraft) => _$this._isDraft = isDraft;
+
   String? _serviceTypeId;
   String? get serviceTypeId => _$this._serviceTypeId;
   set serviceTypeId(String? serviceTypeId) =>
@@ -269,6 +279,7 @@ class ServiceDefinitionResponseBuilder
       _baseDurationMinutes = $v.baseDurationMinutes;
       _bufferMinutesAfter = $v.bufferMinutesAfter;
       _isActive = $v.isActive;
+      _isDraft = $v.isDraft;
       _serviceTypeId = $v.serviceTypeId;
       _serviceTypeNameUk = $v.serviceTypeNameUk;
       _photoUrl = $v.photoUrl;
@@ -304,6 +315,7 @@ class ServiceDefinitionResponseBuilder
           baseDurationMinutes: baseDurationMinutes,
           bufferMinutesAfter: bufferMinutesAfter,
           isActive: isActive,
+          isDraft: isDraft,
           serviceTypeId: serviceTypeId,
           serviceTypeNameUk: serviceTypeNameUk,
           photoUrl: photoUrl,

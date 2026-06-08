@@ -1482,6 +1482,21 @@
       "count": { "type": "int" }
     }
   },
+  "servicesDraftBadge": "Draft",
+  "@servicesDraftBadge": {
+    "description": "Small badge label on a service card indicating the service is an auto-created draft awaiting a price/duration before it can be published (Phase 16.9)."
+  },
+  "servicesDraftSetPriceCta": "Set a price to publish",
+  "@servicesDraftSetPriceCta": {
+    "description": "Muted call-to-action shown on a draft service card in place of the duration·price meta line, prompting the master to set a price so the service can be published (Phase 16.9)."
+  },
+  "servicesDraftCardSemantics": "{name}. Draft. Set a price to publish. Edit",
+  "@servicesDraftCardSemantics": {
+    "description": "Accessibility label for a draft service card on the services list, announcing the service name, its draft status, the set-price prompt, and the edit action (Phase 16.9).",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
   "categoryRequestTitle": "Suggest a category",
   "@categoryRequestTitle": {
     "description": "Title of the suggest-a-category dialog."

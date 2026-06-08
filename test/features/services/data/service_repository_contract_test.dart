@@ -45,7 +45,9 @@ const _masterId = 'master-1';
 const _serviceDefId = 'def-7';
 const _assignmentId = 'svc-7';
 
-const _listPath = '/api/v1/masters/$_masterId/services';
+// Phase 16.9: listMyServices() hits the authenticated owner endpoint (master
+// derived from the JWT principal, drafts included) — no masterId path param.
+const _listPath = '/api/v1/independent-masters/me/services';
 const _createPath = '/api/v1/independent-masters/me/services';
 const _mutatePath = '/api/v1/services/$_serviceDefId';
 

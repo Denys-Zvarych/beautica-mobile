@@ -769,6 +769,7 @@ class _ServiceCardState extends State<_ServiceCard>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final MasterService s = widget.service;
     final durationLabel = DurationMinutes.format(s.durationMinutes);
     // Price label: FIXED renders the server-formatted priceDisplay
@@ -776,6 +777,14 @@ class _ServiceCardState extends State<_ServiceCard>
     // ("200 - 600 грн") via [ServicePriceDisplay]. Falls back gracefully when
     // priceDisplay is empty (pre-V67 data / broken contract).
     final priceLabel = ServicePriceDisplay.format(s);
+
+    // Phase 16.9: an auto-created draft (isDraft=true) carries name + category
+    // but ₴0 / FIXED price and 0 duration. We MUST NOT render that ₴0 as a real
+    // price — the card instead shows a quiet "Чернетка" badge by the title and a
+    // muted "set price to publish" CTA where the duration·price line normally
+    // sits. The whole card stays tappable → opens the edit form so the master
+    // can fill in price/duration and publish.
+    final bool isDraft = s.isDraft;
 
     // Item 1: the PRIMARY card label is the platform service-type name
     // (e.g. "Стрижка"), not the master's custom name. The custom name — now
@@ -807,10 +816,11 @@ class _ServiceCardState extends State<_ServiceCard>
         position: _slide,
         child: Semantics(
           button: true,
-          label:
-              '$primaryLabel. '
-              '${secondaryLabel != null ? '$secondaryLabel. ' : ''}'
-              '$durationLabel, $priceLabel. Редагувати',
+          label: isDraft
+              ? l10n.servicesDraftCardSemantics(primaryLabel)
+              : '$primaryLabel. '
+                    '${secondaryLabel != null ? '$secondaryLabel. ' : ''}'
+                    '$durationLabel, $priceLabel. Редагувати',
           // priceLabel renders from priceDisplay (server-formatted) so the
           // accessibility label always matches what the user sees in the card.
           child: GestureDetector(
@@ -841,7 +851,10 @@ class _ServiceCardState extends State<_ServiceCard>
                 ),
                 child: Row(
                   children: <Widget>[
-                    _PhotoThumbnail(key: Key('thumb_${s.id}')),
+                    _PhotoThumbnail(
+                      key: Key('thumb_${s.id}'),
+                      isDraft: isDraft,
+                    ),
                     const SizedBox(width: VelvetSpacing.sm + 2),
                     Expanded(
                       child: _ServiceInfo(
@@ -849,6 +862,7 @@ class _ServiceCardState extends State<_ServiceCard>
                         secondaryName: secondaryLabel,
                         durationLabel: durationLabel,
                         priceLabel: priceLabel,
+                        isDraft: isDraft,
                       ),
                     ),
                     const SizedBox(width: VelvetSpacing.sm),
@@ -876,7 +890,11 @@ class _ServiceCardState extends State<_ServiceCard>
 /// 40×40 rounded [ClipRRect]. Until then, every service shows the icon
 /// placeholder so depth always comes from shadows, never a flat grey box.
 class _PhotoThumbnail extends StatelessWidget {
-  const _PhotoThumbnail({super.key});
+  const _PhotoThumbnail({super.key, this.isDraft = false});
+
+  /// When true, the placeholder icon is dimmed so a draft card reads as
+  /// quieter / incomplete versus a published one (Phase 16.9).
+  final bool isDraft;
 
   static const double _size = 40;
 
@@ -891,7 +909,7 @@ class _PhotoThumbnail extends StatelessWidget {
           child: Icon(
             Icons.spa_rounded,
             size: 18,
-            color: BrandColors.accent.withValues(alpha: 0.9),
+            color: BrandColors.accent.withValues(alpha: isDraft ? 0.5 : 0.9),
           ),
         ),
       ),
@@ -909,6 +927,7 @@ class _ServiceInfo extends StatelessWidget {
     required this.durationLabel,
     required this.priceLabel,
     this.secondaryName,
+    this.isDraft = false,
   });
 
   /// Primary card label — the platform service-type name (Item 1), or the
@@ -923,10 +942,21 @@ class _ServiceInfo extends StatelessWidget {
   final String durationLabel;
   final String priceLabel;
 
+  /// When true (Phase 16.9), the card renders the draft variant: a "Чернетка"
+  /// badge inline with the title and a muted "set price to publish" CTA in
+  /// place of the duration·price meta line (the draft has no real price yet).
+  final bool isDraft;
+
   // Hoisted to avoid per-build allocation (MEDIUM-3).
   static final TextStyle _nameStyle = VelvetText.cardTitle().copyWith(
     fontSize: 15,
     height: 1.15,
+  );
+
+  // Draft title style — same metrics as _nameStyle but dimmed, so a draft
+  // reads as quieter / incomplete while staying on the same carved surface.
+  static final TextStyle _draftNameStyle = _nameStyle.copyWith(
+    color: BrandColors.textSecondary,
   );
 
   // Secondary (custom name) style — quieter than the primary: smaller and
@@ -942,14 +972,32 @@ class _ServiceInfo extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text(
-          name,
-          // Compact row: single line, slightly smaller than the full cardTitle
-          // so the dense list reads as rows rather than tall cards.
-          style: _nameStyle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
+        // Title row. For a draft, the title shares its line with a quiet
+        // "Чернетка" badge so the incomplete status reads at a glance.
+        if (isDraft)
+          Row(
+            children: <Widget>[
+              Flexible(
+                child: Text(
+                  name,
+                  style: _draftNameStyle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: VelvetSpacing.sm),
+              const _DraftBadge(),
+            ],
+          )
+        else
+          Text(
+            name,
+            // Compact row: single line, slightly smaller than the full cardTitle
+            // so the dense list reads as rows rather than tall cards.
+            style: _nameStyle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         if (secondary != null) ...<Widget>[
           const SizedBox(height: 1),
           Text(
@@ -961,9 +1009,102 @@ class _ServiceInfo extends StatelessWidget {
           ),
         ],
         const SizedBox(height: VelvetSpacing.xs),
-        // Single inline metadata line: duration · price. The category is no
-        // longer shown here — it is now the section header the card lives under.
-        _MetaLine(durationLabel: durationLabel, priceLabel: priceLabel),
+        // Draft: a muted "set price to publish" CTA replaces the duration·price
+        // line so the card never presents the placeholder ₴0 as a real price.
+        // Published: the usual inline duration · price metadata line. The
+        // category is shown as the section header the card lives under, not here.
+        if (isDraft)
+          const _DraftSetPriceCta(key: Key('service-card-draft-cta'))
+        else
+          _MetaLine(durationLabel: durationLabel, priceLabel: priceLabel),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Draft badge + set-price CTA (Phase 16.9)
+// ---------------------------------------------------------------------------
+
+/// A small recessed "Чернетка" (draft) pill sitting inline beside the title.
+///
+/// Carved-in (NeumorphicInset) rather than raised: a draft is not yet
+/// "published / extruded", so the inset treatment reads as incomplete without
+/// alarm. Tinted with a faint [BrandColors.accent] wash and muted text — stays
+/// strictly within the VelvetTouch palette (no new colors, no gradients).
+class _DraftBadge extends StatelessWidget {
+  const _DraftBadge();
+
+  // Hoisted to avoid per-build allocation.
+  static final TextStyle _style = VelvetText.pill().copyWith(
+    fontSize: 11,
+    color: BrandColors.muted,
+    letterSpacing: 0.2,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return NeumorphicInset(
+      radius: VelvetRadii.pill,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: VelvetSpacing.sm,
+          vertical: 3,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(
+              Icons.edit_note_rounded,
+              size: 14,
+              color: BrandColors.muted.withValues(alpha: 0.9),
+            ),
+            const SizedBox(width: VelvetSpacing.xs),
+            Text(l10n.servicesDraftBadge, style: _style),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The muted "Встановіть ціну, щоб опублікувати" call-to-action row shown on a
+/// draft card in place of the duration·price meta line.
+///
+/// Flat (no inset/extrude) so it reads as a quiet hint, not a button — the
+/// whole card remains the single tap target that opens the edit form. Uses
+/// [BrandColors.accentLatte] for the icon and [BrandColors.textSecondary] for
+/// the copy — both already in the palette.
+class _DraftSetPriceCta extends StatelessWidget {
+  const _DraftSetPriceCta({super.key});
+
+  // Hoisted to avoid per-build allocation.
+  static final TextStyle _style = VelvetText.pill().copyWith(
+    fontSize: 12.5,
+    color: BrandColors.textSecondary,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        const Icon(
+          Icons.sell_outlined,
+          size: 13,
+          color: BrandColors.accentLatte,
+        ),
+        const SizedBox(width: VelvetSpacing.xs),
+        Flexible(
+          child: Text(
+            l10n.servicesDraftSetPriceCta,
+            style: _style,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
       ],
     );
   }

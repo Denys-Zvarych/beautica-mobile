@@ -92,6 +92,14 @@ void main() {
     await tester.pump();
     await tester.pump();
     await tester.pumpAndSettle();
+
+    // Post-84ae042 the list opens with every section COLLAPSED, so the service
+    // card (and its label rows) are not in the tree yet. These fixtures carry no
+    // category, so they bucket under the uncategorized section
+    // (`category_section__none`). Expand it before asserting on the card's label
+    // rows — the label-resolution branches under test live INSIDE the card.
+    await tester.tap(find.byKey(const Key('category_section__none')));
+    await tester.pumpAndSettle();
   }
 
   // L1 — type present, custom name differs → primary=type, secondary=custom.

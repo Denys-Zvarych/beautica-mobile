@@ -20,7 +20,6 @@ doc/ApiResponseListPlatformCategoryUsageResponse.md
 doc/ApiResponseListPlatformServiceTypeResponse.md
 doc/ApiResponseListSalonResponse.md
 doc/ApiResponseListScheduleOverrideResponse.md
-doc/ApiResponseListServiceTypeResponse.md
 doc/ApiResponseListWeeklyScheduleResponse.md
 doc/ApiResponseListWorkingHoursResponse.md
 doc/ApiResponseMasterDetailResponse.md
@@ -128,7 +127,6 @@ doc/SearchControllerApi.md
 doc/ServiceCatalogControllerApi.md
 doc/ServiceControllerApi.md
 doc/ServiceDefinitionResponse.md
-doc/ServiceTypeResponse.md
 doc/SortObject.md
 doc/StatusUpdateRequest.md
 doc/SuggestServiceTypeRequest.md
@@ -193,7 +191,6 @@ lib/src/model/api_response_list_platform_category_usage_response.dart
 lib/src/model/api_response_list_platform_service_type_response.dart
 lib/src/model/api_response_list_salon_response.dart
 lib/src/model/api_response_list_schedule_override_response.dart
-lib/src/model/api_response_list_service_type_response.dart
 lib/src/model/api_response_list_weekly_schedule_response.dart
 lib/src/model/api_response_list_working_hours_response.dart
 lib/src/model/api_response_master_detail_response.dart
@@ -286,7 +283,6 @@ lib/src/model/schedule_exception_request.dart
 lib/src/model/schedule_override_request.dart
 lib/src/model/schedule_override_response.dart
 lib/src/model/service_definition_response.dart
-lib/src/model/service_type_response.dart
 lib/src/model/sort_object.dart
 lib/src/model/status_update_request.dart
 lib/src/model/suggest_service_type_request.dart

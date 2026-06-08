@@ -14,6 +14,7 @@ Method | HTTP request | Description
 [**assignServiceToMaster**](ServiceControllerApi.md#assignservicetomaster) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services | 
 [**deactivateServiceDefinition**](ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
 [**getMasterServices**](ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
+[**getMyServices**](ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own services including drafts
 [**updateServiceDefinition**](ServiceControllerApi.md#updateservicedefinition) | **PATCH** /api/v1/services/{serviceDefId} | 
 [**updateServicePhoto**](ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
 
@@ -212,6 +213,45 @@ try {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **masterId** | **String**|  | 
+
+### Return type
+
+[**ApiResponseListMasterServiceResponse**](ApiResponseListMasterServiceResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getMyServices**
+> ApiResponseListMasterServiceResponse getMyServices()
+
+List my own services including drafts
+
+Returns the authenticated master's own services, including auto-created drafts (is_draft=true). Owner-scoped to the authenticated principal; never exposes another master's services.
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getServiceControllerApi();
+
+try {
+    final response = api.getMyServices();
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling ServiceControllerApi->getMyServices: $e\n');
+}
+```
+
+### Parameters
+This endpoint does not need any parameter.
 
 ### Return type
 

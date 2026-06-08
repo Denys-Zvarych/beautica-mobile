@@ -47,7 +47,6 @@ export 'package:beautica_api/src/model/api_response_list_platform_category_usage
 export 'package:beautica_api/src/model/api_response_list_platform_service_type_response.dart';
 export 'package:beautica_api/src/model/api_response_list_salon_response.dart';
 export 'package:beautica_api/src/model/api_response_list_schedule_override_response.dart';
-export 'package:beautica_api/src/model/api_response_list_service_type_response.dart';
 export 'package:beautica_api/src/model/api_response_list_weekly_schedule_response.dart';
 export 'package:beautica_api/src/model/api_response_list_working_hours_response.dart';
 export 'package:beautica_api/src/model/api_response_master_detail_response.dart';
@@ -139,7 +138,6 @@ export 'package:beautica_api/src/model/schedule_exception_request.dart';
 export 'package:beautica_api/src/model/schedule_override_request.dart';
 export 'package:beautica_api/src/model/schedule_override_response.dart';
 export 'package:beautica_api/src/model/service_definition_response.dart';
-export 'package:beautica_api/src/model/service_type_response.dart';
 export 'package:beautica_api/src/model/sort_object.dart';
 export 'package:beautica_api/src/model/status_update_request.dart';
 export 'package:beautica_api/src/model/suggest_service_type_request.dart';

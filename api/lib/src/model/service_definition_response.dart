@@ -19,6 +19,7 @@ part 'service_definition_response.g.dart';
 /// * [baseDurationMinutes]
 /// * [bufferMinutesAfter]
 /// * [isActive]
+/// * [isDraft] - True when this is an auto-created draft awaiting price/duration completion (is_draft=true, is_active=false). Always false on the public browse endpoint, which filters drafts out.
 /// * [serviceTypeId] - Chosen service type id; null when no service type was selected.
 /// * [serviceTypeNameUk] - Ukrainian display name of the chosen service type; null when none was selected.
 /// * [photoUrl]
@@ -50,6 +51,10 @@ abstract class ServiceDefinitionResponse
 
   @BuiltValueField(wireName: r'isActive')
   bool? get isActive;
+
+  /// True when this is an auto-created draft awaiting price/duration completion (is_draft=true, is_active=false). Always false on the public browse endpoint, which filters drafts out.
+  @BuiltValueField(wireName: r'isDraft')
+  bool? get isDraft;
 
   /// Chosen service type id; null when no service type was selected.
   @BuiltValueField(wireName: r'serviceTypeId')
@@ -151,6 +156,13 @@ class _$ServiceDefinitionResponseSerializer
       yield r'isActive';
       yield serializers.serialize(
         object.isActive,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.isDraft != null) {
+      yield r'isDraft';
+      yield serializers.serialize(
+        object.isDraft,
         specifiedType: const FullType(bool),
       );
     }
@@ -276,6 +288,13 @@ class _$ServiceDefinitionResponseSerializer
             specifiedType: const FullType(bool),
           ) as bool;
           result.isActive = valueDes;
+          break;
+        case r'isDraft':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.isDraft = valueDes;
           break;
         case r'serviceTypeId':
           final valueDes = serializers.deserialize(
