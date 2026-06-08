@@ -48,8 +48,10 @@ export 'services_list_notifier.dart' show servicesListProvider;
 /// Pull-to-refresh triggers [ServicesListNotifier.refresh].
 ///
 /// [initialExpandCategory] — when non-null and non-empty, the matching
-/// category section is pre-expanded on first build and all others are
-/// collapsed. The user can still toggle any section freely afterward.
+/// category section is pre-expanded on first build and all others start
+/// collapsed. When null or empty (the default — e.g. "Усі послуги" link or
+/// bottom-nav "Послуги" tab) ALL sections start collapsed; the user can
+/// toggle any section freely afterward.
 /// Passed from the profile screen's category cards via the `expandCategory`
 /// query parameter on the `/services` route.
 ///
@@ -61,7 +63,8 @@ class ServicesListScreen extends ConsumerStatefulWidget {
   const ServicesListScreen({super.key, this.initialExpandCategory});
 
   /// Optional upper-cased wire slug. When set, the matching category section
-  /// is pre-expanded and all others start collapsed on first entry.
+  /// is pre-expanded and all others start collapsed on first entry. When null
+  /// or empty all sections start collapsed (the default).
   final String? initialExpandCategory;
 
   @override
@@ -222,7 +225,7 @@ class _LoadedBody extends ConsumerStatefulWidget {
   final List<MasterService> services;
 
   /// Upper-cased wire slug of the category to pre-expand on first build.
-  /// When null or empty all categories use the default (expanded) state.
+  /// When null or empty all sections start collapsed (the default).
   final String? initialExpandCategory;
 
   @override
@@ -387,9 +390,10 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
             // When a target slug was requested:
             //   • the matching section starts expanded,
             //   • every other section starts collapsed.
-            // When no target slug is set all sections use the default (expanded).
+            // When no target slug is set (null — "Усі послуги" link or
+            // bottom-nav tab) all sections start collapsed.
             final bool initiallyExpanded =
-                targetSlug == null || group.key == targetSlug;
+                targetSlug != null && group.key == targetSlug;
             final String sectionSlug = group.key.isEmpty ? '_none' : group.key;
             return Padding(
               padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
@@ -534,11 +538,14 @@ class _SectionItem extends _ListItem {
 
 /// A soft neumorphic disclosure section: an extruded header pillow (category
 /// name + count badge + rotating chevron) over a collapsible body of service
-/// cards. Defaults to expanded so the master still sees their services on load.
+/// cards.
 ///
-/// [initiallyExpanded] overrides the default: pass `false` to start collapsed
-/// or `true` (the default) to start expanded. The user can toggle at will after
-/// first build — the initial value is applied only once in [initState].
+/// [initiallyExpanded] controls the initial open/close state of this section:
+/// `true` starts expanded, `false` (the default) starts collapsed. The
+/// [_LoadedBodyState] passes `true` only for the explicitly-targeted category
+/// (when the master navigated via a specific category card). The user can
+/// toggle freely after first build — the initial value is applied only once
+/// in [initState].
 ///
 /// This is the VelvetTouch analogue of an [ExpansionTile] — no raw Material
 /// chrome. The header reuses the same [BrandColors.base] + [VelvetShadows]
@@ -549,7 +556,7 @@ class _CategorySection extends StatefulWidget {
     required this.title,
     required this.count,
     required this.children,
-    this.initiallyExpanded = true,
+    this.initiallyExpanded = false,
   });
 
   final String title;
@@ -557,7 +564,10 @@ class _CategorySection extends StatefulWidget {
   final List<Widget> children;
 
   /// Whether this section starts expanded. Applied once in [initState];
-  /// the user can toggle freely afterward.
+  /// the user can toggle freely afterward. Defaults to `false` (collapsed).
+  /// [_LoadedBodyState] passes `true` only for the explicitly-requested
+  /// category (non-null [_LoadedBody.initialExpandCategory] that matches this
+  /// section's slug).
   final bool initiallyExpanded;
 
   @override
