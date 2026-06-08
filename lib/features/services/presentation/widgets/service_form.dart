@@ -25,6 +25,7 @@
 import 'dart:developer';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:flutter/foundation.dart';
@@ -40,6 +41,7 @@ import 'package:beautica_mobile/features/services/presentation/service_types_pro
 import 'package:beautica_mobile/features/services/presentation/widgets/category_request_dialog.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/searchable_select_field.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_type_suggestion_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart';
 import 'package:beautica_mobile/shared/validators/numeric_validators.dart';
@@ -961,6 +963,34 @@ class _ServiceTypeDropdown extends ConsumerWidget {
   final String? selectedFallbackLabel;
   final bool disabled;
 
+  /// Opens the suggest-a-service-type dialog for the active [categoryName] slug.
+  ///
+  /// Mirrors `_CategoryDropdown._openSuggestDialog`: closes the menu first so
+  /// the dialog is the top surface, opens it on the root context (the sheet
+  /// context is torn down by the pop), then raises the success SnackBar on the
+  /// parent messenger when the dialog pops `true`. The picker is only rendered
+  /// once a category is selected, so [categoryName] is always a non-empty slug
+  /// here — the backend requires it.
+  Future<void> _openSuggestDialog(
+    BuildContext sheetContext,
+    BuildContext rootContext,
+  ) async {
+    final l10n = AppLocalizations.of(rootContext);
+    dismissOverlay(sheetContext);
+    final submitted = await showServiceTypeSuggestionDialog(
+      rootContext,
+      categoryName: categoryName,
+    );
+    if (submitted == true && rootContext.mounted) {
+      ScaffoldMessenger.of(rootContext).showSnackBar(
+        SnackBar(
+          content: Text(l10n.serviceTypeSuggestSuccess),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
@@ -1020,6 +1050,17 @@ class _ServiceTypeDropdown extends ConsumerWidget {
       ],
       onSelected: onSelect,
       onMenuRetry: () => ref.invalidate(serviceTypesProvider(categoryName)),
+      // "Не знайшли? Запропонувати послугу" — escape hatch into the suggestion
+      // dialog. Mounted in the menu footer (mirrors the category suggest chip).
+      // The picker is only rendered when a category is selected, so a non-empty
+      // slug (categoryName) is always available to forward to the backend.
+      menuFooter: (BuildContext sheetContext) => SelectMenuActionRow(
+        key: const Key('chip-service-type-suggest'),
+        label: l10n.serviceTypeSuggestChip,
+        onTap: disabled
+            ? () {}
+            : () => _openSuggestDialog(sheetContext, context),
+      ),
     );
   }
 }
@@ -1130,7 +1171,7 @@ class _CategoryDropdown extends ConsumerWidget {
     final l10n = AppLocalizations.of(rootContext);
     // Close the menu first so the dialog is the top surface, then open it on
     // the root context (the sheet context is torn down by the pop).
-    Navigator.of(sheetContext).pop();
+    dismissOverlay(sheetContext);
     final submitted = await showCategoryRequestDialog(rootContext);
     if (submitted == true && rootContext.mounted) {
       ScaffoldMessenger.of(rootContext).showSnackBar(

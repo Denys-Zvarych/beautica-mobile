@@ -135,6 +135,30 @@ abstract interface class ServiceRepository {
   /// list** rather than throwing. Transport errors are mapped to the feature's
   /// typed [Failure] subclasses.
   Future<List<ServiceTypeOption>> fetchServiceTypes(String categoryName);
+
+  /// Submits a suggestion for a new platform service type under [categoryName]
+  /// for admin review.
+  ///
+  /// Wraps `POST /api/v1/service-types/suggest` (authenticated). The suggested
+  /// type is created in a PENDING state and approved out-of-band by an admin —
+  /// it does NOT immediately appear in [fetchServiceTypes].
+  ///
+  /// - [categoryName]: the System-B slug of the owning category (NOT a UUID).
+  ///   This is the wire `categoryName` field per the backend 16.7 contract.
+  /// - [name]: non-blank Ukrainian label for the suggested service type.
+  /// - [description]: optional free-form context for the reviewer; omitted from
+  ///   the request when null/empty.
+  ///
+  /// Throws:
+  ///   - [ValidationFailure] on **400/422** (malformed name/description),
+  ///     carrying any field errors keyed by `name` / `description`.
+  ///   - [CategoryRequestThrottledFailure] on **429** (rate-limited).
+  ///   - [ServerFailure] / [NetworkFailure] on other transport errors.
+  Future<void> suggestServiceType({
+    required String categoryName,
+    required String name,
+    String? description,
+  });
 }
 
 /// HTTP implementation of [ServiceRepository].
@@ -424,6 +448,40 @@ final class HttpServiceRepository implements ServiceRepository {
     }
   }
 
+  @override
+  Future<void> suggestServiceType({
+    required String categoryName,
+    required String name,
+    String? description,
+  }) async {
+    try {
+      // Sends the System-B `categoryName` slug (per backend 16.7) — NOT a
+      // categoryId UUID. The generated SuggestServiceTypeRequest exposes
+      // `name`, `categoryName`, and an optional `description`; the description
+      // is only attached when non-null/non-empty (the serializer omits a null).
+      final desc = description?.trim();
+      final request = SuggestServiceTypeRequest(
+        (b) => b
+          ..name = name
+          ..categoryName = categoryName
+          ..description = (desc == null || desc.isEmpty) ? null : desc,
+      );
+      await _catalogApi.suggestServiceType(suggestServiceTypeRequest: request);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'suggestServiceType failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapServiceTypeSuggestionException(e);
+    }
+  }
+
   /// Maps a [DioException] from `POST /service-categories/requests` to a typed
   /// [Failure], distinguishing the two category-specific HTTP statuses:
   ///   - **409** → [CategoryAlreadyExistsFailure] (already exists/pending).
@@ -440,6 +498,32 @@ final class HttpServiceRepository implements ServiceRepository {
     if (statusCode == 409) return CategoryAlreadyExistsFailure(cause: e);
     if (statusCode == 429) return CategoryRequestThrottledFailure(cause: e);
     if (e.error is Failure) return e.error as Failure;
+    return _mapDioException(e);
+  }
+
+  /// Maps a [DioException] from `POST /service-types/suggest` to a typed
+  /// [Failure]:
+  ///   - **400/422** → [ValidationFailure] (malformed name/description). If
+  ///     [ErrorMapperInterceptor] already attached a [ValidationFailure] (with
+  ///     parsed field errors), that instance is preferred so inline field-level
+  ///     messages survive.
+  ///   - **429** → [CategoryRequestThrottledFailure] (rate-limited). Reuses the
+  ///     existing throttle failure / copy shared with the category-request flow.
+  /// All other statuses defer to the shared [_mapDioException].
+  ///
+  /// The status checks run BEFORE deferring to any [Failure] already attached by
+  /// the interceptor for the 429 case (the interceptor maps an unmatched 429 to
+  /// [UnknownFailure], which lacks the throttle copy), so we re-map by status
+  /// code here to surface the friendly message.
+  Failure _mapServiceTypeSuggestionException(DioException e) {
+    final statusCode = e.response?.statusCode;
+    if (statusCode == 429) return CategoryRequestThrottledFailure(cause: e);
+    // Prefer an interceptor-attached ValidationFailure (it carries the parsed
+    // fieldErrors used for inline name/description messages).
+    if (e.error is Failure) return e.error as Failure;
+    if (statusCode == 400 || statusCode == 422) {
+      return ValidationFailure(fieldErrors: const {}, cause: e);
+    }
     return _mapDioException(e);
   }
 

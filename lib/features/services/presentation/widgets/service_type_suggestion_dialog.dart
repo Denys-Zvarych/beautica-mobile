@@ -1,23 +1,25 @@
-// Service-category request feature — "Suggest a category" dialog.
+// Service-type suggestion feature — "Suggest a service type" dialog.
 //
-// Lets a master / salon owner propose a new platform category from the service
-// form's category picker. A single input:
-//   1. Display name (Ukrainian) — what the user types, e.g. "Нарощування вій".
+// Lets a master propose a new platform service type from the service form's
+// second-level service-type picker (Phase 16.4). Two inputs:
+//   1. Name (Ukrainian, required) — the suggested service, e.g. "Ламінування вій".
+//   2. Description (optional, multi-line) — free-form context for the reviewer.
 //
-// The technical wire slug is an internal value the user never sees: it is
-// derived from the display name at submit time via [deriveCategorySlug] (which
-// transliterates Cyrillic → latin) and sent as the request `name`. If the
-// entered name cannot produce a valid slug (e.g. punctuation-only input), the
-// name field surfaces an inline error instead of submitting an invalid slug.
+// The owning category is NOT user-entered: the picker passes in the currently-
+// selected category's System-B `categoryName` slug as read-only context, which
+// the dialog forwards to the backend. The slug is never shown to or edited by
+// the user.
 //
-// On submit the dialog calls [ServiceRepository.requestCategory]. On success it
-// pops returning `true` so the caller can show the success SnackBar (the dialog
-// itself does not own the ScaffoldMessenger). On 409/429/other failures it
-// shows an inline SnackBar within the dialog's own Scaffold messenger context
+// On submit the dialog calls [ServiceRepository.suggestServiceType]. On success
+// it pops returning `true` so the caller can show the success SnackBar (the
+// dialog itself does not own the ScaffoldMessenger). On 400 it maps
+// [ValidationFailure.fieldErrors] to the inline name-field error; on 429/other
+// failures it shows an inline SnackBar within the dialog's own messenger context
 // and stays open so the user can correct or retry.
 //
-// Styling is 1:1 with the VelvetTouch neumorphic system used by service_form.dart
-// (NeumorphicCard surface, NeumorphicInset field wells, NeumorphicButton CTA).
+// Styling is 1:1 with category_request_dialog.dart (VelvetTouch neumorphic):
+// NeumorphicCard surface, NeumorphicInset field wells, NeumorphicButton CTA, and
+// the private [_DialogField] row. No glassmorphism.
 
 import 'dart:developer';
 
@@ -27,52 +29,70 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
-import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Opens the suggest-a-category dialog.
+/// Upper bound for the suggested service-type name (mirrors the backend
+/// contract; the category dialog uses the same 100-char display-name cap).
+const int kServiceTypeNameMaxLength = 100;
+
+/// Upper bound for the optional description.
+const int kServiceTypeDescriptionMaxLength = 500;
+
+/// Opens the suggest-a-service-type dialog for the category identified by
+/// [categoryName] (the System-B slug of the currently-selected category — a
+/// read-only context value the picker supplies; the user never edits it).
 ///
-/// Resolves to `true` when a request was submitted successfully (the caller
+/// Resolves to `true` when a suggestion was submitted successfully (the caller
 /// should then show the success SnackBar), or `null`/`false` when the user
 /// cancelled or dismissed.
-Future<bool?> showCategoryRequestDialog(BuildContext context) {
+Future<bool?> showServiceTypeSuggestionDialog(
+  BuildContext context, {
+  required String categoryName,
+}) {
   return showDialog<bool>(
     context: context,
     barrierDismissible: true,
-    builder: (_) => const CategoryRequestDialog(),
+    builder: (_) => ServiceTypeSuggestionDialog(categoryName: categoryName),
   );
 }
 
-/// The suggest-a-category modal dialog (VelvetTouch neumorphic).
-class CategoryRequestDialog extends ConsumerStatefulWidget {
-  const CategoryRequestDialog({super.key});
+/// The suggest-a-service-type modal dialog (VelvetTouch neumorphic).
+class ServiceTypeSuggestionDialog extends ConsumerStatefulWidget {
+  const ServiceTypeSuggestionDialog({required this.categoryName, super.key});
+
+  /// The System-B slug of the owning category, forwarded to the backend as
+  /// `categoryName`. Read-only context — never surfaced to the user.
+  final String categoryName;
 
   @override
-  ConsumerState<CategoryRequestDialog> createState() =>
-      _CategoryRequestDialogState();
+  ConsumerState<ServiceTypeSuggestionDialog> createState() =>
+      _ServiceTypeSuggestionDialogState();
 }
 
-class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
-  static const _tag = 'feature.services.category_request_dialog';
+class _ServiceTypeSuggestionDialogState
+    extends ConsumerState<ServiceTypeSuggestionDialog> {
+  static const _tag = 'feature.services.service_type_suggestion_dialog';
 
   late final TextEditingController _nameCtrl;
+  late final TextEditingController _descCtrl;
 
   bool _submitted = false;
   bool _submitting = false;
 
   /// Server-side validation error for the name field, set when a
-  /// [ValidationFailure] carries a `name` / `displayName` key. Takes precedence
-  /// over the local rules and is cleared on the next edit.
+  /// [ValidationFailure] carries a `name` key. Takes precedence over the local
+  /// rules and is cleared on the next edit.
   String? _serverNameError;
 
   @override
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController();
+    _descCtrl = TextEditingController();
     _nameCtrl.addListener(_onNameChanged);
   }
 
@@ -88,6 +108,7 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _descCtrl.dispose();
     super.dispose();
   }
 
@@ -98,16 +119,7 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
     if (_serverNameError != null) return _serverNameError;
     if (!_submitted) return null;
     final trimmed = _nameCtrl.text.trim();
-    if (trimmed.isEmpty) return l10n.categoryRequestNameError;
-    if (trimmed.length > kCategoryDisplayNameMaxLength) {
-      return l10n.categoryRequestNameTooLong;
-    }
-    // The wire slug is derived internally from the name. Guard the edge case
-    // where a name (e.g. punctuation-only) cannot produce a valid slug so we
-    // never submit a value that fails the backend contract.
-    if (!isValidCategorySlug(deriveCategorySlug(trimmed))) {
-      return l10n.categoryRequestCodeError;
-    }
+    if (trimmed.isEmpty) return l10n.serviceTypeSuggestNameError;
     return null;
   }
 
@@ -123,34 +135,38 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
     }
     setState(() => _submitting = true);
     try {
-      final displayName = _nameCtrl.text.trim();
+      final name = _nameCtrl.text.trim();
+      final description = _descCtrl.text.trim();
       await ref
           .read(serviceRepositoryProvider)
-          .requestCategory(
-            // The wire slug is derived internally from the display name and is
-            // never shown to or edited by the user. _isValid above guarantees
-            // it satisfies the backend contract before we reach here.
-            name: deriveCategorySlug(displayName),
-            displayName: displayName,
+          .suggestServiceType(
+            categoryName: widget.categoryName,
+            name: name,
+            // Send the optional description only when non-empty; an empty field
+            // submits no `description` key (the generated model omits null).
+            description: description.isEmpty ? null : description,
           );
       if (mounted) {
         // Return true so the caller surfaces the success SnackBar against the
         // parent screen's messenger (not the dialog's transient context).
         // dismissOverlay pops the dialog route and resolves the awaiting
-        // showDialog<bool> future in _openSuggestDialog with `true`.
+        // showDialog<bool> future with `true`.
         dismissOverlay(context, true);
       }
     } catch (e) {
       if (kDebugMode) {
-        log('CategoryRequestDialog.submit failed: $e', name: _tag, level: 900);
+        log(
+          'ServiceTypeSuggestionDialog.submit failed: $e',
+          name: _tag,
+          level: 900,
+        );
       }
       if (mounted) {
-        // A ValidationFailure carrying a `name` / `displayName` field error maps
-        // to the inline name-field error instead of a transient snackbar, so the
-        // user sees exactly which field the backend rejected.
+        // A ValidationFailure carrying a `name` field error maps to the inline
+        // name-field error instead of a transient snackbar, so the user sees
+        // exactly which field the backend rejected.
         if (e is ValidationFailure) {
-          final fieldMsg =
-              e.fieldErrors['name'] ?? e.fieldErrors['displayName'];
+          final fieldMsg = e.fieldErrors['name'];
           if (fieldMsg != null) {
             setState(() {
               _submitting = false;
@@ -191,27 +207,50 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
                 children: <Widget>[
                   // Title.
                   Text(
-                    l10n.categoryRequestTitle,
+                    l10n.serviceTypeSuggestTitle,
                     style: VelvetText.subheading(),
                   ),
                   const SizedBox(height: VelvetSpacing.sm),
                   // Quiet subline — sets the out-of-band approval expectation.
-                  Text(l10n.categoryRequestSubtitle, style: VelvetText.body()),
+                  Text(
+                    l10n.serviceTypeSuggestSubtitle,
+                    style: VelvetText.body(),
+                  ),
                   const SizedBox(height: VelvetSpacing.xl),
 
-                  // Sole input — display name. The wire slug is derived from it
-                  // internally at submit time and never surfaced to the user.
+                  // Name (required).
                   _DialogField(
-                    fieldKey: const Key('field-category-request-name'),
-                    label: l10n.categoryRequestNameLabel,
+                    fieldKey: const Key('field-service-type-suggest-name'),
+                    label: l10n.serviceTypeSuggestNameLabel,
                     controller: _nameCtrl,
-                    hintText: l10n.categoryRequestNameHint,
+                    hintText: l10n.serviceTypeSuggestNameHint,
                     errorText: _nameError(l10n),
                     enabled: !_submitting,
                     textCapitalization: TextCapitalization.sentences,
                     inputFormatters: <TextInputFormatter>[
                       LengthLimitingTextInputFormatter(
-                        kCategoryDisplayNameMaxLength,
+                        kServiceTypeNameMaxLength,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: VelvetSpacing.lg),
+
+                  // Description (optional, multi-line).
+                  _DialogField(
+                    fieldKey: const Key(
+                      'field-service-type-suggest-description',
+                    ),
+                    label: l10n.serviceTypeSuggestDescriptionLabel,
+                    controller: _descCtrl,
+                    hintText: l10n.serviceTypeSuggestDescriptionHint,
+                    errorText: null,
+                    enabled: !_submitting,
+                    textCapitalization: TextCapitalization.sentences,
+                    minLines: 2,
+                    maxLines: 4,
+                    inputFormatters: <TextInputFormatter>[
+                      LengthLimitingTextInputFormatter(
+                        kServiceTypeDescriptionMaxLength,
                       ),
                     ],
                   ),
@@ -222,12 +261,12 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: <Widget>[
                       TextButton(
-                        key: const Key('btn-cancel-suggest-category'),
+                        key: const Key('btn-cancel-suggest-service-type'),
                         onPressed: _submitting
                             ? null
                             : () => dismissOverlay(context, false),
                         child: Text(
-                          l10n.categoryRequestCancel,
+                          l10n.serviceTypeSuggestCancel,
                           style: VelvetText.body().copyWith(
                             color: const Color(0xFF9A8367), // BrandColors.muted
                             fontWeight: FontWeight.w700,
@@ -237,8 +276,8 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
                       const SizedBox(width: VelvetSpacing.md),
                       Flexible(
                         child: NeumorphicButton(
-                          key: const Key('btn-submit-suggest-category'),
-                          label: l10n.categoryRequestSubmit,
+                          key: const Key('btn-submit-suggest-service-type'),
+                          label: l10n.serviceTypeSuggestSubmit,
                           icon: Icons.send_rounded,
                           loading: _submitting,
                           onPressed: _submitting
@@ -259,10 +298,11 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
 }
 
 // ---------------------------------------------------------------------------
-// Private dialog field — mirrors _VelvetFieldRow from service_form.dart.
+// Private dialog field — mirrors _DialogField from category_request_dialog.dart.
 //
 // Label (uppercased Nunito) → NeumorphicInset well with focus ring → an inline
-// error row (icon + error text) when [errorText] is set.
+// error row (icon + error text) when [errorText] is set. Supports a multi-line
+// variant via [minLines]/[maxLines] for the optional description input.
 // ---------------------------------------------------------------------------
 
 class _DialogField extends StatefulWidget {
@@ -275,6 +315,8 @@ class _DialogField extends StatefulWidget {
     this.inputFormatters,
     this.textCapitalization = TextCapitalization.none,
     this.enabled = true,
+    this.minLines = 1,
+    this.maxLines = 1,
   });
 
   final Key fieldKey;
@@ -285,6 +327,8 @@ class _DialogField extends StatefulWidget {
   final List<TextInputFormatter>? inputFormatters;
   final TextCapitalization textCapitalization;
   final bool enabled;
+  final int minLines;
+  final int maxLines;
 
   @override
   State<_DialogField> createState() => _DialogFieldState();
@@ -324,6 +368,7 @@ class _DialogFieldState extends State<_DialogField> {
   @override
   Widget build(BuildContext context) {
     final bool hasError = widget.errorText != null;
+    final bool multiline = widget.maxLines > 1;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -350,6 +395,14 @@ class _DialogFieldState extends State<_DialogField> {
               enabled: widget.enabled,
               textCapitalization: widget.textCapitalization,
               inputFormatters: widget.inputFormatters,
+              minLines: widget.minLines,
+              maxLines: widget.maxLines,
+              keyboardType: multiline
+                  ? TextInputType.multiline
+                  : TextInputType.text,
+              textInputAction: multiline
+                  ? TextInputAction.newline
+                  : TextInputAction.done,
               style: _inputStyle,
               cursorColor: const Color(0xFFB89A7A), // BrandColors.accent
               decoration: InputDecoration(

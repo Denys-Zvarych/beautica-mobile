@@ -22,6 +22,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -140,9 +141,10 @@ class _WheelTimePickerState extends State<_WheelTimePicker> {
   }
 
   void _confirm() {
-    Navigator.of(
+    dismissOverlay(
       context,
-    ).pop(TimeOfDay(hour: _hour, minute: _minuteSteps[_minuteIndex]));
+      TimeOfDay(hour: _hour, minute: _minuteSteps[_minuteIndex]),
+    );
   }
 
   @override

@@ -29,6 +29,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -329,7 +330,8 @@ class _FieldAffordance extends StatelessWidget {
 // with a close X, a soft white-inset search field, then the filtered option
 // rows. The three async states (loading / empty-or-data / error) are rendered
 // inside the scrollable area; the header X is ALWAYS available so a hung load
-// can be escaped. Returns the chosen value via `Navigator.pop(value)`.
+// can be escaped. Returns the chosen value via the overlay-dismiss helper
+// (`dismissOverlay(context, value)`).
 // ---------------------------------------------------------------------------
 
 class _SearchableSelectSheet<T> extends StatefulWidget {
@@ -522,7 +524,7 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
                           minWidth: 44,
                           minHeight: 44,
                         ),
-                        onPressed: () => Navigator.of(context).pop(),
+                        onPressed: () => dismissOverlay(context),
                       ),
                     ],
                   ),
@@ -593,7 +595,7 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
             // invalidates the provider). The field's affordance reflects the
             // re-load; re-opening shows the fresh list — and the user is never
             // trapped on a spinner with no exit.
-            Navigator.of(context).pop();
+            dismissOverlay(context);
             widget.onRetry();
           },
         );
@@ -620,7 +622,7 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
               return _SelectOptionTile<T>(
                 key: option.rowKey,
                 label: option.label,
-                onTap: () => Navigator.of(context).pop(option.value),
+                onTap: () => dismissOverlay(context, option.value),
               );
             },
           ),

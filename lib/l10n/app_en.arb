@@ -1539,6 +1539,51 @@
     "description": "Error message for a 429 response when the category-request rate limit (5/hr) is exhausted."
   },
 
+  "serviceTypeSuggestChip": "Can't find it? Suggest a service",
+  "@serviceTypeSuggestChip": {
+    "description": "Menu-footer affordance in the service-type picker that opens the suggest-a-service-type dialog when the type list lacks the desired service (Phase 16.6)."
+  },
+  "serviceTypeSuggestTitle": "Suggest a service",
+  "@serviceTypeSuggestTitle": {
+    "description": "Title of the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestSubtitle": "Describe the service — we'll add it after review.",
+  "@serviceTypeSuggestSubtitle": {
+    "description": "Subtitle in the suggest-a-service-type dialog setting the out-of-band admin-review expectation (Phase 16.6)."
+  },
+  "serviceTypeSuggestNameLabel": "Service name",
+  "@serviceTypeSuggestNameLabel": {
+    "description": "Field label above the required service-type name input in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestNameHint": "e.g. Lash lamination",
+  "@serviceTypeSuggestNameHint": {
+    "description": "Placeholder hint for the service-type name field in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestNameError": "Enter a service name",
+  "@serviceTypeSuggestNameError": {
+    "description": "Validation error shown when the name field is empty in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestDescriptionLabel": "Description (optional)",
+  "@serviceTypeSuggestDescriptionLabel": {
+    "description": "Field label above the optional multi-line description input in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestDescriptionHint": "Add details for the reviewer",
+  "@serviceTypeSuggestDescriptionHint": {
+    "description": "Placeholder hint for the optional description field in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestSubmit": "Submit",
+  "@serviceTypeSuggestSubmit": {
+    "description": "Primary submit button label in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestCancel": "Cancel",
+  "@serviceTypeSuggestCancel": {
+    "description": "Cancel affordance label in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestSuccess": "Suggestion sent for review",
+  "@serviceTypeSuggestSuccess": {
+    "description": "SnackBar message shown after a service-type suggestion is successfully submitted (Phase 16.6)."
+  },
+
   "deleteServiceTitle": "Delete service?",
   "@deleteServiceTitle": {
     "description": "Title of the delete-service confirmation dialog (can-delete variant) and tooltip for the delete icon button in the service edit screen top bar (Phase 5.5)."

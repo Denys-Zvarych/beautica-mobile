@@ -1539,6 +1539,51 @@
     "description": "Error message for a 429 response when the category-request rate limit (5/hr) is exhausted."
   },
 
+  "serviceTypeSuggestChip": "Не знайшли? Запропонувати послугу",
+  "@serviceTypeSuggestChip": {
+    "description": "Menu-footer affordance in the service-type picker that opens the suggest-a-service-type dialog when the type list lacks the desired service (Phase 16.6)."
+  },
+  "serviceTypeSuggestTitle": "Запропонувати послугу",
+  "@serviceTypeSuggestTitle": {
+    "description": "Title of the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestSubtitle": "Опишіть послугу — ми додамо її після перевірки.",
+  "@serviceTypeSuggestSubtitle": {
+    "description": "Subtitle in the suggest-a-service-type dialog setting the out-of-band admin-review expectation (Phase 16.6)."
+  },
+  "serviceTypeSuggestNameLabel": "Назва послуги",
+  "@serviceTypeSuggestNameLabel": {
+    "description": "Field label above the required service-type name input in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestNameHint": "Напр. Ламінування вій",
+  "@serviceTypeSuggestNameHint": {
+    "description": "Placeholder hint for the service-type name field in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestNameError": "Введіть назву послуги",
+  "@serviceTypeSuggestNameError": {
+    "description": "Validation error shown when the name field is empty in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestDescriptionLabel": "Опис (необов’язково)",
+  "@serviceTypeSuggestDescriptionLabel": {
+    "description": "Field label above the optional multi-line description input in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestDescriptionHint": "Додайте деталі для перевірки",
+  "@serviceTypeSuggestDescriptionHint": {
+    "description": "Placeholder hint for the optional description field in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestSubmit": "Надіслати",
+  "@serviceTypeSuggestSubmit": {
+    "description": "Primary submit button label in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestCancel": "Скасувати",
+  "@serviceTypeSuggestCancel": {
+    "description": "Cancel affordance label in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestSuccess": "Пропозицію надіслано на розгляд",
+  "@serviceTypeSuggestSuccess": {
+    "description": "SnackBar message shown after a service-type suggestion is successfully submitted (Phase 16.6)."
+  },
+
   "deleteServiceTitle": "Видалити послугу?",
   "@deleteServiceTitle": {
     "description": "Title of the delete-service confirmation dialog (can-delete variant) and tooltip for the delete icon button in the service edit screen top bar (Phase 5.5)."
