@@ -25,6 +25,10 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/calendar/data/working_hours_repository.dart';
+import 'package:beautica_mobile/features/calendar/data/working_hours_repository_provider.dart';
+import 'package:beautica_mobile/features/calendar/domain/working_hours.dart';
+import 'package:beautica_mobile/features/calendar/presentation/working_hours_screen.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
@@ -34,6 +38,7 @@ import 'package:beautica_mobile/features/schedule/presentation/schedule_editor_s
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/features/schedule/presentation/widgets/schedule_widgets.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/auth_redirect.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
@@ -180,35 +185,101 @@ class _FixedAuth extends AuthNotifier {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Harness — pumps the screen inside a real GoRouter (so the stub routes exist
-// for the CTA-navigation test) with the schedule + capability providers faked.
+// Fake WorkingHoursRepository — the CTA destination (the REAL WorkingHoursScreen
+// at RouteNames.workingHours) watches `workingHoursProvider`, which builds from
+// `workingHoursRepositoryProvider.list()`. We override the repository with this
+// fake so navigating to the destination resolves a full 7-day week with NO
+// network / storage I/O (mobile-qa M1 isolation). It is included in EVERY pump's
+// override set so any test that happens to push the editor stays hermetic.
+// ───────────────────────────────────────────────────────────────────────────
+class _FakeWorkingHoursRepository implements WorkingHoursRepository {
+  @override
+  Future<List<WorkingHours>> list() async => <WorkingHours>[
+    for (int dow = 1; dow <= 7; dow++)
+      WorkingHours(
+        dayOfWeek: dow,
+        startTime: '09:00:00',
+        endTime: '18:00:00',
+        isActive: dow <= 5,
+      ),
+  ];
+
+  @override
+  Future<List<WorkingHours>> replaceAll(List<WorkingHours> hours) async =>
+      hours;
+}
+
+/// Bridges the test [ProviderContainer] to a [Listenable] so the redirect-bearing
+/// router re-evaluates [authRedirect] whenever the auth session changes — the
+/// same wiring the production [appRouter] uses (mirrors navigation_links_test).
+class _ContainerListenable extends ChangeNotifier {
+  _ContainerListenable(ProviderContainer container) {
+    container.listen<AsyncValue<AuthSession>>(
+      authProvider,
+      (_, _) => notifyListeners(),
+    );
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Harness — pumps the screen inside a GoRouter that wires the PRODUCTION
+// `authRedirect` guard (so a CTA pointing at the wrong screen is caught by the
+// real role/auth matrix, not silently honoured). The weekly-template CTA now
+// lands on the REAL working-hours editor (RouteNames.workingHours →
+// WorkingHoursScreen); the dead `scheduleWeeklyEditor` stub route is gone, in
+// lockstep with its removal from lib/routing/app_router.dart. The per-date and
+// propagate stub routes remain (the day-pencil / copy affordances still target
+// them).
 // ───────────────────────────────────────────────────────────────────────────
 
-GoRouter _router() => GoRouter(
+List<RouteBase> _routes() => <RouteBase>[
+  GoRoute(
+    path: RouteNames.masterSchedule,
+    builder: (context, state) => const MasterScheduleScreen(),
+  ),
+  // The REAL weekly-template editor the CTA now routes to (BUG #1 fix).
+  GoRoute(
+    path: RouteNames.workingHours,
+    builder: (context, state) => const WorkingHoursScreen(),
+  ),
+  GoRoute(
+    path: RouteNames.scheduleDayOverride,
+    builder: (context, state) => const PerDateOverrideStubScreen(),
+  ),
+  GoRoute(
+    path: RouteNames.schedulePropagate,
+    builder: (context, state) => const SchedulePropagateStubScreen(),
+  ),
+  GoRoute(
+    path: RouteNames.masterProfile,
+    builder: (context, state) =>
+        const Scaffold(key: Key('master-profile-stub')),
+  ),
+  GoRoute(
+    path: RouteNames.home,
+    builder: (context, state) => const Scaffold(key: Key('home-stub')),
+  ),
+  GoRoute(
+    path: RouteNames.login,
+    builder: (context, state) => const Scaffold(key: Key('login-stub')),
+  ),
+];
+
+/// A redirect-free router (used by the non-navigation render/golden/state cases
+/// where the auth guard is irrelevant and would only add a settle hop).
+GoRouter _router() =>
+    GoRouter(initialLocation: RouteNames.masterSchedule, routes: _routes());
+
+/// A router that wires the PRODUCTION [authRedirect] over [container]'s
+/// [authProvider]. Used by the CTA-navigation tests so a CTA aimed at the wrong
+/// screen (e.g. a non-`/master/*` dead stub, or a screen the role can't reach)
+/// is rejected by the real guard — the exact gap that let BUG #1 ship.
+GoRouter _redirectRouter(ProviderContainer container) => GoRouter(
   initialLocation: RouteNames.masterSchedule,
-  routes: <RouteBase>[
-    GoRoute(
-      path: RouteNames.masterSchedule,
-      builder: (context, state) => const MasterScheduleScreen(),
-    ),
-    GoRoute(
-      path: RouteNames.scheduleWeeklyEditor,
-      builder: (context, state) => const WeeklyTemplateEditorStubScreen(),
-    ),
-    GoRoute(
-      path: RouteNames.scheduleDayOverride,
-      builder: (context, state) => const PerDateOverrideStubScreen(),
-    ),
-    GoRoute(
-      path: RouteNames.schedulePropagate,
-      builder: (context, state) => const SchedulePropagateStubScreen(),
-    ),
-    GoRoute(
-      path: RouteNames.masterProfile,
-      builder: (context, state) =>
-          const Scaffold(key: Key('master-profile-stub')),
-    ),
-  ],
+  refreshListenable: _ContainerListenable(container),
+  redirect: (context, state) =>
+      authRedirect(container.read(authProvider), state),
+  routes: _routes(),
 );
 
 Future<void> _pump(
@@ -217,7 +288,7 @@ Future<void> _pump(
 }) async {
   await tester.pumpWidget(
     ProviderScope(
-      overrides: overrides.cast(),
+      overrides: <Object>[...overrides, _fakeWorkingHours()].cast(),
       child: MaterialApp.router(
         routerConfig: _router(),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -227,6 +298,41 @@ Future<void> _pump(
     ),
   );
   await tester.pumpAndSettle();
+}
+
+/// The working-hours repository override (CTA destination isolation). Typed as
+/// [Object] to mirror the existing override lists (which `.cast()` to the
+/// Riverpod `Override` type at the `overrides:` boundary).
+Object _fakeWorkingHours() => workingHoursRepositoryProvider.overrideWithValue(
+  _FakeWorkingHoursRepository(),
+);
+
+/// Pumps the schedule screen inside the REDIRECT-bearing router, wired over a
+/// fresh [ProviderContainer] seeded with [overrides] (which must include an
+/// `authProvider` override so the guard resolves a settled session). Returns the
+/// container so the caller can `addTearDown(container.dispose)`. Used by the
+/// CTA-navigation tests to prove the destination is reached THROUGH the
+/// production auth/role guard.
+Future<ProviderContainer> _pumpGuarded(
+  WidgetTester tester, {
+  required List<Object> overrides,
+}) async {
+  final container = ProviderContainer(
+    overrides: <Object>[...overrides, _fakeWorkingHours()].cast(),
+  );
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(
+        routerConfig: _redirectRouter(container),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('uk'),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return container;
 }
 
 /// Editable-by-default overrides: an INDEPENDENT_MASTER session + a data
@@ -381,11 +487,27 @@ void main() {
       },
     );
 
-    testWidgets('banner CTA tap routes to the weekly-template editor stub', (
-      tester,
-    ) async {
+    // ── BUG #1 regression: in-grid banner CTA routes to the REAL editor ───────
+    //
+    // The CTA used to point at the dead `WeeklyTemplateEditorStubScreen`
+    // ("coming soon" placeholder) via RouteNames.scheduleWeeklyEditor. The fix
+    // repoints `_openTemplateEditor` to RouteNames.workingHours — the REAL
+    // WorkingHoursScreen. This test pumps the schedule screen inside the
+    // PRODUCTION authRedirect-guarded router, taps the CTA, and asserts the
+    // genuine editor mounts (its VelvetTopBar header + the day-toggle rows +
+    // the real save button), NOT a stub. Because the route is `/master/...`,
+    // the editor is only reachable when the guard's INDEPENDENT_MASTER role
+    // gate passes — which the editable session here satisfies. A CTA that
+    // pointed at a non-`/master/*` dead route (or one the role can't reach)
+    // would be bounced by the real guard, failing this test.
+    testWidgets('banner CTA tap routes through authRedirect to the REAL '
+        'working-hours editor (BUG #1)', (tester) async {
       final days = _weekWith(todayDay: _noSchedule, filler: _working);
-      await _pump(tester, overrides: _editableData(days));
+      final container = await _pumpGuarded(
+        tester,
+        overrides: _editableData(days),
+      );
+      addTearDown(container.dispose);
 
       // The CTA lives inside the scrollable calendar card — scroll it into view
       // before tapping so the hit-test lands on the button, not off-screen.
@@ -396,10 +518,27 @@ void main() {
       await tester.tap(find.byKey(const Key('no-schedule-add-hours')));
       await tester.pumpAndSettle();
 
-      // Landed on the 15.3 weekly-template editor stub.
+      // Landed on the REAL working-hours editor — the dead stub is gone.
       expect(
         find.byKey(const Key('stub-weekly-template-editor')),
+        findsNothing,
+        reason: 'CTA must NOT land on the removed "coming soon" stub',
+      );
+      expect(
+        find.byType(WorkingHoursScreen),
         findsOneWidget,
+        reason: 'CTA must mount the real WorkingHoursScreen',
+      );
+      // Its real affordances render: the save button and the seven day toggles.
+      expect(
+        find.byKey(const Key('btn-save-working-hours')),
+        findsOneWidget,
+        reason: 'the real editor exposes its save button',
+      );
+      expect(
+        find.byKey(const Key('wh-active-1')),
+        findsOneWidget,
+        reason: 'the real editor renders the per-day toggle rows',
       );
     });
 
@@ -408,16 +547,15 @@ void main() {
     // BUG (now fixed): GhostButton wrapped its label in a bare
     // GestureDetector(onTap:). Inside the calendar card's SingleChildScrollView,
     // the scroll view's vertical-drag recogniser won the gesture arena for a
-    // real finger's tap-with-drift, so the CTA's onPressed (navigate to the
-    // weekly-template editor) never fired on device. The widget-test gesture
-    // arena does NOT reproduce that device-only drag-vs-tap contention (a
-    // simulated tap routes on both the old and new widget), so a gesture-driven
-    // assertion cannot separate the two implementations and would be a false
-    // guard. The faithful, deterministic guard is STRUCTURAL: the CTA's tap is
-    // handled by an InkWell (a Material tap affordance, which wins the arena on
-    // device), and NOT by a bare GestureDetector. This assertion FAILS on the
-    // pre-fix code (no InkWell over the CTA → a GestureDetector instead) and
-    // PASSES on the fix.
+    // real finger's tap-with-drift, so the CTA's onPressed never fired on
+    // device. The widget-test gesture arena does NOT reproduce that device-only
+    // drag-vs-tap contention (a simulated tap routes on both the old and new
+    // widget), so a gesture-driven assertion cannot separate the two
+    // implementations and would be a false guard. The faithful, deterministic
+    // guard is STRUCTURAL: the CTA's tap is handled by an InkWell (a Material
+    // tap affordance, which wins the arena on device), and NOT by a bare
+    // GestureDetector. This assertion FAILS on the pre-fix code (no InkWell over
+    // the CTA → a GestureDetector instead) and PASSES on the fix.
     testWidgets(
       'in-grid banner CTA is wired through an InkWell, not a bare '
       'GestureDetector (regression for the dropped tap inside the scroll view)',
@@ -438,15 +576,6 @@ void main() {
           find.descendant(of: cta, matching: find.byType(InkWell)),
           findsOneWidget,
           reason: 'CTA must use InkWell so its tap wins the arena on device',
-        );
-
-        // And the wired tap still routes (zero-movement sanity — the affordance
-        // is connected to navigation, not merely present).
-        await tester.tap(cta);
-        await tester.pumpAndSettle();
-        expect(
-          find.byKey(const Key('stub-weekly-template-editor')),
-          findsOneWidget,
         );
       },
     );
@@ -606,10 +735,11 @@ void main() {
     );
 
     testWidgets(
-      'tapping the empty-state CTA routes to the weekly-template editor stub',
+      'tapping the empty-state CTA routes through authRedirect to the REAL '
+      'working-hours editor (BUG #1)',
       (tester) async {
         final days = _weekWith(todayDay: _noSchedule, filler: _noSchedule);
-        await _pump(
+        final container = await _pumpGuarded(
           tester,
           overrides: _withWeekly(
             UserRole.independentMaster,
@@ -617,6 +747,7 @@ void main() {
             const <WeeklySchedule>[],
           ),
         );
+        addTearDown(container.dispose);
 
         await tester.ensureVisible(
           find.byKey(const Key('no-schedule-add-hours')),
@@ -625,10 +756,14 @@ void main() {
         await tester.tap(find.byKey(const Key('no-schedule-add-hours')));
         await tester.pumpAndSettle();
 
+        // The dead "coming soon" stub is gone; the genuine editor mounts.
         expect(
           find.byKey(const Key('stub-weekly-template-editor')),
-          findsOneWidget,
+          findsNothing,
         );
+        expect(find.byType(WorkingHoursScreen), findsOneWidget);
+        expect(find.byKey(const Key('btn-save-working-hours')), findsOneWidget);
+        expect(find.byKey(const Key('wh-active-1')), findsOneWidget);
       },
     );
 
@@ -679,14 +814,6 @@ void main() {
           find.descendant(of: cta, matching: find.byType(InkWell)),
           findsOneWidget,
           reason: 'CTA must use InkWell so its tap wins the arena on device',
-        );
-
-        // And the wired affordance still routes to the editor stub.
-        await tester.tap(cta);
-        await tester.pumpAndSettle();
-        expect(
-          find.byKey(const Key('stub-weekly-template-editor')),
-          findsOneWidget,
         );
       },
     );
@@ -898,53 +1025,52 @@ void main() {
   // accidentally swaps VelvetTopBar back to AppBar will be caught immediately.
 
   group('MasterScheduleScreen — header alignment regression (VelvetTopBar)', () {
-    testWidgets(
-      'renders VelvetTopBar and NOT a Material AppBar '
-      '(regression: schedule screen was misaligned vs profile screen)',
-      (tester) async {
-        // Any valid data state works — we need the screen to build fully so we
-        // can walk the widget tree. Use the simplest editable case (working day).
-        final days = _weekWith(todayDay: _working, filler: _working);
-        await _pump(tester, overrides: _editableData(days));
+    testWidgets('renders VelvetTopBar and NOT a Material AppBar '
+        '(regression: schedule screen was misaligned vs profile screen)', (
+      tester,
+    ) async {
+      // Any valid data state works — we need the screen to build fully so we
+      // can walk the widget tree. Use the simplest editable case (working day).
+      final days = _weekWith(todayDay: _working, filler: _working);
+      await _pump(tester, overrides: _editableData(days));
 
-        // ── Assertion 1: shared VelvetTopBar is present (exactly one) ────────
-        // FAILS on the pre-fix code (no VelvetTopBar in the schedule screen).
-        expect(
-          find.byType(VelvetTopBar),
-          findsOneWidget,
-          reason:
-              'MasterScheduleScreen must render the shared VelvetTopBar widget '
-              'so header alignment matches MasterProfileScreen',
-        );
+      // ── Assertion 1: shared VelvetTopBar is present (exactly one) ────────
+      // FAILS on the pre-fix code (no VelvetTopBar in the schedule screen).
+      expect(
+        find.byType(VelvetTopBar),
+        findsOneWidget,
+        reason:
+            'MasterScheduleScreen must render the shared VelvetTopBar widget '
+            'so header alignment matches MasterProfileScreen',
+      );
 
-        // ── Assertion 2: Material AppBar is absent ────────────────────────────
-        // FAILS on the pre-fix code (AppBar was still present).
-        expect(
-          find.byType(AppBar),
-          findsNothing,
-          reason:
-              'MasterScheduleScreen must NOT contain a Material AppBar — it '
-              'was the root cause of the header misalignment vs the profile '
-              'screen; VelvetTopBar is the replacement',
-        );
+      // ── Assertion 2: Material AppBar is absent ────────────────────────────
+      // FAILS on the pre-fix code (AppBar was still present).
+      expect(
+        find.byType(AppBar),
+        findsNothing,
+        reason:
+            'MasterScheduleScreen must NOT contain a Material AppBar — it '
+            'was the root cause of the header misalignment vs the profile '
+            'screen; VelvetTopBar is the replacement',
+      );
 
-        // ── Assertion 3: title text and back-arrow button rendered ────────────
-        // Verifies the VelvetTopBar is correctly configured, not merely present.
-        final l10n = _l10n(tester);
-        expect(
-          find.text(l10n.scheduleTitle),
-          findsOneWidget,
-          reason: 'Header title must be scheduleTitle ("Графік роботи")',
-        );
-        expect(
-          find.byType(NeumorphicIconButton),
-          findsOneWidget,
-          reason:
-              'VelvetTopBar must render a NeumorphicIconButton back arrow, '
-              'confirming the onBack handler is wired',
-        );
-      },
-    );
+      // ── Assertion 3: title text and back-arrow button rendered ────────────
+      // Verifies the VelvetTopBar is correctly configured, not merely present.
+      final l10n = _l10n(tester);
+      expect(
+        find.text(l10n.scheduleTitle),
+        findsOneWidget,
+        reason: 'Header title must be scheduleTitle ("Графік роботи")',
+      );
+      expect(
+        find.byType(NeumorphicIconButton),
+        findsOneWidget,
+        reason:
+            'VelvetTopBar must render a NeumorphicIconButton back arrow, '
+            'confirming the onBack handler is wired',
+      );
+    });
 
     testWidgets(
       'NeumorphicIconButton back arrow carries the correct semantic label',
@@ -962,6 +1088,63 @@ void main() {
           reason:
               'Back arrow must carry the localised semantic label from '
               'l10n.registerBackStep so screen readers announce it correctly',
+        );
+      },
+    );
+
+    // ── BUG #2 mirror guard: the CTA DESTINATION uses the shared header too ───
+    //
+    // BUG #2 (now fixed): WorkingHoursScreen — the destination the schedule
+    // empty-state / banner / weekly-card CTA now routes to — used a Material
+    // AppBar while the schedule screen used the 48 dp VelvetTopBar, so the back
+    // arrow + title jumped vertically as the user crossed the CTA. The fix
+    // migrated WorkingHoursScreen to the shared VelvetTopBar, matching
+    // master_schedule_screen.dart.
+    //
+    // This is the mirror of the schedule-screen header guard above: it actually
+    // NAVIGATES through the CTA (via the production authRedirect router) and
+    // asserts the landed editor renders VelvetTopBar and NOT an AppBar. It locks
+    // any calendar-CTA-reachable screen to the shared header — a future screen
+    // swapped in behind the CTA that reintroduces a Material AppBar will be
+    // caught immediately. Assertions FAIL on the pre-fix WorkingHoursScreen
+    // (AppBar present, no VelvetTopBar) and PASS on the fix.
+    testWidgets(
+      'CTA destination (working-hours editor) renders VelvetTopBar and NOT a '
+      'Material AppBar (BUG #2 — mirror of the schedule-screen header guard)',
+      (tester) async {
+        final days = _weekWith(todayDay: _noSchedule, filler: _working);
+        final container = await _pumpGuarded(
+          tester,
+          overrides: _editableData(days),
+        );
+        addTearDown(container.dispose);
+
+        // Navigate via the real CTA so we assert the ACTUAL reachable screen.
+        await tester.ensureVisible(
+          find.byKey(const Key('no-schedule-add-hours')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('no-schedule-add-hours')));
+        await tester.pumpAndSettle();
+
+        // We are on the destination editor.
+        expect(find.byType(WorkingHoursScreen), findsOneWidget);
+
+        // It uses the shared VelvetTopBar …
+        expect(
+          find.byType(VelvetTopBar),
+          findsOneWidget,
+          reason:
+              'the CTA destination must render the shared VelvetTopBar so its '
+              'header aligns with the schedule screen the user came from',
+        );
+        // … and NOT a Material AppBar (the BUG #2 root cause).
+        expect(
+          find.byType(AppBar),
+          findsNothing,
+          reason:
+              'the CTA destination must NOT contain a Material AppBar — that '
+              'was the header vertical-offset mismatch fixed in BUG #2',
         );
       },
     );

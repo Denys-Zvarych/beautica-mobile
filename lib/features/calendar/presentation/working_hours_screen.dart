@@ -40,6 +40,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/calendar/domain/working_hours.dart';
 import 'package:beautica_mobile/features/schedule/presentation/widgets/velvet_time_picker.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import 'working_hours_notifier.dart';
 
@@ -207,47 +208,49 @@ class _WorkingHoursScreenState extends ConsumerState<WorkingHoursScreen> {
 
     return Scaffold(
       backgroundColor: BrandColors.base,
-      appBar: AppBar(
-        backgroundColor: BrandColors.base,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        title: Text(l10n.workingHoursTitle, style: VelvetText.subheading()),
-        leading: NeumorphicIconButton(
-          icon: Icons.arrow_back_ios_new_rounded,
-          onTap: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go(RouteNames.masterProfile);
-            }
-          },
-          semanticLabel: l10n.registerBackStep,
+      body: SafeArea(
+        child: Column(
+          children: <Widget>[
+            VelvetTopBar(
+              title: l10n.workingHoursTitle,
+              backSemanticLabel: l10n.registerBackStep,
+              onBack: () {
+                if (context.canPop()) {
+                  context.pop();
+                } else {
+                  context.go(RouteNames.masterProfile);
+                }
+              },
+            ),
+            Expanded(
+              child: asyncWeek.when(
+                loading: () => const Center(
+                  child: CircularProgressIndicator(color: BrandColors.accent),
+                ),
+                error: (e, _) => _ErrorBody(
+                  failure: e,
+                  onRetry: () => ref.invalidate(workingHoursProvider),
+                ),
+                data: (List<WorkingHours> serverList) {
+                  _initDraft(serverList);
+                  final List<WorkingHours> draft = _draft!;
+                  return _LoadedBody(
+                    draft: draft,
+                    openCount: _openCount,
+                    hasErrors: _hasErrors,
+                    canSave: _canSave,
+                    saving: _saving,
+                    l10n: l10n,
+                    onToggle: _toggleDay,
+                    onPickStart: _pickStart,
+                    onPickEnd: _pickEnd,
+                    onSave: _save,
+                  );
+                },
+              ),
+            ),
+          ],
         ),
-      ),
-      body: asyncWeek.when(
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: BrandColors.accent),
-        ),
-        error: (e, _) => _ErrorBody(
-          failure: e,
-          onRetry: () => ref.invalidate(workingHoursProvider),
-        ),
-        data: (List<WorkingHours> serverList) {
-          _initDraft(serverList);
-          final List<WorkingHours> draft = _draft!;
-          return _LoadedBody(
-            draft: draft,
-            openCount: _openCount,
-            hasErrors: _hasErrors,
-            canSave: _canSave,
-            saving: _saving,
-            l10n: l10n,
-            onToggle: _toggleDay,
-            onPickStart: _pickStart,
-            onPickEnd: _pickEnd,
-            onSave: _save,
-          );
-        },
       ),
     );
   }

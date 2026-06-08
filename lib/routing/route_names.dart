@@ -67,9 +67,12 @@ abstract final class RouteNames {
 
   // Phase 15.2 — routed editor stubs (real placeholder screens until the
   // corresponding phase lands; they replace these at the same paths):
-  //   • 15.3 — weekly-template editor (also the NO_SCHEDULE banner CTA target)
   //   • 15.4 — per-date override sheet (day pencil / + Додати час / + Time Off)
   //   • 15.5 — copy/propagate range surface
+  // NOTE: the weekly-template editor CTA now routes to [workingHours] — the
+  // real editor. [scheduleWeeklyEditor] is no longer registered in the
+  // production router; it is retained only for the existing test harness until
+  // mobile-qa migrates that test.
   static const String scheduleWeeklyEditor = '/schedule/weekly';
   static const String scheduleDayOverride = '/schedule/day';
   static const String schedulePropagate = '/schedule/copy';

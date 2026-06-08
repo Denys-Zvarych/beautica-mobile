@@ -141,7 +141,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   // ── Edit entry points (routed stubs; gated by [scheduleEditableProvider]) ───
   void _openTemplateEditor() {
     if (kDebugMode) log('open weekly template editor', name: _tag, level: 800);
-    context.push(RouteNames.scheduleWeeklyEditor);
+    context.push(RouteNames.workingHours);
   }
 
   void _openDayOverride() {

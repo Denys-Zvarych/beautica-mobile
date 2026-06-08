@@ -258,13 +258,9 @@ GoRouter appRouter(Ref ref) {
         pageBuilder: (context, state) =>
             _instantPage(state, const MasterScheduleScreen()),
       ),
-      // Phase 15.2 — routed editor stubs for 15.3–15.5 (real placeholder
-      // screens; replaced at the same paths when each phase ships).
-      GoRoute(
-        path: RouteNames.scheduleWeeklyEditor,
-        pageBuilder: (context, state) =>
-            _instantPage(state, const WeeklyTemplateEditorStubScreen()),
-      ),
+      // Phase 15.2 — routed editor stubs for 15.4–15.5 (real placeholder
+      // screens; replaced at the same paths when each phase ships). The weekly-
+      // template editor now lands on the real /master/working-hours editor.
       GoRoute(
         path: RouteNames.scheduleDayOverride,
         pageBuilder: (context, state) =>
