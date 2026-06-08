@@ -813,6 +813,105 @@ void main() {
       expect(captured.displayName, 'Нейл-арт');
     });
 
+    // ── Change 3 — optional initialServiceName wire shape ─────────────────────
+    // Mirrors the suggestServiceType description-omission guard: the value is
+    // attached to the request model ONLY when non-empty; a blank/whitespace
+    // value must be omitted (null on the wire), and a real value is trimmed.
+
+    test(
+      'Change 3: non-empty initialServiceName is forwarded (trimmed) on the body',
+      () async {
+        when(
+          () => categoryApi.submitRequest(
+            createCategoryRequestRequest: any(
+              named: 'createCategoryRequestRequest',
+            ),
+          ),
+        ).thenAnswer((_) async => createdResponse());
+
+        await repository.requestCategory(
+          name: 'NAIL_ART',
+          displayName: 'Нейл-арт',
+          initialServiceName: '  Ламінування вій  ',
+        );
+
+        final captured =
+            verify(
+                  () => categoryApi.submitRequest(
+                    createCategoryRequestRequest: captureAny(
+                      named: 'createCategoryRequestRequest',
+                    ),
+                  ),
+                ).captured.single
+                as CreateCategoryRequestRequest;
+        expect(captured.initialServiceName, 'Ламінування вій');
+      },
+    );
+
+    test(
+      'Change 3: null initialServiceName → request.initialServiceName omitted',
+      () async {
+        when(
+          () => categoryApi.submitRequest(
+            createCategoryRequestRequest: any(
+              named: 'createCategoryRequestRequest',
+            ),
+          ),
+        ).thenAnswer((_) async => createdResponse());
+
+        await repository.requestCategory(
+          name: 'NAIL_ART',
+          displayName: 'Нейл-арт',
+          // initialServiceName omitted (defaults to null).
+        );
+
+        final captured =
+            verify(
+                  () => categoryApi.submitRequest(
+                    createCategoryRequestRequest: captureAny(
+                      named: 'createCategoryRequestRequest',
+                    ),
+                  ),
+                ).captured.single
+                as CreateCategoryRequestRequest;
+        expect(captured.initialServiceName, isNull);
+      },
+    );
+
+    test(
+      'Change 3: blank / whitespace initialServiceName → omitted (null on wire)',
+      () async {
+        when(
+          () => categoryApi.submitRequest(
+            createCategoryRequestRequest: any(
+              named: 'createCategoryRequestRequest',
+            ),
+          ),
+        ).thenAnswer((_) async => createdResponse());
+
+        await repository.requestCategory(
+          name: 'NAIL_ART',
+          displayName: 'Нейл-арт',
+          initialServiceName: '   ',
+        );
+
+        final captured =
+            verify(
+                  () => categoryApi.submitRequest(
+                    createCategoryRequestRequest: captureAny(
+                      named: 'createCategoryRequestRequest',
+                    ),
+                  ),
+                ).captured.single
+                as CreateCategoryRequestRequest;
+        expect(
+          captured.initialServiceName,
+          isNull,
+          reason: 'a blank optional name must not be sent as an empty string',
+        );
+      },
+    );
+
     test('409 → CategoryAlreadyExistsFailure', () async {
       when(
         () => categoryApi.submitRequest(

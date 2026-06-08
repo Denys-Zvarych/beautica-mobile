@@ -1,9 +1,10 @@
 // Phase 16.6 — widget tests for ServiceTypeSuggestionDialog.
 //
-// The dialog has two inputs — name (required, Key 'field-service-type-suggest-
-// name') and an optional multi-line description (Key 'field-service-type-suggest-
-// description'). It forwards the read-only `categoryName` SLUG context (supplied
-// by the caller, never user-entered) to [ServiceRepository.suggestServiceType].
+// The dialog has a SINGLE input — name (required, Key 'field-service-type-suggest-
+// name'). The description field was REMOVED (Change 1); `_handleSubmit` now always
+// forwards `description: null`. It forwards the read-only `categoryName` SLUG
+// context (supplied by the caller, never user-entered) to
+// [ServiceRepository.suggestServiceType].
 //
 // On success it pops `true` (the caller shows the success SnackBar). A 400
 // ValidationFailure carrying a `name` field error maps to the inline name-field
@@ -18,8 +19,9 @@
 //   1. empty name → inline serviceTypeSuggestNameError; suggestServiceType NOT
 //      called.
 //   2. valid submit → calls suggestServiceType with the passed categoryName SLUG
-//      + entered name + description; success pops true.
-//   3. empty description → description: null forwarded.
+//      + entered name + description: null (the field is gone); success pops true.
+//   3. (Change 1 guard) the removed description field is ABSENT from the tree so
+//      it cannot silently return.
 //   4. 400 ValidationFailure{name} → inline name error, dialog stays open.
 //   5. 429 CategoryRequestThrottledFailure → throttle SnackBar, dialog stays
 //      open.
@@ -72,7 +74,10 @@ GoRouter _router() => GoRouter(
   ],
 );
 
-Future<void> _openDialog(WidgetTester tester, _MockServiceRepository repo) async {
+Future<void> _openDialog(
+  WidgetTester tester,
+  _MockServiceRepository repo,
+) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
@@ -93,18 +98,8 @@ Finder get _nameField => find.descendant(
   matching: find.byType(TextField),
 );
 
-Finder get _descField => find.descendant(
-  of: find.byKey(const Key('field-service-type-suggest-description')),
-  matching: find.byType(TextField),
-);
-
 Future<void> _enterName(WidgetTester tester, String value) async {
   await tester.enterText(_nameField, value);
-  await tester.pump();
-}
-
-Future<void> _enterDescription(WidgetTester tester, String value) async {
-  await tester.enterText(_descField, value);
   await tester.pump();
 }
 
@@ -144,37 +139,34 @@ void main() {
 
   setUp(() => repo = _MockServiceRepository());
 
-  testWidgets(
-    '1. empty name → inline serviceTypeSuggestNameError; '
-    'suggestServiceType is NOT called',
-    (tester) async {
-      await _openDialog(tester, repo);
+  testWidgets('1. empty name → inline serviceTypeSuggestNameError; '
+      'suggestServiceType is NOT called', (tester) async {
+    await _openDialog(tester, repo);
 
-      final l10n = _l10n(tester);
+    final l10n = _l10n(tester);
 
-      // Submit with an empty name field.
-      await _submit(tester);
+    // Submit with an empty name field.
+    await _submit(tester);
 
-      _expectInlineNameError(tester, l10n.serviceTypeSuggestNameError);
-      // The repository must never be touched on a client-invalid submit.
-      verifyNever(
-        () => repo.suggestServiceType(
-          categoryName: any(named: 'categoryName'),
-          name: any(named: 'name'),
-          description: any(named: 'description'),
-        ),
-      );
-      // Dialog stays open.
-      expect(
-        find.byKey(const Key('btn-submit-suggest-service-type')),
-        findsOneWidget,
-      );
-    },
-  );
+    _expectInlineNameError(tester, l10n.serviceTypeSuggestNameError);
+    // The repository must never be touched on a client-invalid submit.
+    verifyNever(
+      () => repo.suggestServiceType(
+        categoryName: any(named: 'categoryName'),
+        name: any(named: 'name'),
+        description: any(named: 'description'),
+      ),
+    );
+    // Dialog stays open.
+    expect(
+      find.byKey(const Key('btn-submit-suggest-service-type')),
+      findsOneWidget,
+    );
+  });
 
   testWidgets(
     '2. valid submit → calls suggestServiceType with the passed categoryName '
-    'SLUG + name + description; success pops true',
+    'SLUG + name + description: null (field removed); success pops true',
     (tester) async {
       when(
         () => repo.suggestServiceType(
@@ -186,11 +178,10 @@ void main() {
 
       await _openDialog(tester, repo);
       await _enterName(tester, 'Ламінування вій');
-      await _enterDescription(tester, 'Деталі для перевірки');
       await _submit(tester);
 
-      // M4: the SLUG is forwarded verbatim (never a UUID), with the typed name
-      // and description.
+      // M4: the SLUG is forwarded verbatim (never a UUID), with the typed name.
+      // Change 1: the description field is gone — the dialog always passes null.
       final captured = verify(
         () => repo.suggestServiceType(
           categoryName: captureAny(named: 'categoryName'),
@@ -205,7 +196,11 @@ void main() {
         reason: 'categoryName must be a slug, never a UUID',
       );
       expect(captured[1], 'Ламінування вій');
-      expect(captured[2], 'Деталі для перевірки');
+      expect(
+        captured[2],
+        isNull,
+        reason: 'the removed description field must forward null',
+      );
 
       // Success → the dialog popped (no longer in the tree).
       expect(find.byType(ServiceTypeSuggestionDialog), findsNothing);
@@ -213,32 +208,23 @@ void main() {
   );
 
   testWidgets(
-    '3. description left empty → description: null is forwarded',
+    '3. (Change 1 guard) the removed description field is ABSENT — it cannot '
+    'silently return',
     (tester) async {
-      when(
-        () => repo.suggestServiceType(
-          categoryName: any(named: 'categoryName'),
-          name: any(named: 'name'),
-          description: any(named: 'description'),
-        ),
-      ).thenAnswer((_) async {});
-
       await _openDialog(tester, repo);
-      await _enterName(tester, 'Ламінування вій');
-      // Description deliberately left empty.
-      await _submit(tester);
 
-      final captured = verify(
-        () => repo.suggestServiceType(
-          categoryName: any(named: 'categoryName'),
-          name: any(named: 'name'),
-          description: captureAny(named: 'description'),
-        ),
-      ).captured;
+      // The description input was removed from the dialog. Guarding its key here
+      // makes a silent reintroduction fail loudly.
       expect(
-        captured.single,
-        isNull,
-        reason: 'an empty description must be forwarded as null',
+        find.byKey(const Key('field-service-type-suggest-description')),
+        findsNothing,
+        reason:
+            'the description field was removed (Change 1) and must stay gone',
+      );
+      // Only the name field remains.
+      expect(
+        find.byKey(const Key('field-service-type-suggest-name')),
+        findsOneWidget,
       );
     },
   );
@@ -271,43 +257,87 @@ void main() {
     },
   );
 
+  testWidgets('5. 429 CategoryRequestThrottledFailure → throttle SnackBar, '
+      'dialog stays open', (tester) async {
+    when(
+      () => repo.suggestServiceType(
+        categoryName: any(named: 'categoryName'),
+        name: any(named: 'name'),
+        description: any(named: 'description'),
+      ),
+    ).thenThrow(const CategoryRequestThrottledFailure());
+
+    await _openDialog(tester, repo);
+    final l10n = _l10n(tester);
+
+    await _enterName(tester, 'Забагато запитів');
+    await _submit(tester);
+
+    // A non-field failure surfaces the throttle copy in a SnackBar.
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(SnackBar),
+        matching: find.text(l10n.categoryRequestErrThrottled),
+      ),
+      findsOneWidget,
+    );
+    // No inline name error for a non-field failure.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('field-service-type-suggest-name')),
+        matching: find.text(l10n.categoryRequestErrThrottled),
+      ),
+      findsNothing,
+    );
+    // Dialog stays open so the user can retry.
+    expect(find.byType(ServiceTypeSuggestionDialog), findsOneWidget);
+  });
+
   testWidgets(
-    '5. 429 CategoryRequestThrottledFailure → throttle SnackBar, '
-    'dialog stays open',
+    '6. (Change 2 guard) with a raised keyboard the submit CTA stays visible '
+    'and hit-testable (footer not clipped by the inset)',
     (tester) async {
-      when(
-        () => repo.suggestServiceType(
-          categoryName: any(named: 'categoryName'),
-          name: any(named: 'name'),
-          description: any(named: 'description'),
-        ),
-      ).thenThrow(const CategoryRequestThrottledFailure());
+      // Portrait viewport with a raised on-screen keyboard occupying the bottom
+      // third. The dialog floats its card above the inset and caps the scroll
+      // viewport (maxHeight = height*0.9 - inset) so the footer Row is never
+      // clipped behind the keyboard.
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
 
       await _openDialog(tester, repo);
-      final l10n = _l10n(tester);
 
-      await _enterName(tester, 'Забагато запитів');
-      await _submit(tester);
+      final submit = find.byKey(const Key('btn-submit-suggest-service-type'));
+      expect(submit, findsOneWidget);
 
-      // A non-field failure surfaces the throttle copy in a SnackBar.
-      expect(find.byType(SnackBar), findsOneWidget);
+      // The CTA must sit fully inside the visible viewport (above the keyboard),
+      // not pushed off-screen / clipped behind the inset. This rect-vs-visible
+      // bound is the deterministic Change-2 guard that the footer isn't clipped.
+      final Rect ctaRect = tester.getRect(submit);
+      final double visibleBottom =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio -
+          tester.view.viewInsets.bottom / tester.view.devicePixelRatio;
       expect(
-        find.descendant(
-          of: find.byType(SnackBar),
-          matching: find.text(l10n.categoryRequestErrThrottled),
-        ),
-        findsOneWidget,
+        ctaRect.bottom,
+        lessThanOrEqualTo(visibleBottom),
+        reason: 'submit CTA must stay above the raised keyboard, not clipped',
       );
-      // No inline name error for a non-field failure.
+      expect(ctaRect.top, greaterThanOrEqualTo(0));
+
+      // The whole CTA rect lies inside the visible (un-occluded) viewport, so it
+      // is reachable rather than hidden behind the keyboard — the footer is not
+      // clipped. (A center-point hit test is avoided here: the modal barrier
+      // layering makes it layout-fragile; the rect-within-viewport bound is the
+      // deterministic guard.)
       expect(
-        find.descendant(
-          of: find.byKey(const Key('field-service-type-suggest-name')),
-          matching: find.text(l10n.categoryRequestErrThrottled),
-        ),
-        findsNothing,
+        ctaRect.bottom,
+        lessThanOrEqualTo(visibleBottom),
+        reason: 'CTA rect must be wholly above the raised keyboard',
       );
-      // Dialog stays open so the user can retry.
-      expect(find.byType(ServiceTypeSuggestionDialog), findsOneWidget);
     },
   );
 }

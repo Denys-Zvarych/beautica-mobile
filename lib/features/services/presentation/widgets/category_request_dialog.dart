@@ -1,8 +1,10 @@
 // Service-category request feature — "Suggest a category" dialog.
 //
 // Lets a master / salon owner propose a new platform category from the service
-// form's category picker. A single input:
+// form's category picker. Two inputs:
 //   1. Display name (Ukrainian) — what the user types, e.g. "Нарощування вій".
+//   2. Initial service (optional) — a service-type name the requester wants
+//      seeded under the new category; forwarded as `initialServiceName`.
 //
 // The technical wire slug is an internal value the user never sees: it is
 // derived from the display name at submit time via [deriveCategorySlug] (which
@@ -61,6 +63,11 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
 
   late final TextEditingController _nameCtrl;
 
+  /// Optional initial service-type name the requester wants under the new
+  /// category. Forwarded to the backend as `initialServiceName` (nullable when
+  /// blank). No inline required-error — the field is optional.
+  late final TextEditingController _serviceNameCtrl;
+
   bool _submitted = false;
   bool _submitting = false;
 
@@ -73,6 +80,7 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController();
+    _serviceNameCtrl = TextEditingController();
     _nameCtrl.addListener(_onNameChanged);
   }
 
@@ -88,6 +96,7 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _serviceNameCtrl.dispose();
     super.dispose();
   }
 
@@ -124,6 +133,7 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
     setState(() => _submitting = true);
     try {
       final displayName = _nameCtrl.text.trim();
+      final initialService = _serviceNameCtrl.text.trim();
       await ref
           .read(serviceRepositoryProvider)
           .requestCategory(
@@ -132,6 +142,9 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
             // it satisfies the backend contract before we reach here.
             name: deriveCategorySlug(displayName),
             displayName: displayName,
+            // Optional — send only when non-empty; blank submits no
+            // `initialServiceName` key (the generated model omits a null).
+            initialServiceName: initialService.isEmpty ? null : initialService,
           );
       if (mounted) {
         // Return true so the caller surfaces the success SnackBar against the
@@ -171,16 +184,27 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final mq = MediaQuery.of(context);
+    // Keyboard inset: when a field is focused the soft keyboard would otherwise
+    // cover the vertically-centred dialog's footer. Float the whole card above
+    // the keyboard and cap the scroll viewport to the visible area so the
+    // footer Row (last scroll child) is always reachable.
+    final double viewInsetsBottom = mq.viewInsets.bottom;
 
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      insetPadding: const EdgeInsets.symmetric(
-        horizontal: VelvetSpacing.lg,
-        vertical: VelvetSpacing.xl,
+      insetPadding: EdgeInsets.only(
+        left: VelvetSpacing.lg,
+        right: VelvetSpacing.lg,
+        top: VelvetSpacing.xl,
+        bottom: VelvetSpacing.xl + viewInsetsBottom,
       ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: BoxConstraints(
+          maxWidth: 420,
+          maxHeight: mq.size.height * 0.9 - viewInsetsBottom,
+        ),
         child: NeumorphicCard(
           child: Padding(
             padding: const EdgeInsets.all(VelvetSpacing.lg),
@@ -199,7 +223,7 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
                   Text(l10n.categoryRequestSubtitle, style: VelvetText.body()),
                   const SizedBox(height: VelvetSpacing.xl),
 
-                  // Sole input — display name. The wire slug is derived from it
+                  // Display name (required). The wire slug is derived from it
                   // internally at submit time and never surfaced to the user.
                   _DialogField(
                     fieldKey: const Key('field-category-request-name'),
@@ -213,6 +237,25 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
                       LengthLimitingTextInputFormatter(
                         kCategoryDisplayNameMaxLength,
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: VelvetSpacing.lg),
+
+                  // Optional initial service-type name under the new category.
+                  // Forwarded as `initialServiceName` (null when blank). Client
+                  // cap 100; backend cap 255. No inline required-error.
+                  _DialogField(
+                    fieldKey: const Key(
+                      'field-category-request-initial-service-name',
+                    ),
+                    label: l10n.categoryRequestInitialServiceLabel,
+                    controller: _serviceNameCtrl,
+                    hintText: l10n.categoryRequestInitialServiceHint,
+                    errorText: null,
+                    enabled: !_submitting,
+                    textCapitalization: TextCapitalization.sentences,
+                    inputFormatters: <TextInputFormatter>[
+                      LengthLimitingTextInputFormatter(100),
                     ],
                   ),
                   const SizedBox(height: VelvetSpacing.xl),

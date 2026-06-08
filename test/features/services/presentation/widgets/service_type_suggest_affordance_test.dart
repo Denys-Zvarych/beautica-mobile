@@ -98,7 +98,10 @@ void main() {
       await tester.pumpAndSettle();
 
       await openServiceTypeMenu(tester);
-      expect(find.byKey(const Key('chip-service-type-suggest')), findsOneWidget);
+      expect(
+        find.byKey(const Key('chip-service-type-suggest')),
+        findsOneWidget,
+      );
 
       await tester.tap(find.byKey(const Key('chip-service-type-suggest')));
       await tester.pumpAndSettle();

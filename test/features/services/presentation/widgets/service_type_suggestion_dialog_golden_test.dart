@@ -4,12 +4,13 @@
 // (VelvetTouch neumorphic). golden_toolkit was removed from the repo
 // (2026-05-26, discontinued on pub.dev), so these use the framework's built-in
 // `matchesGoldenFile` at a fixed phone viewport — identical to the schedule
-// golden suite. Three states capture the visual contract:
-//   • DEFAULT     — pristine dialog: title, subtitle, name well, the multi-line
-//                   description well, footer CTA.
+// golden suite. Three states capture the visual contract (the description field
+// was REMOVED — Change 1 — so the surface is title → subtitle → name well →
+// footer CTA, no description well):
+//   • DEFAULT     — pristine dialog: title, subtitle, name well, footer CTA.
 //   • NAME-ERROR  — submit-with-empty-name → the inline name error row renders.
 //   • SUBMITTING  — an in-flight submit → the CTA shows its loading affordance
-//                   and the fields are disabled.
+//                   and the name field is disabled.
 //
 // Regenerate intentionally after a design change with:
 //   flutter test --update-goldens test/features/services/presentation/widgets/service_type_suggestion_dialog_golden_test.dart
@@ -110,16 +111,10 @@ void main() {
     await _pumpDialog(tester, repo);
 
     await tester.enterText(_nameField, 'Ламінування вій');
-    await tester.enterText(
-      find.descendant(
-        of: find.byKey(const Key('field-service-type-suggest-description')),
-        matching: find.byType(TextField),
-      ),
-      'Багаторядковий опис\nдля перевірки рев’юером',
-    );
     await tester.pump();
     await tester.tap(find.byKey(const Key('btn-submit-suggest-service-type')));
-    await tester.pump(); // enter the submitting state (do not settle — it hangs)
+    await tester
+        .pump(); // enter the submitting state (do not settle — it hangs)
     await tester.pump(const Duration(milliseconds: 16));
 
     await expectLater(

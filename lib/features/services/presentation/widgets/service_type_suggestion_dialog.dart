@@ -1,9 +1,8 @@
 // Service-type suggestion feature — "Suggest a service type" dialog.
 //
 // Lets a master propose a new platform service type from the service form's
-// second-level service-type picker (Phase 16.4). Two inputs:
+// second-level service-type picker (Phase 16.4). A single input:
 //   1. Name (Ukrainian, required) — the suggested service, e.g. "Ламінування вій".
-//   2. Description (optional, multi-line) — free-form context for the reviewer.
 //
 // The owning category is NOT user-entered: the picker passes in the currently-
 // selected category's System-B `categoryName` slug as read-only context, which
@@ -38,9 +37,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// Upper bound for the suggested service-type name (mirrors the backend
 /// contract; the category dialog uses the same 100-char display-name cap).
 const int kServiceTypeNameMaxLength = 100;
-
-/// Upper bound for the optional description.
-const int kServiceTypeDescriptionMaxLength = 500;
 
 /// Opens the suggest-a-service-type dialog for the category identified by
 /// [categoryName] (the System-B slug of the currently-selected category — a
@@ -78,7 +74,6 @@ class _ServiceTypeSuggestionDialogState
   static const _tag = 'feature.services.service_type_suggestion_dialog';
 
   late final TextEditingController _nameCtrl;
-  late final TextEditingController _descCtrl;
 
   bool _submitted = false;
   bool _submitting = false;
@@ -92,7 +87,6 @@ class _ServiceTypeSuggestionDialogState
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController();
-    _descCtrl = TextEditingController();
     _nameCtrl.addListener(_onNameChanged);
   }
 
@@ -108,7 +102,6 @@ class _ServiceTypeSuggestionDialogState
   @override
   void dispose() {
     _nameCtrl.dispose();
-    _descCtrl.dispose();
     super.dispose();
   }
 
@@ -136,15 +129,15 @@ class _ServiceTypeSuggestionDialogState
     setState(() => _submitting = true);
     try {
       final name = _nameCtrl.text.trim();
-      final description = _descCtrl.text.trim();
       await ref
           .read(serviceRepositoryProvider)
           .suggestServiceType(
             categoryName: widget.categoryName,
             name: name,
-            // Send the optional description only when non-empty; an empty field
-            // submits no `description` key (the generated model omits null).
-            description: description.isEmpty ? null : description,
+            // The description field was removed from this dialog; the repo keeps
+            // its `String? description` param for API stability, so always pass
+            // null (the generated model omits a null `description` key).
+            description: null,
           );
       if (mounted) {
         // Return true so the caller surfaces the success SnackBar against the
@@ -187,16 +180,27 @@ class _ServiceTypeSuggestionDialogState
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final mq = MediaQuery.of(context);
+    // Keyboard inset: when a field is focused the soft keyboard would otherwise
+    // cover the vertically-centred dialog's footer. Float the whole card above
+    // the keyboard and cap the scroll viewport to the visible area so the
+    // footer Row (last scroll child) is always reachable.
+    final double viewInsetsBottom = mq.viewInsets.bottom;
 
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      insetPadding: const EdgeInsets.symmetric(
-        horizontal: VelvetSpacing.lg,
-        vertical: VelvetSpacing.xl,
+      insetPadding: EdgeInsets.only(
+        left: VelvetSpacing.lg,
+        right: VelvetSpacing.lg,
+        top: VelvetSpacing.xl,
+        bottom: VelvetSpacing.xl + viewInsetsBottom,
       ),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: BoxConstraints(
+          maxWidth: 420,
+          maxHeight: mq.size.height * 0.9 - viewInsetsBottom,
+        ),
         child: NeumorphicCard(
           child: Padding(
             padding: const EdgeInsets.all(VelvetSpacing.lg),
@@ -230,27 +234,6 @@ class _ServiceTypeSuggestionDialogState
                     inputFormatters: <TextInputFormatter>[
                       LengthLimitingTextInputFormatter(
                         kServiceTypeNameMaxLength,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: VelvetSpacing.lg),
-
-                  // Description (optional, multi-line).
-                  _DialogField(
-                    fieldKey: const Key(
-                      'field-service-type-suggest-description',
-                    ),
-                    label: l10n.serviceTypeSuggestDescriptionLabel,
-                    controller: _descCtrl,
-                    hintText: l10n.serviceTypeSuggestDescriptionHint,
-                    errorText: null,
-                    enabled: !_submitting,
-                    textCapitalization: TextCapitalization.sentences,
-                    minLines: 2,
-                    maxLines: 4,
-                    inputFormatters: <TextInputFormatter>[
-                      LengthLimitingTextInputFormatter(
-                        kServiceTypeDescriptionMaxLength,
                       ),
                     ],
                   ),
@@ -301,8 +284,7 @@ class _ServiceTypeSuggestionDialogState
 // Private dialog field — mirrors _DialogField from category_request_dialog.dart.
 //
 // Label (uppercased Nunito) → NeumorphicInset well with focus ring → an inline
-// error row (icon + error text) when [errorText] is set. Supports a multi-line
-// variant via [minLines]/[maxLines] for the optional description input.
+// error row (icon + error text) when [errorText] is set.
 // ---------------------------------------------------------------------------
 
 class _DialogField extends StatefulWidget {
@@ -315,8 +297,6 @@ class _DialogField extends StatefulWidget {
     this.inputFormatters,
     this.textCapitalization = TextCapitalization.none,
     this.enabled = true,
-    this.minLines = 1,
-    this.maxLines = 1,
   });
 
   final Key fieldKey;
@@ -327,8 +307,6 @@ class _DialogField extends StatefulWidget {
   final List<TextInputFormatter>? inputFormatters;
   final TextCapitalization textCapitalization;
   final bool enabled;
-  final int minLines;
-  final int maxLines;
 
   @override
   State<_DialogField> createState() => _DialogFieldState();
@@ -368,7 +346,6 @@ class _DialogFieldState extends State<_DialogField> {
   @override
   Widget build(BuildContext context) {
     final bool hasError = widget.errorText != null;
-    final bool multiline = widget.maxLines > 1;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -395,14 +372,8 @@ class _DialogFieldState extends State<_DialogField> {
               enabled: widget.enabled,
               textCapitalization: widget.textCapitalization,
               inputFormatters: widget.inputFormatters,
-              minLines: widget.minLines,
-              maxLines: widget.maxLines,
-              keyboardType: multiline
-                  ? TextInputType.multiline
-                  : TextInputType.text,
-              textInputAction: multiline
-                  ? TextInputAction.newline
-                  : TextInputAction.done,
+              keyboardType: TextInputType.text,
+              textInputAction: TextInputAction.done,
               style: _inputStyle,
               cursorColor: const Color(0xFFB89A7A), // BrandColors.accent
               decoration: InputDecoration(

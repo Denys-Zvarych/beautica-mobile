@@ -11,13 +11,15 @@ class _$CreateCategoryRequestRequest extends CreateCategoryRequestRequest {
   final String name;
   @override
   final String displayName;
+  @override
+  final String? initialServiceName;
 
   factory _$CreateCategoryRequestRequest(
           [void Function(CreateCategoryRequestRequestBuilder)? updates]) =>
       (CreateCategoryRequestRequestBuilder()..update(updates))._build();
 
   _$CreateCategoryRequestRequest._(
-      {required this.name, required this.displayName})
+      {required this.name, required this.displayName, this.initialServiceName})
       : super._();
   @override
   CreateCategoryRequestRequest rebuild(
@@ -33,7 +35,8 @@ class _$CreateCategoryRequestRequest extends CreateCategoryRequestRequest {
     if (identical(other, this)) return true;
     return other is CreateCategoryRequestRequest &&
         name == other.name &&
-        displayName == other.displayName;
+        displayName == other.displayName &&
+        initialServiceName == other.initialServiceName;
   }
 
   @override
@@ -41,6 +44,7 @@ class _$CreateCategoryRequestRequest extends CreateCategoryRequestRequest {
     var _$hash = 0;
     _$hash = $jc(_$hash, name.hashCode);
     _$hash = $jc(_$hash, displayName.hashCode);
+    _$hash = $jc(_$hash, initialServiceName.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -49,7 +53,8 @@ class _$CreateCategoryRequestRequest extends CreateCategoryRequestRequest {
   String toString() {
     return (newBuiltValueToStringHelper(r'CreateCategoryRequestRequest')
           ..add('name', name)
-          ..add('displayName', displayName))
+          ..add('displayName', displayName)
+          ..add('initialServiceName', initialServiceName))
         .toString();
   }
 }
@@ -68,6 +73,11 @@ class CreateCategoryRequestRequestBuilder
   String? get displayName => _$this._displayName;
   set displayName(String? displayName) => _$this._displayName = displayName;
 
+  String? _initialServiceName;
+  String? get initialServiceName => _$this._initialServiceName;
+  set initialServiceName(String? initialServiceName) =>
+      _$this._initialServiceName = initialServiceName;
+
   CreateCategoryRequestRequestBuilder() {
     CreateCategoryRequestRequest._defaults(this);
   }
@@ -77,6 +87,7 @@ class CreateCategoryRequestRequestBuilder
     if ($v != null) {
       _name = $v.name;
       _displayName = $v.displayName;
+      _initialServiceName = $v.initialServiceName;
       _$v = null;
     }
     return this;
@@ -102,6 +113,7 @@ class CreateCategoryRequestRequestBuilder
               name, r'CreateCategoryRequestRequest', 'name'),
           displayName: BuiltValueNullFieldError.checkNotNull(
               displayName, r'CreateCategoryRequestRequest', 'displayName'),
+          initialServiceName: initialServiceName,
         );
     replace(_$result);
     return _$result;

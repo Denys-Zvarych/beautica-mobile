@@ -111,6 +111,9 @@ abstract interface class ServiceRepository {
   ///
   /// - [name]: uppercase wire slug matching `^[A-Z][A-Z0-9_]*$` (≤50 chars).
   /// - [displayName]: non-blank Ukrainian label (≤100 chars).
+  /// - [initialServiceName]: OPTIONAL free-text name of an initial service-type
+  ///   the requester wants seeded under the new category (≤255 chars server-side;
+  ///   the UI caps at 100). Sent only when non-null/non-empty.
   ///
   /// Throws:
   ///   - [CategoryAlreadyExistsFailure] on **409** (already exists/pending).
@@ -119,6 +122,7 @@ abstract interface class ServiceRepository {
   Future<void> requestCategory({
     required String name,
     required String displayName,
+    String? initialServiceName,
   });
 
   /// Returns the list of platform service types under [categoryName] for the
@@ -386,12 +390,20 @@ final class HttpServiceRepository implements ServiceRepository {
   Future<void> requestCategory({
     required String name,
     required String displayName,
+    String? initialServiceName,
   }) async {
     try {
+      // The optional initial service name is attached only when
+      // non-null/non-empty (mirrors the suggestServiceType description-omission
+      // pattern); the generated model omits a null `initialServiceName` key.
+      final initial = initialServiceName?.trim();
       final request = CreateCategoryRequestRequest(
         (b) => b
           ..name = name
-          ..displayName = displayName,
+          ..displayName = displayName
+          ..initialServiceName = (initial == null || initial.isEmpty)
+              ? null
+              : initial,
       );
       await _categoryApi.submitRequest(createCategoryRequestRequest: request);
     } on Failure {

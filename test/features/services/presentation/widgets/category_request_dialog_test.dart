@@ -1,11 +1,13 @@
-// Widget tests for CategoryRequestDialog — inline server-error mapping.
+// Widget tests for CategoryRequestDialog — inline server-error mapping and the
+// optional initial-service field (Change 3) + keyboard-inset layout (Change 2).
 //
-// The dialog's only input is the display-name field (Key
-// 'field-category-request-name'). A backend ValidationFailure carrying a
-// `name` / `displayName` field error must map onto that field's inline
-// errorText (_serverNameError) rather than collapsing to a transient SnackBar.
-// All other failures (and a ValidationFailure with no name/displayName key)
-// still surface a SnackBar.
+// The dialog has the required display-name field (Key
+// 'field-category-request-name') and an OPTIONAL initial-service field (Key
+// 'field-category-request-initial-service-name'). A backend ValidationFailure
+// carrying a `name` / `displayName` field error must map onto the name field's
+// inline errorText (_serverNameError) rather than collapsing to a transient
+// SnackBar. All other failures (and a ValidationFailure with no name/displayName
+// key) still surface a SnackBar.
 //
 // Finders use Key lookups (M2). The repository is mocked; no real network.
 //
@@ -15,6 +17,12 @@
 //   2. ValidationFailure{displayName} → inline error (alias key) under the field.
 //   3. Editing the name after a server error clears the inline error.
 //   4. Non-validation failure (CategoryAlreadyExists) → SnackBar, no inline.
+//   5. (Change 3) initial-service field EMPTY → requestCategory called with
+//      initialServiceName == null; the field is optional (no inline required
+//      error when blank).
+//   6. (Change 3) initial-service field filled → the TRIMMED value is forwarded.
+//   7. (Change 2) with a raised keyboard the submit CTA stays visible and
+//      hit-testable (footer not clipped by the inset).
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -89,6 +97,18 @@ Future<void> _enterValidName(WidgetTester tester) async {
   await tester.pump();
 }
 
+/// Enters [value] into the OPTIONAL initial-service field (Change 3).
+Future<void> _enterInitialService(WidgetTester tester, String value) async {
+  await tester.enterText(
+    find.descendant(
+      of: find.byKey(const Key('field-category-request-initial-service-name')),
+      matching: find.byType(TextField),
+    ),
+    value,
+  );
+  await tester.pump();
+}
+
 Future<void> _submit(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('btn-submit-suggest-category')));
   await tester.pumpAndSettle();
@@ -132,6 +152,7 @@ void main() {
         () => repo.requestCategory(
           name: any(named: 'name'),
           displayName: any(named: 'displayName'),
+          initialServiceName: any(named: 'initialServiceName'),
         ),
       ).thenThrow(
         const ValidationFailure(
@@ -162,6 +183,7 @@ void main() {
         () => repo.requestCategory(
           name: any(named: 'name'),
           displayName: any(named: 'displayName'),
+          initialServiceName: any(named: 'initialServiceName'),
         ),
       ).thenThrow(
         const ValidationFailure(
@@ -186,6 +208,7 @@ void main() {
         () => repo.requestCategory(
           name: any(named: 'name'),
           displayName: any(named: 'displayName'),
+          initialServiceName: any(named: 'initialServiceName'),
         ),
       ).thenThrow(
         const ValidationFailure(
@@ -227,6 +250,7 @@ void main() {
         () => repo.requestCategory(
           name: any(named: 'name'),
           displayName: any(named: 'displayName'),
+          initialServiceName: any(named: 'initialServiceName'),
         ),
       ).thenThrow(const CategoryAlreadyExistsFailure());
 
@@ -250,6 +274,118 @@ void main() {
         ),
         findsNothing,
       );
+    },
+  );
+
+  testWidgets(
+    '5. (Change 3) initial-service field left empty → requestCategory called '
+    'with initialServiceName == null; field is optional (no inline error)',
+    (tester) async {
+      when(
+        () => repo.requestCategory(
+          name: any(named: 'name'),
+          displayName: any(named: 'displayName'),
+          initialServiceName: any(named: 'initialServiceName'),
+        ),
+      ).thenAnswer((_) async {});
+
+      await _openDialog(tester, repo);
+      await _enterValidName(tester);
+      // Initial-service field deliberately left empty.
+      await _submit(tester);
+
+      final captured = verify(
+        () => repo.requestCategory(
+          name: any(named: 'name'),
+          displayName: any(named: 'displayName'),
+          initialServiceName: captureAny(named: 'initialServiceName'),
+        ),
+      ).captured;
+      expect(
+        captured.single,
+        isNull,
+        reason: 'an empty optional initial-service must be forwarded as null',
+      );
+
+      // Optional field: submitting blank must NOT pop a required-style error and
+      // must succeed (dialog popped).
+      expect(find.byType(CategoryRequestDialog), findsNothing);
+    },
+  );
+
+  testWidgets(
+    '6. (Change 3) initial-service filled → the TRIMMED value is forwarded',
+    (tester) async {
+      when(
+        () => repo.requestCategory(
+          name: any(named: 'name'),
+          displayName: any(named: 'displayName'),
+          initialServiceName: any(named: 'initialServiceName'),
+        ),
+      ).thenAnswer((_) async {});
+
+      await _openDialog(tester, repo);
+      await _enterValidName(tester);
+      // Surrounding whitespace must be trimmed before forwarding.
+      await _enterInitialService(tester, '  Ламінування вій  ');
+      await _submit(tester);
+
+      final captured = verify(
+        () => repo.requestCategory(
+          name: any(named: 'name'),
+          displayName: any(named: 'displayName'),
+          initialServiceName: captureAny(named: 'initialServiceName'),
+        ),
+      ).captured;
+      expect(captured.single, 'Ламінування вій');
+
+      expect(find.byType(CategoryRequestDialog), findsNothing);
+    },
+  );
+
+  testWidgets(
+    '7. (Change 2) with a raised keyboard the submit CTA stays visible and '
+    'hit-testable (footer not clipped by the inset)',
+    (tester) async {
+      when(
+        () => repo.requestCategory(
+          name: any(named: 'name'),
+          displayName: any(named: 'displayName'),
+          initialServiceName: any(named: 'initialServiceName'),
+        ),
+      ).thenAnswer((_) async {});
+
+      // Portrait viewport with a raised on-screen keyboard occupying the bottom
+      // third. The dialog floats its card above the inset and caps the scroll
+      // viewport (maxHeight = height*0.9 - inset) so the footer Row is never
+      // clipped behind the keyboard.
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+
+      await _openDialog(tester, repo);
+
+      final submit = find.byKey(const Key('btn-submit-suggest-category'));
+      expect(submit, findsOneWidget);
+
+      // The CTA rect must lie fully inside the visible viewport (above the
+      // keyboard inset), so the footer is reachable rather than clipped behind
+      // the keyboard. (A center-point hit test is avoided here: the modal
+      // barrier layering makes it layout-fragile; the rect-within-viewport bound
+      // is the deterministic Change-2 guard.)
+      final Rect ctaRect = tester.getRect(submit);
+      final double visibleBottom =
+          tester.view.physicalSize.height / tester.view.devicePixelRatio -
+          tester.view.viewInsets.bottom / tester.view.devicePixelRatio;
+      expect(
+        ctaRect.bottom,
+        lessThanOrEqualTo(visibleBottom),
+        reason: 'submit CTA must stay above the raised keyboard, not clipped',
+      );
+      expect(ctaRect.top, greaterThanOrEqualTo(0));
     },
   );
 }

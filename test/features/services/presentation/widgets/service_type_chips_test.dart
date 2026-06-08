@@ -290,8 +290,8 @@ void main() {
             serviceRepositoryProvider.overrideWithValue(repo),
             serviceTypesProvider.overrideWith(
               // Completer that is never completed → a permanently in-flight load.
-              (ref, String categoryName) => Completer<List<ServiceTypeOption>>()
-                  .future,
+              (ref, String categoryName) =>
+                  Completer<List<ServiceTypeOption>>().future,
             ),
           ],
           child: MaterialApp(

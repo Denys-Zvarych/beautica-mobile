@@ -112,10 +112,7 @@ Future<_Harness> _pumpField(
 
 /// Opens the menu. For the loading state, settling is impossible (the spinner
 /// animates forever), so a fixed pump opens the sheet without waiting.
-Future<void> _openMenu(
-  WidgetTester tester, {
-  bool settle = true,
-}) async {
+Future<void> _openMenu(WidgetTester tester, {bool settle = true}) async {
   await tester.tap(find.byKey(const Key('field-under-test')));
   if (settle) {
     await tester.pumpAndSettle();
@@ -163,21 +160,18 @@ void main() {
     },
   );
 
-  testWidgets(
-    'SEARCH-FOLD. a plain-ASCII query matches an accented label '
-    '(diacritic-insensitive)',
-    (tester) async {
-      await _pumpField(tester);
-      await _openMenu(tester);
+  testWidgets('SEARCH-FOLD. a plain-ASCII query matches an accented label '
+      '(diacritic-insensitive)', (tester) async {
+    await _pumpField(tester);
+    await _openMenu(tester);
 
-      // "epil" (no accent) must reach "Épilation" via diacritic folding.
-      await _search(tester, 'epil');
+    // "epil" (no accent) must reach "Épilation" via diacritic folding.
+    await _search(tester, 'epil');
 
-      expect(find.byKey(const Key('opt-WAX')), findsOneWidget);
-      expect(find.byKey(const Key('opt-MANICURE')), findsNothing);
-      expect(find.byKey(const Key('opt-PEDICURE')), findsNothing);
-    },
-  );
+    expect(find.byKey(const Key('opt-WAX')), findsOneWidget);
+    expect(find.byKey(const Key('opt-MANICURE')), findsNothing);
+    expect(find.byKey(const Key('opt-PEDICURE')), findsNothing);
+  });
 
   testWidgets(
     'SEARCH-EMPTY. a no-match query → calm empty hint, NOT an error state',
@@ -285,7 +279,10 @@ void main() {
     'ERROR-RETRY. fieldState=error → escapable error with a Retry that fires '
     'onMenuRetry and pops the sheet',
     (tester) async {
-      final harness = await _pumpField(tester, fieldState: SelectFieldState.error);
+      final harness = await _pumpField(
+        tester,
+        fieldState: SelectFieldState.error,
+      );
       await _openMenu(tester);
 
       expect(find.byKey(const Key('select-menu-error')), findsOneWidget);
@@ -350,49 +347,48 @@ void main() {
     },
   );
 
-  testWidgets(
-    'DISABLED. enabled=false suppresses opening the menu on tap',
-    (tester) async {
-      tester.view.physicalSize = const Size(800, 1400);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets('DISABLED. enabled=false suppresses opening the menu on tap', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          locale: const Locale('uk'),
-          home: Scaffold(
-            body: Center(
-              child: SearchableSelectField<String>(
-                fieldKey: const Key('field-under-test'),
-                label: 'Категорія',
-                menuTitle: 'Категорія',
-                placeholder: 'Оберіть зі списку',
-                searchHint: 'Пошук…',
-                emptyLabel: 'Нічого не знайдено',
-                errorLabel: 'Не вдалося завантажити',
-                retryLabel: 'Спробувати знову',
-                selectedLabel: null,
-                fieldState: SelectFieldState.idle,
-                options: _options,
-                enabled: false,
-                onSelected: (_) {},
-                onMenuRetry: () {},
-              ),
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('uk'),
+        home: Scaffold(
+          body: Center(
+            child: SearchableSelectField<String>(
+              fieldKey: const Key('field-under-test'),
+              label: 'Категорія',
+              menuTitle: 'Категорія',
+              placeholder: 'Оберіть зі списку',
+              searchHint: 'Пошук…',
+              emptyLabel: 'Нічого не знайдено',
+              errorLabel: 'Не вдалося завантажити',
+              retryLabel: 'Спробувати знову',
+              selectedLabel: null,
+              fieldState: SelectFieldState.idle,
+              options: _options,
+              enabled: false,
+              onSelected: (_) {},
+              onMenuRetry: () {},
             ),
           ),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('field-under-test')));
-      await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('field-under-test')));
+    await tester.pumpAndSettle();
 
-      // Menu never opened.
-      expect(find.byKey(const Key('select-menu-search')), findsNothing);
-      expect(find.byKey(const Key('opt-MANICURE')), findsNothing);
-    },
-  );
+    // Menu never opened.
+    expect(find.byKey(const Key('select-menu-search')), findsNothing);
+    expect(find.byKey(const Key('opt-MANICURE')), findsNothing);
+  });
 }

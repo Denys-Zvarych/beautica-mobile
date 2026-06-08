@@ -1498,6 +1498,14 @@
   "@categoryRequestNameHint": {
     "description": "Hint text inside the Ukrainian display-name input in the suggest-a-category dialog."
   },
+  "categoryRequestInitialServiceLabel": "Initial service (optional)",
+  "@categoryRequestInitialServiceLabel": {
+    "description": "Field label above the optional initial service-name input in the suggest-a-category dialog (forwarded as initialServiceName)."
+  },
+  "categoryRequestInitialServiceHint": "e.g. Eyelash lamination",
+  "@categoryRequestInitialServiceHint": {
+    "description": "Placeholder hint for the optional initial service-name field in the suggest-a-category dialog."
+  },
   "categoryRequestCodeLabel": "Code",
   "@categoryRequestCodeLabel": {
     "description": "Field label above the auto-derived uppercase latin slug input in the suggest-a-category dialog."
@@ -1562,14 +1570,6 @@
   "serviceTypeSuggestNameError": "Enter a service name",
   "@serviceTypeSuggestNameError": {
     "description": "Validation error shown when the name field is empty in the suggest-a-service-type dialog (Phase 16.6)."
-  },
-  "serviceTypeSuggestDescriptionLabel": "Description (optional)",
-  "@serviceTypeSuggestDescriptionLabel": {
-    "description": "Field label above the optional multi-line description input in the suggest-a-service-type dialog (Phase 16.6)."
-  },
-  "serviceTypeSuggestDescriptionHint": "Add details for the reviewer",
-  "@serviceTypeSuggestDescriptionHint": {
-    "description": "Placeholder hint for the optional description field in the suggest-a-service-type dialog (Phase 16.6)."
   },
   "serviceTypeSuggestSubmit": "Submit",
   "@serviceTypeSuggestSubmit": {

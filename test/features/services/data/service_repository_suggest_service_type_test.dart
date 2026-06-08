@@ -105,30 +105,33 @@ void main() {
           as SuggestServiceTypeRequest;
 
   group('suggestServiceType — wire shape (M4: slug, never a UUID)', () {
-    test('forwards name + categoryName SLUG + description on the body', () async {
-      when(
-        () => catalogApi.suggestServiceType(
-          suggestServiceTypeRequest: any(named: 'suggestServiceTypeRequest'),
-        ),
-      ).thenAnswer((_) async => _ok());
+    test(
+      'forwards name + categoryName SLUG + description on the body',
+      () async {
+        when(
+          () => catalogApi.suggestServiceType(
+            suggestServiceTypeRequest: any(named: 'suggestServiceTypeRequest'),
+          ),
+        ).thenAnswer((_) async => _ok());
 
-      await repository.suggestServiceType(
-        categoryName: _categorySlug,
-        name: 'Ламінування вій',
-        description: 'Опис для перевірки',
-      );
+        await repository.suggestServiceType(
+          categoryName: _categorySlug,
+          name: 'Ламінування вій',
+          description: 'Опис для перевірки',
+        );
 
-      final req = capturedRequest();
-      expect(req.name, 'Ламінування вій');
-      // The category context is the System-B SLUG, NOT a categoryId UUID.
-      expect(req.categoryName, _categorySlug);
-      expect(
-        req.categoryName,
-        isNot(matches(RegExp(r'^[0-9a-fA-F-]{36}$'))),
-        reason: 'categoryName must be a slug, never a UUID',
-      );
-      expect(req.description, 'Опис для перевірки');
-    });
+        final req = capturedRequest();
+        expect(req.name, 'Ламінування вій');
+        // The category context is the System-B SLUG, NOT a categoryId UUID.
+        expect(req.categoryName, _categorySlug);
+        expect(
+          req.categoryName,
+          isNot(matches(RegExp(r'^[0-9a-fA-F-]{36}$'))),
+          reason: 'categoryName must be a slug, never a UUID',
+        );
+        expect(req.description, 'Опис для перевірки');
+      },
+    );
 
     test('null description → request.description is null (omitted)', () async {
       when(
@@ -179,10 +182,7 @@ void main() {
       ).thenThrow(_dio(DioExceptionType.badResponse, status: 400));
 
       await expectLater(
-        repository.suggestServiceType(
-          categoryName: _categorySlug,
-          name: 'Bad',
-        ),
+        repository.suggestServiceType(categoryName: _categorySlug, name: 'Bad'),
         throwsA(isA<ValidationFailure>()),
       );
     });
@@ -195,10 +195,7 @@ void main() {
       ).thenThrow(_dio(DioExceptionType.badResponse, status: 422));
 
       await expectLater(
-        repository.suggestServiceType(
-          categoryName: _categorySlug,
-          name: 'Bad',
-        ),
+        repository.suggestServiceType(categoryName: _categorySlug, name: 'Bad'),
         throwsA(isA<ValidationFailure>()),
       );
     });
@@ -234,21 +231,24 @@ void main() {
       },
     );
 
-    test('429 → CategoryRequestThrottledFailure (throttle copy reused)', () async {
-      when(
-        () => catalogApi.suggestServiceType(
-          suggestServiceTypeRequest: any(named: 'suggestServiceTypeRequest'),
-        ),
-      ).thenThrow(_dio(DioExceptionType.badResponse, status: 429));
+    test(
+      '429 → CategoryRequestThrottledFailure (throttle copy reused)',
+      () async {
+        when(
+          () => catalogApi.suggestServiceType(
+            suggestServiceTypeRequest: any(named: 'suggestServiceTypeRequest'),
+          ),
+        ).thenThrow(_dio(DioExceptionType.badResponse, status: 429));
 
-      await expectLater(
-        repository.suggestServiceType(
-          categoryName: _categorySlug,
-          name: 'Throttled',
-        ),
-        throwsA(isA<CategoryRequestThrottledFailure>()),
-      );
-    });
+        await expectLater(
+          repository.suggestServiceType(
+            categoryName: _categorySlug,
+            name: 'Throttled',
+          ),
+          throwsA(isA<CategoryRequestThrottledFailure>()),
+        );
+      },
+    );
 
     test('500 → ServerFailure', () async {
       when(
