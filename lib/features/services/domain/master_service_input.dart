@@ -90,6 +90,15 @@ abstract class MasterServiceUpdate with _$MasterServiceUpdate {
     /// New category string. `null` means "do not change".
     String? category,
 
+    /// Id of the platform service type to switch this service to (Phase 16.x).
+    ///
+    /// `null` means "do not change" (PATCH semantics): the mapper omits the
+    /// `serviceTypeId` key from the wire body so the backend leaves the current
+    /// service type untouched. When set, the backend re-validates the type
+    /// against [category]; a mismatch surfaces as a [ValidationFailure] keyed on
+    /// the `serviceTypeId` field.
+    String? serviceTypeId,
+
     /// New duration in minutes. `null` means "do not change".
     int? durationMinutes,
 

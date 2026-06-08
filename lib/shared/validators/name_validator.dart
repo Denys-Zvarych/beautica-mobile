@@ -15,3 +15,15 @@ String? validateName(String? v, AppLocalizations l10n) {
   if (v.length > 100) return l10n.errNameTooLong;
   return null;
 }
+
+/// Returns null when [v] is an acceptable OPTIONAL name, or a localised error.
+///
+/// Unlike [validateName], an empty/blank value is VALID (returns null) — used by
+/// the service form where the custom name is optional (the backend defaults a
+/// blank name to the selected service-type name). Only the max-length rule
+/// (mirrors the backend `@Size(max = 100)`) is enforced when a value is present.
+String? validateOptionalName(String? v, AppLocalizations l10n) {
+  if (v == null || v.trim().isEmpty) return null;
+  if (v.length > 100) return l10n.errNameTooLong;
+  return null;
+}

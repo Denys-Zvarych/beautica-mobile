@@ -14,6 +14,8 @@
 //   6. Dirty-state marker visible after changing name, hidden when reverted.
 //   7. ServicePhotoSlot shows empty state by default.
 //   8. ServicePhotoSlot shows filled state when imageUrl is provided (widget test).
+//   Item 3 (M4). Changing the service type in the picker and saving sends the
+//      NEW serviceTypeId in MasterServiceUpdate (no silent PATCH drop).
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -759,6 +761,120 @@ void main() {
         reason:
             'the newly-selected category must be threaded into '
             'MasterServiceUpdate (FIX 3)',
+      );
+    },
+  );
+
+  // ── Item 3 (M4). Changing the service type in the picker and saving sends
+  //    the NEW serviceTypeId in MasterServiceUpdate ──────────────────────────
+  //
+  // Regression guard for the silent-drop bug: the picker was editable in the UI
+  // but the chosen serviceTypeId never reached repository.update (dropped on the
+  // PATCH). This drives the full flow — open the service-type menu, pick a
+  // different type, save — and asserts the captured patch carries the new id.
+  // Uses a bespoke ProviderScope because the shared `_overrides` stubs
+  // serviceTypesProvider to an empty list (no selectable option to tap).
+
+  testWidgets(
+    'Item 3. changing the service type in the picker and saving sends the new '
+    'serviceTypeId in MasterServiceUpdate (M4 — no silent drop)',
+    (tester) async {
+      const editService = MasterService(
+        id: 'svc-st-1',
+        serviceDefId: 'def-st-1',
+        name: 'Манікюр',
+        durationMinutes: 60,
+        priceType: ServicePriceType.fixed,
+        priceMin: 500.0,
+        priceDisplay: '500 грн',
+        category: 'MANICURE',
+        // Loaded with one type; the test switches to another.
+        serviceTypeId: 'type-old',
+        serviceTypeNameUk: 'Класичний манікюр',
+      );
+
+      const newType = ServiceTypeOption(
+        id: 'type-new',
+        slug: 'HARDWARE_MANICURE',
+        nameUk: 'Апаратний манікюр',
+        categoryName: 'MANICURE',
+      );
+
+      when(
+        () => repo.listMyServices(),
+      ).thenAnswer((_) async => const <MasterService>[editService]);
+      when(
+        () => repo.getMyService(editService.id),
+      ).thenAnswer((_) async => editService);
+      when(() => repo.fetchApprovedCategories()).thenAnswer(
+        (_) async => const <ServiceCategoryOption>[
+          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+        ],
+      );
+      when(
+        () => repo.update(
+          editService.serviceDefId,
+          any(),
+          assignmentId: editService.id,
+        ),
+      ).thenAnswer((_) async => editService);
+
+      // Roomy viewport so the service-type field + submit CTA stay hittable.
+      tester.view.physicalSize = const Size(800, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            serviceRepositoryProvider.overrideWithValue(repo),
+            // The selected MANICURE category surfaces the new type in the
+            // second-level picker so it can be tapped.
+            serviceTypesProvider.overrideWith(
+              (ref, String categoryName) async => const <ServiceTypeOption>[
+                newType,
+              ],
+            ),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: Locale('uk'),
+            home: ServiceEditScreen(id: 'svc-st-1'),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      // Switch the service type type-old → type-new via the picker.
+      await selectServiceTypeOption(tester, 'type-new');
+
+      // Save.
+      await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      final captured =
+          verify(
+                () => repo.update(
+                  editService.serviceDefId,
+                  captureAny(),
+                  assignmentId: editService.id,
+                ),
+              ).captured.single
+              as MasterServiceUpdate;
+
+      expect(
+        captured.serviceTypeId,
+        'type-new',
+        reason:
+            'the newly-picked serviceTypeId must reach repository.update — '
+            'M4 guard against the silent PATCH drop',
       );
     },
   );

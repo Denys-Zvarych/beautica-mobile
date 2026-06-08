@@ -195,6 +195,10 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
             priceMin: input.priceMin,
             priceMax: input.priceMax,
             category: input.category,
+            // Thread the chosen service type through the PATCH so a type change
+            // actually persists. Previously this was dropped, so the picker was
+            // editable in the UI but silently lost on save (M4 API-contract).
+            serviceTypeId: input.serviceTypeId,
           );
           // Backend keys PATCH /api/v1/services/{serviceDefId} on the
           // service-definition id; the assignment id (service.id) is threaded

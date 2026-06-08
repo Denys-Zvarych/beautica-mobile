@@ -19,6 +19,9 @@
 //   G-FIXED. toUpdateRequest sets priceType=FIXED + price for FIXED update.
 //   G-RANGE. toUpdateRequest sets priceType=RANGE + priceMin + priceMax for RANGE update.
 //   G-NO-PRICE. toUpdateRequest omits price block when all price fields are null.
+//   G-ST-SET.  toUpdateRequest carries serviceTypeId when the patch sets one (M4).
+//   G-ST-NULL. toUpdateRequest omits serviceTypeId when the patch leaves it null
+//              (PATCH no-change — an unrelated edit never overwrites the type).
 //   H-1.  fromApprovedCategoryList maps name+displayName and drops blank names.
 //   I-1.  fromDto populates serviceDefId from serviceDefinition.id.
 //   I-2.  fromServiceDefinitionDto carries the assignment id + maps base fields.
@@ -322,6 +325,44 @@ void main() {
       expect(request.priceMin, isNull);
       expect(request.priceMax, isNull);
     });
+
+    // ── Item 3 (M4) — serviceTypeId on the PATCH wire ─────────────────────
+    // Guards the silent-drop bug: a non-null serviceTypeId MUST reach the
+    // generated request; a null serviceTypeId MUST be omitted (PATCH "no
+    // change"), so a save that does not touch the type never overwrites it.
+
+    test(
+      'G-ST-SET. toUpdateRequest carries serviceTypeId when the patch sets one',
+      () {
+        final request = MasterServiceMapper.toUpdateRequest(
+          const MasterServiceUpdate(serviceTypeId: 'type-new'),
+        );
+        expect(
+          request.serviceTypeId,
+          equals('type-new'),
+          reason:
+              'a non-null serviceTypeId must reach the wire request (M4 — '
+              'guards the silent-drop regression)',
+        );
+      },
+    );
+
+    test(
+      'G-ST-NULL. toUpdateRequest omits serviceTypeId when the patch leaves it '
+      'null (PATCH no-change)',
+      () {
+        final request = MasterServiceMapper.toUpdateRequest(
+          const MasterServiceUpdate(name: 'Інша назва'),
+        );
+        expect(
+          request.serviceTypeId,
+          isNull,
+          reason:
+              'a null serviceTypeId must be omitted so an unrelated edit never '
+              'overwrites the current service type',
+        );
+      },
+    );
 
     // B4 (MEDIUM) — toUpdateRequest invalid-price fail-fasts ─────────────────
 

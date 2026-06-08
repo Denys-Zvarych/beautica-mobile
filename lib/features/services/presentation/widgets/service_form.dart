@@ -176,6 +176,10 @@ class _ServiceFormState extends State<ServiceForm> {
   late final String _baselinePriceMax;
   late final String? _baselineCategory;
 
+  /// Service-type id the form loaded with (edit mode). Compared against
+  /// [_selectedServiceTypeId] so changing the type flips the dirty marker.
+  late final String? _baselineServiceTypeId;
+
   /// Currently selected category wire name. Null = no category selected.
   String? _selectedCategory;
 
@@ -187,6 +191,17 @@ class _ServiceFormState extends State<ServiceForm> {
   /// [onServiceTypeSelected] / [clearServiceType]; this phase only wires the
   /// behavior.
   String? _selectedServiceTypeId;
+
+  /// Ukrainian name of the currently-selected service type. Captured alongside
+  /// [_selectedServiceTypeId] purely to label the service-type dropdown's closed
+  /// field while its option list is still loading (Item 2 — edit prefill, see
+  /// [_ServiceTypeDropdown.selectedFallbackLabel]).
+  ///
+  /// It is NO LONGER used as a blank-name fallback for the submitted wire
+  /// `name`: the backend now defaults a blank/null name to the service type's
+  /// nameUk server-side, so the form sends the master's actual (possibly empty)
+  /// name and lets the backend apply the default. Null when no type is selected.
+  String? _selectedServiceTypeNameUk;
 
   /// The exact name string this form last auto-filled from a selected service
   /// type's `nameUk` (Phase 16.3). Used to detect whether the user has since
@@ -206,7 +221,8 @@ class _ServiceFormState extends State<ServiceForm> {
         _priceFixedCtrl.text != _baselinePriceFixed ||
         _priceMinCtrl.text != _baselinePriceMin ||
         _priceMaxCtrl.text != _baselinePriceMax ||
-        _selectedCategory != _baselineCategory;
+        _selectedCategory != _baselineCategory ||
+        _selectedServiceTypeId != _baselineServiceTypeId;
   }
 
   @override
@@ -241,6 +257,15 @@ class _ServiceFormState extends State<ServiceForm> {
         : '';
 
     _selectedCategory = initial?.category;
+    // Item 2 fix: seed the service-type selection from the loaded service so the
+    // second-level picker pre-selects on edit. Previously the form left
+    // _selectedServiceTypeId null in edit mode, so the type field rendered empty
+    // even though the backend returns serviceTypeId on the service response and
+    // the mapper carries it onto MasterService. The _ServiceTypeDropdown resolves
+    // its closed-field label by matching this id against the loaded type options.
+    _baselineServiceTypeId = initial?.serviceTypeId;
+    _selectedServiceTypeId = initial?.serviceTypeId;
+    _selectedServiceTypeNameUk = initial?.serviceTypeNameUk;
     _pricingMode = _baselinePricingMode;
 
     _nameCtrl = TextEditingController(text: _baselineName);
@@ -335,6 +360,7 @@ class _ServiceFormState extends State<ServiceForm> {
     );
     setState(() {
       _selectedServiceTypeId = option.id;
+      _selectedServiceTypeNameUk = option.nameUk;
       _clearServerError('serviceTypeId');
       if (prefill) {
         // Guard the programmatic write so the name listener does not mistake
@@ -359,6 +385,7 @@ class _ServiceFormState extends State<ServiceForm> {
     if (!mounted) return;
     setState(() {
       _selectedServiceTypeId = null;
+      _selectedServiceTypeNameUk = null;
       _clearServerError('serviceTypeId');
     });
     _wasDirty = _isDirty;
@@ -379,11 +406,14 @@ class _ServiceFormState extends State<ServiceForm> {
 
   // --- Validators -----------------------------------------------------------
 
+  /// Name is OPTIONAL (Item 4). A blank name is valid — the backend defaults it
+  /// to the selected service-type name. Only a too-long value (or a server-side
+  /// `name` error) surfaces a message; an empty field never does.
   String? _nameError(AppLocalizations l10n) {
     final String? server = _serverFieldErrors['name'];
     if (server != null) return server;
     if (!_submitted) return null;
-    return validateName(_nameCtrl.text, l10n);
+    return validateOptionalName(_nameCtrl.text, l10n);
   }
 
   String? _durationError(AppLocalizations l10n) {
@@ -462,11 +492,12 @@ class _ServiceFormState extends State<ServiceForm> {
   }
 
   bool _isValid(AppLocalizations l10n) =>
+      // Name is optional (Item 4) — only its length is checked via _nameError;
+      // an empty name does NOT block submit.
       _nameError(l10n) == null &&
       _durationError(l10n) == null &&
       _pricingValid(l10n) &&
       _categoryError(l10n) == null &&
-      _nameCtrl.text.trim().isNotEmpty &&
       _durationCtrl.text.trim().isNotEmpty;
 
   // --- Submit ---------------------------------------------------------------
@@ -487,6 +518,14 @@ class _ServiceFormState extends State<ServiceForm> {
     }
     setState(() => _submitting = true);
     try {
+      // Name is optional and now backend-defaulted: send the master's actual
+      // (trimmed) name. When it is blank the empty string flows to the backend,
+      // which defaults a blank/null name to the selected service type's nameUk.
+      // The client no longer substitutes the service-type name itself — doing so
+      // (the old `_effectiveName` stopgap) risked sending a name that diverged
+      // from the backend default and is now redundant.
+      final String submittedName = _nameCtrl.text.trim();
+
       // Prices parsed via the shared parser so the submitted value is computed
       // exactly as the validator checked it (comma → dot, ≤ 2 dp). _isValid
       // guarantees these are non-null at this point.
@@ -494,7 +533,7 @@ class _ServiceFormState extends State<ServiceForm> {
       switch (_pricingMode) {
         case ServicePriceType.fixed:
           input = MasterServiceCreate(
-            name: _nameCtrl.text.trim(),
+            name: submittedName,
             durationMinutes: int.parse(_durationCtrl.text.trim()),
             priceType: ServicePriceType.fixed,
             price: parsePrice(_priceFixedCtrl.text),
@@ -505,7 +544,7 @@ class _ServiceFormState extends State<ServiceForm> {
           );
         case ServicePriceType.range:
           input = MasterServiceCreate(
-            name: _nameCtrl.text.trim(),
+            name: submittedName,
             durationMinutes: int.parse(_durationCtrl.text.trim()),
             priceType: ServicePriceType.range,
             priceMin: parsePrice(_priceMinCtrl.text),
@@ -662,23 +701,10 @@ class _ServiceFormState extends State<ServiceForm> {
 
         const SizedBox(height: VelvetSpacing.lg),
 
-        // 1 — Service name (required, 1–255 chars). Wrapped in a
-        // ValueListenableBuilder so a keystroke re-validates only this field's
-        // inline error — `_CategoryDropdown` stays out of the rebuild (perf MEDIUM).
-        ValueListenableBuilder<int>(
-          valueListenable: _revalidateTick,
-          builder: (BuildContext context, _, _) => _buildField(
-            fieldKey: const Key('field-service-name'),
-            label: l10n.serviceNameLabel,
-            controller: _nameCtrl,
-            errorText: _nameError(l10n),
-            hintText: l10n.serviceNameHint,
-            enabled: !_submitting,
-          ),
-        ),
-        const SizedBox(height: VelvetSpacing.lg),
+        // Field order (Item 4): category → service type → Name. The custom name
+        // moved to LAST and is now OPTIONAL — see the name field below.
 
-        // 1b — Category searchable dropdown (required; reuses
+        // 1 — Category searchable dropdown (required; reuses
         //      [SearchableSelectField]). Options sourced from the approved-
         //      category provider (Ukrainian labels); the selected wire slug is
         //      routed back via [onSelect]. Selecting a category clears any
@@ -722,6 +748,10 @@ class _ServiceFormState extends State<ServiceForm> {
           _ServiceTypeDropdown(
             categoryName: _selectedCategory!,
             selectedId: _selectedServiceTypeId,
+            // Item 2: show the loaded service-type name immediately on edit so
+            // the closed field is never blank while the type list is still
+            // fetching. Once options resolve, the matched option's label wins.
+            selectedFallbackLabel: _selectedServiceTypeNameUk,
             disabled: _submitting,
             label: l10n.serviceTypeLabel,
             onSelect: onServiceTypeSelected,
@@ -732,6 +762,27 @@ class _ServiceFormState extends State<ServiceForm> {
                 _ServiceTypeError(errorText: _serviceTypeError()),
           ),
         ],
+        const SizedBox(height: VelvetSpacing.lg),
+
+        // 3 — Service name (Item 4: now OPTIONAL, and moved to LAST of the
+        //      identity fields — under category + service type). When a service
+        //      type is selected its Ukrainian name auto-fills this field (16.3
+        //      don't-clobber rule), but the master may clear it: an empty name is
+        //      accepted on submit and the backend defaults it to the service-type
+        //      name. The label carries an "(optional)" hint so the field reads as
+        //      non-mandatory. Wrapped in a ValueListenableBuilder so a keystroke
+        //      re-validates only this field's inline error.
+        ValueListenableBuilder<int>(
+          valueListenable: _revalidateTick,
+          builder: (BuildContext context, _, _) => _buildField(
+            fieldKey: const Key('field-service-name'),
+            label: l10n.serviceNameOptionalLabel,
+            controller: _nameCtrl,
+            errorText: _nameError(l10n),
+            hintText: l10n.serviceNameHint,
+            enabled: !_submitting,
+          ),
+        ),
         const SizedBox(height: VelvetSpacing.lg),
 
         // 2 — Duration field (required, integer 1–480 min / 8 h — backend cap).
@@ -893,6 +944,7 @@ class _ServiceTypeDropdown extends ConsumerWidget {
     required this.selectedId,
     required this.label,
     required this.onSelect,
+    this.selectedFallbackLabel,
     this.disabled = false,
   });
 
@@ -900,6 +952,13 @@ class _ServiceTypeDropdown extends ConsumerWidget {
   final String? selectedId;
   final String label;
   final ValueChanged<ServiceTypeOption> onSelect;
+
+  /// Label to display in the closed field for [selectedId] until the option
+  /// list resolves a match (Item 2 — edit prefill). Sourced from the loaded
+  /// service's `serviceTypeNameUk`. The matched-option label takes precedence
+  /// once options load; this only fills the gap while loading or if the option
+  /// is momentarily absent.
+  final String? selectedFallbackLabel;
   final bool disabled;
 
   @override
@@ -919,6 +978,14 @@ class _ServiceTypeDropdown extends ConsumerWidget {
         selectedLabel = o.nameUk;
         break;
       }
+    }
+    // Item 2: while options are still loading (or the matched option is
+    // momentarily absent), fall back to the loaded service-type name so the
+    // edit form's closed field shows the selection instead of an empty field.
+    if (selectedLabel == null &&
+        selectedId != null &&
+        (selectedFallbackLabel?.isNotEmpty ?? false)) {
+      selectedLabel = selectedFallbackLabel;
     }
 
     final SelectFieldState fieldState = typesAsync.when(

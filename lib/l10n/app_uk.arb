@@ -1284,6 +1284,10 @@
   "@serviceNameHint": {
     "description": "Hint text inside the service name input field on the service create form (Phase 5.3)."
   },
+  "serviceNameOptionalLabel": "Назва (необов’язково)",
+  "@serviceNameOptionalLabel": {
+    "description": "Field label above the now-optional service custom-name input on the service create/edit form (Item 4). The name defaults to the selected service-type name when left blank."
+  },
   "serviceDurationLabel": "Тривалість",
   "@serviceDurationLabel": {
     "description": "Field label above the duration input on the service create/edit form (Phase 5.3)."

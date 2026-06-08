@@ -8,7 +8,8 @@
 //   - Tap the submit CTA and inspect field-level error text.
 //
 // Coverage:
-//   1. Empty name shows errRequired / errNameRequired.
+//   1. Blank name is OPTIONAL — submit proceeds with an empty name, no
+//      required error (Item 4, 2026-06-08; required-name contract removed).
 //   2. Empty duration (digitsOnly formatter blocks non-digits; leaving it empty
 //      after submit shows errRequired).
 //   3. Zero duration shows errDurationPositive.
@@ -226,13 +227,18 @@ void main() {
   }
 
   // ---------------------------------------------------------------------------
-  // 1. Empty name shows a required-field error after submit.
+  // 1. Blank name is OPTIONAL — submit proceeds (no required error) and
+  //    repository.create() is called with an EMPTY name (Item 4, 2026-06-08).
+  //    The required-name contract was removed: the backend defaults a blank name
+  //    to the selected service-type name, so the client must NOT block on it.
   // ---------------------------------------------------------------------------
-  testWidgets('empty name shows required error after submit', (tester) async {
+  testWidgets('blank name submits with empty name (no required error)', (
+    tester,
+  ) async {
     await pumpCreate(tester);
     final l10n = _l10n(tester);
 
-    // Leave name empty; fill valid duration and price.
+    // Leave name empty; fill valid duration, price, and category.
     await tester.enterText(
       find.descendant(
         of: find.byKey(const Key('field-service-duration')),
@@ -247,9 +253,25 @@ void main() {
       ),
       '100',
     );
+    await selectCategoryOption(tester, 'MANICURE');
     await tapSubmit(tester);
+    await tester.pumpAndSettle();
 
-    expect(find.text(l10n.errRequired), findsWidgets);
+    // No required-name error surfaces for the (now optional) name field.
+    expect(find.text(l10n.errNameRequired), findsNothing);
+
+    // Submit proceeds: create() is called once with an empty name (NOT
+    // substituted with the category / type name — the stopgap was removed).
+    final captured = verify(() => mockRepo.create(captureAny())).captured;
+    expect(captured.length, 1);
+    final input = captured.first as MasterServiceCreate;
+    expect(
+      input.name,
+      '',
+      reason:
+          'blank name flows through verbatim — the backend defaults it, the '
+          'client does not substitute the type name',
+    );
   });
 
   // ---------------------------------------------------------------------------

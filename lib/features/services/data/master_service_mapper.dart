@@ -466,9 +466,18 @@ abstract final class MasterServiceMapper {
     }
 
     return UpdateServiceDefinitionRequest((b) {
+      // Blank-name default (backend-aligned): a non-null name — including an
+      // empty string the master cleared — is sent through. The backend defaults
+      // a blank/null name to the selected service type's nameUk, so the client
+      // no longer substitutes a fallback name itself. A `null` name still means
+      // "do not change" (key omitted from the PATCH body).
       if (patch.name != null) b.name = patch.name;
       if (patch.description != null) b.description = patch.description;
       if (patch.category != null) b.category = patch.category;
+      // Service type (Phase 16.x). Assign only when the patch carries a value —
+      // the generated serializer omits a null builder field, so a `null`
+      // serviceTypeId leaves the current type unchanged on the wire.
+      if (patch.serviceTypeId != null) b.serviceTypeId = patch.serviceTypeId;
       if (duration != null) b.baseDurationMinutes = duration;
       if (buffer != null) b.bufferMinutesAfter = buffer;
 
