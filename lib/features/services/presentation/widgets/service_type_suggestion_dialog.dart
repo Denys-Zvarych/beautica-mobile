@@ -180,27 +180,24 @@ class _ServiceTypeSuggestionDialogState
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final mq = MediaQuery.of(context);
-    // Keyboard inset: when a field is focused the soft keyboard would otherwise
-    // cover the vertically-centred dialog's footer. Float the whole card above
-    // the keyboard and cap the scroll viewport to the visible area so the
-    // footer Row (last scroll child) is always reachable.
-    final double viewInsetsBottom = mq.viewInsets.bottom;
 
+    // The Dialog widget already accounts for the software keyboard by applying
+    // MediaQuery.viewInsetsOf(context) internally to its effectivePadding.
+    // Adding viewInsetsBottom manually to insetPadding.bottom and subtracting
+    // it from maxHeight double-counts the keyboard height — causing the card to
+    // shrink (button clipped) and re-centre upward (jump-to-top).  Both
+    // problems are fixed by using static insetPadding and omitting the keyboard
+    // term from the height constraint.  SingleChildScrollView already handles
+    // any overflow so the submit button is always reachable.
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      insetPadding: EdgeInsets.only(
-        left: VelvetSpacing.lg,
-        right: VelvetSpacing.lg,
-        top: VelvetSpacing.xl,
-        bottom: VelvetSpacing.xl + viewInsetsBottom,
+      insetPadding: const EdgeInsets.symmetric(
+        horizontal: VelvetSpacing.lg,
+        vertical: VelvetSpacing.xl,
       ),
       child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 420,
-          maxHeight: mq.size.height * 0.9 - viewInsetsBottom,
-        ),
+        constraints: const BoxConstraints(maxWidth: 420),
         child: NeumorphicCard(
           child: Padding(
             padding: const EdgeInsets.all(VelvetSpacing.lg),

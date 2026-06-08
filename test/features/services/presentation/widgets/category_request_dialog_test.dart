@@ -21,8 +21,10 @@
 //      initialServiceName == null; the field is optional (no inline required
 //      error when blank).
 //   6. (Change 3) initial-service field filled → the TRIMMED value is forwarded.
-//   7. (Change 2) with a raised keyboard the submit CTA stays visible and
-//      hit-testable (footer not clipped by the inset).
+//   7a. (Change 2 — genuine regression) with a 300 px keyboard the Dialog
+//       outer AnimatedPadding.padding.bottom == viewInsets + xl (332), NOT
+//       2*viewInsets + xl (632 — the double-count bug).
+//   7b. (Change 2 — baseline) with no keyboard, padding.bottom == xl (32) only.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -343,49 +345,113 @@ void main() {
     },
   );
 
-  testWidgets(
-    '7. (Change 2) with a raised keyboard the submit CTA stays visible and '
-    'hit-testable (footer not clipped by the inset)',
-    (tester) async {
-      when(
-        () => repo.requestCategory(
-          name: any(named: 'name'),
-          displayName: any(named: 'displayName'),
-          initialServiceName: any(named: 'initialServiceName'),
-        ),
-      ).thenAnswer((_) async {});
+  // ---------------------------------------------------------------------------
+  // Keyboard-inset layout guard (Change 2 regression)
+  //
+  // The bug: CategoryRequestDialog.build() read MediaQuery.viewInsets.bottom and
+  // added it to both Dialog.insetPadding.bottom AND a ConstrainedBox.maxHeight
+  // term.  Flutter's Dialog widget ALREADY applies MediaQuery.viewInsetsOf to its
+  // outer AnimatedPadding (effectivePadding = viewInsetsOf + insetPadding).
+  // Double-counting caused the outer AnimatedPadding.padding.bottom to grow by
+  // 2 × viewInsets instead of 1 ×, pushing the dialog to the top of the screen.
+  //
+  // The fix: insetPadding and BoxConstraints are now const — no manual viewInsets
+  // arithmetic.  Dialog applies the inset exactly once.
+  //
+  // Why the previous rect-vs-visible-fold assertion did NOT catch this:
+  //   Dialog.build() wraps its child in MediaQuery.removeViewInsets, so the
+  //   CategoryRequestDialog.build() context always reads viewInsets = 0 in the
+  //   widget test environment, making old and new code produce the same CTA rect.
+  //
+  // Genuine regression test: assert the Dialog's outer AnimatedPadding.padding
+  // .bottom equals viewInsets + VelvetSpacing.xl (= 300 + 32 = 332 with a 300-px
+  // keyboard), NOT 2*viewInsets + xl (= 632, the double-count).
+  // ---------------------------------------------------------------------------
 
-      // Portrait viewport with a raised on-screen keyboard occupying the bottom
-      // third. The dialog floats its card above the inset and caps the scroll
-      // viewport (maxHeight = height*0.9 - inset) so the footer Row is never
-      // clipped behind the keyboard.
+  testWidgets(
+    '7a. (Change 2 — genuine regression) with a 300 px keyboard inset the '
+    'Dialog outer padding.bottom == viewInsets + xl (single application)',
+    (tester) async {
+      // No repository stub needed — the test does not submit.
+      const double kSimulatedKeyboard = 300.0;
+      const double kXl = 32.0; // VelvetSpacing.xl
+
       tester.view.physicalSize = const Size(400, 900);
       tester.view.devicePixelRatio = 1.0;
-      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      tester.view.viewInsets = const FakeViewPadding(bottom: kSimulatedKeyboard);
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetViewInsets);
 
       await _openDialog(tester, repo);
 
-      final submit = find.byKey(const Key('btn-submit-suggest-category'));
-      expect(submit, findsOneWidget);
-
-      // The CTA rect must lie fully inside the visible viewport (above the
-      // keyboard inset), so the footer is reachable rather than clipped behind
-      // the keyboard. (A center-point hit test is avoided here: the modal
-      // barrier layering makes it layout-fragile; the rect-within-viewport bound
-      // is the deterministic Change-2 guard.)
-      final Rect ctaRect = tester.getRect(submit);
-      final double visibleBottom =
-          tester.view.physicalSize.height / tester.view.devicePixelRatio -
-          tester.view.viewInsets.bottom / tester.view.devicePixelRatio;
+      // The Dialog widget wraps its content in an AnimatedPadding whose
+      // padding = MediaQuery.viewInsetsOf(context) + insetPadding.
+      // With the fix:   padding.bottom = 300 + 32 = 332  (one application)
+      // With the bug:   padding.bottom = 300 + 300 + 32 = 632  (double-count)
+      //
+      // We read the AnimatedPadding that the Dialog route injects.  It is the
+      // first AnimatedPadding found inside the dialog route overlay (there are
+      // no AnimatedPaddings in the trigger Scaffold).
+      final animPaddings = tester
+          .widgetList<AnimatedPadding>(find.byType(AnimatedPadding))
+          .toList();
       expect(
-        ctaRect.bottom,
-        lessThanOrEqualTo(visibleBottom),
-        reason: 'submit CTA must stay above the raised keyboard, not clipped',
+        animPaddings,
+        isNotEmpty,
+        reason: 'Dialog must produce at least one AnimatedPadding',
       );
-      expect(ctaRect.top, greaterThanOrEqualTo(0));
+      // The Dialog's AnimatedPadding is the one whose bottom padding reflects the
+      // keyboard.  Find it as the widget with the largest bottom padding value
+      // among all AnimatedPaddings (the double-count would produce 632 > 332).
+      final double maxBottom = animPaddings
+          .map((ap) => (ap.padding as EdgeInsets).bottom)
+          .reduce((a, b) => a > b ? a : b);
+
+      const double expectedBottom = kSimulatedKeyboard + kXl; // 332.0
+      const double doubleCountedBottom =
+          kSimulatedKeyboard + kSimulatedKeyboard + kXl; // 632.0
+
+      expect(
+        maxBottom,
+        closeTo(expectedBottom, 1.0),
+        reason:
+            'Dialog outer padding.bottom must be viewInsets + xl ($expectedBottom), '
+            'not 2*viewInsets + xl ($doubleCountedBottom — the double-count bug). '
+            'Got $maxBottom.',
+      );
+    },
+  );
+
+  testWidgets(
+    '7b. (Change 2 — baseline) with no keyboard the Dialog outer '
+    'padding.bottom == xl only (no phantom inset term)',
+    (tester) async {
+      const double kXl = 32.0; // VelvetSpacing.xl
+
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      // No viewInsets set — keyboard is absent.
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await _openDialog(tester, repo);
+
+      final animPaddings = tester
+          .widgetList<AnimatedPadding>(find.byType(AnimatedPadding))
+          .toList();
+      expect(animPaddings, isNotEmpty);
+      final double maxBottom = animPaddings
+          .map((ap) => (ap.padding as EdgeInsets).bottom)
+          .reduce((a, b) => a > b ? a : b);
+
+      expect(
+        maxBottom,
+        closeTo(kXl, 1.0),
+        reason:
+            'With no keyboard the Dialog outer padding.bottom must equal xl '
+            '($kXl) only — no extra inset term must be added.',
+      );
     },
   );
 }
