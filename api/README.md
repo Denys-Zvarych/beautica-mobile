@@ -136,7 +136,7 @@ Class | Method | HTTP request | Description
 [*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchMasters**](doc/SearchControllerApi.md#searchmasters) | **GET** /api/v1/search/masters | 
 [*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchSalons**](doc/SearchControllerApi.md#searchsalons) | **GET** /api/v1/search/salons | 
 [*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getCategories**](doc/ServiceCatalogControllerApi.md#getcategories) | **GET** /api/v1/service-categories | 
-[*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getServiceTypes**](doc/ServiceCatalogControllerApi.md#getservicetypes) | **GET** /api/v1/service-types | 
+[*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getServiceTypesByPlatformCategory**](doc/ServiceCatalogControllerApi.md#getservicetypesbyplatformcategory) | **GET** /api/v1/service-types | 
 [*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**suggestServiceType**](doc/ServiceCatalogControllerApi.md#suggestservicetype) | **POST** /api/v1/service-types/suggest | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**addIndependentMasterService**](doc/ServiceControllerApi.md#addindependentmasterservice) | **POST** /api/v1/independent-masters/me/services | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**addServiceToSalon**](doc/ServiceControllerApi.md#addservicetosalon) | **POST** /api/v1/salons/{salonId}/services | 
@@ -215,7 +215,6 @@ Class | Method | HTTP request | Description
  - [CreateServiceDefinitionRequest](doc/CreateServiceDefinitionRequest.md)
  - [EffectiveDayResponse](doc/EffectiveDayResponse.md)
  - [ForgotPasswordRequest](doc/ForgotPasswordRequest.md)
- - [GetServiceTypes200Response](doc/GetServiceTypes200Response.md)
  - [IndependentMasterUpdateRequest](doc/IndependentMasterUpdateRequest.md)
  - [InviteAcceptRequest](doc/InviteAcceptRequest.md)
  - [InvitePreviewResponse](doc/InvitePreviewResponse.md)

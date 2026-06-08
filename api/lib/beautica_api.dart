@@ -92,7 +92,6 @@ export 'package:beautica_api/src/model/create_salon_request.dart';
 export 'package:beautica_api/src/model/create_service_definition_request.dart';
 export 'package:beautica_api/src/model/effective_day_response.dart';
 export 'package:beautica_api/src/model/forgot_password_request.dart';
-export 'package:beautica_api/src/model/get_service_types200_response.dart';
 export 'package:beautica_api/src/model/independent_master_update_request.dart';
 export 'package:beautica_api/src/model/invite_accept_request.dart';
 export 'package:beautica_api/src/model/invite_preview_response.dart';

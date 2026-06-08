@@ -388,29 +388,14 @@ final class HttpServiceRepository implements ServiceRepository {
   @override
   Future<List<ServiceTypeOption>> fetchServiceTypes(String categoryName) async {
     try {
-      final res = await _catalogApi.getServiceTypes(categoryName: categoryName);
-      // GetServiceTypes200Response is a oneOf over:
-      //   [0] ApiResponseListPlatformServiceTypeResponse (the live slug-contract
-      //       branch the categoryName path resolves to), and
-      //   [1] ApiResponseListServiceTypeResponse (legacy alternate — ignored).
-      // Bind to the Platform branch by checking the unwrapped value's runtime
-      // type rather than typeIndex/isType — a non-Platform branch (which should
-      // never occur on this path) then degrades to an empty list instead of an
-      // unchecked cast that would throw.
-      final value = res.data?.oneOf.value;
-      if (value is! ApiResponseListPlatformServiceTypeResponse) {
-        if (kDebugMode) {
-          log(
-            'fetchServiceTypes($categoryName): response did not resolve to the '
-            'PlatformServiceTypeResponse branch (got ${value.runtimeType}) — '
-            'returning empty list',
-            name: _tag,
-            level: 900,
-          );
-        }
-        return const [];
-      }
-      final list = value.data;
+      // The 200 response is now a single-shape
+      // ApiResponseListPlatformServiceTypeResponse (the legacy oneOf alternate
+      // was removed backend-side — the legacy operation is @Hidden). Read
+      // `data` directly, mirroring [fetchApprovedCategories].
+      final res = await _catalogApi.getServiceTypesByPlatformCategory(
+        categoryName: categoryName,
+      );
+      final list = res.data?.data;
       if (list == null) {
         if (kDebugMode) {
           log(

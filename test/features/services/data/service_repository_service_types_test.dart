@@ -1,35 +1,41 @@
-// Phase 16.2 — Unit tests for [HttpServiceRepository.fetchServiceTypes].
+// Phase 16.x — Unit tests for [HttpServiceRepository.fetchServiceTypes].
 //
 // Strategy:
 //   Mocks [ServiceCatalogControllerApi] with mocktail and constructs
 //   [HttpServiceRepository] directly (pure Dart, no Riverpod overhead), mirroring
 //   service_repository_test.dart.
 //
-// The `GET /service-types?categoryName=...` response is a `oneOf` over:
-//   [0] ApiResponseListPlatformServiceTypeResponse  — the live slug-contract
-//       branch the categoryName path resolves to.
-//   [1] ApiResponseListServiceTypeResponse          — legacy alternate; ignored.
-// The repository binds to branch [0] by the unwrapped value's runtime type and
-// degrades any other shape to an empty list rather than throwing.
+// Contract (post-regen): `GET /api/v1/service-types?categoryName=...` is a
+// SINGLE-shape 200 response — `ApiResponseListPlatformServiceTypeResponse`.
+// The ambiguous 2-branch `oneOf` (`GetServiceTypes200Response`) was DELETED
+// backend-side (the legacy operation is @Hidden), so the client now returns the
+// Platform envelope directly via `getServiceTypesByPlatformCategory`.
+//
+//   ⚠ Regression context: the OLD oneOf had two branches that BOTH matched the
+//   real payload `{id,slug,nameUk,categoryName}`. The `one_of` deserializer
+//   threw `UnsupportedError("more than one match found")` at runtime → the
+//   picker rendered EMPTY. The old tests never caught it because they built the
+//   `OneOf` value directly in Dart and never drove raw JSON through the
+//   deserializer. The companion contract test
+//   (api/test/contract/service_types_contract_test.dart) now drives the real
+//   serializer path to lock the single-shape contract.
 //
 // Coverage:
-//   1. Platform branch with rows  → mapped List<ServiceTypeOption>.
-//   2. Platform branch, empty list → empty list.
-//   3. Platform branch, null .data → empty list.
-//   4. Legacy branch resolved      → empty list (graceful degrade, no throw).
-//      ← highest-value guard for the 16.1 oneOf contract nuance.
-//   5. forwards categoryName to the generated API.
-//   6. connectionError             → NetworkFailure.
-//   7. 400 / 422                   → ValidationFailure.
+//   1. Platform rows  → mapped List<ServiceTypeOption> (data binding asserted).
+//   2. Empty list     → empty list.
+//   3. null .data     → empty list.
+//   4. forwards categoryName to the generated API.
+//   5. connection / timeout errors → NetworkFailure.
+//   6. 400 / 422                   → ValidationFailure.
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:built_collection/built_collection.dart';
+import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
-import 'package:one_of/one_of.dart';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -61,9 +67,9 @@ PlatformServiceTypeResponse _platformDto({
     ..categoryName = categoryName,
 );
 
-/// Wraps the Platform branch (`oneOf` typeIndex 0) in the transport [Response].
+/// Wraps the Platform rows in the single-shape transport [Response].
 /// Pass [items] = null to model a present envelope with a null `.data`.
-Response<GetServiceTypes200Response> _platformResponse(
+Response<ApiResponseListPlatformServiceTypeResponse> _platformResponse(
   List<PlatformServiceTypeResponse>? items,
 ) {
   final envelope = ApiResponseListPlatformServiceTypeResponse((b) {
@@ -72,47 +78,8 @@ Response<GetServiceTypes200Response> _platformResponse(
       b.data = ListBuilder<PlatformServiceTypeResponse>(items);
     }
   });
-  final body = GetServiceTypes200Response(
-    (b) => b
-      ..oneOf =
-          OneOf2<
-            ApiResponseListPlatformServiceTypeResponse,
-            ApiResponseListServiceTypeResponse
-          >(value: envelope, typeIndex: 0),
-  );
-  return Response<GetServiceTypes200Response>(
-    data: body,
-    requestOptions: RequestOptions(path: _path),
-    statusCode: 200,
-  );
-}
-
-/// Wraps the LEGACY branch (`oneOf` typeIndex 1) in the transport [Response].
-/// The repository must NOT map this branch — it degrades to an empty list.
-Response<GetServiceTypes200Response> _legacyResponse() {
-  final legacy = ApiResponseListServiceTypeResponse(
-    (b) => b
-      ..success = true
-      ..data = ListBuilder<ServiceTypeResponse>(<ServiceTypeResponse>[
-        ServiceTypeResponse(
-          (t) => t
-            ..id = 'legacy-1'
-            ..slug = 'LEGACY_SLUG'
-            ..nameUk = 'Старе'
-            ..nameEn = 'Old',
-        ),
-      ]),
-  );
-  final body = GetServiceTypes200Response(
-    (b) => b
-      ..oneOf =
-          OneOf2<
-            ApiResponseListPlatformServiceTypeResponse,
-            ApiResponseListServiceTypeResponse
-          >(value: legacy, typeIndex: 1),
-  );
-  return Response<GetServiceTypes200Response>(
-    data: body,
+  return Response<ApiResponseListPlatformServiceTypeResponse>(
+    data: envelope,
     requestOptions: RequestOptions(path: _path),
     statusCode: 200,
   );
@@ -149,10 +116,12 @@ void main() {
     );
   });
 
-  group('fetchServiceTypes — happy path (Platform branch)', () {
-    test('maps the Platform-branch rows to domain options', () async {
+  group('fetchServiceTypes — happy path (single Platform shape)', () {
+    test('maps the Platform rows to domain options', () async {
       when(
-        () => catalogApi.getServiceTypes(categoryName: _category),
+        () => catalogApi.getServiceTypesByPlatformCategory(
+          categoryName: _category,
+        ),
       ).thenAnswer(
         (_) async => _platformResponse(<PlatformServiceTypeResponse>[
           _platformDto(id: 'type-1', slug: 'CLASSIC_LASHES', nameUk: 'Класика'),
@@ -174,21 +143,26 @@ void main() {
 
     test('forwards the categoryName argument to the generated API', () async {
       when(
-        () => catalogApi.getServiceTypes(
+        () => catalogApi.getServiceTypesByPlatformCategory(
           categoryName: any(named: 'categoryName'),
         ),
       ).thenAnswer((_) async => _platformResponse(const []));
 
       await repository.fetchServiceTypes('HAIR');
 
-      verify(() => catalogApi.getServiceTypes(categoryName: 'HAIR')).called(1);
+      verify(
+        () =>
+            catalogApi.getServiceTypesByPlatformCategory(categoryName: 'HAIR'),
+      ).called(1);
     });
   });
 
   group('fetchServiceTypes — graceful degradation to empty list', () {
     test('empty backend result → empty list', () async {
       when(
-        () => catalogApi.getServiceTypes(categoryName: _category),
+        () => catalogApi.getServiceTypesByPlatformCategory(
+          categoryName: _category,
+        ),
       ).thenAnswer((_) async => _platformResponse(const []));
 
       expect(await repository.fetchServiceTypes(_category), isEmpty);
@@ -196,31 +170,21 @@ void main() {
 
     test('null envelope .data → empty list', () async {
       when(
-        () => catalogApi.getServiceTypes(categoryName: _category),
+        () => catalogApi.getServiceTypesByPlatformCategory(
+          categoryName: _category,
+        ),
       ).thenAnswer((_) async => _platformResponse(null));
 
       expect(await repository.fetchServiceTypes(_category), isEmpty);
-    });
-
-    test('oneOf resolves to the legacy ServiceTypeResponse branch → empty list '
-        '(no throw)', () async {
-      // The 16.1 contract nuance: the categoryName path should resolve to the
-      // Platform branch, but if the response ever lands on the legacy branch
-      // the repository must degrade to [] rather than throw an unchecked cast.
-      when(
-        () => catalogApi.getServiceTypes(categoryName: _category),
-      ).thenAnswer((_) async => _legacyResponse());
-
-      final result = await repository.fetchServiceTypes(_category);
-
-      expect(result, isEmpty);
     });
   });
 
   group('fetchServiceTypes — transport errors → typed Failures', () {
     test('connectionError → NetworkFailure', () async {
       when(
-        () => catalogApi.getServiceTypes(categoryName: _category),
+        () => catalogApi.getServiceTypesByPlatformCategory(
+          categoryName: _category,
+        ),
       ).thenThrow(_dio(DioExceptionType.connectionError));
 
       await expectLater(
@@ -231,7 +195,9 @@ void main() {
 
     test('receiveTimeout → NetworkFailure', () async {
       when(
-        () => catalogApi.getServiceTypes(categoryName: _category),
+        () => catalogApi.getServiceTypesByPlatformCategory(
+          categoryName: _category,
+        ),
       ).thenThrow(_dio(DioExceptionType.receiveTimeout));
 
       await expectLater(
@@ -246,7 +212,9 @@ void main() {
     // state instead of stranding the user on an infinite spinner.
     test('sendTimeout → NetworkFailure (spinner-fix guard)', () async {
       when(
-        () => catalogApi.getServiceTypes(categoryName: _category),
+        () => catalogApi.getServiceTypesByPlatformCategory(
+          categoryName: _category,
+        ),
       ).thenThrow(_dio(DioExceptionType.sendTimeout));
 
       await expectLater(
@@ -257,7 +225,9 @@ void main() {
 
     test('connectionTimeout → NetworkFailure (spinner-fix guard)', () async {
       when(
-        () => catalogApi.getServiceTypes(categoryName: _category),
+        () => catalogApi.getServiceTypesByPlatformCategory(
+          categoryName: _category,
+        ),
       ).thenThrow(_dio(DioExceptionType.connectionTimeout));
 
       await expectLater(
@@ -268,7 +238,9 @@ void main() {
 
     test('400 → ValidationFailure', () async {
       when(
-        () => catalogApi.getServiceTypes(categoryName: _category),
+        () => catalogApi.getServiceTypesByPlatformCategory(
+          categoryName: _category,
+        ),
       ).thenThrow(_dio(DioExceptionType.badResponse, status: 400));
 
       await expectLater(
@@ -279,7 +251,9 @@ void main() {
 
     test('422 → ValidationFailure', () async {
       when(
-        () => catalogApi.getServiceTypes(categoryName: _category),
+        () => catalogApi.getServiceTypesByPlatformCategory(
+          categoryName: _category,
+        ),
       ).thenThrow(_dio(DioExceptionType.badResponse, status: 422));
 
       await expectLater(
@@ -288,4 +262,91 @@ void main() {
       );
     });
   });
+
+  // ── Regression: real deserialization resolves to exactly ONE shape ──────────
+  //
+  // This is the test that, under the OLD ambiguous oneOf model, would have
+  // failed with `UnsupportedError("more than one match found")`. We drive an
+  // actual JSON envelope through the generated serializers exactly as Dio's
+  // generated client does (standardSerializers.deserialize into the now-single
+  // ApiResponseListPlatformServiceTypeResponse), then feed the resulting model
+  // through the repository and assert a non-empty typed list — proving no throw
+  // and correct binding end-to-end.
+  group(
+    'fetchServiceTypes — regression: single-shape JSON resolves cleanly',
+    () {
+      final json = <String, Object?>{
+        'success': true,
+        'data': <Object?>[
+          <String, Object?>{
+            'id': 'st-1',
+            'slug': 'CLASSIC_LASHES',
+            'nameUk': 'Класичне нарощування',
+            'categoryName': _category,
+          },
+          <String, Object?>{
+            'id': 'st-2',
+            'slug': 'VOLUME_LASHES',
+            'nameUk': 'Об’ємне нарощування',
+            'categoryName': _category,
+          },
+        ],
+        'message': null,
+        'errors': null,
+      };
+
+      test('deserializes the Platform envelope without UnsupportedError', () {
+        // Under the deleted 2-branch oneOf, both branches matched this payload
+        // and `one_of` threw "more than one match found". The single-shape model
+        // resolves it to exactly one typed envelope.
+        final envelope =
+            standardSerializers.deserialize(
+                  json,
+                  specifiedType: const FullType(
+                    ApiResponseListPlatformServiceTypeResponse,
+                  ),
+                )
+                as ApiResponseListPlatformServiceTypeResponse;
+
+        expect(envelope.success, isTrue);
+        expect(envelope.data, isNotNull);
+        expect(envelope.data!.length, 2);
+        expect(envelope.data!.first.slug, 'CLASSIC_LASHES');
+        expect(envelope.data!.first.categoryName, _category);
+      });
+
+      test('repository maps the deserialized envelope to a non-empty '
+          'List<ServiceTypeOption>', () async {
+        final envelope =
+            standardSerializers.deserialize(
+                  json,
+                  specifiedType: const FullType(
+                    ApiResponseListPlatformServiceTypeResponse,
+                  ),
+                )
+                as ApiResponseListPlatformServiceTypeResponse;
+
+        when(
+          () => catalogApi.getServiceTypesByPlatformCategory(
+            categoryName: _category,
+          ),
+        ).thenAnswer(
+          (_) async => Response<ApiResponseListPlatformServiceTypeResponse>(
+            data: envelope,
+            requestOptions: RequestOptions(path: _path),
+            statusCode: 200,
+          ),
+        );
+
+        final result = await repository.fetchServiceTypes(_category);
+
+        expect(result.length, 2);
+        expect(result.map((o) => o.slug).toList(), <String>[
+          'CLASSIC_LASHES',
+          'VOLUME_LASHES',
+        ]);
+        expect(result.first.nameUk, 'Класичне нарощування');
+      });
+    },
+  );
 }

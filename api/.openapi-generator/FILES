@@ -70,7 +70,6 @@ doc/DashboardControllerApi.md
 doc/DeviceControllerApi.md
 doc/EffectiveDayResponse.md
 doc/ForgotPasswordRequest.md
-doc/GetServiceTypes200Response.md
 doc/IndependentMasterControllerApi.md
 doc/IndependentMasterUpdateRequest.md
 doc/InternalCategoryControllerApi.md
@@ -240,7 +239,6 @@ lib/src/model/create_service_definition_request.dart
 lib/src/model/date.dart
 lib/src/model/effective_day_response.dart
 lib/src/model/forgot_password_request.dart
-lib/src/model/get_service_types200_response.dart
 lib/src/model/independent_master_update_request.dart
 lib/src/model/invite_accept_request.dart
 lib/src/model/invite_preview_response.dart
@@ -309,6 +307,3 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
-test/api_response_list_platform_service_type_response_test.dart
-test/get_service_types200_response_test.dart
-test/platform_service_type_response_test.dart

@@ -78,7 +78,6 @@ import 'package:beautica_api/src/model/create_salon_request.dart';
 import 'package:beautica_api/src/model/create_service_definition_request.dart';
 import 'package:beautica_api/src/model/effective_day_response.dart';
 import 'package:beautica_api/src/model/forgot_password_request.dart';
-import 'package:beautica_api/src/model/get_service_types200_response.dart';
 import 'package:beautica_api/src/model/independent_master_update_request.dart';
 import 'package:beautica_api/src/model/invite_accept_request.dart';
 import 'package:beautica_api/src/model/invite_preview_response.dart';
@@ -213,7 +212,6 @@ part 'serializers.g.dart';
   CreateServiceDefinitionRequest,
   EffectiveDayResponse,
   ForgotPasswordRequest,
-  GetServiceTypes200Response,
   IndependentMasterUpdateRequest,
   InviteAcceptRequest,
   InvitePreviewResponse,

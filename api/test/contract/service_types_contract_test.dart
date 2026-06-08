@@ -10,6 +10,7 @@
 // If any assertion here fails after a regen, the backend↔mobile service-types
 // contract drifted; treat it as a real failure, not a stale test.
 
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/serializer.dart';
 import 'package:test/test.dart';
 import 'package:beautica_api/beautica_api.dart';
@@ -42,7 +43,8 @@ void main() {
       // Highest-value assertion: the pre-16.7 UUID `categoryId` contract must
       // stay dead. A regen that reverts the spec would reintroduce it.
       expect(json.containsKey('categoryName'), isTrue,
-          reason: 'categoryName wire field missing — 16.7 slug rename reverted');
+          reason:
+              'categoryName wire field missing — 16.7 slug rename reverted');
       expect(json['categoryName'], 'NAILS');
       expect(json.containsKey('categoryId'), isFalse,
           reason: 'categoryId reappeared — pre-16.7 UUID contract resurrected');
@@ -55,8 +57,8 @@ void main() {
           ..categoryName = 'NAILS',
       );
 
-      final back =
-          fromJson(SuggestServiceTypeRequest.serializer, toJson(SuggestServiceTypeRequest.serializer, req));
+      final back = fromJson(SuggestServiceTypeRequest.serializer,
+          toJson(SuggestServiceTypeRequest.serializer, req));
 
       expect(back.categoryName, 'NAILS');
       expect(back.name, 'Френч');
@@ -84,6 +86,108 @@ void main() {
       expect(reJson['slug'], 'gel-polish');
       expect(reJson['nameUk'], 'Гель-лак');
       expect(reJson['categoryName'], 'NAILS');
+    });
+  });
+
+  group(
+      'GET /service-types 200 contract '
+      '(single-shape ApiResponseListPlatformServiceTypeResponse)', () {
+    // REGRESSION LOCK — the original bug.
+    //
+    // The 200 response for /service-types was previously a 2-branch `oneOf`
+    // (GetServiceTypes200Response) whose branches BOTH matched the real payload
+    // `{id,slug,nameUk,categoryName}`. The `one_of` deserializer threw
+    // `UnsupportedError("more than one match found")` on the real wire bytes →
+    // fetchServiceTypes returned ServerFailure → the picker rendered EMPTY.
+    //
+    // The fix hid the legacy operation backend-side and regenerated the client
+    // so the 200 is a SINGLE shape. These tests drive an actual JSON envelope
+    // through the generated serializer exactly as the Dio client does. Under the
+    // old ambiguous model this deserialize would have THROWN; under the
+    // single-shape model it resolves to exactly one typed list.
+    test(
+        'deserializes a {success,data:[...],message,errors} envelope to a '
+        'non-empty typed list with NO "more than one match found" throw', () {
+      const json = <String, Object?>{
+        'success': true,
+        'data': <Object?>[
+          <String, Object?>{
+            'id': 'st-1',
+            'slug': 'CLASSIC_LASHES',
+            'nameUk': 'Класичне нарощування',
+            'categoryName': 'EYELASH',
+          },
+          <String, Object?>{
+            'id': 'st-2',
+            'slug': 'VOLUME_LASHES',
+            'nameUk': 'Об’ємне нарощування',
+            'categoryName': 'EYELASH',
+          },
+        ],
+        'message': null,
+        'errors': null,
+      };
+
+      // returnsNormally is the load-bearing assertion: the old oneOf threw here.
+      late ApiResponseListPlatformServiceTypeResponse envelope;
+      expect(
+        () => envelope = fromJson(
+            ApiResponseListPlatformServiceTypeResponse.serializer, json),
+        returnsNormally,
+        reason: 'single-shape 200 must deserialize without an ambiguous '
+            'oneOf "more than one match found" error',
+      );
+
+      expect(envelope.success, isTrue);
+      expect(envelope.data, isNotNull);
+      expect(envelope.data!.length, 2);
+      expect(envelope.data!.first.id, 'st-1');
+      expect(envelope.data!.first.slug, 'CLASSIC_LASHES');
+      expect(envelope.data!.first.nameUk, 'Класичне нарощування');
+      expect(envelope.data!.first.categoryName, 'EYELASH');
+    });
+
+    test('round-trips the envelope back to JSON preserving the data rows', () {
+      final envelope = ApiResponseListPlatformServiceTypeResponse(
+        (b) => b
+          ..success = true
+          ..data = ListBuilder<PlatformServiceTypeResponse>(
+            <PlatformServiceTypeResponse>[
+              PlatformServiceTypeResponse(
+                (t) => t
+                  ..id = 'st-9'
+                  ..slug = 'FRENCH'
+                  ..nameUk = 'Френч'
+                  ..categoryName = 'NAILS',
+              ),
+            ],
+          ),
+      );
+
+      final json = toJson(
+          ApiResponseListPlatformServiceTypeResponse.serializer, envelope);
+
+      expect(json['success'], isTrue);
+      final data = json['data']! as List<Object?>;
+      expect(data, hasLength(1));
+      final row = data.first! as Map<String, Object?>;
+      expect(row['slug'], 'FRENCH');
+      expect(row['categoryName'], 'NAILS');
+    });
+
+    test('serializer registry no longer contains the legacy oneOf 200 wrapper',
+        () {
+      // The ambiguous GetServiceTypes200Response wrapper was deleted on regen.
+      // If a future regen reintroduces a oneOf wrapper for this operation, its
+      // serializer would be registered under that wireName and this guard fails.
+      final hasLegacyWrapper = standardSerializers.serializers.any(
+        (s) =>
+            s.wireName == 'GetServiceTypes200Response' ||
+            s.wireName == 'GetServiceTypesByPlatformCategory200Response',
+      );
+      expect(hasLegacyWrapper, isFalse,
+          reason: 'an ambiguous oneOf 200 wrapper was reintroduced — the '
+              'service-types load bug can recur');
     });
   });
 
@@ -139,7 +243,8 @@ void main() {
       expect(model.serviceTypeNameUk, 'Гель-лак');
     });
 
-    test('accepts null serviceTypeId / serviceTypeNameUk (no type selected)', () {
+    test('accepts null serviceTypeId / serviceTypeNameUk (no type selected)',
+        () {
       const json = <String, Object?>{
         'id': 'ms-2',
         'masterId': 'master-2',
@@ -152,7 +257,8 @@ void main() {
     });
   });
 
-  group('ServiceDefinitionResponse contract (nullable serviceTypeId + nameUk)', () {
+  group('ServiceDefinitionResponse contract (nullable serviceTypeId + nameUk)',
+      () {
     test('round-trips serviceTypeId and serviceTypeNameUk when present', () {
       const json = <String, Object?>{
         'id': 'sd-1',
