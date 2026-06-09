@@ -273,16 +273,39 @@ class DayHours {
   );
 }
 
+/// The distinct validation problems a [DayHours] can carry. Lets the editor
+/// localise the message via `AppLocalizations` instead of string-matching the
+/// (domain-string) [DayHoursError.message]. Each value maps 1:1 to one of the
+/// four `validateDayHours` return cases.
+enum DayHoursErrorKind {
+  /// The working window's end is not strictly after its start.
+  windowEndBeforeStart,
+
+  /// A break's end is not strictly after its start.
+  breakEndBeforeStart,
+
+  /// A break falls partly or wholly outside the working window.
+  breakOutsideWindow,
+
+  /// Two breaks overlap.
+  breaksOverlap,
+}
+
 /// Validation problem for a [DayHours], with a Ukrainian message + which field
 /// the editor should ring red. `null` index means the working window itself.
+///
+/// [kind] is the typed discriminator the UI uses to look up a localised message
+/// (the [message] is kept as the canonical domain string / debug fallback).
 class DayHoursError {
   const DayHoursError(
-    this.message, {
+    this.message,
+    this.kind, {
     this.windowInvalid = false,
     this.breakIndex,
   });
 
   final String message;
+  final DayHoursErrorKind kind;
   final bool windowInvalid;
   final int? breakIndex;
 }
@@ -295,6 +318,7 @@ DayHoursError? validateDayHours(DayHours day) {
   if (day.window.endMinutes <= day.window.startMinutes) {
     return const DayHoursError(
       'Час завершення робочого дня має бути пізніше початку',
+      DayHoursErrorKind.windowEndBeforeStart,
       windowInvalid: true,
     );
   }
@@ -314,6 +338,7 @@ DayHoursError? validateDayHours(DayHours day) {
     if (b.endMinutes <= b.startMinutes) {
       return DayHoursError(
         'Час завершення перерви має бути пізніше початку',
+        DayHoursErrorKind.breakEndBeforeStart,
         breakIndex: originalIndex,
       );
     }
@@ -321,12 +346,14 @@ DayHoursError? validateDayHours(DayHours day) {
         b.endMinutes > day.window.endMinutes) {
       return DayHoursError(
         'Перерва має бути в межах робочих годин',
+        DayHoursErrorKind.breakOutsideWindow,
         breakIndex: originalIndex,
       );
     }
     if (i > 0 && b.startMinutes < indexed[i - 1].value.endMinutes) {
       return DayHoursError(
         'Перерви не можуть перетинатися',
+        DayHoursErrorKind.breaksOverlap,
         breakIndex: originalIndex,
       );
     }

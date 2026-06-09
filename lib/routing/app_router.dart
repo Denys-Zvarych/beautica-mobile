@@ -46,6 +46,7 @@ import '../features/settings/presentation/settings_screen.dart';
 import '../features/calendar/presentation/working_hours_screen.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
 import '../features/schedule/presentation/schedule_editor_stubs.dart';
+import '../features/schedule/presentation/weekly_template_editor_screen.dart';
 import '../features/services/domain/category_slug.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
@@ -258,9 +259,21 @@ GoRouter appRouter(Ref ref) {
         pageBuilder: (context, state) =>
             _instantPage(state, const MasterScheduleScreen()),
       ),
-      // Phase 15.2 — routed editor stubs for 15.4–15.5 (real placeholder
-      // screens; replaced at the same paths when each phase ships). The weekly-
-      // template editor now lands on the real /master/working-hours editor.
+      // Phase 15.5 — the REAL weekly-template editor («Робочі дні та години»),
+      // graduating the Phase 15.2 [WeeklyTemplateEditorStubScreen] at the same
+      // path. It saves via [WeeklyScheduleNotifier] → POST/PUT/DELETE
+      // /masters/{id}/weekly-schedules — the Phase 15.5 data path the calendar's
+      // effective-schedule read actually resolves against — and invalidates
+      // [effectiveScheduleProvider] on success so the calendar repaints. This
+      // replaces the dead-end route to the deprecated /master/working-hours
+      // editor (which wrote the legacy `working_hours` table, no longer bookable).
+      GoRoute(
+        path: RouteNames.scheduleWeeklyEditor,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const WeeklyTemplateEditorScreen()),
+      ),
+      // Phase 15.2 — routed editor stubs for 15.4 (real placeholder screens;
+      // replaced at the same paths when each phase ships).
       GoRoute(
         path: RouteNames.scheduleDayOverride,
         pageBuilder: (context, state) =>

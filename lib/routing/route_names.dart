@@ -65,15 +65,16 @@ abstract final class RouteNames {
   // Календар bottom-nav tile: a calendar-first availability view (read path).
   static const String masterSchedule = '/schedule';
 
+  // Phase 15.5 — the weekly-template editor («Робочі дні та години»). The
+  // schedule screen's empty-state CTA and «Редагувати» affordance route here;
+  // the editor saves via the `weekly-schedules` data path (the one the calendar
+  // reads) — NOT the deprecated `working_hours` editor at [workingHours].
+  static const String scheduleWeeklyEditor = '/schedule/weekly';
+
   // Phase 15.2 — routed editor stubs (real placeholder screens until the
   // corresponding phase lands; they replace these at the same paths):
   //   • 15.4 — per-date override sheet (day pencil / + Додати час / + Time Off)
   //   • 15.5 — copy/propagate range surface
-  // NOTE: the weekly-template editor CTA now routes to [workingHours] — the
-  // real editor. [scheduleWeeklyEditor] is no longer registered in the
-  // production router; it is retained only for the existing test harness until
-  // mobile-qa migrates that test.
-  static const String scheduleWeeklyEditor = '/schedule/weekly';
   static const String scheduleDayOverride = '/schedule/day';
   static const String schedulePropagate = '/schedule/copy';
 }

@@ -1989,5 +1989,111 @@
   "timePickerMinutesSemantic": "Minutes",
   "@timePickerMinutesSemantic": {
     "description": "Accessibility label for the minutes scroll wheel in the VelvetTouch time picker (15-minute steps)."
+  },
+  "weeklyEditorOpenCount": "Working days per week: {count}",
+  "@weeklyEditorOpenCount": {
+    "description": "Static summary chip on the weekly-template editor (Phase 15.5): how many ISO weekdays are open.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "weeklyEditorActiveWindowOpenEnded": "Schedule active from {from}",
+  "@weeklyEditorActiveWindowOpenEnded": {
+    "description": "Active-window card on the weekly-template editor when the template has no end date (open-ended). {from} is a DD.MM date.",
+    "placeholders": {
+      "from": { "type": "String" }
+    }
+  },
+  "weeklyEditorActiveWindowRange": "Schedule active: {from} – {to}",
+  "@weeklyEditorActiveWindowRange": {
+    "description": "Active-window card on the weekly-template editor when the template has a start and end date. {from} and {to} are DD.MM dates.",
+    "placeholders": {
+      "from": { "type": "String" },
+      "to": { "type": "String" }
+    }
+  },
+  "weeklyEditorActiveWindowHint": "Your weekly schedule applies during this period. Individual days can be changed later.",
+  "@weeklyEditorActiveWindowHint": {
+    "description": "Helper line under the active-window card on the weekly-template editor (Phase 15.5)."
+  },
+  "weeklyEditorDayOffRest": "Day off",
+  "@weeklyEditorDayOffRest": {
+    "description": "Rest-state body text shown inside a collapsed (day-off) weekday card in the weekly-template editor (Phase 15.5)."
+  },
+  "weeklyEditorDayToggleSemantic": "{day} — working day",
+  "@weeklyEditorDayToggleSemantic": {
+    "description": "Accessibility label for the per-weekday open/closed toggle in the weekly-template editor (Phase 15.5).",
+    "placeholders": {
+      "day": { "type": "String" }
+    }
+  },
+  "weeklyEditorErrorsBanner": "Fix the hours highlighted in red",
+  "@weeklyEditorErrorsBanner": {
+    "description": "Snackbar shown when the user tries to save the weekly template with invalid hours (Phase 15.5)."
+  },
+  "intervalEditorWorkHours": "Working hours",
+  "@intervalEditorWorkHours": {
+    "description": "Label above the working-window start/end time wells in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreaks": "Breaks",
+  "@intervalEditorBreaks": {
+    "description": "Label above the break rows in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorAddBreak": "Add break",
+  "@intervalEditorAddBreak": {
+    "description": "Action to add a break range to the working window in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorWorkStartTitle": "Working day start",
+  "@intervalEditorWorkStartTitle": {
+    "description": "Time-picker title / semantic label for the working-window start in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorWorkEndTitle": "Working day end",
+  "@intervalEditorWorkEndTitle": {
+    "description": "Time-picker title / semantic label for the working-window end in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreakStartTitle": "Break start",
+  "@intervalEditorBreakStartTitle": {
+    "description": "Time-picker title for a break start in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreakEndTitle": "Break end",
+  "@intervalEditorBreakEndTitle": {
+    "description": "Time-picker title for a break end in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreakStartSemantic": "Break {index} start",
+  "@intervalEditorBreakStartSemantic": {
+    "description": "Accessibility label for a break start time well in the interval editor (Phase 15.5). {index} is the 1-based break number.",
+    "placeholders": {
+      "index": { "type": "int" }
+    }
+  },
+  "intervalEditorBreakEndSemantic": "Break {index} end",
+  "@intervalEditorBreakEndSemantic": {
+    "description": "Accessibility label for a break end time well in the interval editor (Phase 15.5). {index} is the 1-based break number.",
+    "placeholders": {
+      "index": { "type": "int" }
+    }
+  },
+  "intervalEditorRemoveBreak": "Remove break {index}",
+  "@intervalEditorRemoveBreak": {
+    "description": "Accessibility label for the remove-break button in the interval editor (Phase 15.5). {index} is the 1-based break number.",
+    "placeholders": {
+      "index": { "type": "int" }
+    }
+  },
+  "intervalEditorErrEndAfterStart": "Working day end must be after start",
+  "@intervalEditorErrEndAfterStart": {
+    "description": "Inline validation: working-window end must be after start (Phase 15.5)."
+  },
+  "intervalEditorErrBreakEndAfterStart": "Break end must be after start",
+  "@intervalEditorErrBreakEndAfterStart": {
+    "description": "Inline validation: break end must be after break start (Phase 15.5)."
+  },
+  "intervalEditorErrBreakInsideWindow": "Break must be within working hours",
+  "@intervalEditorErrBreakInsideWindow": {
+    "description": "Inline validation: a break must sit inside the working window (Phase 15.5)."
+  },
+  "intervalEditorErrBreaksOverlap": "Breaks cannot overlap",
+  "@intervalEditorErrBreaksOverlap": {
+    "description": "Inline validation: two breaks may not overlap (Phase 15.5)."
   }
 }

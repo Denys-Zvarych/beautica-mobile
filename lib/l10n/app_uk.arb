@@ -1989,5 +1989,111 @@
   "timePickerMinutesSemantic": "Хвилини",
   "@timePickerMinutesSemantic": {
     "description": "Accessibility label for the minutes scroll wheel in the VelvetTouch time picker (15-minute steps)."
+  },
+  "weeklyEditorOpenCount": "Робочих днів на тиждень: {count}",
+  "@weeklyEditorOpenCount": {
+    "description": "Static summary chip on the weekly-template editor (Phase 15.5): how many ISO weekdays are open.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "weeklyEditorActiveWindowOpenEnded": "Графік діє з {from}",
+  "@weeklyEditorActiveWindowOpenEnded": {
+    "description": "Active-window card on the weekly-template editor when the template has no end date (open-ended). {from} is a DD.MM date.",
+    "placeholders": {
+      "from": { "type": "String" }
+    }
+  },
+  "weeklyEditorActiveWindowRange": "Графік діє: {from} – {to}",
+  "@weeklyEditorActiveWindowRange": {
+    "description": "Active-window card on the weekly-template editor when the template has a start and end date. {from} and {to} are DD.MM dates.",
+    "placeholders": {
+      "from": { "type": "String" },
+      "to": { "type": "String" }
+    }
+  },
+  "weeklyEditorActiveWindowHint": "Тижневий графік діє протягом цього періоду. Окремі дні можна змінити пізніше.",
+  "@weeklyEditorActiveWindowHint": {
+    "description": "Helper line under the active-window card on the weekly-template editor (Phase 15.5)."
+  },
+  "weeklyEditorDayOffRest": "Вихідний день",
+  "@weeklyEditorDayOffRest": {
+    "description": "Rest-state body text shown inside a collapsed (day-off) weekday card in the weekly-template editor (Phase 15.5)."
+  },
+  "weeklyEditorDayToggleSemantic": "{day} — робочий день",
+  "@weeklyEditorDayToggleSemantic": {
+    "description": "Accessibility label for the per-weekday open/closed toggle in the weekly-template editor (Phase 15.5).",
+    "placeholders": {
+      "day": { "type": "String" }
+    }
+  },
+  "weeklyEditorErrorsBanner": "Виправте години, виділені червоним",
+  "@weeklyEditorErrorsBanner": {
+    "description": "Snackbar shown when the user tries to save the weekly template with invalid hours (Phase 15.5)."
+  },
+  "intervalEditorWorkHours": "Робочі години",
+  "@intervalEditorWorkHours": {
+    "description": "Label above the working-window start/end time wells in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreaks": "Перерви",
+  "@intervalEditorBreaks": {
+    "description": "Label above the break rows in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorAddBreak": "Додати перерву",
+  "@intervalEditorAddBreak": {
+    "description": "Action to add a break range to the working window in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorWorkStartTitle": "Початок робочого дня",
+  "@intervalEditorWorkStartTitle": {
+    "description": "Time-picker title / semantic label for the working-window start in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorWorkEndTitle": "Кінець робочого дня",
+  "@intervalEditorWorkEndTitle": {
+    "description": "Time-picker title / semantic label for the working-window end in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreakStartTitle": "Початок перерви",
+  "@intervalEditorBreakStartTitle": {
+    "description": "Time-picker title for a break start in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreakEndTitle": "Кінець перерви",
+  "@intervalEditorBreakEndTitle": {
+    "description": "Time-picker title for a break end in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreakStartSemantic": "Початок перерви {index}",
+  "@intervalEditorBreakStartSemantic": {
+    "description": "Accessibility label for a break start time well in the interval editor (Phase 15.5). {index} is the 1-based break number.",
+    "placeholders": {
+      "index": { "type": "int" }
+    }
+  },
+  "intervalEditorBreakEndSemantic": "Кінець перерви {index}",
+  "@intervalEditorBreakEndSemantic": {
+    "description": "Accessibility label for a break end time well in the interval editor (Phase 15.5). {index} is the 1-based break number.",
+    "placeholders": {
+      "index": { "type": "int" }
+    }
+  },
+  "intervalEditorRemoveBreak": "Видалити перерву {index}",
+  "@intervalEditorRemoveBreak": {
+    "description": "Accessibility label for the remove-break button in the interval editor (Phase 15.5). {index} is the 1-based break number.",
+    "placeholders": {
+      "index": { "type": "int" }
+    }
+  },
+  "intervalEditorErrEndAfterStart": "Час завершення робочого дня має бути пізніше початку",
+  "@intervalEditorErrEndAfterStart": {
+    "description": "Inline validation: working-window end must be after start (Phase 15.5)."
+  },
+  "intervalEditorErrBreakEndAfterStart": "Час завершення перерви має бути пізніше початку",
+  "@intervalEditorErrBreakEndAfterStart": {
+    "description": "Inline validation: break end must be after break start (Phase 15.5)."
+  },
+  "intervalEditorErrBreakInsideWindow": "Перерва має бути в межах робочих годин",
+  "@intervalEditorErrBreakInsideWindow": {
+    "description": "Inline validation: a break must sit inside the working window (Phase 15.5)."
+  },
+  "intervalEditorErrBreaksOverlap": "Перерви не можуть перетинатися",
+  "@intervalEditorErrBreaksOverlap": {
+    "description": "Inline validation: two breaks may not overlap (Phase 15.5)."
   }
 }

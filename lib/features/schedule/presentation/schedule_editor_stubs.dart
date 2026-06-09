@@ -98,22 +98,8 @@ class _EditorStubScaffold extends StatelessWidget {
   }
 }
 
-/// Phase 15.3 stub — the weekly-template editor. Reached from the schedule
-/// screen's "Редагувати" affordance and the NO_SCHEDULE banner CTA.
-class WeeklyTemplateEditorStubScreen extends StatelessWidget {
-  const WeeklyTemplateEditorStubScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return _EditorStubScaffold(
-      markerKey: const Key('stub-weekly-template-editor'),
-      icon: Icons.calendar_month_rounded,
-      title: l10n.scheduleWeeklyEditorTitle,
-      body: l10n.scheduleEditorComingSoon,
-    );
-  }
-}
+// Phase 15.5 — the weekly-template editor stub was REMOVED: the real editor
+// (`WeeklyTemplateEditorScreen`) now occupies `RouteNames.scheduleWeeklyEditor`.
 
 /// Phase 15.4 stub — the per-date override sheet. Reached from the day pencil
 /// and "+ Додати час". The day-off entry ("+ Time Off") routes here too with
