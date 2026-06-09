@@ -1914,18 +1914,6 @@
   "@scheduleDaySummaryUnset": {
     "description": "Selected-day summary line when the day resolves to NO_SCHEDULE (Phase 15.2)."
   },
-  "scheduleAddTimeAction": "Add hours",
-  "@scheduleAddTimeAction": {
-    "description": "Day-panel action to add working hours for the selected date — opens the per-date override editor (Phase 15.2)."
-  },
-  "scheduleTimeOffAction": "Time off",
-  "@scheduleTimeOffAction": {
-    "description": "Day-panel action to mark the selected date as time-off — opens the override editor in day-off mode (Phase 15.2)."
-  },
-  "scheduleCopyAction": "Copy",
-  "@scheduleCopyAction": {
-    "description": "Day-panel action to copy/propagate the schedule across a range — opens the propagate surface (Phase 15.2)."
-  },
   "scheduleSlotWorking": "Working hours",
   "@scheduleSlotWorking": {
     "description": "Legend + slot label for an available (working) 30-min slot — green (Phase 15.2)."

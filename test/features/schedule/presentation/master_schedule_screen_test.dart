@@ -649,19 +649,59 @@ void main() {
       },
     );
 
-    testWidgets('INDEPENDENT_MASTER (self): edit affordances present', (
-      tester,
-    ) async {
-      final days = _weekWith(todayDay: _working, filler: _working);
-      await _pump(tester, overrides: _editableData(days));
+    // CANONICAL DAY-PANEL DESIGN GUARD (Phase 15.2 off-design button removal).
+    //
+    // For an editable self-viewer on a today/future day with a PUBLISHED
+    // schedule, the day panel must match the approved design: the date title +
+    // a single pencil (`schedule-day-pencil`) + the working-hours summary —
+    // and NOTHING ELSE. The three off-design day-panel buttons
+    // (`schedule-add-hours` "Додати час", `schedule-time-off` "Час відпочинку",
+    // `schedule-copy` "Копіювати") were removed; this is the canonical guard
+    // that locks them out so they cannot regress back in. The other
+    // `findsNothing` checks elsewhere (read-only role / empty state / past day)
+    // cover different viewer/day states; THIS one pins the editable
+    // present-day-with-schedule case where the buttons used to live.
+    testWidgets(
+      'INDEPENDENT_MASTER (self) on a scheduled day: day panel shows ONLY the '
+      'pencil + summary; the three removed day-panel buttons are absent',
+      (tester) async {
+        final days = _weekWith(todayDay: _working, filler: _working);
+        await _pump(tester, overrides: _editableData(days));
 
-      // Weekly-card tap target + day pencil + day-action buttons all present.
-      expect(find.byKey(const Key('schedule-weekly-card')), findsOneWidget);
-      expect(find.byKey(const Key('schedule-day-pencil')), findsOneWidget);
-      expect(find.byKey(const Key('schedule-add-hours')), findsOneWidget);
-      expect(find.byKey(const Key('schedule-time-off')), findsOneWidget);
-      expect(find.byKey(const Key('schedule-copy')), findsOneWidget);
-    });
+        // The approved affordances render: weekly-card tap target + the single
+        // day pencil. (Today is a working day, so the pencil — not the muted
+        // past-day hint — is shown.)
+        expect(find.byKey(const Key('schedule-weekly-card')), findsOneWidget);
+        expect(find.byKey(const Key('schedule-day-pencil')), findsOneWidget);
+
+        // The working-hours summary renders next to the pencil.
+        final l10n = _l10n(tester);
+        expect(
+          find.text(
+            l10n.scheduleDaySummaryWorking(summariseIntervals(_working(_today).intervals)),
+          ),
+          findsOneWidget,
+          reason: 'the day panel must show the working-hours summary line',
+        );
+
+        // The three off-design day-panel buttons are GONE by design.
+        expect(
+          find.byKey(const Key('schedule-add-hours')),
+          findsNothing,
+          reason: 'removed off-design button "Додати час" must not return',
+        );
+        expect(
+          find.byKey(const Key('schedule-time-off')),
+          findsNothing,
+          reason: 'removed off-design button "Час відпочинку" must not return',
+        );
+        expect(
+          find.byKey(const Key('schedule-copy')),
+          findsNothing,
+          reason: 'removed off-design button "Копіювати" must not return',
+        );
+      },
+    );
 
     testWidgets('SALON_OWNER (their salon master): edit affordances present', (
       tester,

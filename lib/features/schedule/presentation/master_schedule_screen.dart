@@ -152,11 +152,6 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     context.push(RouteNames.scheduleDayOverride);
   }
 
-  void _openPropagate() {
-    if (kDebugMode) log('open propagate', name: _tag, level: 800);
-    context.push(RouteNames.schedulePropagate);
-  }
-
   // ── Effective-day lookup from the resolved range ───────────────────────────
   // Perf (MEDIUM-2): the previous helpers linear-scanned `days` ~15×/build (one
   // O(n) walk per strip cell + the panel + the whole-week check) and allocated
@@ -401,7 +396,6 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                 weekdayFull: _weekdayFull(day.date),
                 onAddHours: _openTemplateEditor,
                 onDayOverride: _openDayOverride,
-                onPropagate: _openPropagate,
               );
             },
           ),
@@ -722,7 +716,6 @@ class _SelectedDayView extends StatelessWidget {
     required this.weekdayFull,
     required this.onAddHours,
     required this.onDayOverride,
-    required this.onPropagate,
   });
 
   final EffectiveDay day;
@@ -732,7 +725,6 @@ class _SelectedDayView extends StatelessWidget {
   final String weekdayFull;
   final VoidCallback onAddHours;
   final VoidCallback onDayOverride;
-  final VoidCallback onPropagate;
 
   @override
   Widget build(BuildContext context) {
@@ -817,39 +809,6 @@ class _SelectedDayView extends StatelessWidget {
               color: BrandColors.textSecondary,
             ),
           ),
-        ),
-        // Editable, present/future actions: + Додати час · + Time Off ·
-        // Копіювати (propagate). Hidden entirely for read-only / past.
-        if (editable && !isPast) ...<Widget>[
-          const SizedBox(height: VelvetSpacing.md),
-          _dayActions(l10n),
-        ],
-      ],
-    );
-  }
-
-  Widget _dayActions(AppLocalizations l10n) {
-    return Wrap(
-      spacing: VelvetSpacing.sm,
-      runSpacing: VelvetSpacing.sm,
-      children: <Widget>[
-        GhostButton(
-          key: const Key('schedule-add-hours'),
-          label: l10n.scheduleAddTimeAction,
-          icon: Icons.add_rounded,
-          onPressed: onDayOverride,
-        ),
-        GhostButton(
-          key: const Key('schedule-time-off'),
-          label: l10n.scheduleTimeOffAction,
-          icon: Icons.event_busy_rounded,
-          onPressed: onDayOverride,
-        ),
-        GhostButton(
-          key: const Key('schedule-copy'),
-          label: l10n.scheduleCopyAction,
-          icon: Icons.copy_all_rounded,
-          onPressed: onPropagate,
         ),
       ],
     );
