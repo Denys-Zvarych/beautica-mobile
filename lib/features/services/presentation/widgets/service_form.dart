@@ -111,6 +111,56 @@ class ServiceForm extends StatefulWidget {
     return lastAutoFilledName != null && currentName == lastAutoFilledName;
   }
 
+  /// Edit-flow hardening rule (Phase 16.5). Decides whether a currently-selected
+  /// service type stays valid when the category changes from [previousCategory]
+  /// to [newCategory].
+  ///
+  /// A service type belongs to exactly one category. The type the form holds was
+  /// chosen from `serviceTypesProvider(previousCategory)`, so its `categoryName`
+  /// equals [previousCategory] (also passed explicitly as [selectedTypeCategory]
+  /// when known, e.g. from the loaded service's option, to make the check
+  /// independent of the form's old `_selectedCategory`). The selection survives
+  /// ONLY when the new category matches the type's category; otherwise it is
+  /// incompatible and must be cleared so the submit never carries a
+  /// cross-category `serviceTypeId` (backend 16.3).
+  ///
+  /// Returns `true` when the selection must be CLEARED (incompatible),
+  /// `false` when it may be kept. A null/empty [newCategory] (category cleared
+  /// entirely) also clears the type — an orphan type with no category is invalid.
+  /// Lives on the public widget so the rule is unit-testable without the tree.
+  @visibleForTesting
+  static bool shouldClearServiceTypeOnCategoryChange({
+    required String? previousCategory,
+    required String? newCategory,
+    String? selectedTypeCategory,
+  }) {
+    if (newCategory == null || newCategory.isEmpty) return true;
+    // Prefer the type's own category when known; otherwise the type was chosen
+    // under [previousCategory], so that is its effective category.
+    final String? typeCategory =
+        (selectedTypeCategory != null && selectedTypeCategory.isNotEmpty)
+        ? selectedTypeCategory
+        : previousCategory;
+    if (typeCategory == null || typeCategory.isEmpty) return true;
+    return typeCategory != newCategory;
+  }
+
+  /// Edit-flow hardening rule (Phase 16.5). Decides whether the name field
+  /// should be reset to empty when an incompatible service type is cleared.
+  ///
+  /// The name is reset ONLY when it is still the value this form auto-filled
+  /// from the now-incompatible type (i.e. the user did not hand-edit it). A
+  /// user-typed name is never clobbered. Returns `true` when the name should be
+  /// cleared. Pure helper for direct unit testing.
+  @visibleForTesting
+  static bool shouldResetNameOnTypeCleared({
+    required String currentName,
+    required String? lastAutoFilledName,
+  }) {
+    if (lastAutoFilledName == null) return false;
+    return currentName == lastAutoFilledName;
+  }
+
   @override
   State<ServiceForm> createState() => _ServiceFormState();
 }
@@ -204,6 +254,18 @@ class _ServiceFormState extends State<ServiceForm> {
   /// nameUk server-side, so the form sends the master's actual (possibly empty)
   /// name and lets the backend apply the default. Null when no type is selected.
   String? _selectedServiceTypeNameUk;
+
+  /// Parent platform-category slug the currently-selected service type belongs
+  /// to (Phase 16.5). Captured from the chosen [ServiceTypeOption.categoryName]
+  /// so the edit-flow compatibility check
+  /// ([ServiceForm.shouldClearServiceTypeOnCategoryChange]) can decide directly
+  /// whether a category change orphans the type, instead of inferring it from
+  /// the form's previously-selected category. Null when no type is selected.
+  ///
+  /// On edit pre-seed the loaded service carries no explicit type-category, so
+  /// this starts null and the compatibility check falls back to the loaded
+  /// `_selectedCategory` (which is the type's category by construction).
+  String? _selectedServiceTypeCategory;
 
   /// The exact name string this form last auto-filled from a selected service
   /// type's `nameUk` (Phase 16.3). Used to detect whether the user has since
@@ -363,6 +425,7 @@ class _ServiceFormState extends State<ServiceForm> {
     setState(() {
       _selectedServiceTypeId = option.id;
       _selectedServiceTypeNameUk = option.nameUk;
+      _selectedServiceTypeCategory = option.categoryName;
       _clearServerError('serviceTypeId');
       if (prefill) {
         // Guard the programmatic write so the name listener does not mistake
@@ -388,7 +451,61 @@ class _ServiceFormState extends State<ServiceForm> {
     setState(() {
       _selectedServiceTypeId = null;
       _selectedServiceTypeNameUk = null;
+      _selectedServiceTypeCategory = null;
       _clearServerError('serviceTypeId');
+    });
+    _wasDirty = _isDirty;
+    _dirtyNotifier.value = _wasDirty;
+  }
+
+  /// Handles a category change on the form (Phase 16.5 edit-flow hardening).
+  ///
+  /// Sets the new [newCategory] and, when a service type is currently selected,
+  /// drops it ONLY when it is incompatible with the new category
+  /// ([ServiceForm.shouldClearServiceTypeOnCategoryChange]) — re-selecting the
+  /// same category keeps a still-valid selection rather than silently discarding
+  /// the master's choice. When an incompatible type is cleared, a name that was
+  /// auto-filled from that type is reset too (but a user-edited name is never
+  /// clobbered — [ServiceForm.shouldResetNameOnTypeCleared]).
+  ///
+  /// The clear is SILENT (no dialog/banner — reuse-only per the 16.5 design
+  /// gate). The type picker below re-watches `serviceTypesProvider(newCategory)`
+  /// on the rebuild triggered by [setState], so the options repopulate for the
+  /// new category automatically.
+  void _onCategoryChanged(String? newCategory) {
+    if (!mounted) return;
+    final String? previousCategory = _selectedCategory;
+    final bool hasType = _selectedServiceTypeId != null;
+    final bool clearType =
+        hasType &&
+        ServiceForm.shouldClearServiceTypeOnCategoryChange(
+          previousCategory: previousCategory,
+          newCategory: newCategory,
+          selectedTypeCategory: _selectedServiceTypeCategory,
+        );
+    final bool resetName =
+        clearType &&
+        ServiceForm.shouldResetNameOnTypeCleared(
+          currentName: _nameCtrl.text,
+          lastAutoFilledName: _lastAutoFilledName,
+        );
+
+    setState(() {
+      _selectedCategory = newCategory;
+      if (clearType) {
+        _selectedServiceTypeId = null;
+        _selectedServiceTypeNameUk = null;
+        _selectedServiceTypeCategory = null;
+        _clearServerError('serviceTypeId');
+        if (resetName) {
+          // Reset the type-derived name pre-fill. Guard the programmatic write
+          // so the name listener does not treat it as a manual edit.
+          _applyingAutoFill = true;
+          _nameCtrl.clear();
+          _applyingAutoFill = false;
+          _lastAutoFilledName = null;
+        }
+      }
     });
     _wasDirty = _isDirty;
     _dirtyNotifier.value = _wasDirty;
@@ -716,28 +833,24 @@ class _ServiceFormState extends State<ServiceForm> {
           disabled: _submitting,
           label: l10n.serviceCategoryLabel,
           errorText: _categoryError(l10n),
-          onSelect: (String? wire) {
-            setState(() {
-              _selectedCategory = wire;
-            });
-            // Category changed: a service-type selected under the previous
-            // category is no longer compatible (the type belongs to one
-            // category). Drop it through the existing 16.3 handler so there is
-            // a single clear code path — the stale selection and any mapped-back
-            // serviceTypeId error don't linger into the new category's picker
-            // (16.4 basic clear-on-change; deeper edit-flow hardening is 16.5).
-            // The name controller is intentionally untouched (16.3 don't-clobber
-            // rule governs the name; only the type selection is cleared here).
-            clearServiceType();
-          },
+          // Phase 16.5 edit-flow hardening: route the category change through
+          // [_onCategoryChanged], which clears a selected service type ONLY when
+          // it is incompatible with the new category (re-selecting the same
+          // category keeps a valid selection) and resets a type-derived name
+          // pre-fill without clobbering a user-edited name. The picker below
+          // re-queries `serviceTypesProvider(newCategory)` on the rebuild, so
+          // its options repopulate for the new category. The clear is silent
+          // (no dialog/banner — reuse-only per the 16.5 design gate).
+          onSelect: _onCategoryChanged,
         ),
 
         // 1c — Second-level service-type searchable dropdown (Phase 16.6). Shown
         //      only when a category is selected; reuses [SearchableSelectField]
         //      over `serviceTypesProvider(category)`. Selection drives the
         //      existing 16.3 handler (`onServiceTypeSelected`) so there is a
-        //      single source of truth for `_selectedServiceTypeId`; clearing is
-        //      handled on category change (above) via `clearServiceType()`.
+        //      single source of truth for `_selectedServiceTypeId`; clearing on
+        //      an incompatible category change is handled above via
+        //      `_onCategoryChanged` (Phase 16.5 edit-flow hardening).
         //      A slow/failed type lookup degrades to a retryable error inside
         //      the dropdown (field affordance + menu retry) — never an infinite
         //      spinner. The mapped-back `serviceTypeId` cross-field error (16.3)
@@ -921,7 +1034,8 @@ class _DirtyMarker extends StatelessWidget {
 // This widget owns NO selection state: it reflects [selectedId] from the form
 // and routes the chosen [ServiceTypeOption] back through [onSelect], which
 // drives the form's existing 16.3 handler. Single source of truth lives on the
-// form (clearing on category change is handled there via `clearServiceType()`).
+// form (clearing on an incompatible category change is handled there via
+// `_onCategoryChanged`, Phase 16.5).
 //
 // Robust load states (the spinner fix): the provider's async value maps to a
 // [SelectFieldState]; a slow/failed lookup shows the field's loading/error
