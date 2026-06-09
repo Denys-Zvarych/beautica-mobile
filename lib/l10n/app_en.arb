@@ -2083,5 +2083,80 @@
   "intervalEditorErrBreaksOverlap": "Breaks cannot overlap",
   "@intervalEditorErrBreaksOverlap": {
     "description": "Inline validation: two breaks may not overlap (Phase 15.5)."
+  },
+  "scheduleOverrideSheetSubtitle": "Override the schedule for this day",
+  "@scheduleOverrideSheetSubtitle": {
+    "description": "Subtitle under the date heading in the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideCloseSemantic": "Close",
+  "@scheduleOverrideCloseSemantic": {
+    "description": "Accessibility label for the close button in the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideModeToggleSemantic": "Override mode",
+  "@scheduleOverrideModeToggleSemantic": {
+    "description": "Accessibility group label for the working-hours / day-off mode toggle in the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideModeWorking": "Working hours",
+  "@scheduleOverrideModeWorking": {
+    "description": "Mode-toggle option: edit custom working hours for the date (Phase 15.4)."
+  },
+  "scheduleOverrideModeDayOff": "Day off",
+  "@scheduleOverrideModeDayOff": {
+    "description": "Mode-toggle option: mark the whole date as a day off (Phase 15.4)."
+  },
+  "scheduleOverrideReasonLabel": "Reason",
+  "@scheduleOverrideReasonLabel": {
+    "description": "Section label above the day-off reason picker in the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideReasonVacation": "Vacation",
+  "@scheduleOverrideReasonVacation": {
+    "description": "Day-off reason: vacation (wire VACATION) (Phase 15.4)."
+  },
+  "scheduleOverrideReasonHoliday": "Holiday",
+  "@scheduleOverrideReasonHoliday": {
+    "description": "Day-off reason: holiday (wire HOLIDAY) (Phase 15.4)."
+  },
+  "scheduleOverrideReasonSickDay": "Sick day",
+  "@scheduleOverrideReasonSickDay": {
+    "description": "Day-off reason: sick day (wire SICK_DAY) (Phase 15.4)."
+  },
+  "scheduleOverrideReasonOther": "Other",
+  "@scheduleOverrideReasonOther": {
+    "description": "Day-off reason: other (wire OTHER) (Phase 15.4)."
+  },
+  "scheduleOverrideReasonSemantic": "Reason: {reason}",
+  "@scheduleOverrideReasonSemantic": {
+    "description": "Accessibility label for a selectable day-off reason tile (Phase 15.4).",
+    "placeholders": {
+      "reason": { "type": "String", "example": "Vacation" }
+    }
+  },
+  "scheduleOverrideNoteLabel": "Note (optional)",
+  "@scheduleOverrideNoteLabel": {
+    "description": "Label for the optional note field shown in day-off mode (Phase 15.4)."
+  },
+  "scheduleOverrideNoteHint": "e.g. out of town",
+  "@scheduleOverrideNoteHint": {
+    "description": "Hint text for the optional day-off note field (Phase 15.4)."
+  },
+  "scheduleOverrideDayOffRest": "This day will be closed for bookings",
+  "@scheduleOverrideDayOffRest": {
+    "description": "Explanatory line shown in day-off mode of the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideSave": "Save",
+  "@scheduleOverrideSave": {
+    "description": "Primary save action in the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideDelete": "Remove override",
+  "@scheduleOverrideDelete": {
+    "description": "Destructive action to clear an existing override and revert the date to the weekly template (Phase 15.4)."
+  },
+  "scheduleOverrideClearedSnack": "Override removed",
+  "@scheduleOverrideClearedSnack": {
+    "description": "Confirmation snackbar after clearing a per-date override (Phase 15.4)."
+  },
+  "scheduleOverrideErrorsBanner": "Fix the hours highlighted in red",
+  "@scheduleOverrideErrorsBanner": {
+    "description": "Snackbar shown when trying to save custom hours with validation errors in the per-date override sheet (Phase 15.4)."
   }
 }

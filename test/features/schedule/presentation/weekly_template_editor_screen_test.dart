@@ -25,6 +25,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
@@ -111,6 +112,43 @@ class _RecordingWeekly extends WeeklyScheduleNotifier {
     deletedId = scheduleId;
     state = const AsyncData<List<WeeklySchedule>>(<WeeklySchedule>[]);
     ref.invalidate(effectiveScheduleProvider);
+  }
+}
+
+/// A weekly notifier whose mutations FAIL: it mirrors production
+/// ([WeeklyScheduleNotifier.save]/`.delete`) by setting an [AsyncError] state
+/// (the swallowed `Failure`) and performing NO `effectiveScheduleProvider`
+/// invalidation. The screen reads this post-await `hasError` state and must
+/// surface the error WITHOUT popping or showing the saved snackbar.
+class _FailingWeekly extends WeeklyScheduleNotifier {
+  _FailingWeekly(this._initial);
+
+  final List<WeeklySchedule> _initial;
+
+  bool saveCalled = false;
+  bool deleteCalled = false;
+
+  @override
+  Future<List<WeeklySchedule>> build() async => _initial;
+
+  @override
+  Future<void> save(WeeklySchedule schedule, {String? scheduleId}) async {
+    saveCalled = true;
+    // Mirror AsyncValue.guard swallowing the Failure into AsyncError; on
+    // failure the effective cache is left intact (no invalidate).
+    state = AsyncError<List<WeeklySchedule>>(
+      const ServerFailure(statusCode: 500),
+      StackTrace.current,
+    );
+  }
+
+  @override
+  Future<void> delete(String scheduleId) async {
+    deleteCalled = true;
+    state = AsyncError<List<WeeklySchedule>>(
+      const ServerFailure(statusCode: 500),
+      StackTrace.current,
+    );
   }
 }
 
@@ -476,6 +514,159 @@ void main() {
     );
   });
 
+  // ── Save/delete failure → false-success guard ──────────────────────────────
+  //
+  // RESOLVED (false-success MEDIUM): `WeeklyScheduleNotifier.save`/`.delete`
+  // wrap their work in `AsyncValue.guard`, so a failed POST/PUT/DELETE becomes
+  // an [AsyncError] STATE and returns NORMALLY rather than throwing back to the
+  // screen. The screen reads the POST-await provider state and branches on
+  // `hasError`: on failure it surfaces the mapped failure message and does NOT
+  // pop / navigate and does NOT show the saved snackbar. The all-off-with-no-
+  // template no-op (`mutated == false`) must NOT be misread as a failure — it
+  // still pops + reports success.
+
+  group('WeeklyTemplateEditorScreen — save/delete failure (false-success '
+      'guard)', () {
+    testWidgets(
+      'a failed save (update) surfaces the error and does NOT pop or show the '
+      'saved snackbar',
+      (tester) async {
+        final _FailingWeekly weekly = _FailingWeekly(<WeeklySchedule>[
+          _template(id: 'sched-1'),
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _failingOverridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+        final AppLocalizations l10n = _l10n(tester);
+
+        // Make a dirty edit then save.
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        expect(weekly.saveCalled, isTrue);
+        // The screen STAYS on the editor — it did not pop/navigate.
+        expect(find.byType(WeeklyTemplateEditorScreen), findsOneWidget);
+        expect(find.byKey(const Key('schedule-stub')), findsNothing);
+        // The mapped failure message is shown (the error snackbar AND the
+        // screen's AsyncError body both render it — at least one is present).
+        expect(find.text(l10n.errServer), findsWidgets);
+        // … and the success copy is ABSENT.
+        expect(find.text(l10n.savedSnackbar), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'a failed delete (all-off WITH an existing template) surfaces the error '
+      'and does NOT pop or show the saved snackbar',
+      (tester) async {
+        // Monday-only template → closing Monday makes the whole week off →
+        // the all-off branch issues delete(existing.id), which fails here.
+        final WeeklySchedule mondayOnly = WeeklySchedule(
+          id: 'sched-1',
+          validFrom: _clock,
+          validTo: null,
+          days: <TemplateDay>[
+            for (int dow = 1; dow <= 7; dow++)
+              TemplateDay(
+                dayOfWeek: dow,
+                label: 'd$dow',
+                intervals: dow == 1
+                    ? <WorkInterval>[_interval(9, 0, 18, 0)]
+                    : <WorkInterval>[],
+              ),
+          ],
+        );
+        final _FailingWeekly weekly = _FailingWeekly(<WeeklySchedule>[
+          mondayOnly,
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _failingOverridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+        final AppLocalizations l10n = _l10n(tester);
+
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        expect(weekly.deleteCalled, isTrue);
+        expect(weekly.saveCalled, isFalse);
+        // The screen STAYS on the editor — no pop/navigate.
+        expect(find.byType(WeeklyTemplateEditorScreen), findsOneWidget);
+        expect(find.byKey(const Key('schedule-stub')), findsNothing);
+        // The mapped failure message is shown (error snackbar AND the AsyncError
+        // body both render it).
+        expect(find.text(l10n.errServer), findsWidgets);
+        expect(find.text(l10n.savedSnackbar), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'all-off with NO existing template is a clean no-op (mutated == false): '
+      'it still pops + shows the saved snackbar (not misread as a failure)',
+      (tester) async {
+        // Seed a NON-persisted template (id == null) with Monday open so the
+        // draft has a real baseline to diverge from. Closing Monday makes the
+        // week all-off AND dirty (differs from the Monday-open baseline) → Save
+        // enables. On save the branch is all-off with NO existing id → no
+        // mutation is issued (`mutated == false`); the success path (pop +
+        // saved snackbar) must STILL run — the no-op must not be misread as a
+        // failure.
+        final WeeklySchedule mondayOnlyNoId = WeeklySchedule(
+          id: null,
+          validFrom: _clock,
+          validTo: null,
+          days: <TemplateDay>[
+            for (int dow = 1; dow <= 7; dow++)
+              TemplateDay(
+                dayOfWeek: dow,
+                label: 'd$dow',
+                intervals: dow == 1
+                    ? <WorkInterval>[_interval(9, 0, 18, 0)]
+                    : <WorkInterval>[],
+              ),
+          ],
+        );
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          mondayOnlyNoId,
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+        final AppLocalizations l10n = _l10n(tester);
+
+        // Close Monday → all-off + dirty (vs the Monday-open baseline).
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason: 'closing the only open day makes an all-off draft dirty',
+        );
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        // No CRUD issued — there was no template to delete and nothing to save.
+        expect(weekly.saveCalled, isFalse);
+        expect(weekly.deleteCalled, isFalse);
+        // … yet the clean no-op still popped back + reported success.
+        expect(find.byKey(const Key('schedule-stub')), findsOneWidget);
+        expect(find.byType(WeeklyTemplateEditorScreen), findsNothing);
+        // The saved snackbar fired (the no-op success path), proving the
+        // `mutated == false` branch is NOT treated as a failure.
+        expect(find.text(l10n.savedSnackbar), findsOneWidget);
+      },
+    );
+  });
+
   // ── Validation gating (M3/M4) ──────────────────────────────────────────────
   //
   // The editor's Save gate is `_isDirty && !_hasErrors`, where `_hasErrors`
@@ -684,6 +875,14 @@ void main() {
 /// Editor overrides bound to a recording weekly notifier + a counting effective
 /// notifier (so the invalidation path is observable).
 List<Object> _overridesFor(_RecordingWeekly weekly) => <Object>[
+  weeklyScheduleProvider.overrideWith(() => weekly),
+  effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+];
+
+/// Editor overrides bound to a FAILING weekly notifier (mutations land in
+/// AsyncError) + a counting effective notifier (so the absence of an
+/// invalidation on failure is observable).
+List<Object> _failingOverridesFor(_FailingWeekly weekly) => <Object>[
   weeklyScheduleProvider.overrideWith(() => weekly),
   effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
 ];

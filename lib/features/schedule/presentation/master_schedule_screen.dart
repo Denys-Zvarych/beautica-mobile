@@ -36,6 +36,7 @@ import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import '../domain/schedule_model.dart';
 import '../domain/weekly_schedule.dart';
+import 'day_hours_sheet.dart';
 import 'effective_schedule_notifier.dart';
 import 'schedule_capability.dart';
 import 'schedule_range.dart';
@@ -147,9 +148,32 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     context.push(RouteNames.scheduleWeeklyEditor);
   }
 
-  void _openDayOverride() {
+  /// Phase 15.4 — opens the per-date override modal sheet ([DayHoursSheet]) for
+  /// [day], seeded from the day's current effective intervals / day-off reason.
+  /// Replaces the old push to the retired `PerDateOverrideStubScreen`.
+  ///
+  /// The sheet mutates `overridesProvider(_range)` (the SAME family key the
+  /// calendar watches) and invalidates the effective-schedule cache on a
+  /// successful put/clear, so the week strip dots + the grid repaint with no
+  /// manual refresh. Past days never reach here — the pencil is hidden on them.
+  void _openDayOverride(EffectiveDay day) {
     if (kDebugMode) log('open per-date override', name: _tag, level: 800);
-    context.push(RouteNames.scheduleDayOverride);
+    final bool hasOverride =
+        day.source == EffectiveSource.overrideCustom ||
+        day.source == EffectiveSource.overrideDayOff;
+    final bool dayOff = day.source == EffectiveSource.overrideDayOff;
+    DayHoursSheet.show(
+      context,
+      date: day.date,
+      weekdayFull: _weekdayFull(day.date),
+      dateLabel: formatDay(day.date),
+      range: _range,
+      initialIntervals: day.intervals,
+      hasExistingOverride: hasOverride,
+      initialDayOff: dayOff,
+      initialReason: day.reason,
+      initialNote: null,
+    );
   }
 
   // ── Effective-day lookup from the resolved range ───────────────────────────
@@ -395,7 +419,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                 wholeWeekUnscheduled: _wholeWeekUnscheduled(index),
                 weekdayFull: _weekdayFull(day.date),
                 onAddHours: _openTemplateEditor,
-                onDayOverride: _openDayOverride,
+                onDayOverride: () => _openDayOverride(day),
               );
             },
           ),

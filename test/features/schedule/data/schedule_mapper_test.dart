@@ -336,6 +336,28 @@ void main() {
       expect(req.intervals, hasLength(1));
       expect(req.intervals!.single.startTime, '11:00:00');
       expect(req.intervals!.single.endTime, '15:30:00');
+      // CUSTOM_HOURS carries NO reason (Phase 15.4 wire contract).
+      expect(req.reason, isNull);
+      expect(req.date, Date(2026, 7, 2));
+    });
+
+    test('day-off serialises EMPTY intervals (not null), reason set', () {
+      // The DAY_OFF wire contract: reason present, intervals empty (the date is
+      // fully closed). Pins the inverse of the custom-hours case.
+      final override = ScheduleOverride.dayOff(
+        start: DateTime(2026, 7, 3),
+        end: DateTime(2026, 7, 3),
+        reason: OverrideReason.sickDay,
+      );
+
+      final req = ScheduleMapper.overrideToRequestForDate(
+        override,
+        DateTime(2026, 7, 3),
+      );
+
+      expect(req.kind, ScheduleOverrideRequestKindEnum.DAY_OFF);
+      expect(req.reason, ScheduleOverrideRequestReasonEnum.SICK_DAY);
+      expect(req.intervals ?? const <WorkIntervalDto>[], isEmpty);
     });
   });
 

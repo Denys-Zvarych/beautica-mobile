@@ -272,13 +272,18 @@ GoRouter appRouter(Ref ref) {
         pageBuilder: (context, state) =>
             _instantPage(state, const WeeklyTemplateEditorScreen()),
       ),
-      // Phase 15.2 — routed editor stubs for 15.4 (real placeholder screens;
-      // replaced at the same paths when each phase ships).
+      // Phase 15.4 — the per-date override surface graduated to the modal
+      // [DayHoursSheet] (opened by the day pencil on `master_schedule_screen`),
+      // so this route is no longer a UI destination. It is kept registered
+      // (dead but auth-guarded) ONLY because the Phase 15.2 schedule-screen
+      // widget test still references `PerDateOverrideStubScreen` at this path;
+      // mobile-qa retires both when it authors the 15.4 sheet tests.
       GoRoute(
         path: RouteNames.scheduleDayOverride,
         pageBuilder: (context, state) =>
             _instantPage(state, const PerDateOverrideStubScreen()),
       ),
+      // Phase 15.5 — copy/propagate range surface (still a stub).
       GoRoute(
         path: RouteNames.schedulePropagate,
         pageBuilder: (context, state) =>

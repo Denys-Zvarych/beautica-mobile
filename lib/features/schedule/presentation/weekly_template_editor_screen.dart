@@ -247,6 +247,11 @@ class _WeeklyTemplateEditorScreenState
         weeklyScheduleProvider.notifier,
       );
 
+      // Whether the all-off branch actually had a template to delete. When
+      // there is nothing to persist (all-off with no existing template), there
+      // is no mutation to inspect — treat it as a clean no-op below.
+      bool mutated = true;
+
       if (allOff) {
         // No working days. If a template exists, deleting it returns the master
         // to the NO_SCHEDULE state (so the calendar empty-state shows again).
@@ -256,6 +261,8 @@ class _WeeklyTemplateEditorScreenState
             log('save: all-off → delete ${existing!.id}', name: _tag);
           }
           await notifier.delete(existing!.id!);
+        } else {
+          mutated = false;
         }
       } else {
         final WeeklySchedule schedule = _buildSchedule(days, existing);
@@ -271,6 +278,22 @@ class _WeeklyTemplateEditorScreenState
       }
 
       if (!mounted) return;
+      // `WeeklyScheduleNotifier.save` / `.delete` wrap their work in
+      // `AsyncValue.guard`, so a failed POST/PUT/DELETE does NOT throw here — it
+      // surfaces as an [AsyncError] on the provider state. Read that resulting
+      // state and branch on it: only pop + show success when the mutation
+      // actually persisted (`hasError == false`). A no-op (all-off, no existing
+      // template) never touched the provider, so skip the check for it.
+      if (mutated) {
+        final AsyncValue<List<WeeklySchedule>> result = ref.read(
+          weeklyScheduleProvider,
+        );
+        if (result.hasError) {
+          _showError(messenger, result.error, l10n);
+          return;
+        }
+      }
+
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(l10n.savedSnackbar)));
@@ -279,22 +302,31 @@ class _WeeklyTemplateEditorScreenState
       } else {
         context.go(RouteNames.masterSchedule);
       }
-    } on Failure catch (f) {
-      if (!mounted) return;
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            backgroundColor: BrandColors.error,
-            content: Text(f.userMessage(context)),
-          ),
-        );
     } finally {
       if (mounted) {
         setState(() => _saving = false);
         _canSaveNotifier.value = _canSave;
       }
     }
+  }
+
+  /// Shows the failure snackbar for a swallowed-into-state save/delete mutation.
+  /// [error] is the provider's [AsyncValue.error]: a typed [Failure] when the
+  /// repository mapped it, otherwise the generic unknown-error copy. Does NOT
+  /// pop and does NOT show a success snackbar — the false-success guard.
+  void _showError(
+    ScaffoldMessengerState messenger,
+    Object? error,
+    AppLocalizations l10n,
+  ) {
+    final String message = error is Failure
+        ? error.userMessage(context)
+        : l10n.errUnknown;
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(backgroundColor: BrandColors.error, content: Text(message)),
+      );
   }
 
   /// Maps the 7 draft days onto a [WeeklySchedule], preserving the loaded
