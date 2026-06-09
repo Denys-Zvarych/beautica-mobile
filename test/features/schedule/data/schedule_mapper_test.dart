@@ -122,6 +122,66 @@ void main() {
       );
       expect(schedule.id, 'sched-1');
     });
+
+    // ── Regression: the dropped-id bug ───────────────────────────────────────
+    //
+    // The weekly-template editor's create-vs-update diffing keys off
+    // `existing.id`. The list path (`listWeeklySchedules`) maps each row via
+    // `weeklyScheduleFromResponse` with NO explicit `id:` override, so the id
+    // MUST come from the wire (`dto.id`). The original bug: the mapper ignored
+    // `dto.id`, so every listed template loaded with `id == null` → the editor's
+    // second save POSTed a duplicate window → backend overlap rejection
+    // ("Schedule window overlaps an existing window starting ..."). These tests
+    // pin `dto.id` flowing through — the exact assertion that would have caught
+    // it.
+    test('id flows from the wire (dto.id) when no override is given', () {
+      final response = WeeklyScheduleResponse(
+        (b) => b
+          ..id = 'wire-sched-7'
+          ..validFrom = Date(2026, 6, 1),
+      );
+
+      final schedule = ScheduleMapper.weeklyScheduleFromResponse(response);
+
+      expect(
+        schedule.id,
+        'wire-sched-7',
+        reason:
+            'a reloaded list template must be self-identifying from dto.id so '
+            'the editor PUTs (updates) instead of POSTing a duplicate window',
+      );
+    });
+
+    test('explicit id override wins over dto.id (the re-attach path)', () {
+      final response = WeeklyScheduleResponse(
+        (b) => b
+          ..id = 'wire-sched-7'
+          ..validFrom = Date(2026, 6, 1),
+      );
+
+      final schedule = ScheduleMapper.weeklyScheduleFromResponse(
+        response,
+        id: 'targeted-id',
+      );
+
+      expect(
+        schedule.id,
+        'targeted-id',
+        reason:
+            'the create/update re-attach path pins the id the caller targeted, '
+            'overriding any server echo',
+      );
+    });
+
+    test('id is null when neither the wire nor an override supplies one', () {
+      final response = WeeklyScheduleResponse(
+        (b) => b..validFrom = Date(2026, 6, 1),
+      );
+
+      final schedule = ScheduleMapper.weeklyScheduleFromResponse(response);
+
+      expect(schedule.id, isNull);
+    });
   });
 
   group('weeklyScheduleToRequest — round-trips through fromResponse', () {

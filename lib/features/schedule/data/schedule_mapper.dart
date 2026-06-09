@@ -118,6 +118,12 @@ abstract final class ScheduleMapper {
   /// Any weekday the backend omitted — or any row with a null / out-of-range
   /// `dayOfWeek` — materialises as a day-off (empty intervals). A duplicate
   /// weekday: the last one wins.
+  ///
+  /// The template id comes from the wire (`dto.id`) so reloaded list templates
+  /// are self-identifying — that non-null id is what lets the editor's second
+  /// save target a PUT (update in place) instead of POSTing a duplicate window.
+  /// [id] is an optional override for the create/update re-attach path, where
+  /// the caller already knows the targeted id; it falls back to `dto.id`.
   static WeeklySchedule weeklyScheduleFromResponse(
     WeeklyScheduleResponse dto, {
     String? id,
@@ -140,7 +146,7 @@ abstract final class ScheduleMapper {
     }
 
     return WeeklySchedule(
-      id: id,
+      id: id ?? dto.id,
       validFrom: _dateFromWire(dto.validFrom),
       validTo: dto.validTo == null ? null : _dateFromWire(dto.validTo),
       days: [

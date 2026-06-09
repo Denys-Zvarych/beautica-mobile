@@ -8,6 +8,8 @@ part of 'weekly_schedule_response.dart';
 
 class _$WeeklyScheduleResponse extends WeeklyScheduleResponse {
   @override
+  final String? id;
+  @override
   final Date? validFrom;
   @override
   final Date? validTo;
@@ -18,7 +20,7 @@ class _$WeeklyScheduleResponse extends WeeklyScheduleResponse {
           [void Function(WeeklyScheduleResponseBuilder)? updates]) =>
       (WeeklyScheduleResponseBuilder()..update(updates))._build();
 
-  _$WeeklyScheduleResponse._({this.validFrom, this.validTo, this.days})
+  _$WeeklyScheduleResponse._({this.id, this.validFrom, this.validTo, this.days})
       : super._();
   @override
   WeeklyScheduleResponse rebuild(
@@ -33,6 +35,7 @@ class _$WeeklyScheduleResponse extends WeeklyScheduleResponse {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is WeeklyScheduleResponse &&
+        id == other.id &&
         validFrom == other.validFrom &&
         validTo == other.validTo &&
         days == other.days;
@@ -41,6 +44,7 @@ class _$WeeklyScheduleResponse extends WeeklyScheduleResponse {
   @override
   int get hashCode {
     var _$hash = 0;
+    _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, validFrom.hashCode);
     _$hash = $jc(_$hash, validTo.hashCode);
     _$hash = $jc(_$hash, days.hashCode);
@@ -51,6 +55,7 @@ class _$WeeklyScheduleResponse extends WeeklyScheduleResponse {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'WeeklyScheduleResponse')
+          ..add('id', id)
           ..add('validFrom', validFrom)
           ..add('validTo', validTo)
           ..add('days', days))
@@ -61,6 +66,10 @@ class _$WeeklyScheduleResponse extends WeeklyScheduleResponse {
 class WeeklyScheduleResponseBuilder
     implements Builder<WeeklyScheduleResponse, WeeklyScheduleResponseBuilder> {
   _$WeeklyScheduleResponse? _$v;
+
+  String? _id;
+  String? get id => _$this._id;
+  set id(String? id) => _$this._id = id;
 
   Date? _validFrom;
   Date? get validFrom => _$this._validFrom;
@@ -82,6 +91,7 @@ class WeeklyScheduleResponseBuilder
   WeeklyScheduleResponseBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
+      _id = $v.id;
       _validFrom = $v.validFrom;
       _validTo = $v.validTo;
       _days = $v.days?.toBuilder();
@@ -108,6 +118,7 @@ class WeeklyScheduleResponseBuilder
     try {
       _$result = _$v ??
           _$WeeklyScheduleResponse._(
+            id: id,
             validFrom: validFrom,
             validTo: validTo,
             days: _days?.build(),

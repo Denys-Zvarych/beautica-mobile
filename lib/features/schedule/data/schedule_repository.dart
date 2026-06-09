@@ -162,7 +162,10 @@ final class HttpScheduleRepository implements ScheduleRepository {
         scheduleId: scheduleId,
         weeklyScheduleRequest: request,
       );
-      // Re-attach the id the caller targeted — the wire response omits it.
+      // Re-attach the id the caller targeted. The PUT wire response now also
+      // carries `id`, but pin it explicitly so the returned template is always
+      // tagged with the exact id we updated (defends against any server echo
+      // mismatch on the update path).
       return _requireWeeklyData(res.data?.data, id: scheduleId);
     } on Failure {
       rethrow;

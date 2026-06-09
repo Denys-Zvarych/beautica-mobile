@@ -8,6 +8,7 @@ import 'package:beautica_api/api.dart';
 ## Properties
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
+**id** | **String** |  | [optional] 
 **validFrom** | [**Date**](Date.md) |  | [optional] 
 **validTo** | [**Date**](Date.md) |  | [optional] 
 **days** | [**BuiltList&lt;WeeklyScheduleDayResponse&gt;**](WeeklyScheduleDayResponse.md) |  | [optional] 

@@ -14,12 +14,16 @@ part 'weekly_schedule_response.g.dart';
 /// WeeklyScheduleResponse
 ///
 /// Properties:
+/// * [id]
 /// * [validFrom]
 /// * [validTo]
 /// * [days]
 @BuiltValue()
 abstract class WeeklyScheduleResponse
     implements Built<WeeklyScheduleResponse, WeeklyScheduleResponseBuilder> {
+  @BuiltValueField(wireName: r'id')
+  String? get id;
+
   @BuiltValueField(wireName: r'validFrom')
   Date? get validFrom;
 
@@ -59,6 +63,13 @@ class _$WeeklyScheduleResponseSerializer
     WeeklyScheduleResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    if (object.id != null) {
+      yield r'id';
+      yield serializers.serialize(
+        object.id,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.validFrom != null) {
       yield r'validFrom';
       yield serializers.serialize(
@@ -106,6 +117,13 @@ class _$WeeklyScheduleResponseSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'id':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.id = valueDes;
+          break;
         case r'validFrom':
           final valueDes = serializers.deserialize(
             value,

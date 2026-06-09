@@ -9,6 +9,7 @@
 // NetworkFailure; empty masterId → UnauthorizedFailure (no call).
 
 import 'package:beautica_api/beautica_api.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
@@ -35,6 +36,47 @@ Response<ApiResponseListScheduleOverrideResponse> _overridesEnvelope(
     statusCode: 200,
   );
 }
+
+const _weeklyPath = '/api/v1/masters/$_masterId/weekly-schedules';
+
+Response<ApiResponseListWeeklyScheduleResponse> _weeklyEnvelope(
+  Iterable<WeeklyScheduleResponse> rows,
+) {
+  final envelope = ApiResponseListWeeklyScheduleResponse(
+    (b) => b
+      ..success = true
+      ..data.replace(rows),
+  );
+  return Response<ApiResponseListWeeklyScheduleResponse>(
+    data: envelope,
+    requestOptions: RequestOptions(path: _weeklyPath),
+    statusCode: 200,
+  );
+}
+
+/// A persisted weekly template row carrying its server [id] — Mon 09:00–18:00,
+/// every other day omitted (the backend may send a sparse week).
+WeeklyScheduleResponse _weeklyRow({required String? id}) =>
+    WeeklyScheduleResponse(
+      (b) => b
+        ..id = id
+        ..validFrom = Date(2026, 6, 1)
+        ..days = ListBuilder<WeeklyScheduleDayResponse>(
+          <WeeklyScheduleDayResponse>[
+            WeeklyScheduleDayResponse(
+              (db) => db
+                ..dayOfWeek = 1
+                ..intervals = ListBuilder<WorkIntervalDto>(<WorkIntervalDto>[
+                  WorkIntervalDto(
+                    (i) => i
+                      ..startTime = '09:00:00'
+                      ..endTime = '18:00:00',
+                  ),
+                ]),
+            ),
+          ],
+        ),
+    );
 
 ScheduleOverrideResponse _dayOffRow(int year, int month, int day) =>
     ScheduleOverrideResponse(
@@ -176,6 +218,61 @@ void main() {
         DateTime(2026, 6, 30),
       );
       expect(overrides, isEmpty);
+    });
+  });
+
+  // ── Regression: list path must yield self-identifying templates ───────────
+  //
+  // The dropped-id bug lived on THIS path. `listWeeklySchedules` maps each row
+  // through `weeklyScheduleFromResponse` with no explicit `id:` override, so the
+  // id has to ride in on `dto.id`. When it didn't, every loaded template had
+  // `id == null` → the editor's create-vs-update diff (`existing.id`) chose
+  // CREATE on the second save → a duplicate window → backend overlap rejection.
+  //
+  // The behavioral assertion: given a persisted row with a non-null wire id,
+  // the listed `WeeklySchedule` carries that exact id (NOT null) — which is what
+  // makes the editor PUT (`scheduleId: <that id>`) instead of POST.
+  group('listWeeklySchedules — id propagation (dropped-id regression)', () {
+    test('a persisted row keeps its server id (non-null, equal to dto.id)', () async {
+      when(
+        () => masterApi.getWeeklySchedules(masterId: any(named: 'masterId')),
+      ).thenAnswer(
+        (_) async => _weeklyEnvelope(<WeeklyScheduleResponse>[
+          _weeklyRow(id: 'sched-42'),
+        ]),
+      );
+
+      final templates = await repository.listWeeklySchedules();
+
+      expect(templates, hasLength(1));
+      expect(
+        templates.single.id,
+        'sched-42',
+        reason:
+            'the reloaded list template must be self-identifying so the editor '
+            'PUTs with this id rather than POSTing a duplicate window',
+      );
+      expect(
+        templates.single.id,
+        isNotNull,
+        reason: 'a null id here is the exact bug: it forces a duplicate CREATE',
+      );
+    });
+
+    test('null data → empty list', () async {
+      when(
+        () => masterApi.getWeeklySchedules(masterId: any(named: 'masterId')),
+      ).thenAnswer(
+        (_) async => Response<ApiResponseListWeeklyScheduleResponse>(
+          data: ApiResponseListWeeklyScheduleResponse(
+            (b) => b..success = true,
+          ),
+          requestOptions: RequestOptions(path: _weeklyPath),
+          statusCode: 200,
+        ),
+      );
+
+      expect(await repository.listWeeklySchedules(), isEmpty);
     });
   });
 
