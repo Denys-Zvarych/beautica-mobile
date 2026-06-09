@@ -32,6 +32,7 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
@@ -83,7 +84,12 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
     // (Returns to this kept-alive route are handled by [_openAndRefresh],
     // since initState does NOT re-fire on pop-back.)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ref.invalidate(approvedCategoriesProvider);
+      if (mounted) {
+        ref.invalidate(approvedCategoriesProvider);
+        // Also drop the whole service-types family (no arg = all categories):
+        // a type newly approved under an EXISTING category must appear on entry.
+        ref.invalidate(serviceTypesProvider);
+      }
     });
   }
 
@@ -104,7 +110,10 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
   /// from the create / edit / request-category flows.
   Future<void> _openAndRefresh(String location) async {
     await context.push<void>(location);
-    if (mounted) ref.invalidate(approvedCategoriesProvider);
+    if (mounted) {
+      ref.invalidate(approvedCategoriesProvider);
+      ref.invalidate(serviceTypesProvider);
+    }
   }
 
   @override
@@ -134,6 +143,7 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
         // lazily on the next watch) — both are kicked off here.
         onRefresh: () async {
           ref.invalidate(approvedCategoriesProvider);
+          ref.invalidate(serviceTypesProvider);
           await ref.read(servicesListProvider.notifier).refresh();
         },
         color: BrandColors.accentDeep,
