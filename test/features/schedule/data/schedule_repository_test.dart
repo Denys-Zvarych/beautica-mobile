@@ -233,40 +233,42 @@ void main() {
   // the listed `WeeklySchedule` carries that exact id (NOT null) — which is what
   // makes the editor PUT (`scheduleId: <that id>`) instead of POST.
   group('listWeeklySchedules — id propagation (dropped-id regression)', () {
-    test('a persisted row keeps its server id (non-null, equal to dto.id)', () async {
-      when(
-        () => masterApi.getWeeklySchedules(masterId: any(named: 'masterId')),
-      ).thenAnswer(
-        (_) async => _weeklyEnvelope(<WeeklyScheduleResponse>[
-          _weeklyRow(id: 'sched-42'),
-        ]),
-      );
+    test(
+      'a persisted row keeps its server id (non-null, equal to dto.id)',
+      () async {
+        when(
+          () => masterApi.getWeeklySchedules(masterId: any(named: 'masterId')),
+        ).thenAnswer(
+          (_) async => _weeklyEnvelope(<WeeklyScheduleResponse>[
+            _weeklyRow(id: 'sched-42'),
+          ]),
+        );
 
-      final templates = await repository.listWeeklySchedules();
+        final templates = await repository.listWeeklySchedules();
 
-      expect(templates, hasLength(1));
-      expect(
-        templates.single.id,
-        'sched-42',
-        reason:
-            'the reloaded list template must be self-identifying so the editor '
-            'PUTs with this id rather than POSTing a duplicate window',
-      );
-      expect(
-        templates.single.id,
-        isNotNull,
-        reason: 'a null id here is the exact bug: it forces a duplicate CREATE',
-      );
-    });
+        expect(templates, hasLength(1));
+        expect(
+          templates.single.id,
+          'sched-42',
+          reason:
+              'the reloaded list template must be self-identifying so the editor '
+              'PUTs with this id rather than POSTing a duplicate window',
+        );
+        expect(
+          templates.single.id,
+          isNotNull,
+          reason:
+              'a null id here is the exact bug: it forces a duplicate CREATE',
+        );
+      },
+    );
 
     test('null data → empty list', () async {
       when(
         () => masterApi.getWeeklySchedules(masterId: any(named: 'masterId')),
       ).thenAnswer(
         (_) async => Response<ApiResponseListWeeklyScheduleResponse>(
-          data: ApiResponseListWeeklyScheduleResponse(
-            (b) => b..success = true,
-          ),
+          data: ApiResponseListWeeklyScheduleResponse((b) => b..success = true),
           requestOptions: RequestOptions(path: _weeklyPath),
           statusCode: 200,
         ),

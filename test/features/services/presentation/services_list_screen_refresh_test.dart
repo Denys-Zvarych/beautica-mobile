@@ -115,10 +115,7 @@ void main() {
     // Keep the family key alive for the whole test: the screen invalidates the
     // family, but a fetch only fires when something watches it (the picker, in
     // production). This listener stands in for that picker subscription.
-    final sub = container.listen(
-      serviceTypesProvider('HAIRCUT'),
-      (_, _) {},
-    );
+    final sub = container.listen(serviceTypesProvider('HAIRCUT'), (_, _) {});
     addTearDown(sub.close);
 
     await tester.pumpWidget(

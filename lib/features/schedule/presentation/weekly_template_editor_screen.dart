@@ -56,6 +56,28 @@ import 'widgets/interval_editor.dart';
 /// Number of ISO days in a week.
 const int _kDaysInWeek = 7;
 
+/// Why the Save button is in its current state — drives both the button's
+/// enabled flag and the inline hint that explains a disabled Save, so a day-off
+/// selection never leaves the user staring at a silently-dead button.
+enum _SaveGate {
+  /// The draft differs from the persisted schedule and has no validation
+  /// errors → Save is enabled.
+  saveable,
+
+  /// The draft matches the persisted schedule (a clean no-op, e.g. an all-off
+  /// week with no existing template, or a toggle off→on with the same hours) →
+  /// Save is disabled and the "no changes" hint is shown.
+  noChanges,
+
+  /// At least one day has an invalid window/break → Save is disabled (the
+  /// per-field inline validation already explains the error in-card; tapping
+  /// Save would surface the errors banner).
+  hasErrors,
+
+  /// A save/delete is in flight → Save shows its loading state.
+  saving,
+}
+
 /// The full-screen weekly-template editor.
 class WeeklyTemplateEditorScreen extends ConsumerStatefulWidget {
   const WeeklyTemplateEditorScreen({super.key, DateTime? clock})
@@ -90,18 +112,24 @@ class _WeeklyTemplateEditorScreenState
   /// dirty diff. Captured once alongside [_days].
   WeeklySchedule? _serverTemplate;
 
-  /// The canonical interval lists the draft was seeded with — the dirty-diff
-  /// baseline (Phase 6.2 pristine-load contract: Save stays disabled until the
-  /// user actually edits, never merely because data loaded). Indexed Mon..Sun.
+  /// The persisted server state projected onto the seven ISO weekdays — the
+  /// dirty-diff source of truth. Equals seven empty lists when the master has
+  /// NO_SCHEDULE (`_serverTemplate == null`), or each persisted day's intervals
+  /// otherwise. Save is gated on the draft DIFFERING from this (Phase 6.2
+  /// pristine-load contract: Save stays disabled until the user actually edits,
+  /// never merely because data loaded). Indexed Mon..Sun.
   List<List<WorkInterval>>? _baseline;
 
   bool _saving = false;
 
-  /// Drives the Save button's enabled state in isolation. A single-day edit
-  /// recomputes the dirty-diff + validation and pushes the result here, so only
-  /// the Save button (wrapped in a `ValueListenableBuilder`) rebuilds — the 6
-  /// untouched `_DayCard`s never re-run `build()`/`validateDayHours`.
-  final ValueNotifier<bool> _canSaveNotifier = ValueNotifier<bool>(false);
+  /// Drives the Save button's enabled state AND the inline disabled-reason hint
+  /// in isolation. A single-day edit recomputes the dirty-diff + validation and
+  /// pushes the result here, so only the Save area (wrapped in a
+  /// `ValueListenableBuilder`) rebuilds — the 6 untouched `_DayCard`s never
+  /// re-run `build()`/`validateDayHours`.
+  final ValueNotifier<_SaveGate> _saveGateNotifier = ValueNotifier<_SaveGate>(
+    _SaveGate.noChanges,
+  );
 
   /// Drives the summary chip's open-day count in isolation. Updated alongside
   /// the Save gate on a toggle, so the chip rebuilds without touching the cards.
@@ -109,7 +137,7 @@ class _WeeklyTemplateEditorScreenState
 
   @override
   void dispose() {
-    _canSaveNotifier.dispose();
+    _saveGateNotifier.dispose();
     _openCountNotifier.dispose();
     super.dispose();
   }
@@ -149,16 +177,16 @@ class _WeeklyTemplateEditorScreenState
         _baseline = baseline;
       });
       // Pristine load: Save stays disabled until a real edit (Phase 6.2).
-      _canSaveNotifier.value = _canSave;
+      _saveGateNotifier.value = _saveGate;
       _openCountNotifier.value = _openCount;
     });
   }
 
   /// Recompute the Save gate (and open-day count) after a single-day edit and
-  /// push the results to the Save button / summary chip only. Does NOT call
+  /// push the results to the Save area / summary chip only. Does NOT call
   /// `setState`, so no `_DayCard` rebuilds.
   void _onDayMutated() {
-    _canSaveNotifier.value = _canSave;
+    _saveGateNotifier.value = _saveGate;
     _openCountNotifier.value = _openCount;
   }
 
@@ -168,10 +196,17 @@ class _WeeklyTemplateEditorScreenState
 
   int get _openCount => _days?.where((DayHours? d) => d != null).length ?? 0;
 
-  /// True when the draft differs from the seeded baseline. Compares each day's
-  /// collapsed canonical interval list against the server's — so a pristine load
-  /// is NOT dirty (Phase 6.2 contract), and a no-op edit (e.g. toggle off then
-  /// on with the same hours) doesn't enable Save.
+  /// True when the draft differs from the PERSISTED server state. Compares each
+  /// day's collapsed canonical interval list against [_baseline] — which is the
+  /// persisted template projected onto the seven weekdays, or seven empty lists
+  /// when `_serverTemplate == null` (the NO_SCHEDULE / fresh-create case). So:
+  ///   • a pristine load is NOT dirty (Phase 6.2 contract);
+  ///   • a fresh master toggling any day ON is dirty → Save enabled;
+  ///   • an all-off week with no template equals the persisted NO_SCHEDULE
+  ///     state → NOT dirty (legitimately nothing to persist);
+  ///   • an existing template's open day toggled OFF (or all days off → the
+  ///     DELETE path) IS dirty → Save enabled;
+  ///   • a no-op edit (toggle off then on with the same hours) is NOT dirty.
   bool get _isDirty {
     final List<DayHours?>? days = _days;
     final List<List<WorkInterval>>? baseline = _baseline;
@@ -185,7 +220,16 @@ class _WeeklyTemplateEditorScreenState
     return false;
   }
 
-  bool get _canSave => _isDirty && !_hasErrors && !_saving;
+  /// The current Save-button state and its reason. `saving` and `hasErrors`
+  /// take precedence over the dirty check; a non-dirty draft is a clean no-op
+  /// (`noChanges`) — surfaced as the inline hint so a day-off selection never
+  /// looks like a broken Save button.
+  _SaveGate get _saveGate {
+    if (_saving) return _SaveGate.saving;
+    if (_hasErrors) return _SaveGate.hasErrors;
+    if (!_isDirty) return _SaveGate.noChanges;
+    return _SaveGate.saveable;
+  }
 
   static bool _sameIntervals(List<WorkInterval> a, List<WorkInterval> b) {
     if (a.length != b.length) return false;
@@ -241,7 +285,7 @@ class _WeeklyTemplateEditorScreenState
     final bool allOff = days.every((DayHours? d) => d == null);
 
     setState(() => _saving = true);
-    _canSaveNotifier.value = _canSave;
+    _saveGateNotifier.value = _saveGate;
     try {
       final WeeklyScheduleNotifier notifier = ref.read(
         weeklyScheduleProvider.notifier,
@@ -305,7 +349,7 @@ class _WeeklyTemplateEditorScreenState
     } finally {
       if (mounted) {
         setState(() => _saving = false);
-        _canSaveNotifier.value = _canSave;
+        _saveGateNotifier.value = _saveGate;
       }
     }
   }
@@ -400,7 +444,7 @@ class _WeeklyTemplateEditorScreenState
                   return _LoadedBody(
                     days: days,
                     openCountListenable: _openCountNotifier,
-                    canSaveListenable: _canSaveNotifier,
+                    saveGateListenable: _saveGateNotifier,
                     saving: _saving,
                     activeWindow: _activeWindowLabel(l10n),
                     l10n: l10n,
@@ -439,7 +483,7 @@ class _LoadedBody extends StatelessWidget {
   _LoadedBody({
     required this.days,
     required this.openCountListenable,
-    required this.canSaveListenable,
+    required this.saveGateListenable,
     required this.saving,
     required this.activeWindow,
     required this.l10n,
@@ -453,8 +497,9 @@ class _LoadedBody extends StatelessWidget {
   /// Open-day count, listened to so only the summary chip rebuilds on a toggle.
   final ValueListenable<int> openCountListenable;
 
-  /// Save-enabled gate, listened to so only the Save button rebuilds on an edit.
-  final ValueListenable<bool> canSaveListenable;
+  /// Save gate (enabled state + disabled reason), listened to so only the Save
+  /// area (button + inline hint) rebuilds on an edit.
+  final ValueListenable<_SaveGate> saveGateListenable;
   final bool saving;
   final String activeWindow;
   final AppLocalizations l10n;
@@ -547,15 +592,33 @@ class _LoadedBody extends StatelessWidget {
             VelvetSpacing.md,
             VelvetSpacing.md,
           ),
-          child: ValueListenableBuilder<bool>(
-            valueListenable: canSaveListenable,
-            builder: (BuildContext context, bool canSave, _) {
-              return NeumorphicButton(
-                key: const Key('btn-save-weekly-template'),
-                label: l10n.step3CtaSave,
-                icon: Icons.check_rounded,
-                loading: saving,
-                onPressed: canSave ? onSave : null,
+          child: ValueListenableBuilder<_SaveGate>(
+            valueListenable: saveGateListenable,
+            builder: (BuildContext context, _SaveGate gate, _) {
+              final bool canSave = gate == _SaveGate.saveable;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  // Explain a disabled Save when the draft is a clean no-op
+                  // (e.g. an all-off week with no template) so a day-off
+                  // selection never looks like a broken button.
+                  if (gate == _SaveGate.noChanges) ...<Widget>[
+                    Text(
+                      key: const Key('weekly-no-changes-hint'),
+                      l10n.weeklyEditorNoChangesHint,
+                      style: VelvetText.feedback(BrandColors.muted),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: VelvetSpacing.xs),
+                  ],
+                  NeumorphicButton(
+                    key: const Key('btn-save-weekly-template'),
+                    label: l10n.step3CtaSave,
+                    icon: Icons.check_rounded,
+                    loading: saving,
+                    onPressed: canSave ? onSave : null,
+                  ),
+                ],
               );
             },
           ),

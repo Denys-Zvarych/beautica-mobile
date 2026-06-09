@@ -2008,6 +2008,10 @@
   "@weeklyEditorDayOffRest": {
     "description": "Rest-state body text shown inside a collapsed (day-off) weekday card in the weekly-template editor (Phase 15.5)."
   },
+  "weeklyEditorNoChangesHint": "No changes to save",
+  "@weeklyEditorNoChangesHint": {
+    "description": "Hint shown above the Save button on the weekly-template editor when the draft matches the saved schedule (a clean no-op), explaining why Save is disabled. Covers the all-days-off, no-existing-template case so a day-off selection never looks broken."
+  },
   "weeklyEditorDayToggleSemantic": "{day} — working day",
   "@weeklyEditorDayToggleSemantic": {
     "description": "Accessibility label for the per-weekday open/closed toggle in the weekly-template editor (Phase 15.5).",

@@ -678,7 +678,9 @@ void main() {
         final l10n = _l10n(tester);
         expect(
           find.text(
-            l10n.scheduleDaySummaryWorking(summariseIntervals(_working(_today).intervals)),
+            l10n.scheduleDaySummaryWorking(
+              summariseIntervals(_working(_today).intervals),
+            ),
           ),
           findsOneWidget,
           reason: 'the day panel must show the working-hours summary line',

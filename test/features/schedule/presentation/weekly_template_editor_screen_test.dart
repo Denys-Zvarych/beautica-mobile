@@ -351,6 +351,262 @@ void main() {
     });
   });
 
+  // ── Day-off Save bug regression (the silently-dead Save button) ────────────
+  //
+  // BUG: a master with NO template seeds the editor with all 7 days as
+  // "day off". The Save gate used to treat a day-off matching the seeded
+  // baseline as "no change", leaving `_isDirty`/`_canSave` false and the Save
+  // button silently disabled (`onPressed: null`) — "the save button doesn't
+  // work" with no explanation. FIX: the gate is a `_SaveGate` and a keyed hint
+  // `Key('weekly-no-changes-hint')` renders above Save whenever the gate is
+  // `noChanges`, so a day-off selection is never a silently-dead button.
+  //
+  // These tests drive the gate purely through observable UI (the Save button's
+  // enabled flag + the keyed hint's presence) — never `_SaveGate` internals.
+
+  group('WeeklyTemplateEditorScreen — day-off Save bug regression', () {
+    testWidgets(
+      'fresh create (no server template): editor opens all-off, Save is '
+      'DISABLED, and the no-changes hint explains WHY (not a dead button)',
+      (tester) async {
+        // The empty-state CTA in master_schedule_screen.dart routes here with
+        // NO persisted template → an empty server list. The editor seeds an
+        // all-off week.
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: <Object>[
+            weeklyScheduleProvider.overrideWith(
+              () => _RecordingWeekly(const <WeeklySchedule>[]),
+            ),
+            effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+          ],
+        );
+        addTearDown(c.dispose);
+
+        // All seven days seed as day-off → no IntervalEditor work wells exist
+        // (each day-off card shows the rest row instead).
+        final Finder list = find.byType(Scrollable).first;
+        for (int dow = 1; dow <= 7; dow++) {
+          await tester.scrollUntilVisible(
+            find.byKey(Key('weekly-day-$dow')),
+            120,
+            scrollable: list,
+          );
+          expect(
+            find.byKey(Key('weekly-day-$dow-work-end')),
+            findsNothing,
+            reason: 'day $dow seeds as a day-off on a fresh create',
+          );
+        }
+
+        // Save is disabled (an all-off week with no template equals the
+        // persisted NO_SCHEDULE state — legitimately nothing to persist).
+        expect(
+          _saveButton(tester).onPressed,
+          isNull,
+          reason: 'an all-off fresh draft equals NO_SCHEDULE → Save disabled',
+        );
+        // …but the user is TOLD why, via the keyed hint — the regression that
+        // turned the disabled Save into a silently-dead button.
+        expect(
+          find.byKey(const Key('weekly-no-changes-hint')),
+          findsOneWidget,
+          reason:
+              'a disabled Save on an all-off fresh draft must explain itself '
+              'with the no-changes hint (not a silently-dead button)',
+        );
+      },
+    );
+
+    testWidgets(
+      'fresh create → toggle one day ON with valid hours: Save ENABLES, the '
+      'no-changes hint disappears, and Save issues a create (null id)',
+      (tester) async {
+        final _RecordingWeekly weekly = _RecordingWeekly(
+          const <WeeklySchedule>[],
+        );
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        // Precondition: the dead-button-explainer hint is up, Save disabled.
+        expect(
+          find.byKey(const Key('weekly-no-changes-hint')),
+          findsOneWidget,
+        );
+        expect(_saveButton(tester).onPressed, isNull);
+
+        // Toggle Monday ON — the stash seeds valid default hours (09:00–18:00),
+        // so the draft is dirty AND error-free.
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+
+        // Save flips enabled and the no-changes hint is gone — the user can act.
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason: 'opening a day on a fresh draft makes it savable',
+        );
+        expect(
+          find.byKey(const Key('weekly-no-changes-hint')),
+          findsNothing,
+          reason: 'the no-changes hint must clear once the draft is savable',
+        );
+
+        // Tap Save → a CREATE (null id) carrying Monday open is issued.
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        expect(weekly.saveCalled, isTrue);
+        expect(weekly.deleteCalled, isFalse);
+        expect(
+          weekly.savedScheduleId,
+          isNull,
+          reason: 'a fresh create must POST with no schedule id',
+        );
+        expect(
+          weekly.savedSchedule!.id,
+          isNull,
+          reason: 'a not-yet-persisted draft has no id',
+        );
+        expect(
+          weekly.savedSchedule!.days[0].intervals,
+          isNotEmpty,
+          reason: 'Monday is open in the created shape',
+        );
+      },
+    );
+
+    testWidgets(
+      'existing template, toggle an open day OFF: Save ENABLES and saving '
+      'persists that day as a day-off (empty intervals, not silently dropped)',
+      (tester) async {
+        // Mon–Fri open, Sat/Sun closed. Toggle Wednesday (an open day) OFF.
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          _template(id: 'sched-1'),
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        // Pristine load → Save disabled, hint shown (no edit yet).
+        expect(_saveButton(tester).onPressed, isNull);
+        expect(
+          find.byKey(const Key('weekly-no-changes-hint')),
+          findsOneWidget,
+        );
+
+        // Scroll Wednesday into view and toggle it OFF.
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('weekly-toggle-3')),
+          120,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.tap(find.byKey(const Key('weekly-toggle-3')));
+        await tester.pumpAndSettle();
+
+        // The day-off edit is dirty → Save enables, hint clears.
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason: 'closing a previously-open day makes the draft dirty',
+        );
+        expect(
+          find.byKey(const Key('weekly-no-changes-hint')),
+          findsNothing,
+        );
+
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        // The save UPDATES the existing template and carries Wednesday as a
+        // day-off (empty intervals) — the day-off is persistable, not dropped.
+        expect(weekly.saveCalled, isTrue);
+        expect(weekly.deleteCalled, isFalse);
+        expect(weekly.savedScheduleId, 'sched-1');
+        expect(
+          weekly.savedSchedule!.days[2].intervals,
+          isEmpty,
+          reason: 'Wednesday must be persisted as a day-off (empty intervals)',
+        );
+        // Other open days are untouched (Monday still carries its interval).
+        expect(
+          weekly.savedSchedule!.days[0].intervals,
+          isNotEmpty,
+          reason: 'an unedited open day keeps its interval',
+        );
+      },
+    );
+
+    testWidgets(
+      'all-off via toggling the last open day of an EXISTING template maps to '
+      'the delete path (observable: delete invoked + pop), not a dead Save',
+      (tester) async {
+        // Monday-only template → toggling Monday off makes the whole week off.
+        final WeeklySchedule mondayOnly = WeeklySchedule(
+          id: 'sched-1',
+          validFrom: _clock,
+          validTo: null,
+          days: <TemplateDay>[
+            for (int dow = 1; dow <= 7; dow++)
+              TemplateDay(
+                dayOfWeek: dow,
+                label: 'd$dow',
+                intervals: dow == 1
+                    ? <WorkInterval>[_interval(9, 0, 18, 0)]
+                    : <WorkInterval>[],
+              ),
+          ],
+        );
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          mondayOnly,
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        // Close Monday → every day off, but DIRTY (differs from the persisted
+        // Monday-open template) → Save enables, hint clears.
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason: 'closing the last open day of a real template is dirty',
+        );
+        expect(
+          find.byKey(const Key('weekly-no-changes-hint')),
+          findsNothing,
+        );
+
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        // Observable behavior: the all-off-with-existing-template branch DELETES
+        // the template (returns to NO_SCHEDULE) and pops back — never a no-op.
+        expect(
+          weekly.deleteCalled,
+          isTrue,
+          reason: 'all-off with an existing template DELETEs it',
+        );
+        expect(weekly.deletedId, 'sched-1');
+        expect(
+          weekly.saveCalled,
+          isFalse,
+          reason: 'delete is issued instead of an upsert when all days are off',
+        );
+        expect(find.byKey(const Key('schedule-stub')), findsOneWidget);
+        expect(find.byType(WeeklyTemplateEditorScreen), findsNothing);
+      },
+    );
+  });
+
   // ── Save → correct CRUD (M4: exact call assertion) ────────────────────────
 
   group('WeeklyTemplateEditorScreen — save issues the correct CRUD', () {

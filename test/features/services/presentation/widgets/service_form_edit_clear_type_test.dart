@@ -218,46 +218,39 @@ void main() {
     },
   );
 
-  testWidgets(
-    'EC-COMPAT. re-selecting the same category retains the loaded '
-    'serviceTypeId on submit',
-    (tester) async {
-      MasterServiceCreate? captured;
-      await pumpForm(
-        tester,
-        onSubmit: (input) async => captured = input,
-        initial: _editService,
-      );
+  testWidgets('EC-COMPAT. re-selecting the same category retains the loaded '
+      'serviceTypeId on submit', (tester) async {
+    MasterServiceCreate? captured;
+    await pumpForm(
+      tester,
+      onSubmit: (input) async => captured = input,
+      initial: _editService,
+    );
 
-      // Re-select the SAME category — a valid selection must be kept.
-      await selectCategoryOption(tester, 'MANICURE');
+    // Re-select the SAME category — a valid selection must be kept.
+    await selectCategoryOption(tester, 'MANICURE');
 
-      expect(
-        _serviceTypeFieldText('Класичний манікюр'),
-        findsOneWidget,
-        reason: 're-selecting the same category must keep the selection',
-      );
+    expect(
+      _serviceTypeFieldText('Класичний манікюр'),
+      findsOneWidget,
+      reason: 're-selecting the same category must keep the selection',
+    );
 
-      await tapSubmit(tester);
-      await tester.pumpAndSettle();
+    await tapSubmit(tester);
+    await tester.pumpAndSettle();
 
-      expect(captured, isNotNull);
-      expect(
-        captured!.serviceTypeId,
-        'type-manicure',
-        reason: 'a compatible/same category change must retain serviceTypeId',
-      );
-    },
-  );
+    expect(captured, isNotNull);
+    expect(
+      captured!.serviceTypeId,
+      'type-manicure',
+      reason: 'a compatible/same category change must retain serviceTypeId',
+    );
+  });
 
   testWidgets(
     'EC-NAME-USER. a user-edited name survives the incompatible-category clear',
     (tester) async {
-      await pumpForm(
-        tester,
-        onSubmit: neverSubmit,
-        initial: _editService,
-      );
+      await pumpForm(tester, onSubmit: neverSubmit, initial: _editService);
 
       // The loaded service name was NOT type-derived from this session\'s
       // auto-fill (it is the persisted name). The master also hand-edits it to
@@ -293,11 +286,7 @@ void main() {
         priceMin: 500,
         priceDisplay: '500 грн',
       );
-      await pumpForm(
-        tester,
-        onSubmit: neverSubmit,
-        initial: blankNameService,
-      );
+      await pumpForm(tester, onSubmit: neverSubmit, initial: blankNameService);
 
       // Select the type via the picker so the auto-fill path runs and marks the
       // name as type-derived (lastAutoFilledName tracked).
@@ -361,7 +350,8 @@ void main() {
       expect(
         captured!.serviceTypeId,
         isNull,
-        reason: 'a typeless service must submit serviceTypeId == null unchanged',
+        reason:
+            'a typeless service must submit serviceTypeId == null unchanged',
       );
     },
   );

@@ -25,35 +25,34 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('ServiceForm.shouldClearServiceTypeOnCategoryChange', () {
-    test(
-      'C-1. incompatible new category (type-category known) → clear',
-      () {
-        // Type belongs to MANICURE; the master switched the category to HAIRCUT.
-        // The selection is now cross-category and must be dropped.
-        expect(
-          ServiceForm.shouldClearServiceTypeOnCategoryChange(
-            previousCategory: 'MANICURE',
-            newCategory: 'HAIRCUT',
-            selectedTypeCategory: 'MANICURE',
-          ),
-          isTrue,
-        );
-      },
-    );
-
-    test('C-2. compatible / same new category (type-category known) → retain',
-        () {
-      // Re-selecting the SAME category must keep a still-valid selection rather
-      // than silently discarding the master's choice.
+    test('C-1. incompatible new category (type-category known) → clear', () {
+      // Type belongs to MANICURE; the master switched the category to HAIRCUT.
+      // The selection is now cross-category and must be dropped.
       expect(
         ServiceForm.shouldClearServiceTypeOnCategoryChange(
           previousCategory: 'MANICURE',
-          newCategory: 'MANICURE',
+          newCategory: 'HAIRCUT',
           selectedTypeCategory: 'MANICURE',
         ),
-        isFalse,
+        isTrue,
       );
     });
+
+    test(
+      'C-2. compatible / same new category (type-category known) → retain',
+      () {
+        // Re-selecting the SAME category must keep a still-valid selection rather
+        // than silently discarding the master's choice.
+        expect(
+          ServiceForm.shouldClearServiceTypeOnCategoryChange(
+            previousCategory: 'MANICURE',
+            newCategory: 'MANICURE',
+            selectedTypeCategory: 'MANICURE',
+          ),
+          isFalse,
+        );
+      },
+    );
 
     test('C-3. null new category (category cleared entirely) → clear', () {
       // An orphan type with no category is invalid → drop it.
@@ -97,39 +96,33 @@ void main() {
       },
     );
 
-    test(
-      'C-6. EDIT pre-seed: null captured type-category, SAME change → '
-      'falls back to previousCategory → retain',
-      () {
-        // previousCategory MANICURE == newCategory MANICURE → keep the selection
-        // (the edit pre-seed must not be discarded by a no-op re-select).
-        expect(
-          ServiceForm.shouldClearServiceTypeOnCategoryChange(
-            previousCategory: 'MANICURE',
-            newCategory: 'MANICURE',
-            selectedTypeCategory: null,
-          ),
-          isFalse,
-        );
-      },
-    );
+    test('C-6. EDIT pre-seed: null captured type-category, SAME change → '
+        'falls back to previousCategory → retain', () {
+      // previousCategory MANICURE == newCategory MANICURE → keep the selection
+      // (the edit pre-seed must not be discarded by a no-op re-select).
+      expect(
+        ServiceForm.shouldClearServiceTypeOnCategoryChange(
+          previousCategory: 'MANICURE',
+          newCategory: 'MANICURE',
+          selectedTypeCategory: null,
+        ),
+        isFalse,
+      );
+    });
 
-    test(
-      'C-7. EDIT pre-seed: empty captured type-category → falls back to '
-      'previousCategory (not treated as known)',
-      () {
-        // An empty string captured-category must be treated as "unknown" and
-        // fall back to previousCategory, NOT compared as an empty category.
-        expect(
-          ServiceForm.shouldClearServiceTypeOnCategoryChange(
-            previousCategory: 'MANICURE',
-            newCategory: 'MANICURE',
-            selectedTypeCategory: '',
-          ),
-          isFalse,
-        );
-      },
-    );
+    test('C-7. EDIT pre-seed: empty captured type-category → falls back to '
+        'previousCategory (not treated as known)', () {
+      // An empty string captured-category must be treated as "unknown" and
+      // fall back to previousCategory, NOT compared as an empty category.
+      expect(
+        ServiceForm.shouldClearServiceTypeOnCategoryChange(
+          previousCategory: 'MANICURE',
+          newCategory: 'MANICURE',
+          selectedTypeCategory: '',
+        ),
+        isFalse,
+      );
+    });
 
     test(
       'C-8. both captured AND previous category null → clear (no anchor)',
