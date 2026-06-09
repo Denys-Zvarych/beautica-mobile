@@ -283,11 +283,17 @@ GoRouter appRouter(Ref ref) {
         pageBuilder: (context, state) =>
             _instantPage(state, const PerDateOverrideStubScreen()),
       ),
-      // Phase 15.5 — copy/propagate range surface (still a stub).
+      // Phase 15.5 — the copy/propagate range surface graduated to the modal
+      // [ApplyScheduleSheet] («Період дії графіка»), opened from the weekly
+      // editor's tappable active-window card. So this route is no longer a
+      // standalone destination: it now lands on the weekly editor (which hosts
+      // the apply sheet) instead of the retired `SchedulePropagateStubScreen`,
+      // mirroring how the 15.4 override route folded into the day sheet. Kept
+      // registered (auth-guarded) for any external/deep-link entry.
       GoRoute(
         path: RouteNames.schedulePropagate,
         pageBuilder: (context, state) =>
-            _instantPage(state, const SchedulePropagateStubScreen()),
+            _instantPage(state, const WeeklyTemplateEditorScreen()),
       ),
     ],
   );

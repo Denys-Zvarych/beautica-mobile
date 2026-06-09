@@ -432,10 +432,7 @@ void main() {
         addTearDown(c.dispose);
 
         // Precondition: the dead-button-explainer hint is up, Save disabled.
-        expect(
-          find.byKey(const Key('weekly-no-changes-hint')),
-          findsOneWidget,
-        );
+        expect(find.byKey(const Key('weekly-no-changes-hint')), findsOneWidget);
         expect(_saveButton(tester).onPressed, isNull);
 
         // Toggle Monday ON — the stash seeds valid default hours (09:00–18:00),
@@ -495,10 +492,7 @@ void main() {
 
         // Pristine load → Save disabled, hint shown (no edit yet).
         expect(_saveButton(tester).onPressed, isNull);
-        expect(
-          find.byKey(const Key('weekly-no-changes-hint')),
-          findsOneWidget,
-        );
+        expect(find.byKey(const Key('weekly-no-changes-hint')), findsOneWidget);
 
         // Scroll Wednesday into view and toggle it OFF.
         await tester.scrollUntilVisible(
@@ -515,10 +509,7 @@ void main() {
           isNotNull,
           reason: 'closing a previously-open day makes the draft dirty',
         );
-        expect(
-          find.byKey(const Key('weekly-no-changes-hint')),
-          findsNothing,
-        );
+        expect(find.byKey(const Key('weekly-no-changes-hint')), findsNothing);
 
         await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
         await tester.pumpAndSettle();
@@ -580,10 +571,7 @@ void main() {
           isNotNull,
           reason: 'closing the last open day of a real template is dirty',
         );
-        expect(
-          find.byKey(const Key('weekly-no-changes-hint')),
-          findsNothing,
-        );
+        expect(find.byKey(const Key('weekly-no-changes-hint')), findsNothing);
 
         await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
         await tester.pumpAndSettle();

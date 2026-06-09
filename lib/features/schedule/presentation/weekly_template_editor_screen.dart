@@ -28,9 +28,12 @@
 //
 // ACTIVE WINDOW: the editor preserves the loaded template's `validFrom`/`validTo`
 // (open-ended `validTo == null` for a fresh create, anchored at the injectable
-// `today`). The active-window card is informational here; editing the validity
-// window via the range picker is a later phase (the preview's PeriodRangePicker
-// is not yet ported).
+// `today`). The active-window card is now TAPPABLE — it opens the Phase 15.5
+// `ApplyScheduleSheet` («Період дії графіка»), where the master sets the
+// validity window via a preset or the `PeriodRangePicker`. Applying a window
+// calls `upsertWeeklySchedule` with the chosen `validFrom`/`validTo` (it sets
+// the window — it does NOT materialise per-date overrides), then re-seeds the
+// editor from the saved server list.
 
 import 'dart:developer';
 
@@ -50,6 +53,7 @@ import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import '../domain/schedule_model.dart';
 import '../domain/weekly_schedule.dart';
+import 'apply_schedule_sheet.dart';
 import 'weekly_schedule_notifier.dart';
 import 'widgets/interval_editor.dart';
 
@@ -451,6 +455,7 @@ class _WeeklyTemplateEditorScreenState
                     onToggle: _toggleDay,
                     onMutated: _onDayMutated,
                     onSave: _save,
+                    onTapWindow: _openApplyWindowSheet,
                   );
                 },
               ),
@@ -459,6 +464,39 @@ class _WeeklyTemplateEditorScreenState
         ),
       ),
     );
+  }
+
+  /// Opens the «Період дії графіка» sheet to set the weekly template's
+  /// validity window (`validFrom`/`validTo`) for a chosen period. Builds the
+  /// active [WeeklySchedule] from the current draft (preserving the seven
+  /// `days`), so the window apply persists the master's in-editor day shape too.
+  ///
+  /// Per the locked Phase 15.5 contract the sheet sets the WINDOW via
+  /// `upsertWeeklySchedule` (it does NOT materialise per-date overrides). The
+  /// notifier invalidates `effectiveScheduleProvider` on success, so the
+  /// calendar repaints. On a successful apply the editor re-seeds from the
+  /// freshly-saved server list so the active-window card reflects the new
+  /// window.
+  Future<void> _openApplyWindowSheet() async {
+    final List<DayHours?>? days = _days;
+    if (days == null) return;
+    final WeeklySchedule base = _buildSchedule(days, _serverTemplate);
+    final bool? applied = await showApplyScheduleSheet(
+      context,
+      baseSchedule: base,
+      today: _today,
+    );
+    if (!mounted || applied != true) return;
+    // Re-seed from the now-saved server list so the card + dirty-diff track the
+    // persisted window/template. Clear the local seed first so `_seed` re-runs.
+    setState(() {
+      _days = null;
+      _baseline = null;
+      _serverTemplate = null;
+    });
+    if (kDebugMode) {
+      log('apply-window: applied → re-seeding from server', name: _tag);
+    }
   }
 
   /// The informational active-window line for the card.
@@ -490,6 +528,7 @@ class _LoadedBody extends StatelessWidget {
     required this.onToggle,
     required this.onMutated,
     required this.onSave,
+    required this.onTapWindow,
   });
 
   final List<DayHours?> days;
@@ -511,6 +550,9 @@ class _LoadedBody extends StatelessWidget {
   /// Notifies the host to recompute the Save gate after an in-place edit.
   final VoidCallback onMutated;
   final Future<void> Function() onSave;
+
+  /// Opens the «Період дії графіка» sheet to set the validity window.
+  final Future<void> Function() onTapWindow;
 
   /// `IntervalEditorStrings` is invariant for the screen's lifetime — resolve
   /// it once instead of rebuilding it on every `build`.
@@ -652,41 +694,58 @@ class _LoadedBody extends StatelessWidget {
     );
   }
 
-  /// Informational active-window card (read-only in this phase — editing the
-  /// validity window via the range picker is a later phase).
+  /// Tappable active-window card. Opens the «Період дії графіка» sheet
+  /// ([onTapWindow]) to set the validity window (`validFrom`/`validTo`) via a
+  /// preset or custom range (Phase 15.5). A trailing chevron + the
+  /// localized hint invite the tap so the affordance is never a dead button.
   Widget _activeWindowCard() {
-    return NeumorphicCard(
-      padding: const EdgeInsets.symmetric(
-        horizontal: VelvetSpacing.md,
-        vertical: VelvetSpacing.sm + 2,
-      ),
-      shadows: VelvetShadows.extrudedSmall,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const Icon(
-            Icons.event_available_rounded,
-            size: 16,
-            color: BrandColors.accent,
+    return Semantics(
+      button: true,
+      label: activeWindow,
+      child: GestureDetector(
+        key: const Key('weekly-active-window-card'),
+        onTap: onTapWindow,
+        behavior: HitTestBehavior.opaque,
+        child: NeumorphicCard(
+          padding: const EdgeInsets.symmetric(
+            horizontal: VelvetSpacing.md,
+            vertical: VelvetSpacing.sm + 2,
           ),
-          const SizedBox(width: VelvetSpacing.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  activeWindow,
-                  style: VelvetText.bodyStrong().copyWith(fontSize: 13),
+          shadows: VelvetShadows.extrudedSmall,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              const Icon(
+                Icons.event_available_rounded,
+                size: 16,
+                color: BrandColors.accent,
+              ),
+              const SizedBox(width: VelvetSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      activeWindow,
+                      style: VelvetText.bodyStrong().copyWith(fontSize: 13),
+                    ),
+                    const SizedBox(height: VelvetSpacing.xs),
+                    Text(
+                      l10n.weeklyEditorActiveWindowHint,
+                      style: VelvetText.feedback(BrandColors.muted),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: VelvetSpacing.xs),
-                Text(
-                  l10n.weeklyEditorActiveWindowHint,
-                  style: VelvetText.feedback(BrandColors.muted),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: VelvetSpacing.sm),
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 20,
+                color: BrandColors.muted,
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

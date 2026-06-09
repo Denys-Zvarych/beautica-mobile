@@ -2162,5 +2162,88 @@
   "scheduleOverrideErrorsBanner": "Fix the hours highlighted in red",
   "@scheduleOverrideErrorsBanner": {
     "description": "Snackbar shown when trying to save custom hours with validation errors in the per-date override sheet (Phase 15.4)."
+  },
+  "applyScheduleTitle": "Schedule validity period",
+  "@applyScheduleTitle": {
+    "description": "Title of the apply-schedule sheet where the master sets the weekly template's validity window (Phase 15.5)."
+  },
+  "applyScheduleBody": "Your weekly schedule will apply during this period. Individual days can be changed later.",
+  "@applyScheduleBody": {
+    "description": "Explanatory body under the apply-schedule sheet title (Phase 15.5)."
+  },
+  "applyScheduleQuickPick": "Quick pick",
+  "@applyScheduleQuickPick": {
+    "description": "Section label above the quick-pick preset chips in the apply-schedule sheet (Phase 15.5)."
+  },
+  "applySchedulePresetThisMonth": "Rest of this month",
+  "@applySchedulePresetThisMonth": {
+    "description": "Preset chip: apply the schedule for the rest of the current month (Phase 15.5)."
+  },
+  "applySchedulePresetNextThreeMonths": "Next 3 months",
+  "@applySchedulePresetNextThreeMonths": {
+    "description": "Preset chip: apply the schedule for the next three months (Phase 15.5)."
+  },
+  "applySchedulePresetWholeYear": "Whole year",
+  "@applySchedulePresetWholeYear": {
+    "description": "Preset chip: apply the schedule through Dec 31 of the current year (Phase 15.5)."
+  },
+  "applySchedulePeriodLabel": "Period",
+  "@applySchedulePeriodLabel": {
+    "description": "Label above the manual date-range well in the apply-schedule sheet (Phase 15.5)."
+  },
+  "applyScheduleRangePlaceholder": "Select a date range",
+  "@applyScheduleRangePlaceholder": {
+    "description": "Placeholder in the apply-schedule date well before a range is chosen (Phase 15.5)."
+  },
+  "applyScheduleDayCount": "Validity period: {count, plural, one{{count} day} other{{count} days}}",
+  "@applyScheduleDayCount": {
+    "description": "Live inclusive day-count readout for the chosen validity window in the apply-schedule sheet (Phase 15.5).",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "applyScheduleCta": "Apply",
+  "@applyScheduleCta": {
+    "description": "Primary CTA that persists the chosen validity window in the apply-schedule sheet (Phase 15.5)."
+  },
+  "applyScheduleOverlapError": "This period overlaps an existing schedule. Choose a different period.",
+  "@applyScheduleOverlapError": {
+    "description": "Inline error shown when the backend rejects a validity window because it overlaps an existing one (Phase 15.4/15.5)."
+  },
+  "rangePickerTitle": "Select a period",
+  "@rangePickerTitle": {
+    "description": "Title of the VelvetTouch scrolling-months range picker (Phase 15.5)."
+  },
+  "rangePickerEmptyHint": "Select a period",
+  "@rangePickerEmptyHint": {
+    "description": "Summary-chip hint in the range picker before any day is tapped (Phase 15.5)."
+  },
+  "weekdayShortMon": "Mon",
+  "@weekdayShortMon": {
+    "description": "Two-letter Monday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortTue": "Tue",
+  "@weekdayShortTue": {
+    "description": "Two-letter Tuesday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortWed": "Wed",
+  "@weekdayShortWed": {
+    "description": "Two-letter Wednesday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortThu": "Thu",
+  "@weekdayShortThu": {
+    "description": "Two-letter Thursday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortFri": "Fri",
+  "@weekdayShortFri": {
+    "description": "Two-letter Friday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortSat": "Sat",
+  "@weekdayShortSat": {
+    "description": "Two-letter Saturday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortSun": "Sun",
+  "@weekdayShortSun": {
+    "description": "Two-letter Sunday label for the range-picker weekday header (Phase 15.5)."
   }
 }

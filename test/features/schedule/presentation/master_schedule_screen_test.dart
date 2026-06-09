@@ -257,9 +257,12 @@ List<RouteBase> _routes() => <RouteBase>[
     path: RouteNames.scheduleDayOverride,
     builder: (context, state) => const PerDateOverrideStubScreen(),
   ),
+  // Phase 15.5: `RouteNames.schedulePropagate` (`/schedule/copy`) now lands on
+  // the real `WeeklyTemplateEditorScreen` (which opens the ApplyScheduleSheet),
+  // so the retired `SchedulePropagateStubScreen` is no longer wired here.
   GoRoute(
     path: RouteNames.schedulePropagate,
-    builder: (context, state) => const SchedulePropagateStubScreen(),
+    builder: (context, state) => const WeeklyTemplateEditorScreen(),
   ),
   GoRoute(
     path: RouteNames.masterProfile,

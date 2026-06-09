@@ -119,19 +119,9 @@ class PerDateOverrideStubScreen extends StatelessWidget {
   }
 }
 
-/// Phase 15.5 stub — the copy/propagate (range-picker) surface. Reached from
-/// the "Налаштування" / "Застосувати" copy-schedule action.
-class SchedulePropagateStubScreen extends StatelessWidget {
-  const SchedulePropagateStubScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return _EditorStubScaffold(
-      markerKey: const Key('stub-schedule-propagate'),
-      icon: Icons.copy_all_rounded,
-      title: l10n.schedulePropagateTitle,
-      body: l10n.scheduleEditorComingSoon,
-    );
-  }
-}
+// Phase 15.5 — the copy/propagate stub (`SchedulePropagateStubScreen`) was
+// REMOVED. The copy/propagate range surface graduated to the modal
+// `ApplyScheduleSheet` («Період дії графіка»), opened from the weekly editor's
+// tappable active-window card, so `RouteNames.schedulePropagate` now lands on
+// `WeeklyTemplateEditorScreen` — there is no remaining consumer of the stub
+// (mirrors the earlier `WeeklyTemplateEditorStubScreen` retirement).
