@@ -575,6 +575,14 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                     child: Builder(
                       builder: (_) {
                         final DateTime d = _weekStart.add(Duration(days: i));
+                        // Working flag is selection-independent — computed once
+                        // per cell here (same rule as `_templatePattern` / the
+                        // top card) and captured; it does not re-run on a day
+                        // tap, preserving the HIGH-1 per-cell repaint scope.
+                        final bool working = index
+                            .lookup(d)
+                            .intervals
+                            .isNotEmpty;
                         return ValueListenableBuilder<DateTime>(
                           valueListenable: _selected,
                           builder:
@@ -583,6 +591,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                                     weekdayLabel: _weekdayShort[i],
                                     day: d.day,
                                     selected: _sameDate(d, selected),
+                                    working: working,
                                     inMonth: d.month == _visibleMonth.month,
                                     hasOverride: index.hasOverride(d),
                                     past: _isPast(d),

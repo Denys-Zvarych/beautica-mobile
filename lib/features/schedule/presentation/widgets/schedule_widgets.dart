@@ -263,6 +263,7 @@ class WeekStripDay extends StatelessWidget {
     required this.weekdayLabel,
     required this.day,
     required this.selected,
+    required this.working,
     required this.inMonth,
     required this.hasOverride,
     required this.onTap,
@@ -274,6 +275,12 @@ class WeekStripDay extends StatelessWidget {
   final String weekdayLabel;
   final int day;
   final bool selected;
+
+  /// Whether this date resolves to a working day (at least one interval) — the
+  /// same signal the top "working week" card uses for its active [WeekdayPill]s.
+  /// A non-selected working day is rendered in a camel circle matching that
+  /// card; the selected day always wins with its stronger treatment.
+  final bool working;
   final bool inMonth;
   final bool hasOverride;
   final VoidCallback onTap;
@@ -325,13 +332,24 @@ class WeekStripDay extends StatelessWidget {
             width: 38,
             alignment: Alignment.center,
             decoration: BoxDecoration(
+              // selected wins with the strongest treatment; a non-selected
+              // working day mirrors the top card's active WeekdayPill (same
+              // accent alphas) so the two cards read consistently; neither →
+              // no circle at all.
               color: selected
                   ? BrandColors.accent.withValues(alpha: 0.35)
+                  : working
+                  ? BrandColors.accent.withValues(alpha: 0.32)
                   : Colors.transparent,
               shape: BoxShape.circle,
               border: selected
                   ? Border.all(
                       color: BrandColors.accent.withValues(alpha: 0.9),
+                      width: 1.6,
+                    )
+                  : working
+                  ? Border.all(
+                      color: BrandColors.accent.withValues(alpha: 0.85),
                       width: 1.6,
                     )
                   : null,
