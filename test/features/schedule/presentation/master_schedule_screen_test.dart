@@ -37,7 +37,10 @@ import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_n
 import 'package:beautica_mobile/features/schedule/presentation/schedule_editor_stubs.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_template_editor_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
+import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
+import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/presentation/widgets/schedule_widgets.dart';
+import 'package:beautica_mobile/features/schedule/presentation/widgets/slot_colors.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/auth_redirect.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -150,6 +153,87 @@ class _MonthAwareSchedule extends EffectiveScheduleNotifier {
     // Any other month (e.g. after tapping `>`) stays loading forever.
     return Completer<List<EffectiveDay>>().future;
   }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Stateful fake ScheduleRepository — drives the REAL notifiers end-to-end.
+//
+// The jump-to-changed-day + show-changes-immediately fix lives in
+// `_openDayOverride` + the `_lastDaysRange` guard in `_body`, and only fires
+// when the GENUINE `OverridesNotifier` + `EffectiveScheduleNotifier` run (the
+// override save → `ref.invalidate(effectiveScheduleProvider)` → same-range
+// refetch chain). Overriding the notifiers with static fakes would short the
+// very wiring under test, so these tests override ONLY
+// `scheduleRepositoryProvider` and let the real providers resolve against this
+// mutable repo. `putOverride` mutates the per-date effective data (adds an
+// interior pause), so the post-save refetch returns the FRESH override — the
+// exact condition the stale `_lastDays` snapshot used to mask.
+// ───────────────────────────────────────────────────────────────────────────
+class _StatefulFakeScheduleRepository implements ScheduleRepository {
+  _StatefulFakeScheduleRepository(this._effective);
+
+  /// date-only → the effective day the calendar reads. Mutated by [putOverride]
+  /// / [clearOverride].
+  final Map<DateTime, EffectiveDay> _effective;
+
+  int putCount = 0;
+
+  @override
+  Future<List<EffectiveDay>> effectiveSchedule(
+    DateTime from,
+    DateTime to,
+  ) async {
+    final List<EffectiveDay> out = <EffectiveDay>[];
+    DateTime cursor = _dateOnly(from);
+    final DateTime end = _dateOnly(to);
+    while (!cursor.isAfter(end)) {
+      out.add(_effective[cursor] ?? _noSchedule(cursor));
+      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+    }
+    return out;
+  }
+
+  @override
+  Future<List<ScheduleOverride>> listOverrides(
+    DateTime from,
+    DateTime to,
+  ) async => const <ScheduleOverride>[];
+
+  @override
+  Future<ScheduleOverride> putOverride(ScheduleOverride override) async {
+    putCount++;
+    final DateTime key = _dateOnly(override.start);
+    // Reflect the saved override in the effective data so the next
+    // `effectiveSchedule` read (after the provider invalidation) is FRESH.
+    _effective[key] = EffectiveDay(
+      date: key,
+      source: EffectiveSource.overrideCustom,
+      intervals: override.intervals
+          .map((WorkInterval w) => w.clone())
+          .toList(growable: false),
+    );
+    return override;
+  }
+
+  @override
+  Future<void> clearOverride(DateTime date) async {
+    _effective.remove(_dateOnly(date));
+  }
+
+  // ── Unused by these tests (weekly template path) ──────────────────────────
+  @override
+  Future<List<WeeklySchedule>> listWeeklySchedules() async => <WeeklySchedule>[
+    _template(),
+  ];
+
+  @override
+  Future<WeeklySchedule> upsertWeeklySchedule(
+    WeeklySchedule schedule, {
+    String? scheduleId,
+  }) async => schedule;
+
+  @override
+  Future<void> deleteWeeklySchedule(String scheduleId) async {}
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1443,6 +1527,244 @@ void main() {
       expect(find.byType(WeekStripDay), findsNWidgets(7));
     });
   });
+
+  // ── Jump-to-changed-day + show-changes-immediately (the fix under test) ─────
+  //
+  // `_openDayOverride` now awaits the sheet's `Future<DateTime?>`. On a non-null
+  // result it (a) moves `_selected` onto the edited date and (b) awaits the
+  // same-range `effectiveScheduleProvider` refetch so the selected-day panel
+  // shows the JUST-SAVED override immediately — never the stale pre-save day.
+  // The `_lastDaysRange` guard makes the same-range post-save reload skip the
+  // `_lastDays` snapshot (else the panel would render pre-save intervals) while
+  // a month STEP still serves the snapshot (no loading flash).
+  //
+  // These tests drive the REAL OverridesNotifier + EffectiveScheduleNotifier
+  // against `_StatefulFakeScheduleRepository` (only the repo is overridden), so
+  // the whole save → invalidate → refetch → re-select chain runs for real.
+  group('MasterScheduleScreen — save jumps to + shows the changed day', () {
+    testWidgets(
+      'saving a per-date override (adds a pause) on the selected day shows the '
+      'fresh override immediately — no stale pre-save intervals, no flash',
+      (tester) async {
+        // Today opens with a SOLID 09:00–18:00 day (NO interior pause). The
+        // override save splits it into 09:00–13:00 · 14:00–18:00 (a 13:00–14:00
+        // pause). Pre-save the panel must show ZERO interior timeOff cells;
+        // post-save it must show some — proving the fresh data is rendered.
+        final container = await _pumpOverrideFlow(tester, edited: _today);
+
+        // Pre-save: the selected (today) panel has NO interior pause.
+        expect(_interiorTimeOffCount(tester), 0);
+
+        await _editSelectedDayAddingPause(tester);
+
+        // The save ran exactly once through the real notifier → repo.
+        expect(_repoOf(container).putCount, 1);
+        // Selection stayed on the edited date.
+        expect(find.byKey(const Key('schedule-day-pencil')), findsOneWidget);
+        // Post-save: the panel now renders the FRESH override — the 13:00–14:00
+        // pause is present as interior timeOff cells. A regression that served
+        // the stale `_lastDays` snapshot would still show zero here.
+        expect(
+          _interiorTimeOffCount(tester),
+          greaterThan(0),
+          reason:
+              'the just-saved pause must be visible immediately; a stale '
+              '`_lastDays` snapshot would still show the pre-save solid day',
+        );
+      },
+    );
+
+    testWidgets(
+      'editing a day that is NOT the currently-selected day moves `_selected` '
+      'onto the changed date and renders its fresh override',
+      (tester) async {
+        // Find a future day in the visible week (editable; pencil shown). Skip
+        // when today is the week's last editable day (no distinct future day).
+        final DateTime? future = _futureDayInWeek();
+        if (future == null) {
+          // Degenerate week position — covered by the selected-day case above.
+          return;
+        }
+
+        final container = await _pumpOverrideFlow(tester, edited: future);
+
+        // Select the future day (moving `_selected` off today onto it), then
+        // edit it. The fix sets `_selected` to the sheet's returned date and
+        // re-reads it fresh.
+        await _selectStripDay(tester, future.day);
+        // Pre-save the future day is a solid 09:00–18:00 (no pause).
+        expect(_interiorTimeOffCount(tester), 0);
+
+        await _editSelectedDayAddingPause(tester);
+
+        expect(_repoOf(container).putCount, 1);
+        // `_selected` is on the edited (future) day: its strip cell is the lone
+        // selected WeekStripDay. A regression dropping `_selected.value =
+        // changed` in `_openDayOverride` would leave selection where it was.
+        expect(
+          _selectedStripDayNumber(tester),
+          future.day,
+          reason: '_openDayOverride must move `_selected` onto the saved date',
+        );
+        // The panel header now shows the edited (future) date's fresh override:
+        // the interior pause is rendered.
+        expect(
+          _interiorTimeOffCount(tester),
+          greaterThan(0),
+          reason:
+              'after save the panel must focus the edited date and show its '
+              'fresh pause immediately',
+        );
+      },
+    );
+
+    testWidgets(
+      'a month STEP still serves the cached snapshot (no flash) — the '
+      '`_lastDaysRange` guard distinguishes a step from a same-range reload',
+      (tester) async {
+        // This pins the OTHER half of the `_lastDaysRange` branch: stepping the
+        // month (a DIFFERENT range key) must keep the previous content + show
+        // the inline indicator, NOT a full-screen spinner. A regression that
+        // dropped the range tag (served stale on EVERY reload, or NEVER) would
+        // break exactly one of this assertion and the freshness assertions
+        // above — together they fence the guard on both sides.
+        final ScheduleRange month1 = ScheduleRange.month(_today);
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: _working,
+          filler: _working,
+        );
+        await _pump(
+          tester,
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            effectiveScheduleProvider.overrideWith(
+              () => _MonthAwareSchedule(month1, days),
+            ),
+            weeklyScheduleProvider.overrideWith(
+              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            ),
+          ],
+        );
+
+        expect(find.byType(WeekStripDay), findsNWidgets(7));
+
+        final l10n = _l10n(tester);
+        await tester.tap(find.bySemanticsLabel(l10n.scheduleNextMonth));
+        await tester.pump();
+
+        // Month step → previous content retained, inline indicator, NO spinner.
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(find.byType(WeekStripDay), findsNWidgets(7));
+        expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      },
+    );
+  });
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Helpers for the jump-to-changed-day flow.
+// ───────────────────────────────────────────────────────────────────────────
+
+/// A solid (no interior pause) 09:00–18:00 working day for [date].
+EffectiveDay _solidWorking(DateTime date) => EffectiveDay(
+  date: _dateOnly(date),
+  source: EffectiveSource.template,
+  intervals: <WorkInterval>[_interval(9, 0, 18, 0)],
+);
+
+/// The first future day inside the visible week (strictly after today), or null
+/// when today is the last day of the visible week (no distinct editable future
+/// day to move onto).
+DateTime? _futureDayInWeek() {
+  for (int i = 0; i < 7; i++) {
+    final DateTime d = _dateOnly(_weekStart.add(Duration(days: i)));
+    if (d.isAfter(_today)) return d;
+  }
+  return null;
+}
+
+/// Pumps the screen with the REAL notifiers over a stateful fake repo. The whole
+/// visible week is solid working days; [edited] is the date the test will add a
+/// pause to. Returns the container so the caller can read the repo's put count.
+Future<ProviderContainer> _pumpOverrideFlow(
+  WidgetTester tester, {
+  required DateTime edited,
+}) async {
+  final Map<DateTime, EffectiveDay> effective = <DateTime, EffectiveDay>{
+    for (int i = 0; i < 7; i++)
+      _dateOnly(_weekStart.add(Duration(days: i))): _solidWorking(
+        _weekStart.add(Duration(days: i)),
+      ),
+  };
+  final repo = _StatefulFakeScheduleRepository(effective);
+
+  final container = ProviderContainer(
+    overrides: <Object>[
+      authProvider.overrideWith(() => _FixedAuth(UserRole.independentMaster)),
+      scheduleRepositoryProvider.overrideWithValue(repo),
+    ].cast(),
+  );
+  addTearDown(container.dispose);
+
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(
+        routerConfig: _router(),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('uk'),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return container;
+}
+
+_StatefulFakeScheduleRepository _repoOf(ProviderContainer c) =>
+    c.read(scheduleRepositoryProvider) as _StatefulFakeScheduleRepository;
+
+/// Opens the day-override sheet (via the pencil) for the currently-selected day,
+/// adds a 13:00–14:00 pause by inserting a break, and saves. The shared
+/// IntervalEditor seeds a single 09:00–18:00 window from the day's intervals; we
+/// add ONE break and set it to 13:00–14:00 via the break pickers.
+Future<void> _editSelectedDayAddingPause(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('schedule-day-pencil')));
+  await tester.pumpAndSettle();
+
+  // Adding a break to a 09:00–18:00 window seeds a 13:00–14:00 lunch
+  // (IntervalEditor._addBreak math), so the saved CUSTOM_HOURS override is
+  // 09:00–13:00 · 14:00–18:00 — a clean interior pause. No wheel-driving needed.
+  await tester.ensureVisible(find.byKey(const Key('override-add-break')));
+  await tester.tap(find.byKey(const Key('override-add-break')));
+  await tester.pumpAndSettle();
+
+  await tester.ensureVisible(find.byKey(const Key('override-save')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('override-save')));
+  await tester.pumpAndSettle();
+}
+
+/// Counts the rendered selected-day grid's interior timeOff cells (the visual
+/// signature of a pause). Locale-independent (M2): asserts on `SlotChip.cell`
+/// state, not on the summary string.
+int _interiorTimeOffCount(WidgetTester tester) {
+  final Iterable<SlotChip> chips = tester.widgetList<SlotChip>(
+    find.byType(SlotChip),
+  );
+  return chips.where((SlotChip c) => c.cell.state == SlotState.timeOff).length;
+}
+
+/// The day-of-month of the currently-selected week-strip cell (the lone
+/// [WeekStripDay] with `selected == true`). Locale-independent (M2): reads the
+/// widget's `selected` flag, not a highlighted string.
+int _selectedStripDayNumber(WidgetTester tester) {
+  final Iterable<WeekStripDay> cells = tester.widgetList<WeekStripDay>(
+    find.byType(WeekStripDay),
+  );
+  return cells.singleWhere((WeekStripDay c) => c.selected).day;
 }
 
 // Completer import lives at the bottom to keep the header import block tidy.

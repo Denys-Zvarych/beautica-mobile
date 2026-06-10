@@ -340,6 +340,130 @@ void main() {
     });
   });
 
+  // ── show() return contract (jump-to-changed-day fix) ───────────────────────
+  //
+  // `DayHoursSheet.show(...)` is now `Future<DateTime?>`: the host
+  // (`master_schedule_screen._openDayOverride`) awaits it and, on a NON-null
+  // result, moves the selected day onto the edited date and re-reads the fresh
+  // effective schedule. These tests pin BOTH branches of that contract:
+  //   • a successful save  → resolves with the edited date,
+  //   • a successful clear → resolves with the edited date,
+  //   • a plain dismiss / a validation bail → resolves with `null` (M3: the
+  //     no-op branch is covered, not just the happy path).
+  // We capture the resolved future via a host that stores it (the standard
+  // `_pumpSheet` discards it).
+
+  group('DayHoursSheet.show — resolves with the edited date / null', () {
+    testWidgets(
+      'a successful CUSTOM_HOURS save resolves the future with the edited date',
+      (tester) async {
+        final repo = _happyRepo();
+        final DateTime? result = await _pumpCapturingSheet(
+          tester,
+          repo: repo,
+          interact: (tester) async {
+            await tester.tap(find.byKey(const Key('override-save')));
+            await tester.pumpAndSettle();
+          },
+        );
+
+        expect(result, isNotNull);
+        expect(result, _date);
+      },
+    );
+
+    testWidgets(
+      'a successful DAY_OFF save resolves the future with the edited date',
+      (tester) async {
+        final repo = _happyRepo();
+        final DateTime? result = await _pumpCapturingSheet(
+          tester,
+          repo: repo,
+          initialDayOff: true,
+          interact: (tester) async {
+            await tester.ensureVisible(find.byKey(const Key('override-save')));
+            await tester.pumpAndSettle();
+            await tester.tap(find.byKey(const Key('override-save')));
+            await tester.pumpAndSettle();
+          },
+        );
+
+        expect(result, _date);
+      },
+    );
+
+    testWidgets('a successful clear resolves the future with the edited date', (
+      tester,
+    ) async {
+      final repo = _happyRepo();
+      final DateTime? result = await _pumpCapturingSheet(
+        tester,
+        repo: repo,
+        hasExistingOverride: true,
+        interact: (tester) async {
+          await tester.tap(find.byKey(const Key('override-delete')));
+          await tester.pumpAndSettle();
+        },
+      );
+
+      expect(result, _date);
+      // The clear ran (not a put).
+      verify(() => repo.clearOverride(any())).called(1);
+      verifyNever(() => repo.putOverride(any()));
+    });
+
+    testWidgets(
+      'dismissing via the close button resolves the future with null (no-op)',
+      (tester) async {
+        final repo = _happyRepo();
+        final DateTime? result = await _pumpCapturingSheet(
+          tester,
+          repo: repo,
+          interact: (tester) async {
+            await tester.tap(find.byKey(const Key('override-close')));
+            await tester.pumpAndSettle();
+          },
+        );
+
+        expect(result, isNull);
+        // A plain dismiss never persists anything.
+        verifyNever(() => repo.putOverride(any()));
+        verifyNever(() => repo.clearOverride(any()));
+      },
+    );
+
+    testWidgets(
+      'a validation bail (invalid window) does NOT resolve with a date: the '
+      'sheet stays open, nothing is persisted, no pop',
+      (tester) async {
+        // Seed an INVALID working window (end before start) so `_hasErrors` is
+        // true → tapping save shows the error banner and returns WITHOUT a pop.
+        final repo = _happyRepo();
+        DateTime? result;
+        bool resolved = false;
+        await _pumpSheetWithSink(
+          tester,
+          repo: repo,
+          initialIntervals: <WorkInterval>[_interval(18, 0, 9, 0)],
+          onResult: (DateTime? d) {
+            resolved = true;
+            result = d;
+          },
+        );
+
+        await tester.tap(find.byKey(const Key('override-save')));
+        await tester.pumpAndSettle();
+
+        // The future has NOT resolved (the sheet is still open) — the save was
+        // a no-op validation bail, not a dismiss.
+        expect(resolved, isFalse);
+        expect(result, isNull);
+        expect(find.byKey(const Key('override-save')), findsOneWidget);
+        verifyNever(() => repo.putOverride(any()));
+      },
+    );
+  });
+
   // ── OQ-1: always allow — no booking-conflict gate ──────────────────────────
 
   group('DayHoursSheet — OQ-1 always allow (no conflict gate)', () {
@@ -533,6 +657,80 @@ Future<void> _pumpSheetInContainer(
                   hasExistingOverride: hasExistingOverride,
                   initialDayOff: initialDayOff,
                 ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.byKey(const Key('open-sheet')));
+  await tester.pumpAndSettle();
+}
+
+/// Pumps the sheet, opens it, runs [interact], and RETURNS the value the
+/// `DayHoursSheet.show(...)` future resolved to. Mirrors [_pumpSheet] but keeps
+/// the awaited future so the `Future<DateTime?>` show-contract can be asserted.
+Future<DateTime?> _pumpCapturingSheet(
+  WidgetTester tester, {
+  required ScheduleRepository repo,
+  required Future<void> Function(WidgetTester) interact,
+  bool hasExistingOverride = false,
+  bool initialDayOff = false,
+}) async {
+  DateTime? captured;
+  await _pumpSheetWithSink(
+    tester,
+    repo: repo,
+    hasExistingOverride: hasExistingOverride,
+    initialDayOff: initialDayOff,
+    onResult: (DateTime? d) => captured = d,
+  );
+  await interact(tester);
+  return captured;
+}
+
+/// Host whose button presents the sheet and pipes the resolved `Future<DateTime?>`
+/// into [onResult]. The sink fires once the sheet's future completes (on a
+/// save / clear / dismiss); it is NEVER called while the sheet stays open (e.g.
+/// after a validation bail), which is what lets the bail test assert the future
+/// has not resolved.
+Future<void> _pumpSheetWithSink(
+  WidgetTester tester, {
+  required ScheduleRepository repo,
+  required void Function(DateTime?) onResult,
+  List<WorkInterval>? initialIntervals,
+  bool hasExistingOverride = false,
+  bool initialDayOff = false,
+}) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: <Object>[
+        scheduleRepositoryProvider.overrideWithValue(repo),
+      ].cast(),
+      child: MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('uk'),
+        home: Scaffold(
+          body: Builder(
+            builder: (BuildContext context) => Center(
+              child: ElevatedButton(
+                key: const Key('open-sheet'),
+                onPressed: () async {
+                  final DateTime? r = await DayHoursSheet.show(
+                    context,
+                    date: _date,
+                    weekdayFull: 'Неділя',
+                    dateLabel: '21 червня',
+                    range: _range,
+                    initialIntervals: initialIntervals ?? _currentIntervals(),
+                    hasExistingOverride: hasExistingOverride,
+                    initialDayOff: initialDayOff,
+                  );
+                  onResult(r);
+                },
                 child: const Text('open'),
               ),
             ),

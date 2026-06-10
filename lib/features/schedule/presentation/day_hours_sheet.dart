@@ -60,9 +60,11 @@ import 'widgets/interval_editor.dart';
 
 /// The per-date override modal bottom sheet.
 ///
-/// Present it with [DayHoursSheet.show]; it returns when dismissed (the result
-/// is `void` — the calendar repaints reactively via the invalidated effective
-/// schedule, not via a returned value).
+/// Present it with [DayHoursSheet.show]. It still repaints the calendar
+/// reactively (via the invalidated effective schedule), but ALSO resolves to
+/// the [DateTime] that was just put / cleared on a successful save, so the host
+/// can move the selection onto the changed day. A plain dismiss (close button,
+/// barrier tap, validation bail-out) resolves to `null`.
 class DayHoursSheet extends ConsumerStatefulWidget {
   const DayHoursSheet({
     super.key,
@@ -113,8 +115,9 @@ class DayHoursSheet extends ConsumerStatefulWidget {
   /// The existing day-off note (when [initialDayOff]); seeds the note field.
   final String? initialNote;
 
-  /// Presents the sheet. Returns when dismissed.
-  static Future<void> show(
+  /// Presents the sheet. Resolves to the edited [date] on a successful save /
+  /// clear (so the host can focus that day), or `null` on a plain dismiss.
+  static Future<DateTime?> show(
     BuildContext context, {
     required DateTime date,
     required String weekdayFull,
@@ -126,7 +129,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     OverrideReason? initialReason,
     String? initialNote,
   }) {
-    return showModalBottomSheet<void>(
+    return showModalBottomSheet<DateTime>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -252,7 +255,10 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
         _showError(messenger, result.error, l10n);
         return;
       }
-      dismissOverlay(context);
+      // Resolve the sheet's future with the edited date so the host moves the
+      // selected day onto it and re-reads the now-fresh override (rather than a
+      // retained stale snapshot) the instant the sheet closes.
+      dismissOverlay<DateTime>(context, widget.date);
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(l10n.savedSnackbar)));
@@ -289,7 +295,9 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
         _showError(messenger, result.error, l10n);
         return;
       }
-      dismissOverlay(context);
+      // Same as [_save]: resolve with the cleared date so the host focuses it
+      // and re-reads the reverted (template) day immediately.
+      dismissOverlay<DateTime>(context, widget.date);
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(

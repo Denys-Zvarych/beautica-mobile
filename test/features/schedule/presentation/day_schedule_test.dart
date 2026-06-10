@@ -381,17 +381,20 @@ void main() {
       );
     });
 
-    test('noSchedule has no interior pause → zero timeOff cells (all grey)', () {
-      final EffectiveDay day = _day(source: EffectiveSource.noSchedule);
+    test(
+      'noSchedule has no interior pause → zero timeOff cells (all grey)',
+      () {
+        final EffectiveDay day = _day(source: EffectiveSource.noSchedule);
 
-      final List<SlotCell> cells = buildDayCells(day);
+        final List<SlotCell> cells = buildDayCells(day);
 
-      expect(_timeOffTimes(cells), isEmpty);
-      expect(
-        cells.every((SlotCell c) => c.state == SlotState.unavailable),
-        isTrue,
-      );
-    });
+        expect(_timeOffTimes(cells), isEmpty);
+        expect(
+          cells.every((SlotCell c) => c.state == SlotState.unavailable),
+          isTrue,
+        );
+      },
+    );
 
     test('overrideDayOff reddens the WHOLE grid (not the pause path)', () {
       final EffectiveDay day = _day(source: EffectiveSource.overrideDayOff);
@@ -401,10 +404,7 @@ void main() {
       // Every cell is timeOff — regression guard that a day-off override is a
       // uniform fill, distinct from the interior-pause round-up.
       expect(_timeOffTimes(cells), hasLength(cells.length));
-      expect(
-        cells.every((SlotCell c) => c.state == SlotState.timeOff),
-        isTrue,
-      );
+      expect(cells.every((SlotCell c) => c.state == SlotState.timeOff), isTrue);
     });
   });
 }
