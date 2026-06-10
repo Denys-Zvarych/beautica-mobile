@@ -1926,6 +1926,10 @@
   "@scheduleSlotOff": {
     "description": "Legend + slot label for a non-working slot (outside intervals / no schedule) — grey (Phase 15.2)."
   },
+  "scheduleErrTimeNotAligned": "Час має бути кратним 15 хвилинам",
+  "@scheduleErrTimeNotAligned": {
+    "description": "Validation error shown when a working-window or break edge is not a multiple of 15 minutes."
+  },
   "scheduleNoScheduleDay": "На цей день графік не задано",
   "@scheduleNoScheduleDay": {
     "description": "NO_SCHEDULE banner primary line when a single viewed day has no published hours (Phase 15.2, OQ-3)."

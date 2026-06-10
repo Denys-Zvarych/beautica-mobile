@@ -586,6 +586,7 @@ class _LoadedBody extends StatelessWidget {
     errBreakEndBeforeStart: l10n.intervalEditorErrBreakEndAfterStart,
     errBreakOutsideWindow: l10n.intervalEditorErrBreakInsideWindow,
     errBreaksOverlap: l10n.intervalEditorErrBreaksOverlap,
+    errTimeNotAligned: l10n.scheduleErrTimeNotAligned,
   );
 
   @override

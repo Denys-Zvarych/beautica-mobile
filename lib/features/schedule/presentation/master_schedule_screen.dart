@@ -969,7 +969,7 @@ class _SelectedDayView extends StatelessWidget {
               Expanded(
                 child: SlotChip(
                   cell: left,
-                  stateLabel: slotStateLabel(l10n, left.state),
+                  stateLabel: slotCellLabel(l10n, left),
                   onTap: null,
                 ),
               ),
@@ -979,7 +979,7 @@ class _SelectedDayView extends StatelessWidget {
                     ? const SizedBox.shrink()
                     : SlotChip(
                         cell: right,
-                        stateLabel: slotStateLabel(l10n, right.state),
+                        stateLabel: slotCellLabel(l10n, right),
                         onTap: null,
                       ),
               ),

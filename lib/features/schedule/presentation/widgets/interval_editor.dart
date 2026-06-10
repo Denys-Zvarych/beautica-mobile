@@ -51,6 +51,7 @@ class IntervalEditorStrings {
     required this.errBreakEndBeforeStart,
     required this.errBreakOutsideWindow,
     required this.errBreaksOverlap,
+    required this.errTimeNotAligned,
   });
 
   final String workHoursLabel;
@@ -73,6 +74,7 @@ class IntervalEditorStrings {
   final String errBreakEndBeforeStart;
   final String errBreakOutsideWindow;
   final String errBreaksOverlap;
+  final String errTimeNotAligned;
 
   /// Resolves a [DayHoursError] to the matching localised message.
   String messageFor(DayHoursError error) => switch (error.kind) {
@@ -80,6 +82,7 @@ class IntervalEditorStrings {
     DayHoursErrorKind.breakEndBeforeStart => errBreakEndBeforeStart,
     DayHoursErrorKind.breakOutsideWindow => errBreakOutsideWindow,
     DayHoursErrorKind.breaksOverlap => errBreaksOverlap,
+    DayHoursErrorKind.notAligned => errTimeNotAligned,
   };
 }
 
@@ -258,6 +261,7 @@ class IntervalEditor extends StatelessWidget {
       confirmLabel: strings.timePickerConfirm,
       hoursSemanticLabel: strings.timePickerHoursSemantic,
       minutesSemanticLabel: strings.timePickerMinutesSemantic,
+      minuteStep: 15,
     );
     if (picked != null) {
       apply(picked);

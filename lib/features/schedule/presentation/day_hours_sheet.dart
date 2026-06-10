@@ -704,5 +704,6 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
         errBreakEndBeforeStart: l10n.intervalEditorErrBreakEndAfterStart,
         errBreakOutsideWindow: l10n.intervalEditorErrBreakInsideWindow,
         errBreaksOverlap: l10n.intervalEditorErrBreaksOverlap,
+        errTimeNotAligned: l10n.scheduleErrTimeNotAligned,
       );
 }

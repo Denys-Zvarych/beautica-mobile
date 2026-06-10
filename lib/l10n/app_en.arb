@@ -1926,6 +1926,10 @@
   "@scheduleSlotOff": {
     "description": "Legend + slot label for a non-working slot (outside intervals / no schedule) — grey (Phase 15.2)."
   },
+  "scheduleErrTimeNotAligned": "Time must be a multiple of 15 minutes",
+  "@scheduleErrTimeNotAligned": {
+    "description": "Validation error shown when a working-window or break edge is not a multiple of 15 minutes."
+  },
   "scheduleNoScheduleDay": "No schedule set for this day",
   "@scheduleNoScheduleDay": {
     "description": "NO_SCHEDULE banner primary line when a single viewed day has no published hours (Phase 15.2, OQ-3)."

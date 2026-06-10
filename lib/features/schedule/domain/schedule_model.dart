@@ -289,6 +289,12 @@ enum DayHoursErrorKind {
 
   /// Two breaks overlap.
   breaksOverlap,
+
+  /// A time edge (window or break start/end) is not a multiple of 15 minutes.
+  /// The editor snaps new picks to 15-min steps, but a legacy / loaded schedule
+  /// may carry a misaligned edge — flag it so the master must re-align before
+  /// re-saving.
+  notAligned,
 }
 
 /// Validation problem for a [DayHours], with a Ukrainian message + which field
@@ -322,6 +328,16 @@ DayHoursError? validateDayHours(DayHours day) {
       windowInvalid: true,
     );
   }
+  // 15-minute alignment of the working window. New picks are snapped to a
+  // 15-min step in the editor; this guards a legacy / loaded misaligned edge so
+  // the master is forced to re-align before re-saving.
+  if (day.window.startMinutes % 15 != 0 || day.window.endMinutes % 15 != 0) {
+    return const DayHoursError(
+      'Час має бути кратним 15 хвилинам',
+      DayHoursErrorKind.notAligned,
+      windowInvalid: true,
+    );
+  }
   // Pair each break with its ORIGINAL index so the error rings the right row.
   final List<MapEntry<int, BreakRange>> indexed =
       <MapEntry<int, BreakRange>>[
@@ -339,6 +355,13 @@ DayHoursError? validateDayHours(DayHours day) {
       return DayHoursError(
         'Час завершення перерви має бути пізніше початку',
         DayHoursErrorKind.breakEndBeforeStart,
+        breakIndex: originalIndex,
+      );
+    }
+    if (b.startMinutes % 15 != 0 || b.endMinutes % 15 != 0) {
+      return DayHoursError(
+        'Час має бути кратним 15 хвилинам',
+        DayHoursErrorKind.notAligned,
         breakIndex: originalIndex,
       );
     }

@@ -417,12 +417,14 @@ class SlotChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final SlotState s = cell.state;
     final bool empty = s == SlotState.unavailable;
-
     return Semantics(
       button: onTap != null,
-      label: '$_timeLabel — $stateLabel',
+      label: stateLabel,
       child: GestureDetector(
         onTap: onTap,
+        // Each cell is ONE solid colour — never a split / banded / gradient
+        // fill. A pause cell is fully [SlotState.timeOff] (pink) under the
+        // round-up rule applied in `buildDayCells`.
         child: Container(
           height: 46,
           alignment: Alignment.center,
@@ -439,8 +441,9 @@ class SlotChip extends StatelessWidget {
                     fontSize: 16,
                   ),
                 )
-              // Time-off slots are conveyed by the pink fill + border ALONE; the
-              // legend ("Час відпочинку") carries the meaning. No in-chip tag.
+              // Time-off slots are conveyed by the pink fill + border ALONE;
+              // the legend ("Час відпочинку") carries the meaning. No in-chip
+              // tag.
               : Text(
                   _timeLabel,
                   style: VelvetText.bodyStrong().copyWith(

@@ -44,7 +44,12 @@ Future<TimeOfDay?> showVelvetTimePicker(
   required String confirmLabel,
   required String hoursSemanticLabel,
   required String minutesSemanticLabel,
+  int minuteStep = 1,
 }) {
+  assert(
+    minuteStep >= 1 && minuteStep <= 60 && 60 % minuteStep == 0,
+    'minuteStep must be a positive divisor of 60',
+  );
   return showModalBottomSheet<TimeOfDay>(
     context: context,
     isScrollControlled: true,
@@ -56,6 +61,7 @@ Future<TimeOfDay?> showVelvetTimePicker(
       confirmLabel: confirmLabel,
       hoursSemanticLabel: hoursSemanticLabel,
       minutesSemanticLabel: minutesSemanticLabel,
+      minuteStep: minuteStep,
     ),
   );
 }
@@ -70,6 +76,7 @@ class _WheelTimePicker extends StatefulWidget {
     required this.confirmLabel,
     required this.hoursSemanticLabel,
     required this.minutesSemanticLabel,
+    required this.minuteStep,
   });
 
   final TimeOfDay initial;
@@ -77,6 +84,10 @@ class _WheelTimePicker extends StatefulWidget {
   final String confirmLabel;
   final String hoursSemanticLabel;
   final String minutesSemanticLabel;
+
+  /// Granularity of the minutes wheel. `1` shows every minute (00–59); `15`
+  /// shows 00/15/30/45. Must be a positive divisor of 60.
+  final int minuteStep;
 
   @override
   State<_WheelTimePicker> createState() => _WheelTimePickerState();
@@ -109,9 +120,16 @@ class _WheelTimePickerState extends State<_WheelTimePicker> {
   void initState() {
     super.initState();
     _hour = widget.initial.hour;
-    _minute = widget.initial.minute;
+    final int step = widget.minuteStep;
+    // Round the incoming minute to the nearest step so a misaligned legacy time
+    // lands on a valid wheel row (and is thereby corrected on confirm).
+    final int snappedIndex = ((widget.initial.minute + step / 2) ~/ step).clamp(
+      0,
+      60 ~/ step - 1,
+    );
+    _minute = snappedIndex * step;
     _hourController = FixedExtentScrollController(initialItem: _hour);
-    _minuteController = FixedExtentScrollController(initialItem: _minute);
+    _minuteController = FixedExtentScrollController(initialItem: snappedIndex);
   }
 
   @override
@@ -202,9 +220,12 @@ class _WheelTimePickerState extends State<_WheelTimePicker> {
                         ),
                         _wheel(
                           controller: _minuteController,
-                          count: 60,
-                          builder: (int i) => i.toString().padLeft(2, '0'),
-                          onSelected: (int i) => _minute = i,
+                          count: 60 ~/ widget.minuteStep,
+                          builder: (int i) => (i * widget.minuteStep)
+                              .toString()
+                              .padLeft(2, '0'),
+                          onSelected: (int i) =>
+                              _minute = i * widget.minuteStep,
                           semanticLabel: widget.minutesSemanticLabel,
                         ),
                       ],

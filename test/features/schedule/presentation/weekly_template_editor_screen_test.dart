@@ -1173,4 +1173,5 @@ IntervalEditorStrings _intervalStrings(AppLocalizations l10n) =>
       errBreakEndBeforeStart: l10n.intervalEditorErrBreakEndAfterStart,
       errBreakOutsideWindow: l10n.intervalEditorErrBreakInsideWindow,
       errBreaksOverlap: l10n.intervalEditorErrBreaksOverlap,
+      errTimeNotAligned: l10n.scheduleErrTimeNotAligned,
     );

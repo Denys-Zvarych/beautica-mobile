@@ -193,6 +193,86 @@ void main() {
     });
   });
 
+  // 15-min step alignment (the new behaviour to guard). The editor snaps new
+  // picks to 15-min steps, but a legacy / loaded schedule may carry a misaligned
+  // edge — validateDayHours must flag it as `notAligned` so the master re-aligns
+  // before re-saving. Every accepted edge minute is one of {:00, :15, :30, :45}.
+  group('validateDayHours — 15-minute step alignment (notAligned)', () {
+    test('window start minute :03 → notAligned, windowInvalid', () {
+      final day = DayHours(window: _wi(9, 3, 18, 0), breaks: <BreakRange>[]);
+
+      final err = validateDayHours(day);
+
+      expect(err, isNotNull);
+      expect(err!.kind, DayHoursErrorKind.notAligned);
+      expect(err.message, 'Час має бути кратним 15 хвилинам');
+      expect(err.windowInvalid, isTrue);
+      expect(err.breakIndex, isNull);
+    });
+
+    test('window end minute :07 → notAligned, windowInvalid', () {
+      final day = DayHours(window: _wi(9, 0, 18, 7), breaks: <BreakRange>[]);
+
+      final err = validateDayHours(day);
+
+      expect(err!.kind, DayHoursErrorKind.notAligned);
+      expect(err.windowInvalid, isTrue);
+    });
+
+    test('break start minute :07 → notAligned ringing that break row', () {
+      // The window is aligned, so the misalignment must surface on the break.
+      final day = DayHours(
+        window: _wi(9, 0, 18, 0),
+        breaks: <BreakRange>[_br(13, 7, 14, 0)],
+      );
+
+      final err = validateDayHours(day);
+
+      expect(err!.kind, DayHoursErrorKind.notAligned);
+      expect(err.message, 'Час має бути кратним 15 хвилинам');
+      expect(err.breakIndex, 0);
+      expect(err.windowInvalid, isFalse);
+    });
+
+    test('break end minute :03 → notAligned ringing that break row', () {
+      final day = DayHours(
+        window: _wi(9, 0, 18, 0),
+        breaks: <BreakRange>[_br(13, 0, 14, 3)],
+      );
+
+      final err = validateDayHours(day);
+
+      expect(err!.kind, DayHoursErrorKind.notAligned);
+      expect(err.breakIndex, 0);
+    });
+
+    test('window misalignment is reported before any break problem', () {
+      // A :05 window start AND a self-inverted break: the window guard runs
+      // first, so the typed kind is notAligned (window), not breakEndBeforeStart.
+      final day = DayHours(
+        window: _wi(9, 5, 18, 0),
+        breaks: <BreakRange>[_br(14, 0, 13, 0)],
+      );
+
+      final err = validateDayHours(day);
+
+      expect(err!.kind, DayHoursErrorKind.notAligned);
+      expect(err.windowInvalid, isTrue);
+    });
+
+    test('all four 15-min steps (:00/:15/:30/:45) are accepted → null', () {
+      // Window edges on :00 and :45; break edges on :15 and :30 — every edge is
+      // a multiple of 15, so the day validates clean.
+      final day = DayHours(
+        window: _wi(9, 0, 17, 45),
+        breaks: <BreakRange>[_br(13, 15, 13, 30)],
+      );
+
+      expect(validateDayHours(day), isNull);
+      expect(dayHoursValid(day), isTrue);
+    });
+  });
+
   group('summariseIntervals', () {
     test('empty list → "Вихідний"', () {
       expect(summariseIntervals(const <WorkInterval>[]), 'Вихідний');
