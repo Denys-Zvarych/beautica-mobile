@@ -6,10 +6,13 @@
 // [ScheduleOverride] (the mapper never groups spans — the screen groups
 // consecutive identical rows into spans for display).
 //
-// [putOverride] / [putSpan] / [clearOverride] mutate, then reload the range and
-// invalidate the effective-schedule cache so the calendar repaints. A multi-day
-// span is expanded here (presentation layer) into one PUT per date — the
-// repository and mapper stay strictly 1 row = 1 date.
+// [putOverride] / [putSpan] / [clearOverride] mutate, then reload the range. The
+// effective-schedule notifier `ref.watch`es `overridesProvider(range)`, so this
+// reload alone makes the calendar recompute + re-fetch the fresh effective
+// schedule — NO manual `ref.invalidate(effectiveScheduleProvider)` is needed (it
+// would only fire a redundant second fetch). A multi-day span is expanded here
+// (presentation layer) into one PUT per date — the repository and mapper stay
+// strictly 1 row = 1 date.
 //
 // NOT keepAlive (same rationale as the effective-schedule family): windows the
 // user paged away from release once unwatched.
@@ -23,7 +26,6 @@ import '../../../core/errors/failures.dart';
 import '../data/schedule_repository.dart';
 import '../data/schedule_repository_provider.dart';
 import '../domain/schedule_model.dart';
-import 'effective_schedule_notifier.dart';
 import 'schedule_range.dart';
 
 part 'overrides_notifier.g.dart';
@@ -65,9 +67,10 @@ class OverridesNotifier extends _$OverridesNotifier {
   ScheduleRepository get _repo => ref.read(scheduleRepositoryProvider);
 
   /// Upserts a single-date [override] (its [ScheduleOverride.start] is the
-  /// target date), reloads this range, and invalidates the effective-schedule
-  /// cache. A thrown [Failure] becomes an [AsyncError]; the effective-schedule
-  /// cache is left intact on failure.
+  /// target date) and reloads this range. The effective-schedule notifier
+  /// watches this provider, so the reload propagates to a fresh effective-
+  /// schedule fetch automatically. A thrown [Failure] becomes an [AsyncError];
+  /// the previously-resolved override list is left intact on failure.
   Future<void> putOverride(ScheduleOverride override) =>
       _mutate('putOverride', () => _repo.putOverride(override));
 
@@ -145,14 +148,22 @@ class OverridesNotifier extends _$OverridesNotifier {
     });
   }
 
-  /// Clears the override on [date], reloads this range, and invalidates the
-  /// effective-schedule cache.
+  /// Clears the override on [date] and reloads this range. As with
+  /// [putOverride], the effective-schedule notifier watches this provider, so
+  /// the reload propagates to a fresh effective-schedule fetch automatically.
   Future<void> clearOverride(DateTime date) =>
       _mutate('clearOverride', () => _repo.clearOverride(date));
 
-  /// Runs a mutation, reloads the range on success, and invalidates the
-  /// effective-schedule cache. Wraps everything in [AsyncValue.guard] so a
-  /// [Failure] surfaces as [AsyncError] without leaking a raw exception.
+  /// Runs a mutation and reloads the range on success. Wraps everything in
+  /// [AsyncValue.guard] so a [Failure] surfaces as [AsyncError] without leaking
+  /// a raw exception.
+  ///
+  /// On a successful reload the new override list becomes this provider's state;
+  /// the effective-schedule notifier (which `ref.watch`es this provider) then
+  /// rebuilds and re-fetches the fresh server-resolved schedule. No explicit
+  /// `ref.invalidate(effectiveScheduleProvider)` is issued here — that would
+  /// only trigger a redundant second effective-schedule fetch and widen the work
+  /// beyond the single coherent refetch the dependency already produces.
   Future<void> _mutate(String op, Future<void> Function() action) async {
     if (kDebugMode) {
       log('$op for range=$range', name: _tag, level: 800);
@@ -163,8 +174,5 @@ class OverridesNotifier extends _$OverridesNotifier {
       return _repo.listOverrides(range.from, range.to);
     });
     state = result;
-    if (result.hasValue) {
-      ref.invalidate(effectiveScheduleProvider);
-    }
   }
 }

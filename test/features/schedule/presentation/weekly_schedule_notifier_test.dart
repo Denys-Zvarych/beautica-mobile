@@ -111,6 +111,13 @@ void main() {
       when(
         () => repo.effectiveSchedule(any(), any()),
       ).thenAnswer((_) async => <EffectiveDay>[]);
+      // `EffectiveScheduleNotifier.build` now `await`s `overridesProvider(range)`
+      // (the reactive read-after-write dependency the save-refresh fix added), so
+      // the genuine `OverridesNotifier` runs end-to-end and its `build` calls
+      // `listOverrides`. Stub it so the effective window resolves.
+      when(
+        () => repo.listOverrides(any(), any()),
+      ).thenAnswer((_) async => const <ScheduleOverride>[]);
 
       final container = makeContainer();
       final range = ScheduleRange(
@@ -153,6 +160,12 @@ void main() {
       when(
         () => repo.effectiveSchedule(any(), any()),
       ).thenAnswer((_) async => <EffectiveDay>[]);
+      // Same as above: the effective window's `build` awaits `overridesProvider`,
+      // whose genuine notifier calls `listOverrides`. Stub it so the watched
+      // window resolves on its first (and only) fetch.
+      when(
+        () => repo.listOverrides(any(), any()),
+      ).thenAnswer((_) async => const <ScheduleOverride>[]);
 
       final container = makeContainer();
       final range = ScheduleRange(

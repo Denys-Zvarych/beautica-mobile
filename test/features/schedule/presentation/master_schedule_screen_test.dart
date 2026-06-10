@@ -237,6 +237,143 @@ class _StatefulFakeScheduleRepository implements ScheduleRepository {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// _CompleterScheduleRepository — drives the SEAMLESS-RETENTION + READ-AFTER-WRITE
+// regression tests (the exact on-device bug the previous green tests were blind
+// to).
+//
+// Unlike `_StatefulFakeScheduleRepository` (synchronous zero-latency
+// read-your-writes that hid the in-flight window), this fake:
+//   • serves a fixed PRE-SAVE effective day until a put lands;
+//   • after the put, the next `effectiveSchedule` read does NOT resolve
+//     immediately — it parks on a [Completer] the TEST controls, so the post-save
+//     reload is observably IN FLIGHT across an intermediate `pump()`. The test
+//     asserts what the screen renders DURING that window (the exact frame the
+//     seamless-retained pre-save value used to leak through), then completes the
+//     Completer and asserts the FRESH composition lands.
+//   • the post-save read returns the new composition ONLY because `putOverride`
+//     flipped `_saved` — i.e. the effective fetch reflects the write strictly
+//     after it persisted. This proves the screen issued a GENUINE refetch driven
+//     by the reactive `overridesProvider` watch (read-after-write coherence),
+//     not a `copyWithPrevious`-retained snapshot.
+//
+// `listOverrides` returns a list whose IDENTITY changes after the put so the
+// `overridesProvider` reload genuinely emits a new value (driving the reactive
+// `effectiveScheduleProvider` rebuild even though the screen never reads the
+// override list's contents directly).
+// ───────────────────────────────────────────────────────────────────────────
+class _CompleterScheduleRepository implements ScheduleRepository {
+  _CompleterScheduleRepository({
+    required this.targetDate,
+    required this.preSave,
+    required this.postSave,
+  });
+
+  /// The date the test edits (and the only date whose composition changes).
+  final DateTime targetDate;
+
+  /// The effective day served for [targetDate] BEFORE any put (solid working).
+  final EffectiveDay preSave;
+
+  /// The effective day served for [targetDate] AFTER the put resolves (a day
+  /// with an interior pause — the freshly-saved override).
+  final EffectiveDay postSave;
+
+  bool _saved = false;
+  int putCount = 0;
+  int effectiveFetchCount = 0;
+
+  /// The bounds of the most recent effective fetch — captured so the test can
+  /// complete the parked refetch with a composition over the SAME window the
+  /// screen requested (today's month).
+  DateTime _rangeFrom = _today;
+  DateTime _rangeTo = _today;
+
+  /// Set on the FIRST post-save effective fetch; the test completes it to let
+  /// the in-flight reload resolve. Until then that fetch is parked (the
+  /// observable in-flight window).
+  Completer<List<EffectiveDay>>? pendingPostSaveFetch;
+
+  EffectiveDay _dayFor(DateTime date) {
+    if (_dateOnly(date) == _dateOnly(targetDate)) {
+      return _saved ? postSave : preSave;
+    }
+    return _solidWorking(date);
+  }
+
+  List<EffectiveDay> _composeRange(DateTime from, DateTime to) {
+    final List<EffectiveDay> out = <EffectiveDay>[];
+    DateTime cursor = _dateOnly(from);
+    final DateTime end = _dateOnly(to);
+    while (!cursor.isAfter(end)) {
+      out.add(_dayFor(cursor));
+      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+    }
+    return out;
+  }
+
+  @override
+  Future<List<EffectiveDay>> effectiveSchedule(
+    DateTime from,
+    DateTime to,
+  ) async {
+    effectiveFetchCount++;
+    _rangeFrom = _dateOnly(from);
+    _rangeTo = _dateOnly(to);
+    if (_saved && pendingPostSaveFetch == null) {
+      // First post-save fetch: park it so the reload is observably in flight.
+      pendingPostSaveFetch = Completer<List<EffectiveDay>>();
+      return pendingPostSaveFetch!.future;
+    }
+    return _composeRange(from, to);
+  }
+
+  @override
+  Future<List<ScheduleOverride>> listOverrides(
+    DateTime from,
+    DateTime to,
+  ) async {
+    // A fresh-identity list each call so the post-put reload genuinely emits a
+    // new value (driving the reactive effective-schedule rebuild).
+    if (!_saved) return const <ScheduleOverride>[];
+    return <ScheduleOverride>[
+      ScheduleOverride.custom(
+        start: _dateOnly(targetDate),
+        end: _dateOnly(targetDate),
+        intervals: postSave.intervals
+            .map((WorkInterval w) => w.clone())
+            .toList(growable: false),
+      ),
+    ];
+  }
+
+  @override
+  Future<ScheduleOverride> putOverride(ScheduleOverride override) async {
+    putCount++;
+    _saved = true;
+    return override;
+  }
+
+  @override
+  Future<void> clearOverride(DateTime date) async {
+    _saved = false;
+  }
+
+  @override
+  Future<List<WeeklySchedule>> listWeeklySchedules() async => <WeeklySchedule>[
+    _template(),
+  ];
+
+  @override
+  Future<WeeklySchedule> upsertWeeklySchedule(
+    WeeklySchedule schedule, {
+    String? scheduleId,
+  }) async => schedule;
+
+  @override
+  Future<void> deleteWeeklySchedule(String scheduleId) async {}
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // Fake WeeklySchedule notifier — the global "has any schedule" signal that
 // gates the focused empty state. Every full-layout case must stub this
 // NON-EMPTY so the screen renders the calendar (not the empty state).
@@ -1658,6 +1795,244 @@ void main() {
         expect(find.byType(CircularProgressIndicator), findsNothing);
         expect(find.byType(WeekStripDay), findsNWidgets(7));
         expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      },
+    );
+  });
+
+  // ── REGRESSION (QA GATE): seamless-retention + read-after-write coherence ───
+  //
+  // The exact on-device bug that shipped despite the OLD green save-flow tests:
+  // on a same-range post-save reload, Riverpod 3.1 `ref.invalidate` /
+  // dependency-driven rebuild is SEAMLESS — the in-flight `AsyncLoading` RETAINS
+  // the previous (pre-save) `.value` via `copyWithPrevious`. The old tests used a
+  // zero-latency read-your-writes fake AND asserted only the FINAL settled frame
+  // (`pumpAndSettle`), so they never observed the in-flight window where the
+  // stale value leaked through and got re-rendered + re-cached.
+  //
+  // These two tests park the post-save effective fetch on a Completer the test
+  // controls, so the reload is observably IN FLIGHT across an intermediate
+  // `pump()`. They drive the REAL OverridesNotifier + EffectiveScheduleNotifier
+  // (only `scheduleRepositoryProvider` is overridden), so the genuine reactive
+  // `overridesProvider` watch is exercised.
+  //
+  // Both FAIL on the pre-fix code (where `effective_schedule_notifier.build` did
+  // NOT watch `overridesProvider` and the screen keyed the reload off
+  // `value == null`): the retained pre-save day would render the pre-save solid
+  // grid during the in-flight frame (test #2) and the screen would never issue a
+  // genuine refetch for the just-written override (test #3). Verified by reverting
+  // the fix — see the QA report.
+  group('MasterScheduleScreen — seamless-retention regression (QA gate)', () {
+    testWidgets(
+      'the in-flight post-save reload does NOT render the retained pre-save '
+      'intervals: the screen shows the loading gate, then the FRESH override',
+      (tester) async {
+        // Today opens as a SOLID 09:00–18:00 day (zero interior pauses). The
+        // override adds a 13:00–14:00 pause → post-save the day has interior
+        // timeOff cells. The post-save effective fetch is parked on a Completer.
+        final repo = _CompleterScheduleRepository(
+          targetDate: _today,
+          preSave: _solidWorking(_today),
+          postSave: EffectiveDay(
+            date: _today,
+            source: EffectiveSource.overrideCustom,
+            intervals: <WorkInterval>[
+              _interval(9, 0, 13, 0),
+              _interval(14, 0, 18, 0),
+            ],
+          ),
+        );
+
+        final container = ProviderContainer(
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            scheduleRepositoryProvider.overrideWithValue(repo),
+          ].cast(),
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: _router(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Pre-save: the selected (today) panel renders the SOLID day — zero
+        // interior pauses.
+        expect(_interiorTimeOffCount(tester), 0);
+
+        // Open the override sheet for today, add the break, and save. The sheet's
+        // own provider reload (`listOverrides`) settles synchronously; only the
+        // SCREEN's post-save effective refetch is parked on the Completer.
+        await tester.tap(find.byKey(const Key('schedule-day-pencil')));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('override-add-break')));
+        await tester.tap(find.byKey(const Key('override-add-break')));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('override-save')));
+        await tester.tap(find.byKey(const Key('override-save')));
+
+        // Drive frames WITHOUT settling (pumpAndSettle would hang on the parked
+        // Completer). The put has landed; the post-save effective refetch is now
+        // in flight (parked). This is the EXACT window the bug lived in.
+        await tester.pump();
+        await tester.pump();
+
+        // The write happened …
+        expect(repo.putCount, 1);
+        // … and a post-save effective fetch is parked (in flight).
+        expect(
+          repo.pendingPostSaveFetch,
+          isNotNull,
+          reason:
+              'the post-save effective reload must be a genuine refetch '
+              '(in flight), not a copyWithPrevious-retained snapshot',
+        );
+        expect(repo.pendingPostSaveFetch!.isCompleted, isFalse);
+
+        // ── THE GUARD ───────────────────────────────────────────────────────
+        // During the in-flight reload the screen MUST NOT render the retained
+        // pre-save SOLID day. It routes through the loading gate instead. On the
+        // pre-fix code the seamless-retained pre-save value rendered here, so the
+        // SOLID grid (zero interior pauses) was on screen — the stale frame the
+        // user saw. We assert the stale pre-save grid is NOT shown: either the
+        // spinner gate is up (no SlotChips) OR — if any chips render — they are
+        // never the pre-save solid composition. The robust, locale-independent
+        // signal is the absence of the pre-save grid's full 18-cell solid
+        // availability with zero timeOff while NOT yet showing the fresh pause.
+        final bool spinnerUp = find
+            .byType(CircularProgressIndicator)
+            .evaluate()
+            .isNotEmpty;
+        if (!spinnerUp) {
+          // If content is on screen at all during the in-flight reload, it must
+          // not be the stale pre-save solid day (which had availableCount==18,
+          // timeOff==0). The fresh pause has not resolved yet, so the only way
+          // to avoid the stale render is the loading gate → this branch should
+          // not be reached on the fixed code. Fail loudly if it is.
+          fail(
+            'in-flight post-save reload rendered content instead of the '
+            'loading gate — the seamless-retained pre-save day leaked through '
+            '(the exact on-device bug)',
+          );
+        }
+        // The pre-save solid grid is NOT on screen during the in-flight reload.
+        expect(_interiorTimeOffCount(tester), 0);
+        expect(find.byType(SlotChip), findsNothing);
+
+        // ── Complete the parked refetch → the FRESH override resolves ─────────
+        repo.pendingPostSaveFetch!.complete(
+          repo._composeRange(repo._rangeFrom, repo._rangeTo),
+        );
+        await tester.pumpAndSettle();
+
+        // Now the panel renders the fresh override: the 13:00–14:00 pause shows
+        // as interior timeOff cells. A regression that served the retained
+        // pre-save snapshot would still show zero here.
+        expect(
+          _interiorTimeOffCount(tester),
+          greaterThan(0),
+          reason:
+              'once the genuine refetch resolves the just-saved pause must '
+              'render — proving the FRESH value, not the retained one, is shown',
+        );
+      },
+    );
+
+    testWidgets(
+      'read-after-write coherence: the effective fetch reflecting the override '
+      'fires strictly AFTER the write — the screen renders the refetched '
+      'composition, not the seamless-retained previous value',
+      (tester) async {
+        final repo = _CompleterScheduleRepository(
+          targetDate: _today,
+          preSave: _solidWorking(_today),
+          postSave: EffectiveDay(
+            date: _today,
+            source: EffectiveSource.overrideCustom,
+            intervals: <WorkInterval>[
+              _interval(9, 0, 13, 0),
+              _interval(14, 0, 18, 0),
+            ],
+          ),
+        );
+
+        final container = ProviderContainer(
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            scheduleRepositoryProvider.overrideWithValue(repo),
+          ].cast(),
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: _router(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Capture the fetch count at the moment of the first (pre-save) render so
+        // we can prove a SECOND, post-write fetch fired.
+        final int fetchesBeforeSave = repo.effectiveFetchCount;
+        expect(_interiorTimeOffCount(tester), 0);
+
+        await tester.tap(find.byKey(const Key('schedule-day-pencil')));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('override-add-break')));
+        await tester.tap(find.byKey(const Key('override-add-break')));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('override-save')));
+        await tester.tap(find.byKey(const Key('override-save')));
+        await tester.pump();
+        await tester.pump();
+
+        // A genuine post-write effective refetch fired (driven by the reactive
+        // `overridesProvider` watch) — the count grew AND it happened after the
+        // put. On the pre-fix code (build NOT watching overridesProvider) the
+        // override save would NOT trigger an effective refetch via the
+        // dependency at all.
+        expect(repo.putCount, 1);
+        expect(
+          repo.effectiveFetchCount,
+          greaterThan(fetchesBeforeSave),
+          reason:
+              'the override write must drive a fresh effective fetch via the '
+              'reactive overridesProvider dependency (read-after-write)',
+        );
+        expect(repo.pendingPostSaveFetch, isNotNull);
+
+        // Resolve the parked refetch with the composition that reflects the
+        // write (postSave). The screen must render THIS, not the retained
+        // pre-save value.
+        repo.pendingPostSaveFetch!.complete(
+          repo._composeRange(repo._rangeFrom, repo._rangeTo),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          _interiorTimeOffCount(tester),
+          greaterThan(0),
+          reason:
+              'the rendered grid must be the refetched post-write '
+              'composition (with the pause), proving read-after-write coherence',
+        );
       },
     );
   });

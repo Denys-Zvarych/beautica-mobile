@@ -153,9 +153,11 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   /// Replaces the old push to the retired `PerDateOverrideStubScreen`.
   ///
   /// The sheet mutates `overridesProvider(_range)` (the SAME family key the
-  /// calendar watches) and invalidates the effective-schedule cache on a
-  /// successful put/clear, so the week strip dots + the grid repaint with no
-  /// manual refresh. Past days never reach here — the pencil is hidden on them.
+  /// calendar watches). Because `effectiveScheduleProvider(range)` now
+  /// `ref.watch`es `overridesProvider(range)`, that mutation makes the effective
+  /// schedule recompute + re-fetch reactively, so the week strip dots + the grid
+  /// repaint with no manual refresh. Past days never reach here — the pencil is
+  /// hidden on them.
   Future<void> _openDayOverride(EffectiveDay day) async {
     if (kDebugMode) log('open per-date override', name: _tag, level: 800);
     final bool hasOverride =
@@ -184,13 +186,17 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     // focuses it. Notifier-only (no setState) — preserves the HIGH-1 scope.
     _selected.value = _dateOnly(changed);
 
-    // (b) Show the saved changes immediately. The override notifier already
-    // invalidated `effectiveScheduleProvider` (the watched family member is now
-    // reloading with `value == null`), and the range-aware `_lastDays` guard in
-    // [_body] deliberately does NOT serve the stale snapshot for this same-range
-    // reload. Awaiting the fresh fetch here makes the next rebuild land with the
-    // fresh override already resolved — no stale render, no manual re-tap.
-    // Scoped to the edited range only (does not widen the family invalidation).
+    // (b) Show the saved changes immediately. The override save reloaded
+    // `overridesProvider(editedRange)`, which (via the reactive `ref.watch`
+    // dependency) makes `effectiveScheduleProvider(editedRange)` recompute and
+    // re-fetch. That refetch is a SEAMLESS reload in Riverpod 3.x — its
+    // in-flight state retains the previous (pre-save) value — so the range-aware
+    // guard in [_body] deliberately routes this same-range reload through the
+    // loading gate instead of serving the retained stale snapshot. Awaiting the
+    // provider's `.future` here resolves to the GENUINE refetch result (not the
+    // retained previous value), so the next rebuild lands with the fresh
+    // override already resolved — no stale render, no manual re-tap. Scoped to
+    // the edited range only (does not widen the family invalidation).
     try {
       await ref.read(effectiveScheduleProvider(editedRange).future);
     } on Object {
@@ -211,18 +217,24 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   /// Loading-flash fix: the last successfully-resolved effective-days list,
   /// retained across month-key changes. `effectiveScheduleProvider` is a family
   /// keyed by the visible month, so stepping a month yields a fresh
-  /// `AsyncLoading` with `value == null` (Riverpod's previous-data retention
-  /// does NOT survive a family-key change). Caching the last good list lets us
-  /// keep showing the previous month's content with a subtle inline indicator
-  /// during the brief reload — the full-screen spinner is reserved for the
-  /// genuine first load, when this is still null.
+  /// `AsyncLoading` whose `.value` is null for the new family member (Riverpod's
+  /// previous-data retention does NOT survive a family-key change). Caching the
+  /// last good list lets us keep showing the previous month's content with a
+  /// subtle inline indicator during the brief reload — the full-screen spinner
+  /// is reserved for the genuine first load, when this is still null.
   ///
-  /// Save-freshness fix: the stale list is served ONLY while the *visible
-  /// range* differs from [_lastDaysRange] — i.e. a month step. A same-range
-  /// reload (the post-save `ref.invalidate(effectiveScheduleProvider)`) must
-  /// NOT fall back to this snapshot, or the panel would render the pre-save
-  /// intervals until the refetch lands. For that case we wait for the fresh
-  /// value instead (see [_body]).
+  /// Save-freshness fix (the bug this re-fix targets): a SAME-range post-save
+  /// reload is SEAMLESS in Riverpod 3.x — the new `AsyncLoading` carries the
+  /// PREVIOUS data via `copyWithPrevious`, so `asyncDays.value` is NOT null and
+  /// keying off `value == null` to detect the reload is a dead branch. We must
+  /// therefore distinguish the two reload kinds by RANGE, not by null-ness:
+  ///   • range differs from [_lastDaysRange]  → month step → keep stale content;
+  ///   • range matches [_lastDaysRange] while refreshing → post-save → do NOT
+  ///     adopt the retained previous value as fresh; wait for the genuine
+  ///     refetch result (see [_body]).
+  /// Critically, we only update [_lastDays]/[_lastDaysRange] from a value that is
+  /// NOT a seamless-retained reload snapshot, so a same-range refresh never
+  /// caches the stale list as if it were fresh.
   List<EffectiveDay>? _lastDays;
 
   /// The [ScheduleRange] [_lastDays] was captured for. Distinguishes a
@@ -311,36 +323,69 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
       );
     }
 
-    // Riverpod 3.x: `.value` is the nullable getter (`valueOrNull` was removed).
-    // Loading-flash fix: cache the freshly-resolved list (tagged with its
-    // range), then fall back to the last good one while a month-step reload is
-    // in flight (new family key → `value == null`). Caching a reference during
-    // build is safe (no setState).
-    final List<EffectiveDay>? resolved = asyncDays.value;
-    if (resolved != null) {
-      _lastDays = resolved;
+    // Riverpod 3.x state discrimination (the heart of this re-fix):
+    //
+    //  • A MONTH STEP creates a NEW family member (different `range` key). That
+    //    instance has no prior state, so `isLoading == true`, `.value == null`,
+    //    and BOTH `isRefreshing`/`isReloading` are false (they require a
+    //    previously-emitted value). We tell it apart from a genuine first load
+    //    by the presence of a cached list for a DIFFERENT range.
+    //
+    //  • A POST-SAVE SAME-RANGE reload rebuilds the SAME family member because
+    //    its watched dependency (`overridesProvider(range)`) changed. That is a
+    //    SEAMLESS reload: `isLoading == true`, `isReloading == true`, and
+    //    `.value` RETAINS the previous (pre-save) data via `copyWithPrevious`.
+    //    Keying off `value == null` here is a dead branch — the old bug. We use
+    //    `isReloading` instead and DO NOT treat the retained value as fresh.
+    //
+    //  • A SETTLED state (`!isLoading`) with a non-null `.value` is fresh.
+    final bool reloadingSameMember = asyncDays.isReloading;
+    final List<EffectiveDay>? freshValue = (!asyncDays.isLoading)
+        ? asyncDays.value
+        : null;
+
+    // Cache the FRESH list only (tagged with its range). A seamless-retained
+    // reload snapshot is NOT fresh and must never be cached as if it were, or
+    // the same-range post-save path would re-serve the pre-save list.
+    if (freshValue != null) {
+      _lastDays = freshValue;
       _lastDaysRange = _range;
     }
-    // Save-freshness fix: only serve the stale snapshot when it belongs to a
-    // DIFFERENT range than the one now visible (a month step). For a same-range
-    // reload — the post-save invalidation of `effectiveScheduleProvider` — fall
-    // through to the spinner gate so we wait for the fresh value and never
-    // repaint the just-edited day with its pre-save intervals.
+
+    // A month-step reload: this range is loading for the first time, but we hold
+    // a good list captured for a DIFFERENT range. Keep showing it (with the
+    // inline progress line) so the previous month does not flash to a spinner.
+    final bool monthStepReload =
+        freshValue == null &&
+        !reloadingSameMember &&
+        _lastDays != null &&
+        _lastDaysRange != _range;
+
+    // Decide what to render:
+    //   • fresh settled value   → use it directly;
+    //   • month-step reload     → the cached previous-range list (stale-but-OK);
+    //   • everything else (genuine first load OR same-range post-save reload)
+    //     → null → the spinner gate below. For the post-save case this is
+    //       deliberate: we wait for the genuine refetch instead of repainting
+    //       the just-edited day with its retained pre-save intervals.
     final List<EffectiveDay>? days =
-        resolved ?? (_lastDaysRange != _range ? _lastDays : null);
+        freshValue ?? (monthStepReload ? _lastDays : null);
     final List<WeeklySchedule>? weekly = asyncWeekly.value;
     // Both must be resolved before we can decide empty vs. full. With the cache
-    // in play this only stays null on the genuine FIRST load.
+    // in play this only stays null on the genuine FIRST load OR a same-range
+    // post-save reload (where we intentionally wait for the fresh value).
     if (days == null || weekly == null) {
       return const Center(
         child: CircularProgressIndicator(color: BrandColors.accent),
       );
     }
 
-    // A month-change reload: we have cached content to keep on screen, but the
-    // newly-keyed range is still resolving. Drives the subtle inline indicator
-    // (instead of a full-screen spinner) in [_content].
-    final bool reloading = resolved == null && asyncDays.isLoading;
+    // The subtle inline progress line is reserved for the month-step reload (we
+    // are showing the previous month's cached content while the new month
+    // resolves). A same-range post-save reload never reaches here — it went
+    // through the spinner gate above — so this never flashes stale content for
+    // the save path.
+    final bool reloading = monthStepReload;
 
     // "No schedule at all" — no weekly template defined AND no override covers
     // any visible day (every resolved day is NO_SCHEDULE). Both conditions

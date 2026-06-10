@@ -20,9 +20,10 @@
 //     note → saves a DAY_OFF override.
 //
 // SAVE → CALENDAR REPAINT: [OverridesNotifier.putOverride] / `.clearOverride`
-// reload the watched range AND `ref.invalidate(effectiveScheduleProvider)` on
-// success, so the Master-Schedule calendar re-fetches and repaints with no
-// manual refresh.
+// reload the watched range; because `effectiveScheduleProvider(range)`
+// `ref.watch`es `overridesProvider(range)`, that reload makes the effective
+// schedule recompute + re-fetch reactively, so the Master-Schedule calendar
+// repaints with no manual refresh (no explicit `ref.invalidate` needed).
 //
 // OQ-1 (ALWAYS ALLOW): saving an override / day-off is NEVER blocked or gated by
 // existing bookings, and no conflict confirmation is required. There is no
