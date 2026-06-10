@@ -4,10 +4,10 @@
 // Ported VERBATIM from the approved preview app at
 // `docs/signup-designs/MasterSchedule/lib/screens/period_range_picker.dart`,
 // adapted to the project's structure:
-//   • preview `Scaffold` + `Navigator.push`/`pop`  → a `showModalBottomSheet`
+//   • preview `Scaffold` + raw Navigator push/pop  → a `showModalBottomSheet`
 //     overlay (exempt from the go_router-only rule, like `showVelvetTimePicker`)
 //     that returns the chosen `DateTimeRange`; the picker closes with the
-//     go_router `context.pop(range)` extension (NEVER `Navigator.pop`).
+//     go_router `context.pop(range)` extension (NEVER raw Navigator pop).
 //   • preview `VelvetColors`/`VelvetText`/`Velvet*` tokens → `BrandColors` /
 //     `VelvetText` / `velvet_geometry` project tokens.
 //   • the preview's hard-coded Ukrainian header/summary copy → `AppLocalizations`

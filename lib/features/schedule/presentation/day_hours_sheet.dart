@@ -46,6 +46,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -251,7 +252,7 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
         _showError(messenger, result.error, l10n);
         return;
       }
-      Navigator.of(context).pop();
+      dismissOverlay(context);
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(l10n.savedSnackbar)));
@@ -288,7 +289,7 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
         _showError(messenger, result.error, l10n);
         return;
       }
-      Navigator.of(context).pop();
+      dismissOverlay(context);
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
@@ -411,7 +412,7 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
           label: l10n.scheduleOverrideCloseSemantic,
           child: GestureDetector(
             key: const Key('override-close'),
-            onTap: () => Navigator.of(context).maybePop(),
+            onTap: () => dismissOverlay(context),
             child: Container(
               height: 40,
               width: 40,
