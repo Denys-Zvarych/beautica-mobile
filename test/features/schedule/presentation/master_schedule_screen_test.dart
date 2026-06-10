@@ -127,6 +127,31 @@ class _ErrorSchedule extends EffectiveScheduleNotifier {
       throw Exception('boom');
 }
 
+/// Month-change fake for the loading-flash regression: resolves [_days] for the
+/// INITIAL visible month's range key and never completes for any OTHER range.
+///
+/// The screen keys `effectiveScheduleProvider` on `ScheduleRange.month(visible)`
+/// and steps `visible` by one month when the `>` arrow is tapped. A single
+/// family fake branching on `range` therefore reproduces exactly what happens in
+/// production: the current month resolves (and is cached into `_lastDays`),
+/// while the next month's freshly-keyed instance sits in `AsyncLoading` with
+/// `value == null`. This is the precise condition that used to trip the
+/// full-screen spinner gate (`days == null`) before the cache fix.
+class _MonthAwareSchedule extends EffectiveScheduleNotifier {
+  _MonthAwareSchedule(this._initialMonth, this._days);
+
+  /// The range key the INITIAL visible month resolves to (today's month).
+  final ScheduleRange _initialMonth;
+  final List<EffectiveDay> _days;
+
+  @override
+  Future<List<EffectiveDay>> build(ScheduleRange range) {
+    if (range == _initialMonth) return Future<List<EffectiveDay>>.value(_days);
+    // Any other month (e.g. after tapping `>`) stays loading forever.
+    return Completer<List<EffectiveDay>>().future;
+  }
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // Fake WeeklySchedule notifier — the global "has any schedule" signal that
 // gates the focused empty state. Every full-layout case must stub this
@@ -997,6 +1022,95 @@ void main() {
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
     });
+
+    // ── Month-change loading-flash regression (BUG: full-screen spinner) ──────
+    //
+    // BUG (now fixed): tapping the next-month `>` arrow swapped the keyed
+    // `effectiveScheduleProvider(month)` family instance, yielding a fresh
+    // `AsyncLoading` whose `value == null`. The old `_body` gate
+    // (`if (days == null) return CircularProgressIndicator(...)`) therefore
+    // REPLACED the whole calendar with a full-screen spinner for the duration of
+    // the new month's load — a jarring flash on every month step.
+    //
+    // The fix caches the last resolved list in `_lastDays`: during a month-step
+    // reload the previous month's content stays on screen and a 2px top
+    // `LinearProgressIndicator` (the `reloading` overlay) signals the load. The
+    // full-screen spinner is now reserved for the genuine first load.
+    //
+    // This test PASSES on the fixed code and FAILS on the pre-fix gate: with the
+    // old gate, after the tap `days == null` for the next month's key → the
+    // calendar (WeekStripDay/SlotLegend) is gone and a CircularProgressIndicator
+    // is present — the exact opposite of all three assertions below.
+    testWidgets(
+      'month change keeps previous content + inline indicator — no full-screen '
+      'spinner',
+      (tester) async {
+        // Month 1 (today's month) resolves to a full templated week; the NEXT
+        // month's range key never completes (still loading after the tap).
+        final ScheduleRange month1 = ScheduleRange.month(_today);
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: _working,
+          filler: _working,
+        );
+        await _pump(
+          tester,
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            effectiveScheduleProvider.overrideWith(
+              () => _MonthAwareSchedule(month1, days),
+            ),
+            weeklyScheduleProvider.overrideWith(
+              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            ),
+          ],
+        );
+
+        // ── First load resolved: calendar content is on screen, no spinner ────
+        expect(find.byType(WeekStripDay), findsNWidgets(7));
+        expect(find.byType(SlotLegend), findsOneWidget);
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(find.byType(LinearProgressIndicator), findsNothing);
+
+        // ── Tap the next-month `>` arrow (by its localised semantic label) ────
+        final l10n = _l10n(tester);
+        await tester.tap(find.bySemanticsLabel(l10n.scheduleNextMonth));
+        // pump() ONLY — the next month's load never completes, so pumpAndSettle
+        // would hang.
+        await tester.pump();
+
+        // ── Assertion 1: NO full-screen spinner on month change ───────────────
+        // FAILS on the pre-fix gate (it returned the full-screen spinner here).
+        expect(
+          find.byType(CircularProgressIndicator),
+          findsNothing,
+          reason:
+              'stepping the month must NOT replace the screen with a '
+              'full-screen spinner while the new month loads',
+        );
+
+        // ── Assertion 2: previous month content is still visible ──────────────
+        // FAILS on the pre-fix gate (the calendar was replaced by the spinner).
+        expect(
+          find.byType(WeekStripDay),
+          findsNWidgets(7),
+          reason:
+              'the previous month content must stay on screen during the '
+              'month-change reload (cached `_lastDays`)',
+        );
+        expect(find.byType(SlotLegend), findsOneWidget);
+
+        // ── Assertion 3: subtle inline reload indicator IS present ────────────
+        expect(
+          find.byType(LinearProgressIndicator),
+          findsOneWidget,
+          reason:
+              'a 2px top LinearProgressIndicator must signal the in-flight '
+              'month-change reload',
+        );
+      },
+    );
 
     testWidgets('error shows the retry control; tap retry re-fetches', (
       tester,

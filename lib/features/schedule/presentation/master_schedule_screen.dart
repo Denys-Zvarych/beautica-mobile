@@ -185,6 +185,16 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   _DayIndex? _indexCache;
   List<EffectiveDay>? _indexedDays;
 
+  /// Loading-flash fix: the last successfully-resolved effective-days list,
+  /// retained across month-key changes. `effectiveScheduleProvider` is a family
+  /// keyed by the visible month, so stepping a month yields a fresh
+  /// `AsyncLoading` with `value == null` (Riverpod's previous-data retention
+  /// does NOT survive a family-key change). Caching the last good list lets us
+  /// keep showing the previous month's content with a subtle inline indicator
+  /// during the brief reload — the full-screen spinner is reserved for the
+  /// genuine first load, when this is still null.
+  List<EffectiveDay>? _lastDays;
+
   _DayIndex _indexOf(List<EffectiveDay> days) {
     if (identical(_indexedDays, days) && _indexCache != null) {
       return _indexCache!;
@@ -267,14 +277,25 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     }
 
     // Riverpod 3.x: `.value` is the nullable getter (`valueOrNull` was removed).
-    final List<EffectiveDay>? days = asyncDays.value;
+    // Loading-flash fix: cache the freshly-resolved list, then fall back to the
+    // last good one while a month-step reload is in flight (new family key →
+    // `value == null`). Caching a reference during build is safe (no setState).
+    final List<EffectiveDay>? resolved = asyncDays.value;
+    if (resolved != null) _lastDays = resolved;
+    final List<EffectiveDay>? days = resolved ?? _lastDays;
     final List<WeeklySchedule>? weekly = asyncWeekly.value;
-    // Both must be resolved before we can decide empty vs. full.
+    // Both must be resolved before we can decide empty vs. full. With the cache
+    // in play this only stays null on the genuine FIRST load.
     if (days == null || weekly == null) {
       return const Center(
         child: CircularProgressIndicator(color: BrandColors.accent),
       );
     }
+
+    // A month-change reload: we have cached content to keep on screen, but the
+    // newly-keyed range is still resolving. Drives the subtle inline indicator
+    // (instead of a full-screen spinner) in [_content].
+    final bool reloading = resolved == null && asyncDays.isLoading;
 
     // "No schedule at all" — no weekly template defined AND no override covers
     // any visible day (every resolved day is NO_SCHEDULE). Both conditions
@@ -290,16 +311,17 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
       );
     }
 
-    return _content(l10n, editable, days);
+    return _content(l10n, editable, days, reloading: reloading);
   }
 
   Widget _content(
     AppLocalizations l10n,
     bool editable,
-    List<EffectiveDay> days,
-  ) {
+    List<EffectiveDay> days, {
+    bool reloading = false,
+  }) {
     final _DayIndex index = _indexOf(days);
-    return ListView(
+    final Widget list = ListView(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(
         VelvetSpacing.md,
@@ -313,6 +335,29 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
         SectionHeader(title: l10n.scheduleCalendarSection),
         const SizedBox(height: VelvetSpacing.md),
         _calendarCard(l10n, editable, index),
+      ],
+    );
+
+    // Loading-flash fix: on a month-change reload keep the (stale) content fully
+    // visible and overlay a thin top progress line — no layout shift, dismissed
+    // the instant the new month resolves. First load never reaches here (it goes
+    // through the full-screen spinner gate above).
+    return Stack(
+      children: <Widget>[
+        list,
+        if (reloading)
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: LinearProgressIndicator(
+                minHeight: 2,
+                color: BrandColors.accent,
+                backgroundColor: Colors.transparent,
+              ),
+            ),
+          ),
       ],
     );
   }
