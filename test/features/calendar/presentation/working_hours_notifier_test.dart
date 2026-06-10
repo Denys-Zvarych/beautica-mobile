@@ -5,56 +5,34 @@
 //     - reads the week from WorkingHoursRepository.list() (a pure cache read).
 //   save() happy path
 //     - calls replaceAll() with the supplied week,
-//     - emits AsyncData with the server-confirmed (gap-filled) result,
-//     - invalidates masterProfileProvider so the canonical profile cache stays
-//       coherent (PERF M2) — asserted via a rebuild counter on an override.
+//     - emits AsyncData with the server-confirmed (gap-filled) result and
+//       lands that exact week in state.
 //   save() failure path
 //     - a thrown Failure becomes AsyncError (AsyncValue.guard), never a raw
 //       exception,
-//     - masterProfileProvider is NOT invalidated on failure (no result.hasValue).
+//     - on failure state is AsyncError (the prior week is not silently kept).
+//
+// Working hours are no longer carried on the master profile (the migration made
+// list() a network read), so save() performs ONLY the repository write and does
+// NOT invalidate masterProfileProvider. The old PERF-M2 cache-coherence
+// invalidation is dead; no profile-rebuild scaffolding is needed here.
 //
 // Strategy:
 //   Pure Dart — ProviderContainer + a mocktail WorkingHoursRepository. The
 //   notifier's own keepAlive repository provider is overridden with the mock so
-//   no profile/auth chain is constructed. masterProfileProvider is overridden
-//   with a counting notifier so the save()-time invalidation is observable
-//   without touching the real auth/master stack. No widget tree.
+//   no profile/auth chain is constructed. No widget tree.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/calendar/data/working_hours_repository.dart';
 import 'package:beautica_mobile/features/calendar/data/working_hours_repository_provider.dart';
 import 'package:beautica_mobile/features/calendar/domain/working_hours.dart';
 import 'package:beautica_mobile/features/calendar/presentation/working_hours_notifier.dart';
-import 'package:beautica_mobile/features/master/domain/master.dart';
-import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockWorkingHoursRepository extends Mock
     implements WorkingHoursRepository {}
-
-/// A stand-in [MasterProfile] override that records how many times it builds.
-/// Each invalidate(masterProfileProvider) forces a rebuild, so [buildCount]
-/// lets the save() tests assert whether the cache was invalidated.
-class _CountingMasterProfile extends MasterProfile {
-  static int buildCount = 0;
-
-  @override
-  Future<Master> build() async {
-    buildCount++;
-    return _master;
-  }
-}
-
-const _master = Master(
-  id: 'master-1',
-  firstName: 'Test',
-  lastName: 'Master',
-  avgRating: 0,
-  reviewCount: 0,
-  type: MasterType.independentMaster,
-);
 
 /// A dense, gap-filled week the repository would hand back.
 List<WorkingHours> _week({bool active = true}) => [
@@ -69,10 +47,7 @@ List<WorkingHours> _week({bool active = true}) => [
 
 ProviderContainer _makeContainer(_MockWorkingHoursRepository repo) {
   final container = ProviderContainer(
-    overrides: [
-      workingHoursRepositoryProvider.overrideWithValue(repo),
-      masterProfileProvider.overrideWith(_CountingMasterProfile.new),
-    ],
+    overrides: [workingHoursRepositoryProvider.overrideWithValue(repo)],
   );
   addTearDown(container.dispose);
   return container;
@@ -87,7 +62,6 @@ void main() {
 
   setUp(() {
     repo = _MockWorkingHoursRepository();
-    _CountingMasterProfile.buildCount = 0;
   });
 
   group('build', () {
@@ -136,27 +110,6 @@ void main() {
       expect(state.hasValue, isTrue);
       expect(state.value, same(saved));
     });
-
-    test('invalidates masterProfileProvider on success (PERF M2)', () async {
-      when(() => repo.list()).thenAnswer((_) async => _week());
-      when(() => repo.replaceAll(any())).thenAnswer((_) async => _week());
-
-      final container = _makeContainer(repo);
-      // Build the profile so it has an initial value to be invalidated.
-      await container.read(masterProfileProvider.future);
-      await container.read(workingHoursProvider.future);
-      final before = _CountingMasterProfile.buildCount;
-
-      await container.read(workingHoursProvider.notifier).save(_week());
-      // invalidate() schedules a rebuild on the next microtask; force it.
-      await container.read(masterProfileProvider.future);
-
-      expect(
-        _CountingMasterProfile.buildCount,
-        greaterThan(before),
-        reason: 'save() must invalidate the profile cache so it re-derives',
-      );
-    });
   });
 
   group('save — failure path', () {
@@ -176,24 +129,28 @@ void main() {
       expect(state.error, isA<ValidationFailure>());
     });
 
-    test('does NOT invalidate masterProfileProvider on failure', () async {
-      when(() => repo.list()).thenAnswer((_) async => _week());
+    test('state surfaces AsyncError — .when routes to error, not data', () async {
+      final loaded = _week();
+      when(() => repo.list()).thenAnswer((_) async => loaded);
       when(() => repo.replaceAll(any())).thenThrow(const NetworkFailure());
 
       final container = _makeContainer(repo);
-      await container.read(masterProfileProvider.future);
+      // Establish a loaded week, then fail the save.
       await container.read(workingHoursProvider.future);
-      final before = _CountingMasterProfile.buildCount;
 
       await container.read(workingHoursProvider.notifier).save(_week());
-      // Give any (erroneously) scheduled invalidation a chance to fire.
-      await Future<void>.delayed(Duration.zero);
 
-      expect(
-        _CountingMasterProfile.buildCount,
-        before,
-        reason: 'a failed save must leave the profile cache untouched',
+      final state = container.read(workingHoursProvider);
+      expect(state.hasError, isTrue);
+      expect(state.error, isA<NetworkFailure>());
+      // The screen renders via AsyncValue.when, which must route to the error
+      // branch on a failed save rather than silently re-showing the prior week.
+      final branch = state.when(
+        data: (_) => 'data',
+        loading: () => 'loading',
+        error: (_, _) => 'error',
       );
+      expect(branch, 'error');
     });
   });
 }

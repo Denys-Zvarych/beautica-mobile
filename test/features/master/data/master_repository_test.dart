@@ -307,55 +307,15 @@ void main() {
       expect(master.salonId, isNull);
     });
 
-    test('PERF M1: carries the bundled working hours through to Master, '
-        'gap-filled to 7 ordered days', () async {
-      // Backend bundles only Mon–Wed (1..3) active; Thu–Sun are omitted.
-      final dto =
-          (MasterDetailResponseBuilder()
-                ..masterId = 'master-1'
-                ..firstName = 'Оля'
-                ..lastName = 'Коваль'
-                ..avgRating = 4.5
-                ..reviewCount = 10
-                ..masterType =
-                    MasterDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
-                ..workingHours.replace([
-                  for (var d = 1; d <= 3; d++)
-                    (WorkingHoursResponseBuilder()
-                          ..dayOfWeek = d
-                          ..startTime = '08:00:00'
-                          ..endTime = '17:00:00'
-                          ..isActive = true)
-                        .build(),
-                ]))
-              .build();
-      when(
-        () => masterApi.getMyProfile(),
-      ).thenAnswer((_) async => apiResponse(dto));
-
-      final master = await repository.getMyProfile('master-1');
-
-      // The week is on the domain model (no second round-trip needed).
-      expect(master.workingHours, hasLength(7));
-      expect(master.workingHours.map((w) => w.dayOfWeek), [
-        1,
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-      ]);
-      // Bundled days keep their window + active flag …
-      expect(master.workingHours.take(3).every((w) => w.isActive), isTrue);
-      expect(master.workingHours.first.startTime, '08:00:00');
-      // … and the omitted days are gap-filled inactive.
-      expect(master.workingHours.skip(3).every((w) => !w.isActive), isTrue);
-    });
-
     test(
-      'PERF M1: null bundled working hours → 7 inactive default days',
+      'Phase 6.2: working hours are NO LONGER bundled on the profile — '
+      'Master.workingHours is always empty (read via weekly-schedule API)',
       () async {
+        // Post-migration the deprecated bundled working-hours DTO is no longer
+        // mapped: the calendar feature reads the week over the network via
+        // getWeeklySchedules. The mapper must therefore leave Master.workingHours
+        // empty regardless of the profile envelope, so no deprecated DTO crosses
+        // the mapping boundary.
         final dto = buildDto();
         when(
           () => masterApi.getMyProfile(),
@@ -363,8 +323,13 @@ void main() {
 
         final master = await repository.getMyProfile('master-1');
 
-        expect(master.workingHours, hasLength(7));
-        expect(master.workingHours.every((w) => !w.isActive), isTrue);
+        expect(
+          master.workingHours,
+          isEmpty,
+          reason:
+              'working hours are read separately via the weekly-schedule API; '
+              'the profile mapper must not populate them',
+        );
       },
     );
 
