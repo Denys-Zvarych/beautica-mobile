@@ -441,9 +441,28 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
         ),
         Expanded(
           child: Center(
-            child: Text(
-              '${monthNominative(_visibleMonth.month)} ${_visibleMonth.year}',
-              style: VelvetText.subheading(),
+            // Fixed two-row stack: month always on row 1, year always on row 2,
+            // both centered — so the header never wraps inconsistently with
+            // width. MergeSemantics collapses the two Text nodes into a single
+            // "<month> <year>" announcement for TalkBack.
+            child: MergeSemantics(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  Text(
+                    monthNominative(_visibleMonth.month),
+                    textAlign: TextAlign.center,
+                    style: VelvetText.monthNavTitle,
+                  ),
+                  Text(
+                    '${_visibleMonth.year}',
+                    textAlign: TextAlign.center,
+                    style: VelvetText.monthNavTitle,
+                  ),
+                ],
+              ),
             ),
           ),
         ),

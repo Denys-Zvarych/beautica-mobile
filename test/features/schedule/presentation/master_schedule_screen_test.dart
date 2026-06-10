@@ -1211,6 +1211,96 @@ void main() {
     );
   });
 
+  // ── Month-navigator two-row header (intended design change) ────────────────
+  //
+  // DESIGN CHANGE (user-requested, intended): the month-navigator center title
+  // changed from a SINGLE-LINE `Text(VelvetText.subheading())` ("<month>
+  // <year>") to a centered TWO-ROW `Column` — the month name on row 1 and the
+  // year on row 2, both using the smaller `VelvetText.monthNavTitle` (14sp),
+  // wrapped in a `MergeSemantics`. The 5 full-screen goldens were re-blessed for
+  // this pixel shift, but goldens are self-referential. THIS structural guard
+  // asserts the layout INTENT independently of any pixel snapshot, so the
+  // two-row stack cannot silently regress back to a single combined line.
+  //
+  // The screen anchors `_visibleMonth` to the device "today", so the expected
+  // month name + year are computed from `_today` (NOT hardcoded). `monthNominative`
+  // returns the Ukrainian nominative month name for the test locale.
+  group('MasterScheduleScreen — month navigator two-row header', () {
+    testWidgets(
+      'month name and year render as TWO separate Texts, stacked vertically '
+      '(month above year), wrapped in MergeSemantics — not one combined line',
+      (tester) async {
+        final days = _weekWith(todayDay: _working, filler: _working);
+        await _pump(tester, overrides: _editableData(days));
+
+        // The visible month is today's month (the screen anchors on `now()`).
+        final String monthName = monthNominative(_today.month);
+        final String yearLabel = '${_today.year}';
+
+        // ── Assertion 1: month and year are TWO SEPARATE Text widgets ─────────
+        // (NOT a single combined "<month> <year>" Text). The pre-change code had
+        // one Text — so the combined finder matched and these two did not.
+        final Finder monthText = find.text(monthName);
+        final Finder yearText = find.text(yearLabel);
+        expect(
+          monthText,
+          findsOneWidget,
+          reason: 'the month name renders as its own Text node',
+        );
+        expect(
+          yearText,
+          findsOneWidget,
+          reason: 'the year renders as its own Text node',
+        );
+        // The combined single-line label must NOT exist (regression guard
+        // against collapsing the two rows back into one Text).
+        expect(
+          find.text('$monthName $yearLabel'),
+          findsNothing,
+          reason:
+              'month + year must be two separate rows, not one combined Text',
+        );
+
+        // ── Assertion 2: month is stacked ABOVE the year (vertical order) ─────
+        // Both Texts share the same centering Column; compare their global dy so
+        // the test pins the vertical arrangement, not just co-existence.
+        final Offset monthOffset = tester.getTopLeft(monthText);
+        final Offset yearOffset = tester.getTopLeft(yearText);
+        expect(
+          monthOffset.dy < yearOffset.dy,
+          isTrue,
+          reason:
+              'the month name must sit on the row ABOVE the year (two-row stack)',
+        );
+        // They are co-descendants of a single Column (the two-row stack).
+        expect(
+          find.ancestor(of: monthText, matching: find.byType(Column)),
+          findsWidgets,
+        );
+        expect(
+          find.ancestor(of: yearText, matching: find.byType(Column)),
+          findsWidgets,
+        );
+
+        // ── Assertion 3: the split stays accessible via MergeSemantics ────────
+        // The two Text nodes are wrapped in a MergeSemantics so TalkBack still
+        // announces a single "<month> <year>" — assert it wraps BOTH rows.
+        expect(
+          find.ancestor(of: monthText, matching: find.byType(MergeSemantics)),
+          findsOneWidget,
+          reason: 'the month row must live under a MergeSemantics',
+        );
+        expect(
+          find.ancestor(of: yearText, matching: find.byType(MergeSemantics)),
+          findsOneWidget,
+          reason:
+              'the year row must live under the SAME MergeSemantics so the '
+              'split stays a single accessible announcement',
+        );
+      },
+    );
+  });
+
   // ── Week-strip overflow regression (narrow phone widths) ──────────────────
   //
   // The seven WeekStripDay cells used to be laid out with
