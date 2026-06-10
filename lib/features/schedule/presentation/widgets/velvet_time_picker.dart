@@ -9,10 +9,9 @@
 //
 // This deliberately REPLACES Flutter's Material `showTimePicker` clock dial,
 // which clashed with the soft-UI surface.  In its place a neumorphic bottom
-// sheet with two scroll wheels — hours (00–23) and minutes in 15-minute steps
-// (00/15/30/45) — under a fixed centred selection band.  Snapping to 15 minutes
-// keeps salon scheduling tidy and makes the wheels short enough to spin to any
-// value in one flick.
+// sheet with two scroll wheels — hours (00–23) and minutes at every minute
+// (00–59) — under a fixed centred selection band, giving 1-minute granularity
+// so any exact time can be picked.
 //
 // Lives under the `schedule` feature so BOTH the working-hours screen
 // (Phase 6.2) and the future schedule editors (Phase 15.3 / 15.4) reuse one
@@ -27,24 +26,6 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-
-/// Minute steps the wheel snaps to.
-const List<int> _minuteSteps = <int>[0, 15, 30, 45];
-
-/// Round an arbitrary minute to the nearest 15-minute step (for seeding the
-/// wheel from a [TimeOfDay] that wasn't picked here).
-int _snapMinute(int minute) {
-  int best = _minuteSteps.first;
-  int bestDelta = (minute - best).abs();
-  for (final int step in _minuteSteps) {
-    final int delta = (minute - step).abs();
-    if (delta < bestDelta) {
-      best = step;
-      bestDelta = delta;
-    }
-  }
-  return best;
-}
 
 /// Presents the VelvetTouch wheel time picker and resolves to the chosen time
 /// (or `null` if dismissed). Shared by every time field across the working-hours
@@ -79,8 +60,9 @@ Future<TimeOfDay?> showVelvetTimePicker(
   );
 }
 
-/// The wheel picker sheet body: two snapping scroll wheels behind a single
-/// inset selection band, a title, and a camel confirm CTA.
+/// The wheel picker sheet body: two scroll wheels (hours 00–23 and minutes
+/// 00–59 at 1-minute granularity) behind a single inset selection band, a
+/// title, and a camel confirm CTA.
 class _WheelTimePicker extends StatefulWidget {
   const _WheelTimePicker({
     required this.initial,
@@ -121,16 +103,15 @@ class _WheelTimePickerState extends State<_WheelTimePicker> {
   late final FixedExtentScrollController _minuteController;
 
   late int _hour;
-  late int _minuteIndex; // index into _minuteSteps
+  late int _minute;
 
   @override
   void initState() {
     super.initState();
     _hour = widget.initial.hour;
-    final int snapped = _snapMinute(widget.initial.minute);
-    _minuteIndex = _minuteSteps.indexOf(snapped);
+    _minute = widget.initial.minute;
     _hourController = FixedExtentScrollController(initialItem: _hour);
-    _minuteController = FixedExtentScrollController(initialItem: _minuteIndex);
+    _minuteController = FixedExtentScrollController(initialItem: _minute);
   }
 
   @override
@@ -141,10 +122,7 @@ class _WheelTimePickerState extends State<_WheelTimePicker> {
   }
 
   void _confirm() {
-    dismissOverlay(
-      context,
-      TimeOfDay(hour: _hour, minute: _minuteSteps[_minuteIndex]),
-    );
+    dismissOverlay(context, TimeOfDay(hour: _hour, minute: _minute));
   }
 
   @override
@@ -224,10 +202,9 @@ class _WheelTimePickerState extends State<_WheelTimePicker> {
                         ),
                         _wheel(
                           controller: _minuteController,
-                          count: _minuteSteps.length,
-                          builder: (int i) =>
-                              _minuteSteps[i].toString().padLeft(2, '0'),
-                          onSelected: (int i) => _minuteIndex = i,
+                          count: 60,
+                          builder: (int i) => i.toString().padLeft(2, '0'),
+                          onSelected: (int i) => _minute = i,
                           semanticLabel: widget.minutesSemanticLabel,
                         ),
                       ],

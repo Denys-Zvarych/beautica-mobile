@@ -2,16 +2,16 @@
 // (`showVelvetTimePicker`).
 //
 // This surface deliberately REPLACES Flutter's Material `showTimePicker` clock
-// dial with two `ListWheelScrollView` wheels (hours 00–23; minutes snapped to
-// 00/15/30/45). These tests pin the contract the working-hours screen and the
-// schedule editors rely on:
+// dial with two `ListWheelScrollView` wheels (hours 00–23; minutes 00–59 at
+// 1-minute granularity — NO snapping). These tests pin the contract the
+// working-hours screen and the schedule editors rely on:
 //   • opens as a modal bottom sheet with the caller's title + confirm label
 //   • the Material clock dial is GONE; the wheels ARE `ListWheelScrollView`
-//   • seeds from `initial`; non-quarter minutes snap to the nearest 15
+//   • seeds from `initial` and returns the EXACT seeded minute (any 0–59)
 //   • scrolling a wheel then confirming returns the changed value (no setState
-//     regression — `_hour`/`_minuteIndex` are read fresh at confirm)
+//     regression — `_hour`/`_minute` are read fresh at confirm)
 //   • barrier dismiss resolves to `null`
-//   • 24-hour wheel: hours 00–23, minutes only 00/15/30/45
+//   • 24-hour wheel: hours 00–23, minutes every minute 00–59
 //
 // All finders key off widget Keys / types — never localised strings — so the
 // tests survive copy + locale changes (mobile-qa M2).
@@ -99,7 +99,7 @@ void main() {
 
   group('showVelvetTimePicker — seeding', () {
     testWidgets('seeds wheels from initial; confirming without scrolling '
-        'returns the initial quarter value', (WidgetTester tester) async {
+        'returns the exact initial value', (WidgetTester tester) async {
       TimeOfDay? result;
       await _pumpPicker(
         tester,
@@ -113,11 +113,11 @@ void main() {
       expect(result, const TimeOfDay(hour: 9, minute: 30));
     });
 
-    testWidgets('non-quarter minute snaps DOWN to nearest 15 (09:37 → 09:30)', (
-      WidgetTester tester,
-    ) async {
-      // _snapMinute uses strict `<` over [0,15,30,45]: minute 37 → deltas
-      // (37,22,7,8) → 30 wins (delta 7). Hour is untouched.
+    testWidgets('seeds the exact initial minute — no snapping (09:37 stays '
+        '09:37)', (WidgetTester tester) async {
+      // 1-minute granularity: `_minute` is seeded directly from
+      // `widget.initial.minute` with NO snapping. A non-quarter minute (37)
+      // round-trips verbatim when the user confirms without scrolling.
       TimeOfDay? result;
       await _pumpPicker(
         tester,
@@ -128,24 +128,25 @@ void main() {
       await tester.tap(find.byKey(_confirmKey));
       await tester.pumpAndSettle();
 
-      expect(result, const TimeOfDay(hour: 9, minute: 30));
+      expect(result, const TimeOfDay(hour: 9, minute: 37));
     });
 
-    testWidgets('non-quarter minute snaps UP when closer (09:38 → 09:45)', (
-      WidgetTester tester,
-    ) async {
-      // minute 38 → deltas (38,23,8,7) → 45 wins (delta 7).
+    testWidgets('minute wheel offers every minute — seeding :07 round-trips to '
+        ':07', (WidgetTester tester) async {
+      // Positive regression guard for the 1-minute-granularity feature: a
+      // single-digit non-quarter minute (07) is preserved exactly. Under the
+      // old [0,15,30,45] snapping this would have collapsed to :00.
       TimeOfDay? result;
       await _pumpPicker(
         tester,
-        initial: const TimeOfDay(hour: 9, minute: 38),
+        initial: const TimeOfDay(hour: 14, minute: 7),
         onResult: (TimeOfDay? r) => result = r,
       );
 
       await tester.tap(find.byKey(_confirmKey));
       await tester.pumpAndSettle();
 
-      expect(result, const TimeOfDay(hour: 9, minute: 45));
+      expect(result, const TimeOfDay(hour: 14, minute: 7));
     });
   });
 
@@ -190,8 +191,11 @@ void main() {
 
       final Finder minutesWheel = find.byType(ListWheelScrollView).last;
 
-      // Advance one minute step (00 → 15).
-      await tester.drag(minutesWheel, const Offset(0, -46));
+      // Each item extent is 46px and the wheel now lists every minute, so
+      // dragging up by N item-extents advances exactly N minutes. Drag by 7
+      // extents (00 → 07) — a deliberate non-multiple-of-15 to prove 1-minute
+      // granularity (the old wheel could never land here).
+      await tester.drag(minutesWheel, const Offset(0, -46.0 * 7));
       await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(_confirmKey));
@@ -199,9 +203,9 @@ void main() {
 
       expect(result, isNotNull);
       expect(result!.hour, 9);
+      // Exact resulting minute — not a quarter step.
       expect(result!.minute, greaterThan(0));
-      // Stays on a valid quarter step.
-      expect(<int>[0, 15, 30, 45].contains(result!.minute), isTrue);
+      expect(result!.minute, 7);
     });
   });
 
@@ -232,7 +236,7 @@ void main() {
 
   group('showVelvetTimePicker — 24-hour invariants', () {
     testWidgets('hours wheel exposes 00..23 (24-hour, no AM/PM) and minutes '
-        'only 00/15/30/45', (WidgetTester tester) async {
+        'every minute 00..59', (WidgetTester tester) async {
       await _pumpPicker(
         tester,
         initial: const TimeOfDay(hour: 0, minute: 0),
@@ -247,26 +251,31 @@ void main() {
       // exactly one ':' separator between the two wheels.
       expect(find.text(':'), findsOneWidget);
 
-      // Drive the hours wheel to the very end (23) and confirm it resolves —
-      // proving the wheel runs the full 24-hour range, not a 12-hour clock.
-      final Finder hoursWheel = find.byType(ListWheelScrollView).first;
-      TimeOfDay? result;
-      // Re-open with a capture so we can assert the max hour is reachable.
+      // The minutes wheel exposes a full minute per index (60 children), not a
+      // 4-entry quarter list. Read the child count off the build delegate to
+      // pin 1-minute granularity structurally.
+      final ListWheelScrollView minutesWheel = tester
+          .widget<ListWheelScrollView>(find.byType(ListWheelScrollView).last);
+      final ListWheelChildBuilderDelegate minutesDelegate =
+          minutesWheel.childDelegate as ListWheelChildBuilderDelegate;
+      expect(minutesDelegate.childCount, 60);
+
+      // And an arbitrary non-quarter minute (59, the maximum) round-trips
+      // untouched alongside the maximum hour — proving the full 24×60 range.
       await tester.tapAt(const Offset(10, 10)); // dismiss current sheet
       await tester.pumpAndSettle();
 
+      TimeOfDay? result;
       await _pumpPicker(
         tester,
-        initial: const TimeOfDay(hour: 23, minute: 45),
+        initial: const TimeOfDay(hour: 23, minute: 59),
         onResult: (TimeOfDay? r) => result = r,
       );
       await tester.tap(find.byKey(_confirmKey));
       await tester.pumpAndSettle();
 
-      // 23:45 round-trips untouched → both wheel extremes are valid.
-      expect(result, const TimeOfDay(hour: 23, minute: 45));
-      // Silence the unused-finder lint while documenting intent.
-      expect(hoursWheel, isNotNull);
+      // 23:59 round-trips untouched → both wheel extremes are valid.
+      expect(result, const TimeOfDay(hour: 23, minute: 59));
     });
   });
 }
