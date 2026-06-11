@@ -478,7 +478,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
         const SizedBox(height: VelvetSpacing.lg + 4),
         SectionHeader(title: l10n.scheduleCalendarSection),
         const SizedBox(height: VelvetSpacing.md),
-        _calendarCard(l10n, editable, index),
+        _calendarCard(l10n, editable, index, reloading: reloading),
       ],
     );
 
@@ -610,7 +610,12 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   // only when the selection (or `editable`) changes via a single
   // [ValueListenableBuilder] on [_selected]. The month navigator, week strip
   // and legend are siblings that do NOT re-run on a day tap.
-  Widget _calendarCard(AppLocalizations l10n, bool editable, _DayIndex index) {
+  Widget _calendarCard(
+    AppLocalizations l10n,
+    bool editable,
+    _DayIndex index, {
+    bool reloading = false,
+  }) {
     return NeumorphicCard(
       padding: const EdgeInsets.all(VelvetSpacing.md + 2),
       child: Column(
@@ -625,6 +630,25 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
           ValueListenableBuilder<DateTime>(
             valueListenable: _selected,
             builder: (BuildContext context, DateTime selected, _) {
+              // Loading-flash fix: during a week-step reload we are serving the
+              // PREVIOUS range's cached list (`reloading == true`). If the newly
+              // re-anchored selection falls OUTSIDE that stale range, `index`
+              // can't see it (`!contains`) and `lookup` would manufacture a
+              // NO_SCHEDULE fallback — which the detail panel would render as a
+              // definitive day-off banner, then flip to working once the fetch
+              // lands. Suppress that verdict with a neutral placeholder while the
+              // coverage is genuinely unknown.
+              //
+              // Strictly gated on (in-flight reload AND not covered): once the
+              // fetch settles, `reloading` is false and the fresh `index` covers
+              // the selection, so a LEGITIMATE day-off renders its banner
+              // normally. A real NO_SCHEDULE within a covered range is never
+              // suppressed.
+              final bool coverageUnknown =
+                  reloading && !index.contains(selected);
+              if (coverageUnknown) {
+                return _SelectedDayLoadingPlaceholder(label: l10n.loadingLabel);
+              }
               final EffectiveDay day = index.lookup(selected);
               return _SelectedDayView(
                 day: day,
@@ -958,6 +982,53 @@ class _DayIndex {
     final EffectiveDay d = lookup(date);
     return d.source == EffectiveSource.overrideCustom ||
         d.source == EffectiveSource.overrideDayOff;
+  }
+
+  /// Whether the underlying resolved range actually covers [date] — i.e. the
+  /// backend returned a real [EffectiveDay] for it. Unlike [lookup], this does
+  /// NOT manufacture a NO_SCHEDULE fallback for uncovered dates, so callers can
+  /// distinguish "genuinely a day off" from "outside this (stale) range while a
+  /// reload is in flight". Used by the detail panel to suppress the day-off
+  /// verdict during a week-step reload whose new range hasn't landed yet.
+  bool contains(DateTime date) => _byDay.containsKey(_key(date));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _SelectedDayLoadingPlaceholder — neutral stand-in for the selected-day detail
+// panel during an in-flight week-step reload where the re-anchored selection is
+// not yet covered by the (stale) resolved range. Renders a small centered
+// progress line instead of letting `_SelectedDayView` paint a manufactured
+// NO_SCHEDULE day-off verdict that would flip to "working" once the new range
+// lands. Mirrors the screen's existing thin-line reloading treatment.
+// ─────────────────────────────────────────────────────────────────────────────
+class _SelectedDayLoadingPlaceholder extends StatelessWidget {
+  const _SelectedDayLoadingPlaceholder({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      key: const Key('schedule-selected-day-loading'),
+      padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xl),
+      child: Column(
+        children: <Widget>[
+          const SizedBox(
+            width: 120,
+            child: LinearProgressIndicator(
+              minHeight: 2,
+              color: BrandColors.accent,
+              backgroundColor: BrandColors.faint,
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+          Text(
+            label,
+            style: VelvetText.body().copyWith(color: BrandColors.muted),
+          ),
+        ],
+      ),
+    );
   }
 }
 

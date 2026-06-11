@@ -210,6 +210,74 @@ class _PerWeekdayRangeSchedule extends EffectiveScheduleNotifier {
   }
 }
 
+/// Loading-window fake for the week-step flash regression. Resolves the FIRST
+/// observed range (the initial visible month+week) with weekday-aware template
+/// data, but PARKS every subsequent distinct range on a [Completer] the test
+/// controls. This holds the post-step `AsyncLoading` window open across an
+/// intermediate `pump()` — exactly the in-flight frame the existing
+/// `pumpAndSettle`-based week-step test fast-forwards past, where the
+/// re-anchored selection's coverage is genuinely unknown and the pre-fix code
+/// flashed the NO_SCHEDULE day-off banner. Mon/Tue are working days (matching
+/// `_PerWeekdayRangeSchedule`), so the column the test selects re-anchors onto a
+/// working weekday once the parked range eventually resolves.
+class _PendingNewRangeSchedule extends EffectiveScheduleNotifier {
+  // `effectiveScheduleProvider` is a FAMILY: each distinct range key builds its
+  // OWN notifier instance. The pending state must therefore be STATIC (shared
+  // across instances, like `_PerWeekdayRangeSchedule.observedRanges`) so the
+  // test can resolve the parked range regardless of which instance owns it.
+  static ScheduleRange? _initialRange;
+  static ScheduleRange? _pendingRange;
+  static Completer<List<EffectiveDay>>? _pending;
+
+  /// Resets the shared state — call in `setUp`/`addTearDown` so the static
+  /// fields never leak across tests (mobile-qa M1: no shared mutable state).
+  static void reset() {
+    _initialRange = null;
+    _pendingRange = null;
+    _pending = null;
+  }
+
+  static List<EffectiveDay> _resolveDays(ScheduleRange range) {
+    final List<EffectiveDay> out = <EffectiveDay>[];
+    DateTime cursor = _dateOnly(range.from);
+    final DateTime end = _dateOnly(range.to);
+    while (!cursor.isAfter(end)) {
+      if (cursor.weekday == DateTime.monday ||
+          cursor.weekday == DateTime.tuesday) {
+        out.add(_templateWorking(cursor));
+      } else {
+        out.add(_noSchedule(cursor));
+      }
+      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+    }
+    return out;
+  }
+
+  /// Completes the parked new-range future with weekday-aware data for that
+  /// range, so the in-flight reload settles onto fresh content.
+  static void resolvePending() {
+    final Completer<List<EffectiveDay>>? c = _pending;
+    final ScheduleRange? r = _pendingRange;
+    if (c != null && r != null && !c.isCompleted) {
+      c.complete(_resolveDays(r));
+    }
+  }
+
+  @override
+  Future<List<EffectiveDay>> build(ScheduleRange range) {
+    _initialRange ??= range;
+    if (range == _initialRange) {
+      return Future<List<EffectiveDay>>.value(_resolveDays(range));
+    }
+    // First distinct new range → park it on the controllable Completer. Any
+    // further range (multi-step navigation) maps to the same pending future, so
+    // the window stays open until the test explicitly resolves it.
+    _pendingRange = range;
+    _pending ??= Completer<List<EffectiveDay>>();
+    return _pending!.future;
+  }
+}
+
 class _LoadingSchedule extends EffectiveScheduleNotifier {
   @override
   Future<List<EffectiveDay>> build(ScheduleRange range) {
@@ -1456,8 +1524,16 @@ void main() {
         expect(find.byType(SlotLegend), findsOneWidget);
 
         // ── Assertion 3: subtle inline reload indicator IS present ────────────
+        // Scoped to the inline reload line's `Positioned` ancestor: the new
+        // `_SelectedDayLoadingPlaceholder` (Key 'schedule-selected-day-loading')
+        // also renders a `LinearProgressIndicator` when the re-anchored
+        // selection is uncovered, so a global type count would now find 2. The
+        // inline reload line is the only progress indicator inside a Positioned.
         expect(
-          find.byType(LinearProgressIndicator),
+          find.descendant(
+            of: find.byType(Positioned),
+            matching: find.byType(LinearProgressIndicator),
+          ),
           findsOneWidget,
           reason:
               'a 2px top LinearProgressIndicator must signal the in-flight '
@@ -1977,7 +2053,34 @@ void main() {
         // Month step → previous content retained, inline indicator, NO spinner.
         expect(find.byType(CircularProgressIndicator), findsNothing);
         expect(find.byType(WeekStripDay), findsNWidgets(7));
-        expect(find.byType(LinearProgressIndicator), findsOneWidget);
+        // The inline reload line lives in the calendar Stack inside a
+        // `Positioned` (master_schedule_screen.dart:~493). Scope the assertion
+        // to THAT indicator specifically: a global `LinearProgressIndicator`
+        // count now also catches the new `_SelectedDayLoadingPlaceholder`
+        // indicator (Key 'schedule-selected-day-loading'), which legitimately
+        // renders when the re-anchored selection is not yet covered by the
+        // cached range. The intent of this test — cached snapshot served +
+        // inline reload shown — is preserved by pinning the inline one by its
+        // `Positioned` ancestor (the placeholder is NOT inside a Positioned).
+        expect(
+          find.descendant(
+            of: find.byType(Positioned),
+            matching: find.byType(LinearProgressIndicator),
+          ),
+          findsOneWidget,
+          reason:
+              'the inline reload line (in the calendar Stack Positioned) '
+              'must show during the month-step reload',
+        );
+        // The new placeholder ALSO renders after a month step (the re-anchored
+        // selection is outside the cached range) — that is correct behavior.
+        expect(
+          find.byKey(const Key('schedule-selected-day-loading')),
+          findsOneWidget,
+          reason:
+              'the re-anchored selection is uncovered by the cached range, so '
+              'the neutral placeholder renders alongside the inline reload line',
+        );
       },
     );
   });
@@ -2619,6 +2722,126 @@ void main() {
         reason:
             'the re-anchored selection resolves to a real working day, so '
             'its hours summary — not the unset/no-schedule copy — renders',
+      );
+    });
+
+    // ── REGRESSION (QA GATE): the loading-flash window the settled tests skip ──
+    //
+    // The forward-step test above (and the month-step tests) call
+    // `pumpAndSettle`, which fast-forwards PAST the `AsyncLoading` window where
+    // the flash actually occurred: while the new range is still in flight, the
+    // re-anchored selection is not yet covered by the (stale) cached range, so
+    // `_DayIndex.lookup` manufactures a NO_SCHEDULE fallback. The PRE-FIX code
+    // rendered that fallback as a definitive day-off — the «Графік не задано»
+    // summary + the NO_SCHEDULE banner — for one frame, then flipped to the
+    // real working verdict once the fetch landed. That one-frame flash is the
+    // bug. This test holds the window open with `_PendingNewRangeSchedule`
+    // (whose new-range future stays PENDING on a Completer) and pumps a SINGLE
+    // frame, asserting the neutral placeholder shows INSTEAD of the day-off
+    // verdict, then resolves the Completer and asserts the working summary lands
+    // and the placeholder is gone.
+    //
+    // Pre-fix this FAILS: the placeholder Key did not exist, and the no-banner /
+    // not-unset assertions would fail (the banner + «Графік не задано» flashed
+    // during the in-flight frame). Post-fix it PASSES.
+    testWidgets('during the in-flight week-step reload the re-anchored working day '
+        'shows the loading placeholder, NOT the NO_SCHEDULE day-off flash; then '
+        'the working summary lands once the fetch resolves', (tester) async {
+      _PendingNewRangeSchedule.reset();
+      addTearDown(_PendingNewRangeSchedule.reset);
+
+      await _pump(
+        tester,
+        overrides: <Object>[
+          authProvider.overrideWith(
+            () => _FixedAuth(UserRole.independentMaster),
+          ),
+          effectiveScheduleProvider.overrideWith(
+            () => _PendingNewRangeSchedule(),
+          ),
+          weeklyScheduleProvider.overrideWith(
+            () => _WeeklyData(<WeeklySchedule>[_template()]),
+          ),
+        ],
+      );
+
+      final l10n = _l10n(tester);
+
+      // Select a KNOWN working weekday (Monday, offset 0) in the current week.
+      await _selectStripDay(tester, currentMonday.day);
+      expect(
+        find.byKey(const Key('no-schedule-banner')),
+        findsNothing,
+        reason: 'Monday is a working day; no banner before any step',
+      );
+
+      // Step the prev-week chevron WITHOUT settling. Six steps guarantee the
+      // re-anchored selection lands in a prior month outside the cached
+      // (initial) range on EVERY run date — so `index.contains(selected)` is
+      // false and the coverage is genuinely unknown. The new range's future is
+      // PENDING on the Completer, so the AsyncLoading window stays open across
+      // these single-frame pumps (NO `pumpAndSettle` — that would hang).
+      for (int i = 0; i < forwardSteps; i++) {
+        await tester.tap(find.bySemanticsLabel(l10n.schedulePrevWeek));
+        await tester.pump();
+      }
+
+      // ── IN-FLIGHT FRAME ASSERTIONS — the heart of the regression. ──────────
+      // The detail panel must show the neutral loading placeholder, NOT the
+      // day-off verdict the pre-fix code flashed for the (not-yet-covered)
+      // working weekday.
+      expect(
+        find.byKey(const Key('schedule-selected-day-loading')),
+        findsOneWidget,
+        reason:
+            'while the re-anchored selection is uncovered during the in-flight '
+            'reload, the neutral placeholder must render (this Key did not '
+            'exist pre-fix)',
+      );
+      expect(
+        find.byKey(const Key('no-schedule-banner')),
+        findsNothing,
+        reason:
+            'the NO_SCHEDULE banner must NOT flash during the in-flight window '
+            'for a day whose coverage is merely unknown — this is the bug',
+      );
+      expect(
+        find.text(l10n.scheduleDaySummaryUnset),
+        findsNothing,
+        reason:
+            'the «Графік не задано» day-off summary must NOT flash for the '
+            're-anchored working day during the in-flight reload',
+      );
+
+      // ── Resolve the parked range → the reload settles. ─────────────────────
+      _PendingNewRangeSchedule.resolvePending();
+      await tester.pumpAndSettle();
+
+      // Placeholder gone; the re-anchored Monday now resolves to a real working
+      // day and renders its hours summary.
+      expect(
+        find.byKey(const Key('schedule-selected-day-loading')),
+        findsNothing,
+        reason: 'once the fetch lands the placeholder must be dismissed',
+      );
+      expect(
+        find.byKey(const Key('no-schedule-banner')),
+        findsNothing,
+        reason: 'the settled re-anchored working day shows no banner',
+      );
+      final DateTime expectedSelected = _dateOnly(
+        currentMonday.subtract(const Duration(days: 7 * forwardSteps)),
+      );
+      expect(
+        find.text(
+          l10n.scheduleDaySummaryWorking(
+            summariseSpan(_templateWorking(expectedSelected).intervals),
+          ),
+        ),
+        findsOneWidget,
+        reason:
+            'after the fetch resolves the re-anchored working weekday renders '
+            'its hours summary — the verdict the placeholder deferred',
       );
     });
   });
