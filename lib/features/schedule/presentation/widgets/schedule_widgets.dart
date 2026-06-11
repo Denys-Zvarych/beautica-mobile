@@ -299,8 +299,6 @@ class WeekStripDay extends StatelessWidget {
   Widget build(BuildContext context) {
     final Color numberColor = selected
         ? BrandColors.accentDeep
-        : !inMonth
-        ? BrandColors.faint
         : past
         ? BrandColors.muted
         : BrandColors.text;
