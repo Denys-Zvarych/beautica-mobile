@@ -933,7 +933,7 @@ void main() {
       );
     });
 
-    testWidgets('day-off date renders a closed (all-grey) grid', (
+    testWidgets('day-off date renders the day-off empty state, not a time grid', (
       tester,
     ) async {
       final days = _weekWith(todayDay: _dayOff, filler: _working);
@@ -941,6 +941,29 @@ void main() {
 
       // Day-off is an OVERRIDE_DAY_OFF, not NO_SCHEDULE → no banner.
       expect(find.byKey(const Key('no-schedule-banner')), findsNothing);
+
+      // The new friendly day-off empty state replaces the old all-grey grid:
+      // the keyed container, its bedtime icon, and the localised line all render.
+      final Finder emptyState = find.byKey(const Key('schedule-day-off-empty'));
+      expect(emptyState, findsOneWidget);
+      expect(
+        find.descendant(
+          of: emptyState,
+          matching: find.byIcon(Icons.bedtime_rounded),
+        ),
+        findsOneWidget,
+      );
+      final l10n = _l10n(tester);
+      expect(
+        find.descendant(
+          of: emptyState,
+          matching: find.text(l10n.scheduleDayOffEmptyState),
+        ),
+        findsOneWidget,
+      );
+
+      // The 30-min hour grid is GONE on a day off — no SlotChips render.
+      expect(find.byType(SlotChip), findsNothing);
 
       await expectLater(
         find.byType(MasterScheduleScreen),
@@ -961,6 +984,72 @@ void main() {
         matchesGoldenFile('goldens/schedule_custom_hours.png'),
       );
     });
+  });
+
+  // ── Selected-day body branch contract (regression) ────────────────────────
+  //
+  // `_SelectedDayView.build` picks exactly ONE of three mutually-exclusive
+  // bodies for the selected day. These tests pin the user-visible contract of
+  // each branch and the absences that define it. They FAIL against the
+  // pre-change code (which rendered the all-grey/red SlotChip grid under BOTH a
+  // day-off AND a NO_SCHEDULE gap) and PASS now:
+  //
+  //   • day-off (intervals empty, source != noSchedule) → the `_DayOffEmptyState`
+  //     widget ONLY; the SlotChip grid is gone.
+  //   • working day (intervals non-empty) → the SlotChip grid; no day-off state.
+  //   • noSchedule gap → the NoScheduleBanner ONLY; both the grid AND the day-off
+  //     state are absent (a gap is NOT labelled a day off).
+  //
+  // Structural Key/type finders only (mobile-qa M2). `_editableData` stubs a
+  // non-empty weekly template so the FULL calendar renders (not the focused
+  // "no schedule at all" empty state) for every case.
+  group('MasterScheduleScreen — selected-day body branch (regression)', () {
+    testWidgets('day-off date shows the day-off empty state and NO time grid', (
+      tester,
+    ) async {
+      final days = _weekWith(todayDay: _dayOff, filler: _working);
+      await _pump(tester, overrides: _editableData(days));
+
+      // Day-off branch: the friendly empty state renders…
+      expect(find.byKey(const Key('schedule-day-off-empty')), findsOneWidget);
+      // …and the 30-min SlotChip grid is GONE (the core fix — pre-change this
+      // rendered a wall of grey/red SlotChips).
+      expect(find.byType(SlotChip), findsNothing);
+      // It is a settled override day-off, not an unset gap → no banner.
+      expect(find.byKey(const Key('no-schedule-banner')), findsNothing);
+    });
+
+    testWidgets('working day shows the time grid and NO day-off empty state', (
+      tester,
+    ) async {
+      final days = _weekWith(todayDay: _working, filler: _working);
+      await _pump(tester, overrides: _editableData(days));
+
+      // Working branch: the SlotChip grid renders (the working day has two
+      // intervals → multiple cells)…
+      expect(find.byType(SlotChip), findsWidgets);
+      // …and the day-off empty state is absent (unchanged path still works).
+      expect(find.byKey(const Key('schedule-day-off-empty')), findsNothing);
+      expect(find.byKey(const Key('no-schedule-banner')), findsNothing);
+    });
+
+    testWidgets(
+      'noSchedule gap shows the banner ONLY — no grid and no day-off state',
+      (tester) async {
+        // Today is an unset gap; the rest of the week is templated so this is the
+        // in-grid single-day banner, NOT the "no schedule at all" empty state.
+        final days = _weekWith(todayDay: _noSchedule, filler: _working);
+        await _pump(tester, overrides: _editableData(days));
+
+        // noSchedule branch: the persistent banner renders…
+        expect(find.byKey(const Key('no-schedule-banner')), findsOneWidget);
+        // …the grid below the banner is removed (pre-change it rendered the
+        // all-grey SlotChip grid under the banner)…
+        expect(find.byType(SlotChip), findsNothing);
+        // …and a gap is NOT a day off: the day-off empty state is absent.
+        expect(find.byKey(const Key('schedule-day-off-empty')), findsNothing);
+      },
+    );
   });
 
   // ── NO_SCHEDULE banner (OQ-3) ─────────────────────────────────────────────

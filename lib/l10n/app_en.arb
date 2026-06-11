@@ -2101,6 +2101,10 @@
   "@scheduleOverrideDayOffRest": {
     "description": "Explanatory line shown in day-off mode of the per-date override sheet (Phase 15.4)."
   },
+  "scheduleDayOffEmptyState": "This day is a day off",
+  "@scheduleDayOffEmptyState": {
+    "description": "Friendly empty-state message shown on the selected-day detail panel in place of the hour grid when the day is a settled day off (no working hours)."
+  },
   "scheduleOverrideSave": "Save",
   "@scheduleOverrideSave": {
     "description": "Primary save action in the per-date override sheet (Phase 15.4)."

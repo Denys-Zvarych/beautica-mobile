@@ -1033,6 +1033,38 @@ class _SelectedDayLoadingPlaceholder extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// _DayOffEmptyState — replaces the all-grey/red 42-cell hour grid on a settled
+// day off (no working intervals, not the NO_SCHEDULE "unset" state). A calm,
+// centered icon + line instead of a wall of "unavailable" boxes. Mirrors the
+// day-off iconography of the per-date override sheet (`_dayOffSection` →
+// `Icons.bedtime_rounded`) and the structural treatment of
+// `_SelectedDayLoadingPlaceholder`.
+// ─────────────────────────────────────────────────────────────────────────────
+class _DayOffEmptyState extends StatelessWidget {
+  const _DayOffEmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return Padding(
+      key: const Key('schedule-day-off-empty'),
+      padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xl),
+      child: Column(
+        children: <Widget>[
+          const Icon(Icons.bedtime_rounded, size: 32, color: BrandColors.faint),
+          const SizedBox(height: VelvetSpacing.md),
+          Text(
+            l10n.scheduleDayOffEmptyState,
+            textAlign: TextAlign.center,
+            style: VelvetText.body().copyWith(color: BrandColors.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // _SelectedDayView (HIGH-1 + HIGH-2) — the only sub-tree that depends on the
 // selected date. Rebuilt by a single [ValueListenableBuilder] on the screen's
 // `_selected` notifier, so a day tap never re-runs the month navigator, the
@@ -1067,12 +1099,19 @@ class _SelectedDayView extends StatelessWidget {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final bool dayUnscheduled = day.source == EffectiveSource.noSchedule;
+    // A settled day off: no working intervals AND not the "unset/uncovered"
+    // NO_SCHEDULE state (which keeps its own banner). For these we replace the
+    // all-grey/red hour grid with a friendly day-off empty state.
+    final bool dayOff = day.intervals.isEmpty && !dayUnscheduled;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         _dayPanel(l10n),
         const SizedBox(height: VelvetSpacing.md + 2),
-        if (dayUnscheduled) ...<Widget>[
+        // NO_SCHEDULE → banner ONLY (no grid, no day-off state). The banner +
+        // CTA already communicate the unset state; the all-grey grid below it is
+        // redundant noise.
+        if (dayUnscheduled)
           NoScheduleBanner(
             message: wholeWeekUnscheduled
                 ? l10n.scheduleNoSchedulePeriod
@@ -1081,10 +1120,13 @@ class _SelectedDayView extends StatelessWidget {
             ctaLabel: l10n.scheduleAddHoursCta,
             // OQ-2: read-only viewers get the banner WITHOUT the CTA.
             onAddHours: editable && !isPast ? onAddHours : null,
-          ),
-          const SizedBox(height: VelvetSpacing.md + 2),
-        ],
-        RepaintBoundary(child: _timeGrid(l10n)),
+          )
+        // Settled day off → friendly empty state instead of the hour grid.
+        else if (dayOff)
+          const _DayOffEmptyState()
+        // Working day → the 42-cell hour grid (unchanged).
+        else
+          RepaintBoundary(child: _timeGrid(l10n)),
       ],
     );
   }
