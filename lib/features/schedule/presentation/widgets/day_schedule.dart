@@ -71,22 +71,27 @@ String slotCellLabel(AppLocalizations l10n, SlotCell cell) {
   return '$time — ${slotStateLabel(l10n, cell.state)}';
 }
 
-/// Builds the ordered list of 30-min [SlotCell]s for [day]. The grid spans a
-/// default 09:00 → 19:00 window, expanded only as far as needed to contain any
-/// working interval that falls outside it (clamped to `[0, 24]`).
+/// Builds the ordered list of 30-min [SlotCell]s for [day]. On a real working
+/// day the grid is CLAMPED to the actual working span — it starts at the first
+/// interval start (floored to the enclosing 30-min cell) and ends EXACTLY at the
+/// last interval end, so no trailing "off" cards render past the working day.
+/// The reference 09:00 → 19:00 window is used only for the empty / uniform case
+/// (day-off / no schedule). All bounds clamped to `[0, 1440]` minutes (single
+/// day; no cross-midnight handling).
 ///
 /// [day] is the resolved [EffectiveDay] from Phase 15.1. State mapping (which
 /// mirrors the four [EffectiveSource] cases the backend can produce):
 ///   • intervals present (TEMPLATE / OVERRIDE_CUSTOM) → green inside an
 ///     interval; the interior gap between intervals is a PAUSE rendered RED
-///     under the whole-cell round-up rule; the lead-in before the first interval
-///     and the run-out after the last are GREY.
+///     under the whole-cell round-up rule. The lead-in before the first interval
+///     is GREY; the run-out after the last interval is clamped away (no trailing
+///     cells).
 ///   • OVERRIDE_DAY_OFF (the master deliberately closed the date — vacation /
 ///     holiday / sick / other) → the whole grid reads pink "Час відпочинку",
 ///     distinguishing a chosen rest day from a simple gap.
 ///   • NO_SCHEDULE (no hours published for the date) → all grey "Неробочий час".
 List<SlotCell> buildDayCells(EffectiveDay day) {
-  final (int gridStartHour, int gridEndHour) = _gridBounds(day.intervals);
+  final (int gridStartMin, int gridEndMin) = _gridBounds(day.intervals);
 
   // Perf (HIGH-2): the projection is a pure function of the day's
   // (date, source, intervals) — recomputing + reallocating the list on every
@@ -95,38 +100,45 @@ List<SlotCell> buildDayCells(EffectiveDay day) {
   // by the resolved day + grid bounds: a day-change recomputes once, a pure
   // strip-highlight repaint (no day change) reuses the cached list verbatim.
   if (_cachedKey != null &&
-      _cachedKey!.matches(day, gridStartHour, gridEndHour)) {
+      _cachedKey!.matches(day, gridStartMin, gridEndMin)) {
     return _cachedCells!;
   }
-  final List<SlotCell> cells = _computeDayCells(
-    day,
-    gridStartHour,
-    gridEndHour,
-  );
-  _cachedKey = _DayCellsKey(day, gridStartHour, gridEndHour);
+  final List<SlotCell> cells = _computeDayCells(day, gridStartMin, gridEndMin);
+  _cachedKey = _DayCellsKey(day, gridStartMin, gridEndMin);
   _cachedCells = cells;
   return cells;
 }
 
-/// The grid's `[startHour, endHour]` (both inclusive of the hour's :00 row).
-/// Defaults to the reference 9–19 column and only expands when an interval
-/// reaches earlier / later, clamped to `[0, 24]`.
+/// The grid's `[gridStartMin, gridEndMin)` cell-start window, in minutes from
+/// midnight. On a real working day (intervals present) the grid is CLAMPED to
+/// the actual span: it starts at the first interval start (floored to the
+/// enclosing 30-min cell boundary so cells stay aligned) and ENDS EXACTLY at
+/// the last interval end — every cell whose start is at or after that end is
+/// dropped, so no trailing "off" cards render past the working day. The
+/// reference 09:00–19:00 window is used ONLY for the empty / uniform case
+/// (day-off / no schedule / no intervals). All values clamped to `[0, 1440]`
+/// (single-day; no cross-midnight handling).
 (int, int) _gridBounds(List<WorkInterval> intervals) {
-  int startHour = 9;
-  int endHour = 19;
-  if (intervals.isNotEmpty) {
-    int firstStart = intervals.first.startMinutes;
-    int lastEnd = intervals.first.endMinutes;
-    for (final WorkInterval w in intervals) {
-      if (w.startMinutes < firstStart) firstStart = w.startMinutes;
-      if (w.endMinutes > lastEnd) lastEnd = w.endMinutes;
-    }
-    final int floorHour = (firstStart ~/ 60).clamp(0, 24);
-    final int ceilHour = ((lastEnd + 59) ~/ 60).clamp(0, 24);
-    if (floorHour < startHour) startHour = floorHour;
-    if (ceilHour > endHour) endHour = ceilHour;
+  // Reference window for the empty / uniform-day case: 09:00–19:00.
+  const int referenceStartMin = 9 * 60;
+  const int referenceEndMin = 19 * 60;
+  if (intervals.isEmpty) {
+    return (referenceStartMin, referenceEndMin);
   }
-  return (startHour, endHour);
+
+  int firstStart = intervals.first.startMinutes;
+  int lastEnd = intervals.first.endMinutes;
+  for (final WorkInterval w in intervals) {
+    if (w.startMinutes < firstStart) firstStart = w.startMinutes;
+    if (w.endMinutes > lastEnd) lastEnd = w.endMinutes;
+  }
+  // Floor the start to its enclosing 30-min cell so cells stay grid-aligned
+  // (a 09:15 start still opens the grid at 09:00); the end stays exact so the
+  // `cellStartMin < gridEndMin` loop drops any cell starting at/after lastEnd.
+  const int cellLen = 30;
+  final int startMin = ((firstStart ~/ cellLen) * cellLen).clamp(0, 1440);
+  final int endMin = lastEnd.clamp(0, 1440);
+  return (startMin, endMin);
 }
 
 // Single-entry memo for [buildDayCells] (the calendar shows one day at a time).
@@ -134,10 +146,11 @@ _DayCellsKey? _cachedKey;
 List<SlotCell>? _cachedCells;
 
 /// Identity of a [buildDayCells] computation: the resolved day's date + source
-/// + interval shape, plus the grid bounds. Two days that resolve to the same
-/// key paint an identical grid, so the cached list can be reused.
+/// + interval shape, plus the grid bounds (minute-based, matching [_gridBounds]).
+/// Two days that resolve to the same key paint an identical grid, so the cached
+/// list can be reused.
 class _DayCellsKey {
-  _DayCellsKey(EffectiveDay day, this.startHour, this.endHour)
+  _DayCellsKey(EffectiveDay day, this.startMin, this.endMin)
     : date = day.date,
       source = day.source,
       intervalSig = _intervalSignature(day.intervals);
@@ -145,12 +158,12 @@ class _DayCellsKey {
   final DateTime date;
   final EffectiveSource source;
   final String intervalSig;
-  final int startHour;
-  final int endHour;
+  final int startMin;
+  final int endMin;
 
-  bool matches(EffectiveDay day, int startHour, int endHour) =>
-      this.startHour == startHour &&
-      this.endHour == endHour &&
+  bool matches(EffectiveDay day, int startMin, int endMin) =>
+      this.startMin == startMin &&
+      this.endMin == endMin &&
       date == day.date &&
       source == day.source &&
       intervalSig == _intervalSignature(day.intervals);
@@ -171,8 +184,8 @@ class _DayCellsKey {
 
 List<SlotCell> _computeDayCells(
   EffectiveDay day,
-  int gridStartHour,
-  int gridEndHour,
+  int gridStartMin,
+  int gridEndMin,
 ) {
   // A whole-day override or an empty day is one uniform state for every cell —
   // resolve it once and skip the per-cell interval scan.
@@ -195,14 +208,25 @@ List<SlotCell> _computeDayCells(
   final int firstStart = sorted.isEmpty ? 0 : sorted.first.startMinutes;
   final int lastEnd = sorted.isEmpty ? 0 : sorted.last.endMinutes;
 
+  // Iterate cell-start minutes in 30-min steps, emitting a cell while its
+  // START is before [gridEndMin]. On a working day [gridEndMin] == lastEnd, so
+  // any cell starting at or after lastEnd is dropped — no trailing "off" cards
+  // past the working span. Interior pause cells sit before lastEnd and survive,
+  // their state resolved by [_cellState] (round-up pause rule unchanged).
+  const int cellLen = 30;
   final List<SlotCell> cells = <SlotCell>[];
-  for (int h = gridStartHour; h <= gridEndHour; h++) {
-    for (final int min in const <int>[0, 30]) {
-      final TimeOfDay t = TimeOfDay(hour: h, minute: min);
-      final SlotState state =
-          uniform ?? _cellState(sorted, h * 60 + min, firstStart, lastEnd);
-      cells.add(SlotCell(time: t, state: state));
-    }
+  for (
+    int cellStartMin = gridStartMin;
+    cellStartMin < gridEndMin;
+    cellStartMin += cellLen
+  ) {
+    final TimeOfDay t = TimeOfDay(
+      hour: cellStartMin ~/ 60,
+      minute: cellStartMin % 60,
+    );
+    final SlotState state =
+        uniform ?? _cellState(sorted, cellStartMin, firstStart, lastEnd);
+    cells.add(SlotCell(time: t, state: state));
   }
   return cells;
 }
