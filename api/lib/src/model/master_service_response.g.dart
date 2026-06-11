@@ -95,8 +95,6 @@ class _$MasterServiceResponse extends MasterServiceResponse {
   final String? serviceTypeId;
   @override
   final String? serviceTypeNameUk;
-  @override
-  final bool? isDraft;
 
   factory _$MasterServiceResponse(
           [void Function(MasterServiceResponseBuilder)? updates]) =>
@@ -116,8 +114,7 @@ class _$MasterServiceResponse extends MasterServiceResponse {
       this.priceMax,
       this.priceDisplay,
       this.serviceTypeId,
-      this.serviceTypeNameUk,
-      this.isDraft})
+      this.serviceTypeNameUk})
       : super._();
   @override
   MasterServiceResponse rebuild(
@@ -145,8 +142,7 @@ class _$MasterServiceResponse extends MasterServiceResponse {
         priceMax == other.priceMax &&
         priceDisplay == other.priceDisplay &&
         serviceTypeId == other.serviceTypeId &&
-        serviceTypeNameUk == other.serviceTypeNameUk &&
-        isDraft == other.isDraft;
+        serviceTypeNameUk == other.serviceTypeNameUk;
   }
 
   @override
@@ -166,7 +162,6 @@ class _$MasterServiceResponse extends MasterServiceResponse {
     _$hash = $jc(_$hash, priceDisplay.hashCode);
     _$hash = $jc(_$hash, serviceTypeId.hashCode);
     _$hash = $jc(_$hash, serviceTypeNameUk.hashCode);
-    _$hash = $jc(_$hash, isDraft.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -187,8 +182,7 @@ class _$MasterServiceResponse extends MasterServiceResponse {
           ..add('priceMax', priceMax)
           ..add('priceDisplay', priceDisplay)
           ..add('serviceTypeId', serviceTypeId)
-          ..add('serviceTypeNameUk', serviceTypeNameUk)
-          ..add('isDraft', isDraft))
+          ..add('serviceTypeNameUk', serviceTypeNameUk))
         .toString();
   }
 }
@@ -262,10 +256,6 @@ class MasterServiceResponseBuilder
   set serviceTypeNameUk(String? serviceTypeNameUk) =>
       _$this._serviceTypeNameUk = serviceTypeNameUk;
 
-  bool? _isDraft;
-  bool? get isDraft => _$this._isDraft;
-  set isDraft(bool? isDraft) => _$this._isDraft = isDraft;
-
   MasterServiceResponseBuilder() {
     MasterServiceResponse._defaults(this);
   }
@@ -287,7 +277,6 @@ class MasterServiceResponseBuilder
       _priceDisplay = $v.priceDisplay;
       _serviceTypeId = $v.serviceTypeId;
       _serviceTypeNameUk = $v.serviceTypeNameUk;
-      _isDraft = $v.isDraft;
       _$v = null;
     }
     return this;
@@ -325,7 +314,6 @@ class MasterServiceResponseBuilder
             priceDisplay: priceDisplay,
             serviceTypeId: serviceTypeId,
             serviceTypeNameUk: serviceTypeNameUk,
-            isDraft: isDraft,
           );
     } catch (_) {
       late String _$failedField;

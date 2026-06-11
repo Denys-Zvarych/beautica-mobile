@@ -9,7 +9,6 @@ All URIs are relative to *http://localhost:8080*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**addScheduleException**](MasterControllerApi.md#addscheduleexception) | **POST** /api/v1/masters/{masterId}/schedule-exceptions | 
 [**clearOverride**](MasterControllerApi.md#clearoverride) | **DELETE** /api/v1/masters/{masterId}/overrides/{date} | 
 [**createWeeklySchedule**](MasterControllerApi.md#createweeklyschedule) | **POST** /api/v1/masters/{masterId}/weekly-schedules | 
 [**deactivateMaster**](MasterControllerApi.md#deactivatemaster) | **DELETE** /api/v1/masters/{masterId} | 
@@ -22,55 +21,11 @@ Method | HTTP request | Description
 [**getMyProfile**](MasterControllerApi.md#getmyprofile) | **GET** /api/v1/masters/me | 
 [**getOverrides**](MasterControllerApi.md#getoverrides) | **GET** /api/v1/masters/{masterId}/overrides | 
 [**getWeeklySchedules**](MasterControllerApi.md#getweeklyschedules) | **GET** /api/v1/masters/{masterId}/weekly-schedules | 
-[**removeScheduleException**](MasterControllerApi.md#removescheduleexception) | **DELETE** /api/v1/masters/{masterId}/schedule-exceptions/{date} | 
 [**updateMyProfile**](MasterControllerApi.md#updatemyprofile) | **PATCH** /api/v1/masters/me/profile | 
 [**updateWeeklySchedule**](MasterControllerApi.md#updateweeklyschedule) | **PUT** /api/v1/masters/{masterId}/weekly-schedules/{scheduleId} | 
 [**upsertOverride**](MasterControllerApi.md#upsertoverride) | **PUT** /api/v1/masters/{masterId}/overrides/{date} | 
 [**upsertWorkingHours**](MasterControllerApi.md#upsertworkinghours) | **PATCH** /api/v1/masters/{masterId}/working-hours | 
 
-
-# **addScheduleException**
-> ApiResponseVoid addScheduleException(masterId, scheduleExceptionRequest)
-
-
-
-### Example
-```dart
-import 'package:beautica_api/api.dart';
-
-final api = BeauticaApi().getMasterControllerApi();
-final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
-final ScheduleExceptionRequest scheduleExceptionRequest = ; // ScheduleExceptionRequest | 
-
-try {
-    final response = api.addScheduleException(masterId, scheduleExceptionRequest);
-    print(response);
-} catch on DioException (e) {
-    print('Exception when calling MasterControllerApi->addScheduleException: $e\n');
-}
-```
-
-### Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **masterId** | **String**|  | 
- **scheduleExceptionRequest** | [**ScheduleExceptionRequest**](ScheduleExceptionRequest.md)|  | 
-
-### Return type
-
-[**ApiResponseVoid**](ApiResponseVoid.md)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: application/json
- - **Accept**: */*
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **clearOverride**
 > ApiResponseVoid clearOverride(masterId, date)
@@ -572,49 +527,6 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ApiResponseListWeeklyScheduleResponse**](ApiResponseListWeeklyScheduleResponse.md)
-
-### Authorization
-
-No authorization required
-
-### HTTP request headers
-
- - **Content-Type**: Not defined
- - **Accept**: */*
-
-[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
-
-# **removeScheduleException**
-> ApiResponseVoid removeScheduleException(masterId, date)
-
-
-
-### Example
-```dart
-import 'package:beautica_api/api.dart';
-
-final api = BeauticaApi().getMasterControllerApi();
-final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
-final Date date = 2013-10-20; // Date | 
-
-try {
-    final response = api.removeScheduleException(masterId, date);
-    print(response);
-} catch on DioException (e) {
-    print('Exception when calling MasterControllerApi->removeScheduleException: $e\n');
-}
-```
-
-### Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
- **masterId** | **String**|  | 
- **date** | **Date**|  | 
-
-### Return type
-
-[**ApiResponseVoid**](ApiResponseVoid.md)
 
 ### Authorization
 

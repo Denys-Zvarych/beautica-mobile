@@ -317,6 +317,78 @@ void main() {
     },
   );
 
+  // ── 4b. No draft affordance on the populated card (V80 removal guard) ──────
+  //
+  // Backend V80 removed the service draft flag; the mobile draft affordance —
+  // the draft badge, the "set price" CTA, and the draft card variant — were all
+  // deleted (user-approved). The dedicated `services_list_draft_card_test.dart`
+  // was removed with them and must NOT be recreated. This test is the widget
+  // half of the regression guard: a normal active service renders ONLY the
+  // plain duration·price meta line with no draft badge and no set-price CTA.
+  //
+  // Re-introducing a draft badge/CTA (keyed `service_draft_badge_*` /
+  // `btn-set-price-*`, the keys the deleted UI used) would make one of the
+  // findsNothing assertions fail here, blocking the regression before it could
+  // reach a broken APK build. Finders are keyed/structural (M2/M11) — none of
+  // the removed `servicesDraft*` localized strings are referenced.
+
+  testWidgets(
+    'populated card shows the plain duration·price meta only — no draft badge, '
+    'no set-price CTA',
+    (tester) async {
+      await tester.pumpApp(
+        const ServicesListScreen(),
+        overrides: [
+          _servicesOverride(const AsyncData(_stubServiceList)),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+        ],
+      );
+      // Loading frame → microtask → data frame → entrance animation.
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // _stubService has no category → uncategorized bucket starts collapsed.
+      await tester.tap(find.byKey(const Key('category_section__none')));
+      await tester.pumpAndSettle();
+
+      // The card and its plain duration·price meta line are present.
+      expect(find.byKey(const Key('service_card_svc-001')), findsOneWidget);
+      expect(find.text('750 грн'), findsOneWidget);
+      expect(find.text('45 хв'), findsOneWidget);
+
+      // No draft affordance — the badge and the set-price CTA the deleted draft
+      // UI rendered are absent. Keyed structural finders, matched against the
+      // card subtree so an unrelated future key collision can't mask a miss.
+      final cardFinder = find.byKey(const Key('service_card_svc-001'));
+      expect(
+        find.descendant(
+          of: cardFinder,
+          matching: find.byKey(const Key('service_draft_badge_svc-001')),
+        ),
+        findsNothing,
+        reason: 'V80 removed drafts — no draft badge may render on a card',
+      );
+      expect(
+        find.descendant(
+          of: cardFinder,
+          matching: find.byKey(const Key('btn-set-price-svc-001')),
+        ),
+        findsNothing,
+        reason: 'V80 removed drafts — no "set price" CTA may render on a card',
+      );
+      // Belt-and-braces: no draft-keyed widget of any id leaked into the tree.
+      expect(
+        find.byWidgetPredicate(
+          (w) => w.key is ValueKey<String> &&
+              (w.key as ValueKey<String>).value.toLowerCase().contains('draft'),
+        ),
+        findsNothing,
+        reason: 'no draft-keyed widget may exist anywhere in the list',
+      );
+    },
+  );
+
   // ── 5. FAB present in populated state ─────────────────────────────────────
 
   testWidgets('populated state — FAB btn-create-service found', (tester) async {

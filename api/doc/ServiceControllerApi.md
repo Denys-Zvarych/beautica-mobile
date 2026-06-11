@@ -14,7 +14,7 @@ Method | HTTP request | Description
 [**assignServiceToMaster**](ServiceControllerApi.md#assignservicetomaster) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services | 
 [**deactivateServiceDefinition**](ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
 [**getMasterServices**](ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
-[**getMyServices**](ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own services including drafts
+[**getMyServices**](ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own active services
 [**updateServiceDefinition**](ServiceControllerApi.md#updateservicedefinition) | **PATCH** /api/v1/services/{serviceDefId} | 
 [**updateServicePhoto**](ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
 
@@ -232,9 +232,9 @@ No authorization required
 # **getMyServices**
 > ApiResponseListMasterServiceResponse getMyServices()
 
-List my own services including drafts
+List my own active services
 
-Returns the authenticated master's own services, including auto-created drafts (is_draft=true). Owner-scoped to the authenticated principal; never exposes another master's services.
+Returns the authenticated master's own active services. Owner-scoped to the authenticated principal; never exposes another master's services.
 
 ### Example
 ```dart

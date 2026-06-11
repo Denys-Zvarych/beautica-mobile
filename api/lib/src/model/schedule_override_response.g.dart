@@ -32,50 +32,9 @@ final BuiltSet<ScheduleOverrideResponseKindEnum>
   _$scheduleOverrideResponseKindEnum_CUSTOM_HOURS,
 ]);
 
-const ScheduleOverrideResponseReasonEnum
-    _$scheduleOverrideResponseReasonEnum_VACATION =
-    const ScheduleOverrideResponseReasonEnum._('VACATION');
-const ScheduleOverrideResponseReasonEnum
-    _$scheduleOverrideResponseReasonEnum_HOLIDAY =
-    const ScheduleOverrideResponseReasonEnum._('HOLIDAY');
-const ScheduleOverrideResponseReasonEnum
-    _$scheduleOverrideResponseReasonEnum_SICK_DAY =
-    const ScheduleOverrideResponseReasonEnum._('SICK_DAY');
-const ScheduleOverrideResponseReasonEnum
-    _$scheduleOverrideResponseReasonEnum_OTHER =
-    const ScheduleOverrideResponseReasonEnum._('OTHER');
-
-ScheduleOverrideResponseReasonEnum _$scheduleOverrideResponseReasonEnumValueOf(
-    String name) {
-  switch (name) {
-    case 'VACATION':
-      return _$scheduleOverrideResponseReasonEnum_VACATION;
-    case 'HOLIDAY':
-      return _$scheduleOverrideResponseReasonEnum_HOLIDAY;
-    case 'SICK_DAY':
-      return _$scheduleOverrideResponseReasonEnum_SICK_DAY;
-    case 'OTHER':
-      return _$scheduleOverrideResponseReasonEnum_OTHER;
-    default:
-      throw ArgumentError(name);
-  }
-}
-
-final BuiltSet<ScheduleOverrideResponseReasonEnum>
-    _$scheduleOverrideResponseReasonEnumValues = BuiltSet<
-        ScheduleOverrideResponseReasonEnum>(const <ScheduleOverrideResponseReasonEnum>[
-  _$scheduleOverrideResponseReasonEnum_VACATION,
-  _$scheduleOverrideResponseReasonEnum_HOLIDAY,
-  _$scheduleOverrideResponseReasonEnum_SICK_DAY,
-  _$scheduleOverrideResponseReasonEnum_OTHER,
-]);
-
 Serializer<ScheduleOverrideResponseKindEnum>
     _$scheduleOverrideResponseKindEnumSerializer =
     _$ScheduleOverrideResponseKindEnumSerializer();
-Serializer<ScheduleOverrideResponseReasonEnum>
-    _$scheduleOverrideResponseReasonEnumSerializer =
-    _$ScheduleOverrideResponseReasonEnumSerializer();
 
 class _$ScheduleOverrideResponseKindEnumSerializer
     implements PrimitiveSerializer<ScheduleOverrideResponseKindEnum> {
@@ -107,49 +66,11 @@ class _$ScheduleOverrideResponseKindEnumSerializer
           _fromWire[serialized] ?? (serialized is String ? serialized : ''));
 }
 
-class _$ScheduleOverrideResponseReasonEnumSerializer
-    implements PrimitiveSerializer<ScheduleOverrideResponseReasonEnum> {
-  static const Map<String, Object> _toWire = const <String, Object>{
-    'VACATION': 'VACATION',
-    'HOLIDAY': 'HOLIDAY',
-    'SICK_DAY': 'SICK_DAY',
-    'OTHER': 'OTHER',
-  };
-  static const Map<Object, String> _fromWire = const <Object, String>{
-    'VACATION': 'VACATION',
-    'HOLIDAY': 'HOLIDAY',
-    'SICK_DAY': 'SICK_DAY',
-    'OTHER': 'OTHER',
-  };
-
-  @override
-  final Iterable<Type> types = const <Type>[ScheduleOverrideResponseReasonEnum];
-  @override
-  final String wireName = 'ScheduleOverrideResponseReasonEnum';
-
-  @override
-  Object serialize(
-          Serializers serializers, ScheduleOverrideResponseReasonEnum object,
-          {FullType specifiedType = FullType.unspecified}) =>
-      _toWire[object.name] ?? object.name;
-
-  @override
-  ScheduleOverrideResponseReasonEnum deserialize(
-          Serializers serializers, Object serialized,
-          {FullType specifiedType = FullType.unspecified}) =>
-      ScheduleOverrideResponseReasonEnum.valueOf(
-          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
-}
-
 class _$ScheduleOverrideResponse extends ScheduleOverrideResponse {
   @override
   final Date? date;
   @override
   final ScheduleOverrideResponseKindEnum? kind;
-  @override
-  final ScheduleOverrideResponseReasonEnum? reason;
-  @override
-  final String? note;
   @override
   final BuiltList<WorkIntervalDto>? intervals;
 
@@ -157,8 +78,7 @@ class _$ScheduleOverrideResponse extends ScheduleOverrideResponse {
           [void Function(ScheduleOverrideResponseBuilder)? updates]) =>
       (ScheduleOverrideResponseBuilder()..update(updates))._build();
 
-  _$ScheduleOverrideResponse._(
-      {this.date, this.kind, this.reason, this.note, this.intervals})
+  _$ScheduleOverrideResponse._({this.date, this.kind, this.intervals})
       : super._();
   @override
   ScheduleOverrideResponse rebuild(
@@ -175,8 +95,6 @@ class _$ScheduleOverrideResponse extends ScheduleOverrideResponse {
     return other is ScheduleOverrideResponse &&
         date == other.date &&
         kind == other.kind &&
-        reason == other.reason &&
-        note == other.note &&
         intervals == other.intervals;
   }
 
@@ -185,8 +103,6 @@ class _$ScheduleOverrideResponse extends ScheduleOverrideResponse {
     var _$hash = 0;
     _$hash = $jc(_$hash, date.hashCode);
     _$hash = $jc(_$hash, kind.hashCode);
-    _$hash = $jc(_$hash, reason.hashCode);
-    _$hash = $jc(_$hash, note.hashCode);
     _$hash = $jc(_$hash, intervals.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -197,8 +113,6 @@ class _$ScheduleOverrideResponse extends ScheduleOverrideResponse {
     return (newBuiltValueToStringHelper(r'ScheduleOverrideResponse')
           ..add('date', date)
           ..add('kind', kind)
-          ..add('reason', reason)
-          ..add('note', note)
           ..add('intervals', intervals))
         .toString();
   }
@@ -217,15 +131,6 @@ class ScheduleOverrideResponseBuilder
   ScheduleOverrideResponseKindEnum? get kind => _$this._kind;
   set kind(ScheduleOverrideResponseKindEnum? kind) => _$this._kind = kind;
 
-  ScheduleOverrideResponseReasonEnum? _reason;
-  ScheduleOverrideResponseReasonEnum? get reason => _$this._reason;
-  set reason(ScheduleOverrideResponseReasonEnum? reason) =>
-      _$this._reason = reason;
-
-  String? _note;
-  String? get note => _$this._note;
-  set note(String? note) => _$this._note = note;
-
   ListBuilder<WorkIntervalDto>? _intervals;
   ListBuilder<WorkIntervalDto> get intervals =>
       _$this._intervals ??= ListBuilder<WorkIntervalDto>();
@@ -241,8 +146,6 @@ class ScheduleOverrideResponseBuilder
     if ($v != null) {
       _date = $v.date;
       _kind = $v.kind;
-      _reason = $v.reason;
-      _note = $v.note;
       _intervals = $v.intervals?.toBuilder();
       _$v = null;
     }
@@ -269,8 +172,6 @@ class ScheduleOverrideResponseBuilder
           _$ScheduleOverrideResponse._(
             date: date,
             kind: kind,
-            reason: reason,
-            note: note,
             intervals: _intervals?.build(),
           );
     } catch (_) {

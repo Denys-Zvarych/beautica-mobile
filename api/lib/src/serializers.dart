@@ -120,7 +120,6 @@ import 'package:beautica_api/src/model/review_response.dart';
 import 'package:beautica_api/src/model/salon_response.dart';
 import 'package:beautica_api/src/model/salon_search_request.dart';
 import 'package:beautica_api/src/model/salon_search_result.dart';
-import 'package:beautica_api/src/model/schedule_exception_request.dart';
 import 'package:beautica_api/src/model/schedule_override_request.dart';
 import 'package:beautica_api/src/model/schedule_override_response.dart';
 import 'package:beautica_api/src/model/service_definition_response.dart';
@@ -252,7 +251,6 @@ part 'serializers.g.dart';
   SalonResponse,
   SalonSearchRequest,
   SalonSearchResult,
-  ScheduleExceptionRequest,
   ScheduleOverrideRequest,
   ScheduleOverrideResponse,
   ServiceDefinitionResponse,

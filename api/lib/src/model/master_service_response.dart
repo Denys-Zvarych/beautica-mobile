@@ -27,7 +27,6 @@ part 'master_service_response.g.dart';
 /// * [priceDisplay]
 /// * [serviceTypeId] - Chosen service type id; null when no service type was selected.
 /// * [serviceTypeNameUk] - Ukrainian display name of the chosen service type; null when none was selected.
-/// * [isDraft] - True when the underlying service definition is an auto-created draft awaiting completion. Always false on the public browse endpoint.
 @BuiltValue()
 abstract class MasterServiceResponse
     implements Built<MasterServiceResponse, MasterServiceResponseBuilder> {
@@ -75,10 +74,6 @@ abstract class MasterServiceResponse
   /// Ukrainian display name of the chosen service type; null when none was selected.
   @BuiltValueField(wireName: r'serviceTypeNameUk')
   String? get serviceTypeNameUk;
-
-  /// True when the underlying service definition is an auto-created draft awaiting completion. Always false on the public browse endpoint.
-  @BuiltValueField(wireName: r'isDraft')
-  bool? get isDraft;
 
   MasterServiceResponse._();
 
@@ -207,13 +202,6 @@ class _$MasterServiceResponseSerializer
         specifiedType: const FullType.nullable(String),
       );
     }
-    if (object.isDraft != null) {
-      yield r'isDraft';
-      yield serializers.serialize(
-        object.isDraft,
-        specifiedType: const FullType(bool),
-      );
-    }
   }
 
   @override
@@ -338,13 +326,6 @@ class _$MasterServiceResponseSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.serviceTypeNameUk = valueDes;
-          break;
-        case r'isDraft':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(bool),
-          ) as bool;
-          result.isDraft = valueDes;
           break;
         default:
           unhandled.add(key);

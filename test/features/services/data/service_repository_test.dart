@@ -83,7 +83,6 @@ MasterServiceResponse _buildMasterServiceDto({
   num? effectivePrice,
   int? effectiveDurationMinutes,
   bool isActive = true,
-  bool? isDraft,
 }) {
   final def = serviceDefinition ?? _buildDef();
   return (MasterServiceResponseBuilder()
@@ -92,8 +91,7 @@ MasterServiceResponse _buildMasterServiceDto({
         ..serviceDefinition.replace(def)
         ..effectivePrice = effectivePrice
         ..effectiveDurationMinutes = effectiveDurationMinutes
-        ..isActive = isActive
-        ..isDraft = isDraft)
+        ..isActive = isActive)
       .build();
 }
 
@@ -291,49 +289,6 @@ void main() {
       verify(() => serviceApi.getMyServices()).called(1);
       verifyNever(
         () => serviceApi.getMasterServices(masterId: any(named: 'masterId')),
-      );
-    });
-
-    // ── Phase 16.9 — isDraft maps through the owner list ─────────────────────
-    //
-    // A draft MasterServiceResponse (isDraft=true, isActive=false) must surface
-    // as MasterService.isDraft=true so the list card can render the draft
-    // affordance instead of the placeholder ₴0. A normal response (isDraft
-    // absent/false) must map to isDraft=false. This guards the
-    // `dto.isDraft ?? def?.isDraft ?? false` mapper branch end-to-end.
-
-    test('maps isDraft=true for a draft and isDraft=false for a normal '
-        'service', () async {
-      final draftDto = _buildMasterServiceDto(
-        id: 'svc-draft',
-        isDraft: true,
-        isActive: false,
-        serviceDefinition: _buildDef(name: 'Стрижка', isActive: false),
-      );
-      final publishedDto = _buildMasterServiceDto(
-        id: 'svc-pub',
-        // isDraft omitted (null on the wire) → treated as a published service.
-        serviceDefinition: _buildDef(id: 'def-pub', name: 'Манікюр'),
-      );
-
-      when(
-        () => serviceApi.getMyServices(),
-      ).thenAnswer((_) async => _listResponse([draftDto, publishedDto]));
-
-      final result = await repository.listMyServices();
-
-      final draft = result.firstWhere((s) => s.id == 'svc-draft');
-      final published = result.firstWhere((s) => s.id == 'svc-pub');
-
-      expect(
-        draft.isDraft,
-        isTrue,
-        reason: 'a draft DTO (isDraft=true) must map to MasterService.isDraft',
-      );
-      expect(
-        published.isDraft,
-        isFalse,
-        reason: 'an omitted isDraft must default to false (published service)',
       );
     });
   });

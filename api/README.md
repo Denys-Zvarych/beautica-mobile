@@ -97,7 +97,6 @@ Class | Method | HTTP request | Description
 [*LocationControllerApi*](doc/LocationControllerApi.md) | [**getCitiesByOblast**](doc/LocationControllerApi.md#getcitiesbyoblast) | **GET** /api/v1/locations/oblasts/{oblastId}/cities | 
 [*LocationControllerApi*](doc/LocationControllerApi.md) | [**getDistrictsByCity**](doc/LocationControllerApi.md#getdistrictsbycity) | **GET** /api/v1/locations/cities/{cityId}/districts | 
 [*LocationControllerApi*](doc/LocationControllerApi.md) | [**getOblasts**](doc/LocationControllerApi.md#getoblasts) | **GET** /api/v1/locations/oblasts | 
-[*MasterControllerApi*](doc/MasterControllerApi.md) | [**addScheduleException**](doc/MasterControllerApi.md#addscheduleexception) | **POST** /api/v1/masters/{masterId}/schedule-exceptions | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**clearOverride**](doc/MasterControllerApi.md#clearoverride) | **DELETE** /api/v1/masters/{masterId}/overrides/{date} | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**createWeeklySchedule**](doc/MasterControllerApi.md#createweeklyschedule) | **POST** /api/v1/masters/{masterId}/weekly-schedules | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**deactivateMaster**](doc/MasterControllerApi.md#deactivatemaster) | **DELETE** /api/v1/masters/{masterId} | 
@@ -110,7 +109,6 @@ Class | Method | HTTP request | Description
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getMyProfile**](doc/MasterControllerApi.md#getmyprofile) | **GET** /api/v1/masters/me | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getOverrides**](doc/MasterControllerApi.md#getoverrides) | **GET** /api/v1/masters/{masterId}/overrides | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getWeeklySchedules**](doc/MasterControllerApi.md#getweeklyschedules) | **GET** /api/v1/masters/{masterId}/weekly-schedules | 
-[*MasterControllerApi*](doc/MasterControllerApi.md) | [**removeScheduleException**](doc/MasterControllerApi.md#removescheduleexception) | **DELETE** /api/v1/masters/{masterId}/schedule-exceptions/{date} | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**updateMyProfile**](doc/MasterControllerApi.md#updatemyprofile) | **PATCH** /api/v1/masters/me/profile | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**updateWeeklySchedule**](doc/MasterControllerApi.md#updateweeklyschedule) | **PUT** /api/v1/masters/{masterId}/weekly-schedules/{scheduleId} | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**upsertOverride**](doc/MasterControllerApi.md#upsertoverride) | **PUT** /api/v1/masters/{masterId}/overrides/{date} | 
@@ -143,7 +141,7 @@ Class | Method | HTTP request | Description
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**assignServiceToMaster**](doc/ServiceControllerApi.md#assignservicetomaster) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**deactivateServiceDefinition**](doc/ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMasterServices**](doc/ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
-[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMyServices**](doc/ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own services including drafts
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMyServices**](doc/ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own active services
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServiceDefinition**](doc/ServiceControllerApi.md#updateservicedefinition) | **PATCH** /api/v1/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServicePhoto**](doc/ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**getMe**](doc/UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
@@ -258,7 +256,6 @@ Class | Method | HTTP request | Description
  - [SalonResponse](doc/SalonResponse.md)
  - [SalonSearchRequest](doc/SalonSearchRequest.md)
  - [SalonSearchResult](doc/SalonSearchResult.md)
- - [ScheduleExceptionRequest](doc/ScheduleExceptionRequest.md)
  - [ScheduleOverrideRequest](doc/ScheduleOverrideRequest.md)
  - [ScheduleOverrideResponse](doc/ScheduleOverrideResponse.md)
  - [ServiceDefinitionResponse](doc/ServiceDefinitionResponse.md)

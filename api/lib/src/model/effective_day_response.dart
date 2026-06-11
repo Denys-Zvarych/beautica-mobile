@@ -17,7 +17,6 @@ part 'effective_day_response.g.dart';
 /// * [date]
 /// * [source_]
 /// * [intervals]
-/// * [reason]
 @BuiltValue()
 abstract class EffectiveDayResponse
     implements Built<EffectiveDayResponse, EffectiveDayResponseBuilder> {
@@ -30,10 +29,6 @@ abstract class EffectiveDayResponse
 
   @BuiltValueField(wireName: r'intervals')
   BuiltList<WorkIntervalDto>? get intervals;
-
-  @BuiltValueField(wireName: r'reason')
-  EffectiveDayResponseReasonEnum? get reason;
-  // enum reasonEnum {  VACATION,  HOLIDAY,  SICK_DAY,  OTHER,  };
 
   EffectiveDayResponse._();
 
@@ -85,13 +80,6 @@ class _$EffectiveDayResponseSerializer
         specifiedType: const FullType(BuiltList, [FullType(WorkIntervalDto)]),
       );
     }
-    if (object.reason != null) {
-      yield r'reason';
-      yield serializers.serialize(
-        object.reason,
-        specifiedType: const FullType(EffectiveDayResponseReasonEnum),
-      );
-    }
   }
 
   @override
@@ -138,13 +126,6 @@ class _$EffectiveDayResponseSerializer
                 const FullType(BuiltList, [FullType(WorkIntervalDto)]),
           ) as BuiltList<WorkIntervalDto>;
           result.intervals.replace(valueDes);
-          break;
-        case r'reason':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(EffectiveDayResponseReasonEnum),
-          ) as EffectiveDayResponseReasonEnum;
-          result.reason = valueDes;
           break;
         default:
           unhandled.add(key);
@@ -198,29 +179,4 @@ class EffectiveDayResponseSource_Enum extends EnumClass {
       _$effectiveDayResponseSourceEnumValues;
   static EffectiveDayResponseSource_Enum valueOf(String name) =>
       _$effectiveDayResponseSourceEnumValueOf(name);
-}
-
-class EffectiveDayResponseReasonEnum extends EnumClass {
-  @BuiltValueEnumConst(wireName: r'VACATION')
-  static const EffectiveDayResponseReasonEnum VACATION =
-      _$effectiveDayResponseReasonEnum_VACATION;
-  @BuiltValueEnumConst(wireName: r'HOLIDAY')
-  static const EffectiveDayResponseReasonEnum HOLIDAY =
-      _$effectiveDayResponseReasonEnum_HOLIDAY;
-  @BuiltValueEnumConst(wireName: r'SICK_DAY')
-  static const EffectiveDayResponseReasonEnum SICK_DAY =
-      _$effectiveDayResponseReasonEnum_SICK_DAY;
-  @BuiltValueEnumConst(wireName: r'OTHER')
-  static const EffectiveDayResponseReasonEnum OTHER =
-      _$effectiveDayResponseReasonEnum_OTHER;
-
-  static Serializer<EffectiveDayResponseReasonEnum> get serializer =>
-      _$effectiveDayResponseReasonEnumSerializer;
-
-  const EffectiveDayResponseReasonEnum._(String name) : super(name);
-
-  static BuiltSet<EffectiveDayResponseReasonEnum> get values =>
-      _$effectiveDayResponseReasonEnumValues;
-  static EffectiveDayResponseReasonEnum valueOf(String name) =>
-      _$effectiveDayResponseReasonEnumValueOf(name);
 }

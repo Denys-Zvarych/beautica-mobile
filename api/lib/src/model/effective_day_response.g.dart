@@ -44,46 +44,9 @@ final BuiltSet<EffectiveDayResponseSource_Enum>
   _$effectiveDayResponseSourceEnum_NO_SCHEDULE,
 ]);
 
-const EffectiveDayResponseReasonEnum _$effectiveDayResponseReasonEnum_VACATION =
-    const EffectiveDayResponseReasonEnum._('VACATION');
-const EffectiveDayResponseReasonEnum _$effectiveDayResponseReasonEnum_HOLIDAY =
-    const EffectiveDayResponseReasonEnum._('HOLIDAY');
-const EffectiveDayResponseReasonEnum _$effectiveDayResponseReasonEnum_SICK_DAY =
-    const EffectiveDayResponseReasonEnum._('SICK_DAY');
-const EffectiveDayResponseReasonEnum _$effectiveDayResponseReasonEnum_OTHER =
-    const EffectiveDayResponseReasonEnum._('OTHER');
-
-EffectiveDayResponseReasonEnum _$effectiveDayResponseReasonEnumValueOf(
-    String name) {
-  switch (name) {
-    case 'VACATION':
-      return _$effectiveDayResponseReasonEnum_VACATION;
-    case 'HOLIDAY':
-      return _$effectiveDayResponseReasonEnum_HOLIDAY;
-    case 'SICK_DAY':
-      return _$effectiveDayResponseReasonEnum_SICK_DAY;
-    case 'OTHER':
-      return _$effectiveDayResponseReasonEnum_OTHER;
-    default:
-      throw ArgumentError(name);
-  }
-}
-
-final BuiltSet<EffectiveDayResponseReasonEnum>
-    _$effectiveDayResponseReasonEnumValues = BuiltSet<
-        EffectiveDayResponseReasonEnum>(const <EffectiveDayResponseReasonEnum>[
-  _$effectiveDayResponseReasonEnum_VACATION,
-  _$effectiveDayResponseReasonEnum_HOLIDAY,
-  _$effectiveDayResponseReasonEnum_SICK_DAY,
-  _$effectiveDayResponseReasonEnum_OTHER,
-]);
-
 Serializer<EffectiveDayResponseSource_Enum>
     _$effectiveDayResponseSourceEnumSerializer =
     _$EffectiveDayResponseSource_EnumSerializer();
-Serializer<EffectiveDayResponseReasonEnum>
-    _$effectiveDayResponseReasonEnumSerializer =
-    _$EffectiveDayResponseReasonEnumSerializer();
 
 class _$EffectiveDayResponseSource_EnumSerializer
     implements PrimitiveSerializer<EffectiveDayResponseSource_Enum> {
@@ -119,40 +82,6 @@ class _$EffectiveDayResponseSource_EnumSerializer
           _fromWire[serialized] ?? (serialized is String ? serialized : ''));
 }
 
-class _$EffectiveDayResponseReasonEnumSerializer
-    implements PrimitiveSerializer<EffectiveDayResponseReasonEnum> {
-  static const Map<String, Object> _toWire = const <String, Object>{
-    'VACATION': 'VACATION',
-    'HOLIDAY': 'HOLIDAY',
-    'SICK_DAY': 'SICK_DAY',
-    'OTHER': 'OTHER',
-  };
-  static const Map<Object, String> _fromWire = const <Object, String>{
-    'VACATION': 'VACATION',
-    'HOLIDAY': 'HOLIDAY',
-    'SICK_DAY': 'SICK_DAY',
-    'OTHER': 'OTHER',
-  };
-
-  @override
-  final Iterable<Type> types = const <Type>[EffectiveDayResponseReasonEnum];
-  @override
-  final String wireName = 'EffectiveDayResponseReasonEnum';
-
-  @override
-  Object serialize(
-          Serializers serializers, EffectiveDayResponseReasonEnum object,
-          {FullType specifiedType = FullType.unspecified}) =>
-      _toWire[object.name] ?? object.name;
-
-  @override
-  EffectiveDayResponseReasonEnum deserialize(
-          Serializers serializers, Object serialized,
-          {FullType specifiedType = FullType.unspecified}) =>
-      EffectiveDayResponseReasonEnum.valueOf(
-          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
-}
-
 class _$EffectiveDayResponse extends EffectiveDayResponse {
   @override
   final Date? date;
@@ -160,15 +89,12 @@ class _$EffectiveDayResponse extends EffectiveDayResponse {
   final EffectiveDayResponseSource_Enum? source_;
   @override
   final BuiltList<WorkIntervalDto>? intervals;
-  @override
-  final EffectiveDayResponseReasonEnum? reason;
 
   factory _$EffectiveDayResponse(
           [void Function(EffectiveDayResponseBuilder)? updates]) =>
       (EffectiveDayResponseBuilder()..update(updates))._build();
 
-  _$EffectiveDayResponse._(
-      {this.date, this.source_, this.intervals, this.reason})
+  _$EffectiveDayResponse._({this.date, this.source_, this.intervals})
       : super._();
   @override
   EffectiveDayResponse rebuild(
@@ -185,8 +111,7 @@ class _$EffectiveDayResponse extends EffectiveDayResponse {
     return other is EffectiveDayResponse &&
         date == other.date &&
         source_ == other.source_ &&
-        intervals == other.intervals &&
-        reason == other.reason;
+        intervals == other.intervals;
   }
 
   @override
@@ -195,7 +120,6 @@ class _$EffectiveDayResponse extends EffectiveDayResponse {
     _$hash = $jc(_$hash, date.hashCode);
     _$hash = $jc(_$hash, source_.hashCode);
     _$hash = $jc(_$hash, intervals.hashCode);
-    _$hash = $jc(_$hash, reason.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -205,8 +129,7 @@ class _$EffectiveDayResponse extends EffectiveDayResponse {
     return (newBuiltValueToStringHelper(r'EffectiveDayResponse')
           ..add('date', date)
           ..add('source_', source_)
-          ..add('intervals', intervals)
-          ..add('reason', reason))
+          ..add('intervals', intervals))
         .toString();
   }
 }
@@ -230,10 +153,6 @@ class EffectiveDayResponseBuilder
   set intervals(ListBuilder<WorkIntervalDto>? intervals) =>
       _$this._intervals = intervals;
 
-  EffectiveDayResponseReasonEnum? _reason;
-  EffectiveDayResponseReasonEnum? get reason => _$this._reason;
-  set reason(EffectiveDayResponseReasonEnum? reason) => _$this._reason = reason;
-
   EffectiveDayResponseBuilder() {
     EffectiveDayResponse._defaults(this);
   }
@@ -244,7 +163,6 @@ class EffectiveDayResponseBuilder
       _date = $v.date;
       _source_ = $v.source_;
       _intervals = $v.intervals?.toBuilder();
-      _reason = $v.reason;
       _$v = null;
     }
     return this;
@@ -271,7 +189,6 @@ class EffectiveDayResponseBuilder
             date: date,
             source_: source_,
             intervals: _intervals?.build(),
-            reason: reason,
           );
     } catch (_) {
       late String _$failedField;

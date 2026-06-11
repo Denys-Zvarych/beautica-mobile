@@ -32,50 +32,9 @@ final BuiltSet<ScheduleOverrideRequestKindEnum>
   _$scheduleOverrideRequestKindEnum_CUSTOM_HOURS,
 ]);
 
-const ScheduleOverrideRequestReasonEnum
-    _$scheduleOverrideRequestReasonEnum_VACATION =
-    const ScheduleOverrideRequestReasonEnum._('VACATION');
-const ScheduleOverrideRequestReasonEnum
-    _$scheduleOverrideRequestReasonEnum_HOLIDAY =
-    const ScheduleOverrideRequestReasonEnum._('HOLIDAY');
-const ScheduleOverrideRequestReasonEnum
-    _$scheduleOverrideRequestReasonEnum_SICK_DAY =
-    const ScheduleOverrideRequestReasonEnum._('SICK_DAY');
-const ScheduleOverrideRequestReasonEnum
-    _$scheduleOverrideRequestReasonEnum_OTHER =
-    const ScheduleOverrideRequestReasonEnum._('OTHER');
-
-ScheduleOverrideRequestReasonEnum _$scheduleOverrideRequestReasonEnumValueOf(
-    String name) {
-  switch (name) {
-    case 'VACATION':
-      return _$scheduleOverrideRequestReasonEnum_VACATION;
-    case 'HOLIDAY':
-      return _$scheduleOverrideRequestReasonEnum_HOLIDAY;
-    case 'SICK_DAY':
-      return _$scheduleOverrideRequestReasonEnum_SICK_DAY;
-    case 'OTHER':
-      return _$scheduleOverrideRequestReasonEnum_OTHER;
-    default:
-      throw ArgumentError(name);
-  }
-}
-
-final BuiltSet<ScheduleOverrideRequestReasonEnum>
-    _$scheduleOverrideRequestReasonEnumValues = BuiltSet<
-        ScheduleOverrideRequestReasonEnum>(const <ScheduleOverrideRequestReasonEnum>[
-  _$scheduleOverrideRequestReasonEnum_VACATION,
-  _$scheduleOverrideRequestReasonEnum_HOLIDAY,
-  _$scheduleOverrideRequestReasonEnum_SICK_DAY,
-  _$scheduleOverrideRequestReasonEnum_OTHER,
-]);
-
 Serializer<ScheduleOverrideRequestKindEnum>
     _$scheduleOverrideRequestKindEnumSerializer =
     _$ScheduleOverrideRequestKindEnumSerializer();
-Serializer<ScheduleOverrideRequestReasonEnum>
-    _$scheduleOverrideRequestReasonEnumSerializer =
-    _$ScheduleOverrideRequestReasonEnumSerializer();
 
 class _$ScheduleOverrideRequestKindEnumSerializer
     implements PrimitiveSerializer<ScheduleOverrideRequestKindEnum> {
@@ -107,49 +66,11 @@ class _$ScheduleOverrideRequestKindEnumSerializer
           _fromWire[serialized] ?? (serialized is String ? serialized : ''));
 }
 
-class _$ScheduleOverrideRequestReasonEnumSerializer
-    implements PrimitiveSerializer<ScheduleOverrideRequestReasonEnum> {
-  static const Map<String, Object> _toWire = const <String, Object>{
-    'VACATION': 'VACATION',
-    'HOLIDAY': 'HOLIDAY',
-    'SICK_DAY': 'SICK_DAY',
-    'OTHER': 'OTHER',
-  };
-  static const Map<Object, String> _fromWire = const <Object, String>{
-    'VACATION': 'VACATION',
-    'HOLIDAY': 'HOLIDAY',
-    'SICK_DAY': 'SICK_DAY',
-    'OTHER': 'OTHER',
-  };
-
-  @override
-  final Iterable<Type> types = const <Type>[ScheduleOverrideRequestReasonEnum];
-  @override
-  final String wireName = 'ScheduleOverrideRequestReasonEnum';
-
-  @override
-  Object serialize(
-          Serializers serializers, ScheduleOverrideRequestReasonEnum object,
-          {FullType specifiedType = FullType.unspecified}) =>
-      _toWire[object.name] ?? object.name;
-
-  @override
-  ScheduleOverrideRequestReasonEnum deserialize(
-          Serializers serializers, Object serialized,
-          {FullType specifiedType = FullType.unspecified}) =>
-      ScheduleOverrideRequestReasonEnum.valueOf(
-          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
-}
-
 class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
   @override
   final Date date;
   @override
   final ScheduleOverrideRequestKindEnum kind;
-  @override
-  final ScheduleOverrideRequestReasonEnum? reason;
-  @override
-  final String? note;
   @override
   final BuiltList<WorkIntervalDto>? intervals;
   @override
@@ -162,8 +83,6 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
   _$ScheduleOverrideRequest._(
       {required this.date,
       required this.kind,
-      this.reason,
-      this.note,
       this.intervals,
       this.kindConsistent})
       : super._();
@@ -182,8 +101,6 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
     return other is ScheduleOverrideRequest &&
         date == other.date &&
         kind == other.kind &&
-        reason == other.reason &&
-        note == other.note &&
         intervals == other.intervals &&
         kindConsistent == other.kindConsistent;
   }
@@ -193,8 +110,6 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
     var _$hash = 0;
     _$hash = $jc(_$hash, date.hashCode);
     _$hash = $jc(_$hash, kind.hashCode);
-    _$hash = $jc(_$hash, reason.hashCode);
-    _$hash = $jc(_$hash, note.hashCode);
     _$hash = $jc(_$hash, intervals.hashCode);
     _$hash = $jc(_$hash, kindConsistent.hashCode);
     _$hash = $jf(_$hash);
@@ -206,8 +121,6 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
     return (newBuiltValueToStringHelper(r'ScheduleOverrideRequest')
           ..add('date', date)
           ..add('kind', kind)
-          ..add('reason', reason)
-          ..add('note', note)
           ..add('intervals', intervals)
           ..add('kindConsistent', kindConsistent))
         .toString();
@@ -226,15 +139,6 @@ class ScheduleOverrideRequestBuilder
   ScheduleOverrideRequestKindEnum? _kind;
   ScheduleOverrideRequestKindEnum? get kind => _$this._kind;
   set kind(ScheduleOverrideRequestKindEnum? kind) => _$this._kind = kind;
-
-  ScheduleOverrideRequestReasonEnum? _reason;
-  ScheduleOverrideRequestReasonEnum? get reason => _$this._reason;
-  set reason(ScheduleOverrideRequestReasonEnum? reason) =>
-      _$this._reason = reason;
-
-  String? _note;
-  String? get note => _$this._note;
-  set note(String? note) => _$this._note = note;
 
   ListBuilder<WorkIntervalDto>? _intervals;
   ListBuilder<WorkIntervalDto> get intervals =>
@@ -256,8 +160,6 @@ class ScheduleOverrideRequestBuilder
     if ($v != null) {
       _date = $v.date;
       _kind = $v.kind;
-      _reason = $v.reason;
-      _note = $v.note;
       _intervals = $v.intervals?.toBuilder();
       _kindConsistent = $v.kindConsistent;
       _$v = null;
@@ -287,8 +189,6 @@ class ScheduleOverrideRequestBuilder
                 date, r'ScheduleOverrideRequest', 'date'),
             kind: BuiltValueNullFieldError.checkNotNull(
                 kind, r'ScheduleOverrideRequest', 'kind'),
-            reason: reason,
-            note: note,
             intervals: _intervals?.build(),
             kindConsistent: kindConsistent,
           );

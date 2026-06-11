@@ -461,8 +461,8 @@ class ServiceControllerApi {
     );
   }
 
-  /// List my own services including drafts
-  /// Returns the authenticated master&#39;s own services, including auto-created drafts (is_draft&#x3D;true). Owner-scoped to the authenticated principal; never exposes another master&#39;s services.
+  /// List my own active services
+  /// Returns the authenticated master&#39;s own active services. Owner-scoped to the authenticated principal; never exposes another master&#39;s services.
   ///
   /// Parameters:
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation

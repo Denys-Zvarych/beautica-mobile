@@ -16,8 +16,6 @@ part 'schedule_override_response.g.dart';
 /// Properties:
 /// * [date]
 /// * [kind]
-/// * [reason]
-/// * [note]
 /// * [intervals]
 @BuiltValue()
 abstract class ScheduleOverrideResponse
@@ -29,13 +27,6 @@ abstract class ScheduleOverrideResponse
   @BuiltValueField(wireName: r'kind')
   ScheduleOverrideResponseKindEnum? get kind;
   // enum kindEnum {  DAY_OFF,  CUSTOM_HOURS,  };
-
-  @BuiltValueField(wireName: r'reason')
-  ScheduleOverrideResponseReasonEnum? get reason;
-  // enum reasonEnum {  VACATION,  HOLIDAY,  SICK_DAY,  OTHER,  };
-
-  @BuiltValueField(wireName: r'note')
-  String? get note;
 
   @BuiltValueField(wireName: r'intervals')
   BuiltList<WorkIntervalDto>? get intervals;
@@ -84,20 +75,6 @@ class _$ScheduleOverrideResponseSerializer
         specifiedType: const FullType(ScheduleOverrideResponseKindEnum),
       );
     }
-    if (object.reason != null) {
-      yield r'reason';
-      yield serializers.serialize(
-        object.reason,
-        specifiedType: const FullType(ScheduleOverrideResponseReasonEnum),
-      );
-    }
-    if (object.note != null) {
-      yield r'note';
-      yield serializers.serialize(
-        object.note,
-        specifiedType: const FullType(String),
-      );
-    }
     if (object.intervals != null) {
       yield r'intervals';
       yield serializers.serialize(
@@ -143,20 +120,6 @@ class _$ScheduleOverrideResponseSerializer
             specifiedType: const FullType(ScheduleOverrideResponseKindEnum),
           ) as ScheduleOverrideResponseKindEnum;
           result.kind = valueDes;
-          break;
-        case r'reason':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(ScheduleOverrideResponseReasonEnum),
-          ) as ScheduleOverrideResponseReasonEnum;
-          result.reason = valueDes;
-          break;
-        case r'note':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(String),
-          ) as String;
-          result.note = valueDes;
           break;
         case r'intervals':
           final valueDes = serializers.deserialize(
@@ -212,29 +175,4 @@ class ScheduleOverrideResponseKindEnum extends EnumClass {
       _$scheduleOverrideResponseKindEnumValues;
   static ScheduleOverrideResponseKindEnum valueOf(String name) =>
       _$scheduleOverrideResponseKindEnumValueOf(name);
-}
-
-class ScheduleOverrideResponseReasonEnum extends EnumClass {
-  @BuiltValueEnumConst(wireName: r'VACATION')
-  static const ScheduleOverrideResponseReasonEnum VACATION =
-      _$scheduleOverrideResponseReasonEnum_VACATION;
-  @BuiltValueEnumConst(wireName: r'HOLIDAY')
-  static const ScheduleOverrideResponseReasonEnum HOLIDAY =
-      _$scheduleOverrideResponseReasonEnum_HOLIDAY;
-  @BuiltValueEnumConst(wireName: r'SICK_DAY')
-  static const ScheduleOverrideResponseReasonEnum SICK_DAY =
-      _$scheduleOverrideResponseReasonEnum_SICK_DAY;
-  @BuiltValueEnumConst(wireName: r'OTHER')
-  static const ScheduleOverrideResponseReasonEnum OTHER =
-      _$scheduleOverrideResponseReasonEnum_OTHER;
-
-  static Serializer<ScheduleOverrideResponseReasonEnum> get serializer =>
-      _$scheduleOverrideResponseReasonEnumSerializer;
-
-  const ScheduleOverrideResponseReasonEnum._(String name) : super(name);
-
-  static BuiltSet<ScheduleOverrideResponseReasonEnum> get values =>
-      _$scheduleOverrideResponseReasonEnumValues;
-  static ScheduleOverrideResponseReasonEnum valueOf(String name) =>
-      _$scheduleOverrideResponseReasonEnumValueOf(name);
 }

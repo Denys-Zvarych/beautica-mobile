@@ -134,7 +134,6 @@ export 'package:beautica_api/src/model/review_response.dart';
 export 'package:beautica_api/src/model/salon_response.dart';
 export 'package:beautica_api/src/model/salon_search_request.dart';
 export 'package:beautica_api/src/model/salon_search_result.dart';
-export 'package:beautica_api/src/model/schedule_exception_request.dart';
 export 'package:beautica_api/src/model/schedule_override_request.dart';
 export 'package:beautica_api/src/model/schedule_override_response.dart';
 export 'package:beautica_api/src/model/service_definition_response.dart';

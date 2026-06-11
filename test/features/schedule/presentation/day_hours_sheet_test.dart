@@ -218,10 +218,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // The clean rest card is the ONLY day-off affordance.
-        expect(
-          find.byKey(const Key('override-dayoff-rest')),
-          findsOneWidget,
-        );
+        expect(find.byKey(const Key('override-dayoff-rest')), findsOneWidget);
         // The reason grid is GONE (the four chips no longer exist) …
         expect(find.byKey(const Key('override-reason-VACATION')), findsNothing);
         expect(find.byKey(const Key('override-reason-HOLIDAY')), findsNothing);
@@ -309,26 +306,26 @@ void main() {
     // «Видалити перевизначення». We assert the new label via the keyed widget's
     // text resolving to `l10n.scheduleOverrideDelete` (M2/M11: keyed finder +
     // localised value, never a raw-string finder).
-    testWidgets(
-      'the revert button (keyed override-delete) shows the new '
-      '«Повернути до графіка» label',
-      (tester) async {
-        final repo = _happyRepo();
-        await _pumpSheet(tester, repo: repo, hasExistingOverride: true);
+    testWidgets('the revert button (keyed override-delete) shows the new '
+        '«Повернути до графіка» label', (tester) async {
+      final repo = _happyRepo();
+      await _pumpSheet(tester, repo: repo, hasExistingOverride: true);
 
-        final Finder button = find.byKey(const Key('override-delete'));
-        expect(button, findsOneWidget);
+      final Finder button = find.byKey(const Key('override-delete'));
+      expect(button, findsOneWidget);
 
-        final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byType(DayHoursSheet)),
-        );
-        // The label inside the keyed button resolves to the renamed l10n value.
-        expect(
-          find.descendant(of: button, matching: find.text(l10n.scheduleOverrideDelete)),
-          findsOneWidget,
-        );
-      },
-    );
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(DayHoursSheet)),
+      );
+      // The label inside the keyed button resolves to the renamed l10n value.
+      expect(
+        find.descendant(
+          of: button,
+          matching: find.text(l10n.scheduleOverrideDelete),
+        ),
+        findsOneWidget,
+      );
+    });
 
     testWidgets('the clear action is absent when no override exists', (
       tester,

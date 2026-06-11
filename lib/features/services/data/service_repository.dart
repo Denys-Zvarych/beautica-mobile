@@ -53,11 +53,8 @@ part 'service_repository.g.dart';
 abstract interface class ServiceRepository {
   /// Returns the full list of services configured for the authenticated master.
   ///
-  /// Wraps `GET /api/v1/independent-masters/me/services` (Phase 16.9 — the
-  /// authenticated owner endpoint, master derived from the JWT principal). This
-  /// list INCLUDES auto-created drafts ([MasterService.isDraft] `true`,
-  /// [MasterService.isActive] `false`), unlike the public
-  /// `GET /masters/{masterId}/services` which filters them out. Returns an empty
+  /// Wraps `GET /api/v1/independent-masters/me/services` — the authenticated
+  /// owner endpoint, master derived from the JWT principal. Returns an empty
   /// list when the master has no services configured.
   Future<List<MasterService>> listMyServices();
 
@@ -220,12 +217,11 @@ final class HttpServiceRepository implements ServiceRepository {
   Future<List<MasterService>> listMyServices() async {
     _assertAuthenticated();
     try {
-      // Phase 16.9: the owner's own services list uses the authenticated
-      // endpoint `GET /api/v1/independent-masters/me/services`, which derives
-      // the master from the JWT principal (no masterId path param) and — unlike
-      // the public `GET /masters/{masterId}/services` — INCLUDES drafts
-      // (isDraft=true, isActive=false). The public endpoint stays available for
-      // any public-browse use; this caller no longer touches it.
+      // The owner's own services list uses the authenticated endpoint
+      // `GET /api/v1/independent-masters/me/services`, which derives the master
+      // from the JWT principal (no masterId path param). The public
+      // `GET /masters/{masterId}/services` endpoint stays available for any
+      // public-browse use; this caller no longer touches it.
       final res = await _serviceApi.getMyServices();
       final list = res.data?.data;
       if (list == null) {

@@ -759,4 +759,99 @@ void main() {
       expect(service.serviceTypeNameUk, isNull);
     });
   });
+
+  // ── ND. Regression guard — the service "draft" concept is GONE ────────────
+  //
+  // Backend V80 removed the draft flag (`isDraft`) from MasterServiceResponse
+  // and ServiceDefinitionResponse. The mobile app's draft affordance — the
+  // domain `isDraft` field, the draft badge, the "set price" CTA, and the
+  // draft card variant — were all deleted (user-approved clean removal). The
+  // deleted file `services_list_draft_card_test.dart` is intentionally gone and
+  // must NOT be recreated.
+  //
+  // These tests are the data-layer half of that guard. They assert that a
+  // realistic DTO maps to a plain, fully-priced, ACTIVE [MasterService] with no
+  // residual draft state. The omission of `isDraft` from [MasterService] is
+  // type-enforced — re-introducing the field (or any draft inference from a
+  // zero price) would either fail to compile here or flip one of these
+  // assertions, blocking the merge before it can reach a broken APK build.
+  group('ND. no draft affordance — mapper produces plain active services', () {
+    test('ND-1. fromDto maps a realistic MSR to a plain active service — no '
+        'draft state, full price + duration meta', () {
+      final dto =
+          (MasterServiceResponseBuilder()
+                ..id = 'assignment-nd'
+                ..serviceDefinition.replace(
+                  buildDef(
+                    id: 'def-nd',
+                    name: 'Стрижка',
+                    baseDurationMinutes: 45,
+                    priceType: ServiceDefinitionResponsePriceTypeEnum.FIXED,
+                    priceMin: 750,
+                    priceDisplay: '750 грн',
+                  ),
+                )
+                ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                ..priceMin = 750
+                ..priceDisplay = '750 грн'
+                ..isActive = true)
+              .build();
+
+      final service = MasterServiceMapper.fromDto(dto);
+
+      // The service is bookable (active), fully priced, and time-bounded — the
+      // exact opposite of a "draft awaiting a price".
+      expect(service.isActive, isTrue);
+      expect(service.priceDisplay, equals('750 грн'));
+      expect(service.priceMin, equals(750.0));
+      expect(service.durationMinutes, equals(45));
+
+      // A zero/absent price must NOT be re-interpreted as a draft signal, and
+      // [MasterService] must expose no draft member. freezed's generated
+      // toString() enumerates every field of the value object, so asserting it
+      // never mentions "draft" is a real text-level guard: re-adding an
+      // `isDraft` (or any `draft*`) field to the model flips this red.
+      expect(
+        service.toString().toLowerCase(),
+        isNot(contains('draft')),
+        reason:
+            'MasterService must carry no draft field — re-introducing isDraft '
+            'would surface in freezed toString() and fail this guard (V80 '
+            'removed the draft concept; the draft affordance was deleted)',
+      );
+    });
+
+    test('ND-2. a zero-floor RANGE service still maps to an active service — '
+        'no draft inference from a missing/zero price', () {
+      // Even if pricing data is incomplete, the mapper must never synthesise a
+      // draft state. The service stays active and renders whatever priceDisplay
+      // the backend supplied — there is no "set price" pathway anymore.
+      final dto =
+          (MasterServiceResponseBuilder()
+                ..id = 'assignment-nd-zero'
+                ..serviceDefinition.replace(
+                  buildDef(
+                    id: 'def-nd-zero',
+                    priceType: ServiceDefinitionResponsePriceTypeEnum.RANGE,
+                    priceMin: 0,
+                    priceMax: 500,
+                    priceDisplay: 'до 500 грн',
+                  ),
+                )
+                ..priceType = MasterServiceResponsePriceTypeEnum.RANGE
+                ..priceMin = 0
+                ..priceMax = 500
+                ..priceDisplay = 'до 500 грн'
+                ..isActive = true)
+              .build();
+
+      final service = MasterServiceMapper.fromDto(dto);
+
+      expect(service.isActive, isTrue);
+      expect(service.priceType, ServicePriceType.range);
+      expect(service.priceMin, equals(0.0));
+      expect(service.priceMax, equals(500.0));
+      expect(service.priceDisplay, equals('до 500 грн'));
+    });
+  });
 }

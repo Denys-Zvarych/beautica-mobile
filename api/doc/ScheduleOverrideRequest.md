@@ -10,8 +10,6 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **date** | [**Date**](Date.md) |  | 
 **kind** | **String** |  | 
-**reason** | **String** |  | [optional] 
-**note** | **String** |  | [optional] 
 **intervals** | [**BuiltList&lt;WorkIntervalDto&gt;**](WorkIntervalDto.md) |  | [optional] 
 **kindConsistent** | **bool** |  | [optional] 
 

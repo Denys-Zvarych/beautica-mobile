@@ -49,9 +49,7 @@ WeeklySchedule _baseSchedule({String? id = 's1', DateTime? validFrom}) =>
 void main() {
   setUpAll(() {
     registerFallbackValue(_baseSchedule());
-    registerFallbackValue(
-      ScheduleOverride.dayOff(start: _today, end: _today),
-    );
+    registerFallbackValue(ScheduleOverride.dayOff(start: _today, end: _today));
   });
 
   late _MockScheduleRepository repo;

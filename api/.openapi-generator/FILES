@@ -120,7 +120,6 @@ doc/SalonMasterControllerApi.md
 doc/SalonResponse.md
 doc/SalonSearchRequest.md
 doc/SalonSearchResult.md
-doc/ScheduleExceptionRequest.md
 doc/ScheduleOverrideRequest.md
 doc/ScheduleOverrideResponse.md
 doc/SearchControllerApi.md
@@ -279,7 +278,6 @@ lib/src/model/review_response.dart
 lib/src/model/salon_response.dart
 lib/src/model/salon_search_request.dart
 lib/src/model/salon_search_result.dart
-lib/src/model/schedule_exception_request.dart
 lib/src/model/schedule_override_request.dart
 lib/src/model/schedule_override_response.dart
 lib/src/model/service_definition_response.dart
