@@ -1026,7 +1026,7 @@ class _SelectedDayView extends StatelessWidget {
       _ =>
         day.intervals.isEmpty
             ? l10n.workingHoursClosedLabel
-            : l10n.scheduleDaySummaryWorking(summariseIntervals(day.intervals)),
+            : l10n.scheduleDaySummaryWorking(summariseSpan(day.intervals)),
     };
     // The pencil shows only for editable viewers on today/future days. Read-only
     // viewers (OQ-2) and past days (read-only history) get the muted hint.

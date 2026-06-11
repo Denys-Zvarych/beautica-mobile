@@ -1020,7 +1020,7 @@ void main() {
         expect(
           find.text(
             l10n.scheduleDaySummaryWorking(
-              summariseIntervals(_working(_today).intervals),
+              summariseSpan(_working(_today).intervals),
             ),
           ),
           findsOneWidget,
@@ -2467,7 +2467,7 @@ void main() {
       expect(
         find.text(
           l10n.scheduleDaySummaryWorking(
-            summariseIntervals(_templateWorking(currentMonday).intervals),
+            summariseSpan(_templateWorking(currentMonday).intervals),
           ),
         ),
         findsOneWidget,
@@ -2521,7 +2521,7 @@ void main() {
       expect(
         find.text(
           l10n.scheduleDaySummaryWorking(
-            summariseIntervals(_templateWorking(expectedSelected).intervals),
+            summariseSpan(_templateWorking(expectedSelected).intervals),
           ),
         ),
         findsOneWidget,

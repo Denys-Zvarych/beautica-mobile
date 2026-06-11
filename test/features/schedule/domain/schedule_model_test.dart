@@ -295,6 +295,60 @@ void main() {
     });
   });
 
+  // REGRESSION (single-span day summary): the day-panel "Робочий день: …" line
+  // now uses summariseSpan, which collapses any interior pause into ONE overall
+  // span (firstStart–lastEnd). This pins that behaviour so the day-summary can
+  // never silently revert to the multi-segment summariseIntervals output. The
+  // multi-interval case below FAILS against the old summariseIntervals call
+  // (which produced "09:00–13:00  ·  14:00–18:00") and PASSES now.
+  group('summariseSpan — single-span day summary', () {
+    test('empty list → "Вихідний"', () {
+      expect(summariseSpan(const <WorkInterval>[]), 'Вихідний');
+    });
+
+    test('single interval → that interval as the span', () {
+      expect(summariseSpan(<WorkInterval>[_wi(9, 0, 18, 0)]), '09:00–18:00');
+    });
+
+    test('day WITH a pause → ONE collapsed span (firstStart–lastEnd)', () {
+      // A lunch-break day: 09:00–13:00 then 14:00–18:00.
+      final span = summariseSpan(<WorkInterval>[
+        _wi(9, 0, 13, 0),
+        _wi(14, 0, 18, 0),
+      ]);
+
+      expect(span, '09:00–18:00');
+    });
+
+    test('multi-interval span does NOT contain the "·" segment separator', () {
+      // Proves the bug fix: summariseIntervals would emit the "  ·  " join here;
+      // summariseSpan must not — it shows the overall span only.
+      final span = summariseSpan(<WorkInterval>[
+        _wi(9, 0, 13, 0),
+        _wi(14, 0, 18, 0),
+      ]);
+
+      expect(span.contains('·'), isFalse);
+      // And it must differ from the segment-listing helper for the same input.
+      expect(
+        span,
+        isNot(equals(summariseIntervals(<WorkInterval>[
+          _wi(9, 0, 13, 0),
+          _wi(14, 0, 18, 0),
+        ]))),
+      );
+    });
+
+    test('unsorted intervals → min start to max end (scan, not first/last)', () {
+      final span = summariseSpan(<WorkInterval>[
+        _wi(14, 0, 18, 0),
+        _wi(9, 0, 13, 0),
+      ]);
+
+      expect(span, '09:00–18:00');
+    });
+  });
+
   group('TemplateDay — ISO weekday preserved', () {
     test('dayOfWeek 1..7 retained, isDayOff / hasError reflect intervals', () {
       for (var dow = 1; dow <= 7; dow++) {

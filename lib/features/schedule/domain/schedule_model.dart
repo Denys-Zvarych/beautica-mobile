@@ -400,6 +400,24 @@ String summariseIntervals(List<WorkInterval> intervals) {
       .join('  ·  ');
 }
 
+/// The overall work-day span — first interval start to last interval end —
+/// collapsing any pauses: e.g. "09:00–18:00" for a day with a lunch break.
+/// Empty list → "Вихідний". Scans for min start / max end defensively rather
+/// than assuming the list is sorted (single-day contract: no cross-midnight).
+///
+/// NOTE: kept separate from [summariseIntervals], which is part of a cache /
+/// identity key (`ScheduleOverride.key`) and must not change shape.
+String summariseSpan(List<WorkInterval> intervals) {
+  if (intervals.isEmpty) return 'Вихідний';
+  WorkInterval first = intervals.first;
+  WorkInterval last = intervals.first;
+  for (final WorkInterval w in intervals) {
+    if (w.startMinutes < first.startMinutes) first = w;
+    if (w.endMinutes > last.endMinutes) last = w;
+  }
+  return '${formatTime(first.start)}–${formatTime(last.end)}';
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Weekly template day.
 // ─────────────────────────────────────────────────────────────────────────────
