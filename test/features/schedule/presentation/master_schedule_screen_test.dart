@@ -20,6 +20,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -723,6 +724,46 @@ Future<void> _selectStripDay(WidgetTester tester, int dayNumber) async {
   final Finder dayText = find.text('$dayNumber');
   await tester.tap(dayText.first);
   await tester.pumpAndSettle();
+}
+
+/// Resolves the [WeekStripDay] cell for [dayNumber] in the visible week strip.
+/// Each cell renders its day-of-month number, so we match the WeekStripDay whose
+/// `day` equals [dayNumber] (robust against locale changes — keyed on the int,
+/// not on any localised string).
+WeekStripDay _stripCellForDay(WidgetTester tester, int dayNumber) {
+  final Iterable<WeekStripDay> cells = tester
+      .widgetList<WeekStripDay>(find.byType(WeekStripDay))
+      .where((WeekStripDay c) => c.day == dayNumber);
+  expect(
+    cells,
+    hasLength(1),
+    reason: 'expected exactly one WeekStripDay for day $dayNumber',
+  );
+  return cells.first;
+}
+
+/// Resolves the under-number dot color for the strip cell of [dayNumber]. The
+/// dot is the lone 5x5 circular [Container] inside that cell's subtree (the
+/// 38px disc is an [AnimatedContainer], so it is excluded by type). Returns the
+/// dot's [BoxDecoration.color] — [BrandColors.accentDeep] when shown,
+/// [Colors.transparent] when reserved-but-hidden.
+Color? _dotColorForDay(WidgetTester tester, int dayNumber) {
+  final Finder dot = find.descendant(
+    of: find.byWidget(_stripCellForDay(tester, dayNumber)),
+    matching: find.byWidgetPredicate((Widget w) {
+      if (w is! Container) return false;
+      final Decoration? d = w.decoration;
+      if (d is! BoxDecoration || d.shape != BoxShape.circle) return false;
+      final BoxConstraints? c = w.constraints;
+      return c != null && c.maxWidth == 5 && c.maxHeight == 5;
+    }),
+  );
+  expect(
+    dot,
+    findsOneWidget,
+    reason: 'expected exactly one 5x5 dot under day $dayNumber',
+  );
+  return (tester.widget<Container>(dot).decoration! as BoxDecoration).color;
 }
 
 void main() {
@@ -1451,9 +1492,9 @@ void main() {
     });
   });
 
-  // ── Past-day read-only + override dot ─────────────────────────────────────
+  // ── Past-day read-only + selected-day dot ─────────────────────────────────
 
-  group('MasterScheduleScreen — past day + override dots', () {
+  group('MasterScheduleScreen — past day + selected-day dot', () {
     testWidgets('past date hides the day pencil (read-only history)', (
       tester,
     ) async {
@@ -1475,27 +1516,77 @@ void main() {
       }
     });
 
-    testWidgets('override dot present on an overridden date in the strip', (
-      tester,
-    ) async {
-      // Make a non-today day in the week a custom override so it carries a dot;
-      // today stays templated (no dot).
-      final List<EffectiveDay> days = <EffectiveDay>[
-        for (int i = 0; i < 7; i++)
-          if (_dateOnly(_weekStart.add(Duration(days: i))) == _today)
-            _working(_today)
-          else if (i == 0 && _dateOnly(_weekStart) != _today)
-            _custom(_weekStart)
-          else
-            _working(_weekStart.add(Duration(days: i))),
-      ];
-      await _pump(tester, overrides: _editableData(days));
+    // CONTRACT (changed): the under-number dot marks the SELECTED day ONLY — it
+    // does NOT mark a non-selected day even when that day carries a schedule
+    // override. (Previously the dot was tied to `hasOverride && !selected`; this
+    // test passed only COINCIDENTALLY because the overridden day happened to be
+    // the selected day. The user asked for the dot to track selection alone.)
+    //
+    // Setup: make a non-today day in the week a custom OVERRIDE while today
+    // stays a plain templated working day. Today is selected on mount. We then
+    // assert at the strip level:
+    //   • the overridden, NON-selected day carries NO dot, even though it has an
+    //     override (the exact behaviour the user asked for); and
+    //   • the SELECTED day carries the dot.
+    // Skipped when today IS Monday (no distinct non-today day at index 0).
+    testWidgets(
+      'dot marks the selected day only — an overridden non-selected day shows '
+      'NO dot',
+      (tester) async {
+        // Pick a non-today overridden day. Use Monday unless today is Monday,
+        // in which case use Tuesday so the overridden day differs from today.
+        final bool todayIsMonday = _dateOnly(_weekStart) == _today;
+        final int overrideIndex = todayIsMonday ? 1 : 0;
+        final DateTime overrideDate = _weekStart.add(
+          Duration(days: overrideIndex),
+        );
 
-      // The screen renders; the override dot is a render detail captured by the
-      // strip goldens. Here we assert the screen built with the overridden data
-      // without error (the dot logic is unit-covered by hasOverride downstream).
-      expect(find.byType(MasterScheduleScreen), findsOneWidget);
-    });
+        final List<EffectiveDay> days = <EffectiveDay>[
+          for (int i = 0; i < 7; i++)
+            if (_dateOnly(_weekStart.add(Duration(days: i))) == _today)
+              _working(_today)
+            else if (i == overrideIndex)
+              _custom(_weekStart.add(Duration(days: i)))
+            else
+              _working(_weekStart.add(Duration(days: i))),
+        ];
+        await _pump(tester, overrides: _editableData(days));
+
+        // The overridden day is NOT today/selected → its WeekStripDay must have
+        // selected == false (and may carry hasOverride), and its dot must be
+        // transparent. Today's WeekStripDay must be selected with a visible dot.
+        final WeekStripDay overrideCell = _stripCellForDay(
+          tester,
+          overrideDate.day,
+        );
+        final WeekStripDay selectedCell = _stripCellForDay(tester, _today.day);
+
+        expect(
+          overrideCell.selected,
+          isFalse,
+          reason:
+              'the overridden day must not be the selected day in this case',
+        );
+        expect(
+          selectedCell.selected,
+          isTrue,
+          reason: 'today is selected on mount',
+        );
+
+        // The dot tracks selection: hidden under the overridden non-selected
+        // day, visible under the selected day.
+        expect(
+          _dotColorForDay(tester, overrideDate.day),
+          Colors.transparent,
+          reason: 'an overridden, NON-selected day must NOT show the dot',
+        );
+        expect(
+          _dotColorForDay(tester, _today.day),
+          BrandColors.accentDeep,
+          reason: 'the selected day must show the dot',
+        );
+      },
+    );
   });
 
   // ── Header-alignment regression (VelvetTopBar shared widget contract) ───────

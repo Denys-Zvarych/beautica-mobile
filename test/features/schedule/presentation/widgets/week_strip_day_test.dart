@@ -32,14 +32,17 @@ const int _kDay = 13;
 
 /// Pumps a single [WeekStripDay] cell with the given branch-selecting flags.
 /// [working] and [selected] steer the disc decoration; [inMonth] and [past]
-/// steer the day-number color under test (regression group). Defaults keep the
-/// disc-decoration tests unchanged (in-month, not past).
+/// steer the day-number color under test (regression group); [hasOverride]
+/// steers the under-number dot regression group (it must NO LONGER drive the
+/// dot — only [selected] does). Defaults keep the existing disc-decoration and
+/// day-number tests unchanged (in-month, not past, no override).
 Future<void> _pumpDay(
   WidgetTester tester, {
   required bool working,
   required bool selected,
   bool inMonth = true,
   bool past = false,
+  bool hasOverride = false,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -52,7 +55,7 @@ Future<void> _pumpDay(
             working: working,
             inMonth: inMonth,
             past: past,
-            hasOverride: false,
+            hasOverride: hasOverride,
             onTap: () {},
             pastSemanticLabel: 'Пн 13, минулий день',
             plainSemanticLabel: 'Пн 13',
@@ -86,6 +89,33 @@ BoxDecoration _discDecoration(WidgetTester tester) {
 Color? _numberColor(WidgetTester tester) {
   final Text number = tester.widget<Text>(find.text('$_kDay'));
   return number.style?.color;
+}
+
+/// Resolves the color of the under-number dot — the small 5×5 plain [Container]
+/// (NOT the 38px [AnimatedContainer] disc) whose decoration is a circle. The 5px
+/// space is reserved on every day so the number's baseline never shifts; the dot
+/// is "shown" only when its color is the saturated [BrandColors.accentDeep] and
+/// "hidden" (reserved but invisible) when its color is [Colors.transparent].
+///
+/// Distinguished from the disc structurally: the disc is an [AnimatedContainer];
+/// the dot is a bare [Container] with a 5×5 [BoxConstraints] and a circular
+/// [BoxDecoration]. Resolving by these intrinsic properties (not by position)
+/// keeps the finder robust against sibling additions.
+Color? _dotColor(WidgetTester tester) {
+  final Iterable<Container> dots = tester
+      .widgetList<Container>(find.byType(Container))
+      .where((Container c) {
+        final Decoration? d = c.decoration;
+        if (d is! BoxDecoration || d.shape != BoxShape.circle) return false;
+        final BoxConstraints? cons = c.constraints;
+        return cons != null && cons.maxWidth == 5 && cons.maxHeight == 5;
+      });
+  expect(
+    dots,
+    hasLength(1),
+    reason: 'expected exactly one 5x5 circular under-number dot Container',
+  );
+  return (dots.first.decoration! as BoxDecoration).color;
 }
 
 void main() {
@@ -187,5 +217,73 @@ void main() {
 
       expect(_numberColor(tester), BrandColors.accentDeep);
     });
+  });
+
+  // Regression: the under-number dot marks the SELECTED day ONLY. The previous
+  // rule painted the dot on a NON-selected day that carried a schedule override
+  // (`hasOverride && !selected ? accentDeep : transparent`); the user asked for
+  // the dot to mark selection alone, so the new rule is `selected ? accentDeep :
+  // transparent` and `hasOverride` no longer drives the dot at all.
+  //
+  // RED→GREEN proof: case (b) `selected: false, hasOverride: true` was the exact
+  // input that lit the dot under the OLD rule (accentDeep) — it now asserts
+  // transparent, so it FAILS against `hasOverride && !selected` and PASSES now.
+  // The 5px space stays reserved in every case (no baseline shift), so the dot
+  // is always present as a widget; only its color changes.
+  group('WeekStripDay under-number dot marks the selected day only', () {
+    testWidgets('selected day → dot is accentDeep (visible)', (
+      WidgetTester tester,
+    ) async {
+      await _pumpDay(tester, working: true, selected: true);
+
+      expect(_dotColor(tester), BrandColors.accentDeep);
+    });
+
+    testWidgets(
+      'NOT selected but hasOverride → dot is transparent (override no longer '
+      'drives the dot — RED on the old hasOverride && !selected rule)',
+      (WidgetTester tester) async {
+        await _pumpDay(
+          tester,
+          working: true,
+          selected: false,
+          hasOverride: true,
+        );
+
+        expect(
+          _dotColor(tester),
+          Colors.transparent,
+          reason: 'an overridden, non-selected day must NOT show the dot',
+        );
+      },
+    );
+
+    testWidgets(
+      'NOT selected, no override → dot is transparent (reserved but hidden)',
+      (WidgetTester tester) async {
+        await _pumpDay(
+          tester,
+          working: true,
+          selected: false,
+          hasOverride: false,
+        );
+
+        expect(_dotColor(tester), Colors.transparent);
+      },
+    );
+
+    testWidgets(
+      'selected wins even when hasOverride is true → dot is accentDeep',
+      (WidgetTester tester) async {
+        await _pumpDay(
+          tester,
+          working: true,
+          selected: true,
+          hasOverride: true,
+        );
+
+        expect(_dotColor(tester), BrandColors.accentDeep);
+      },
+    );
   });
 }

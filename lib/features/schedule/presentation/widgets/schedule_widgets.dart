@@ -363,17 +363,15 @@ class WeekStripDay extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 5),
-        // The override dot marks non-selected days that carry a schedule
-        // override; reserved space is kept on the selected day so the number's
-        // baseline never shifts.
+        // The dot marks the currently selected day. The 5px-high space is
+        // reserved on every day (visible or not) so the number's baseline
+        // never shifts as the selection moves across the strip.
         Container(
           height: 5,
           width: 5,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: hasOverride && !selected
-                ? BrandColors.accentDeep
-                : Colors.transparent,
+            color: selected ? BrandColors.accentDeep : Colors.transparent,
           ),
         ),
       ],
