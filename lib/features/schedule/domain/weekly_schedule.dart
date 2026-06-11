@@ -36,8 +36,7 @@ enum EffectiveSource {
   /// A per-date override replaced the template hours with custom intervals.
   overrideCustom,
 
-  /// A per-date override closed the day entirely (vacation / holiday / sick /
-  /// other — carried on [EffectiveDay.reason]).
+  /// A per-date override closed the day entirely (a plain full day-off).
   overrideDayOff,
 
   /// No weekly template covers this date and no override exists — the master
@@ -70,14 +69,12 @@ abstract class WeeklySchedule with _$WeeklySchedule {
 /// source.
 ///
 /// [intervals] are the working intervals in effect for [date] (empty for a
-/// day-off or a no-schedule day). [source] tags how the day was resolved;
-/// [reason] is non-null only when [source] is [EffectiveSource.overrideDayOff].
+/// day-off or a no-schedule day). [source] tags how the day was resolved.
 @freezed
 abstract class EffectiveDay with _$EffectiveDay {
   const factory EffectiveDay({
     required DateTime date,
     required EffectiveSource source,
     required List<WorkInterval> intervals,
-    OverrideReason? reason,
   }) = _EffectiveDay;
 }

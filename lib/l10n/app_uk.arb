@@ -2112,41 +2112,6 @@
   "@scheduleOverrideModeDayOff": {
     "description": "Mode-toggle option: mark the whole date as a day off (Phase 15.4)."
   },
-  "scheduleOverrideReasonLabel": "Причина",
-  "@scheduleOverrideReasonLabel": {
-    "description": "Section label above the day-off reason picker in the per-date override sheet (Phase 15.4)."
-  },
-  "scheduleOverrideReasonVacation": "Відпустка",
-  "@scheduleOverrideReasonVacation": {
-    "description": "Day-off reason: vacation (wire VACATION) (Phase 15.4)."
-  },
-  "scheduleOverrideReasonHoliday": "Святковий день",
-  "@scheduleOverrideReasonHoliday": {
-    "description": "Day-off reason: holiday (wire HOLIDAY) (Phase 15.4)."
-  },
-  "scheduleOverrideReasonSickDay": "Лікарняний",
-  "@scheduleOverrideReasonSickDay": {
-    "description": "Day-off reason: sick day (wire SICK_DAY) (Phase 15.4)."
-  },
-  "scheduleOverrideReasonOther": "Інше",
-  "@scheduleOverrideReasonOther": {
-    "description": "Day-off reason: other (wire OTHER) (Phase 15.4)."
-  },
-  "scheduleOverrideReasonSemantic": "Причина: {reason}",
-  "@scheduleOverrideReasonSemantic": {
-    "description": "Accessibility label for a selectable day-off reason tile (Phase 15.4).",
-    "placeholders": {
-      "reason": { "type": "String", "example": "Відпустка" }
-    }
-  },
-  "scheduleOverrideNoteLabel": "Нотатка (необовʼязково)",
-  "@scheduleOverrideNoteLabel": {
-    "description": "Label for the optional note field shown in day-off mode (Phase 15.4)."
-  },
-  "scheduleOverrideNoteHint": "Напр. виїзд за місто",
-  "@scheduleOverrideNoteHint": {
-    "description": "Hint text for the optional day-off note field (Phase 15.4)."
-  },
   "scheduleOverrideDayOffRest": "Цей день буде закрито для бронювань",
   "@scheduleOverrideDayOffRest": {
     "description": "Explanatory line shown in day-off mode of the per-date override sheet (Phase 15.4)."
@@ -2155,9 +2120,9 @@
   "@scheduleOverrideSave": {
     "description": "Primary save action in the per-date override sheet (Phase 15.4)."
   },
-  "scheduleOverrideDelete": "Видалити перевизначення",
+  "scheduleOverrideDelete": "Повернути до графіка",
   "@scheduleOverrideDelete": {
-    "description": "Destructive action to clear an existing override and revert the date to the weekly template (Phase 15.4)."
+    "description": "Action to clear an existing per-date override and revert the date to the recurring weekly template (Phase 15.4)."
   },
   "scheduleOverrideClearedSnack": "Перевизначення видалено",
   "@scheduleOverrideClearedSnack": {

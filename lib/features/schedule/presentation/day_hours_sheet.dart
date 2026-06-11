@@ -7,17 +7,17 @@
 //     persists through [OverridesNotifier] (`PUT /overrides/{date}`)
 //   • preview standalone Velvet* tokens             → BrandColors / VelvetText /
 //     Velvet* (1:1)
-//   • preview inline reason/note stubs              → the real four-reason picker
-//     + optional note (the parts the preview left for the port; design filled in
-//     via `frontend-design`, constrained to the locked Velvet Touch palette)
+//   • day-off mode                                  → a plain full day-off (the
+//     backend dropped reason/note from schedule overrides, so the sheet no
+//     longer collects either — just a clean "this day is closed" rest card)
 //   • reuses the SHARED [IntervalEditor] / [TimeWell] / wheel picker from 15.3 —
 //     no second copy.
 //
 // It OVERRIDES the weekly template for ONE calendar date (start == end):
 //   • Робочі години → [IntervalEditor] seeded from the day's current intervals
 //     via `DayHours.fromIntervals` → saves a CUSTOM_HOURS override.
-//   • Вихідний       → reason picker (VACATION/HOLIDAY/SICK_DAY/OTHER) + optional
-//     note → saves a DAY_OFF override.
+//   • Вихідний       → a plain full day-off (no reason, no note) → saves a
+//     DAY_OFF override.
 //
 // SAVE → CALENDAR REPAINT: [OverridesNotifier.putOverride] / `.clearOverride`
 // reload the watched range; because `effectiveScheduleProvider(range)`
@@ -76,8 +76,6 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     required this.initialIntervals,
     required this.hasExistingOverride,
     required this.initialDayOff,
-    this.initialReason,
-    this.initialNote,
   });
 
   /// The single calendar date this override targets (date-only). `start == end`
@@ -109,13 +107,6 @@ class DayHoursSheet extends ConsumerStatefulWidget {
   /// toggle to «Вихідний». Otherwise the sheet opens in working-hours mode.
   final bool initialDayOff;
 
-  /// The existing day-off reason (when [initialDayOff]); seeds the reason
-  /// picker. Defaults to VACATION when absent.
-  final OverrideReason? initialReason;
-
-  /// The existing day-off note (when [initialDayOff]); seeds the note field.
-  final String? initialNote;
-
   /// Presents the sheet. Resolves to the edited [date] on a successful save /
   /// clear (so the host can focus that day), or `null` on a plain dismiss.
   static Future<DateTime?> show(
@@ -127,8 +118,6 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     required List<WorkInterval> initialIntervals,
     required bool hasExistingOverride,
     required bool initialDayOff,
-    OverrideReason? initialReason,
-    String? initialNote,
   }) {
     return showModalBottomSheet<DateTime>(
       context: context,
@@ -143,8 +132,6 @@ class DayHoursSheet extends ConsumerStatefulWidget {
         initialIntervals: initialIntervals,
         hasExistingOverride: hasExistingOverride,
         initialDayOff: initialDayOff,
-        initialReason: initialReason,
-        initialNote: initialNote,
       ),
     );
   }
@@ -160,8 +147,6 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   /// incoming intervals so edits never touch the calendar's source data).
   late DayHours _day;
   late bool _dayOff;
-  late OverrideReason _reason;
-  late final TextEditingController _noteController;
 
   bool _saving = false;
 
@@ -172,30 +157,13 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     _day = widget.initialIntervals.isEmpty
         ? DayHours.defaultDay()
         : DayHours.fromIntervals(widget.initialIntervals);
-    _reason = widget.initialReason ?? OverrideReason.vacation;
-    _noteController = TextEditingController(text: widget.initialNote ?? '');
-  }
-
-  @override
-  void dispose() {
-    _noteController.dispose();
-    super.dispose();
   }
 
   /// Custom-hours mode is unsaveable while the window/breaks are invalid.
-  /// Day-off mode is always valid (a reason is always selected).
+  /// Day-off mode is always valid (a plain full day off — no inputs).
   bool get _hasErrors => !_dayOff && !dayHoursValid(_day);
 
   void _setDayOff(bool off) => setState(() => _dayOff = off);
-
-  /// Resolves an [OverrideReason] to its localised label.
-  String _reasonLabel(AppLocalizations l10n, OverrideReason reason) =>
-      switch (reason) {
-        OverrideReason.vacation => l10n.scheduleOverrideReasonVacation,
-        OverrideReason.holiday => l10n.scheduleOverrideReasonHoliday,
-        OverrideReason.sickDay => l10n.scheduleOverrideReasonSickDay,
-        OverrideReason.other => l10n.scheduleOverrideReasonOther,
-      };
 
   // ── Persistence (OQ-1: always allowed — no booking-conflict gate) ───────────
   Future<void> _save() async {
@@ -214,16 +182,10 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     }
 
     // Build a single-date override (start == end). CUSTOM_HOURS carries the
-    // collapsed working-interval list; DAY_OFF carries the reason + note.
+    // collapsed working-interval list; DAY_OFF carries only its kind (the
+    // backend dropped reason/note from schedule overrides).
     final ScheduleOverride override = _dayOff
-        ? ScheduleOverride.dayOff(
-            start: widget.date,
-            end: widget.date,
-            reason: _reason,
-            note: _noteController.text.trim().isEmpty
-                ? null
-                : _noteController.text.trim(),
-          )
+        ? ScheduleOverride.dayOff(start: widget.date, end: widget.date)
         : ScheduleOverride.custom(
             start: widget.date,
             end: widget.date,
@@ -523,34 +485,13 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     );
   }
 
-  // ── Day-off mode: reason picker + optional note ─────────────────────────────
+  // ── Day-off mode: a plain full day off (no reason, no note) ─────────────────
+  /// A single clean rest affordance — a neumorphic-bordered card stating the
+  /// date is fully closed for bookings. The backend dropped reason/note from
+  /// schedule overrides, so day-off mode collects no input at all.
   Widget _dayOffSection(AppLocalizations l10n) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _dayOffRest(l10n),
-        const SizedBox(height: VelvetSpacing.lg),
-        Text(l10n.scheduleOverrideReasonLabel, style: VelvetText.label()),
-        const SizedBox(height: VelvetSpacing.sm),
-        _reasonGrid(l10n),
-        const SizedBox(height: VelvetSpacing.lg),
-        Text(l10n.scheduleOverrideNoteLabel, style: VelvetText.label()),
-        const SizedBox(height: VelvetSpacing.sm),
-        NeumorphicTextField(
-          key: const Key('override-note-field'),
-          label: l10n.scheduleOverrideNoteLabel,
-          controller: _noteController,
-          hintText: l10n.scheduleOverrideNoteHint,
-          keyboardType: TextInputType.text,
-          textInputAction: TextInputAction.done,
-          maxLength: 120,
-        ),
-      ],
-    );
-  }
-
-  Widget _dayOffRest(AppLocalizations l10n) {
     return DecoratedBox(
+      key: const Key('override-dayoff-rest'),
       decoration: BoxDecoration(
         color: BrandColors.base,
         borderRadius: BorderRadius.circular(VelvetRadii.field),
@@ -577,83 +518,14 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     );
   }
 
-  /// 2×2 grid of selectable reason tiles: selected = inset + camel accent,
-  /// unselected = extruded.
-  Widget _reasonGrid(AppLocalizations l10n) {
-    const List<OverrideReason> reasons = OverrideReason.values;
-    return Column(
-      children: <Widget>[
-        for (int row = 0; row < reasons.length; row += 2)
-          Padding(
-            padding: EdgeInsets.only(
-              bottom: row + 2 < reasons.length ? VelvetSpacing.sm + 2 : 0,
-            ),
-            child: Row(
-              children: <Widget>[
-                Expanded(child: _reasonTile(l10n, reasons[row])),
-                const SizedBox(width: VelvetSpacing.sm + 2),
-                Expanded(
-                  child: row + 1 < reasons.length
-                      ? _reasonTile(l10n, reasons[row + 1])
-                      : const SizedBox.shrink(),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _reasonTile(AppLocalizations l10n, OverrideReason reason) {
-    final bool selected = _reason == reason;
-    final Color tint = selected ? BrandColors.accentDeep : BrandColors.muted;
-    final String label = _reasonLabel(l10n, reason);
-    final Widget content = Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: VelvetSpacing.md,
-        vertical: VelvetSpacing.md - 2,
-      ),
-      child: Row(
-        children: <Widget>[
-          Icon(reason.icon, size: 18, color: tint),
-          const SizedBox(width: VelvetSpacing.sm),
-          Flexible(
-            child: Text(
-              label,
-              overflow: TextOverflow.ellipsis,
-              style: VelvetText.bodyStrong().copyWith(
-                fontSize: 13,
-                color: tint,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: l10n.scheduleOverrideReasonSemantic(label),
-      child: GestureDetector(
-        key: Key('override-reason-${reason.wire}'),
-        onTap: () => setState(() => _reason = reason),
-        child: selected
-            ? NeumorphicInset(radius: VelvetRadii.field, child: content)
-            : DecoratedBox(
-                decoration: BoxDecoration(
-                  color: BrandColors.base,
-                  borderRadius: BorderRadius.circular(VelvetRadii.field),
-                  boxShadow: VelvetShadows.extrudedSmall,
-                ),
-                child: content,
-              ),
-      ),
-    );
-  }
-
-  // ── Destructive clear action (only when an override already exists) ─────────
+  // ── Revert-to-template action (only when an override already exists) ────────
+  /// Clears the per-date customization and returns the date to the recurring
+  /// weekly template. Non-destructive (no data the user typed is lost), so it
+  /// reads as the calm camel accent rather than the error red.
   Widget _deleteAction(AppLocalizations l10n) {
+    final Color tint = BrandColors.accentDeep.withValues(
+      alpha: _saving ? 0.4 : 1.0,
+    );
     return Semantics(
       button: true,
       label: l10n.scheduleOverrideDelete,
@@ -667,22 +539,11 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Icon(
-                  Icons.delete_outline_rounded,
-                  size: 17,
-                  color: BrandColors.error.withValues(
-                    alpha: _saving ? 0.4 : 1.0,
-                  ),
-                ),
+                Icon(Icons.restore_rounded, size: 17, color: tint),
                 const SizedBox(width: VelvetSpacing.sm - 2),
                 Text(
                   l10n.scheduleOverrideDelete,
-                  style: VelvetText.link().copyWith(
-                    fontSize: 13,
-                    color: BrandColors.error.withValues(
-                      alpha: _saving ? 0.4 : 1.0,
-                    ),
-                  ),
+                  style: VelvetText.link().copyWith(fontSize: 13, color: tint),
                 ),
               ],
             ),

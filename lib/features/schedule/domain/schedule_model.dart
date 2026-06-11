@@ -436,52 +436,27 @@ class TemplateDay {
 
 enum OverrideKind { dayOff, custom }
 
-/// The fixed reasons a *day-off* override can carry. Mirrors the backend enum
-/// `ScheduleExceptionReason` (VACATION / HOLIDAY / SICK_DAY / OTHER) 1:1.
-enum OverrideReason {
-  vacation('VACATION', 'Відпустка', Icons.beach_access_rounded),
-  holiday('HOLIDAY', 'Святковий день', Icons.celebration_rounded),
-  sickDay('SICK_DAY', 'Лікарняний', Icons.healing_rounded),
-  other('OTHER', 'Інше', Icons.event_busy_rounded);
-
-  const OverrideReason(this.wire, this.label, this.icon);
-
-  final String wire;
-  final String label;
-  final IconData icon;
-}
-
 /// One per-date override as the *screen* models it: a contiguous span of dates
-/// sharing one kind (+ reason/note for day-offs, or intervals for custom-hours).
+/// sharing one kind (a plain day-off, or custom-hours intervals).
 /// A single date has `start == end`.
 ///
 /// Wire note: the backend stores **one row per calendar date**. A multi-day
 /// span here maps to N rows on save / re-grouped rows on load — the grouping is
 /// a presentation convenience for identical overrides on consecutive dates.
 class ScheduleOverride {
-  ScheduleOverride.dayOff({
-    required this.start,
-    required this.end,
-    required this.reason,
-    this.note,
-  }) : kind = OverrideKind.dayOff,
-       intervals = const <WorkInterval>[];
+  ScheduleOverride.dayOff({required this.start, required this.end})
+    : kind = OverrideKind.dayOff,
+      intervals = const <WorkInterval>[];
 
   ScheduleOverride.custom({
     required this.start,
     required this.end,
     required this.intervals,
-  }) : kind = OverrideKind.custom,
-       reason = null,
-       note = null;
+  }) : kind = OverrideKind.custom;
 
   final OverrideKind kind;
   final DateTime start;
   final DateTime end;
-
-  /// Day-off only.
-  final OverrideReason? reason;
-  final String? note;
 
   /// Custom-hours only.
   final List<WorkInterval> intervals;
@@ -497,6 +472,7 @@ class ScheduleOverride {
   DateTime get sortKey => start;
 
   /// Stable-ish key for list widgets / Dismissible.
-  String get key =>
-      '${start.toIso8601String()}_${kind.name}_${reason?.wire ?? summariseIntervals(intervals)}';
+  String get key => kind == OverrideKind.dayOff
+      ? '${start.toIso8601String()}_${kind.name}'
+      : '${start.toIso8601String()}_${kind.name}_${summariseIntervals(intervals)}';
 }

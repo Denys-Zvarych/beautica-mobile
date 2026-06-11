@@ -76,7 +76,7 @@ class OverridesNotifier extends _$OverridesNotifier {
 
   /// Applies one override across every date of a multi-day span — expanding the
   /// span into one PUT per calendar date (the repository stays 1 row = 1 date).
-  /// All dates share [span]'s kind / reason / note / intervals.
+  /// All dates share [span]'s kind / intervals.
   ///
   /// Rejects spans wider than [kMaxOverrideSpanDays] with a [ValidationFailure]
   /// (mirroring the repository range guard). Fires the per-date PUTs in bounded
@@ -103,12 +103,7 @@ class OverridesNotifier extends _$OverridesNotifier {
 
       ScheduleOverride perDayFor(DateTime date) =>
           span.kind == OverrideKind.dayOff
-          ? ScheduleOverride.dayOff(
-              start: date,
-              end: date,
-              reason: span.reason,
-              note: span.note,
-            )
+          ? ScheduleOverride.dayOff(start: date, end: date)
           : ScheduleOverride.custom(
               start: date,
               end: date,

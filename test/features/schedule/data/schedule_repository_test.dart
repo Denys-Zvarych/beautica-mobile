@@ -82,8 +82,7 @@ ScheduleOverrideResponse _dayOffRow(int year, int month, int day) =>
     ScheduleOverrideResponse(
       (b) => b
         ..date = Date(year, month, day)
-        ..kind = ScheduleOverrideResponseKindEnum.DAY_OFF
-        ..reason = ScheduleOverrideResponseReasonEnum.VACATION,
+        ..kind = ScheduleOverrideResponseKindEnum.DAY_OFF,
     );
 
 void main() {

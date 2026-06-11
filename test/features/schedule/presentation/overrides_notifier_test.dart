@@ -20,11 +20,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 class _MockScheduleRepository extends Mock implements ScheduleRepository {}
 
 ScheduleOverride _spanDayOff(DateTime start, DateTime end) =>
-    ScheduleOverride.dayOff(
-      start: start,
-      end: end,
-      reason: OverrideReason.vacation,
-    );
+    ScheduleOverride.dayOff(start: start, end: end);
 
 void main() {
   late _MockScheduleRepository repo;
@@ -38,7 +34,6 @@ void main() {
       ScheduleOverride.dayOff(
         start: DateTime(2026, 6, 1),
         end: DateTime(2026, 6, 1),
-        reason: OverrideReason.other,
       ),
     );
     registerFallbackValue(DateTime(2026, 6, 1));

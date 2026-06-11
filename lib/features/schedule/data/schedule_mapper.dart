@@ -195,12 +195,7 @@ abstract final class ScheduleMapper {
     final date = _dateFromWire(dto.date);
     final isDayOff = dto.kind == ScheduleOverrideResponseKindEnum.DAY_OFF;
     if (isDayOff) {
-      return ScheduleOverride.dayOff(
-        start: date,
-        end: date,
-        reason: _reasonFromResponse(dto.reason),
-        note: dto.note,
-      );
+      return ScheduleOverride.dayOff(start: date, end: date);
     }
     return ScheduleOverride.custom(
       start: date,
@@ -223,11 +218,9 @@ abstract final class ScheduleMapper {
         ..kind = isDayOff
             ? ScheduleOverrideRequestKindEnum.DAY_OFF
             : ScheduleOverrideRequestKindEnum.CUSTOM_HOURS;
-      if (isDayOff) {
-        b
-          ..reason = _reasonToRequest(override.reason)
-          ..note = override.note;
-      } else {
+      // DAY_OFF carries only its kind (no intervals, no reason/note — the
+      // backend dropped those fields). CUSTOM_HOURS carries the intervals.
+      if (!isDayOff) {
         b.intervals = _intervalsToDtos(override.intervals).toBuilder();
       }
     });
@@ -240,7 +233,6 @@ abstract final class ScheduleMapper {
         date: _dateFromWire(dto.date),
         source: _sourceFromResponse(dto.source_),
         intervals: _intervalsFromDtos(dto.intervals),
-        reason: _reasonFromEffective(dto.reason),
       );
 
   // ── Enum translation (DTO *_Enum ⇄ domain) ────────────────────────────────────
@@ -260,58 +252,5 @@ abstract final class ScheduleMapper {
     // NO_SCHEDULE and any unknown future value collapse to noSchedule — the
     // safe "no published hours" reading.
     return EffectiveSource.noSchedule;
-  }
-
-  static OverrideReason? _reasonFromResponse(
-    ScheduleOverrideResponseReasonEnum? reason,
-  ) {
-    if (reason == ScheduleOverrideResponseReasonEnum.VACATION) {
-      return OverrideReason.vacation;
-    }
-    if (reason == ScheduleOverrideResponseReasonEnum.HOLIDAY) {
-      return OverrideReason.holiday;
-    }
-    if (reason == ScheduleOverrideResponseReasonEnum.SICK_DAY) {
-      return OverrideReason.sickDay;
-    }
-    if (reason == ScheduleOverrideResponseReasonEnum.OTHER) {
-      return OverrideReason.other;
-    }
-    return null;
-  }
-
-  static OverrideReason? _reasonFromEffective(
-    EffectiveDayResponseReasonEnum? reason,
-  ) {
-    if (reason == EffectiveDayResponseReasonEnum.VACATION) {
-      return OverrideReason.vacation;
-    }
-    if (reason == EffectiveDayResponseReasonEnum.HOLIDAY) {
-      return OverrideReason.holiday;
-    }
-    if (reason == EffectiveDayResponseReasonEnum.SICK_DAY) {
-      return OverrideReason.sickDay;
-    }
-    if (reason == EffectiveDayResponseReasonEnum.OTHER) {
-      return OverrideReason.other;
-    }
-    return null;
-  }
-
-  static ScheduleOverrideRequestReasonEnum? _reasonToRequest(
-    OverrideReason? reason,
-  ) {
-    switch (reason) {
-      case OverrideReason.vacation:
-        return ScheduleOverrideRequestReasonEnum.VACATION;
-      case OverrideReason.holiday:
-        return ScheduleOverrideRequestReasonEnum.HOLIDAY;
-      case OverrideReason.sickDay:
-        return ScheduleOverrideRequestReasonEnum.SICK_DAY;
-      case OverrideReason.other:
-        return ScheduleOverrideRequestReasonEnum.OTHER;
-      case null:
-        return null;
-    }
   }
 }

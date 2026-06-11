@@ -10,10 +10,15 @@
 //     `ScheduleOverride` it forwards to the repository — no mocking of the
 //     widget-under-test, no real network/storage (M1 isolation).
 //   • Finders use the source `Key`s (override-mode-working/-dayoff,
-//     override-reason-VACATION, override-note-field, override-save,
-//     override-delete, plus the shared IntervalEditor's `override-work-*` keys)
-//     — never localised strings (M2; the suite has prior locale-coupling
-//     findings).
+//     override-dayoff-rest, override-save, override-delete, plus the shared
+//     IntervalEditor's `override-work-*` keys) — never localised strings (M2;
+//     the suite has prior locale-coupling findings).
+//
+// Phase 15.4 contract change: the backend dropped reason/note from schedule
+// overrides. Day-off mode now renders ONLY a clean rest card (keyed
+// `override-dayoff-rest`) — no reason grid, no `override-note-field`. Saving a
+// day-off requires no reason selection. The clear/revert button keeps Key
+// `override-delete` but is now a non-destructive «Повернути до графіка» action.
 //   • Goldens use the framework's `matchesGoldenFile` (golden_toolkit is not in
 //     the project; the schedule goldens already use this). A fixed device size +
 //     the test font keep them deterministic; the sheet is wall-clock free, so
@@ -79,8 +84,6 @@ Future<void> _pumpSheet(
   List<WorkInterval>? initialIntervals,
   bool hasExistingOverride = false,
   bool initialDayOff = false,
-  OverrideReason? initialReason,
-  String? initialNote,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -105,8 +108,6 @@ Future<void> _pumpSheet(
                   initialIntervals: initialIntervals ?? _currentIntervals(),
                   hasExistingOverride: hasExistingOverride,
                   initialDayOff: initialDayOff,
-                  initialReason: initialReason,
-                  initialNote: initialNote,
                 ),
                 child: const Text('open'),
               ),
@@ -141,7 +142,6 @@ void main() {
       ScheduleOverride.dayOff(
         start: DateTime(2026, 6, 1),
         end: DateTime(2026, 6, 1),
-        reason: OverrideReason.other,
       ),
     );
     registerFallbackValue(DateTime(2026, 6, 1));
@@ -159,10 +159,10 @@ void main() {
 
         // Working-hours mode is the default surface: the shared IntervalEditor's
         // window pickers (keyed with the `override` prefix) render; the day-off
-        // reason picker does not.
+        // rest card does not.
         expect(find.byKey(const Key('override-work-start')), findsOneWidget);
         expect(find.byKey(const Key('override-work-end')), findsOneWidget);
-        expect(find.byKey(const Key('override-reason-VACATION')), findsNothing);
+        expect(find.byKey(const Key('override-dayoff-rest')), findsNothing);
 
         await tester.tap(find.byKey(const Key('override-save')));
         await tester.pumpAndSettle();
@@ -173,13 +173,11 @@ void main() {
         expect(captured, hasLength(1));
         final ScheduleOverride o = captured.single;
 
-        // CUSTOM_HOURS, single date == the targeted date, NO reason/note.
+        // CUSTOM_HOURS, single date == the targeted date.
         expect(o.kind, OverrideKind.custom);
         expect(o.isSingleDay, isTrue);
         expect(o.start, _date);
         expect(o.end, _date);
-        expect(o.reason, isNull);
-        expect(o.note, isNull);
 
         // The intervals are the seeded current intervals (09:00–13:00 ·
         // 14:00–18:00), round-tripped through DayHours.fromIntervals/toIntervals.
@@ -209,9 +207,8 @@ void main() {
 
   group('DayHoursSheet — day-off mode (DAY_OFF)', () {
     testWidgets(
-      'switching to «Вихідний» renders the four reason chips; picking VACATION '
-      '+ a note saves a single-date DAY_OFF override (reason VACATION, note set, '
-      'empty intervals)',
+      'switching to «Вихідний» shows ONLY the clean rest card — NO reason grid, '
+      'NO note field, working-hours pickers gone (Phase 15.4 contract)',
       (tester) async {
         final repo = _happyRepo();
         await _pumpSheet(tester, repo: repo);
@@ -220,31 +217,31 @@ void main() {
         await tester.tap(find.byKey(const Key('override-mode-dayoff')));
         await tester.pumpAndSettle();
 
-        // All four reason chips render; the working-hours pickers are gone.
+        // The clean rest card is the ONLY day-off affordance.
         expect(
-          find.byKey(const Key('override-reason-VACATION')),
+          find.byKey(const Key('override-dayoff-rest')),
           findsOneWidget,
         );
-        expect(
-          find.byKey(const Key('override-reason-HOLIDAY')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const Key('override-reason-SICK_DAY')),
-          findsOneWidget,
-        );
-        expect(find.byKey(const Key('override-reason-OTHER')), findsOneWidget);
+        // The reason grid is GONE (the four chips no longer exist) …
+        expect(find.byKey(const Key('override-reason-VACATION')), findsNothing);
+        expect(find.byKey(const Key('override-reason-HOLIDAY')), findsNothing);
+        expect(find.byKey(const Key('override-reason-SICK_DAY')), findsNothing);
+        expect(find.byKey(const Key('override-reason-OTHER')), findsNothing);
+        // … the note field is GONE …
+        expect(find.byKey(const Key('override-note-field')), findsNothing);
+        // … and the working-hours pickers are not on screen in day-off mode.
         expect(find.byKey(const Key('override-work-start')), findsNothing);
+      },
+    );
 
-        // Pick VACATION and enter a note.
-        await tester.tap(find.byKey(const Key('override-reason-VACATION')));
-        await tester.pumpAndSettle();
-        await tester.enterText(
-          find.byKey(const Key('override-note-field')),
-          'на морі',
-        );
-        await tester.pumpAndSettle();
+    testWidgets(
+      'saving a day-off needs NO reason selection — the put fires a plain '
+      'single-date DAY_OFF override with empty intervals',
+      (tester) async {
+        final repo = _happyRepo();
+        await _pumpSheet(tester, repo: repo, initialDayOff: true);
 
+        // No reason picked (none exists); save straight away.
         await tester.ensureVisible(find.byKey(const Key('override-save')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('override-save')));
@@ -260,39 +257,16 @@ void main() {
         expect(o.isSingleDay, isTrue);
         expect(o.start, _date);
         expect(o.end, _date);
-        expect(o.reason, OverrideReason.vacation);
-        // Wire value pinned exactly (the backend enum contract).
-        expect(o.reason!.wire, 'VACATION');
-        expect(o.note, 'на морі');
         expect(o.intervals, isEmpty);
       },
     );
 
-    testWidgets(
-      'a blank note saves a DAY_OFF override with a null note (not an empty '
-      'string)',
-      (tester) async {
-        final repo = _happyRepo();
-        await _pumpSheet(tester, repo: repo, initialDayOff: true);
-
-        // Default reason is VACATION; leave the note blank, save.
-        await tester.ensureVisible(find.byKey(const Key('override-save')));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('override-save')));
-        await tester.pumpAndSettle();
-
-        final captured = verify(
-          () => repo.putOverride(captureAny()),
-        ).captured.cast<ScheduleOverride>();
-        final ScheduleOverride o = captured.single;
-        expect(o.kind, OverrideKind.dayOff);
-        expect(o.reason, OverrideReason.vacation);
-        expect(o.note, isNull);
-        expect(o.intervals, isEmpty);
-      },
-    );
-
-    testWidgets('day-off mode (reason chips) matches its golden', (
+    // Golden is a SUPPLEMENTARY visual check only — the acceptance for day-off
+    // mode is the STRUCTURAL assertion above (rest card present; reason grid +
+    // note field absent). The PNG was re-blessed against the new clean rest-card
+    // render after the structure was confirmed correct; it is not the source of
+    // truth for the contract change.
+    testWidgets('day-off mode (clean rest card) matches its golden', (
       tester,
     ) async {
       final repo = _happyRepo();
@@ -307,10 +281,10 @@ void main() {
 
   // ── Existing override → clear ──────────────────────────────────────────────
 
-  group('DayHoursSheet — clear an existing override', () {
+  group('DayHoursSheet — revert-to-template (clear) an existing override', () {
     testWidgets(
-      'when an override already exists the «Видалити» action is present; '
-      'tapping it calls clearOverride(date)',
+      'when an override already exists the revert action is present; tapping it '
+      'calls clearOverride(date) — the clear→revert-to-template path',
       (tester) async {
         final repo = _happyRepo();
         await _pumpSheet(tester, repo: repo, hasExistingOverride: true);
@@ -327,6 +301,32 @@ void main() {
         expect(captured.single, _date);
         // No put on a clear.
         verifyNever(() => repo.putOverride(any()));
+      },
+    );
+
+    // REGRESSION (Phase 15.4 rename): the clear/revert button is now the
+    // non-destructive «Повернути до графіка» action — its label changed from
+    // «Видалити перевизначення». We assert the new label via the keyed widget's
+    // text resolving to `l10n.scheduleOverrideDelete` (M2/M11: keyed finder +
+    // localised value, never a raw-string finder).
+    testWidgets(
+      'the revert button (keyed override-delete) shows the new '
+      '«Повернути до графіка» label',
+      (tester) async {
+        final repo = _happyRepo();
+        await _pumpSheet(tester, repo: repo, hasExistingOverride: true);
+
+        final Finder button = find.byKey(const Key('override-delete'));
+        expect(button, findsOneWidget);
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(DayHoursSheet)),
+        );
+        // The label inside the keyed button resolves to the renamed l10n value.
+        expect(
+          find.descendant(of: button, matching: find.text(l10n.scheduleOverrideDelete)),
+          findsOneWidget,
+        );
       },
     );
 

@@ -75,7 +75,6 @@ EffectiveDay _working(DateTime date) => EffectiveDay(
 EffectiveDay _dayOff(DateTime date) => EffectiveDay(
   date: _dateOnly(date),
   source: EffectiveSource.overrideDayOff,
-  reason: OverrideReason.vacation,
   intervals: const <WorkInterval>[],
 );
 

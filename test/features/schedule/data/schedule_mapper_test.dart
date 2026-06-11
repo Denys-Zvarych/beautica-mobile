@@ -273,10 +273,12 @@ void main() {
         override.intervals.single.end,
         const TimeOfDay(hour: 14, minute: 0),
       );
-      expect(override.reason, isNull);
     });
 
-    test('DAY_OFF ↔ reason + note, empty intervals', () {
+    test('DAY_OFF ↔ a plain full day-off (empty intervals, no reason/note)', () {
+      // The backend dropped reason/note from schedule overrides: even when the
+      // wire DTO still carries them (legacy / forward-compat field), the mapper
+      // ignores them — a DAY_OFF maps to a plain closed day, nothing more.
       final dto = ScheduleOverrideResponse(
         (b) => b
           ..date = Date(2026, 7, 1)
@@ -288,32 +290,41 @@ void main() {
       final override = ScheduleMapper.overrideFromResponse(dto);
 
       expect(override.kind, OverrideKind.dayOff);
-      expect(override.reason, OverrideReason.vacation);
-      expect(override.note, 'на морі');
       expect(override.intervals, isEmpty);
       expect(override.start, DateTime(2026, 7, 1));
+      expect(override.end, DateTime(2026, 7, 1));
     });
   });
 
   group('overrideToRequestForDate', () {
-    test('day-off serialises reason+note, no intervals', () {
-      final override = ScheduleOverride.dayOff(
-        start: DateTime(2026, 7, 1),
-        end: DateTime(2026, 7, 1),
-        reason: OverrideReason.holiday,
-        note: 'свято',
-      );
+    // REGRESSION (Phase 15.4 wire-contract change): a DAY_OFF override request
+    // now sets ONLY `date` + `kind` — reason/note are OMITTED entirely (the
+    // backend dropped those fields). This test pins that the generated request
+    // leaves reason/note UNSET (null) and carries no intervals. It FAILS against
+    // the old mapper that did `..reason = …` / `..note = …` on the DAY_OFF path.
+    test(
+      'day-off request sets ONLY date + kind — reason/note OMITTED, no intervals',
+      () {
+        final override = ScheduleOverride.dayOff(
+          start: DateTime(2026, 7, 1),
+          end: DateTime(2026, 7, 1),
+        );
 
-      final req = ScheduleMapper.overrideToRequestForDate(
-        override,
-        DateTime(2026, 7, 1),
-      );
+        final req = ScheduleMapper.overrideToRequestForDate(
+          override,
+          DateTime(2026, 7, 1),
+        );
 
-      expect(req.kind, ScheduleOverrideRequestKindEnum.DAY_OFF);
-      expect(req.reason, ScheduleOverrideRequestReasonEnum.HOLIDAY);
-      expect(req.note, 'свято');
-      expect(req.date, Date(2026, 7, 1));
-    });
+        // Only the two fields the new contract allows are set …
+        expect(req.kind, ScheduleOverrideRequestKindEnum.DAY_OFF);
+        expect(req.date, Date(2026, 7, 1));
+        // … reason/note are left UNSET (so they serialise as absent, not null).
+        expect(req.reason, isNull);
+        expect(req.note, isNull);
+        // … and a day-off never carries working intervals.
+        expect(req.intervals ?? const <WorkIntervalDto>[], isEmpty);
+      },
+    );
 
     test('custom-hours serialises intervals as HH:mm:00', () {
       final override = ScheduleOverride.custom(
@@ -341,13 +352,18 @@ void main() {
       expect(req.date, Date(2026, 7, 2));
     });
 
-    test('day-off serialises EMPTY intervals (not null), reason set', () {
-      // The DAY_OFF wire contract: reason present, intervals empty (the date is
-      // fully closed). Pins the inverse of the custom-hours case.
-      final override = ScheduleOverride.dayOff(
+    test('custom-hours request carries NO reason/note (mirror of day-off)', () {
+      // Pins the inverse of the custom-hours case: neither kind ever serialises
+      // a reason/note under the new contract.
+      final override = ScheduleOverride.custom(
         start: DateTime(2026, 7, 3),
         end: DateTime(2026, 7, 3),
-        reason: OverrideReason.sickDay,
+        intervals: <WorkInterval>[
+          WorkInterval(
+            start: const TimeOfDay(hour: 9, minute: 0),
+            end: const TimeOfDay(hour: 18, minute: 0),
+          ),
+        ],
       );
 
       final req = ScheduleMapper.overrideToRequestForDate(
@@ -355,9 +371,10 @@ void main() {
         DateTime(2026, 7, 3),
       );
 
-      expect(req.kind, ScheduleOverrideRequestKindEnum.DAY_OFF);
-      expect(req.reason, ScheduleOverrideRequestReasonEnum.SICK_DAY);
-      expect(req.intervals ?? const <WorkIntervalDto>[], isEmpty);
+      expect(req.kind, ScheduleOverrideRequestKindEnum.CUSTOM_HOURS);
+      expect(req.reason, isNull);
+      expect(req.note, isNull);
+      expect(req.intervals, hasLength(1));
     });
   });
 
@@ -392,18 +409,24 @@ void main() {
       );
     });
 
-    test('day-off reason mapped onto EffectiveDay.reason', () {
-      final dto = EffectiveDayResponse(
-        (b) => b
-          ..date = Date(2026, 6, 5)
-          ..source_ = EffectiveDayResponseSource_Enum.OVERRIDE_DAY_OFF
-          ..reason = EffectiveDayResponseReasonEnum.SICK_DAY,
-      );
-      expect(
-        ScheduleMapper.effectiveDayFromResponse(dto).reason,
-        OverrideReason.sickDay,
-      );
-    });
+    test(
+      'OVERRIDE_DAY_OFF maps to the neutral closed source — any wire reason is '
+      'ignored (no reason field on EffectiveDay)',
+      () {
+        // The backend dropped reason/note; even if the wire DTO still carries a
+        // reason, the mapper resolves a day-off purely as overrideDayOff with
+        // empty intervals — the neutral «Вихідний» state, no reason label.
+        final dto = EffectiveDayResponse(
+          (b) => b
+            ..date = Date(2026, 6, 5)
+            ..source_ = EffectiveDayResponseSource_Enum.OVERRIDE_DAY_OFF
+            ..reason = EffectiveDayResponseReasonEnum.SICK_DAY,
+        );
+        final eff = ScheduleMapper.effectiveDayFromResponse(dto);
+        expect(eff.source, EffectiveSource.overrideDayOff);
+        expect(eff.intervals, isEmpty);
+      },
+    );
   });
 
   group('Date ⇄ DateTime — leap day', () {

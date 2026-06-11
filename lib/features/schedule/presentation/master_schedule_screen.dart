@@ -176,8 +176,6 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
       initialIntervals: day.intervals,
       hasExistingOverride: hasOverride,
       initialDayOff: dayOff,
-      initialReason: day.reason,
-      initialNote: null,
     );
     // Plain dismiss (close / barrier / validation bail) → nothing changed.
     if (changed == null || !mounted) return;
@@ -967,8 +965,7 @@ class _SelectedDayView extends StatelessWidget {
   // ── Selected-day panel ───────────────────────────────────────────────────--
   Widget _dayPanel(AppLocalizations l10n) {
     final String summary = switch (day.source) {
-      EffectiveSource.overrideDayOff =>
-        day.reason?.label ?? l10n.workingHoursClosedLabel,
+      EffectiveSource.overrideDayOff => l10n.workingHoursClosedLabel,
       EffectiveSource.noSchedule => l10n.scheduleDaySummaryUnset,
       _ =>
         day.intervals.isEmpty

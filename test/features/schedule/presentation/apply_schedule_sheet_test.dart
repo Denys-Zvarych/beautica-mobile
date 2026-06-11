@@ -50,11 +50,7 @@ void main() {
   setUpAll(() {
     registerFallbackValue(_baseSchedule());
     registerFallbackValue(
-      ScheduleOverride.dayOff(
-        start: _today,
-        end: _today,
-        reason: OverrideReason.vacation,
-      ),
+      ScheduleOverride.dayOff(start: _today, end: _today),
     );
   });
 
