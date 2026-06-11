@@ -165,6 +165,50 @@ class _DataSchedule extends EffectiveScheduleNotifier {
   Future<List<EffectiveDay>> build(ScheduleRange range) async => _days;
 }
 
+/// RANGE-AWARE fake for the month-boundary spillover regression.
+///
+/// Unlike [_DataSchedule] (which ignores `range` and returns the same list for
+/// every family key), this fake serves an [EffectiveDay] for a date ONLY when
+/// that date falls inside the [range] the screen actually requested — exactly
+/// like the real repository, which can only return what it was asked to fetch.
+/// A working day is produced for every Monday and Tuesday in range; every other
+/// in-range date is NO_SCHEDULE. Dates OUTSIDE the requested range are simply
+/// absent from the result, so the screen's `_DayIndex.lookup` falls back to a
+/// NO_SCHEDULE day for them — the precise failure mode of the bug.
+///
+/// This is what makes the regression honest: under the OLD
+/// `ScheduleRange.month(_visibleMonth)` key, a week straddling a boundary fetched
+/// only the majority month, so the previous-month spillover Monday/Tuesday were
+/// out of range → rendered day-off. Under the union range they are in range →
+/// rendered working. [observedRanges] records every key the family was built
+/// with so the test can assert the union `from` reaches the spillover days.
+class _PerWeekdayRangeSchedule extends EffectiveScheduleNotifier {
+  /// Every [ScheduleRange] the screen has keyed this family on (one per visible
+  /// month+week view). Shared across instances via the static sink so the test
+  /// can inspect the range AFTER navigation regardless of which family instance
+  /// served the final view.
+  static final List<ScheduleRange> observedRanges = <ScheduleRange>[];
+
+  @override
+  Future<List<EffectiveDay>> build(ScheduleRange range) async {
+    observedRanges.add(range);
+    final List<EffectiveDay> out = <EffectiveDay>[];
+    DateTime cursor = _dateOnly(range.from);
+    final DateTime end = _dateOnly(range.to);
+    while (!cursor.isAfter(end)) {
+      // ISO Monday = 1, Tuesday = 2 → recurring template working days.
+      if (cursor.weekday == DateTime.monday ||
+          cursor.weekday == DateTime.tuesday) {
+        out.add(_templateWorking(cursor));
+      } else {
+        out.add(_noSchedule(cursor));
+      }
+      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+    }
+    return out;
+  }
+}
+
 class _LoadingSchedule extends EffectiveScheduleNotifier {
   @override
   Future<List<EffectiveDay>> build(ScheduleRange range) {
@@ -2196,6 +2240,152 @@ void main() {
               'only — confirming the override is scoped to its single week',
         );
         expect(find.byKey(const ValueKey<String>(monWedFri)), findsNothing);
+      },
+    );
+  });
+
+  // ── REGRESSION (QA GATE): month-boundary week-strip spillover days ──────────
+  //
+  // BUG (now fixed): when the visible week straddled a month boundary — e.g.
+  // Mon 29 Jun 2026 → Sun 5 Jul 2026 with `_visibleMonth` resolved to JULY (the
+  // majority month) — the trailing previous-month days (29–30 Jun) rendered as
+  // NON-working even though the weekly template marked them working. Cause: the
+  // `_range` getter keyed `effectiveScheduleProvider` on
+  // `ScheduleRange.month(_visibleMonth)`, i.e. 1–31 Jul ONLY. The spillover days
+  // 29–30 Jun were never fetched, so `_DayIndex.lookup` served a NO_SCHEDULE
+  // fallback (empty intervals) → those strip cells rendered day-off.
+  //
+  // FIX: `_range` now returns the UNION of the visible month and the displayed
+  // week (`from = min(firstOfMonth, weekStart)`, `to = max(lastOfMonth,
+  // weekStart + 6)`), so a straddling week fetches from 29 Jun and the spillover
+  // days resolve from their real effective schedule.
+  //
+  // This test reproduces the report EXACTLY: it navigates the screen to the
+  // straddling week (Mon 29 Jun 2026 → Sun 5 Jul 2026) and asserts the 29-Jun
+  // and 30-Jun strip cells render WORKING. The fake is RANGE-AWARE — it can only
+  // serve a date that was actually fetched — so under the OLD month-only key the
+  // 29/30-Jun cells fall outside the requested range and render day-off (the
+  // assertion FAILS); under the union range they are in range and render working
+  // (PASS). A second assertion pins the union directly: the requested range's
+  // `from` must reach 29 Jun (≤), not start at 1 Jul.
+  //
+  // GOLDEN-NOT-ACCEPTANCE / M2 / M3: the acceptance signal is the STRUCTURAL
+  // `WeekStripDay.working` flag on the spillover cells (read off the widget, not
+  // a localised string or a PNG), plus the captured `ScheduleRange.from`.
+  group('MasterScheduleScreen — month-boundary strip spillover (QA gate)', () {
+    // The report's straddling week. 29 Jun 2026 IS a Monday, so its `_mondayOf`
+    // is itself; Thursday (2 Jul) lives in July → `_visibleMonth` resolves to
+    // July, the exact "majority month" shape from the bug report.
+    final DateTime reportWeekMon = DateTime(2026, 6, 29);
+
+    /// Whole-week delta from the device week to [reportWeekMon] — drives the
+    /// week chevron a deterministic number of times regardless of run date.
+    int weekStepsTo(DateTime targetMon) {
+      final int days = _dateOnly(targetMon).difference(_weekStart).inDays;
+      return days ~/ 7;
+    }
+
+    /// Reads the [WeekStripDay] cell rendered for day-of-month [dayNumber] (the
+    /// strip shows one cell per visible-week date; day numbers are unique within
+    /// a 7-day window). M2: structural — returns the widget, not a string.
+    WeekStripDay stripCell(WidgetTester tester, int dayNumber) {
+      return tester
+          .widgetList<WeekStripDay>(find.byType(WeekStripDay))
+          .singleWhere((WeekStripDay c) => c.day == dayNumber);
+    }
+
+    testWidgets(
+      'a week straddling Jun→Jul (visible month = July) renders the 29-Jun and '
+      '30-Jun spillover cells as WORKING — union range fetches them, not the '
+      'month-only range (which left them day-off)',
+      (tester) async {
+        _PerWeekdayRangeSchedule.observedRanges.clear();
+        addTearDown(_PerWeekdayRangeSchedule.observedRanges.clear);
+
+        await _pump(
+          tester,
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            effectiveScheduleProvider.overrideWith(
+              () => _PerWeekdayRangeSchedule(),
+            ),
+            weeklyScheduleProvider.overrideWith(
+              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            ),
+          ],
+        );
+
+        // Navigate from the device week onto the report's straddling week by
+        // stepping the week chevron the deterministic number of times. Tapping
+        // the chevron drives the exact `_stepWeek` path production uses (which
+        // also recomputes `_visibleMonth` to the majority month → July here).
+        final l10n = _l10n(tester);
+        final int steps = weekStepsTo(reportWeekMon);
+        final String chevron = steps >= 0
+            ? l10n.scheduleNextWeek
+            : l10n.schedulePrevWeek;
+        for (int i = 0; i < steps.abs(); i++) {
+          await tester.tap(find.bySemanticsLabel(chevron));
+          await tester.pumpAndSettle();
+        }
+
+        // Sanity: we are on the straddling week — all seven cells present, and
+        // the 29/30-Jun spillover cells carry the previous month (inMonth=false)
+        // while the July majority days carry inMonth=true. This pins that the
+        // navigation actually landed on the boundary week (not some other week).
+        expect(find.byType(WeekStripDay), findsNWidgets(7));
+        expect(
+          stripCell(tester, 29).inMonth,
+          isFalse,
+          reason: '29 Jun is a previous-month spillover day in a July view',
+        );
+        expect(
+          stripCell(tester, 30).inMonth,
+          isFalse,
+          reason: '30 Jun is a previous-month spillover day in a July view',
+        );
+        expect(
+          stripCell(tester, 2).inMonth,
+          isTrue,
+          reason: '2 Jul belongs to the visible (July) month',
+        );
+
+        // ── THE REGRESSION ASSERTION ──────────────────────────────────────────
+        // Mon 29 Jun + Tue 30 Jun are template working days. Under the OLD
+        // `ScheduleRange.month(July)` key these dates were never fetched → the
+        // range-aware fake never served them → `_DayIndex` fell back to
+        // NO_SCHEDULE → `working == false`. Under the union range they ARE
+        // fetched → `working == true`. This is the cell-level proof of the fix.
+        expect(
+          stripCell(tester, 29).working,
+          isTrue,
+          reason:
+              'Mon 29 Jun is a template working day; the union range must fetch '
+              'it so the spillover cell renders WORKING (FAILS on month-only)',
+        );
+        expect(
+          stripCell(tester, 30).working,
+          isTrue,
+          reason:
+              'Tue 30 Jun is a template working day; the union range must fetch '
+              'it so the spillover cell renders WORKING (FAILS on month-only)',
+        );
+
+        // ── UNION-RANGE PROOF ─────────────────────────────────────────────────
+        // Directly assert the screen queried a range whose `from` reaches the
+        // spillover days (≤ 29 Jun), not one that starts at 1 Jul. This pins the
+        // fix at the source — the `_range` getter — independent of the cells.
+        final bool fetchedSpillover = _PerWeekdayRangeSchedule.observedRanges
+            .any((ScheduleRange r) => !r.from.isAfter(DateTime(2026, 6, 29)));
+        expect(
+          fetchedSpillover,
+          isTrue,
+          reason:
+              'the union range must request from ≤ 29 Jun (the spillover days); '
+              'the old month-only range started at 1 Jul and never fetched them',
+        );
       },
     );
   });

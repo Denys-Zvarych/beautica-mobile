@@ -99,8 +99,38 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   bool _sameDate(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
-  // ── Range that backs the visible month (bounded family key) ────────────────
-  ScheduleRange get _range => ScheduleRange.month(_visibleMonth);
+  // ── Range that backs the visible month UNION the displayed week ────────────
+  // The week strip can straddle a month boundary (e.g. Mon 29 Jun → Sun 5 Jul):
+  // `_visibleMonth` resolves to the majority month, so a plain
+  // `ScheduleRange.month(_visibleMonth)` leaves the spillover days (29–30 Jun)
+  // uncovered. `_DayIndex.lookup` would then serve a NO_SCHEDULE fallback for
+  // them and render those cells as day-off even when the weekly template marks
+  // them working. We instead fetch the UNION of the month and the visible week
+  // so every cell the strip and the template pills read is server-authoritative
+  // (overrides on spillover days resolve too — no fallback widening).
+  //
+  // Width stays bounded: a calendar month (≤31 days) plus at most 6 spillover
+  // days on either side is ≤ ~37 days — well under `kMaxScheduleRangeDays` (366).
+  // The key stays stable per (visibleMonth, weekStart) pair, so Riverpod family
+  // caching does not thrash within a fixed month+week view.
+  ScheduleRange get _range {
+    final DateTime monthFirst = DateTime(
+      _visibleMonth.year,
+      _visibleMonth.month,
+    );
+    final DateTime monthLast = DateTime(
+      _visibleMonth.year,
+      _visibleMonth.month + 1,
+      0,
+    );
+    final DateTime weekFirst = _dateOnly(_weekStart);
+    final DateTime weekLast = weekFirst.add(const Duration(days: 6));
+    final DateTime from = weekFirst.isBefore(monthFirst)
+        ? weekFirst
+        : monthFirst;
+    final DateTime to = weekLast.isAfter(monthLast) ? weekLast : monthLast;
+    return ScheduleRange(from: from, to: to);
+  }
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   // Day selection mutates the notifier only (no setState): the static calendar
@@ -530,13 +560,13 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   /// week strip cell directly below it — a current-week-only Friday shows on
   /// this week and disappears the moment another week is displayed.
   ///
-  /// Cross-month edge: when the displayed week straddles two months, the days in
-  /// the adjacent month aren't covered by the month-scoped `_range`, so
-  /// [_DayIndex.lookup] returns a NO_SCHEDULE fallback for them — exactly the
-  /// same verdict the week strip already renders for those bleed days. Driving
-  /// the card off the same `index` (rather than widening the watched range)
-  /// keeps the card and strip 1:1 consistent and preserves the whole-family
-  /// effective-schedule cache coherence (no extra/narrower range key introduced).
+  /// Cross-month edge: when the displayed week straddles two months, `_range`
+  /// fetches the UNION of the visible month and the displayed week, so the
+  /// adjacent-month spillover days ARE covered. [_DayIndex.lookup] returns their
+  /// real resolved [EffectiveDay] (template/override), not a NO_SCHEDULE
+  /// fallback — so a Monday the template marks working lights its pill even when
+  /// that Monday belongs to the previous month. Driving the card off the same
+  /// `index` the week strip uses keeps the card and strip 1:1 consistent.
   List<bool> _templatePattern(_DayIndex index) {
     final active = List<bool>.filled(7, false);
     for (int i = 0; i < 7; i++) {
