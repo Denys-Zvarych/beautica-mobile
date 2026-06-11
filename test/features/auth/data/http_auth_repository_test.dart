@@ -909,39 +909,37 @@ void main() {
       },
     );
 
-    test(
-      'non-ValidationFailure (e.g. NetworkFailure) → propagates unchanged, '
-      'NOT remapped to ResetTokenInvalidFailure',
-      () async {
-        const failure = NetworkFailure();
-        when(
-          () => mockAuthApi.resetPassword(
-            resetPasswordRequest: any(named: 'resetPasswordRequest'),
-          ),
-        ).thenThrow(_dioWithFailure(failure, statusCode: 503));
-
-        await expectLater(
-          () => repository.confirmPasswordReset(
-            token: 'tok',
-            newPassword: 'pw',
-          ),
-          throwsA(isA<NetworkFailure>()),
-        );
-      },
-    );
-
-    test('raw DioException (no mapped Failure) → throws UnknownFailure', () async {
+    test('non-ValidationFailure (e.g. NetworkFailure) → propagates unchanged, '
+        'NOT remapped to ResetTokenInvalidFailure', () async {
+      const failure = NetworkFailure();
       when(
         () => mockAuthApi.resetPassword(
           resetPasswordRequest: any(named: 'resetPasswordRequest'),
         ),
-      ).thenThrow(_rawDioException());
+      ).thenThrow(_dioWithFailure(failure, statusCode: 503));
 
       await expectLater(
         () => repository.confirmPasswordReset(token: 'tok', newPassword: 'pw'),
-        throwsA(isA<UnknownFailure>()),
+        throwsA(isA<NetworkFailure>()),
       );
     });
+
+    test(
+      'raw DioException (no mapped Failure) → throws UnknownFailure',
+      () async {
+        when(
+          () => mockAuthApi.resetPassword(
+            resetPasswordRequest: any(named: 'resetPasswordRequest'),
+          ),
+        ).thenThrow(_rawDioException());
+
+        await expectLater(
+          () =>
+              repository.confirmPasswordReset(token: 'tok', newPassword: 'pw'),
+          throwsA(isA<UnknownFailure>()),
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -973,36 +971,36 @@ void main() {
       );
     });
 
-    test(
-      'DioException → re-throws mapped Failure (repo does NOT swallow; '
-      'anti-enumeration is enforced backend-side, not here)',
-      () async {
-        const failure = NetworkFailure();
-        when(
-          () => mockAuthApi.forgotPassword(
-            forgotPasswordRequest: any(named: 'forgotPasswordRequest'),
-          ),
-        ).thenThrow(_dioWithFailure(failure, statusCode: 503));
-
-        await expectLater(
-          () => repository.requestPasswordReset('x@beautica.test'),
-          throwsA(isA<NetworkFailure>()),
-        );
-      },
-    );
-
-    test('raw DioException (no mapped Failure) → throws UnknownFailure', () async {
+    test('DioException → re-throws mapped Failure (repo does NOT swallow; '
+        'anti-enumeration is enforced backend-side, not here)', () async {
+      const failure = NetworkFailure();
       when(
         () => mockAuthApi.forgotPassword(
           forgotPasswordRequest: any(named: 'forgotPasswordRequest'),
         ),
-      ).thenThrow(_rawDioException());
+      ).thenThrow(_dioWithFailure(failure, statusCode: 503));
 
       await expectLater(
         () => repository.requestPasswordReset('x@beautica.test'),
-        throwsA(isA<UnknownFailure>()),
+        throwsA(isA<NetworkFailure>()),
       );
     });
+
+    test(
+      'raw DioException (no mapped Failure) → throws UnknownFailure',
+      () async {
+        when(
+          () => mockAuthApi.forgotPassword(
+            forgotPasswordRequest: any(named: 'forgotPasswordRequest'),
+          ),
+        ).thenThrow(_rawDioException());
+
+        await expectLater(
+          () => repository.requestPasswordReset('x@beautica.test'),
+          throwsA(isA<UnknownFailure>()),
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -1045,18 +1043,21 @@ void main() {
       );
     });
 
-    test('raw DioException (no mapped Failure) → throws UnknownFailure', () async {
-      when(
-        () => mockAuthApi.resendVerification(
-          resendVerificationRequest: any(named: 'resendVerificationRequest'),
-        ),
-      ).thenThrow(_rawDioException());
+    test(
+      'raw DioException (no mapped Failure) → throws UnknownFailure',
+      () async {
+        when(
+          () => mockAuthApi.resendVerification(
+            resendVerificationRequest: any(named: 'resendVerificationRequest'),
+          ),
+        ).thenThrow(_rawDioException());
 
-      await expectLater(
-        () => repository.resendVerificationCode(email: 'x@beautica.test'),
-        throwsA(isA<UnknownFailure>()),
-      );
-    });
+        await expectLater(
+          () => repository.resendVerificationCode(email: 'x@beautica.test'),
+          throwsA(isA<UnknownFailure>()),
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------

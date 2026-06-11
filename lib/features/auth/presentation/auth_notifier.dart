@@ -654,9 +654,11 @@ class AuthNotifier extends _$AuthNotifier {
   /// Clears the session and wipes all tokens from secure storage.
   ///
   /// Makes a best-effort server-side revocation call via the repository before
-  /// wiping local state. Any [Failure] from the server call is tolerated — the
-  /// local wipe always proceeds. Sets state to [AsyncData<Unauthenticated>]
-  /// so the router guard (Phase 2.9) redirects to the login screen.
+  /// wiping local state. ANY error from the server call (a [Failure] or an
+  /// unmapped error such as a platform exception or [StateError]) is tolerated —
+  /// the local wipe always proceeds so a logout never leaves tokens on device
+  /// (M5 hardening). Sets state to [AsyncData<Unauthenticated>] so the router
+  /// guard (Phase 2.9) redirects to the login screen.
   Future<void> logout() async {
     try {
       await ref.read(authRepositoryProvider).logout();
@@ -664,6 +666,18 @@ class AuthNotifier extends _$AuthNotifier {
       if (kDebugMode) {
         log(
           'Logout server call failed (tolerated): ${f.runtimeType}',
+          name: 'auth',
+          level: 900,
+        );
+      }
+    } catch (e) {
+      // M5 hardening: a NON-Failure error (unmapped platform exception, raw
+      // StateError, …) must NOT propagate past the wipe — otherwise the user's
+      // refresh token would survive an explicit logout. Logout stays best-effort
+      // for every error type; the unconditional wipe below always runs.
+      if (kDebugMode) {
+        log(
+          'Logout server call threw non-Failure (tolerated): ${e.runtimeType}',
           name: 'auth',
           level: 900,
         );
