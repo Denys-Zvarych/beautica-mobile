@@ -398,6 +398,83 @@ class _StatefulFakeScheduleRepository implements ScheduleRepository {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// _CountingRangeScheduleRepository — drives the BOUNDED-CACHE (keepAlive TTL)
+// revisit regression. Serves weekday-aware template data for any requested
+// range (Mon/Tue working, every other day NO_SCHEDULE — matching
+// `_PerWeekdayRangeSchedule`) AND counts how many times `effectiveSchedule` /
+// `listOverrides` were fetched per range-`from` date.
+//
+// The caching feature under test keeps a successfully-fetched range pinned via
+// `ref.keepAlive()` for a 5-min TTL, so paging away from a month and BACK within
+// the TTL must serve the cached data WITHOUT a second repository fetch and
+// WITHOUT re-entering loading. Once the TTL elapses while the range is unwatched
+// the keepAlive link closes and a revisit re-fetches. These counters let the
+// test prove both halves: count stays 1 on a within-TTL revisit (cache hit),
+// then grows after the TTL elapses (cache released — the bound is real, not a
+// permanent leak). Only `scheduleRepositoryProvider` is overridden, so the
+// GENUINE OverridesNotifier + EffectiveScheduleNotifier (with their keepAlive
+// timers) run end-to-end — overriding the notifiers would short the very cache
+// wiring under test.
+// ───────────────────────────────────────────────────────────────────────────
+class _CountingRangeScheduleRepository implements ScheduleRepository {
+  /// effective-schedule fetch count keyed by the range's `from` (date-only).
+  final Map<DateTime, int> effectiveFetchByFrom = <DateTime, int>{};
+
+  int effectiveFetchCountFor(DateTime from) =>
+      effectiveFetchByFrom[_dateOnly(from)] ?? 0;
+
+  @override
+  Future<List<EffectiveDay>> effectiveSchedule(
+    DateTime from,
+    DateTime to,
+  ) async {
+    final DateTime key = _dateOnly(from);
+    effectiveFetchByFrom[key] = (effectiveFetchByFrom[key] ?? 0) + 1;
+    final List<EffectiveDay> out = <EffectiveDay>[];
+    DateTime cursor = _dateOnly(from);
+    final DateTime end = _dateOnly(to);
+    while (!cursor.isAfter(end)) {
+      if (cursor.weekday == DateTime.monday ||
+          cursor.weekday == DateTime.tuesday) {
+        out.add(_templateWorking(cursor));
+      } else {
+        out.add(_noSchedule(cursor));
+      }
+      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+    }
+    return out;
+  }
+
+  @override
+  Future<List<ScheduleOverride>> listOverrides(
+    DateTime from,
+    DateTime to,
+  ) async => const <ScheduleOverride>[];
+
+  // ── Unused by the cache revisit test ───────────────────────────────────────
+  @override
+  Future<ScheduleOverride> putOverride(ScheduleOverride override) async =>
+      override;
+
+  @override
+  Future<void> clearOverride(DateTime date) async {}
+
+  @override
+  Future<List<WeeklySchedule>> listWeeklySchedules() async => <WeeklySchedule>[
+    _template(),
+  ];
+
+  @override
+  Future<WeeklySchedule> upsertWeeklySchedule(
+    WeeklySchedule schedule, {
+    String? scheduleId,
+  }) async => schedule;
+
+  @override
+  Future<void> deleteWeeklySchedule(String scheduleId) async {}
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // _CompleterScheduleRepository — drives the SEAMLESS-RETENTION + READ-AFTER-WRITE
 // regression tests (the exact on-device bug the previous green tests were blind
 // to).
@@ -1967,6 +2044,10 @@ void main() {
               'the just-saved pause must be visible immediately; a stale '
               '`_lastDays` snapshot would still show the pre-save solid day',
         );
+
+        // Real notifiers park a 5-min keepAlive release timer; drain it so the
+        // FakeAsync teardown sees zero pending timers (test-side hygiene only).
+        await _drainKeepAliveTimers(tester);
       },
     );
 
@@ -2011,6 +2092,9 @@ void main() {
               'after save the panel must focus the edited date and show its '
               'fresh pause immediately',
         );
+
+        // Drain the real notifiers' 5-min keepAlive release timer (hygiene).
+        await _drainKeepAliveTimers(tester);
       },
     );
 
@@ -2230,6 +2314,9 @@ void main() {
               'once the genuine refetch resolves the just-saved pause must '
               'render — proving the FRESH value, not the retained one, is shown',
         );
+
+        // Drain the real notifiers' 5-min keepAlive release timer (hygiene).
+        await _drainKeepAliveTimers(tester);
       },
     );
 
@@ -2319,6 +2406,9 @@ void main() {
               'the rendered grid must be the refetched post-write '
               'composition (with the pause), proving read-after-write coherence',
         );
+
+        // Drain the real notifiers' 5-min keepAlive release timer (hygiene).
+        await _drainKeepAliveTimers(tester);
       },
     );
   });
@@ -2845,6 +2935,129 @@ void main() {
       );
     });
   });
+
+  // ── REGRESSION (caching feature): bounded keepAlive serves a within-TTL ──────
+  // revisit from cache (no refetch, no loading), then releases after the TTL.
+  //
+  // The shipped change keeps a successfully-fetched schedule range pinned via
+  // `ref.keepAlive()` for a 5-min TTL (effective_schedule_notifier.dart /
+  // overrides_notifier.dart). The user-visible win: paging month1 → month2 →
+  // month1 within the TTL no longer flashes the loading placeholder, because the
+  // month1 range instance is still alive and serves its cached data instantly —
+  // its repository fetch is NOT issued a second time.
+  //
+  // This test drives the GENUINE notifiers (only `scheduleRepositoryProvider` is
+  // overridden, with a per-range fetch counter), so the real keepAlive timers
+  // run. It pins BOTH halves of the bound:
+  //   • cache HIT: after paging away and BACK within the TTL, a single `pump()`
+  //     shows the month1 content with NO `schedule-selected-day-loading`
+  //     placeholder, and the month1 fetch count is still 1 (served from cache);
+  //   • cache RELEASE: advancing fake time past the 5-min TTL while month1 is
+  //     unwatched (we are on month2) lets the keepAlive link close; paging back
+  //     to month1 then DOES re-fetch (count grows) — proving the cache is bounded,
+  //     not a permanent leak.
+  //
+  // Against the PRE-cache (autoDispose) code the revisit re-fetched every time →
+  // the placeholder flashed and the count grew on the within-TTL revisit, so the
+  // cache-HIT assertions FAIL there and PASS now.
+  group('MasterScheduleScreen — bounded keepAlive cache (revisit regression)', () {
+    testWidgets(
+      'paging month1 → month2 → month1 within the 5-min TTL serves the cached '
+      'range (no refetch, no loading placeholder); after the TTL it re-fetches',
+      (tester) async {
+        final repo = _CountingRangeScheduleRepository();
+        final container = ProviderContainer(
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            scheduleRepositoryProvider.overrideWithValue(repo),
+          ].cast(),
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: _router(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The initial (month1) range resolved exactly once. Its `from` is the
+        // sole recorded fetch key — capture it as the month1 cache key.
+        expect(repo.effectiveFetchByFrom.keys, hasLength(1));
+        final DateTime month1From = repo.effectiveFetchByFrom.keys.single;
+        expect(repo.effectiveFetchCountFor(month1From), 1);
+
+        final l10n = _l10n(tester);
+
+        // ── Page forward to month2 and let it resolve (a distinct range). ──────
+        await tester.tap(find.bySemanticsLabel(l10n.scheduleNextMonth));
+        await tester.pumpAndSettle();
+
+        // month2 fetched (a new range key recorded); month1 untouched so far.
+        expect(
+          repo.effectiveFetchByFrom.keys.length,
+          greaterThanOrEqualTo(2),
+          reason: 'stepping to month2 fetches its own range',
+        );
+        expect(repo.effectiveFetchCountFor(month1From), 1);
+
+        // ── Page BACK to month1 within the TTL (no time advanced). ─────────────
+        await tester.tap(find.bySemanticsLabel(l10n.schedulePrevMonth));
+        // A SINGLE frame: the cached month1 range is still alive, so its data is
+        // available immediately — no loading window to settle through.
+        await tester.pump();
+
+        // THE GUARD (cache HIT): no loading placeholder on the revisit …
+        expect(
+          find.byKey(const Key('schedule-selected-day-loading')),
+          findsNothing,
+          reason:
+              'a within-TTL revisit must serve the kept-alive cached range '
+              'immediately — no loading placeholder (the user-visible win)',
+        );
+        // … and the month1 repository fetch was NOT issued a second time: the
+        // keepAlive cache served it. (Pre-cache autoDispose code re-fetched here.)
+        expect(
+          repo.effectiveFetchCountFor(month1From),
+          1,
+          reason:
+              'the kept-alive month1 range must serve from cache, not re-fetch',
+        );
+
+        await tester.pumpAndSettle();
+
+        // ── Page forward to month2 again, then let the 5-min TTL elapse while ──
+        // month1 is unwatched, so its keepAlive link closes (cache released).
+        await tester.tap(find.bySemanticsLabel(l10n.scheduleNextMonth));
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(minutes: 6)); // > 5-min TTL
+        await tester.pumpAndSettle();
+
+        // ── Page BACK to month1 — now released, so it MUST re-fetch. ───────────
+        await tester.tap(find.bySemanticsLabel(l10n.schedulePrevMonth));
+        await tester.pumpAndSettle();
+
+        expect(
+          repo.effectiveFetchCountFor(month1From),
+          greaterThan(1),
+          reason:
+              'after the TTL elapses the keepAlive link closes; a later revisit '
+              'must re-fetch — proving the cache is bounded, not permanent',
+        );
+
+        // Drain any keepAlive release timers still parked from the final fetches.
+        await _drainKeepAliveTimers(tester);
+      },
+    );
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -2905,6 +3118,28 @@ Future<ProviderContainer> _pumpOverrideFlow(
   );
   await tester.pumpAndSettle();
   return container;
+}
+
+/// Drains the bounded-cache keepAlive [Timer]s the real schedule notifiers park
+/// after a successful fetch (see `effective_schedule_notifier.dart` /
+/// `overrides_notifier.dart` — `Timer(_kRangeCacheTtl, link.close)`).
+///
+/// Tests that drive the GENUINE notifiers (not static fakes) leave those 5-min
+/// release timers parked: while the range is kept alive the provider is not
+/// disposed before the test body ends, so its `onDispose(timer.cancel)` never
+/// fires and Flutter's FakeAsync teardown trips `A Timer is still pending even
+/// after the widget tree was disposed`. This is test-side timer hygiene, NOT a
+/// production defect — on device `onDispose` cancels the timer on real disposal.
+///
+/// Advancing fake time past the TTL fires each release timer → `link.close()`
+/// → the (now unwatched) provider disposes → its `onDispose(timer.cancel)` runs,
+/// leaving zero pending timers at teardown. The trailing `pumpAndSettle` flushes
+/// any frame the disposal scheduled. Add this at the END of any test that pumps
+/// the screen over the real notifiers; it does NOT touch the screen's content,
+/// so it cannot weaken the behavioural assertions made before it.
+Future<void> _drainKeepAliveTimers(WidgetTester tester) async {
+  await tester.pump(const Duration(minutes: 6)); // > _kRangeCacheTtl (5 min)
+  await tester.pumpAndSettle();
 }
 
 _StatefulFakeScheduleRepository _repoOf(ProviderContainer c) =>

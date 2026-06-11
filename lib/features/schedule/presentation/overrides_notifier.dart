@@ -14,9 +14,22 @@
 // (presentation layer) into one PUT per date — the repository and mapper stay
 // strictly 1 row = 1 date.
 //
-// NOT keepAlive (same rationale as the effective-schedule family): windows the
-// user paged away from release once unwatched.
+// Bounded-cache keepAlive (same scheme as the effective-schedule family): the
+// effective-schedule notifier `await`s `overridesProvider(range).future` as its
+// gating dependency, so for a revisit (July → June → July) to serve instantly
+// the overrides instance must ALSO survive being briefly unwatched — otherwise
+// the disposed overrides provider re-fetches and the effective schedule, which
+// depends on it, reloads behind its keepAlive. So after a SUCCESSFUL load this
+// notifier pins itself for [_kOverridesCacheTtl] (≈5 min) via `ref.keepAlive()`
+// and releases via a [Timer]; the timer is cancelled on dispose and re-set
+// whenever `build` re-runs (e.g. the repo resolving the real masterId, or an
+// `ref.invalidate`). A `_mutate` save updates `state` in place rather than
+// re-running `build`, so it keeps the existing keepAlive link — which is correct:
+// the range is being actively used, and the reactive effective-schedule rebuild
+// still fires off the in-place state change. We pin only on success — a
+// failed/loading load disposes normally so a revisit retries.
 
+import 'dart:async';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
@@ -45,6 +58,13 @@ const int kMaxOverrideSpanDays = 92;
 /// on the rate limiter.
 const int _kPutSpanChunkSize = 6;
 
+/// How long a successfully-loaded override range stays pinned after nothing
+/// watches it. Mirrors `_kRangeCacheTtl` in the effective-schedule family: the
+/// two providers cache as a pair (effective schedule gates on this one), so they
+/// share the same revisit window — recently-viewed ranges resolve instantly,
+/// and idle windows release after the TTL.
+const Duration _kOverridesCacheTtl = Duration(minutes: 5);
+
 /// Loads and mutates the per-date overrides for [range].
 ///
 /// Generated provider name: `overridesProvider` (a family — call
@@ -54,14 +74,27 @@ class OverridesNotifier extends _$OverridesNotifier {
   static const _tag = 'feature.schedule.overrides';
 
   @override
-  Future<List<ScheduleOverride>> build(ScheduleRange range) {
+  Future<List<ScheduleOverride>> build(ScheduleRange range) async {
     // `watch` (not `read`): the schedule repository rebuilds when
     // `masterProfileProvider` resolves the masterId from '' → the real UUID.
     // An instance created pre-resolution must refetch once the authenticated
     // repository is available, otherwise it stays stuck on UnauthorizedFailure.
-    return ref
+    final List<ScheduleOverride> overrides = await ref
         .watch(scheduleRepositoryProvider)
         .listOverrides(range.from, range.to);
+
+    // SUCCESS path only: pin this range for [_kOverridesCacheTtl] so a revisit
+    // hits the cache (and the effective-schedule notifier that gates on it does
+    // too), then release. An `ref.invalidate` re-runs `build`, cancelling this
+    // timer via `onDispose` and re-pinning with a fresh TTL — so the weekly-
+    // template invalidate path still forces a refetch. A `_mutate` save updates
+    // `state` in place (no `build` re-run) and keeps this link, which is correct
+    // for an actively-used range.
+    final link = ref.keepAlive();
+    final timer = Timer(_kOverridesCacheTtl, link.close);
+    ref.onDispose(timer.cancel);
+
+    return overrides;
   }
 
   ScheduleRepository get _repo => ref.read(scheduleRepositoryProvider);

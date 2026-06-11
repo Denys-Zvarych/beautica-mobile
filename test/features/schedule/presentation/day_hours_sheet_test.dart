@@ -122,6 +122,24 @@ Future<void> _pumpSheet(
   await tester.pumpAndSettle();
 }
 
+/// Drains the bounded-cache keepAlive [Timer] the real [OverridesNotifier] parks
+/// after a successful load (`overrides_notifier.dart` —
+/// `Timer(_kOverridesCacheTtl, link.close)`). Tests that build a genuine
+/// `overridesProvider` and hold a live subscription leave that 5-min release
+/// timer parked: the held subscription keeps the provider alive, so its
+/// `onDispose(timer.cancel)` does not fire before the body ends, and Flutter's
+/// FakeAsync teardown trips `A Timer is still pending even after the widget tree
+/// was disposed`. This is test-side timer hygiene only — on device `onDispose`
+/// cancels the timer on real disposal. Advancing fake time past the TTL fires
+/// the release timer, leaving zero pending timers at teardown. It changes no
+/// rendered content, so it cannot weaken the assertions made before it.
+Future<void> _drainKeepAliveTimers(WidgetTester tester) async {
+  await tester.pump(
+    const Duration(minutes: 6),
+  ); // > _kOverridesCacheTtl (5 min)
+  await tester.pumpAndSettle();
+}
+
 /// A repository whose `putOverride` echoes its argument and whose `clearOverride`
 /// resolves; `listOverrides` returns empty so the post-mutation reload settles.
 _MockScheduleRepository _happyRepo() {
@@ -615,6 +633,10 @@ void main() {
         expect(find.text(l10n.errServer), findsOneWidget);
         // … and the success copy is ABSENT.
         expect(find.text(l10n.savedSnackbar), findsNothing);
+
+        // The real OverridesNotifier parked a 5-min keepAlive release timer;
+        // drain it so the FakeAsync teardown sees zero pending timers.
+        await _drainKeepAliveTimers(tester);
       },
     );
 
@@ -673,6 +695,9 @@ void main() {
         expect(find.text(l10n.errServer), findsOneWidget);
         // … and the cleared-success copy is ABSENT.
         expect(find.text(l10n.scheduleOverrideClearedSnack), findsNothing);
+
+        // Drain the real OverridesNotifier's 5-min keepAlive release timer.
+        await _drainKeepAliveTimers(tester);
       },
     );
   });
