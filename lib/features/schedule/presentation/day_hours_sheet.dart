@@ -490,29 +490,32 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   /// date is fully closed for bookings. The backend dropped reason/note from
   /// schedule overrides, so day-off mode collects no input at all.
   Widget _dayOffSection(AppLocalizations l10n) {
-    return DecoratedBox(
-      key: const Key('override-dayoff-rest'),
-      decoration: BoxDecoration(
-        color: BrandColors.base,
-        borderRadius: BorderRadius.circular(VelvetRadii.field),
-        border: Border.all(color: BrandColors.faint.withValues(alpha: 0.5)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(VelvetSpacing.lg),
-        child: Column(
-          children: <Widget>[
-            const Icon(
-              Icons.bedtime_rounded,
-              size: 28,
-              color: BrandColors.faint,
-            ),
-            const SizedBox(height: VelvetSpacing.sm),
-            Text(
-              l10n.scheduleOverrideDayOffRest,
-              textAlign: TextAlign.center,
-              style: VelvetText.body().copyWith(color: BrandColors.muted),
-            ),
-          ],
+    return SizedBox(
+      width: double.infinity,
+      child: DecoratedBox(
+        key: const Key('override-dayoff-rest'),
+        decoration: BoxDecoration(
+          color: BrandColors.base,
+          borderRadius: BorderRadius.circular(VelvetRadii.field),
+          border: Border.all(color: BrandColors.faint.withValues(alpha: 0.5)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(VelvetSpacing.lg),
+          child: Column(
+            children: <Widget>[
+              const Icon(
+                Icons.bedtime_rounded,
+                size: 28,
+                color: BrandColors.faint,
+              ),
+              const SizedBox(height: VelvetSpacing.sm),
+              Text(
+                l10n.scheduleOverrideDayOffRest,
+                textAlign: TextAlign.center,
+                style: VelvetText.body().copyWith(color: BrandColors.muted),
+              ),
+            ],
+          ),
         ),
       ),
     );

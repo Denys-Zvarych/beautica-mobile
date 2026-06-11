@@ -258,6 +258,61 @@ void main() {
       },
     );
 
+    // REGRESSION (UI fix): the day-off rest card is wrapped in
+    // `SizedBox(width: double.infinity)` so it spans the FULL sheet content
+    // width (it previously sized to its child and looked shifted left). This is
+    // the STRUCTURAL pin for that fix so the golden's self-referential re-bless
+    // can never silently mask a regression (backlog: goldens are self-referential
+    // — confirm against intent). We assert via the source Key (M2/M11: keyed
+    // finder + the localised l10n value, never a raw UA literal) that:
+    //   • the renamed `scheduleOverrideDayOffRest` label renders inside the card,
+    //   • the card's rendered width equals the available sheet content width
+    //     (proving `SizedBox(width: double.infinity)` took effect — guards the
+    //     left-shift regression).
+    testWidgets(
+      'the day-off rest card spans full sheet width and shows the localized '
+      'scheduleOverrideDayOffRest label (left-shift + rename regression)',
+      (tester) async {
+        final repo = _happyRepo();
+        await _pumpSheet(tester, repo: repo, initialDayOff: true);
+
+        final Finder card = find.byKey(const Key('override-dayoff-rest'));
+        expect(card, findsOneWidget);
+
+        // The label resolves to the renamed l10n value (not a raw UA literal),
+        // read from AppLocalizations, and renders inside the keyed card.
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(DayHoursSheet)),
+        );
+        expect(
+          find.descendant(
+            of: card,
+            matching: find.text(l10n.scheduleOverrideDayOffRest),
+          ),
+          findsOneWidget,
+        );
+
+        // The card fills the full content width: the `SizedBox(width:
+        // double.infinity)` constrains it to its parent's max width. The mode
+        // toggle Row (key override-mode-toggle) is a sibling in the SAME padded
+        // content column, so its rendered width IS the available content width —
+        // the rest card must match it.
+        final double cardWidth = tester.getSize(card).width;
+        final double contentWidth = tester
+            .getSize(find.byKey(const Key('override-mode-toggle')))
+            .width;
+
+        expect(
+          cardWidth,
+          moreOrLessEquals(contentWidth, epsilon: 1.0),
+          reason:
+              'the day-off rest card must fill the full sheet content width '
+              '(SizedBox(width: double.infinity)); a narrower width means the '
+              'left-shift regression returned',
+        );
+      },
+    );
+
     // Golden is a SUPPLEMENTARY visual check only — the acceptance for day-off
     // mode is the STRUCTURAL assertion above (rest card present; reason grid +
     // note field absent). The PNG was re-blessed against the new clean rest-card

@@ -2097,7 +2097,7 @@
   "@scheduleOverrideModeDayOff": {
     "description": "Mode-toggle option: mark the whole date as a day off (Phase 15.4)."
   },
-  "scheduleOverrideDayOffRest": "This day will be closed for bookings",
+  "scheduleOverrideDayOffRest": "No bookings on a day off",
   "@scheduleOverrideDayOffRest": {
     "description": "Explanatory line shown in day-off mode of the per-date override sheet (Phase 15.4)."
   },
