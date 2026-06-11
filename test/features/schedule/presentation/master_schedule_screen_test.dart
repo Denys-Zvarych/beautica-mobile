@@ -965,6 +965,14 @@ void main() {
       // The 30-min hour grid is GONE on a day off — no SlotChips render.
       expect(find.byType(SlotChip), findsNothing);
 
+      // Structural lock for the legend-hidden-on-day-off change (do NOT rely on
+      // the regenerated golden to catch a regression here — "golden is not
+      // acceptance"). On a settled day off the SlotLegend swatch card is
+      // intentionally hidden: the day-off empty state already communicates
+      // "no hours", so the legend is redundant noise. This keyed/type finder
+      // fails the moment the legend reappears on a day off.
+      expect(find.byType(SlotLegend), findsNothing);
+
       await expectLater(
         find.byType(MasterScheduleScreen),
         matchesGoldenFile('goldens/schedule_day_off.png'),
@@ -1687,7 +1695,33 @@ void main() {
               'the previous month content must stay on screen during the '
               'month-change reload (cached `_lastDays`)',
         );
-        expect(find.byType(SlotLegend), findsOneWidget);
+        // The legend now lives INSIDE the selected-day `ValueListenableBuilder`
+        // (it tracks the selected day's day-off state). During this in-flight
+        // month-step reload the re-anchored selection lands on the new month's
+        // week, which the stale cached range does not cover → `coverageUnknown`
+        // → the `_SelectedDayLoadingPlaceholder` renders in place of the
+        // selected-day view + legend. So the legend is intentionally absent
+        // mid-reload; the week strip + month chrome (asserted above) remain.
+        // (Pre-change the legend was a static sibling and always rendered; this
+        // assertion was stale and asserted `findsOneWidget`.)
+        expect(
+          find.byType(SlotLegend),
+          findsNothing,
+          reason:
+              'the legend is scoped to the selected-day builder and is '
+              'suppressed while the re-anchored selection coverage is unknown '
+              'during the month-step reload',
+        );
+        // The neutral selected-day loading placeholder stands in for the panel
+        // (and the legend) while coverage is unknown — confirms WHY the legend
+        // is absent here (not because it broke, but because the panel is parked).
+        expect(
+          find.byKey(const Key('schedule-selected-day-loading')),
+          findsOneWidget,
+          reason:
+              'the selected-day loading placeholder replaces the panel + '
+              'legend while the re-anchored selection coverage is unknown',
+        );
 
         // ── Assertion 3: subtle inline reload indicator IS present ────────────
         // Scoped to the inline reload line's `Positioned` ancestor: the new

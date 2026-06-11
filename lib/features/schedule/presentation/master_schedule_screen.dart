@@ -608,8 +608,14 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   // HIGH-1: the `_selected`-dependent sub-tree (selected-day panel + NO_SCHEDULE
   // banner + the 42-cell grid) is extracted into [_SelectedDayView], rebuilt
   // only when the selection (or `editable`) changes via a single
-  // [ValueListenableBuilder] on [_selected]. The month navigator, week strip
-  // and legend are siblings that do NOT re-run on a day tap.
+  // [ValueListenableBuilder] on [_selected]. The month navigator and week strip
+  // are siblings that do NOT re-run on a day tap.
+  //
+  // The legend now lives INSIDE the same builder so it can track the selected
+  // day's day-off state (it is hidden on a settled day off — see `dayOff`
+  // below). [SlotLegend] is a cheap static 3-row [StatelessWidget], so rebuilding
+  // it on a day tap is negligible; the perf-critical sub-tree (panel + grid)
+  // stays isolated in [_SelectedDayView] as before.
   Widget _calendarCard(
     AppLocalizations l10n,
     bool editable,
@@ -650,19 +656,35 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                 return _SelectedDayLoadingPlaceholder(label: l10n.loadingLabel);
               }
               final EffectiveDay day = index.lookup(selected);
-              return _SelectedDayView(
-                day: day,
-                editable: editable,
-                isPast: _isPast(day.date),
-                wholeWeekUnscheduled: _wholeWeekUnscheduled(index),
-                weekdayFull: _weekdayFull(day.date),
-                onAddHours: _openTemplateEditor,
-                onDayOverride: () => _openDayOverride(day),
+              // Single source of truth for the day-off verdict: a settled day
+              // off has no working intervals AND is not the unset/uncovered
+              // NO_SCHEDULE state. [_SelectedDayView] receives this and the
+              // legend below is hidden for it (the day-off empty state already
+              // communicates "no hours"; the swatch legend is redundant noise).
+              final bool dayOff =
+                  day.intervals.isEmpty &&
+                  day.source != EffectiveSource.noSchedule;
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  _SelectedDayView(
+                    day: day,
+                    dayOff: dayOff,
+                    editable: editable,
+                    isPast: _isPast(day.date),
+                    wholeWeekUnscheduled: _wholeWeekUnscheduled(index),
+                    weekdayFull: _weekdayFull(day.date),
+                    onAddHours: _openTemplateEditor,
+                    onDayOverride: () => _openDayOverride(day),
+                  ),
+                  if (!dayOff) ...<Widget>[
+                    const SizedBox(height: VelvetSpacing.lg),
+                    _legendCard(l10n),
+                  ],
+                ],
               );
             },
           ),
-          const SizedBox(height: VelvetSpacing.lg),
-          _legendCard(l10n),
         ],
       ),
     );
@@ -1049,29 +1071,46 @@ class _DayOffEmptyState extends StatelessWidget {
     return Padding(
       key: const Key('schedule-day-off-empty'),
       padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xl),
-      child: Column(
-        children: <Widget>[
-          const Icon(Icons.bedtime_rounded, size: 32, color: BrandColors.faint),
-          const SizedBox(height: VelvetSpacing.md),
-          Text(
-            l10n.scheduleDayOffEmptyState,
-            textAlign: TextAlign.center,
-            style: VelvetText.body().copyWith(color: BrandColors.textSecondary),
-          ),
-        ],
+      // Span the full card width (the parent column is CrossAxisAlignment.start)
+      // and center the icon + text horizontally within it.
+      child: SizedBox(
+        width: double.infinity,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            const Icon(
+              Icons.bedtime_rounded,
+              size: 32,
+              color: BrandColors.faint,
+            ),
+            const SizedBox(height: VelvetSpacing.md),
+            Text(
+              l10n.scheduleDayOffEmptyState,
+              textAlign: TextAlign.center,
+              style: VelvetText.body().copyWith(
+                color: BrandColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// _SelectedDayView (HIGH-1 + HIGH-2) — the only sub-tree that depends on the
-// selected date. Rebuilt by a single [ValueListenableBuilder] on the screen's
-// `_selected` notifier, so a day tap never re-runs the month navigator, the
-// weekly-template card, the week strip body, or the legend. The 42-cell grid is
-// wrapped in a [RepaintBoundary] (HIGH-2) so its raster layer is cached and a
-// strip-highlight repaint never re-rasters the chips; the cells themselves are
-// memoised in [buildDayCells].
+// _SelectedDayView (HIGH-1 + HIGH-2) — the perf-critical sub-tree that depends
+// on the selected date. Rebuilt by a single [ValueListenableBuilder] on the
+// screen's `_selected` notifier, so a day tap never re-runs the month
+// navigator, the weekly-template card, or the week strip body. (The legend is a
+// sibling under the same builder and DOES rebuild on selection so it can hide on
+// a day off — see [_calendarCard]; it is a cheap static 3-row widget.) The
+// 42-cell grid is wrapped in a [RepaintBoundary] (HIGH-2) so its raster layer is
+// cached and a strip-highlight repaint never re-rasters the chips; the cells
+// themselves are memoised in [buildDayCells].
+//
+// The `dayOff` verdict is computed once by the caller and passed in, so the
+// legend-hide condition and the day-off empty state share a single predicate.
 //
 // Pure render projection — identical markup/tokens to the pre-refactor
 // `_dayPanel` + NO_SCHEDULE banner + `_timeGrid`; no visual/behavioural change.
@@ -1079,6 +1118,7 @@ class _DayOffEmptyState extends StatelessWidget {
 class _SelectedDayView extends StatelessWidget {
   const _SelectedDayView({
     required this.day,
+    required this.dayOff,
     required this.editable,
     required this.isPast,
     required this.wholeWeekUnscheduled,
@@ -1088,6 +1128,11 @@ class _SelectedDayView extends StatelessWidget {
   });
 
   final EffectiveDay day;
+
+  /// A settled day off: no working intervals AND not the unset/uncovered
+  /// NO_SCHEDULE state. Computed once by the caller ([_calendarCard]) so the
+  /// legend-hide condition and the day-off empty state share one predicate.
+  final bool dayOff;
   final bool editable;
   final bool isPast;
   final bool wholeWeekUnscheduled;
@@ -1098,11 +1143,10 @@ class _SelectedDayView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    // NO_SCHEDULE keeps its own banner; `dayOff` (a settled day off → friendly
+    // empty state instead of the hour grid) is computed once by the caller and
+    // passed in, so it can never diverge from the legend-hide predicate.
     final bool dayUnscheduled = day.source == EffectiveSource.noSchedule;
-    // A settled day off: no working intervals AND not the "unset/uncovered"
-    // NO_SCHEDULE state (which keeps its own banner). For these we replace the
-    // all-grey/red hour grid with a friendly day-off empty state.
-    final bool dayOff = day.intervals.isEmpty && !dayUnscheduled;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
