@@ -420,7 +420,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
         VelvetSpacing.xxl,
       ),
       children: <Widget>[
-        _templateCard(l10n, editable, days),
+        _templateCard(l10n, editable, index),
         const SizedBox(height: VelvetSpacing.lg + 4),
         SectionHeader(title: l10n.scheduleCalendarSection),
         const SizedBox(height: VelvetSpacing.md),
@@ -455,13 +455,13 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   // ── Weekly-template card ─────────────────────────────────────────────────--
   // Tappable to open the template editor (editable viewers only); a trailing
   // pencil signals the affordance. The seven pills reflect which ISO weekdays
-  // are templated as working days, derived from the resolved month's data.
-  Widget _templateCard(
-    AppLocalizations l10n,
-    bool editable,
-    List<EffectiveDay> days,
-  ) {
-    final List<bool> template = _templatePattern(days);
+  // are working days FOR THE CURRENTLY-DISPLAYED WEEK (`_weekStart`..+6) — the
+  // exact same per-day verdict the week strip below renders. Scoping to the
+  // visible week (not the whole month) means a one-off single-date override
+  // (e.g. a Friday added "only this week") lights its pill ONLY while that week
+  // is displayed; navigating to another week recomputes the pills for that week.
+  Widget _templateCard(AppLocalizations l10n, bool editable, _DayIndex index) {
+    final List<bool> template = _templatePattern(index);
     final card = NeumorphicCard(
       padding: const EdgeInsets.all(VelvetSpacing.md + 2),
       child: Column(
@@ -490,7 +490,17 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
             ],
           ),
           const SizedBox(height: VelvetSpacing.md + 2),
-          WeekdayPillRow(labels: _weekdayShort, active: template),
+          WeekdayPillRow(
+            // Structural signal of the displayed week's active-weekday set so a
+            // widget test can assert week-scoping without relying on a golden:
+            // the value-key encodes the 7 ISO booleans (Mon→Sun) for the week
+            // currently shown. Changing weeks changes this key.
+            key: ValueKey<String>(
+              'schedule-weekly-pills-${template.map((b) => b ? '1' : '0').join()}',
+            ),
+            labels: _weekdayShort,
+            active: template,
+          ),
         ],
       ),
     );
@@ -510,17 +520,32 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     );
   }
 
-  /// Derives the seven ISO weekday working/closed booleans from the resolved
-  /// month: a weekday is "active" if at least one date of that weekday in the
-  /// visible month resolves to a working day (TEMPLATE/OVERRIDE_CUSTOM with
-  /// intervals). Pure projection — no template fetch needed for the read shell.
-  List<bool> _templatePattern(List<EffectiveDay> days) {
-    // MEDIUM-1: derive from the already-watched [days] — no second
-    // `ref.read(effectiveScheduleProvider)` and no extra month scan beyond the
-    // single pass the projection inherently needs.
+  /// Derives the seven ISO weekday working/closed booleans for the CURRENTLY-
+  /// DISPLAYED WEEK (`_weekStart`..`_weekStart+6`, Monday-first ISO order):
+  /// weekday `i` is "active" iff that specific date of the shown week resolves
+  /// to a working day (TEMPLATE/OVERRIDE_CUSTOM with non-empty intervals).
+  ///
+  /// Week-scoped on purpose (the bug fix): the previous version scanned the
+  /// whole resolved month, so a one-off single-date override on (say) a Friday
+  /// lit the Friday pill for EVERY week of that month. Reading the seven dates
+  /// of `_weekStart` through the shared [_DayIndex] makes each pill mirror the
+  /// week strip cell directly below it — a current-week-only Friday shows on
+  /// this week and disappears the moment another week is displayed.
+  ///
+  /// Cross-month edge: when the displayed week straddles two months, the days in
+  /// the adjacent month aren't covered by the month-scoped `_range`, so
+  /// [_DayIndex.lookup] returns a NO_SCHEDULE fallback for them — exactly the
+  /// same verdict the week strip already renders for those bleed days. Driving
+  /// the card off the same `index` (rather than widening the watched range)
+  /// keeps the card and strip 1:1 consistent and preserves the whole-family
+  /// effective-schedule cache coherence (no extra/narrower range key introduced).
+  List<bool> _templatePattern(_DayIndex index) {
     final active = List<bool>.filled(7, false);
-    for (final d in days) {
-      if (d.intervals.isNotEmpty) active[d.date.weekday - 1] = true;
+    for (int i = 0; i < 7; i++) {
+      final DateTime d = _weekStart.add(Duration(days: i));
+      if (index.lookup(d).intervals.isNotEmpty) {
+        active[d.weekday - 1] = true;
+      }
     }
     return active;
   }

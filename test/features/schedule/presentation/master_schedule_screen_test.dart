@@ -91,6 +91,55 @@ EffectiveDay _noSchedule(DateTime date) => EffectiveDay(
   intervals: const <WorkInterval>[],
 );
 
+/// A solid 09:00–18:00 template working day for [date] (Mon/Wed recurring days).
+EffectiveDay _templateWorking(DateTime date) => EffectiveDay(
+  date: _dateOnly(date),
+  source: EffectiveSource.template,
+  intervals: <WorkInterval>[_interval(9, 0, 18, 0)],
+);
+
+/// The single-date Friday override under test, resolved exactly as the backend
+/// would resolve a `ScheduleOverride.custom(start: friday, end: friday)`: a
+/// CUSTOM_HOURS [EffectiveDay] carrying the override's intervals. Built FROM a
+/// real single-date override so the fixture is honest — the same projection the
+/// screen's `_DayIndex`/`_templatePattern` consumes (mobile-qa: keep mocks
+/// honest so the test would FAIL against the old month-aggregate behaviour).
+EffectiveDay _fridayOverrideDay(DateTime friday) {
+  final ScheduleOverride override = ScheduleOverride.custom(
+    start: _dateOnly(friday),
+    end: _dateOnly(friday),
+    intervals: <WorkInterval>[_interval(10, 0, 16, 0)],
+  );
+  return EffectiveDay(
+    date: _dateOnly(override.start),
+    source: EffectiveSource.overrideCustom,
+    intervals: override.intervals
+        .map((WorkInterval w) => w.clone())
+        .toList(growable: false),
+  );
+}
+
+/// Three consecutive weeks (previous, current, next) of a recurring Mon+Wed
+/// template, PLUS a one-off Friday override that exists ONLY in the current week
+/// (`_weekStart + 4`). Every other Friday — including the previous/next week's —
+/// is left out (resolves to NO_SCHEDULE via `_DayIndex`), so only the displayed
+/// week's pills light Friday. Returned as the family-wide effective list (the
+/// screen rebuilds its date-keyed `_DayIndex` from whatever range it reads, and
+/// every relevant date is present here).
+List<EffectiveDay> _monWedTemplateWithThisWeekFriday() {
+  final List<EffectiveDay> out = <EffectiveDay>[];
+  // weekOffset -1 (prev), 0 (current), +1 (next).
+  for (final int weekOffset in <int>[-1, 0, 1]) {
+    final DateTime weekMonday = _weekStart.add(Duration(days: weekOffset * 7));
+    // ISO Monday = +0, Wednesday = +2 → recurring template working days.
+    out.add(_templateWorking(weekMonday));
+    out.add(_templateWorking(weekMonday.add(const Duration(days: 2))));
+  }
+  // The one-off Friday override — current week ONLY (`_weekStart + 4`).
+  out.add(_fridayOverrideDay(_weekStart.add(const Duration(days: 4))));
+  return out;
+}
+
 /// A full Monday→Sunday week of resolved days for the current visible week,
 /// with [today] resolving to [todayDay] and the other six days [filler].
 List<EffectiveDay> _weekWith({
@@ -2033,6 +2082,121 @@ void main() {
               'the rendered grid must be the refetched post-write '
               'composition (with the pause), proving read-after-write coherence',
         );
+      },
+    );
+  });
+
+  // ── Weekly-template card pills are WEEK-SCOPED, not month-aggregate ─────────
+  //
+  // Behaviour change under guard (master_schedule_screen.dart `_templatePattern`
+  // + the `schedule-weekly-pills-<7 bits Mon→Sun>` ValueKey on WeekdayPillRow):
+  // the top template card's weekday pills now reflect ONLY the currently-
+  // displayed week (`_weekStart`..+6), not a whole-month aggregate. A recurring
+  // Mon+Wed template plus a single-date Friday override that exists ONLY in the
+  // current week must light Mon+Wed+Fri (`...-1010100`) WHILE that week is shown,
+  // and collapse to Mon+Wed (`...-1010000`) the moment the strip steps to an
+  // adjacent week (whose Friday carries no override).
+  //
+  // DETERMINISM (M2 / Phase 15.2 device-weekday coupling): the test never reads
+  // the real device weekday. Both the screen and the fixtures derive the visible
+  // week from `_mondayOf(DateTime.now())` (the screen's `_weekStart` seam), so
+  // the Friday under test is ALWAYS `_weekStart + 4` and next-week's Friday is
+  // ALWAYS `_weekStart + 11` regardless of the run date. The fake grants
+  // intervals to `_weekStart + 4` only, so the "Friday present" and "Friday
+  // absent next week" assertions both run every day of the year.
+  //
+  // GOLDEN-NOT-ACCEPTANCE (Phase 15.2): the acceptance signal is the structural
+  // ValueKey of the active weekday set, asserted to FLIP across `_stepWeek` — not
+  // a regenerated PNG.
+  //
+  // TRUE REGRESSION GUARD: the override flows through the SAME `_DayIndex` /
+  // `EffectiveDay` projection the screen uses (a real single-date
+  // `ScheduleOverride.custom(start: thatFriday, end: thatFriday)` resolved into a
+  // `CUSTOM_HOURS` `EffectiveDay` with non-empty intervals). Under the OLD
+  // month-aggregate logic the Friday pill would stay lit on EVERY week of the
+  // month, so the post-step assertion (`...-1010000`) would FAIL; under the new
+  // week-scoped logic it passes.
+  group('MasterScheduleScreen — weekly-template pills are week-scoped', () {
+    // ISO Monday-first bit strings (Mon,Tue,Wed,Thu,Fri,Sat,Sun).
+    const String monWedFri = 'schedule-weekly-pills-1010100';
+    const String monWed = 'schedule-weekly-pills-1010000';
+
+    testWidgets(
+      'current-week-only Friday override lights Mon+Wed+Fri on the displayed '
+      'week, then collapses to Mon+Wed on the next week',
+      (tester) async {
+        // Recurring Mon+Wed across this week and the two adjacent weeks, plus a
+        // SINGLE-DATE Friday override that exists ONLY in the current week.
+        final List<EffectiveDay> days = _monWedTemplateWithThisWeekFriday();
+        await _pump(
+          tester,
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith(
+              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            ),
+          ],
+        );
+
+        // Displayed week (contains the Friday override) → Mon+Wed+Fri.
+        expect(
+          find.byKey(const ValueKey<String>(monWedFri)),
+          findsOneWidget,
+          reason:
+              'the current week carries the one-off Friday override, so the '
+              'pills must light Mon+Wed+Fri',
+        );
+        expect(
+          find.byKey(const ValueKey<String>(monWed)),
+          findsNothing,
+          reason: 'the Friday pill must be lit while its week is displayed',
+        );
+
+        // ── Step to the NEXT week (forward chevron, by its localised semantic
+        // label — the same path `_stepWeek(1)` drives). ───────────────────────
+        final l10n = _l10n(tester);
+        await tester.tap(find.bySemanticsLabel(l10n.scheduleNextWeek));
+        await tester.pumpAndSettle();
+
+        // Next week's Friday has NO override → the pill set collapses to Mon+Wed.
+        expect(
+          find.byKey(const ValueKey<String>(monWed)),
+          findsOneWidget,
+          reason:
+              'stepping to the next week (whose Friday has no override) must '
+              'drop the Friday pill — week-scoped, not month-aggregate',
+        );
+        expect(
+          find.byKey(const ValueKey<String>(monWedFri)),
+          findsNothing,
+          reason:
+              'the one-off Friday must NOT bleed onto the next week (this is '
+              'the exact assertion the old month-aggregate logic would fail)',
+        );
+
+        // ── Step BACK to the original week → Mon+Wed+Fri returns. ─────────────
+        await tester.tap(find.bySemanticsLabel(l10n.schedulePrevWeek));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey<String>(monWedFri)),
+          findsOneWidget,
+          reason: 'returning to the override week must restore the Friday pill',
+        );
+
+        // ── Step BACK one more (previous week) → Mon+Wed only. ────────────────
+        await tester.tap(find.bySemanticsLabel(l10n.schedulePrevWeek));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey<String>(monWed)),
+          findsOneWidget,
+          reason:
+              'the previous week (no Friday override) must also show Mon+Wed '
+              'only — confirming the override is scoped to its single week',
+        );
+        expect(find.byKey(const ValueKey<String>(monWedFri)), findsNothing);
       },
     );
   });
