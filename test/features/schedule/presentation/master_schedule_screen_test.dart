@@ -2389,6 +2389,148 @@ void main() {
       },
     );
   });
+
+  // ── REGRESSION (QA GATE): the selection follows the visible week step ───────
+  //
+  // BUG (now fixed): `_stepWeek` / `_stepMonth` shifted the visible window
+  // (`_weekStart` / `_visibleMonth`, and therefore `_range`) but left the
+  // `_selected` ValueNotifier pointing at the ORIGINALLY-selected date. After
+  // stepping forward two weeks the still-selected date fell OUTSIDE the freshly
+  // fetched `_range`, so `_DayIndex.lookup(oldSelected)` returned the NO_SCHEDULE
+  // fallback (empty intervals) → the selected-day detail panel wrongly rendered
+  // the "no working hours" banner (`scheduleNoScheduleDay`) for what is, on its
+  // own weekday, a working day.
+  //
+  // FIX: `_stepWeek` / `_stepMonth` re-anchor `_selected` into the new visible
+  // week, preserving the weekday column:
+  //   offset = (_selected - oldWeekStart).inDays.clamp(0, 6)   (_selectedWeekdayOffset)
+  //   _selected = _dateOnly(newWeekStart + offset days)
+  // so the selection is always inside `_range` and resolves real data.
+  //
+  // HONEST FAKE / TRUE REGRESSION: this reuses `_PerWeekdayRangeSchedule`, which
+  // serves a working day for EVERY in-range Monday/Tuesday and is RANGE-AWARE —
+  // it can only return a date that was actually fetched. So the old code's stale
+  // selection (a date two weeks in the past, never inside the stepped `_range`)
+  // would resolve NO_SCHEDULE → the banner appears → these assertions FAIL.
+  // Under the fix the selection re-anchors to the same weekday two weeks later
+  // (still Mon/Tue → working, in range) → no banner → PASS.
+  //
+  // M2 / M3 / GOLDEN-NOT-ACCEPTANCE: finders use the source `Key`
+  // (`no-schedule-banner`) and the localised summary string read via
+  // AppLocalizations — never a raw literal — plus the structural `selected` flag
+  // off the `WeekStripDay` cells. No PNG is the acceptance signal.
+  group('MasterScheduleScreen — selection follows week steps', () {
+    /// The current week's Monday (offset 0) is always a `_PerWeekdayRangeSchedule`
+    /// working day, regardless of run date, so selecting it is deterministic.
+    final DateTime currentMonday = _weekStart;
+
+    // Step forward SIX weeks. Six is the smallest count that guarantees the
+    // visible window has crossed into a later month on EVERY run date, so the
+    // originally-selected Monday is provably OUTSIDE the new `_range` (the union
+    // of the visible month + visible week). That is precisely the condition under
+    // which the OLD stale `_selected` resolves to a NO_SCHEDULE fallback → the
+    // banner appears. (Two weeks could stay inside the same month, leaving the
+    // stale date in-range and masking the bug; six weeks never can.)
+    const int forwardSteps = 6;
+
+    testWidgets('selecting a working weekday then stepping the week forward keeps the '
+        'selection on a working day (no NO_SCHEDULE banner) — selection '
+        're-anchors into the visible week instead of going stale', (tester) async {
+      await _pump(
+        tester,
+        overrides: <Object>[
+          authProvider.overrideWith(
+            () => _FixedAuth(UserRole.independentMaster),
+          ),
+          effectiveScheduleProvider.overrideWith(
+            () => _PerWeekdayRangeSchedule(),
+          ),
+          weeklyScheduleProvider.overrideWith(
+            () => _WeeklyData(<WeeklySchedule>[_template()]),
+          ),
+        ],
+      );
+
+      // ── Select a KNOWN working weekday (Monday) in the current week. ───────
+      await _selectStripDay(tester, currentMonday.day);
+
+      // The selected day is Monday → a working day → the detail panel shows the
+      // working-hours summary, NOT the NO_SCHEDULE banner.
+      final l10n = _l10n(tester);
+      expect(
+        find.byKey(const Key('no-schedule-banner')),
+        findsNothing,
+        reason:
+            'Monday is a working day; its detail panel must NOT show the '
+            'no-working-hours banner before any week step',
+      );
+      expect(
+        find.text(
+          l10n.scheduleDaySummaryWorking(
+            summariseIntervals(_templateWorking(currentMonday).intervals),
+          ),
+        ),
+        findsOneWidget,
+        reason: 'the selected working day must render its hours summary',
+      );
+      // Sanity: the selected strip cell is Monday.
+      expect(_selectedStripDayNumber(tester), currentMonday.day);
+
+      // ── Step the next-week chevron (the exact `_stepWeek(1)` path). ────────
+      for (int i = 0; i < forwardSteps; i++) {
+        await tester.tap(find.bySemanticsLabel(l10n.scheduleNextWeek));
+        await tester.pumpAndSettle();
+      }
+
+      // (1) THE REGRESSION ASSERTION — the detail panel must NOT show the
+      // NO_SCHEDULE "no working hours" banner. The OLD `_stepWeek` left
+      // `_selected` on the original Monday, now six weeks (and at least one
+      // month) outside the stepped `_range`, so `_DayIndex.lookup` returned the
+      // NO_SCHEDULE fallback and this banner rendered for a working weekday.
+      // The re-anchor keeps the selection on an in-range working weekday → no
+      // banner. (FAILS on the pre-fix code, PASSES on the fix.)
+      expect(
+        find.byKey(const Key('no-schedule-banner')),
+        findsNothing,
+        reason:
+            'after the week steps the selection must re-anchor to an '
+            'in-range working weekday — the stale-selection NO_SCHEDULE banner '
+            'is the exact regression this pins',
+      );
+      // Neither NO_SCHEDULE copy variant may render.
+      expect(find.text(l10n.scheduleNoScheduleDay), findsNothing);
+      expect(find.text(l10n.scheduleNoSchedulePeriod), findsNothing);
+
+      // (2) The selection now sits on a date WITHIN the currently-visible week
+      // — specifically the same weekday N weeks later (Monday + 7*N days),
+      // which is itself a `_PerWeekdayRangeSchedule` working day. This also
+      // proves the selected strip cell is in-range (the old stale selection
+      // had NO selected cell in the visible week at all).
+      final DateTime expectedSelected = _dateOnly(
+        currentMonday.add(const Duration(days: 7 * forwardSteps)),
+      );
+      expect(
+        _selectedStripDayNumber(tester),
+        expectedSelected.day,
+        reason:
+            'the selection must follow the week step to the same weekday '
+            '$forwardSteps weeks later (preserving the Monday column), '
+            'staying inside _range',
+      );
+      // Its resolved source is a real working day, so the summary renders.
+      expect(
+        find.text(
+          l10n.scheduleDaySummaryWorking(
+            summariseIntervals(_templateWorking(expectedSelected).intervals),
+          ),
+        ),
+        findsOneWidget,
+        reason:
+            'the re-anchored selection resolves to a real working day, so '
+            'its hours summary — not the unset/no-schedule copy — renders',
+      );
+    });
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────────

@@ -138,12 +138,29 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   void _selectDate(DateTime d) => _selected.value = d;
 
   void _stepMonth(int delta) {
+    // Capture the weekday offset of the current selection within the OLD week
+    // before the window moves, so we can re-anchor onto the same column.
+    final int offset = _selectedWeekdayOffset();
     setState(() {
       _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month + delta);
       _weekStart = _mondayOf(
         DateTime(_visibleMonth.year, _visibleMonth.month, 1),
       );
     });
+    // Re-anchor the selection into the new visible week, preserving its column.
+    // Notifier-only (no setState) — mirrors `_selectDate`'s HIGH-1 scoping. The
+    // result is guaranteed inside `_range` (which covers the new `_weekStart`),
+    // so `_DayIndex.lookup` resolves real data instead of the NO_SCHEDULE
+    // fallback.
+    _selected.value = _dateOnly(_weekStart.add(Duration(days: offset)));
+  }
+
+  /// Offset (0..6) of the current selection from the CURRENT `_weekStart`,
+  /// clamped so a selection outside the visible week still lands on a valid
+  /// column when re-anchored.
+  int _selectedWeekdayOffset() {
+    final int diff = _dateOnly(_selected.value).difference(_weekStart).inDays;
+    return diff.clamp(0, 6);
   }
 
   /// The month that owns a Monday-anchored week — the month containing the 4th
@@ -154,11 +171,20 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   }
 
   void _stepWeek(int delta) {
+    // Capture the weekday offset of the current selection within the OLD week
+    // before the window moves, so the highlight stays in the same column.
+    final int offset = _selectedWeekdayOffset();
     setState(() {
       final next = _weekStart.add(Duration(days: delta * 7));
       _weekStart = _dateOnly(next);
       _visibleMonth = _monthOfWeek(_weekStart);
     });
+    // Re-anchor the selection into the new visible week, preserving its column.
+    // Notifier-only (no setState) — mirrors `_selectDate`'s HIGH-1 scoping. The
+    // result is guaranteed inside `_range` (which covers the new `_weekStart`),
+    // so `_DayIndex.lookup` resolves real data instead of the NO_SCHEDULE
+    // fallback.
+    _selected.value = _dateOnly(_weekStart.add(Duration(days: offset)));
   }
 
   void _goToday() {
