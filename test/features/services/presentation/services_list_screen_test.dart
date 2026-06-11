@@ -380,7 +380,8 @@ void main() {
       // Belt-and-braces: no draft-keyed widget of any id leaked into the tree.
       expect(
         find.byWidgetPredicate(
-          (w) => w.key is ValueKey<String> &&
+          (w) =>
+              w.key is ValueKey<String> &&
               (w.key as ValueKey<String>).value.toLowerCase().contains('draft'),
         ),
         findsNothing,

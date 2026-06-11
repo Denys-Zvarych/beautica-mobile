@@ -332,21 +332,28 @@ void main() {
       // And it must differ from the segment-listing helper for the same input.
       expect(
         span,
-        isNot(equals(summariseIntervals(<WorkInterval>[
-          _wi(9, 0, 13, 0),
-          _wi(14, 0, 18, 0),
-        ]))),
+        isNot(
+          equals(
+            summariseIntervals(<WorkInterval>[
+              _wi(9, 0, 13, 0),
+              _wi(14, 0, 18, 0),
+            ]),
+          ),
+        ),
       );
     });
 
-    test('unsorted intervals → min start to max end (scan, not first/last)', () {
-      final span = summariseSpan(<WorkInterval>[
-        _wi(14, 0, 18, 0),
-        _wi(9, 0, 13, 0),
-      ]);
+    test(
+      'unsorted intervals → min start to max end (scan, not first/last)',
+      () {
+        final span = summariseSpan(<WorkInterval>[
+          _wi(14, 0, 18, 0),
+          _wi(9, 0, 13, 0),
+        ]);
 
-      expect(span, '09:00–18:00');
-    });
+        expect(span, '09:00–18:00');
+      },
+    );
   });
 
   group('TemplateDay — ISO weekday preserved', () {
