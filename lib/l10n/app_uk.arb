@@ -2203,5 +2203,80 @@
   "weekdayShortSun": "Нд",
   "@weekdayShortSun": {
     "description": "Two-letter Sunday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "serviceSetupTitle": "Налаштування послуг",
+  "@serviceSetupTitle": {
+    "description": "App-bar title of the first-time service-setup screen."
+  },
+  "serviceSetupClose": "Закрити",
+  "@serviceSetupClose": {
+    "description": "Semantic label for the close button on the service-setup screen."
+  },
+  "serviceSetupMissingNoteLead": "Не знайшли потрібну послугу? ",
+  "@serviceSetupMissingNoteLead": {
+    "description": "Bold lead-in of the helper note at the top of the service-setup screen."
+  },
+  "serviceSetupMissingNoteBody": "Нічого страшного — додайте те, що пропонуєте зараз, а решту зможете запросити пізніше на сторінці ",
+  "@serviceSetupMissingNoteBody": {
+    "description": "Body of the helper note explaining missing service-types can be requested later."
+  },
+  "serviceSetupMissingNoteServicesWord": "«Послуги»",
+  "@serviceSetupMissingNoteServicesWord": {
+    "description": "The emphasised «Послуги» (Services) page name inside the helper note."
+  },
+  "serviceSetupSectionCategories": "ОБЕРІТЬ КАТЕГОРІЇ",
+  "@serviceSetupSectionCategories": {
+    "description": "Section label above the category chip selector on the service-setup screen."
+  },
+  "serviceSetupEmptyHint": "Оберіть категорію вище, щоб почати",
+  "@serviceSetupEmptyHint": {
+    "description": "Passive hint shown below the chips when no category is selected yet."
+  },
+  "serviceSetupGroupCount": "{included} з {total}",
+  "@serviceSetupGroupCount": {
+    "description": "Included-of-total count shown in an expanded category group header (e.g. '3 з 6').",
+    "placeholders": {
+      "included": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  },
+  "serviceSetupRowExcluded": "Не пропонується",
+  "@serviceSetupRowExcluded": {
+    "description": "Sub-label shown on a service-type row card when its include toggle is OFF."
+  },
+  "serviceSetupRowMissingPrice": "Вкажіть тривалість і ціну",
+  "@serviceSetupRowMissingPrice": {
+    "description": "Validation flag on an included row that is missing its duration and/or price."
+  },
+  "serviceSetupDurationLabel": "Тривалість",
+  "@serviceSetupDurationLabel": {
+    "description": "Label for the per-row duration (minutes) field on the service-setup screen."
+  },
+  "serviceSetupDurationSuffix": "хв",
+  "@serviceSetupDurationSuffix": {
+    "description": "Minutes suffix for the duration field (abbreviation of 'хвилин')."
+  },
+  "serviceSetupPriceLabel": "Ціна",
+  "@serviceSetupPriceLabel": {
+    "description": "Label for the fixed-mode price field on a service-setup row."
+  },
+  "serviceSetupCtaEmpty": "Оберіть послуги",
+  "@serviceSetupCtaEmpty": {
+    "description": "Disabled footer CTA label shown while no service-type is included."
+  },
+  "serviceSetupCtaCreate": "{count, plural, =0{Оберіть послуги} one{Створити {count} послугу} few{Створити {count} послуги} many{Створити {count} послуг} other{Створити {count} послуг}}",
+  "@serviceSetupCtaCreate": {
+    "description": "Footer CTA label counting the services the save would create, with Ukrainian plural.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "serviceSetupSuccess": "Послуги створено",
+  "@serviceSetupSuccess": {
+    "description": "Snackbar shown after the first-time bulk service setup succeeds."
+  },
+  "serviceSetupErrAlreadyHasServices": "У вас вже є послуги",
+  "@serviceSetupErrAlreadyHasServices": {
+    "description": "Error shown when the bulk-setup endpoint returns 409 because the master already has services."
   }
 }

@@ -121,3 +121,38 @@ abstract class MasterServiceUpdate with _$MasterServiceUpdate {
     bool? isActive,
   }) = _MasterServiceUpdate;
 }
+
+/// One item in the first-time bulk service-setup payload.
+///
+/// Maps to a single element of the `items` array sent to
+/// `POST /api/v1/independent-masters/me/services/bulk` (the empty-catalogue
+/// one-pass setup endpoint). Each item carries the chosen platform service type,
+/// a duration, and the mode-conditional pricing block — the backend derives the
+/// service name + category from the [serviceTypeId], so there is deliberately
+/// no name/category field here.
+///
+/// Pure Dart: no Flutter imports.
+@freezed
+abstract class MasterServiceBulkItem with _$MasterServiceBulkItem {
+  const factory MasterServiceBulkItem({
+    /// Id of the chosen platform service type. Required — the backend resolves
+    /// the service name + category from it.
+    required String serviceTypeId,
+
+    /// Duration of the service in minutes. Required; must be >= 1.
+    required int durationMinutes,
+
+    /// Pricing mode — FIXED or RANGE. Required.
+    required ServicePriceType priceType,
+
+    /// FIXED-mode amount. Required when [priceType] == FIXED; null for RANGE.
+    double? price,
+
+    /// RANGE floor. Required when [priceType] == RANGE; null for FIXED.
+    double? priceMin,
+
+    /// RANGE ceiling. Required when [priceType] == RANGE; null for FIXED.
+    /// Must be strictly greater than [priceMin].
+    double? priceMax,
+  }) = _MasterServiceBulkItem;
+}

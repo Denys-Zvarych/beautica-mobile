@@ -2203,5 +2203,80 @@
   "weekdayShortSun": "Sun",
   "@weekdayShortSun": {
     "description": "Two-letter Sunday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "serviceSetupTitle": "Service setup",
+  "@serviceSetupTitle": {
+    "description": "App-bar title of the first-time service-setup screen."
+  },
+  "serviceSetupClose": "Close",
+  "@serviceSetupClose": {
+    "description": "Semantic label for the close button on the service-setup screen."
+  },
+  "serviceSetupMissingNoteLead": "Can't find the service you need? ",
+  "@serviceSetupMissingNoteLead": {
+    "description": "Bold lead-in of the helper note at the top of the service-setup screen."
+  },
+  "serviceSetupMissingNoteBody": "No problem — add what you offer now, and request the rest later on the ",
+  "@serviceSetupMissingNoteBody": {
+    "description": "Body of the helper note explaining missing service-types can be requested later."
+  },
+  "serviceSetupMissingNoteServicesWord": "Services",
+  "@serviceSetupMissingNoteServicesWord": {
+    "description": "The emphasised Services page name inside the helper note."
+  },
+  "serviceSetupSectionCategories": "CHOOSE CATEGORIES",
+  "@serviceSetupSectionCategories": {
+    "description": "Section label above the category chip selector on the service-setup screen."
+  },
+  "serviceSetupEmptyHint": "Choose a category above to begin",
+  "@serviceSetupEmptyHint": {
+    "description": "Passive hint shown below the chips when no category is selected yet."
+  },
+  "serviceSetupGroupCount": "{included} of {total}",
+  "@serviceSetupGroupCount": {
+    "description": "Included-of-total count shown in an expanded category group header (e.g. '3 of 6').",
+    "placeholders": {
+      "included": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  },
+  "serviceSetupRowExcluded": "Not offered",
+  "@serviceSetupRowExcluded": {
+    "description": "Sub-label shown on a service-type row card when its include toggle is OFF."
+  },
+  "serviceSetupRowMissingPrice": "Enter duration and price",
+  "@serviceSetupRowMissingPrice": {
+    "description": "Validation flag on an included row that is missing its duration and/or price."
+  },
+  "serviceSetupDurationLabel": "Duration",
+  "@serviceSetupDurationLabel": {
+    "description": "Label for the per-row duration (minutes) field on the service-setup screen."
+  },
+  "serviceSetupDurationSuffix": "min",
+  "@serviceSetupDurationSuffix": {
+    "description": "Minutes suffix for the duration field."
+  },
+  "serviceSetupPriceLabel": "Price",
+  "@serviceSetupPriceLabel": {
+    "description": "Label for the fixed-mode price field on a service-setup row."
+  },
+  "serviceSetupCtaEmpty": "Choose services",
+  "@serviceSetupCtaEmpty": {
+    "description": "Disabled footer CTA label shown while no service-type is included."
+  },
+  "serviceSetupCtaCreate": "{count, plural, =0{Choose services} one{Create {count} service} other{Create {count} services}}",
+  "@serviceSetupCtaCreate": {
+    "description": "Footer CTA label counting the services the save would create.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "serviceSetupSuccess": "Services created",
+  "@serviceSetupSuccess": {
+    "description": "Snackbar shown after the first-time bulk service setup succeeds."
+  },
+  "serviceSetupErrAlreadyHasServices": "You already have services",
+  "@serviceSetupErrAlreadyHasServices": {
+    "description": "Error shown when the bulk-setup endpoint returns 409 because the master already has services."
   }
 }

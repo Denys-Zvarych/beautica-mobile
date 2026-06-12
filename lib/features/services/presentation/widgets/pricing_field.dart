@@ -57,7 +57,20 @@ class PricingField extends StatelessWidget {
     this.fixedError,
     this.minError,
     this.rangeError,
+    this.leading,
+    this.showSectionLabel = true,
   });
+
+  /// Optional field placed at the left of the conditional amount Row — the
+  /// service-setup row's duration input — so duration + price share one line.
+  /// When null the price field(s) take the full width (the create/edit form's
+  /// stacked behaviour, where duration lives in its own row above).
+  final Widget? leading;
+
+  /// Whether to render the "ЦІНА" section label above the mode toggle. The
+  /// create/edit form shows it; the compact service-setup row hides it (the
+  /// surrounding card already frames the pricing block).
+  final bool showSectionLabel;
 
   /// Currently selected pricing mode.
   final ServicePriceType mode;
@@ -102,17 +115,43 @@ class PricingField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+
+    // The conditional price field area — cross-fades + resizes between modes.
+    final Widget priceArea = AnimatedSize(
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 240),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeIn,
+        transitionBuilder: (Widget child, Animation<double> anim) =>
+            FadeTransition(
+              opacity: anim,
+              child: SizeTransition(
+                sizeFactor: anim,
+                axisAlignment: -1,
+                child: child,
+              ),
+            ),
+        child: mode == ServicePriceType.fixed
+            ? _buildFixed(l10n)
+            : _buildRange(l10n),
+      ),
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        // Section label.
-        Padding(
-          padding: const EdgeInsets.only(
-            left: VelvetSpacing.xs,
-            bottom: VelvetSpacing.sm,
+        // Section label (hidden in the compact service-setup row).
+        if (showSectionLabel)
+          Padding(
+            padding: const EdgeInsets.only(
+              left: VelvetSpacing.xs,
+              bottom: VelvetSpacing.sm,
+            ),
+            child: Text(l10n.pricingSectionLabel, style: VelvetText.label()),
           ),
-          child: Text(l10n.pricingSectionLabel, style: VelvetText.label()),
-        ),
 
         // Mode toggle — recessed track + sliding camel thumb.
         _PricingModeToggle(
@@ -123,29 +162,20 @@ class PricingField extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.md),
 
-        // Conditional field area — cross-fades + resizes between modes.
-        AnimatedSize(
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 240),
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeIn,
-            transitionBuilder: (Widget child, Animation<double> anim) =>
-                FadeTransition(
-                  opacity: anim,
-                  child: SizeTransition(
-                    sizeFactor: anim,
-                    axisAlignment: -1,
-                    child: child,
-                  ),
-                ),
-            child: mode == ServicePriceType.fixed
-                ? _buildFixed(l10n)
-                : _buildRange(l10n),
-          ),
-        ),
+        // When a [leading] field is supplied (service-setup compact row), pair
+        // it with the price area on one line; otherwise the price area spans the
+        // full width (create/edit form, where duration lives in its own row).
+        if (leading != null)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(child: leading!),
+              const SizedBox(width: VelvetSpacing.md),
+              Expanded(flex: 2, child: priceArea),
+            ],
+          )
+        else
+          priceArea,
       ],
     );
   }

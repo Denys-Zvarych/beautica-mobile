@@ -167,8 +167,12 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
           },
           data: (list) {
             if (list.isEmpty) {
+              // First-time path: a master with zero services lands on the
+              // one-pass setup screen (bulk menu builder), NOT the single-create
+              // form. The setup screen invalidates this list and routes back
+              // here (now populated) on a successful bulk save.
               return _EmptyState(
-                onCreate: () => _openAndRefresh(RouteNames.serviceCreate),
+                onCreate: () => _openAndRefresh(RouteNames.serviceSetup),
               );
             }
             return _LoadedBody(

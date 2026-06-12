@@ -41,6 +41,7 @@ import '../features/master/presentation/master_edit_screen.dart';
 import '../features/master/presentation/master_profile_screen.dart';
 import '../features/services/presentation/service_create_screen.dart';
 import '../features/services/presentation/service_edit_screen.dart';
+import '../features/services/presentation/service_setup_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import '../features/calendar/presentation/working_hours_screen.dart';
@@ -228,6 +229,13 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.serviceCreate,
         pageBuilder: (context, state) =>
             _instantPage(state, const ServiceCreateScreen()),
+      ),
+      // First-time service setup (INDEPENDENT_MASTER) — the one-pass empty-state
+      // menu builder reached from the services-list empty state.
+      GoRoute(
+        path: RouteNames.serviceSetup,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const ServiceSetupScreen()),
       ),
       // Phase 5.4 — Service edit form (INDEPENDENT_MASTER).
       // Parameterised route — extracts `id` from the path. An empty id

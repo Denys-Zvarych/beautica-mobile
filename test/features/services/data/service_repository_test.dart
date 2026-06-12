@@ -162,6 +162,7 @@ void main() {
       serviceApi: serviceApi,
       categoryApi: categoryApi,
       catalogApi: catalogApi,
+      dio: Dio(),
       masterId: _masterId,
     );
     // Register fallback values required by mocktail for named-typed matchers.
@@ -633,6 +634,7 @@ void main() {
         serviceApi: serviceApi,
         categoryApi: categoryApi,
         catalogApi: catalogApi,
+        dio: Dio(),
         masterId: '',
       );
     });

@@ -112,6 +112,7 @@ void main() {
       serviceApi: serviceApi,
       categoryApi: categoryApi,
       catalogApi: catalogApi,
+      dio: Dio(),
       masterId: _masterId,
     );
   });

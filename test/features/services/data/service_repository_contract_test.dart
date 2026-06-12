@@ -152,6 +152,7 @@ const Map<String, dynamic> _okVoid = <String, dynamic>{
     serviceApi: api,
     categoryApi: categoryApi,
     catalogApi: catalogApi,
+    dio: dio,
     masterId: _masterId,
   );
   return (dio: dio, adapter: adapter, repo: repo);
@@ -608,6 +609,7 @@ void main() {
         serviceApi: api,
         categoryApi: categoryApi,
         catalogApi: catalogApi,
+        dio: dio,
         masterId: '',
       );
     }

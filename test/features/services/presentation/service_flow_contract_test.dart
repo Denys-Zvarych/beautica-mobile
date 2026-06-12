@@ -128,6 +128,7 @@ class _StubMasterProfile extends MasterProfile {
     serviceApi: ServiceControllerApi(dio, standardSerializers),
     categoryApi: CategoryRequestControllerApi(dio, standardSerializers),
     catalogApi: ServiceCatalogControllerApi(dio, standardSerializers),
+    dio: dio,
     masterId: _masterId,
   );
   return (dio: dio, adapter: adapter, repo: repo);

@@ -57,6 +57,11 @@ abstract final class RouteNames {
   static const String serviceCreate = '/services/create';
   static String serviceEdit(String id) => '/services/$id/edit';
 
+  /// First-time service setup (INDEPENDENT_MASTER). The empty-state, one-pass
+  /// menu builder reached from the services-list empty state when the master
+  /// has zero services. Saves via `POST /independent-masters/me/services/bulk`.
+  static const String serviceSetup = '/services/setup';
+
   // Phase 6.2 — Working hours editor (INDEPENDENT_MASTER). Still reachable as a
   // sub-editor of the schedule; the Календар nav tile now opens [masterSchedule].
   static const String workingHours = '/master/working-hours';

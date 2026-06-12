@@ -71,6 +71,28 @@ abstract interface class ServiceRepository {
   /// newly-created [MasterService] as mapped from the backend response.
   Future<MasterService> create(MasterServiceCreate input);
 
+  /// Creates ALL of [items] in one request for the authenticated master.
+  ///
+  /// Wraps `POST /api/v1/independent-masters/me/services/bulk` — the first-time
+  /// (empty-catalogue) one-pass setup endpoint. The backend derives each
+  /// service's name + category from its `serviceTypeId`, then persists the
+  /// per-item duration + pricing block. Returns the list of newly-created
+  /// [MasterService] records as mapped from the response (same envelope shape
+  /// `listMyServices()` parses).
+  ///
+  /// The generated [ServiceControllerApi] does NOT yet expose this operation
+  /// (the backend endpoint is on an unpushed branch; the mobile OpenAPI spec is
+  /// stale), so the implementation issues the POST via the raw authenticated
+  /// [Dio] instance and deserializes the response with the same
+  /// [standardSerializers] used by the generated client.
+  ///
+  /// Throws:
+  ///   - [MasterAlreadyHasServicesFailure] on **409** (the master already has
+  ///     at least one active service — the first-time guard tripped).
+  ///   - [ValidationFailure] on **400/422** (malformed items).
+  ///   - [NetworkFailure] / [ServerFailure] on other transport errors.
+  Future<List<MasterService>> bulkCreate(List<MasterServiceBulkItem> items);
+
   /// Partially updates an existing service identified by its
   /// service-definition id ([serviceDefId]).
   ///
@@ -187,15 +209,22 @@ final class HttpServiceRepository implements ServiceRepository {
     required ServiceControllerApi serviceApi,
     required CategoryRequestControllerApi categoryApi,
     required ServiceCatalogControllerApi catalogApi,
+    required Dio dio,
     required String masterId,
   }) : _serviceApi = serviceApi,
        _categoryApi = categoryApi,
        _catalogApi = catalogApi,
+       _dio = dio,
        _masterId = masterId;
 
   final ServiceControllerApi _serviceApi;
   final CategoryRequestControllerApi _categoryApi;
   final ServiceCatalogControllerApi _catalogApi;
+
+  /// The raw authenticated [Dio] instance (full interceptor chain). Used ONLY
+  /// for the bulk-setup POST, which the generated [ServiceControllerApi] does
+  /// not yet expose. All other calls go through the generated client.
+  final Dio _dio;
   final String _masterId;
 
   static const _tag = 'feature.services.repository';
@@ -294,6 +323,119 @@ final class HttpServiceRepository implements ServiceRepository {
       }
       throw _mapDioException(e);
     }
+  }
+
+  @override
+  Future<List<MasterService>> bulkCreate(
+    List<MasterServiceBulkItem> items,
+  ) async {
+    _assertAuthenticated();
+    if (items.isEmpty) return const [];
+
+    // Build the wire body by hand: the generated client has no bulk operation,
+    // so we serialise each item to the shape the backend expects. Mode-
+    // conditional price fields are omitted (not null) when not applicable so the
+    // backend receives only the relevant subset, mirroring the generated
+    // serializer's null-omission behaviour.
+    final body = <String, Object?>{
+      'items': <Map<String, Object?>>[
+        for (final item in items) _bulkItemToJson(item),
+      ],
+    };
+
+    try {
+      // Path note: the generated client's relative paths all begin with
+      // `/api/v1/...` (e.g. `r'/api/v1/independent-masters/me/services'`), and
+      // `AppConfig.baseUrl` is normalised to NEVER carry the `/api/v1` prefix.
+      // So the raw path MUST include `/api/v1` to match the generated calls —
+      // omitting it would 404. (This is the inverse of the "double-prefix"
+      // trap: here the prefix lives on the path, not the base URL.)
+      final res = await _dio.post<Object?>(
+        '/api/v1/independent-masters/me/services/bulk',
+        data: body,
+      );
+
+      // The response envelope is ApiResponse<List<MasterServiceResponse>> — the
+      // same shape `getMyServices()` parses. Deserialize each element with the
+      // generated serializers, then map through the existing DTO→domain mapper.
+      final raw = res.data;
+      final dataList = (raw is Map<String, Object?>) ? raw['data'] : null;
+      if (dataList is! List) {
+        if (kDebugMode) {
+          log(
+            'bulkCreate: response `data` is not a list (got '
+            '${dataList.runtimeType})',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      return dataList
+          .map((Object? element) {
+            final dto = standardSerializers.deserializeWith(
+              MasterServiceResponse.serializer,
+              element,
+            );
+            if (dto == null) {
+              throw const ServerFailure(statusCode: null);
+            }
+            return MasterServiceMapper.fromDto(dto);
+          })
+          .toList(growable: false);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'bulkCreate failed: ${e.type} ${e.response?.statusCode} '
+          '(${items.length} items)',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapBulkCreateException(e);
+    }
+  }
+
+  /// Serialises one [MasterServiceBulkItem] to the wire JSON the bulk endpoint
+  /// expects, emitting only the mode-appropriate price fields.
+  Map<String, Object?> _bulkItemToJson(MasterServiceBulkItem item) {
+    final json = <String, Object?>{
+      'serviceTypeId': item.serviceTypeId,
+      'durationMinutes': item.durationMinutes,
+      'priceType': switch (item.priceType) {
+        ServicePriceType.fixed => 'FIXED',
+        ServicePriceType.range => 'RANGE',
+      },
+    };
+    switch (item.priceType) {
+      case ServicePriceType.fixed:
+        json['price'] = item.price;
+      case ServicePriceType.range:
+        json['priceMin'] = item.priceMin;
+        json['priceMax'] = item.priceMax;
+    }
+    return json;
+  }
+
+  /// Maps a [DioException] from the bulk-setup POST to a typed [Failure].
+  ///
+  ///   - **409** → [MasterAlreadyHasServicesFailure] (the first-time guard
+  ///     tripped — the master already has an active service).
+  ///   - **400/422** → [ValidationFailure].
+  /// All other statuses defer to the shared [_mapDioException].
+  ///
+  /// The 409 status check runs BEFORE deferring to any [Failure] the
+  /// [ErrorMapperInterceptor] may have attached (it maps a non-auth 409 to a
+  /// generic [ServerFailure], which lacks the first-time-guard copy), so we
+  /// re-map by status code here to surface the friendly message + routing.
+  Failure _mapBulkCreateException(DioException e) {
+    final statusCode = e.response?.statusCode;
+    if (statusCode == 409) return MasterAlreadyHasServicesFailure(cause: e);
+    if (e.error is Failure) return e.error as Failure;
+    return _mapDioException(e);
   }
 
   @override
@@ -613,6 +755,9 @@ ServiceRepository serviceRepository(Ref ref) {
     serviceApi: ref.watch(serviceApiProvider),
     categoryApi: ref.watch(categoryRequestApiProvider),
     catalogApi: ref.watch(serviceCatalogApiProvider),
+    // Raw authenticated Dio (full interceptor chain) for the bulk-setup POST,
+    // which the generated ServiceControllerApi does not yet expose.
+    dio: ref.watch(dioProvider),
     masterId: masterId,
   );
 }
