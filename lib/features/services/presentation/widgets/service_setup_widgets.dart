@@ -15,13 +15,11 @@
 // OFF.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
@@ -376,12 +374,6 @@ class ServiceTypeRowCard extends StatefulWidget {
 }
 
 class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
-  static final List<TextInputFormatter> _durationFormatters =
-      <TextInputFormatter>[
-        FilteringTextInputFormatter.digitsOnly,
-        LengthLimitingTextInputFormatter(3),
-      ];
-
   @override
   void initState() {
     super.initState();
@@ -597,15 +589,12 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                           maxController: row.max,
                           rangeError: rangeError,
                           fixedError: fixedPriceError,
-                          leading: VelvetField(
-                            label: l10n.serviceSetupDurationLabel,
-                            fieldKey: const Key('service-setup-duration'),
-                            controller: row.duration,
-                            hint: '60',
-                            keyboardType: TextInputType.number,
-                            inputFormatters: _durationFormatters,
-                            errorText: durationError,
-                          ),
+                          // The compact duration well is rendered by
+                          // PricingField itself (label-less, "хв" affix) so
+                          // duration + price always share one line, overflow-
+                          // free, down to ~320 dp in both fixed and range modes.
+                          durationController: row.duration,
+                          durationError: durationError,
                         ),
                       ),
                     )

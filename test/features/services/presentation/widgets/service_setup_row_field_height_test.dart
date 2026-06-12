@@ -4,23 +4,30 @@
 // rendered ~45dp tall while the PRICE well was 49dp. The duration well sat
 // below Material's 48dp minimum tap target and read as visibly "short".
 //
-// The fix (lib/core/widgets/velvet_field.dart): the single-line well minHeight
-// was changed from `VelvetSizes.field - 24` (=25 → 45dp well) to
-// `VelvetSizes.field - 2 * (VelvetSpacing.sm + 2)` (=29 → 49dp well), matching
-// the pricing field's well and clearing the 48dp floor.
+// The fix has since been folded into the one-line refactor: the duration well
+// is no longer a separate VelvetField — [PricingField] renders it itself as an
+// inner `_PricingInputField` (compact mode) keyed `service-setup-duration`,
+// sharing the SAME NeumorphicInset + ConstrainedBox(minHeight) composition as
+// the price well(s). Both wells therefore derive their height from the same
+// `VelvetSizes.field - 2 * (VelvetSpacing.sm + 2)` (=29 → 49dp well) constraint,
+// clearing the 48dp tap-target floor with identical heights.
+//
+// One-line layout (NO width-conditional stacking — _stackBreakpoint and
+// _rangeStackBreakpoint were deleted):
+//   fixed = Row[ Expanded(duration) | gap | Expanded(price) ]
+//   range = Row[ Expanded(duration) | gap | Expanded(min) | gap | Expanded(max) ]
+// Every slot is an Expanded, so the Row is overflow-proof at any phone width.
 //
 // This guard:
-//   • Pumps an INCLUDED row so both the duration VelvetField well and the
-//     fixed-price `_PricingInputField` well render.
-//   • Asserts the two wells are the SAME height AND each is >= 48dp.
-//   • Re-runs across the responsive branches that reshape the row — wide
-//     (single-line), <360dp (duration stacks above price), <220dp (range
-//     min/max stacked) — and asserts no RenderFlex overflow at 320/360/412dp.
+//   • Pumps an INCLUDED row so both the duration well and the price well(s)
+//     render on one line.
+//   • Asserts the duration well and the price well are the SAME height AND each
+//     is >= 48dp.
+//   • Re-runs across phone widths (wide / 412 / 360 / 320) and a narrow range
+//     row, asserting no RenderFlex overflow at any width.
 //
-// Against the pre-fix 45dp duration well the parity + >=48dp assertions FAIL;
-// post-fix they PASS. Text is asserted via l10n keys / stable widget keys only.
+// Text is asserted via stable widget keys only (no localised string finders).
 
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_setup_widgets.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -30,10 +37,10 @@ import 'package:flutter_test/flutter_test.dart';
 /// Material's documented minimum interactive (tap-target) dimension.
 const double _kMinTapTarget = 48.0;
 
-/// The stable key forwarded to the duration field's inner [TextField] by
-/// [ServiceTypeRowCard]. Used to locate the duration well's [NeumorphicInset]
-/// ancestor for measurement.
-const Key _kDurationFieldKey = Key('service-setup-duration');
+/// The stable key on the duration well's [NeumorphicInset] (rendered by
+/// [PricingField] as a compact `_PricingInputField`). After the one-line
+/// refactor this key sits directly on the well, exactly like the price wells.
+const Key _kDurationWellKey = Key('service-setup-duration');
 
 /// The fixed-price well is the [NeumorphicInset] keyed by [PricingField].
 const Key _kFixedPriceWellKey = Key('pricing-fixed-amount');
@@ -82,15 +89,12 @@ Future<void> _pumpRow(
   await tester.pumpAndSettle();
 }
 
-/// Height of the duration well — the [NeumorphicInset] that is the nearest
-/// ancestor of the keyed duration [TextField]. (The bug lived in this well's
-/// inner min-height constraint, so measuring the well is the faithful target.)
+/// Height of the duration well — the keyed [NeumorphicInset] rendered by
+/// [PricingField] in compact mode. The key is on the well itself, so it is
+/// measured directly (no ancestor lookup).
 double _durationWellHeight(WidgetTester tester) {
-  final Finder well = find.ancestor(
-    of: find.byKey(_kDurationFieldKey),
-    matching: find.byType(NeumorphicInset),
-  );
-  expect(well, findsOneWidget, reason: 'duration well NeumorphicInset present');
+  final Finder well = find.byKey(_kDurationWellKey);
+  expect(well, findsOneWidget, reason: 'duration well present');
   return tester.getSize(well).height;
 }
 
@@ -103,13 +107,11 @@ double _fixedPriceWellHeight(WidgetTester tester) {
 
 void main() {
   group('service-setup row — duration/price well height parity (>= 48dp)', () {
-    // ── WIDE — single-line layout (duration | price share one Row) ───────────
+    // ── WIDE — one-line layout (duration | price share one Row) ──────────────
     testWidgets(
       'wide row: duration well == price well height and each >= 48dp',
       (tester) async {
         final row = _includedRow(tester, mode: ServicePriceType.fixed);
-        // 600dp is comfortably above PricingField._stackBreakpoint (360) once
-        // padding/gaps are subtracted, so the one-line layout is exercised.
         await _pumpRow(tester, row: row, width: 600);
 
         final double duration = _durationWellHeight(tester);
@@ -120,7 +122,8 @@ void main() {
           price,
           reason:
               'duration well must match the price well height (pre-fix: 45 vs '
-              '49); both derive from VelvetSizes.field (49) minus equal padding',
+              '49); both derive from the same NeumorphicInset + '
+              'ConstrainedBox(minHeight) composition',
         );
         expect(
           duration,
@@ -132,9 +135,9 @@ void main() {
       },
     );
 
-    // ── 412dp — narrow phone; PricingField stacks duration above price ───────
+    // ── 412dp — narrow phone; one-line all-Expanded layout (no stacking) ─────
     testWidgets(
-      '412dp row: stacked layout keeps well parity >= 48dp, no overflow',
+      '412dp row: one-line layout keeps well parity >= 48dp, no overflow',
       (tester) async {
         final row = _includedRow(tester, mode: ServicePriceType.fixed);
         await _pumpRow(tester, row: row, width: 412);
@@ -153,7 +156,7 @@ void main() {
       },
     );
 
-    // ── 360dp — at the stack breakpoint boundary ─────────────────────────────
+    // ── 360dp — the deleted _stackBreakpoint boundary; still one line ────────
     testWidgets('360dp row: well parity >= 48dp holds, no overflow', (
       tester,
     ) async {
@@ -168,7 +171,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    // ── 320dp — smallest common phone; stacked layout ────────────────────────
+    // ── 320dp — smallest common phone; still one line, all-Expanded ──────────
     testWidgets('320dp row: well parity >= 48dp holds, no overflow', (
       tester,
     ) async {
@@ -183,12 +186,13 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    // ── <220dp — range mode with min/max stacked ─────────────────────────────
-    // Range mode at a very narrow width forces BOTH the duration↑price stack
-    // and the min/max stack; the duration well must still clear 48dp without
-    // reintroducing overflow.
+    // ── Narrow RANGE — duration | min | max all on one line (no stacking) ────
+    // Range mode at a narrow width is the worst case for one-line: three wells
+    // (duration + min + max). Every slot is an Expanded, so the Row is
+    // overflow-proof; the duration and range wells must still clear 48dp with
+    // identical heights.
     testWidgets(
-      'narrow range row (<220dp price area): duration well >= 48dp, no overflow',
+      'narrow range row (300dp): duration/min/max parity >= 48dp, no overflow',
       (tester) async {
         final row = _includedRow(tester, mode: ServicePriceType.range);
         await _pumpRow(tester, row: row, width: 300);
@@ -199,11 +203,11 @@ void main() {
           duration,
           greaterThanOrEqualTo(_kMinTapTarget),
           reason:
-              'duration well must clear the 48dp floor even in the range/'
-              'min-max stacked branch',
+              'duration well must clear the 48dp floor even in the three-well '
+              'range row',
         );
 
-        // Both range wells render and clear the same floor.
+        // Both range wells render side-by-side and clear the same floor.
         final double minWell = tester
             .getSize(find.byKey(const Key('pricing-range-min')))
             .height;
@@ -217,7 +221,7 @@ void main() {
         expect(
           tester.takeException(),
           isNull,
-          reason: 'no RenderFlex overflow in the narrow range/stacked branch',
+          reason: 'no RenderFlex overflow in the narrow three-well range row',
         );
       },
     );

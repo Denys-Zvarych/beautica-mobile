@@ -280,52 +280,64 @@ void main() {
       );
     }
 
-    // ── No overflow at a narrow width where the range pair stacks ───────────
-    // Below PricingField._rangeStackBreakpoint (220dp) the Від/До fields stack
-    // one-per-line; with a long primed value the input must still not overflow
-    // or clip against its suffix.
+    // ── No overflow at a narrow width — range min/max stay ONE LINE ─────────
+    // The width-conditional stacking (_rangeStackBreakpoint = 220dp) was
+    // DELETED in the one-line refactor: range min/max are now always side-by-
+    // side Expanded slots, so they never overflow no matter how narrow the
+    // phone is. At a narrow width with a primed value the inputs must still not
+    // overlap each other or their "грн" suffix, and there must be no overflow.
     testWidgets(
-      'narrow RANGE (<220dp): stacked min/max do not overflow or occlude "грн"',
+      'narrow RANGE (219dp): one-line min/max do not overflow or occlude "грн"',
       (tester) async {
         await _pump(
           tester,
           mode: ServicePriceType.range,
-          width: 219, // below the 220dp range-stack breakpoint → min/max stack
+          width: 219, // narrow phone; min/max stay side-by-side (all-Expanded)
           primeValue: '5000', // a realistic value that fits the narrow well
         );
 
-        // Precondition: at this width the min/max pair must actually be
-        // stacked (one per line), not side-by-side — otherwise the branch
-        // under test was not exercised.
+        const Key minKey = Key('pricing-range-min');
+        const Key maxKey = Key('pricing-range-max');
+
+        final Rect minWell = tester.getRect(find.byKey(minKey));
+        final Rect maxWell = tester.getRect(find.byKey(maxKey));
+
+        // One line: the min/max wells share the same vertical band (no
+        // stacking — the 220dp breakpoint is gone).
         expect(
-          tester.getRect(find.byKey(const Key('pricing-range-min'))).top,
-          isNot(tester.getRect(find.byKey(const Key('pricing-range-max'))).top),
-          reason: 'precondition: min/max must be stacked below 220dp',
+          minWell.top,
+          closeTo(maxWell.top, _kEps),
+          reason: 'min/max must be on one line (equal tops) at 219dp',
         );
 
-        for (final Key well in const <Key>[
-          Key('pricing-range-min'),
-          Key('pricing-range-max'),
-        ]) {
+        // Side-by-side, not overlapping: min's right edge is at or before
+        // max's left edge.
+        expect(
+          minWell.right,
+          lessThanOrEqualTo(maxWell.left + _kEps),
+          reason: 'min/max wells must not overlap horizontally at 219dp',
+        );
+
+        for (final Key well in const <Key>[minKey, maxKey]) {
           expect(_editableUnder(well), findsOneWidget);
           final Rect input = tester.getRect(_editableUnder(well));
           final Rect suffix = tester.getRect(_suffixUnder(well));
           expect(
             input.right,
             lessThanOrEqualTo(suffix.left + _kEps),
-            reason: 'stacked $well: input must not overrun "грн" at 219dp',
+            reason: 'one-line $well: input must not overrun "грн" at 219dp',
           );
           expect(
             suffix.left - input.right,
             greaterThanOrEqualTo(_kSuffixGap - _kEps),
-            reason: 'stacked $well: bumped gap preserved at 219dp',
+            reason: 'one-line $well: bumped gap preserved at 219dp',
           );
         }
 
         expect(
           tester.takeException(),
           isNull,
-          reason: 'no RenderFlex overflow in the narrow range-stacked branch',
+          reason: 'no RenderFlex overflow in the narrow one-line range row',
         );
       },
     );

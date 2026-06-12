@@ -57,15 +57,23 @@ class PricingField extends StatelessWidget {
     this.fixedError,
     this.minError,
     this.rangeError,
-    this.leading,
+    this.durationController,
+    this.durationError,
     this.showSectionLabel = true,
   });
 
-  /// Optional field placed at the left of the conditional amount Row — the
-  /// service-setup row's duration input — so duration + price share one line.
-  /// When null the price field(s) take the full width (the create/edit form's
-  /// stacked behaviour, where duration lives in its own row above).
-  final Widget? leading;
+  /// Optional controller for the per-row DURATION (minutes) field. When
+  /// supplied (the compact first-time service-setup row), [PricingField]
+  /// renders a compact, label-less duration well to the LEFT of the price
+  /// field(s) so duration + price always share a single horizontal line — at
+  /// every phone width down to ~320 dp, in both fixed and range modes. When
+  /// null the price field(s) take the full width and carry their labels (the
+  /// create/edit form, where duration lives in its own row above).
+  final TextEditingController? durationController;
+
+  /// Inline error for the compact duration well (only consulted when
+  /// [durationController] is supplied).
+  final String? durationError;
 
   /// Whether to render the "ЦІНА" section label above the mode toggle. The
   /// create/edit form shows it; the compact service-setup row hides it (the
@@ -107,29 +115,41 @@ class PricingField extends StatelessWidget {
     LengthLimitingTextInputFormatter(11),
   ];
 
+  // Duration is whole minutes, ≤ 3 digits (mirrors the prior service-setup
+  // call site). Hoisted so _buildDurationWell() allocates nothing per keystroke.
+  static final List<TextInputFormatter> _durationFormatters =
+      <TextInputFormatter>[
+        FilteringTextInputFormatter.digitsOnly,
+        LengthLimitingTextInputFormatter(3),
+      ];
+
   // Hoisted so _buildRange() allocates nothing on keystroke rebuilds.
   static final TextStyle _rangeErrorStyle = VelvetText.feedback(
     BrandColors.error,
   );
 
-  /// Below this width (logical px) the duration field stacks ABOVE the price
-  /// area instead of sharing a single line — keeps the inner TextFields above
-  /// their min width on narrow phones. Only the compact service-setup row
-  /// ([leading] != null) consults this; the create/edit form never does.
-  static const double _stackBreakpoint = 360;
-
-  /// Below this width (logical px) the range "Від" / "До" fields stack
-  /// vertically instead of sharing one line. Two numeric fields each with a
-  /// non-flexible "грн" suffix can't both stay above their min width once the
-  /// price area is squeezed (e.g. a narrow flex:2 slot beside the duration), so
-  /// the pair reflows to one field per line.
-  static const double _rangeStackBreakpoint = 220;
+  // Flex weights for the compact service-setup row's single line of wells.
+  // Duration holds a short minutes value ("60") so it gets the smaller share;
+  // the price area (one fixed field, or the min+max pair) carries the larger
+  // amounts. The outer compact Row is duration (_durationFlex) | price area
+  // (_priceAreaFlex); inside the price area the range min+max each take an
+  // equal Expanded share. These are proportional only — every slot is an
+  // Expanded, so the Row can never overflow no matter how narrow the phone is;
+  // the TextFields shrink to their slot and scroll their own content
+  // internally rather than forcing a horizontal RenderFlex.
+  static const int _durationFlex = 3;
+  static const int _priceAreaFlex = 5;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final bool compact = durationController != null;
 
     // The conditional price field area — cross-fades + resizes between modes.
+    // CRITICAL: the duration well is NOT inside this switcher. Toggling
+    // fixed↔range only swaps the price field(s), so the duration field's
+    // _PricingInputFieldState + FocusNode keep their identity across mode
+    // changes (no focus/keyboard drop, no per-toggle State churn — perf M1).
     final Widget priceArea = AnimatedSize(
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
@@ -148,10 +168,27 @@ class PricingField extends StatelessWidget {
               ),
             ),
         child: mode == ServicePriceType.fixed
-            ? _buildFixed(l10n)
-            : _buildRange(l10n),
+            ? _buildFixed(l10n, compact: compact)
+            : _buildRange(l10n, compact: compact),
       ),
     );
+
+    // In the compact service-setup row the duration well rides OUTSIDE the
+    // switcher (stable identity) as the first Expanded slot; only the price
+    // area reflows on toggle. Every slot is an Expanded, so the Row can never
+    // overflow regardless of phone width (320/360/412 dp). In the create/edit
+    // form (durationController == null) the price area spans the full width
+    // and carries its own label, with no duration well here.
+    final Widget pricingBody = compact
+        ? Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(flex: _durationFlex, child: _buildDurationWell(l10n)),
+              const SizedBox(width: VelvetSpacing.sm),
+              Expanded(flex: _priceAreaFlex, child: priceArea),
+            ],
+          )
+        : priceArea;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -175,68 +212,59 @@ class PricingField extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.md),
 
-        // When a [leading] field is supplied (service-setup compact row), pair
-        // it with the price area; otherwise the price area spans the full width
-        // (create/edit form, where duration lives in its own row).
-        //
-        // The duration + price pairing is responsive: on wide rows they share a
-        // single line (duration | price flex:2), but below [_stackBreakpoint]
-        // the available width can't satisfy the inner TextFields' min width —
-        // worst case three numeric fields + two "грн" suffixes in range mode —
-        // so they stack vertically (duration above, price below) to avoid a
-        // horizontal RenderFlex overflow. The 320 / 360 / 412 dp phones all sit
-        // below the breakpoint once screen + card padding + gaps are subtracted,
-        // so they stack; only genuinely wide rows keep the one-line layout.
-        if (leading != null)
-          LayoutBuilder(
-            builder: (BuildContext context, BoxConstraints constraints) {
-              if (constraints.maxWidth < _stackBreakpoint) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    leading!,
-                    const SizedBox(height: VelvetSpacing.md),
-                    priceArea,
-                  ],
-                );
-              }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Expanded(child: leading!),
-                  const SizedBox(width: VelvetSpacing.md),
-                  Expanded(flex: 2, child: priceArea),
-                ],
-              );
-            },
-          )
-        else
-          priceArea,
+        // In the create/edit form (durationController == null) this is the
+        // single labelled price field; in the compact service-setup row it is
+        // a Row[ duration well | price area ] where the duration well sits
+        // OUTSIDE the mode AnimatedSwitcher (stable across fixed↔range toggle).
+        pricingBody,
       ],
     );
   }
 
-  Widget _buildFixed(AppLocalizations l10n) {
-    return KeyedSubtree(
-      key: const ValueKey<String>('pricing-fixed'),
-      child: _PricingInputField(
-        fieldKey: const Key('pricing-fixed-amount'),
-        label: l10n.pricingAmountLabel,
-        controller: fixedController,
-        enabled: enabled,
-        hint: '500',
-        suffixText: 'грн',
-        formatters: _priceFormatters,
-        errorText: fixedError,
-      ),
+  /// The compact, label-less duration well shown to the left of the price
+  /// field(s) in the service-setup row. Minutes affix ("хв") keeps it tight so
+  /// three numeric wells still fit one line at ~320 dp.
+  Widget _buildDurationWell(AppLocalizations l10n) {
+    return _PricingInputField(
+      fieldKey: const Key('service-setup-duration'),
+      label: l10n.serviceSetupDurationLabel,
+      compact: true,
+      controller: durationController!,
+      enabled: enabled,
+      hint: '60',
+      suffixText: l10n.serviceSetupDurationSuffix,
+      formatters: _durationFormatters,
+      errorText: durationError,
     );
   }
 
-  Widget _buildRange(AppLocalizations l10n) {
+  Widget _buildFixed(AppLocalizations l10n, {required bool compact}) {
+    final Widget priceField = _PricingInputField(
+      fieldKey: const Key('pricing-fixed-amount'),
+      label: l10n.pricingAmountLabel,
+      compact: compact,
+      controller: fixedController,
+      enabled: enabled,
+      hint: '500',
+      suffixText: 'грн',
+      formatters: _priceFormatters,
+      errorText: fixedError,
+    );
+    // In the compact row the duration well lives OUTSIDE this switcher (in the
+    // parent Row), so the fixed price area is just the single price field —
+    // identical to the create/edit form save for the compact styling.
+    return KeyedSubtree(
+      key: const ValueKey<String>('pricing-fixed'),
+      child: priceField,
+    );
+  }
+
+  Widget _buildRange(AppLocalizations l10n, {required bool compact}) {
     final bool hasRangeError = rangeError != null;
     final Widget minField = _PricingInputField(
       fieldKey: const Key('pricing-range-min'),
       label: l10n.pricingFromLabel,
+      compact: compact,
       controller: minController,
       enabled: enabled,
       hint: '500',
@@ -247,6 +275,7 @@ class PricingField extends StatelessWidget {
     final Widget maxField = _PricingInputField(
       fieldKey: const Key('pricing-range-max'),
       label: l10n.pricingToLabel,
+      compact: compact,
       controller: maxController,
       enabled: enabled,
       hint: '800',
@@ -262,30 +291,20 @@ class PricingField extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          // Side-by-side while the price area is wide enough; below
-          // [_rangeStackBreakpoint] the two fields stack so neither min/max
-          // TextField is squeezed under its min width by the "грн" suffixes.
-          LayoutBuilder(
-            builder: (BuildContext context, BoxConstraints constraints) {
-              if (constraints.maxWidth < _rangeStackBreakpoint) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    minField,
-                    const SizedBox(height: VelvetSpacing.sm + 2),
-                    maxField,
-                  ],
-                );
-              }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Expanded(child: minField),
-                  const SizedBox(width: VelvetSpacing.md),
-                  Expanded(child: maxField),
-                ],
-              );
-            },
+          // The range price area is the min+max pair. In the compact row the
+          // duration well sits OUTSIDE this switcher (in the parent Row), so on
+          // a 320 dp phone the visible line is still duration | min | max, but
+          // duration never disposes on toggle. Both slots are Expanded, so the
+          // pair is overflow-proof at any width; the compact gap tightens to
+          // keep the digits legible when squeezed. The create/edit form
+          // (compact == false) keeps the labelled side-by-side pair.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(child: minField),
+              SizedBox(width: compact ? VelvetSpacing.sm : VelvetSpacing.md),
+              Expanded(child: maxField),
+            ],
           ),
           // Inline range VALIDATION line beneath the pair — rendered only
           // when there is a range error. The always-on static hint was removed
@@ -470,15 +489,27 @@ class _Segment extends StatelessWidget {
           behavior: HitTestBehavior.opaque,
           onTap: onTap,
           child: Center(
+            // Bound the row to the segment's share of the toggle width so the
+            // label can ellipsize instead of overflowing at the smallest
+            // supported phone width (320 dp). The icon stays fixed; only the
+            // label flexes, and it degrades to ellipsis purely as a tight-width
+            // fallback (at 360 dp+ the full label always fits).
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 Icon(icon, size: 16, color: fg),
-                const SizedBox(width: VelvetSpacing.xs + 2),
-                AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 200),
-                  style: selected ? _selectedLabel : _unselectedLabel,
-                  child: Text(label),
+                const SizedBox(width: VelvetSpacing.xs),
+                Flexible(
+                  child: AnimatedDefaultTextStyle(
+                    duration: const Duration(milliseconds: 200),
+                    style: selected ? _selectedLabel : _unselectedLabel,
+                    child: Text(
+                      label,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -508,6 +539,7 @@ class _PricingInputField extends StatefulWidget {
     required this.formatters,
     this.enabled = true,
     this.errorText,
+    this.compact = false,
   });
 
   final Key fieldKey;
@@ -518,6 +550,12 @@ class _PricingInputField extends StatefulWidget {
   final List<TextInputFormatter> formatters;
   final bool enabled;
   final String? errorText;
+
+  /// Compact variant used inside the one-line service-setup row: the field
+  /// label is suppressed (the [label] is still wired through Semantics for
+  /// accessibility) and the field→affix gap tightens so three numeric wells
+  /// fit a single line down to ~320 dp without clipping the digits or affix.
+  final bool compact;
 
   @override
   State<_PricingInputField> createState() => _PricingInputFieldState();
@@ -561,64 +599,85 @@ class _PricingInputFieldState extends State<_PricingInputField> {
     final bool hasError =
         widget.errorText != null && widget.errorText!.isNotEmpty;
 
+    // Compact wells (the one-line service-setup row) drop the visible label and
+    // tighten the horizontal padding + field→affix gap so three numeric wells
+    // fit a single line at ~320 dp. The label is preserved for screen readers
+    // via Semantics so accessibility is unchanged.
+    final double wellHPad = widget.compact
+        ? VelvetSpacing.sm
+        : VelvetSpacing.md;
+    final double affixGap = widget.compact
+        ? VelvetSpacing.xs
+        : VelvetSpacing.md;
+
+    final Widget well = NeumorphicInset(
+      key: widget.fieldKey,
+      focused: _focused,
+      hasError: hasError || widget.errorText == '',
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: wellHPad,
+          vertical: VelvetSpacing.sm + 2,
+        ),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: VelvetSizes.field - 2 * (VelvetSpacing.sm + 2),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              // The TextField scrolls its own content horizontally, so a long
+              // value never pushes the affix out of the well or overflows the
+              // enclosing Row.
+              Expanded(
+                child: TextField(
+                  controller: widget.controller,
+                  focusNode: _focus,
+                  enabled: widget.enabled,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: widget.formatters,
+                  style: _inputStyle,
+                  cursorColor: BrandColors.accent,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
+                    isCollapsed: true,
+                    contentPadding: EdgeInsets.zero,
+                    hintText: widget.hint,
+                    hintStyle: _hintStyle,
+                  ),
+                ),
+              ),
+              SizedBox(width: affixGap),
+              Text(widget.suffixText, style: _suffixStyle),
+            ],
+          ),
+        ),
+      ),
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        // Label row.
-        Padding(
-          padding: const EdgeInsets.only(
-            left: VelvetSpacing.xs,
-            bottom: VelvetSpacing.sm,
+        // Label row — hidden in the compact one-line row (kept for a11y below).
+        if (!widget.compact)
+          Padding(
+            padding: const EdgeInsets.only(
+              left: VelvetSpacing.xs,
+              bottom: VelvetSpacing.sm,
+            ),
+            child: Text(widget.label.toUpperCase(), style: _labelStyle),
           ),
-          child: Text(widget.label.toUpperCase(), style: _labelStyle),
-        ),
 
-        // Inset well with focus ring.
-        NeumorphicInset(
-          key: widget.fieldKey,
-          focused: _focused,
-          hasError: hasError || widget.errorText == '',
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.md,
-              vertical: VelvetSpacing.sm + 2,
-            ),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                minHeight: VelvetSizes.field - 2 * (VelvetSpacing.sm + 2),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: <Widget>[
-                  Expanded(
-                    child: TextField(
-                      controller: widget.controller,
-                      focusNode: _focus,
-                      enabled: widget.enabled,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: widget.formatters,
-                      style: _inputStyle,
-                      cursorColor: BrandColors.accent,
-                      decoration: InputDecoration(
-                        isDense: true,
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        disabledBorder: InputBorder.none,
-                        isCollapsed: true,
-                        contentPadding: EdgeInsets.zero,
-                        hintText: widget.hint,
-                        hintStyle: _hintStyle,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: VelvetSpacing.md),
-                  Text(widget.suffixText, style: _suffixStyle),
-                ],
-              ),
-            ),
-          ),
-        ),
+        // Inset well with focus ring. In compact mode the suppressed label is
+        // re-attached via Semantics so screen readers still announce the field.
+        if (widget.compact)
+          Semantics(textField: true, label: widget.label, child: well)
+        else
+          well,
 
         // Inline error row (only when there's a non-empty error message).
         if (hasError)
