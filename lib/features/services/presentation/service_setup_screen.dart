@@ -75,6 +75,15 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   /// Categories whose service-type fetch failed (retryable on re-tap).
   final Set<String> _erroredCategories = <String>{};
 
+  /// One [GlobalKey] per service-type row wrapper, keyed by serviceTypeId.
+  /// Reused across rebuilds so [Scrollable.ensureVisible] can resolve the live
+  /// element for a flagged row when a blocked save needs to scroll to it.
+  final Map<String, GlobalKey> _rowWrapperKeys = <String, GlobalKey>{};
+
+  /// Lazily creates (or returns the existing) [GlobalKey] for a row wrapper.
+  GlobalKey _rowWrapperKey(String id) =>
+      _rowWrapperKeys.putIfAbsent(id, GlobalKey.new);
+
   /// Aggregate listenable feeding the footer count + chip badges. Re-derived
   /// whenever a row's `included` toggles (rows mutate their own [ServiceRowState]
   /// notifier; this bumps so the derived widgets recompute without a full-tree
@@ -213,21 +222,24 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
   /// when any included row is incomplete or invalid.
   List<MasterServiceBulkItem>? _assemble() {
     final items = <MasterServiceBulkItem>[];
-    final invalid = <String>{};
+    final reasons = <String, RowFlagReason>{};
 
     for (final rows in _rowsByCategory.values) {
       for (final row in rows) {
         if (!row.included) continue;
         final id = row.serviceTypeId;
         final duration = int.tryParse(row.duration.text.trim());
-        if (duration == null || duration < 1) {
-          invalid.add(id);
-          continue;
-        }
+        final durationOk = duration != null && duration >= 1;
+
         if (row.pricingMode == ServicePriceType.fixed) {
           final price = _parsePrice(row.fixed.text);
-          if (price == null) {
-            invalid.add(id);
+          final priceOk = price != null;
+          if (!durationOk || !priceOk) {
+            reasons[id] = !durationOk && !priceOk
+                ? RowFlagReason.missingBoth
+                : (!durationOk
+                      ? RowFlagReason.missingDuration
+                      : RowFlagReason.missingPrice);
             continue;
           }
           items.add(
@@ -241,8 +253,13 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
         } else {
           final min = _parsePrice(row.min.text);
           final max = _parsePrice(row.max.text);
-          if (min == null || max == null || max <= min) {
-            invalid.add(id);
+          final priceOk = min != null && max != null && max > min;
+          if (!durationOk || !priceOk) {
+            reasons[id] = !durationOk && !priceOk
+                ? RowFlagReason.missingBoth
+                : (!durationOk
+                      ? RowFlagReason.missingDuration
+                      : RowFlagReason.invalidRange);
             continue;
           }
           items.add(
@@ -261,17 +278,70 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     // Flag each offending row on its own notifier — only those cards rebuild.
     for (final rows in _rowsByCategory.values) {
       for (final row in rows) {
-        row.flagged = invalid.contains(row.serviceTypeId);
+        row.flagReason = reasons[row.serviceTypeId] ?? RowFlagReason.none;
       }
     }
-    if (invalid.isNotEmpty) return null;
+    if (reasons.isNotEmpty) return null;
     return items;
+  }
+
+  /// Scrolls the topmost flagged-and-included row into view after a blocked
+  /// save, so a master never stares at a silently-failed CTA with the offending
+  /// row below the fold.
+  ///
+  /// "Topmost" is resolved by global vertical position across all currently
+  /// laid-out rows — collapsed categories build no rows, so their flagged rows
+  /// (if any) are simply skipped here; an included flagged row only exists under
+  /// an expanded category, so the visible set always contains the candidates.
+  void _scrollToFirstFlagged() {
+    // Collect the flagged-row ids; bail early when nothing is flagged.
+    final flaggedIds = <String>{
+      for (final rows in _rowsByCategory.values)
+        for (final row in rows)
+          if (row.included && row.flagReason != RowFlagReason.none)
+            row.serviceTypeId,
+    };
+    if (flaggedIds.isEmpty) return;
+
+    // Resolve after the current frame so freshly-flagged cards (which expand to
+    // show their inline hints) are laid out before we measure / scroll.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      BuildContext? topContext;
+      double? topDy;
+      for (final id in flaggedIds) {
+        final context = _rowWrapperKeys[id]?.currentContext;
+        // Null when the row isn't laid out (e.g. its category collapsed) — skip.
+        if (context == null) continue;
+        final renderObject = context.findRenderObject();
+        if (renderObject is! RenderBox || !renderObject.hasSize) continue;
+        final dy = renderObject.localToGlobal(Offset.zero).dy;
+        if (topDy == null || dy < topDy) {
+          topDy = dy;
+          topContext = context;
+        }
+      }
+
+      final target = topContext;
+      if (target == null || !target.mounted) return;
+      Scrollable.ensureVisible(
+        target,
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeInOut,
+        alignment: 0.1,
+      );
+    });
   }
 
   Future<void> _save() async {
     final l10n = AppLocalizations.of(context);
     final items = _assemble();
-    if (items == null || items.isEmpty) return;
+    if (items == null || items.isEmpty) {
+      // Blocked save: surface the first flagged row so the failure is visible.
+      _scrollToFirstFlagged();
+      return;
+    }
 
     final created = await ref.read(serviceSetupProvider.notifier).submit(items);
     if (!mounted) return;
@@ -523,17 +593,23 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
       for (final row in rows) {
         final id = row.serviceTypeId;
         out.add(
-          // RepaintBoundary caps the per-row expand/collapse animation's repaint
-          // blast radius to this one card.
-          RepaintBoundary(
-            key: ValueKey<String>('rowwrap_$id'),
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
-              child: ServiceTypeRowCard(
-                key: Key('setup_row_$id'),
-                row: row,
-                resolveRangeError: (r) => _rangeErrorFor(r, l10n),
-                onChanged: _notifyAggregate,
+          // Outer KeyedSubtree carries the per-row GlobalKey so a blocked save
+          // can `Scrollable.ensureVisible` this flagged row; the inner
+          // RepaintBoundary keeps its `rowwrap_$id` ValueKey for test finders
+          // and caps the per-row expand/collapse animation's repaint blast
+          // radius to this one card.
+          KeyedSubtree(
+            key: _rowWrapperKey(id),
+            child: RepaintBoundary(
+              key: ValueKey<String>('rowwrap_$id'),
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
+                child: ServiceTypeRowCard(
+                  key: Key('setup_row_$id'),
+                  row: row,
+                  resolveRangeError: (r) => _rangeErrorFor(r, l10n),
+                  onChanged: _notifyAggregate,
+                ),
               ),
             ),
           ),

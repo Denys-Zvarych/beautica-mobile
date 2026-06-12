@@ -21,6 +21,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
@@ -126,18 +127,67 @@ Future<void> _pump(
   WidgetTester tester,
   _Harness h, {
   required List<Object> overrides,
+  Size? surfaceSize,
 }) async {
+  if (surfaceSize != null) {
+    await tester.binding.setSurfaceSize(surfaceSize);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+  }
   await tester.pumpWidget(
     ProviderScope(
       overrides: overrides.cast(),
-      child: MaterialApp.router(
-        routerConfig: h.router(),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('uk'),
+      child: MediaQuery(
+        data: MediaQueryData(size: surfaceSize ?? const Size(800, 1200)),
+        child: MaterialApp.router(
+          routerConfig: h.router(),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+        ),
       ),
     ),
   );
+}
+
+/// Toggles a service-type row's include switch ON.
+///
+/// The include switch ([_IncludeSwitch]) is a `Semantics(button, toggled,
+/// label)` wrapping a `GestureDetector`. While a row is OFF (collapsed) it is
+/// the ONLY `GestureDetector` in that row's card, so `.last` reliably targets
+/// it regardless of any pricing-toggle GestureDetectors that appear once the
+/// row expands.
+Future<void> _toggleRowOn(WidgetTester tester, String typeId) async {
+  final switchFinder = find
+      .descendant(
+        of: find.byKey(Key('setup_row_$typeId')),
+        matching: find.byType(GestureDetector),
+      )
+      .last;
+  await tester.tap(switchFinder);
+  await tester.pumpAndSettle();
+}
+
+/// Reads the footer save button's `onPressed` — null means the CTA is disabled
+/// (and tapping it is a guaranteed no-op).
+VoidCallback? _saveOnPressed(WidgetTester tester) {
+  final button = tester.widget<NeumorphicButton>(
+    find.byKey(const Key('btn-setup-save')),
+  );
+  return button.onPressed;
+}
+
+/// True when `finder`'s render box is laid out AND vertically overlaps the
+/// scroll viewport (the [Scrollable]'s on-screen rect — the true fold). Used to
+/// assert a row is below the fold before a blocked save, then visible after the
+/// scroll-to-flagged behaviour runs. Returns false when the row is unlaid-out
+/// (lazy SliverList never built it because it is off-screen).
+bool _isInViewport(WidgetTester tester, Finder finder) {
+  if (finder.evaluate().isEmpty) return false;
+  final viewport = tester.getRect(find.byType(Scrollable).first);
+  final rect = tester.getRect(finder);
+  // Overlaps when its top is above the viewport bottom and its bottom is below
+  // the viewport top.
+  return rect.top < viewport.bottom && rect.bottom > viewport.top;
 }
 
 void main() {
@@ -272,8 +322,8 @@ void main() {
     });
 
     testWidgets(
-      'expanding a category (rows default included) counts the rows and '
-      'enables the CTA; toggling one OFF lowers the count',
+      'expanding a category (opt-in: rows default OFF) keeps the count at zero '
+      'and the CTA disabled; toggling rows ON raises the count',
       (tester) async {
         await _pump(
           tester,
@@ -291,20 +341,26 @@ void main() {
 
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
 
-        // Both rows default included → "Створити 2 ...".
-        expect(find.text(l10n.serviceSetupCtaCreate(2)), findsOneWidget);
+        // Opt-in model: just revealing the rows includes NOTHING → the footer
+        // still shows the empty CTA copy and the save callback is null.
+        expect(find.text(l10n.serviceSetupCtaEmpty), findsOneWidget);
+        expect(find.text(l10n.serviceSetupCtaCreate(2)), findsNothing);
+        expect(_saveOnPressed(tester), isNull);
 
-        // Toggle the first row's include switch OFF — the switch is a
-        // Semantics(button,toggled) inside the row card.
-        final firstSwitch = find.descendant(
-          of: find.byKey(const Key('setup_row_type-classic')),
-          matching: find.byType(GestureDetector),
-        );
-        await tester.tap(firstSwitch.first);
-        await tester.pumpAndSettle();
-
-        // Count drops to 1.
+        // Toggle the first row ON — count rises to 1, CTA becomes enabled.
+        await _toggleRowOn(tester, 'type-classic');
         expect(find.text(l10n.serviceSetupCtaCreate(1)), findsOneWidget);
+        expect(_saveOnPressed(tester), isNotNull);
+
+        // Toggle the second row ON (scroll it into view first) — count rises
+        // to 2.
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('setup_row_type-gel')),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await _toggleRowOn(tester, 'type-gel');
+        expect(find.text(l10n.serviceSetupCtaCreate(2)), findsOneWidget);
       },
     );
   });
@@ -333,6 +389,10 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
         await tester.pumpAndSettle();
+
+        // Opt-in: include the row FIRST, else it is excluded and the save is a
+        // no-op (CTA disabled) — bulkCreate would never be called.
+        await _toggleRowOn(tester, 'type-classic');
 
         // Fill the duration (the row's leading VelvetField — the first
         // TextField in the card) and the fixed price (keyed field).
@@ -379,6 +439,9 @@ void main() {
 
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
 
+        // Opt-in: include the row first so it participates in validation.
+        await _toggleRowOn(tester, 'type-classic');
+
         // Switch the row to RANGE mode and enter an invalid range.
         await tester.tap(find.byKey(const Key('pricing-toggle-range')));
         await tester.pumpAndSettle();
@@ -408,6 +471,336 @@ void main() {
         await tester.tap(find.byKey(const Key('btn-setup-save')));
         await tester.pumpAndSettle();
 
+        verifyNever(() => h.repo.bulkCreate(any()));
+      },
+    );
+  });
+
+  // ── Bug 1 regression — narrow-width layout (no RenderFlex overflow) ────────
+  //
+  // The compact duration+price line used to overflow horizontally on narrow
+  // phones — worst in RANGE mode (two numeric fields + two "грн" suffixes
+  // beside the duration). pricing_field.dart now stacks duration above price
+  // below 360dp, and range min/max stack below 220dp. These tests pump the
+  // screen at 320 / 360 / 412 dp, include + expand a row in each pricing mode,
+  // and assert NO exception was thrown (a RenderFlex overflow surfaces via
+  // tester.takeException()). They FAIL against the pre-fix single-Row layout.
+
+  group('narrow-width layout — no overflow (Bug 1)', () {
+    for (final width in <double>[320, 360, 412]) {
+      for (final range in <bool>[false, true]) {
+        final mode = range ? 'range' : 'fixed';
+        testWidgets(
+          'included row at ${width.toInt()}dp in $mode mode does not overflow',
+          (tester) async {
+            await _pump(
+              tester,
+              h,
+              surfaceSize: Size(width, 900),
+              overrides: h.overrides(
+                categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+                typesBySlug: <String, List<ServiceTypeOption>>{
+                  'MANICURE': <ServiceTypeOption>[_typeClassic],
+                },
+              ),
+            );
+            await tester.pumpAndSettle();
+            await tester.tap(
+              find.byKey(const ValueKey<String>('cat_MANICURE')),
+            );
+            await tester.pumpAndSettle();
+
+            // Reveal the duration + price line by including the row.
+            await _toggleRowOn(tester, 'type-classic');
+
+            if (range) {
+              await tester.tap(find.byKey(const Key('pricing-toggle-range')));
+              await tester.pumpAndSettle();
+              expect(
+                find.byKey(const Key('pricing-range-min')),
+                findsOneWidget,
+              );
+              expect(
+                find.byKey(const Key('pricing-range-max')),
+                findsOneWidget,
+              );
+            } else {
+              expect(
+                find.byKey(const Key('pricing-fixed-amount')),
+                findsOneWidget,
+              );
+            }
+
+            // A RenderFlex overflow is reported as a thrown FlutterError that
+            // tester.takeException() surfaces; null means the responsive
+            // stacking kept every inner field above its min width.
+            expect(tester.takeException(), isNull);
+          },
+        );
+      }
+    }
+  });
+
+  // ── Bug 2 regression — opt-in flagging / premature validation ──────────────
+  //
+  // Rows used to default included, so expanding a category immediately made
+  // every untouched row "required" — tapping save fired
+  // "Вкажіть тривалість і ціну" on rows the master never opted into. The opt-in
+  // model (rows default OFF) + per-row RowFlagReason fixes both the premature
+  // flag AND the disambiguated messages.
+
+  group('opt-in flagging (Bug 2)', () {
+    Future<void> expandManicure(WidgetTester tester) async {
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'expanding then tapping save with NO row included shows no flag and '
+      'never calls bulkCreate (the user-reported premature-flag bug)',
+      (tester) async {
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic],
+            },
+          ),
+        );
+        await expandManicure(tester);
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        // The CTA is disabled (no-op) — tapping it must not flag the untouched
+        // row nor reach the repository.
+        expect(_saveOnPressed(tester), isNull);
+        await tester.tap(find.byKey(const Key('btn-setup-save')));
+        await tester.pumpAndSettle();
+
+        // No flag message of any kind on the untouched row.
+        expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
+        expect(find.text(l10n.serviceSetupRowMissingDuration), findsNothing);
+        expect(find.text(l10n.serviceSetupRowMissingPriceOnly), findsNothing);
+        expect(find.text(l10n.serviceSetupRowFixRange), findsNothing);
+        verifyNever(() => h.repo.bulkCreate(any()));
+      },
+    );
+
+    testWidgets(
+      'included row with empty duration flags missingDuration (not the generic '
+      'both) on save',
+      (tester) async {
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic],
+            },
+          ),
+        );
+        await expandManicure(tester);
+        await _toggleRowOn(tester, 'type-classic');
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        // Duration empty, fixed price present → missingDuration only.
+        await tester.enterText(
+          find.byKey(const Key('pricing-fixed-amount')),
+          '500',
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('btn-setup-save')));
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.serviceSetupRowMissingDuration), findsOneWidget);
+        expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
+        verifyNever(() => h.repo.bulkCreate(any()));
+      },
+    );
+
+    testWidgets(
+      'included fixed row with duration but empty price flags missingPriceOnly',
+      (tester) async {
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic],
+            },
+          ),
+        );
+        await expandManicure(tester);
+        await _toggleRowOn(tester, 'type-classic');
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        await tester.enterText(
+          find
+              .descendant(
+                of: find.byKey(const Key('setup_row_type-classic')),
+                matching: find.byType(TextField),
+              )
+              .first,
+          '60',
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('btn-setup-save')));
+        await tester.pumpAndSettle();
+
+        // missingPriceOnly surfaces "Вкажіть ціну" twice: once as the header
+        // flag (serviceSetupRowMissingPriceOnly) and once as the inline
+        // fixed-price field hint (serviceSetupPriceRequired) — both ARB values
+        // are the same string. Two matches proves the price-only path (the
+        // missingBoth header would instead read "Вкажіть тривалість і ціну").
+        expect(
+          find.text(l10n.serviceSetupRowMissingPriceOnly),
+          findsNWidgets(2),
+        );
+        expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
+        expect(find.text(l10n.serviceSetupRowMissingDuration), findsNothing);
+        verifyNever(() => h.repo.bulkCreate(any()));
+      },
+    );
+
+    testWidgets('included row with both empty falls back to missingBoth '
+        '(serviceSetupRowMissingPrice)', (tester) async {
+      await _pump(
+        tester,
+        h,
+        overrides: h.overrides(
+          categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+          typesBySlug: <String, List<ServiceTypeOption>>{
+            'MANICURE': <ServiceTypeOption>[_typeClassic],
+          },
+        ),
+      );
+      await expandManicure(tester);
+      await _toggleRowOn(tester, 'type-classic');
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+      await tester.tap(find.byKey(const Key('btn-setup-save')));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.serviceSetupRowMissingPrice), findsOneWidget);
+      verifyNever(() => h.repo.bulkCreate(any()));
+    });
+  });
+
+  // ── MEDIUM regression — scroll-to-first-flagged on blocked save ────────────
+  //
+  // Spec required, but was missing in code: when a blocked save leaves an
+  // included-and-flagged row BELOW the fold, the screen must scroll the topmost
+  // such row back into view (post-frame Scrollable.ensureVisible) so the master
+  // never stares at a silently no-op CTA. _scrollToFirstFlagged() now does this
+  // off _save()'s blocked branch. This test stands a flagged included row below
+  // the fold (small surface + scroll back to top), taps save, and asserts the
+  // row is scrolled into view — and bulkCreate is never reached.
+
+  group('scroll-to-first-flagged on blocked save (MEDIUM regression)', () {
+    testWidgets(
+      'a flagged included row below the fold is scrolled into view after a '
+      'blocked save; bulkCreate is never called',
+      (tester) async {
+        // A short surface so the two manicure rows cannot both fit — the second
+        // (type-gel) row sits below the fold once we scroll back to the top.
+        await _pump(
+          tester,
+          h,
+          surfaceSize: const Size(360, 480),
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
+            },
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
+        await tester.pumpAndSettle();
+
+        final scrollable = find.byType(Scrollable).first;
+        final lowerRow = find.byKey(const Key('setup_row_type-gel'));
+
+        // Include the LOWER row (scroll it into view to tap its switch) but
+        // leave it invalid (no duration / no price) so the save is blocked.
+        await tester.scrollUntilVisible(lowerRow, 200, scrollable: scrollable);
+        await _toggleRowOn(tester, 'type-gel');
+
+        // Scroll back to the very top so the flagged lower row is below the
+        // fold at the moment we trigger the blocked save.
+        await tester.drag(scrollable, const Offset(0, 1200));
+        await tester.pumpAndSettle();
+
+        // Precondition: the flagged row starts off-screen (below the fold).
+        expect(
+          _isInViewport(tester, lowerRow),
+          isFalse,
+          reason: 'lower flagged row should start below the fold',
+        );
+
+        // Tapping save assembles → null (flagged) → _scrollToFirstFlagged().
+        await tester.tap(find.byKey(const Key('btn-setup-save')));
+        await tester.pumpAndSettle();
+
+        // The post-frame ensureVisible ran without throwing AND brought the
+        // flagged row into the viewport.
+        expect(tester.takeException(), isNull);
+        expect(
+          _isInViewport(tester, lowerRow),
+          isTrue,
+          reason: 'flagged row must be scrolled into view after blocked save',
+        );
+
+        // Its flag hint is now rendered and the save was genuinely blocked.
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        expect(find.text(l10n.serviceSetupRowMissingPrice), findsOneWidget);
+        verifyNever(() => h.repo.bulkCreate(any()));
+      },
+    );
+
+    testWidgets(
+      'blocked save with the flagged row already on-screen is a no-throw no-op '
+      '(ensureVisible path is mounted-safe)',
+      (tester) async {
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic],
+            },
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
+        await tester.pumpAndSettle();
+
+        await _toggleRowOn(tester, 'type-classic');
+
+        // Leave the included row invalid (empty) → blocked save scrolls to a
+        // row that is already visible; must not throw.
+        await tester.tap(find.byKey(const Key('btn-setup-save')));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          _isInViewport(
+            tester,
+            find.byKey(const Key('setup_row_type-classic')),
+          ),
+          isTrue,
+        );
         verifyNever(() => h.repo.bulkCreate(any()));
       },
     );

@@ -112,6 +112,19 @@ class PricingField extends StatelessWidget {
     BrandColors.error,
   );
 
+  /// Below this width (logical px) the duration field stacks ABOVE the price
+  /// area instead of sharing a single line — keeps the inner TextFields above
+  /// their min width on narrow phones. Only the compact service-setup row
+  /// ([leading] != null) consults this; the create/edit form never does.
+  static const double _stackBreakpoint = 360;
+
+  /// Below this width (logical px) the range "Від" / "До" fields stack
+  /// vertically instead of sharing one line. Two numeric fields each with a
+  /// non-flexible "грн" suffix can't both stay above their min width once the
+  /// price area is squeezed (e.g. a narrow flex:2 slot beside the duration), so
+  /// the pair reflows to one field per line.
+  static const double _rangeStackBreakpoint = 220;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -163,16 +176,39 @@ class PricingField extends StatelessWidget {
         const SizedBox(height: VelvetSpacing.md),
 
         // When a [leading] field is supplied (service-setup compact row), pair
-        // it with the price area on one line; otherwise the price area spans the
-        // full width (create/edit form, where duration lives in its own row).
+        // it with the price area; otherwise the price area spans the full width
+        // (create/edit form, where duration lives in its own row).
+        //
+        // The duration + price pairing is responsive: on wide rows they share a
+        // single line (duration | price flex:2), but below [_stackBreakpoint]
+        // the available width can't satisfy the inner TextFields' min width —
+        // worst case three numeric fields + two "грн" suffixes in range mode —
+        // so they stack vertically (duration above, price below) to avoid a
+        // horizontal RenderFlex overflow. The 320 / 360 / 412 dp phones all sit
+        // below the breakpoint once screen + card padding + gaps are subtracted,
+        // so they stack; only genuinely wide rows keep the one-line layout.
         if (leading != null)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(child: leading!),
-              const SizedBox(width: VelvetSpacing.md),
-              Expanded(flex: 2, child: priceArea),
-            ],
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              if (constraints.maxWidth < _stackBreakpoint) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    leading!,
+                    const SizedBox(height: VelvetSpacing.md),
+                    priceArea,
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(child: leading!),
+                  const SizedBox(width: VelvetSpacing.md),
+                  Expanded(flex: 2, child: priceArea),
+                ],
+              );
+            },
           )
         else
           priceArea,
@@ -198,43 +234,58 @@ class PricingField extends StatelessWidget {
 
   Widget _buildRange(AppLocalizations l10n) {
     final bool hasRangeError = rangeError != null;
+    final Widget minField = _PricingInputField(
+      fieldKey: const Key('pricing-range-min'),
+      label: l10n.pricingFromLabel,
+      controller: minController,
+      enabled: enabled,
+      hint: '500',
+      suffixText: 'грн',
+      formatters: _priceFormatters,
+      errorText: minError,
+    );
+    final Widget maxField = _PricingInputField(
+      fieldKey: const Key('pricing-range-max'),
+      label: l10n.pricingToLabel,
+      controller: maxController,
+      enabled: enabled,
+      hint: '800',
+      suffixText: 'грн',
+      formatters: _priceFormatters,
+      // The cross-field error is surfaced once below the pair. Pass an empty
+      // string to flag the field ring without a duplicate message (mirrors the
+      // approved preview).
+      errorText: hasRangeError ? '' : null,
+    );
     return KeyedSubtree(
       key: const ValueKey<String>('pricing-range'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                child: _PricingInputField(
-                  fieldKey: const Key('pricing-range-min'),
-                  label: l10n.pricingFromLabel,
-                  controller: minController,
-                  enabled: enabled,
-                  hint: '500',
-                  suffixText: 'грн',
-                  formatters: _priceFormatters,
-                  errorText: minError,
-                ),
-              ),
-              const SizedBox(width: VelvetSpacing.md),
-              Expanded(
-                child: _PricingInputField(
-                  fieldKey: const Key('pricing-range-max'),
-                  label: l10n.pricingToLabel,
-                  controller: maxController,
-                  enabled: enabled,
-                  hint: '800',
-                  suffixText: 'грн',
-                  formatters: _priceFormatters,
-                  // The cross-field error is surfaced once below the pair.
-                  // Pass an empty string to flag the field ring without
-                  // a duplicate message (mirrors the approved preview).
-                  errorText: hasRangeError ? '' : null,
-                ),
-              ),
-            ],
+          // Side-by-side while the price area is wide enough; below
+          // [_rangeStackBreakpoint] the two fields stack so neither min/max
+          // TextField is squeezed under its min width by the "грн" suffixes.
+          LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              if (constraints.maxWidth < _rangeStackBreakpoint) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    minField,
+                    const SizedBox(height: VelvetSpacing.sm + 2),
+                    maxField,
+                  ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(child: minField),
+                  const SizedBox(width: VelvetSpacing.md),
+                  Expanded(child: maxField),
+                ],
+              );
+            },
           ),
           // Inline range VALIDATION line beneath the pair — rendered only
           // when there is a range error. The always-on static hint was removed

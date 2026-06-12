@@ -2248,6 +2248,26 @@
   "@serviceSetupRowMissingPrice": {
     "description": "Validation flag on an included row that is missing its duration and/or price."
   },
+  "serviceSetupRowMissingDuration": "Enter the duration",
+  "@serviceSetupRowMissingDuration": {
+    "description": "Validation flag on an included row that has a valid price but is missing its duration."
+  },
+  "serviceSetupRowMissingPriceOnly": "Enter the price",
+  "@serviceSetupRowMissingPriceOnly": {
+    "description": "Validation flag on an included row that has a valid duration but is missing its (fixed) price."
+  },
+  "serviceSetupRowFixRange": "Fix the price range",
+  "@serviceSetupRowFixRange": {
+    "description": "Validation flag on an included range-priced row whose duration is set but whose price range is missing or invalid (max must exceed min); the precise range message is shown inline beneath the price fields."
+  },
+  "serviceSetupDurationRequired": "Enter the duration in minutes",
+  "@serviceSetupDurationRequired": {
+    "description": "Inline per-field hint shown under the duration input when an included row's duration is empty or invalid on save."
+  },
+  "serviceSetupPriceRequired": "Enter the price",
+  "@serviceSetupPriceRequired": {
+    "description": "Inline per-field hint shown under the fixed-price input when an included row's price is empty or invalid on save."
+  },
   "serviceSetupDurationLabel": "Duration",
   "@serviceSetupDurationLabel": {
     "description": "Label for the per-row duration (minutes) field on the service-setup screen."

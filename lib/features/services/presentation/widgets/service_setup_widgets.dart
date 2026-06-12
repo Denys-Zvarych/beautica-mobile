@@ -25,6 +25,29 @@ import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
+/// Why a save-time validation flag fired on a row, so its card can show a
+/// precise message (and the right inline field hints) instead of one generic
+/// "missing duration and price" string. [none] means the row is valid / not
+/// flagged.
+enum RowFlagReason {
+  /// Row is valid or has not been flagged.
+  none,
+
+  /// Included row whose duration is empty / not a positive integer.
+  missingDuration,
+
+  /// Included fixed-price row whose price is empty / unparseable.
+  missingPrice,
+
+  /// Included row missing BOTH a valid duration and a valid price.
+  missingBoth,
+
+  /// Included range-priced row whose price range is missing or invalid
+  /// (max must exceed min). The precise range message is surfaced inline by
+  /// [PricingField] beneath the price fields, so the flag stays terse.
+  invalidRange,
+}
+
 /// Maps a platform-category wire slug to a leading glyph for the chip / group
 /// header. Categories are dynamic (sourced from the backend), so this is a
 /// best-effort visual hint with a calm spa fallback for unknown slugs — it never
@@ -266,10 +289,13 @@ class ServiceRowState extends ChangeNotifier {
   final TextEditingController min = TextEditingController();
   final TextEditingController max = TextEditingController();
 
-  bool _included = true;
+  bool _included = false;
 
-  /// Include toggle — defaults ON. Only included rows are submitted and require
-  /// a duration + price; switched-off rows are skipped by the save.
+  /// Include toggle — defaults OFF (opt-in model). Expanding a category just
+  /// reveals its service-types; the master toggles ON only the ones they offer.
+  /// Only included rows are submitted and require a duration + price; the
+  /// untouched (off) rows are skipped by the save, so browsing a category never
+  /// makes its rows required.
   bool get included => _included;
   set included(bool value) {
     if (_included == value) return;
@@ -285,16 +311,24 @@ class ServiceRowState extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool _flagged = false;
+  RowFlagReason _flagReason = RowFlagReason.none;
 
-  /// When true the row is included but missing a required value, so its card
-  /// shows the validation flag + tinted rim.
-  bool get flagged => _flagged;
-  set flagged(bool value) {
-    if (_flagged == value) return;
-    _flagged = value;
+  /// The precise reason this row is flagged (or [RowFlagReason.none] when
+  /// valid). Drives the card's flag message + the inline per-field hints.
+  RowFlagReason get flagReason => _flagReason;
+  set flagReason(RowFlagReason value) {
+    if (_flagReason == value) return;
+    _flagReason = value;
     notifyListeners();
   }
+
+  /// True when the row is included but missing a required value, so its card
+  /// shows the validation flag + tinted rim. Derived from [flagReason].
+  bool get flagged => _flagReason != RowFlagReason.none;
+
+  /// Clears any active validation flag (e.g. when the row is toggled or the
+  /// pricing mode changes, giving the master a clean slate before re-saving).
+  void clearFlag() => flagReason = RowFlagReason.none;
 
   @override
   void dispose() {
@@ -389,14 +423,34 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
 
   void _setIncluded(bool v) {
     widget.row.included = v;
-    if (v) widget.row.flagged = false;
+    // Toggling clears any stale flag — an excluded row is never required, and a
+    // freshly-included one starts clean (its inline hints fire only on save).
+    widget.row.clearFlag();
     widget.onChanged?.call();
   }
 
   void _setMode(ServicePriceType m) {
     widget.row.pricingMode = m;
-    widget.row.flagged = false;
+    widget.row.clearFlag();
     widget.onChanged?.call();
+  }
+
+  /// The terse header flag message for the row's current [RowFlagReason]. The
+  /// precise range message is surfaced inline by [PricingField], so the
+  /// [RowFlagReason.invalidRange] header copy stays generic to avoid
+  /// double-reporting it.
+  String _flagMessage(AppLocalizations l10n, RowFlagReason reason) {
+    switch (reason) {
+      case RowFlagReason.missingDuration:
+        return l10n.serviceSetupRowMissingDuration;
+      case RowFlagReason.missingPrice:
+        return l10n.serviceSetupRowMissingPriceOnly;
+      case RowFlagReason.invalidRange:
+        return l10n.serviceSetupRowFixRange;
+      case RowFlagReason.missingBoth:
+      case RowFlagReason.none:
+        return l10n.serviceSetupRowMissingPrice;
+    }
   }
 
   @override
@@ -404,8 +458,28 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     final l10n = AppLocalizations.of(context);
     final ServiceRowState row = widget.row;
     final bool on = row.included;
+    final RowFlagReason reason = row.flagReason;
     final bool flagged = row.flagged;
     final String? rangeError = widget.resolveRangeError(row);
+
+    // Inline per-field hints derived from the save-time flag reason, so a
+    // flagged row points the master at the exact empty field rather than
+    // relying on the header line alone. The range case is left to
+    // PricingField's own inline cross-field hint.
+    final bool durationFlagged =
+        reason == RowFlagReason.missingDuration ||
+        reason == RowFlagReason.missingBoth;
+    final bool fixedPriceFlagged =
+        reason == RowFlagReason.missingPrice ||
+        reason == RowFlagReason.missingBoth;
+    final String? durationError = durationFlagged
+        ? l10n.serviceSetupDurationRequired
+        : null;
+    final String? fixedPriceError =
+        fixedPriceFlagged && row.pricingMode == ServicePriceType.fixed
+        ? l10n.serviceSetupPriceRequired
+        : null;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOut,
@@ -454,9 +528,11 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                             color: BrandColors.error,
                           ),
                           const SizedBox(width: VelvetSpacing.xs + 1),
-                          Text(
-                            l10n.serviceSetupRowMissingPrice,
-                            style: VelvetText.feedback(BrandColors.error),
+                          Flexible(
+                            child: Text(
+                              _flagMessage(l10n, reason),
+                              style: VelvetText.feedback(BrandColors.error),
+                            ),
                           ),
                         ],
                       ),
@@ -516,12 +592,14 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                           minController: row.min,
                           maxController: row.max,
                           rangeError: rangeError,
+                          fixedError: fixedPriceError,
                           leading: VelvetField(
                             label: l10n.serviceSetupDurationLabel,
                             controller: row.duration,
                             hint: '60',
                             keyboardType: TextInputType.number,
                             inputFormatters: _durationFormatters,
+                            errorText: durationError,
                           ),
                         ),
                       ),
