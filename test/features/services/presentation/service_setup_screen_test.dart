@@ -167,6 +167,28 @@ Future<void> _toggleRowOn(WidgetTester tester, String typeId) async {
   await tester.pumpAndSettle();
 }
 
+/// Taps the row's include switch regardless of whether the card is currently
+/// expanded. Unlike [_toggleRowOn]'s `.last`-GestureDetector heuristic (which is
+/// only unambiguous while the row is OFF / collapsed), this targets the include
+/// switch precisely: it is the GestureDetector nested inside the row's
+/// `Semantics(toggled: …)` (the only toggled Semantics in the card — the pricing
+/// mode toggle exposes no `toggled` flag), so it flips an ON+expanded row OFF
+/// deterministically without colliding with the pricing-mode toggle's own
+/// opaque GestureDetector.
+Future<void> _tapIncludeSwitch(WidgetTester tester, String typeId) async {
+  final toggledSemantics = find.descendant(
+    of: find.byKey(Key('setup_row_$typeId')),
+    matching: find.byWidgetPredicate(
+      (w) => w is Semantics && w.properties.toggled != null,
+    ),
+  );
+  final switchFinder = find
+      .descendant(of: toggledSemantics, matching: find.byType(GestureDetector))
+      .last;
+  await tester.tap(switchFinder);
+  await tester.pumpAndSettle();
+}
+
 /// Reads the footer save button's `onPressed` — null means the CTA is disabled
 /// (and tapping it is a guaranteed no-op).
 VoidCallback? _saveOnPressed(WidgetTester tester) {
@@ -174,6 +196,28 @@ VoidCallback? _saveOnPressed(WidgetTester tester) {
     find.byKey(const Key('btn-setup-save')),
   );
   return button.onPressed;
+}
+
+/// True when the service-type row card paints its error rim — i.e. the card's
+/// own [AnimatedContainer] has a non-transparent border. The card sets
+/// `Border.all(color: flagged ? BrandColors.error : Colors.transparent)`, so a
+/// transparent (or absent) border means no rim. Targets the FIRST
+/// AnimatedContainer under the row key (the card face) so the include-switch's
+/// inner AnimatedContainer is never mistaken for the rim.
+bool _rowHasErrorRim(WidgetTester tester, String typeId) {
+  final container = tester
+      .widgetList<AnimatedContainer>(
+        find.descendant(
+          of: find.byKey(Key('setup_row_$typeId')),
+          matching: find.byType(AnimatedContainer),
+        ),
+      )
+      .first;
+  final decoration = container.decoration;
+  if (decoration is! BoxDecoration) return false;
+  final border = decoration.border;
+  if (border is! Border) return false;
+  return border.top.color.a != 0;
 }
 
 /// True when `finder`'s render box is laid out AND vertically overlaps the
@@ -802,6 +846,151 @@ void main() {
           isTrue,
         );
         verifyNever(() => h.repo.bulkCreate(any()));
+      },
+    );
+  });
+
+  // ── HIGH regression — stale flag survives toggle-off / collapse-reexpand ────
+  //
+  // The user-reported stale-flag bug: an included row flagged on a blocked save
+  // (flagReason set → "Вкажіть тривалість і ціну", missingBoth) kept painting
+  // its error AFTER the master either (a) toggled the row OFF or (b) collapsed
+  // and re-expanded its category. Two independent fixes guard this:
+  //   • service_setup_widgets.dart — header flag gated on inclusion
+  //     (`final bool flagged = on && row.flagged;`) so an excluded row never
+  //     paints the flag/rim and the "excluded" sub-label takes over instead;
+  //   • service_setup_screen.dart — `_toggleCategory`'s collapse branch calls
+  //     `row.clearFlag()` on every retained row so a re-expanded row never
+  //     resurrects a flag predating the collapse.
+  // These tests stand a row up, blank both fields, fire a blocked save to set
+  // the flag, then exercise each clear path. They FAIL against the pre-fix code
+  // (the flag message lingers); they PASS now.
+
+  group('stale flag clears on toggle-off / collapse-reexpand (HIGH regression)', () {
+    Future<void> expandManicure(WidgetTester tester) async {
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
+      await tester.pumpAndSettle();
+    }
+
+    /// Includes the single manicure row, leaves duration+price blank, and fires
+    /// a blocked save so the row carries the missingBoth flag
+    /// (`serviceSetupRowMissingPrice`). Returns the loaded l10n bundle.
+    Future<AppLocalizations> includeAndBlock(WidgetTester tester) async {
+      await expandManicure(tester);
+      await _toggleRowOn(tester, 'type-classic');
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+      await tester.tap(find.byKey(const Key('btn-setup-save')));
+      await tester.pumpAndSettle();
+
+      // Precondition: the blocked save flagged the included row.
+      expect(find.text(l10n.serviceSetupRowMissingPrice), findsOneWidget);
+      verifyNever(() => h.repo.bulkCreate(any()));
+      return l10n;
+    }
+
+    testWidgets(
+      'toggling a flagged row OFF removes its flag message and shows the '
+      'excluded sub-label instead (no error rim on the excluded card)',
+      (tester) async {
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic],
+            },
+          ),
+        );
+
+        final l10n = await includeAndBlock(tester);
+
+        // The flagged card paints a tinted error rim while included+flagged.
+        expect(_rowHasErrorRim(tester, 'type-classic'), isTrue);
+
+        // Toggle the row OFF — `flagged = on && row.flagged` collapses to false
+        // AND `_setIncluded` clears the flag.
+        await _tapIncludeSwitch(tester, 'type-classic');
+
+        // The flag message is GONE; the excluded sub-label takes its place.
+        expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
+        expect(find.text(l10n.serviceSetupRowExcluded), findsOneWidget);
+        // The excluded card carries no error rim.
+        expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
+      },
+    );
+
+    testWidgets(
+      'collapsing then re-expanding a category clears a flagged row\'s stale '
+      'flag (the primary repro — clearFlag runs on collapse)',
+      (tester) async {
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic],
+            },
+          ),
+        );
+
+        final l10n = await includeAndBlock(tester);
+
+        // Collapse the category (tap the chip again) — the SliverList drops the
+        // row card and `_toggleCategory` runs clearFlag() on the retained row.
+        await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
+        await tester.pumpAndSettle();
+        // While collapsed there is no flagged card on screen.
+        expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
+
+        // Re-expand — the row state is reused (no refetch). With the fix the
+        // flag was cleared on collapse, so the re-expanded card is clean.
+        await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('setup_row_type-classic')), findsOneWidget);
+        // Pre-fix: the flag would resurrect here. Post-fix: gone.
+        expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
+        expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
+        // The row is still included (collapse is a pure visibility change), so
+        // it is NOT the excluded sub-label — it simply renders unflagged.
+        expect(find.text(l10n.serviceSetupRowExcluded), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'an excluded row never paints a flag even after it had been flagged '
+      'while included',
+      (tester) async {
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[_manicure]),
+            typesBySlug: <String, List<ServiceTypeOption>>{
+              'MANICURE': <ServiceTypeOption>[_typeClassic],
+            },
+          ),
+        );
+
+        final l10n = await includeAndBlock(tester);
+
+        // Toggle OFF (was flagged) → excluded, unflagged.
+        await _tapIncludeSwitch(tester, 'type-classic');
+        expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
+        expect(find.text(l10n.serviceSetupRowExcluded), findsOneWidget);
+        expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
+
+        // Toggle back ON — re-including starts clean (clearFlag on include); no
+        // stale flag carries over from the earlier blocked save.
+        await _tapIncludeSwitch(tester, 'type-classic');
+        expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
+        expect(find.text(l10n.serviceSetupRowExcluded), findsNothing);
+        expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
       },
     );
   });

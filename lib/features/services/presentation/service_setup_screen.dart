@@ -124,7 +124,16 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
       // ONLY. The category's rows + their controllers (entered duration / price)
       // are retained, keyed by service-type id, so re-expanding restores the
       // values and hits the "already loaded → no refetch" branch below.
-      setState(() => _expanded.remove(slug));
+      //
+      // Defense-in-depth: clear any stale save-time flag on the retained rows so a
+      // re-expanded row never resurrects a flag predating a later field edit. The
+      // rows may not be loaded yet, so guard for a null/absent list.
+      setState(() {
+        _expanded.remove(slug);
+        for (final row in _rowsByCategory[slug] ?? const <ServiceRowState>[]) {
+          row.clearFlag();
+        }
+      });
       _notifyAggregate();
       return;
     }

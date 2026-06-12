@@ -459,7 +459,11 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
     final ServiceRowState row = widget.row;
     final bool on = row.included;
     final RowFlagReason reason = row.flagReason;
-    final bool flagged = row.flagged;
+    // Only INCLUDED rows are ever validated, so an excluded row must never paint
+    // a flag — gate the build-local flag on inclusion. This suppresses the flag
+    // message, the error rim, and the inline field hints for an excluded row, and
+    // lets the "виключено" off-state sub-label take over.
+    final bool flagged = on && row.flagged;
     final String? rangeError = widget.resolveRangeError(row);
 
     // Inline per-field hints derived from the save-time flag reason, so a
