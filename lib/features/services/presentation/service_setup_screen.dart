@@ -125,12 +125,19 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
       // are retained, keyed by service-type id, so re-expanding restores the
       // values and hits the "already loaded → no refetch" branch below.
       //
+      // A deselected category must contribute nothing: drop each retained row
+      // from the footer count AND the bulk-save payload by resetting `included`
+      // (both derive from `r.included` across ALL loaded categories). Typed
+      // duration / price text survives on the retained controllers, so
+      // re-toggling restores values — only the include flag resets.
+      //
       // Defense-in-depth: clear any stale save-time flag on the retained rows so a
       // re-expanded row never resurrects a flag predating a later field edit. The
       // rows may not be loaded yet, so guard for a null/absent list.
       setState(() {
         _expanded.remove(slug);
         for (final row in _rowsByCategory[slug] ?? const <ServiceRowState>[]) {
+          row.included = false;
           row.clearFlag();
         }
       });

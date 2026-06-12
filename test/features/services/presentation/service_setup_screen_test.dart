@@ -62,6 +62,12 @@ const _typeGel = ServiceTypeOption(
   nameUk: 'Гель-лак',
   categoryName: 'MANICURE',
 );
+const _typeCut = ServiceTypeOption(
+  id: 'type-cut',
+  slug: 'CUT',
+  nameUk: 'Стрижка',
+  categoryName: 'HAIR',
+);
 
 const _createdService = <MasterService>[
   MasterService(
@@ -924,8 +930,8 @@ void main() {
     );
 
     testWidgets(
-      'collapsing then re-expanding a category clears a flagged row\'s stale '
-      'flag (the primary repro — clearFlag runs on collapse)',
+      'collapsing then re-expanding a category clears the stale flag AND leaves '
+      'the row DESELECTED (collapse == deselect — clearFlag + included=false)',
       (tester) async {
         await _pump(
           tester,
@@ -940,8 +946,9 @@ void main() {
 
         final l10n = await includeAndBlock(tester);
 
-        // Collapse the category (tap the chip again) — the SliverList drops the
-        // row card and `_toggleCategory` runs clearFlag() on the retained row.
+        // Collapse the category (tap the chip again). `_expanded` IS the
+        // selection set, so collapsing DESELECTS: `_toggleCategory` runs both
+        // `row.included = false` AND `row.clearFlag()` on the retained row.
         await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
         await tester.pumpAndSettle();
         // While collapsed there is no flagged card on screen.
@@ -953,12 +960,14 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byKey(const Key('setup_row_type-classic')), findsOneWidget);
-        // Pre-fix: the flag would resurrect here. Post-fix: gone.
+        // (a) The stale-flag guarantee STILL holds — no flag lingers after the
+        // collapse/re-expand round-trip (pre-fix this would resurrect).
         expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
         expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
-        // The row is still included (collapse is a pure visibility change), so
-        // it is NOT the excluded sub-label — it simply renders unflagged.
-        expect(find.text(l10n.serviceSetupRowExcluded), findsNothing);
+        // (b) NEW contract: collapse deselected the row, so the re-expanded card
+        // is now EXCLUDED — it shows the "Не пропонується" sub-label, not an
+        // unflagged-but-included row.
+        expect(find.text(l10n.serviceSetupRowExcluded), findsOneWidget);
       },
     );
 
@@ -991,6 +1000,148 @@ void main() {
         expect(find.text(l10n.serviceSetupRowMissingPrice), findsNothing);
         expect(find.text(l10n.serviceSetupRowExcluded), findsNothing);
         expect(_rowHasErrorRim(tester, 'type-classic'), isFalse);
+      },
+    );
+  });
+
+  // ── HIGH regression — deselecting (collapsing) a category drops its rows ────
+  //   from BOTH the footer count AND the bulk-save payload.
+  //
+  // The user-reported bug: `_expanded` IS the category-selection set, so
+  // collapsing a category == deselecting it. Before the fix, collapse was a
+  // "pure visibility change" — the retained rows kept `included == true`, so a
+  // deselected category still inflated the footer "Створити N послуг" count and
+  // (critically) still contributed its serviceTypeIds to the bulk-save payload.
+  //
+  // The fix resets each retained row's `included = false` (alongside the existing
+  // `clearFlag()`) in `_toggleCategory`'s collapse branch. These tests stand up
+  // TWO categories, include rows in each, deselect one, then assert:
+  //   • the footer count drops to ONLY the remaining category's rows; and
+  //   • the assembled payload (captured at `bulkCreate`) carries ONLY the
+  //     remaining category's serviceTypeId — proving `_assemble()` excludes the
+  //     deselected rows, not just the footer label.
+  // Both assertions FAIL against the pre-fix "stays-included" behaviour.
+
+  group('deselect (collapse) drops a category from count + payload (HIGH '
+      'regression)', () {
+    List<Object> twoCategoryOverrides() => h.overrides(
+      categories: const AsyncData(<ServiceCategoryOption>[_manicure, _hair]),
+      typesBySlug: <String, List<ServiceTypeOption>>{
+        'MANICURE': <ServiceTypeOption>[_typeClassic, _typeGel],
+        'HAIR': <ServiceTypeOption>[_typeCut],
+      },
+    );
+
+    testWidgets(
+      'including 2 rows in A + 1 in B reads "3"; deselecting A drops the footer '
+      'to "1" (NOT 3)',
+      (tester) async {
+        // A tall surface so both chips + all three expanded rows fit on screen
+        // at once — every chip/row stays laid out, so no scroll juggling is
+        // needed and the footer-count assertions are deterministic.
+        await _pump(
+          tester,
+          h,
+          surfaceSize: const Size(800, 2200),
+          overrides: twoCategoryOverrides(),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        // Expand A (MANICURE) and toggle BOTH its rows ON → footer reads "2".
+        await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
+        await tester.pumpAndSettle();
+        await _toggleRowOn(tester, 'type-classic');
+        expect(find.text(l10n.serviceSetupCtaCreate(1)), findsOneWidget);
+        await _toggleRowOn(tester, 'type-gel');
+        expect(find.text(l10n.serviceSetupCtaCreate(2)), findsOneWidget);
+
+        // Expand B (HAIR) and toggle its single row ON → footer rises to "3".
+        await tester.tap(find.byKey(const ValueKey<String>('cat_HAIR')));
+        await tester.pumpAndSettle();
+        await _toggleRowOn(tester, 'type-cut');
+        expect(find.text(l10n.serviceSetupCtaCreate(3)), findsOneWidget);
+
+        // Deselect A by tapping its chip again. The reported symptom: pre-fix the
+        // footer stayed at "3"; post-fix it drops to "1" (only B's row counts).
+        await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.serviceSetupCtaCreate(1)), findsOneWidget);
+        expect(find.text(l10n.serviceSetupCtaCreate(3)), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'the bulk-save payload after deselecting A carries ONLY category B\'s '
+      'serviceTypeId — none of the deselected A rows',
+      (tester) async {
+        // Capture the assembled payload handed to bulkCreate.
+        final captured = <List<MasterServiceBulkItem>>[];
+        when(() => h.repo.bulkCreate(any())).thenAnswer((invocation) async {
+          captured.add(
+            invocation.positionalArguments.first as List<MasterServiceBulkItem>,
+          );
+          return _createdService;
+        });
+
+        // A tall surface keeps every chip + row laid out at once.
+        await _pump(
+          tester,
+          h,
+          surfaceSize: const Size(800, 2200),
+          overrides: twoCategoryOverrides(),
+        );
+        await tester.pumpAndSettle();
+
+        // Expand A + include both rows.
+        await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
+        await tester.pumpAndSettle();
+        await _toggleRowOn(tester, 'type-classic');
+        await _toggleRowOn(tester, 'type-gel');
+
+        // Expand B + include its row, then give it a VALID duration + price so
+        // the (post-deselect) save assembles cleanly.
+        await tester.tap(find.byKey(const ValueKey<String>('cat_HAIR')));
+        await tester.pumpAndSettle();
+        await _toggleRowOn(tester, 'type-cut');
+        await tester.enterText(
+          find
+              .descendant(
+                of: find.byKey(const Key('setup_row_type-cut')),
+                matching: find.byType(TextField),
+              )
+              .first,
+          '45',
+        );
+        // All three included rows expand a fixed-price field with the same key,
+        // so scope the entry to type-cut's card.
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('setup_row_type-cut')),
+            matching: find.byKey(const Key('pricing-fixed-amount')),
+          ),
+          '350',
+        );
+        await tester.pumpAndSettle();
+
+        // Deselect A — its (incomplete) rows must NOT block the save NOR appear
+        // in the payload.
+        await tester.tap(find.byKey(const ValueKey<String>('cat_MANICURE')));
+        await tester.pumpAndSettle();
+
+        // Save.
+        await tester.tap(find.byKey(const Key('btn-setup-save')));
+        await tester.pumpAndSettle();
+
+        // bulkCreate was called once with EXACTLY B's single serviceTypeId.
+        verify(() => h.repo.bulkCreate(any())).called(1);
+        expect(captured, hasLength(1));
+        final ids = captured.single.map((i) => i.serviceTypeId).toList();
+        expect(ids, <String>['type-cut']);
+        expect(ids, isNot(contains('type-classic')));
+        expect(ids, isNot(contains('type-gel')));
       },
     );
   });

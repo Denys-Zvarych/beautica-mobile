@@ -131,10 +131,8 @@ Finder _editableUnder(Key wellKey) => find.descendant(
 );
 
 /// The "грн" suffix [Text] nested under the well keyed [wellKey].
-Finder _suffixUnder(Key wellKey) => find.descendant(
-  of: find.byKey(wellKey),
-  matching: find.text(_kSuffix),
-);
+Finder _suffixUnder(Key wellKey) =>
+    find.descendant(of: find.byKey(wellKey), matching: find.text(_kSuffix));
 
 /// Painted height of the [EditableText]'s render object (its laid-out box, not
 /// just the constraint). A clipped hard-box truncates this below the font line
@@ -176,12 +174,7 @@ void main() {
       testWidgets(
         '$label: long value does not overlap "грн" and keeps the bumped gap',
         (tester) async {
-          await _pump(
-            tester,
-            mode: mode,
-            width: 360,
-            primeValue: _kLongValue,
-          );
+          await _pump(tester, mode: mode, width: 360, primeValue: _kLongValue);
 
           expect(_editableUnder(well), findsOneWidget);
           expect(_suffixUnder(well), findsOneWidget);
@@ -306,9 +299,7 @@ void main() {
         // under test was not exercised.
         expect(
           tester.getRect(find.byKey(const Key('pricing-range-min'))).top,
-          isNot(
-            tester.getRect(find.byKey(const Key('pricing-range-max'))).top,
-          ),
+          isNot(tester.getRect(find.byKey(const Key('pricing-range-max'))).top),
           reason: 'precondition: min/max must be stacked below 220dp',
         );
 
