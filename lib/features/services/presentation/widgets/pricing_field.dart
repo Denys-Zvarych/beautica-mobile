@@ -583,8 +583,10 @@ class _PricingInputFieldState extends State<_PricingInputField> {
               horizontal: VelvetSpacing.md,
               vertical: VelvetSpacing.sm + 2,
             ),
-            child: SizedBox(
-              height: VelvetSizes.field - 2 * (VelvetSpacing.sm + 2),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: VelvetSizes.field - 2 * (VelvetSpacing.sm + 2),
+              ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: <Widget>[
@@ -610,7 +612,7 @@ class _PricingInputFieldState extends State<_PricingInputField> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: VelvetSpacing.sm),
+                  const SizedBox(width: VelvetSpacing.md),
                   Text(widget.suffixText, style: _suffixStyle),
                 ],
               ),
