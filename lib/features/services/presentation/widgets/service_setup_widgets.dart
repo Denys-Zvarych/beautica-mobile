@@ -599,6 +599,7 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                           fixedError: fixedPriceError,
                           leading: VelvetField(
                             label: l10n.serviceSetupDurationLabel,
+                            fieldKey: const Key('service-setup-duration'),
                             controller: row.duration,
                             hint: '60',
                             keyboardType: TextInputType.number,
