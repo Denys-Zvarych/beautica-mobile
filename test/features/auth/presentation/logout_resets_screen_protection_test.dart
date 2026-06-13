@@ -33,37 +33,40 @@ class _SpyScreenProtectionManager extends ScreenProtectionManager {
 }
 
 void main() {
-  test('AuthNotifier.logout() invokes screenProtectionProvider.reset()', () async {
-    final spy = _SpyScreenProtectionManager();
-    // Simulate a live PII acquirer that was never released.
-    spy.acquire();
-    expect(spy.acquirerCount, 1);
+  test(
+    'AuthNotifier.logout() invokes screenProtectionProvider.reset()',
+    () async {
+      final spy = _SpyScreenProtectionManager();
+      // Simulate a live PII acquirer that was never released.
+      spy.acquire();
+      expect(spy.acquirerCount, 1);
 
-    final container = ProviderContainer(
-      overrides: [
-        authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
-        secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-        screenProtectionProvider.overrideWithValue(spy),
-      ],
-    );
-    addTearDown(container.dispose);
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+          screenProtectionProvider.overrideWithValue(spy),
+        ],
+      );
+      addTearDown(container.dispose);
 
-    // Settle the AuthNotifier build (cold start → unauthenticated).
-    await container.read(authProvider.future);
+      // Settle the AuthNotifier build (cold start → unauthenticated).
+      await container.read(authProvider.future);
 
-    await container.read(authProvider.notifier).logout();
+      await container.read(authProvider.notifier).logout();
 
-    expect(
-      spy.resetCalls,
-      1,
-      reason:
-          'logout() must call screenProtectionProvider.reset() exactly once so '
-          'a never-disposed PII screen cannot leave protection latched.',
-    );
-    expect(
-      spy.acquirerCount,
-      0,
-      reason: 'reset() must zero the live acquirer count on logout.',
-    );
-  });
+      expect(
+        spy.resetCalls,
+        1,
+        reason:
+            'logout() must call screenProtectionProvider.reset() exactly once so '
+            'a never-disposed PII screen cannot leave protection latched.',
+      );
+      expect(
+        spy.acquirerCount,
+        0,
+        reason: 'reset() must zero the live acquirer count on logout.',
+      );
+    },
+  );
 }

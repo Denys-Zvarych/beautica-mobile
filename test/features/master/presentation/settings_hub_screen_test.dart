@@ -157,26 +157,27 @@ void main() {
       expect(find.byKey(const Key('row-logout')), findsOneWidget);
     });
 
-    testWidgets('close button navigates back to the profile when canPop false', (
-      tester,
-    ) async {
-      final router = _hubRouter();
-      addTearDown(router.dispose);
+    testWidgets(
+      'close button navigates back to the profile when canPop false',
+      (tester) async {
+        final router = _hubRouter();
+        addTearDown(router.dispose);
 
-      await tester.pumpRoutedApp(router);
-      await tester.pumpAndSettle();
+        await tester.pumpRoutedApp(router);
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('btn-close-hub')));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('btn-close-hub')));
+        await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const Key('stub-profile')),
-        findsOneWidget,
-        reason:
-            'with no prior history (canPop false) the close button must '
-            'go(masterProfile)',
-      );
-    });
+        expect(
+          find.byKey(const Key('stub-profile')),
+          findsOneWidget,
+          reason:
+              'with no prior history (canPop false) the close button must '
+              'go(masterProfile)',
+        );
+      },
+    );
   });
 
   group('SettingsHubScreen logout row', () {
@@ -203,7 +204,9 @@ void main() {
       expect(auth.logoutCalls, 0);
     });
 
-    testWidgets('cancelling the logout dialog does NOT log out', (tester) async {
+    testWidgets('cancelling the logout dialog does NOT log out', (
+      tester,
+    ) async {
       final auth = _TrackingAuthNotifier();
       final router = _hubRouter();
       addTearDown(router.dispose);

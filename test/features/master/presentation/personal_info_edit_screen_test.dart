@@ -101,10 +101,8 @@ List<Object> _overrides(_MockMasterRepository repo, {Master? master}) =>
       masterRepositoryProvider.overrideWithValue(repo),
     ];
 
-Finder _field(String key) => find.descendant(
-  of: find.byKey(Key(key)),
-  matching: find.byType(TextField),
-);
+Finder _field(String key) =>
+    find.descendant(of: find.byKey(Key(key)), matching: find.byType(TextField));
 
 void main() {
   late _MockMasterRepository repo;
@@ -132,12 +130,18 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(tester.widget<TextField>(_field('field-firstName')).controller?.text,
-        'Олена');
-    expect(tester.widget<TextField>(_field('field-lastName')).controller?.text,
-        'Ковальчук');
-    expect(tester.widget<TextField>(_field('field-bio')).controller?.text,
-        'Майстер манікюру.');
+    expect(
+      tester.widget<TextField>(_field('field-firstName')).controller?.text,
+      'Олена',
+    );
+    expect(
+      tester.widget<TextField>(_field('field-lastName')).controller?.text,
+      'Ковальчук',
+    );
+    expect(
+      tester.widget<TextField>(_field('field-bio')).controller?.text,
+      'Майстер манікюру.',
+    );
   });
 
   testWidgets('Save is disabled when pristine and enables when dirty', (

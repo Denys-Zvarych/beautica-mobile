@@ -1148,118 +1148,113 @@ void main() {
       matching: find.byType(Text),
     );
 
-    testWidgets(
-      'NO_SCHEDULE (no template) shows the unset prompt, NOT a '
-      '"Графік діє з <date>" value — and the card is present + tappable',
-      (tester) async {
-        // Seed the provider with an EMPTY server list → first-time master,
-        // `_serverTemplate == null`.
-        final ProviderContainer c = await _pumpEmpty(tester);
-        addTearDown(c.dispose);
+    testWidgets('NO_SCHEDULE (no template) shows the unset prompt, NOT a '
+        '"Графік діє з <date>" value — and the card is present + tappable', (
+      tester,
+    ) async {
+      // Seed the provider with an EMPTY server list → first-time master,
+      // `_serverTemplate == null`.
+      final ProviderContainer c = await _pumpEmpty(tester);
+      addTearDown(c.dispose);
 
-        final AppLocalizations l10n = _l10n(tester);
-        final String unset = l10n.weeklyEditorActiveWindowUnset;
-        // The old default-today value would have rendered with `from` = the
-        // fixed clock (09.06). Build that exact would-be string to prove it is
-        // ABSENT — the regression guard against re-introducing default-today.
-        final String wouldBeTodayValue = l10n.weeklyEditorActiveWindowOpenEnded(
-          '09.06',
-        );
+      final AppLocalizations l10n = _l10n(tester);
+      final String unset = l10n.weeklyEditorActiveWindowUnset;
+      // The old default-today value would have rendered with `from` = the
+      // fixed clock (09.06). Build that exact would-be string to prove it is
+      // ABSENT — the regression guard against re-introducing default-today.
+      final String wouldBeTodayValue = l10n.weeklyEditorActiveWindowOpenEnded(
+        '09.06',
+      );
 
-        // The card itself is present.
-        expect(
-          find.byKey(const Key('weekly-active-window-card')),
-          findsOneWidget,
-        );
+      // The card itself is present.
+      expect(
+        find.byKey(const Key('weekly-active-window-card')),
+        findsOneWidget,
+      );
 
-        // The prompt is shown inside the card; the fabricated default-today
-        // value is NOT.
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('weekly-active-window-card')),
-            matching: find.text(unset),
-          ),
-          findsOneWidget,
-          reason: 'unset state must show the placeholder prompt',
-        );
-        expect(
-          find.text(wouldBeTodayValue),
-          findsNothing,
-          reason:
-              'a first-time master must NOT see a fabricated '
-              '"Графік діє з <today>" value (the old default-today behaviour)',
-        );
+      // The prompt is shown inside the card; the fabricated default-today
+      // value is NOT.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('weekly-active-window-card')),
+          matching: find.text(unset),
+        ),
+        findsOneWidget,
+        reason: 'unset state must show the placeholder prompt',
+      );
+      expect(
+        find.text(wouldBeTodayValue),
+        findsNothing,
+        reason:
+            'a first-time master must NOT see a fabricated '
+            '"Графік діє з <today>" value (the old default-today behaviour)',
+      );
 
-        // The card is still an interactive affordance (opens the apply sheet).
-        // Tapping must not throw and the prompt remains (no template persisted).
-        await tester.tap(find.byKey(const Key('weekly-active-window-card')));
-        await tester.pumpAndSettle();
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('weekly-active-window-card')),
-            matching: find.text(unset),
-          ),
-          findsOneWidget,
-          reason: 'card remains tappable; prompt persists with no template',
-        );
-      },
-    );
+      // The card is still an interactive affordance (opens the apply sheet).
+      // Tapping must not throw and the prompt remains (no template persisted).
+      await tester.tap(find.byKey(const Key('weekly-active-window-card')));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('weekly-active-window-card')),
+          matching: find.text(unset),
+        ),
+        findsOneWidget,
+        reason: 'card remains tappable; prompt persists with no template',
+      );
+    });
 
-    testWidgets(
-      'persisted open-ended template shows the filled '
-      'weeklyEditorActiveWindowOpenEnded(validFrom), NOT the unset prompt',
-      (tester) async {
-        // `_template()` has validFrom = _clock (2026-06-09), validTo = null.
-        final ProviderContainer c = await _pumpLoaded(tester, _template());
-        addTearDown(c.dispose);
+    testWidgets('persisted open-ended template shows the filled '
+        'weeklyEditorActiveWindowOpenEnded(validFrom), NOT the unset prompt', (
+      tester,
+    ) async {
+      // `_template()` has validFrom = _clock (2026-06-09), validTo = null.
+      final ProviderContainer c = await _pumpLoaded(tester, _template());
+      addTearDown(c.dispose);
 
-        final AppLocalizations l10n = _l10n(tester);
-        final String filled = l10n.weeklyEditorActiveWindowOpenEnded('09.06');
+      final AppLocalizations l10n = _l10n(tester);
+      final String filled = l10n.weeklyEditorActiveWindowOpenEnded('09.06');
 
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('weekly-active-window-card')),
-            matching: find.text(filled),
-          ),
-          findsOneWidget,
-          reason: 'open-ended template shows the committed validFrom value',
-        );
-        expect(
-          find.text(l10n.weeklyEditorActiveWindowUnset),
-          findsNothing,
-          reason: 'a persisted template must not show the unset prompt',
-        );
-      },
-    );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('weekly-active-window-card')),
+          matching: find.text(filled),
+        ),
+        findsOneWidget,
+        reason: 'open-ended template shows the committed validFrom value',
+      );
+      expect(
+        find.text(l10n.weeklyEditorActiveWindowUnset),
+        findsNothing,
+        reason: 'a persisted template must not show the unset prompt',
+      );
+    });
 
-    testWidgets(
-      'persisted ranged template shows the filled '
-      'weeklyEditorActiveWindowRange(validFrom, validTo)',
-      (tester) async {
-        final ProviderContainer c = await _pumpLoaded(tester, _rangedTemplate());
-        addTearDown(c.dispose);
+    testWidgets('persisted ranged template shows the filled '
+        'weeklyEditorActiveWindowRange(validFrom, validTo)', (tester) async {
+      final ProviderContainer c = await _pumpLoaded(tester, _rangedTemplate());
+      addTearDown(c.dispose);
 
-        final AppLocalizations l10n = _l10n(tester);
-        final String filled = l10n.weeklyEditorActiveWindowRange(
-          '09.06',
-          '31.12',
-        );
+      final AppLocalizations l10n = _l10n(tester);
+      final String filled = l10n.weeklyEditorActiveWindowRange(
+        '09.06',
+        '31.12',
+      );
 
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('weekly-active-window-card')),
-            matching: find.text(filled),
-          ),
-          findsOneWidget,
-          reason: 'ranged template shows the committed validFrom–validTo value',
-        );
-        expect(
-          find.text(l10n.weeklyEditorActiveWindowUnset),
-          findsNothing,
-          reason: 'a persisted template must not show the unset prompt',
-        );
-      },
-    );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('weekly-active-window-card')),
+          matching: find.text(filled),
+        ),
+        findsOneWidget,
+        reason: 'ranged template shows the committed validFrom–validTo value',
+      );
+      expect(
+        find.text(l10n.weeklyEditorActiveWindowUnset),
+        findsNothing,
+        reason: 'a persisted template must not show the unset prompt',
+      );
+    });
 
     testWidgets(
       'unset prompt renders in the muted placeholder style; the filled '

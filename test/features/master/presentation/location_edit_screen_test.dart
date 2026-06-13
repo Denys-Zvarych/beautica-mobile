@@ -124,10 +124,8 @@ List<Object> _overrides(_MockMasterRepository repo, {Master? master}) =>
       masterRepositoryProvider.overrideWithValue(repo),
     ];
 
-Finder _field(String key) => find.descendant(
-  of: find.byKey(Key(key)),
-  matching: find.byType(TextField),
-);
+Finder _field(String key) =>
+    find.descendant(of: find.byKey(Key(key)), matching: find.byType(TextField));
 
 void main() {
   late _MockMasterRepository repo;
@@ -167,13 +165,18 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(tester.widget<TextField>(_field('field-street')).controller?.text,
-        'вул. Хрещатик');
-    expect(tester.widget<TextField>(_field('field-buildingNo')).controller?.text,
-        '10');
     expect(
-        tester.widget<TextField>(_field('field-locationNote')).controller?.text,
-        'кв. 5');
+      tester.widget<TextField>(_field('field-street')).controller?.text,
+      'вул. Хрещатик',
+    );
+    expect(
+      tester.widget<TextField>(_field('field-buildingNo')).controller?.text,
+      '10',
+    );
+    expect(
+      tester.widget<TextField>(_field('field-locationNote')).controller?.text,
+      'кв. 5',
+    );
   });
 
   // ── HEADLINE: updateLocality ONLY (never updateMyProfile) ──────────────────

@@ -72,14 +72,17 @@ void main() {
       );
     });
 
-    test('underflow guard: extra release after balance never goes negative', () {
-      manager.acquire();
-      manager.release();
-      // One release too many.
-      manager.release();
+    test(
+      'underflow guard: extra release after balance never goes negative',
+      () {
+        manager.acquire();
+        manager.release();
+        // One release too many.
+        manager.release();
 
-      expect(manager.acquirerCount, 0);
-    });
+        expect(manager.acquirerCount, 0);
+      },
+    );
 
     test('reset zeroes the count regardless of live acquirers', () {
       manager.acquire();

@@ -129,12 +129,14 @@ void main() {
     // PINS today's behavior so any change to the separator/validation logic is
     // caught and re-reviewed. Do NOT "fix" production here — change the backlog
     // item first.
-    test('embedded newline "12345\\n67" is stripped → tel:1234567 (known LOW)',
-        () {
-      final uri = canonicalTelUri('12345\n67');
-      expect(uri, isNotNull);
-      expect(uri!.scheme, 'tel');
-      expect(uri.path, '1234567');
-    });
+    test(
+      'embedded newline "12345\\n67" is stripped → tel:1234567 (known LOW)',
+      () {
+        final uri = canonicalTelUri('12345\n67');
+        expect(uri, isNotNull);
+        expect(uri!.scheme, 'tel');
+        expect(uri.path, '1234567');
+      },
+    );
   });
 }

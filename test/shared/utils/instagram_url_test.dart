@@ -70,20 +70,17 @@ void main() {
       expect(uri!.host, 'www.instagram.com');
     });
 
-    test(
-      'uppercase host https://INSTAGRAM.COM/x is accepted — Uri lowercases '
-      'the host, so it matches the allow-list (documented behavior)',
-      () {
-        final uri = canonicalInstagramUri('https://INSTAGRAM.COM/olena');
-        // Uri parsing normalizes the host to lower-case, so the exact-match
-        // allow-list ('instagram.com') still admits it. The returned Uri also
-        // carries the lower-cased host. This is intentional and safe — it is
-        // still the canonical Instagram host, not a look-alike.
-        expect(uri, isNotNull);
-        expect(uri!.host, 'instagram.com');
-        expect(uri.scheme, 'https');
-      },
-    );
+    test('uppercase host https://INSTAGRAM.COM/x is accepted — Uri lowercases '
+        'the host, so it matches the allow-list (documented behavior)', () {
+      final uri = canonicalInstagramUri('https://INSTAGRAM.COM/olena');
+      // Uri parsing normalizes the host to lower-case, so the exact-match
+      // allow-list ('instagram.com') still admits it. The returned Uri also
+      // carries the lower-cased host. This is intentional and safe — it is
+      // still the canonical Instagram host, not a look-alike.
+      expect(uri, isNotNull);
+      expect(uri!.host, 'instagram.com');
+      expect(uri.scheme, 'https');
+    });
   });
 
   group('canonicalInstagramUri — REJECT (empty / sentinel / null)', () {
@@ -141,19 +138,26 @@ void main() {
       expect(canonicalInstagramUri('https://evilinstagram.com'), isNull);
     });
 
-    test('userinfo "https://instagram.com@evil.com/x" → null (host is evil.com)',
-        () {
-      // The real authority host is evil.com; "instagram.com" is only the
-      // userinfo. Must never resolve to the allow-list.
-      expect(canonicalInstagramUri('https://instagram.com@evil.com/x'), isNull);
-    });
+    test(
+      'userinfo "https://instagram.com@evil.com/x" → null (host is evil.com)',
+      () {
+        // The real authority host is evil.com; "instagram.com" is only the
+        // userinfo. Must never resolve to the allow-list.
+        expect(
+          canonicalInstagramUri('https://instagram.com@evil.com/x'),
+          isNull,
+        );
+      },
+    );
 
-    test('userinfo "https://user@instagram.com/x" → null (userInfo non-empty)',
-        () {
-      // Host really is instagram.com, but non-empty userInfo is a laundering
-      // surface and never appears in a legitimate profile URL → rejected.
-      expect(canonicalInstagramUri('https://user@instagram.com/x'), isNull);
-    });
+    test(
+      'userinfo "https://user@instagram.com/x" → null (userInfo non-empty)',
+      () {
+        // Host really is instagram.com, but non-empty userInfo is a laundering
+        // surface and never appears in a legitimate profile URL → rejected.
+        expect(canonicalInstagramUri('https://user@instagram.com/x'), isNull);
+      },
+    );
 
     test('bare host handle "instagram.com" → null', () {
       // No "://", not "@"-prefixed, matches the handle charset (period legal),
@@ -197,8 +201,7 @@ void main() {
       expect(canonicalInstagramUri('@'), isNull);
     });
 
-    test('degenerate dot handles "." / ".." are ACCEPTED today (known LOW)',
-        () {
+    test('degenerate dot handles "." / ".." are ACCEPTED today (known LOW)', () {
       // known LOW: "." and ".." match the handle charset [A-Za-z0-9._]{1,30}
       // and are not in the host allow-list, so they pass validation and reach
       // Uri.parse. Uri then NORMALIZES the dot path segments away, collapsing

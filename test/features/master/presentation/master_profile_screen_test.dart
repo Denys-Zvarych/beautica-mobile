@@ -1046,71 +1046,68 @@ void main() {
     // `router.canPop()` instead — `canPop()` is true only when a back-stack entry
     // exists, which proves `push` (not `go`) was used.
 
-    testWidgets(
-      'tapping the menu button renders the hub and leaves back stack '
-      'poppable (canPop true)',
-      (tester) async {
-        final router = GoRouter(
-          initialLocation: RouteNames.masterProfile,
-          routes: <RouteBase>[
-            GoRoute(
-              path: RouteNames.masterProfile,
-              builder: (_, _) => const MasterProfileScreen(),
-            ),
-            GoRoute(
-              path: RouteNames.masterMenu,
-              builder: (_, _) => const Scaffold(body: Text('hub-screen-stub')),
-            ),
-          ],
-        );
-
-        await tester.pumpRoutedApp(
-          router,
-          overrides: _buildOverrides(
-            masterState: const AsyncData<Master>(_stubMaster),
-            repo: repo,
-            serviceRepo: mockServiceRepo,
+    testWidgets('tapping the menu button renders the hub and leaves back stack '
+        'poppable (canPop true)', (tester) async {
+      final router = GoRouter(
+        initialLocation: RouteNames.masterProfile,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.masterProfile,
+            builder: (_, _) => const MasterProfileScreen(),
           ),
-        );
-        await tester.pumpAndSettle();
+          GoRoute(
+            path: RouteNames.masterMenu,
+            builder: (_, _) => const Scaffold(body: Text('hub-screen-stub')),
+          ),
+        ],
+      );
 
-        // Confirm the menu button is present (data state rendered).
-        final menuBtn = find.byKey(const Key('btn-menu-master'));
-        expect(
-          menuBtn,
-          findsOneWidget,
-          reason:
-              'menu button (Key btn-menu-master) must be present in the data state',
-        );
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        await tester.tap(menuBtn);
-        await tester.pumpAndSettle();
+      // Confirm the menu button is present (data state rendered).
+      final menuBtn = find.byKey(const Key('btn-menu-master'));
+      expect(
+        menuBtn,
+        findsOneWidget,
+        reason:
+            'menu button (Key btn-menu-master) must be present in the data state',
+      );
 
-        // (a) The hub stub content must be visible — confirms navigation
-        // reached the /master/menu route.
-        expect(
-          find.text('hub-screen-stub'),
-          findsOneWidget,
-          reason:
-              'tapping the menu button must navigate to the masterMenu screen '
-              '(${RouteNames.masterMenu})',
-        );
+      await tester.tap(menuBtn);
+      await tester.pumpAndSettle();
 
-        // (b) canPop() must be true — proves push was used, not go.
-        // With go() the navigator stack is replaced: canPop() returns false.
-        // With push() the profile is still on the stack: canPop() returns true.
-        expect(
-          router.canPop(),
-          isTrue,
-          reason:
-              'after tapping the menu button, canPop() must be true — '
-              'the profile screen must remain on the back stack so the '
-              'left-edge swipe-back gesture can return to it. '
-              'If this fails, the call reverted to context.go() which '
-              'replaces the stack and breaks swipe-back.',
-        );
-      },
-    );
+      // (a) The hub stub content must be visible — confirms navigation
+      // reached the /master/menu route.
+      expect(
+        find.text('hub-screen-stub'),
+        findsOneWidget,
+        reason:
+            'tapping the menu button must navigate to the masterMenu screen '
+            '(${RouteNames.masterMenu})',
+      );
+
+      // (b) canPop() must be true — proves push was used, not go.
+      // With go() the navigator stack is replaced: canPop() returns false.
+      // With push() the profile is still on the stack: canPop() returns true.
+      expect(
+        router.canPop(),
+        isTrue,
+        reason:
+            'after tapping the menu button, canPop() must be true — '
+            'the profile screen must remain on the back stack so the '
+            'left-edge swipe-back gesture can return to it. '
+            'If this fails, the call reverted to context.go() which '
+            'replaces the stack and breaks swipe-back.',
+      );
+    });
 
     testWidgets('navigating back from masterMenu returns to masterProfile', (
       tester,
