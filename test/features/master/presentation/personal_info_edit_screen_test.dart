@@ -275,6 +275,104 @@ void main() {
     verifyNever(() => repo.updateMyProfile(any()));
   });
 
+  // ── Name no-digit validation (Step 2.7 Rule 3 regression) ────────────────
+  //
+  // _validateFirstName / _validateLastName reject any Unicode decimal digit
+  // (nameContainsDigit) and return FIELD-SPECIFIC messages: errFirstNameHasDigit
+  // for the first-name field, errLastNameHasDigit for the last-name field. On
+  // save the Form validator renders the message inline and the save is blocked
+  // (updateMyProfile never called). The default test locale is 'uk', where the
+  // two messages differ, so the field-specific assertion is meaningful.
+  testWidgets(
+    'digit in firstName blocks save and renders the FIRST-name-specific '
+    'digit error inline',
+    (tester) async {
+      await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+      await tester.pump();
+      await tester.pump();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byKey(const Key('field-firstName'))),
+      );
+
+      await tester.enterText(_field('field-firstName'), 'John2');
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-save-personal')));
+      await tester.pump();
+
+      // Field-specific message under the first-name field.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-firstName')),
+          matching: find.text(l10n.errFirstNameHasDigit),
+        ),
+        findsOneWidget,
+      );
+      // The last-name-specific message must NOT be the one shown here.
+      expect(find.text(l10n.errLastNameHasDigit), findsNothing);
+      verifyNever(() => repo.updateMyProfile(any()));
+    },
+  );
+
+  testWidgets(
+    'digit in lastName blocks save and renders the LAST-name-specific '
+    'digit error inline',
+    (tester) async {
+      await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+      await tester.pump();
+      await tester.pump();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byKey(const Key('field-lastName'))),
+      );
+
+      await tester.enterText(_field('field-lastName'), 'Kov4l');
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-save-personal')));
+      await tester.pump();
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-lastName')),
+          matching: find.text(l10n.errLastNameHasDigit),
+        ),
+        findsOneWidget,
+      );
+      verifyNever(() => repo.updateMyProfile(any()));
+    },
+  );
+
+  testWidgets('hyphen / apostrophe names save successfully (no digit error)', (
+    tester,
+  ) async {
+    when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+    await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+    await tester.pump();
+    await tester.pump();
+
+    final l10n = AppLocalizations.of(
+      tester.element(find.byKey(const Key('field-firstName'))),
+    );
+
+    await tester.enterText(_field('field-firstName'), 'Anne-Marie');
+    await tester.enterText(_field('field-lastName'), "O'Brien");
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('btn-save-personal')));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l10n.errFirstNameHasDigit), findsNothing);
+    expect(find.text(l10n.errLastNameHasDigit), findsNothing);
+    final captured =
+        verify(() => repo.updateMyProfile(captureAny())).captured.single
+            as MasterUpdate;
+    expect(captured.firstName, 'Anne-Marie');
+    expect(captured.lastName, "O'Brien");
+  });
+
   testWidgets('network failure shows an error SnackBar and re-enables Save', (
     tester,
   ) async {

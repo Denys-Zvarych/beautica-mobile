@@ -44,6 +44,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/validators/name_validator.dart';
 
 import 'master_profile_notifier.dart';
 import 'widgets/section_scaffold.dart';
@@ -196,11 +197,15 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
   String? _validateFirstName(String? v) {
     final serverErr = _fieldErrors['firstName'];
     if (serverErr != null) return serverErr;
+    final l10n = AppLocalizations.of(context);
     if (v == null || v.trim().isEmpty) {
-      return AppLocalizations.of(context).errNameRequired;
+      return l10n.errNameRequired;
     }
     if (v.trim().length > 100) {
-      return AppLocalizations.of(context).errNameTooLong;
+      return l10n.errNameTooLong;
+    }
+    if (nameContainsDigit(v)) {
+      return l10n.errFirstNameHasDigit;
     }
     return null;
   }
@@ -208,11 +213,15 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
   String? _validateLastName(String? v) {
     final serverErr = _fieldErrors['lastName'];
     if (serverErr != null) return serverErr;
+    final l10n = AppLocalizations.of(context);
     if (v == null || v.trim().isEmpty) {
-      return AppLocalizations.of(context).errNameRequired;
+      return l10n.errNameRequired;
     }
     if (v.trim().length > 100) {
-      return AppLocalizations.of(context).errNameTooLong;
+      return l10n.errNameTooLong;
+    }
+    if (nameContainsDigit(v)) {
+      return l10n.errLastNameHasDigit;
     }
     return null;
   }

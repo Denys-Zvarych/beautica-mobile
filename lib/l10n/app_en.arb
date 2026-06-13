@@ -166,6 +166,18 @@
   "@errNameTooLong": {
     "description": "Validation error when a name field exceeds 100 characters."
   },
+  "errNameHasDigit": "Name must not contain a number",
+  "@errNameHasDigit": {
+    "description": "Validation error when a name field contains a digit. Mirrors backend @NoDigits."
+  },
+  "errFirstNameHasDigit": "First name must not contain a number",
+  "@errFirstNameHasDigit": {
+    "description": "Validation error when the first-name field contains a digit. Mirrors backend @NoDigits."
+  },
+  "errLastNameHasDigit": "Last name must not contain a number",
+  "@errLastNameHasDigit": {
+    "description": "Validation error when the last-name field contains a digit. Mirrors backend @NoDigits."
+  },
   "roleClient": "Client",
   "@roleClient": {
     "description": "Label for the Client role."

@@ -166,6 +166,18 @@
   "@errNameTooLong": {
     "description": "Validation error when a name field exceeds 100 characters."
   },
+  "errNameHasDigit": "Ім'я не може містити цифри",
+  "@errNameHasDigit": {
+    "description": "Validation error when a name field contains a digit. Mirrors backend @NoDigits."
+  },
+  "errFirstNameHasDigit": "Ім'я не може містити цифри",
+  "@errFirstNameHasDigit": {
+    "description": "Validation error when the first-name field contains a digit. Mirrors backend @NoDigits."
+  },
+  "errLastNameHasDigit": "Прізвище не може містити цифри",
+  "@errLastNameHasDigit": {
+    "description": "Validation error when the last-name field contains a digit. Mirrors backend @NoDigits."
+  },
   "roleClient": "Клієнт",
   "@roleClient": {
     "description": "Label for the Client role."

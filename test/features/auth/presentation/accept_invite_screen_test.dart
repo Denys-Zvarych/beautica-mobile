@@ -763,5 +763,159 @@ void main() {
         expect(find.text(l10n.errValidation), findsNothing);
       },
     );
+
+    // ── 10. Name no-digit validation (Step 2.7 Rule 3 regression) ────────────
+    //
+    // The first/last name fields delegate to the shared validateName, which
+    // now rejects any Unicode decimal digit (mirrors backend @NoDigits). The
+    // inline errorText is computed live from validateName, and _clientSideValid
+    // gates the accept call on validateName(...) == null, so a digit blocks the
+    // network request entirely. A hyphen / apostrophe name is accepted.
+    testWidgets(
+      '10a. first name with a digit shows errNameHasDigit inline and blocks the '
+      'accept call client-side',
+      (WidgetTester tester) async {
+        final repo = await _pumpValid(tester);
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_password')),
+          'StrongPassword12',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+          'John2',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+          'Бондар',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '+380671234567',
+        );
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AcceptInviteScreen)),
+        );
+        // Inline digit error under the first-name field.
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('invite_first_name')),
+            matching: find.text(l10n.errNameHasDigit),
+          ),
+          findsOneWidget,
+        );
+        // The digit blocked the network call client-side.
+        expect(
+          repo.acceptInviteCalls,
+          isEmpty,
+          reason: 'a digit in the name must block the accept call client-side',
+        );
+        expect(find.text('home'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      '10b. last name with a digit shows errNameHasDigit inline and blocks the '
+      'accept call client-side',
+      (WidgetTester tester) async {
+        final repo = await _pumpValid(tester);
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_password')),
+          'StrongPassword12',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+          'Марія',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+          'Kov4l',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '+380671234567',
+        );
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AcceptInviteScreen)),
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('invite_last_name')),
+            matching: find.text(l10n.errNameHasDigit),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          repo.acceptInviteCalls,
+          isEmpty,
+          reason: 'a digit in the name must block the accept call client-side',
+        );
+      },
+    );
+
+    testWidgets(
+      '10c. hyphen / apostrophe names are accepted → no digit error, accept '
+      'call fires',
+      (WidgetTester tester) async {
+        final repo = await _pumpValid(tester);
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_password')),
+          'StrongPassword12',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+          'Anne-Marie',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+          "O'Brien",
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '+380671234567',
+        );
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AcceptInviteScreen)),
+        );
+        expect(find.text(l10n.errNameHasDigit), findsNothing);
+        expect(
+          repo.acceptInviteCalls.length,
+          1,
+          reason: 'a hyphen/apostrophe name must pass the no-digit guard',
+        );
+        expect(repo.acceptInviteCalls.first.firstName, 'Anne-Marie');
+        expect(repo.acceptInviteCalls.first.lastName, "O'Brien");
+      },
+    );
   });
 }
