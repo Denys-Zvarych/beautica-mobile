@@ -2298,5 +2298,81 @@
   "serviceSetupErrAlreadyHasServices": "You already have services",
   "@serviceSetupErrAlreadyHasServices": {
     "description": "Error shown when the bulk-setup endpoint returns 409 because the master already has services."
+  },
+  "settingsHubMenuButton": "Settings",
+  "@settingsHubMenuButton": {
+    "description": "Semantic label for the menu icon on the master profile screen that opens the settings hub."
+  },
+  "settingsHubClose": "Close",
+  "@settingsHubClose": {
+    "description": "Semantic label for the close glyph on the settings hub top bar."
+  },
+  "settingsHubSubheading": "Manage your profile data and account",
+  "@settingsHubSubheading": {
+    "description": "Subheading under the settings hub title."
+  },
+  "settingsHubPersonal": "Personal info",
+  "@settingsHubPersonal": {
+    "description": "Settings hub row label that opens the personal-info edit page."
+  },
+  "settingsHubContacts": "Contacts",
+  "@settingsHubContacts": {
+    "description": "Settings hub row label that opens the contacts edit page."
+  },
+  "settingsHubLocation": "Location",
+  "@settingsHubLocation": {
+    "description": "Settings hub row label that opens the location edit page."
+  },
+  "settingsHubAccount": "Account",
+  "@settingsHubAccount": {
+    "description": "Settings hub row label that opens the account page."
+  },
+  "personalInfoTitle": "Personal info",
+  "@personalInfoTitle": {
+    "description": "Top-bar title of the personal-info edit page."
+  },
+  "contactsTitle": "Contacts",
+  "@contactsTitle": {
+    "description": "Top-bar title of the contacts edit page."
+  },
+  "contactsSubheading": "How clients can reach you",
+  "@contactsSubheading": {
+    "description": "Subheading on the contacts edit page."
+  },
+  "locationTitle": "Location",
+  "@locationTitle": {
+    "description": "Top-bar title of the location edit page."
+  },
+  "locationSubheading": "Where clients can find you",
+  "@locationSubheading": {
+    "description": "Subheading on the location edit page."
+  },
+  "accountTitle": "Account",
+  "@accountTitle": {
+    "description": "Top-bar title of the account page."
+  },
+  "accountSubheading": "App settings",
+  "@accountSubheading": {
+    "description": "Subheading on the account page."
+  },
+  "accountLanguageLabel": "Language",
+  "@accountLanguageLabel": {
+    "description": "Account page language row label."
+  },
+  "accountLanguageValue": "Ukrainian",
+  "@accountLanguageValue": {
+    "description": "Account page language row current value (the active app language)."
+  },
+  "accountLanguageSoon": "Language selection will open here",
+  "@accountLanguageSoon": {
+    "description": "Placeholder snackbar shown when tapping the not-yet-functional language row."
+  },
+  "accountNotificationsLabel": "Notifications",
+  "@accountNotificationsLabel": {
+    "description": "Account page notifications toggle row label."
+  },
+  "accountNotificationsSubtitle": "Push for new bookings and changes",
+  "@accountNotificationsSubtitle": {
+    "description": "Account page notifications toggle row subtitle."
   }
 }

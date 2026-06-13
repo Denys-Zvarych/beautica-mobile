@@ -36,6 +36,7 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/security/screen_protection.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../../../shared/util/mask_email.dart';
 import '../data/auth_repository_provider.dart';
@@ -703,6 +704,11 @@ class AuthNotifier extends _$AuthNotifier {
     // carry a stale Bearer token after an explicit logout.
     _lastKnownAccessToken = null;
     coldStartAccessToken = null;
+    // SEC (LOW hygiene): force-clear the app-wide screenshot guard so a PII
+    // screen that was never disposed (e.g. logout triggered from a dialog above
+    // a live acquirer) cannot leave native protection latched across the auth
+    // boundary. Resets the ref count to zero and tears down native protection.
+    ref.read(screenProtectionProvider).reset();
     if (kDebugMode) {
       log('Logout: session cleared', name: 'auth', level: 800);
     }

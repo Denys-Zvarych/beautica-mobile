@@ -37,8 +37,11 @@ import '../features/auth/presentation/register_step_3_screen.dart';
 import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
-import '../features/master/presentation/master_edit_screen.dart';
+import '../features/master/presentation/contacts_edit_screen.dart';
+import '../features/master/presentation/location_edit_screen.dart';
 import '../features/master/presentation/master_profile_screen.dart';
+import '../features/master/presentation/personal_info_edit_screen.dart';
+import '../features/master/presentation/settings_hub_screen.dart';
 import '../features/services/presentation/service_create_screen.dart';
 import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/service_setup_screen.dart';
@@ -113,8 +116,8 @@ GoRouter appRouter(Ref ref) {
             _instantPage(state, const RoleSelectionScreen()),
       ),
       // Phase 2.13 — forgot-password flow. Both routes render outside the
-      // RegisterFlowShell and apply their own ScreenProtector lifecycle
-      // (email + reset token are PII).
+      // RegisterFlowShell and acquire the app-wide screenshot guard via the
+      // ref-counted ScreenProtectionManager (email + reset token are PII).
       GoRoute(
         path: RouteNames.forgotPassword,
         pageBuilder: (context, state) =>
@@ -161,13 +164,14 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         // Phase 2.19 MEDIUM-2 (screenshot/FLAG_SECURE PII coverage):
         // /verification renders OUTSIDE the RegisterFlowShell, so it is NOT
-        // covered by the shell's ScreenProtector lifecycle. It instead applies
-        // its own ScreenProtector.preventScreenshotOn/Off() in
-        // VerificationScreen.initState/dispose (both !kDebugMode-guarded). The
-        // three wizard steps (role-selection self-protects; /register,
-        // /register/step-2, /register/step-3 are inside the shell) are covered
-        // by RegisterFlowShell. Net effect: every PII-collecting auth route has
-        // screenshot suppression — no gap, no double-application.
+        // covered by the shell's screenshot guard. It instead acquires the
+        // app-wide ScreenProtectionManager in VerificationScreen.initState and
+        // releases it in dispose (the manager is internally !kDebugMode-guarded
+        // and ref-counts a single native toggle). The three wizard steps
+        // (role-selection self-acquires; /register, /register/step-2,
+        // /register/step-3 are inside the shell) are covered by
+        // RegisterFlowShell. Net effect: every PII-collecting auth route holds
+        // the shared guard — no gap, no desync.
         path: RouteNames.verification,
         pageBuilder: (context, state) {
           final email = (state.extra as String?) ?? '';
@@ -198,13 +202,26 @@ GoRouter appRouter(Ref ref) {
         pageBuilder: (context, state) =>
             _instantPage(state, const MasterProfileScreen()),
       ),
-      // Phase 4.3 — Master profile edit form. Auth-guarded (Phase 2.9 redirect
-      // guard already covers all non-login routes when session is null).
-      // Uses MaterialPage (builder:) so the theme's CupertinoPageTransitionsBuilder
-      // installs the left-edge swipe-back gesture when pushed from MasterProfileScreen.
+      // Master profile settings hub + per-section edit pages. These replace the
+      // retired monolithic /master/edit form. All auth-guarded (Phase 2.9
+      // redirect guard covers non-login routes when session is null). MaterialPage
+      // (builder:) so the theme's CupertinoPageTransitionsBuilder installs the
+      // left-edge swipe-back gesture on each push.
       GoRoute(
-        path: RouteNames.masterEdit,
-        builder: (context, state) => const MasterEditScreen(),
+        path: RouteNames.masterMenu,
+        builder: (context, state) => const SettingsHubScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.masterEditPersonal,
+        builder: (context, state) => const PersonalInfoEditScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.masterEditContacts,
+        builder: (context, state) => const ContactsEditScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.masterEditLocation,
+        builder: (context, state) => const LocationEditScreen(),
       ),
       // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
       // Phase 6.x — `expandCategory` query param: when present, the matching

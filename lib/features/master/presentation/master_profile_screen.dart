@@ -18,16 +18,16 @@
 //
 // Services section and stat tile use live [servicesListProvider] data (Phase 5).
 //
-// Navigation: back uses `context.pop()`; edit button (Key('btn-edit-master'))
-// navigates to RouteNames.masterEdit (Phase 4.3).
+// Navigation: back uses `context.pop()`; the top-right menu button
+// (Key('btn-menu-master')) pushes RouteNames.masterMenu — the settings hub that
+// lists the per-section edit pages (personal / contacts / location / account).
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:screen_protector/screen_protector.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -88,13 +88,19 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
   late final Animation<Offset> _slide4;
   late final Animation<Offset> _slide5;
 
+  // Captured in initState so dispose() never touches `ref` — under Riverpod 3.x
+  // using `ref` in dispose() throws ("widget is about to or has been
+  // unmounted"). Hold the keepAlive manager reference instead.
+  late final ScreenProtectionManager _screenProtection;
+
   @override
   void initState() {
     super.initState();
-    // Fix 8 (SEC MEDIUM-3): protect PII-bearing screen from screenshots in
-    // release builds. The !kDebugMode guard matches the project-wide pattern
-    // (all other PII screens use the same guard).
-    if (!kDebugMode) ScreenProtector.preventScreenshotOn();
+    // SEC MEDIUM-1/-2/-3: ref-counted screenshot guard + iOS app-switcher-
+    // snapshot blur for this PII-bearing screen. The manager is idempotent and
+    // `!kDebugMode`-guarded internally, and keeps protection alive while any
+    // PII route is mounted.
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1100),
@@ -158,8 +164,9 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
 
   @override
   void dispose() {
-    // Fix 8: lift screenshot protection when leaving the screen.
-    if (!kDebugMode) ScreenProtector.preventScreenshotOff();
+    // SEC MEDIUM-1: release the ref-counted guard; protection only lifts once
+    // the last PII route unmounts.
+    _screenProtection.release();
     // Fix 1: dispose each CurvedAnimation before the controller.
     _anim0.dispose();
     _anim1.dispose();
@@ -187,10 +194,10 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
     return ProfileScaffold(
       title: l10n.masterProfileTitle,
       trailing: NeumorphicIconButton(
-        key: const Key('btn-edit-master'),
-        icon: Icons.edit_outlined,
-        semanticLabel: l10n.masterEditButton,
-        onTap: () => context.push(RouteNames.masterEdit),
+        key: const Key('btn-menu-master'),
+        icon: Icons.tune_rounded,
+        semanticLabel: l10n.settingsHubMenuButton,
+        onTap: () => context.push(RouteNames.masterMenu),
       ),
       bottomNavBar: const VelvetBottomNavBar(activeIndex: 3),
       // Pull-to-refresh: invalidate the master profile and the services list

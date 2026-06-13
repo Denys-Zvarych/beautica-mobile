@@ -1,0 +1,139 @@
+// Shared chrome for every pushed page in the master settings flow — the hub
+// itself and each section edit page. A safe-area aware scaffold with a fixed top
+// bar (leading icon + centred title), a scrollable body, and an OPTIONAL pinned
+// bottom action area (the Save CTA on the edit pages; absent on the hub and the
+// account page).
+//
+// Header geometry is byte-identical to `MasterEditScreen`'s former top bar and
+// `ProfileScaffold`, so navigating profile → hub → section never shifts the
+// title. When [footer] is null the body fills to the bottom; when present it
+// floats above the base with a soft upward veil so the scrolling form tucks
+// under it cleanly.
+//
+// Design source: `docs/signup-designs/ProfileSettingsHub/lib/widgets/
+// section_scaffold.dart` — ported 1:1, swapping VelvetColors → BrandColors and
+// the local widgets for the production shared widgets.
+
+import 'package:flutter/material.dart';
+
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+
+/// Common scaffold for the settings hub + every section page.
+class SectionScaffold extends StatelessWidget {
+  const SectionScaffold({
+    super.key,
+    required this.title,
+    required this.body,
+    this.footer,
+    required this.onBack,
+    this.backIcon = Icons.arrow_back_ios_new_rounded,
+    required this.backSemanticLabel,
+    this.backKey,
+  });
+
+  final String title;
+  final Widget body;
+
+  /// Optional pinned bottom action (the Save CTA). Null on the hub + account.
+  final Widget? footer;
+
+  /// Back / close action invoked from the top-bar icon button.
+  final VoidCallback onBack;
+
+  /// The leading icon — back chevron on section pages, close on the hub.
+  final IconData backIcon;
+  final String backSemanticLabel;
+
+  /// Optional key for the leading icon button (used by widget tests).
+  final Key? backKey;
+
+  // Hoisted styles / geometry — never recompute in build.
+  static final TextStyle _titleStyle = VelvetText.subheading();
+
+  static const BoxDecoration _footerVeil = BoxDecoration(
+    color: BrandColors.base,
+    boxShadow: <BoxShadow>[
+      BoxShadow(
+        color: BrandColors.base,
+        offset: Offset(0, -12),
+        blurRadius: 18,
+      ),
+    ],
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget? footer = this.footer;
+    return Scaffold(
+      backgroundColor: BrandColors.base,
+      body: SafeArea(
+        child: Column(
+          children: <Widget>[
+            // Top bar — fixed height, identical geometry across all screens.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                VelvetSpacing.lg,
+                VelvetSpacing.md,
+                VelvetSpacing.lg,
+                VelvetSpacing.sm,
+              ),
+              child: SizedBox(
+                height: 48,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: <Widget>[
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: NeumorphicIconButton(
+                        key: backKey,
+                        icon: backIcon,
+                        semanticLabel: backSemanticLabel,
+                        onTap: onBack,
+                      ),
+                    ),
+                    Text(
+                      title,
+                      style: _titleStyle,
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(
+                  VelvetSpacing.lg,
+                  VelvetSpacing.md,
+                  VelvetSpacing.lg,
+                  VelvetSpacing.xl,
+                ),
+                child: body,
+              ),
+            ),
+            // Pinned footer — base tone + soft top veil so the form scrolls
+            // beneath the CTA without a hard cut line. Omitted entirely when
+            // there is no footer (hub / account act inline).
+            if (footer != null)
+              DecoratedBox(
+                decoration: _footerVeil,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    VelvetSpacing.lg,
+                    VelvetSpacing.sm,
+                    VelvetSpacing.lg,
+                    VelvetSpacing.md,
+                  ),
+                  child: footer,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}

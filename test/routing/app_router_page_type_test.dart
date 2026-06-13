@@ -284,47 +284,52 @@ void main() {
         },
       );
 
-      // SB-6 — /master/edit
+      // SB-6 — the master settings hub + the three section edit pages.
       //
-      // Regression guard for the Phase 4.3 masterEdit conversion:
-      // RouteNames.masterEdit was changed from `pageBuilder: _instantPage(...)`
-      // to `builder:` so the theme's CupertinoPageTransitionsBuilder installs the
-      // left-edge swipe-back gesture when the screen is pushed from
-      // MasterProfileScreen. If this route reverts to `pageBuilder:`, the
-      // swipe-back gesture silently dies on the edit drill-down.
-      test(
-        'SB-6: RouteNames.masterEdit (/master/edit) uses builder: not pageBuilder:',
-        () {
-          final route = _findRoute(
-            router.configuration.routes,
-            RouteNames.masterEdit,
-          );
+      // The monolithic /master/edit was replaced by a settings hub
+      // (RouteNames.masterMenu) and three section pages (masterEditPersonal /
+      // masterEditContacts / masterEditLocation). All four are pushed from the
+      // profile / hub, so each must use `builder:` so the theme's
+      // CupertinoPageTransitionsBuilder installs the left-edge swipe-back
+      // gesture. If any reverts to `pageBuilder:`, the swipe-back gesture
+      // silently dies on that drill-down.
+      const Map<String, String> _hubRoutes = <String, String>{
+        'masterMenu (/master/menu)': RouteNames.masterMenu,
+        'masterEditPersonal (/master/edit/personal)':
+            RouteNames.masterEditPersonal,
+        'masterEditContacts (/master/edit/contacts)':
+            RouteNames.masterEditContacts,
+        'masterEditLocation (/master/edit/location)':
+            RouteNames.masterEditLocation,
+      };
+
+      _hubRoutes.forEach((String label, String path) {
+        test('SB-6: RouteNames.$label uses builder: not pageBuilder:', () {
+          final route = _findRoute(router.configuration.routes, path);
           expect(
             route,
             isNotNull,
-            reason:
-                'RouteNames.masterEdit (${RouteNames.masterEdit}) must be '
-                'registered in appRouter',
+            reason: 'RouteNames.$label ($path) must be registered in appRouter',
           );
           expect(
             route!.builder,
             isNotNull,
             reason:
-                '/master/edit must use builder: so go_router wraps it in a '
+                '$path must use builder: so go_router wraps it in a '
                 'MaterialPage — the only page type that honors the theme\'s '
                 'CupertinoPageTransitionsBuilder and installs the swipe-back '
-                'gesture when pushed from MasterProfileScreen',
+                'gesture when pushed from the profile / hub',
           );
           expect(
             route.pageBuilder,
             isNull,
             reason:
-                '/master/edit must NOT use pageBuilder: — a CustomTransitionPage '
+                '$path must NOT use pageBuilder: — a CustomTransitionPage '
                 'returned by _instantPage() overrides the theme builder and '
                 'suppresses the left-edge swipe-back gesture',
           );
-        },
-      );
+        });
+      });
     },
   );
 

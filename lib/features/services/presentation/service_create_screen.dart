@@ -28,7 +28,8 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:screen_protector/screen_protector.dart';
+
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 
 /// Service create screen (INDEPENDENT_MASTER).
 ///
@@ -47,15 +48,21 @@ class ServiceCreateScreen extends ConsumerStatefulWidget {
 class _ServiceCreateScreenState extends ConsumerState<ServiceCreateScreen> {
   static const _tag = 'feature.services.create_screen';
 
+  // Captured in initState so dispose() never touches `ref` — under Riverpod
+  // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
+  late final ScreenProtectionManager _screenProtection;
+
   @override
   void initState() {
     super.initState();
-    if (!kDebugMode) ScreenProtector.preventScreenshotOn();
+    // SEC MEDIUM: ref-counted screenshot guard (single app-wide owner;
+    // the manager is internally !kDebugMode-guarded).
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
   }
 
   @override
   void dispose() {
-    if (!kDebugMode) ScreenProtector.preventScreenshotOff();
+    _screenProtection.release();
     super.dispose();
   }
 

@@ -49,8 +49,19 @@ abstract final class RouteNames {
   // Phase 4.2 — Master profile (read-only).
   static const String masterProfile = '/master/profile';
 
-  // Phase 4.3 — Master profile edit form (INDEPENDENT_MASTER only).
-  static const String masterEdit = '/master/edit';
+  // Master profile settings hub (INDEPENDENT_MASTER). Pushed from the profile
+  // screen's top-right menu icon. Lists edit sections, each pushing its own
+  // dedicated page; the terminal logout row raises the logout confirm dialog.
+  static const String masterMenu = '/master/menu';
+
+  // Master profile section edit pages — each edits one slice of the profile.
+  // Personal-info and Contacts both call updateMyProfile (merging onto the
+  // cached master so sibling fields are never cleared); Location calls
+  // updateLocality. The old monolithic /master/edit form they replace is
+  // retired.
+  static const String masterEditPersonal = '/master/edit/personal';
+  static const String masterEditContacts = '/master/edit/contacts';
+  static const String masterEditLocation = '/master/edit/location';
 
   // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
   static const String services = '/services';

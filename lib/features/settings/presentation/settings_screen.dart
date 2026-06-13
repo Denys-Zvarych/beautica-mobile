@@ -1,40 +1,35 @@
-// Phase 2.8 — Settings screen (minimal — full settings UI ships in Phase 5+).
-// Phase MEDIUM-2 fix — ported from glassmorphism (#1A110A + BackdropFilter) to
-// VelvetTouch neumorphic design system (BrandColors.base + NeumorphicCard).
+// Account page («Акаунт») — reached from the master settings hub's Account row.
+// Folds the former minimal settings screen's logout into a richer account
+// surface: a Мова (language → "Українська") placeholder row, a Сповіщення
+// (notifications) toggle placeholder, then a terminal Вийти (logout) row set
+// apart below a hairline that raises the real logout confirm dialog.
 //
-// Purpose: provides an accessible logout entry point so users can clear their
-// session. Future phases will expand this screen with notification preferences,
-// account management, and language selection.
+// No Save button — each control acts immediately (the placeholders show a hint).
 //
-// Logout flow:
-//   1. Tap the logout tile → show a confirmation dialog.
-//   2. On confirmation → set _isLoggingOut (double-tap guard).
-//   3. Call authProvider.notifier.logout().
-//   4. Check mounted after await; navigate to /login on success or show a
-//      SnackBar on failure.
-//   5. _isLoggingOut reset in the finally block.
+// Logout flow lives in [runLogoutFlow] (shared with the settings hub): confirm
+// dialog → authProvider.logout() → go(/login), with a failure SnackBar.
 //
-// Security:
-//   - ScreenProtector.preventScreenshotOn() active in non-debug builds to
-//     prevent OS-level screenshot capture of the settings surface.
+// Security: screenshot protection acquired via the app-wide
+// ScreenProtectionManager (ref-counted; active in non-debug builds).
+//
+// Design source: `docs/signup-designs/ProfileSettingsHub/lib/screens/
+// account_screen.dart` — ported with the production logout flow + real l10n.
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:screen_protector/screen_protector.dart';
 
+import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
-import '../../../features/auth/presentation/auth_notifier.dart';
+import '../../../features/master/presentation/widgets/section_scaffold.dart';
+import '../../../features/master/presentation/widgets/settings_row.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
+import 'logout_action.dart';
 
-/// Minimal settings screen — VelvetTouch neumorphic design.
-///
-/// Contains a single logout action. Navigation back to the login screen is
-/// explicit — the Phase 2.9 router guard provides a second safety net.
+/// Account settings page — VelvetTouch neumorphic design.
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -42,169 +37,153 @@ class SettingsScreen extends ConsumerStatefulWidget {
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  // Prevents double-tapping the logout tile while a logout is in flight.
-  bool _isLoggingOut = false;
+class _SettingsScreenState extends ConsumerState<SettingsScreen>
+    with SingleTickerProviderStateMixin {
+  // Logout double-tap guard, shared with [runLogoutFlow].
+  final ValueNotifier<bool> _loggingOut = ValueNotifier<bool>(false);
+
+  // Animation — pre-built in initState; zero allocations in build().
+  late final AnimationController _controller;
+  late final CurvedAnimation _anim0; // subheading
+  late final CurvedAnimation _anim1; // language
+  late final CurvedAnimation _anim2; // notifications
+  late final CurvedAnimation _anim3; // hairline
+  late final CurvedAnimation _anim4; // logout
+
+  static final Tween<Offset> _slideTween = Tween<Offset>(
+    begin: const Offset(0, 0.035),
+    end: Offset.zero,
+  );
+
+  // Captured in initState so dispose() never touches `ref` — under Riverpod 3.x
+  // using `ref` in dispose() throws ("widget is about to or has been
+  // unmounted"). Hold the keepAlive manager reference instead.
+  late final ScreenProtectionManager _screenProtection;
 
   @override
   void initState() {
     super.initState();
-    if (!kDebugMode) ScreenProtector.preventScreenshotOn();
-  }
+    // SEC MEDIUM: ref-counted screenshot guard (single app-wide owner;
+    // the manager is internally !kDebugMode-guarded).
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
 
-  @override
-  void dispose() {
-    if (!kDebugMode) ScreenProtector.preventScreenshotOff();
-    super.dispose();
-  }
-
-  Future<void> _handleLogout(BuildContext context) async {
-    if (_isLoggingOut) return;
-
-    final l10n = AppLocalizations.of(context);
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: BrandColors.base,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.all(Radius.circular(VelvetRadii.card)),
-        ),
-        title: Text(l10n.logout, style: VelvetText.heading()),
-        content: Text(l10n.logoutConfirm, style: VelvetText.body()),
-        actions: [
-          TextButton(
-            key: const Key('btn-logout-cancel'),
-            onPressed: () => ctx.pop(false),
-            child: Text(l10n.cancel, style: VelvetText.link()),
-          ),
-          TextButton(
-            key: const Key('btn-logout-confirm'),
-            onPressed: () => ctx.pop(true),
-            child: Text(l10n.logout, style: VelvetText.link()),
-          ),
-        ],
-      ),
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
     );
-
-    if (confirmed != true) return;
-    if (!context.mounted) return;
-
-    setState(() => _isLoggingOut = true);
-    try {
-      await ref.read(authProvider.notifier).logout();
-      if (!context.mounted) return;
-      context.go(RouteNames.login);
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.logoutFailed)));
-    } finally {
-      if (mounted) setState(() => _isLoggingOut = false);
-    }
+    _anim0 = _curve(0.00, 0.40);
+    _anim1 = _curve(0.08, 0.50);
+    _anim2 = _curve(0.16, 0.58);
+    _anim3 = _curve(0.28, 0.70);
+    _anim4 = _curve(0.34, 0.78);
+    _controller.forward();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-
-    return Scaffold(
-      backgroundColor: BrandColors.base,
-      appBar: AppBar(
-        backgroundColor: BrandColors.base,
-        elevation: 0,
-        surfaceTintColor: Colors.transparent,
-        title: Text(l10n.settingsTitle, style: VelvetText.subheading()),
-        iconTheme: const IconThemeData(color: BrandColors.textSecondary),
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.symmetric(
-            horizontal: VelvetSpacing.md,
-            vertical: VelvetSpacing.md,
-          ),
-          children: [
-            _NeumorphicSettingsTile(
-              tileKey: const Key('btn-logout'),
-              icon: Icons.logout,
-              label: l10n.logout,
-              isLoading: _isLoggingOut,
-              onTap: () => _handleLogout(context),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// _NeumorphicSettingsTile — VelvetTouch neumorphic list tile for settings rows
-// ---------------------------------------------------------------------------
-
-class _NeumorphicSettingsTile extends StatelessWidget {
-  const _NeumorphicSettingsTile({
-    required this.tileKey,
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.isLoading = false,
-  });
-
-  final Key tileKey;
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool isLoading;
-
-  // Hoisted: VelvetRadii.card is a compile-time constant so the whole
-  // BorderRadius can be static const, avoiding an allocation per build.
-  static const BorderRadius _tileRadius = BorderRadius.all(
-    Radius.circular(VelvetRadii.card),
+  CurvedAnimation _curve(double start, double end) => CurvedAnimation(
+    parent: _controller,
+    curve: Interval(start, end, curve: Curves.easeOutCubic),
   );
 
   @override
+  void dispose() {
+    _screenProtection.release();
+    _anim0.dispose();
+    _anim1.dispose();
+    _anim2.dispose();
+    _anim3.dispose();
+    _anim4.dispose();
+    _controller.dispose();
+    _loggingOut.dispose();
+    super.dispose();
+  }
+
+  Widget _reveal(CurvedAnimation anim, Widget child) {
+    final Animation<Offset> slide = _slideTween.animate(anim);
+    return FadeTransition(
+      opacity: anim,
+      child: SlideTransition(position: slide, child: child),
+    );
+  }
+
+  void _showLanguageSoon() {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(AppLocalizations.of(context).accountLanguageSoon),
+        ),
+      );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: BrandColors.base,
-        borderRadius: _tileRadius,
-        boxShadow: VelvetShadows.extrudedCard,
-      ),
-      child: ClipRRect(
-        borderRadius: _tileRadius,
-        child: Material(
-          type: MaterialType.transparency,
-          child: InkWell(
-            key: tileKey,
-            onTap: isLoading ? null : onTap,
-            splashColor: BrandColors.accent.withValues(alpha: 0.12),
-            highlightColor: BrandColors.accent.withValues(alpha: 0.06),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: VelvetSpacing.md,
-                vertical: VelvetSpacing.md,
-              ),
-              child: Row(
-                children: [
-                  isLoading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: BrandColors.accent,
-                          ),
-                        )
-                      : Icon(icon, color: BrandColors.accent, size: 20),
-                  const SizedBox(width: VelvetSpacing.md),
-                  Text(label, style: VelvetText.bodyStrong()),
-                ],
+    final l10n = AppLocalizations.of(context);
+
+    return SectionScaffold(
+      title: l10n.accountTitle,
+      backKey: const Key('btn-back-account'),
+      backSemanticLabel: l10n.masterCancelButton,
+      onBack: () {
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go(RouteNames.masterMenu);
+        }
+      },
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          _reveal(
+            _anim0,
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.lg),
+              child: Text(l10n.accountSubheading, style: VelvetText.body()),
+            ),
+          ),
+          _reveal(
+            _anim1,
+            SettingsRow(
+              key: const Key('row-language'),
+              icon: Icons.language_rounded,
+              label: l10n.accountLanguageLabel,
+              value: l10n.accountLanguageValue,
+              onTap: _showLanguageSoon,
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+          _reveal(
+            _anim2,
+            SettingsToggleRow(
+              key: const Key('row-notifications'),
+              switchKey: const Key('switch-notifications'),
+              icon: Icons.notifications_none_rounded,
+              label: l10n.accountNotificationsLabel,
+              subtitle: l10n.accountNotificationsSubtitle,
+              initialValue: true,
+            ),
+          ),
+          _reveal(
+            _anim3,
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
+              child: Divider(
+                thickness: 0.6,
+                color: BrandColors.accent.withValues(alpha: 0.22),
               ),
             ),
           ),
-        ),
+          _reveal(
+            _anim4,
+            SettingsRow(
+              key: const Key('btn-logout'),
+              icon: Icons.logout_rounded,
+              label: l10n.logout,
+              destructive: true,
+              showChevron: false,
+              onTap: () => runLogoutFlow(context, ref, _loggingOut),
+            ),
+          ),
+        ],
       ),
     );
   }

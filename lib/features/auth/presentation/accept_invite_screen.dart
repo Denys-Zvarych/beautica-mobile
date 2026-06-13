@@ -23,9 +23,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/security/screen_protection.dart';
 import '../../../shared/formatters/ua_phone_input_formatter.dart';
 import '../../../shared/validators/name_validator.dart';
 import '../../../shared/validators/phone_validator.dart';
@@ -90,23 +90,28 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
     _rules ??= passwordRules(AppLocalizations.of(context), minLength: 12);
   }
 
+  // Captured in initState so dispose() never touches `ref` — under Riverpod
+  // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
+  late final ScreenProtectionManager _screenProtection;
+
   @override
   void initState() {
     super.initState();
+    // SEC MEDIUM: ref-counted screenshot guard via the app-wide manager (single
+    // owner of the native toggle; internally !kDebugMode-guarded).
     // MASVS-PLATFORM MS6 (MEDIUM-2, Phase 2.20 audit): FLAG_SECURE takes effect
     // at onWindowFocusChanged, not at the Dart frame boundary. This is the same
     // accepted one-frame gap on all PII auth screens in this codebase.
-    // preventScreenshotOn/Off pairing is the minimum achievable with ScreenProtector.
-    if (!kDebugMode) ScreenProtector.preventScreenshotOn();
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
   }
 
   @override
   void dispose() {
+    _screenProtection.release();
     _password.dispose();
     _firstName.dispose();
     _lastName.dispose();
     _phone.dispose();
-    if (!kDebugMode) ScreenProtector.preventScreenshotOff();
     super.dispose();
   }
 

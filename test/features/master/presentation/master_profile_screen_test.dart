@@ -1008,20 +1008,22 @@ void main() {
     });
   });
 
-  // ── 13b. Edit button — push-not-go regression guard ─────────────────────────
+  // ── 13b. Menu button — push-not-go regression guard ─────────────────────────
   //
-  // The edit-tile onTap was changed from `context.go(RouteNames.masterEdit)` to
-  // `context.push(RouteNames.masterEdit)`. `push` stacks the destination on top
-  // of the current route; `go` replaces the stack. The swipe-back gesture REQUIRES
-  // a poppable stack — if the call reverts to `go`, `canPop()` returns false on
-  // the edit screen and the back gesture silently breaks.
+  // The monolithic edit screen was replaced by a settings hub: the profile's
+  // top-right button changed from btn-edit-master (→ masterEdit) to
+  // btn-menu-master (→ masterMenu), and the onTap uses `context.push(...)` not
+  // `context.go(...)`. `push` stacks the destination on top of the current
+  // route; `go` replaces the stack. The swipe-back gesture REQUIRES a poppable
+  // stack — if the call reverts to `go`, `canPop()` returns false on the hub
+  // and the back gesture silently breaks.
   //
-  // Strategy: pump inside a 2-route GoRouter (/master/profile + /master/edit).
-  // After tapping the edit button, assert:
-  //   (a) the router has navigated to RouteNames.masterEdit; AND
+  // Strategy: pump inside a 2-route GoRouter (/master/profile + /master/menu).
+  // After tapping the menu button, assert:
+  //   (a) the router has navigated to RouteNames.masterMenu; AND
   //   (b) `router.canPop()` is true — proving push (not go) was used.
 
-  group('edit button pushes masterEdit (swipe-back regression guard)', () {
+  group('menu button pushes masterMenu (swipe-back regression guard)', () {
     // NOTE on go_router path inspection in tests:
     // `routeInformationProvider.value.uri.path` reflects the initial location
     // and does NOT update after a `context.push(...)`. Use `find` assertions and
@@ -1029,7 +1031,7 @@ void main() {
     // exists, which proves `push` (not `go`) was used.
 
     testWidgets(
-      'tapping the edit button renders the edit screen and leaves back stack '
+      'tapping the menu button renders the hub and leaves back stack '
       'poppable (canPop true)',
       (tester) async {
         final router = GoRouter(
@@ -1040,8 +1042,8 @@ void main() {
               builder: (_, _) => const MasterProfileScreen(),
             ),
             GoRoute(
-              path: RouteNames.masterEdit,
-              builder: (_, _) => const Scaffold(body: Text('edit-screen-stub')),
+              path: RouteNames.masterMenu,
+              builder: (_, _) => const Scaffold(body: Text('hub-screen-stub')),
             ),
           ],
         );
@@ -1056,26 +1058,26 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Confirm the edit button is present (data state rendered).
-        final editBtn = find.byKey(const Key('btn-edit-master'));
+        // Confirm the menu button is present (data state rendered).
+        final menuBtn = find.byKey(const Key('btn-menu-master'));
         expect(
-          editBtn,
+          menuBtn,
           findsOneWidget,
           reason:
-              'edit button (Key btn-edit-master) must be present in the data state',
+              'menu button (Key btn-menu-master) must be present in the data state',
         );
 
-        await tester.tap(editBtn);
+        await tester.tap(menuBtn);
         await tester.pumpAndSettle();
 
-        // (a) The edit screen stub content must be visible — confirms navigation
-        // reached the /master/edit route.
+        // (a) The hub stub content must be visible — confirms navigation
+        // reached the /master/menu route.
         expect(
-          find.text('edit-screen-stub'),
+          find.text('hub-screen-stub'),
           findsOneWidget,
           reason:
-              'tapping the edit button must navigate to the masterEdit screen '
-              '(${RouteNames.masterEdit})',
+              'tapping the menu button must navigate to the masterMenu screen '
+              '(${RouteNames.masterMenu})',
         );
 
         // (b) canPop() must be true — proves push was used, not go.
@@ -1085,7 +1087,7 @@ void main() {
           router.canPop(),
           isTrue,
           reason:
-              'after tapping the edit button, canPop() must be true — '
+              'after tapping the menu button, canPop() must be true — '
               'the profile screen must remain on the back stack so the '
               'left-edge swipe-back gesture can return to it. '
               'If this fails, the call reverted to context.go() which '
@@ -1094,7 +1096,7 @@ void main() {
       },
     );
 
-    testWidgets('navigating back from masterEdit returns to masterProfile', (
+    testWidgets('navigating back from masterMenu returns to masterProfile', (
       tester,
     ) async {
       final router = GoRouter(
@@ -1105,8 +1107,8 @@ void main() {
             builder: (_, _) => const MasterProfileScreen(),
           ),
           GoRoute(
-            path: RouteNames.masterEdit,
-            builder: (_, _) => const Scaffold(body: Text('edit-screen-stub')),
+            path: RouteNames.masterMenu,
+            builder: (_, _) => const Scaffold(body: Text('hub-screen-stub')),
           ),
         ],
       );
@@ -1121,11 +1123,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Push onto the edit screen.
-      await tester.tap(find.byKey(const Key('btn-edit-master')));
+      // Push onto the hub screen.
+      await tester.tap(find.byKey(const Key('btn-menu-master')));
       await tester.pumpAndSettle();
-      // Verify we are on the edit screen.
-      expect(find.text('edit-screen-stub'), findsOneWidget);
+      // Verify we are on the hub screen.
+      expect(find.text('hub-screen-stub'), findsOneWidget);
 
       // Pop back (simulates swipe-back / system back).
       router.pop();
@@ -1134,9 +1136,9 @@ void main() {
       // The profile screen content must be visible again — confirms the
       // back-stack was restored after pop.
       expect(
-        find.text('edit-screen-stub'),
+        find.text('hub-screen-stub'),
         findsNothing,
-        reason: 'edit screen must be gone after pop',
+        reason: 'hub screen must be gone after pop',
       );
       expect(
         find.byKey(const Key('master-profile-name')),
