@@ -83,23 +83,39 @@ class _WorkingHoursScreenState extends ConsumerState<WorkingHoursScreen> {
   /// is called (which happens as soon as the provider resolves).
   List<WorkingHours>? _draft;
 
+  /// The loaded/server baseline the draft is measured against. Captured at
+  /// [_initDraft] and refreshed after a successful save, so [_isDirty] reports
+  /// whether the user has actually edited the week away from what is persisted.
+  /// [WorkingHours] is a freezed value object, so [listEquals] gives a true
+  /// content comparison (revert-to-baseline correctly reads back as clean).
+  List<WorkingHours>? _baseline;
+
   /// Whether a save is in flight.
   bool _saving = false;
 
   // Computed from _draft.
   bool get _hasErrors => _draft?.any(_rowHasError) ?? false;
-  bool get _isDirty => _draft != null;
+
+  /// Dirty only when the draft differs (by value) from the loaded baseline.
+  /// A freshly-loaded (pristine) screen is NOT dirty, so Save stays disabled
+  /// until the user changes a day/time; reverting back to the baseline clears
+  /// it again.
+  bool get _isDirty => _draft != null && !listEquals(_draft, _baseline);
   bool get _canSave => _isDirty && !_hasErrors && !_saving;
 
   int get _openCount =>
       _draft?.where((WorkingHours h) => h.isActive).length ?? 0;
 
-  /// Copies the notifier's loaded list into [_draft].  Called exactly once
-  /// after the first successful load; subsequent notifier rebuilds do NOT
-  /// reset the draft (the user's in-progress edits are preserved).
+  /// Copies the notifier's loaded list into [_draft] and records it as the
+  /// [_baseline].  Called exactly once after the first successful load;
+  /// subsequent notifier rebuilds do NOT reset the draft (the user's in-progress
+  /// edits are preserved).
   void _initDraft(List<WorkingHours> serverList) {
     if (_draft != null) return;
-    setState(() => _draft = List<WorkingHours>.of(serverList));
+    setState(() {
+      _draft = List<WorkingHours>.of(serverList);
+      _baseline = List<WorkingHours>.of(serverList);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -171,6 +187,9 @@ class _WorkingHoursScreenState extends ConsumerState<WorkingHoursScreen> {
     try {
       await ref.read(workingHoursProvider.notifier).save(_draft!);
       if (!mounted) return;
+      // The save succeeded: the committed draft is now the persisted truth, so
+      // it becomes the new baseline and Save disables again until the next edit.
+      setState(() => _baseline = List<WorkingHours>.of(_draft!));
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(l10n.savedSnackbar)));

@@ -11,8 +11,9 @@
 //      localised errEndAfterStart caption.
 //   3. A valid form → tapping Save → calls WorkingHoursRepository.replaceAll
 //      with all 7 day entries.
-//   4. Save is enabled immediately once the data loads (implementation uses
-//      _draft != null as the dirty signal — spec intent, regression guard).
+//   4. REGRESSION (dirty-tracking): Save is DISABLED on a pristine load; an
+//      edit enables it (4b); reverting the edit to baseline disables it (4c).
+//      Guards the _baseline/listEquals fix for the "Save enabled on load" bug.
 //   5. Error caption is rendered as a Semantics live-region — verified via
 //      widget type + key-less structural assertion (no raw-string finder).
 //   6. Repository failure on Save surfaces an error snackbar without crashing.
@@ -219,7 +220,16 @@ void main() {
 
       await _pumpScreen(tester, repo);
 
-      // The form is valid (all active days have end > start, Sunday off).
+      // Make the form dirty before saving — a pristine load keeps Save disabled
+      // (see Test 4). Toggling Monday (day 1, top of the list so always built)
+      // OFF differs from baseline without changing day count or ISO ordering.
+      // Monday's isActive flag is irrelevant to this test's assertions
+      // (count + ordering), so this edit is safe.
+      await tester.ensureVisible(find.byKey(const Key('wh-active-1')));
+      await tester.tap(find.byKey(const Key('wh-active-1')));
+      await tester.pumpAndSettle();
+
+      // The form is valid (all active days have end > start).
       // Scroll to the Save button and tap it.
       await tester.ensureVisible(
         find.byKey(const Key('btn-save-working-hours')),
@@ -240,16 +250,19 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 4 — Save is enabled once data loads.
+    // Test 4 — REGRESSION: Save is DISABLED on a pristine load.
     //
-    // The implementation uses `_draft != null` as the dirty signal, so the
-    // Save button is enabled as soon as [workingHoursProvider] emits a valid
-    // list (regardless of user edits). This test documents and guards that
-    // behaviour — a regression that accidentally makes Save perpetually
-    // disabled on load would be caught here.
+    // History: this test previously asserted the OPPOSITE — that Save was
+    // enabled the instant data loaded — because the implementation used
+    // `_draft != null` as the dirty signal. That was the bug: tapping Save on a
+    // freshly-loaded, unedited week re-persisted identical data. The fix added
+    // a `_baseline` snapshot and made
+    //   `_isDirty = _draft != null && !listEquals(_draft, _baseline)`.
+    // This test now guards the corrected behaviour: a pristine load leaves the
+    // form clean, so Save must NOT fire `replaceAll` when tapped without edits.
     // -----------------------------------------------------------------------
     testWidgets(
-      '4. Save button is enabled immediately after data loads (draft initialised)',
+      '4. Save is disabled on a pristine load (no edits → replaceAll never called)',
       (tester) async {
         final repo = _MockWorkingHoursRepository();
         when(() => repo.list()).thenAnswer((_) async => _stubWeek());
@@ -257,21 +270,91 @@ void main() {
 
         await _pumpScreen(tester, repo);
 
-        // The Save button (btn-save-working-hours) must be present and enabled.
-        // NeumorphicButton wires `onPressed: canSave ? onSave : null`.
-        // When null, GestureDetector wraps without an onTap callback.
-        // The simplest observable: tapping it reaches replaceAll (which a
-        // disabled button would NOT do).
+        // Tap Save without editing anything. The button is disabled
+        // (onPressed == null), so the tap must be a no-op — `warnIfMissed`
+        // suppresses the hit-test warning for a button with no callback.
+        await tester.ensureVisible(
+          find.byKey(const Key('btn-save-working-hours')),
+        );
+        await tester.tap(
+          find.byKey(const Key('btn-save-working-hours')),
+          warnIfMissed: false,
+        );
+        await tester.pumpAndSettle();
+
+        // A clean (pristine) form must NOT persist anything.
+        verifyNever(() => repo.replaceAll(any()));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 4b — REGRESSION: editing enables Save, reverting disables it again.
+    //
+    // Complements Test 4: confirms the dirty-tracking is bidirectional.
+    // Toggling Sunday (day 7, stub = inactive) ON makes the draft differ from
+    // the baseline → Save enabled → replaceAll fires when tapped.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '4b. editing a day enables Save (dirty draft → replaceAll fires)',
+      (tester) async {
+        final repo = _MockWorkingHoursRepository();
+        when(() => repo.list()).thenAnswer((_) async => _stubWeek());
+        when(() => repo.replaceAll(any())).thenAnswer((_) async => _stubWeek());
+
+        await _pumpScreen(tester, repo);
+
+        // Edit: turn Monday (dayOfWeek 1, top of the list so always built) OFF.
+        // The week stays valid (no row error) — only the dirty flag flips.
+        await tester.ensureVisible(find.byKey(const Key('wh-active-1')));
+        await tester.tap(find.byKey(const Key('wh-active-1')));
+        await tester.pumpAndSettle();
+
+        // Now the draft differs from baseline → Save is enabled and fires.
         await tester.ensureVisible(
           find.byKey(const Key('btn-save-working-hours')),
         );
         await tester.tap(find.byKey(const Key('btn-save-working-hours')));
         await tester.pumpAndSettle();
 
-        // replaceAll was called → the button was enabled.
         verify(() => repo.replaceAll(any())).called(1);
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Test 4c — REGRESSION: reverting an edit back to baseline disables Save.
+    //
+    // listEquals is a content comparison over freezed value objects, so toggling
+    // a day OFF then ON again restores the baseline and Save must go quiet.
+    // -----------------------------------------------------------------------
+    testWidgets('4c. reverting an edit to baseline disables Save again', (
+      tester,
+    ) async {
+      final repo = _MockWorkingHoursRepository();
+      when(() => repo.list()).thenAnswer((_) async => _stubWeek());
+      when(() => repo.replaceAll(any())).thenAnswer((_) async => _stubWeek());
+
+      await _pumpScreen(tester, repo);
+
+      // Edit then immediately revert: toggle Monday (day 1, active) OFF…
+      await tester.ensureVisible(find.byKey(const Key('wh-active-1')));
+      await tester.tap(find.byKey(const Key('wh-active-1')));
+      await tester.pumpAndSettle();
+      // …then back ON. Draft now equals baseline again.
+      await tester.tap(find.byKey(const Key('wh-active-1')));
+      await tester.pumpAndSettle();
+
+      // Save is clean again → tapping must not persist.
+      await tester.ensureVisible(
+        find.byKey(const Key('btn-save-working-hours')),
+      );
+      await tester.tap(
+        find.byKey(const Key('btn-save-working-hours')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+
+      verifyNever(() => repo.replaceAll(any()));
+    });
 
     // -----------------------------------------------------------------------
     // Test 5 — Error caption renders as a Semantics live-region.
@@ -346,6 +429,14 @@ void main() {
 
         await _pumpScreen(tester, repo);
 
+        // Dirty the form first — a pristine load keeps Save disabled, so the
+        // failure path can only be reached after an edit. Toggling Monday
+        // (day 1, top of the list so always built) OFF keeps the week valid
+        // (no row error) so canSave depends solely on the dirty flag.
+        await tester.ensureVisible(find.byKey(const Key('wh-active-1')));
+        await tester.tap(find.byKey(const Key('wh-active-1')));
+        await tester.pumpAndSettle();
+
         await tester.ensureVisible(
           find.byKey(const Key('btn-save-working-hours')),
         );
@@ -394,7 +485,15 @@ void main() {
         await _pumpScreen(tester, repo);
 
         // Sunday (dayOfWeek == 7) is already closed in _stubWeek().
-        // Tap Save without touching anything.
+        // Dirty the form WITHOUT touching Sunday — a pristine load keeps Save
+        // disabled (see Test 4). Toggling Monday (day 1, top of the list so
+        // always built) OFF flips the dirty flag while leaving Sunday inactive
+        // and the day count at 7, so this test's Sunday assertions stay valid.
+        await tester.ensureVisible(find.byKey(const Key('wh-active-1')));
+        await tester.tap(find.byKey(const Key('wh-active-1')));
+        await tester.pumpAndSettle();
+
+        // Tap Save.
         await tester.ensureVisible(
           find.byKey(const Key('btn-save-working-hours')),
         );
