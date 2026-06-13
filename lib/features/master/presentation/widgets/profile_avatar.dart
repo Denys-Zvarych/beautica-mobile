@@ -552,7 +552,7 @@ class _VelvetNavTile extends StatelessWidget {
       button: true,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: route == null ? null : () => context.go(route),
+        onTap: route == null ? null : () => context.push(route),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
