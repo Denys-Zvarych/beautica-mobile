@@ -179,14 +179,26 @@ class PricingField extends StatelessWidget {
 
     // When a durationController is provided the duration well rides OUTSIDE the
     // mode switcher (stable State identity across fixed↔range toggles) as the
-    // first Expanded slot in a single Row. In BOTH the compact service-setup row
-    // and the non-compact create/edit form the layout is:
-    //   FIXED : [duration | price]          — 2 equal Expanded slots
-    //   RANGE : [duration | min | max]      — 3 equal Expanded slots (the
-    //           separator '–' is non-Expanded between min and max)
-    // Every slot is Expanded so the Row is overflow-proof at any phone width
-    // (320 dp and up). When durationController is null the price area spans
-    // the full width (legacy path — not used after Phase 5.x).
+    // first Expanded slot in a single Row.
+    //
+    // Layout targets (both compact service-setup row and non-compact create/edit
+    // form):
+    //
+    //   FIXED : [duration ½ | gap | price ½]
+    //           — 2 equal Expanded(flex:1) slots; gap = xs (compact) or sm.
+    //
+    //   RANGE : [duration ⅓ | gap | price-area ⅔]
+    //           where price-area = Expanded(flex:2) whose child is a Stack:
+    //             · bottom layer: Row[Expanded(min) | Expanded(max)]
+    //             · top layer (overlay, zero-layout-width): centred '–' Text
+    //           Because the dash is a Stack overlay it contributes 0 dp to the
+    //           Row's flex distribution, so each slot resolves to exactly:
+    //             slotW = (rowW − outerGap) / 3
+    //           giving duration ≈ min ≈ max to sub-pixel accuracy.
+    //
+    // Every flex slot is Expanded so the Row is overflow-proof at any phone
+    // width (320 dp and up). When durationController is null the price area
+    // spans the full width (legacy path — not used after Phase 5.x).
     final Widget pricingBody = hasDuration
         ? Row(
             // In compact mode the wells have no labels and are equal-height,
@@ -198,7 +210,14 @@ class PricingField extends StatelessWidget {
             children: <Widget>[
               Expanded(child: _buildDurationWell(l10n, compact: compact)),
               SizedBox(width: compact ? VelvetSpacing.xs : VelvetSpacing.sm),
-              Expanded(child: priceArea),
+              // FIXED: flex:1 → equal half. RANGE: flex:2 → ⅔ so that
+              // each individual price slot (Expanded inside the Stack Row)
+              // equals the duration slot (⅓ of the outer Row's available
+              // width after the outer gap is removed).
+              Expanded(
+                flex: mode == ServicePriceType.range ? 2 : 1,
+                child: priceArea,
+              ),
             ],
           )
         : priceArea;
@@ -320,20 +339,32 @@ class PricingField extends StatelessWidget {
       hideSuffixWhenActive: true,
     );
 
-    // En-dash separator between min and max. It is NOT Expanded so it does not
-    // steal width from the fields; both price fields remain equal-width Expanded
-    // slots. Horizontal padding is minimal to keep 3 equal slots at ~320 dp.
-    // In non-compact mode top-padding offsets the separator to align visually
-    // with the vertical centre of the well (label area ≈22 dp + half well ≈24 dp
-    // = 46 dp; separator text ≈14 dp → top ≈39–40 dp → lg+md = 40 dp).
-    // In compact mode the Row uses CrossAxisAlignment.center so no top offset.
-    final Widget separator = Padding(
-      padding: EdgeInsets.only(
-        left: VelvetSpacing.xs,
-        right: VelvetSpacing.xs,
-        top: compact ? 0 : VelvetSpacing.lg + VelvetSpacing.md,
+    // En-dash separator rendered as a zero-layout-width Stack overlay so it
+    // does NOT steal any dp from the min/max Expanded slots.
+    //
+    // Layout arithmetic (see pricingBody comment above):
+    //   outerRow available = rowWidth − outerGap
+    //   priceArea = Expanded(flex:2) → outerRow available × 2/3
+    //   min = max  = Expanded(flex:1) each inside the priceArea Row
+    //             → priceArea width / 2
+    //             = (rowWidth − outerGap) / 3   ← same as duration slot
+    //
+    // The separator Text is centred over the priceArea by a Stack so it is
+    // purely cosmetic and contributes 0 dp to the Row's flex computation.
+    // In non-compact mode an Alignment.topCenter child is offset downward
+    // to visually reach the well's midpoint (label area ≈22 dp + half well
+    // ≈24 dp = 46 dp; separator text ≈14 dp high → top ≈ 39 dp ≈ lg+md).
+    // In compact mode Alignment.center naturally centres on the well body.
+    final Widget dashOverlay = IgnorePointer(
+      child: Align(
+        alignment: compact ? Alignment.center : Alignment.topCenter,
+        child: Padding(
+          padding: EdgeInsets.only(
+            top: compact ? 0.0 : VelvetSpacing.lg + VelvetSpacing.md,
+          ),
+          child: Text('–', style: _separatorStyle),
+        ),
       ),
-      child: Text('–', style: _separatorStyle),
     );
 
     return KeyedSubtree(
@@ -341,25 +372,23 @@ class PricingField extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          // The range price area is the min+max pair. In both the compact row
-          // and the non-compact create/edit form, the duration well sits OUTSIDE
-          // this switcher (in the parent Row), so the visible line is:
-          //   compact    : duration | min – max
-          //   non-compact: duration | min – max  (with labels above each well)
-          // Both price slots are equal-width Expanded; the separator is not
-          // Expanded so field widths are not stolen. Overflow-proof at 320 dp.
-          // In compact mode (no well labels) CrossAxisAlignment.center aligns
-          // the separator with the well content; in non-compact mode
-          // CrossAxisAlignment.start is used and the separator carries top
-          // padding to reach the well's vertical centre instead.
-          Row(
-            crossAxisAlignment: compact
-                ? CrossAxisAlignment.center
-                : CrossAxisAlignment.start,
+          // Min and max wells share the priceArea width as two equal Expanded
+          // slots. The '–' separator is a Stack overlay so it does not
+          // participate in flex distribution — min and max each receive exactly
+          // half of priceArea, which (via the flex:2 on the outer Expanded)
+          // equals the duration slot width: (rowW − outerGap) / 3.
+          Stack(
             children: <Widget>[
-              Expanded(child: minField),
-              separator,
-              Expanded(child: maxField),
+              Row(
+                crossAxisAlignment: compact
+                    ? CrossAxisAlignment.center
+                    : CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(child: minField),
+                  Expanded(child: maxField),
+                ],
+              ),
+              dashOverlay,
             ],
           ),
           // Inline range VALIDATION line beneath the pair — rendered only

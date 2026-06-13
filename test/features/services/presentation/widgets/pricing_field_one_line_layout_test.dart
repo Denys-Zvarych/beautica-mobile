@@ -341,46 +341,54 @@ void main() {
       );
     });
 
-    testWidgets('RANGE mode: range-min and range-max wells have equal widths', (
-      tester,
-    ) async {
-      await _pumpPricingField(tester, mode: ServicePriceType.range);
+    testWidgets(
+      'RANGE mode: duration, range-min, and range-max wells all have equal '
+      'widths (each ≈ ⅓ of the row)',
+      (tester) async {
+        await _pumpPricingField(tester, mode: ServicePriceType.range);
 
-      final double minW = tester
-          .getSize(find.byKey(const Key('pricing-range-min')))
-          .width;
-      final double maxW = tester
-          .getSize(find.byKey(const Key('pricing-range-max')))
-          .width;
+        final double durW = tester
+            .getSize(find.byKey(const Key('field-service-duration')))
+            .width;
+        final double minW = tester
+            .getSize(find.byKey(const Key('pricing-range-min')))
+            .width;
+        final double maxW = tester
+            .getSize(find.byKey(const Key('pricing-range-max')))
+            .width;
 
-      // In RANGE mode the priceArea (right half of the outer Row) contains
-      // an inner Row: [min-Expanded | separator | max-Expanded]. The min and
-      // max slots are both Expanded(flex:1) within that inner Row, so they
-      // must have equal width. The duration well occupies one Expanded slot in
-      // the outer Row and is therefore wider than either price slot — that is
-      // the intended layout, NOT a bug.
-      expect(
-        minW,
-        closeTo(maxW, _kWidthTolerance),
-        reason:
-            'RANGE: range-min and range-max wells must have equal width '
-            '(both Expanded(flex:1) in the inner min–max Row)',
-      );
-
-      // Also assert the duration well is wider than min (outer Expanded vs
-      // inner Expanded) so the layout invariant is explicitly documented.
-      final double durW = tester
-          .getSize(find.byKey(const Key('field-service-duration')))
-          .width;
-      expect(
-        durW,
-        greaterThan(minW),
-        reason:
-            'RANGE: duration well occupies one outer Expanded slot and must '
-            'be wider than the range-min well, which shares the other outer '
-            'Expanded slot with range-max (inner split)',
-      );
-    });
+        // RANGE layout (post-fix, 2026-06-13):
+        //   outer Row: [Expanded(flex:1, duration) | gap | Expanded(flex:2, priceArea)]
+        //   priceArea child: Stack{ Row[Expanded(min) | Expanded(max)], dashOverlay }
+        //   The '–' is a Stack overlay (zero layout width) so it does NOT steal
+        //   any dp from the Expanded slots.
+        //   Arithmetic: durW = (rowW − gap) / 3
+        //               minW = maxW = priceAreaW / 2 = (rowW − gap) / 3
+        //   → all three slots are equal thirds (within 1-pixel rounding).
+        expect(
+          durW,
+          closeTo(minW, _kWidthTolerance),
+          reason:
+              'RANGE: duration well must have the same width as range-min — '
+              'the outer Expanded(flex:1) and each inner Expanded both resolve '
+              'to (rowW − gap) / 3',
+        );
+        expect(
+          minW,
+          closeTo(maxW, _kWidthTolerance),
+          reason:
+              'RANGE: range-min and range-max wells must have equal width '
+              '(both Expanded(flex:1) inside the Stack Row within priceArea)',
+        );
+        expect(
+          durW,
+          closeTo(maxW, _kWidthTolerance),
+          reason:
+              'RANGE: duration well must have the same width as range-max '
+              '— all three slots are equal thirds',
+        );
+      },
+    );
   });
 
   // ==========================================================================
@@ -493,38 +501,50 @@ void main() {
       );
     });
 
-    testWidgets(
-      'RANGE mode: "–" appears horizontally between min-left and max-right',
-      (tester) async {
-        await _pumpPricingField(
-          tester,
-          mode: ServicePriceType.range,
-          width: 360,
-        );
+    testWidgets('RANGE mode: "–" center is at the min/max boundary '
+        '(Stack overlay, not a flex sibling)', (tester) async {
+      await _pumpPricingField(tester, mode: ServicePriceType.range, width: 360);
 
-        final Rect minRect = tester.getRect(
-          find.byKey(const Key('pricing-range-min')),
-        );
-        final Rect maxRect = tester.getRect(
-          find.byKey(const Key('pricing-range-max')),
-        );
-        final Rect dashRect = tester.getRect(find.text('–'));
+      final Rect minRect = tester.getRect(
+        find.byKey(const Key('pricing-range-min')),
+      );
+      final Rect maxRect = tester.getRect(
+        find.byKey(const Key('pricing-range-max')),
+      );
+      final Rect dashRect = tester.getRect(find.text('–'));
 
-        // The dash must be horizontally between min's right edge and max's left.
-        expect(
-          dashRect.left,
-          greaterThanOrEqualTo(minRect.right - _kEps),
-          reason: '"–" must be to the right of (or at) the min well',
-        );
-        expect(
-          dashRect.right,
-          lessThanOrEqualTo(maxRect.left + _kEps),
-          reason: '"–" must be to the left of (or at) the max well',
-        );
+      // The '–' is a Stack overlay (IgnorePointer + Align) centred over the
+      // priceArea. Because min and max each occupy exactly half of priceArea
+      // (both Expanded(flex:1)), the priceArea's horizontal midpoint is
+      // precisely at minRect.right == maxRect.left.
+      // The dash Text is centred at that same point (Align.topCenter over
+      // the priceArea → dashRect.center.dx == priceAreaCenter).
+      // Tolerance of 4 dp accounts for sub-pixel rounding across font sizes.
 
-        expect(tester.takeException(), isNull);
-      },
-    );
+      // (a) min and max are adjacent equal Expanded siblings (no gap between
+      //     them — the '–' is a zero-layout-width overlay, not a Row child).
+      expect(
+        minRect.right,
+        closeTo(maxRect.left, _kWidthTolerance),
+        reason:
+            'RANGE: min right edge must equal max left edge — the two wells '
+            'are adjacent Expanded siblings with no gap; the "–" is a Stack '
+            'overlay and contributes 0 dp to the flex layout',
+      );
+
+      // (b) The dash center must sit at that shared boundary.
+      final double boundary = minRect.right;
+      expect(
+        dashRect.center.dx,
+        closeTo(boundary, 4.0),
+        reason:
+            '"–" center must be at the min/max boundary (minRect.right ≈ '
+            'maxRect.left). The dash is centred by Align(topCenter) over '
+            'the priceArea, whose midpoint is that boundary.',
+      );
+
+      expect(tester.takeException(), isNull);
+    });
   });
 
   // ==========================================================================
