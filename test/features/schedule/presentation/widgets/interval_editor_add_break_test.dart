@@ -42,7 +42,8 @@ void main() {
         expect(
           day.breaks.length,
           2,
-          reason: 'two taps must seed two breaks (the bug produced one usable '
+          reason:
+              'two taps must seed two breaks (the bug produced one usable '
               'break + one stacked duplicate)',
         );
 
@@ -72,7 +73,8 @@ void main() {
         expect(
           validateDayHours(day),
           isNull,
-          reason: 'two non-overlapping in-window breaks must pass validation '
+          reason:
+              'two non-overlapping in-window breaks must pass validation '
               'so Save stays enabled',
         );
       },
@@ -104,7 +106,8 @@ void main() {
         expect(
           validateDayHours(day),
           isNull,
-          reason: 'no tap may ever append an overlapping/inverted/out-of-window '
+          reason:
+              'no tap may ever append an overlapping/inverted/out-of-window '
               'break (the guard must drop the tap instead)',
         );
         for (final BreakRange b in day.breaks) {
@@ -155,9 +158,7 @@ Future<void> _pumpEditor(WidgetTester tester, DayHours day) async {
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       locale: const Locale('uk'),
-      home: Scaffold(
-        body: _EditorHost(day: day),
-      ),
+      home: Scaffold(body: _EditorHost(day: day)),
     ),
   );
   await tester.pumpAndSettle();

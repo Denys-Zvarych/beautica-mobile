@@ -29,6 +29,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -466,7 +467,11 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   }) {
     final _DayIndex index = _indexOf(days);
     final Widget list = ListView(
-      physics: const BouncingScrollPhysics(),
+      // AlwaysScrollableScrollPhysics ensures RefreshIndicator can always be
+      // triggered, even when content is shorter than the viewport.
+      physics: const AlwaysScrollableScrollPhysics(
+        parent: BouncingScrollPhysics(),
+      ),
       padding: const EdgeInsets.fromLTRB(
         VelvetSpacing.md,
         VelvetSpacing.sm,
@@ -486,7 +491,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     // visible and overlay a thin top progress line — no layout shift, dismissed
     // the instant the new month resolves. First load never reaches here (it goes
     // through the full-screen spinner gate above).
-    return Stack(
+    final Widget stack = Stack(
       children: <Widget>[
         list,
         if (reloading)
@@ -503,6 +508,26 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
             ),
           ),
       ],
+    );
+
+    // Pull-to-refresh: invalidate BOTH the effective schedule for the current
+    // visible range AND the weekly-schedule template. The screen's own
+    // _body() method re-runs as soon as the providers rebuild.
+    // Riverpod 3.x note: invalidate + await .future — never gate on value==null.
+    return AppRefreshIndicator(
+      onRefresh: () async {
+        ref.invalidate(effectiveScheduleProvider(_range));
+        ref.invalidate(weeklyScheduleProvider);
+        try {
+          await Future.wait([
+            ref.read(effectiveScheduleProvider(_range).future),
+            ref.read(weeklyScheduleProvider.future),
+          ]);
+        } on Object {
+          // Errors surface through the normal AsyncError → _ErrorBody path.
+        }
+      },
+      child: stack,
     );
   }
 

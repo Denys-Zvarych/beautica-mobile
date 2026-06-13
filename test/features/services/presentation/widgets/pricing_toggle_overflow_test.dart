@@ -69,7 +69,10 @@ Future<void> _pumpRow(WidgetTester tester, {required double width}) async {
           child: SizedBox(
             width: width,
             child: SingleChildScrollView(
-              child: ServiceTypeRowCard(row: row, resolveRangeError: (_) => null),
+              child: ServiceTypeRowCard(
+                row: row,
+                resolveRangeError: (_) => null,
+              ),
             ),
           ),
         ),
@@ -96,54 +99,53 @@ bool _labelEllipsized(WidgetTester tester, Key segmentKey, String label) {
 
 void main() {
   group('pricing mode-toggle — no overflow at 320 dp', () {
-    testWidgets(
-      '320dp: toggle segments render with NO RenderFlex overflow',
-      (tester) async {
-        await _pumpRow(tester, width: 320);
+    testWidgets('320dp: toggle segments render with NO RenderFlex overflow', (
+      tester,
+    ) async {
+      await _pumpRow(tester, width: 320);
 
-        // The fix's core promise: pumping the toggle at 320 dp must not raise a
-        // RenderFlex overflow. Pre-fix this is non-null (~14 px overflow from
-        // the segment Row); post-fix it is null.
+      // The fix's core promise: pumping the toggle at 320 dp must not raise a
+      // RenderFlex overflow. Pre-fix this is non-null (~14 px overflow from
+      // the segment Row); post-fix it is null.
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'pricing toggle must not overflow at 320 dp — the segment label '
+            'must ellipsize, not force a RenderFlex overflow',
+      );
+
+      // Both segments are present and laid out.
+      expect(find.byKey(_kFixedSegment), findsOneWidget);
+      expect(find.byKey(_kRangeSegment), findsOneWidget);
+
+      // Each segment stays within the 320 dp row's horizontal bounds (no
+      // off-screen bleed). The row is centred in the test viewport, so compare
+      // against the row card's own rect rather than absolute screen coords.
+      final Rect card = tester.getRect(find.byType(ServiceTypeRowCard));
+      expect(
+        card.width,
+        lessThanOrEqualTo(320 + _kEps),
+        reason: 'precondition: the service-setup row is laid out at 320 dp',
+      );
+      for (final Key k in const <Key>[_kFixedSegment, _kRangeSegment]) {
+        final Rect r = tester.getRect(find.byKey(k));
         expect(
-          tester.takeException(),
-          isNull,
+          r.left,
+          greaterThanOrEqualTo(card.left - _kEps),
           reason:
-              'pricing toggle must not overflow at 320 dp — the segment label '
-              'must ellipsize, not force a RenderFlex overflow',
+              'segment $k left edge ($r) must be within the 320 dp row '
+              '($card) — no off-screen bleed',
         );
-
-        // Both segments are present and laid out.
-        expect(find.byKey(_kFixedSegment), findsOneWidget);
-        expect(find.byKey(_kRangeSegment), findsOneWidget);
-
-        // Each segment stays within the 320 dp row's horizontal bounds (no
-        // off-screen bleed). The row is centred in the test viewport, so compare
-        // against the row card's own rect rather than absolute screen coords.
-        final Rect card = tester.getRect(find.byType(ServiceTypeRowCard));
         expect(
-          card.width,
-          lessThanOrEqualTo(320 + _kEps),
-          reason: 'precondition: the service-setup row is laid out at 320 dp',
+          r.right,
+          lessThanOrEqualTo(card.right + _kEps),
+          reason:
+              'segment $k right edge ($r) must be within the 320 dp row '
+              '($card) — no off-screen bleed',
         );
-        for (final Key k in const <Key>[_kFixedSegment, _kRangeSegment]) {
-          final Rect r = tester.getRect(find.byKey(k));
-          expect(
-            r.left,
-            greaterThanOrEqualTo(card.left - _kEps),
-            reason:
-                'segment $k left edge ($r) must be within the 320 dp row '
-                '($card) — no off-screen bleed',
-          );
-          expect(
-            r.right,
-            lessThanOrEqualTo(card.right + _kEps),
-            reason:
-                'segment $k right edge ($r) must be within the 320 dp row '
-                '($card) — no off-screen bleed',
-          );
-        }
-      },
-    );
+      }
+    });
 
     testWidgets(
       '360dp: full toggle labels fit — not ellipsized (degrade is 320dp-only)',

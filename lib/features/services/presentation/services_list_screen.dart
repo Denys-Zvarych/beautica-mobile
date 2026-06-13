@@ -27,6 +27,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/category_slug.dart';
@@ -135,7 +136,7 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
         orElse: () => null,
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      body: RefreshIndicator(
+      body: AppRefreshIndicator(
         // Pull-to-refresh refreshes BOTH the master's own services AND the
         // approved-category cache, so a category approved by an admin appears
         // on the next pull without a cold restart. `refresh()` awaits the
@@ -144,10 +145,11 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
         onRefresh: () async {
           ref.invalidate(approvedCategoriesProvider);
           ref.invalidate(serviceTypesProvider);
+          // approvedCategoriesProvider and serviceTypesProvider are intentionally
+          // NOT awaited: their stale humanized-label fallback degrades gracefully,
+          // and the spinner dismissal is gated only on the services re-fetch below.
           await ref.read(servicesListProvider.notifier).refresh();
         },
-        color: BrandColors.accentDeep,
-        backgroundColor: BrandColors.base,
         child: asyncServices.when(
           loading: () => const _LoadingBody(),
           error: (e, _) {

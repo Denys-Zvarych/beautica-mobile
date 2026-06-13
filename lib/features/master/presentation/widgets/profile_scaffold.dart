@@ -15,6 +15,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 /// Shared chrome for master-profile screens: a safe-area aware [Scaffold] with
@@ -23,6 +24,11 @@ import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 ///
 /// All three AsyncValue states (loaded / loading / error) pass their content
 /// through [child] so the header sits at an identical position everywhere.
+///
+/// When [onRefresh] is non-null the scrollable body is wrapped in an
+/// [AppRefreshIndicator] so the user can pull down to reload data.  The
+/// callback must return a [Future] that completes when the reload is done;
+/// the spinner stays visible until the future resolves.
 class ProfileScaffold extends StatelessWidget {
   const ProfileScaffold({
     super.key,
@@ -31,6 +37,7 @@ class ProfileScaffold extends StatelessWidget {
     this.trailing,
     this.showBack = true,
     this.bottomNavBar,
+    this.onRefresh,
   });
 
   final String title;
@@ -48,6 +55,11 @@ class ProfileScaffold extends StatelessWidget {
   /// profile shell. When null, no bottom bar is rendered.
   final Widget? bottomNavBar;
 
+  /// When non-null, the scrollable body is wrapped in an [AppRefreshIndicator].
+  /// Call `ref.invalidate(provider)` + `await ref.read(provider.future)` here
+  /// to reload remote data and dismiss the spinner.
+  final Future<void> Function()? onRefresh;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -64,20 +76,7 @@ class ProfileScaffold extends StatelessWidget {
             // Fix 2 (PERF HIGH-2): RepaintBoundary prevents the static top bar
             // from being rasterized again during animation frames driven by the
             // entrance stagger — only the scrollable body layer is repainted.
-            Expanded(
-              child: RepaintBoundary(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(
-                    VelvetSpacing.lg,
-                    VelvetSpacing.md,
-                    VelvetSpacing.lg,
-                    VelvetSpacing.xxl,
-                  ),
-                  child: child,
-                ),
-              ),
-            ),
+            Expanded(child: RepaintBoundary(child: _buildScrollable(child))),
             // Bottom navigation bar — rendered outside the scroll area so it
             // always sits at the bottom of the screen. Null-safe: omitted when
             // [bottomNavBar] is not provided.
@@ -86,5 +85,33 @@ class ProfileScaffold extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Builds the scrollable body. When [onRefresh] is non-null, wraps the
+  /// [SingleChildScrollView] in an [AppRefreshIndicator] so the user can pull
+  /// down to reload. The [AlwaysScrollableScrollPhysics] parent ensures the
+  /// scroll physics always allow the indicator to be triggered, even when
+  /// content underflows the viewport.
+  Widget _buildScrollable(Widget content) {
+    final Widget scrollable = SingleChildScrollView(
+      // AlwaysScrollableScrollPhysics ensures the RefreshIndicator gesture is
+      // always interceptable, even when the content is shorter than the
+      // viewport (e.g. loading skeleton or error state).
+      physics: onRefresh != null
+          ? const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics())
+          : const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        VelvetSpacing.lg,
+        VelvetSpacing.md,
+        VelvetSpacing.lg,
+        VelvetSpacing.xxl,
+      ),
+      child: content,
+    );
+
+    final Future<void> Function()? refresh = onRefresh;
+    if (refresh == null) return scrollable;
+
+    return AppRefreshIndicator(onRefresh: refresh, child: scrollable);
   }
 }

@@ -154,11 +154,10 @@ void main() {
           expect(find.byKey(_kDurationWell), findsOneWidget);
           expect(find.byKey(_kFixedWell), findsOneWidget);
 
-          _assertOneLine(
-            tester,
-            const <Key>[_kDurationWell, _kFixedWell],
-            width: width,
-          );
+          _assertOneLine(tester, const <Key>[
+            _kDurationWell,
+            _kFixedWell,
+          ], width: width);
         },
       );
 
@@ -172,11 +171,11 @@ void main() {
           expect(find.byKey(_kRangeMinWell), findsOneWidget);
           expect(find.byKey(_kRangeMaxWell), findsOneWidget);
 
-          _assertOneLine(
-            tester,
-            const <Key>[_kDurationWell, _kRangeMinWell, _kRangeMaxWell],
-            width: width,
-          );
+          _assertOneLine(tester, const <Key>[
+            _kDurationWell,
+            _kRangeMinWell,
+            _kRangeMaxWell,
+          ], width: width);
         },
       );
     }

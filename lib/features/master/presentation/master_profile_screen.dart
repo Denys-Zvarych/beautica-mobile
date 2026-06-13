@@ -193,6 +193,17 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
         onTap: () => context.go(RouteNames.masterEdit),
       ),
       bottomNavBar: const VelvetBottomNavBar(activeIndex: 3),
+      // Pull-to-refresh: invalidate the master profile and the services list
+      // (the profile screen displays live service counts and category cards).
+      // Riverpod 3.x note: invalidate + await .future — never gate on value==null.
+      onRefresh: () async {
+        ref.invalidate(masterProfileProvider);
+        ref.invalidate(servicesListProvider);
+        await Future.wait([
+          ref.read(masterProfileProvider.future),
+          ref.read(servicesListProvider.future),
+        ]);
+      },
       child: masterAsync.when(
         loading: () => const _ProfileSkeleton(),
         error: (e, _) => ErrorState(
