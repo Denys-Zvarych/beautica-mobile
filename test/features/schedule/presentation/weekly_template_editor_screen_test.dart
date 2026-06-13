@@ -1141,13 +1141,6 @@ void main() {
   // label. All assertions resolve the expected copy through `AppLocalizations`
   // (M2 — never a raw UA literal) and are scoped to the card's Key.
   group('WeeklyTemplateEditorScreen — active-window card', () {
-    /// The active-window value `Text` widgets inside the card (the prompt/value
-    /// line + its hint sub-line). The value line is the first descendant.
-    Finder _windowCardTexts() => find.descendant(
-      of: find.byKey(const Key('weekly-active-window-card')),
-      matching: find.byType(Text),
-    );
-
     testWidgets('NO_SCHEDULE (no template) shows the unset prompt, NOT a '
         '"Графік діє з <date>" value — and the card is present + tappable', (
       tester,

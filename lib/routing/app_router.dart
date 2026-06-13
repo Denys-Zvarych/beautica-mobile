@@ -47,7 +47,6 @@ import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/service_setup_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
-import '../features/calendar/presentation/working_hours_screen.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
 import '../features/schedule/presentation/schedule_editor_stubs.dart';
 import '../features/schedule/presentation/weekly_template_editor_screen.dart';
@@ -271,13 +270,16 @@ GoRouter appRouter(Ref ref) {
           return ServiceEditScreen(id: id);
         },
       ),
-      // Phase 6.2 — Working hours editor (INDEPENDENT_MASTER). Reachable as a
-      // sub-editor; the Календар tile now lands on /schedule.
-      GoRoute(
-        path: RouteNames.workingHours,
-        pageBuilder: (context, state) =>
-            _instantPage(state, const WorkingHoursScreen()),
-      ),
+      // Phase 6.2 — the legacy `/master/working-hours` editor route
+      // (WorkingHoursScreen) was retired: it wrote the deprecated `working_hours`
+      // table (no longer bookable) and nothing in the app navigates to it. The
+      // Календар tile lands on [masterSchedule] and the weekly-template edit path
+      // is [scheduleWeeklyEditor] (WeeklyTemplateEditorScreen). The route was
+      // orphaned but still deep-link-reachable, so it is removed here to drop a
+      // dead surface. The WorkingHoursScreen widget itself is kept (its existing
+      // widget tests pump it directly); the [RouteNames.workingHours] constant is
+      // also retained because the SEC role-gate regression tests in
+      // auth_redirect_test.dart use it as a representative `/master/*` location.
       // Phase 15.2 — Master schedule («Графік роботи»), the Календар tile's
       // destination. Auth-guarded by the global redirect.
       GoRoute(

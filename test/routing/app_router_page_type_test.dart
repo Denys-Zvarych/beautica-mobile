@@ -451,4 +451,46 @@ void main() {
       );
     },
   );
+
+  // -------------------------------------------------------------------------
+  // Retired route — the orphaned /master/working-hours editor (WorkingHoursScreen)
+  // was removed from app_router.dart in Phase 6.2. It had zero production
+  // navigation and no Android App-Link, but was still deep-link-reachable. The
+  // WorkingHoursScreen widget and the RouteNames.workingHours constant are kept
+  // (the constant is reused by auth_redirect_test.dart as a representative
+  // /master/* path), so a future refactor could silently re-register the route
+  // by copy-paste. This guard fails if /master/working-hours ever resolves
+  // again. Canonical working-hours editing is /schedule -> /schedule/weekly
+  // (scheduleWeeklyEditor / WeeklyTemplateEditorScreen).
+  // -------------------------------------------------------------------------
+  group('app_router retired routes — /master/working-hours is not registered', () {
+    late GoRouter router;
+
+    setUp(() {
+      router = _makeContainer().read(appRouterProvider);
+    });
+
+    // RR-1 — the production router must NOT register /master/working-hours.
+    // Deep-linking there must fall through to go_router's unknown-route
+    // handling instead of resolving WorkingHoursScreen.
+    test(
+      'RR-1: RouteNames.workingHours (/master/working-hours) is NOT registered',
+      () {
+        final route = _findRoute(
+          router.configuration.routes,
+          RouteNames.workingHours,
+        );
+        expect(
+          route,
+          isNull,
+          reason:
+              'The orphaned /master/working-hours editor (WorkingHoursScreen) '
+              'was retired in Phase 6.2 — it wrote the deprecated `working_hours` '
+              'table and had no production navigation. It must NOT be '
+              're-registered in appRouter. Canonical working-hours editing is '
+              '/schedule -> /schedule/weekly (RouteNames.scheduleWeeklyEditor).',
+        );
+      },
+    );
+  });
 }

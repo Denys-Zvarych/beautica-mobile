@@ -73,8 +73,13 @@ abstract final class RouteNames {
   /// has zero services. Saves via `POST /independent-masters/me/services/bulk`.
   static const String serviceSetup = '/services/setup';
 
-  // Phase 6.2 — Working hours editor (INDEPENDENT_MASTER). Still reachable as a
-  // sub-editor of the schedule; the Календар nav tile now opens [masterSchedule].
+  // Phase 6.2 — legacy working-hours editor path. The route is NO LONGER
+  // registered in [app_router] (it was orphaned + deep-link-reachable, writing
+  // the deprecated `working_hours` table; the live edit path is
+  // [scheduleWeeklyEditor]). The constant is retained ONLY because the SEC
+  // role-gate regression tests in auth_redirect_test.dart use it as a
+  // representative `/master/*` location to pin the prefix guard. Do not wire a
+  // GoRoute back onto it.
   static const String workingHours = '/master/working-hours';
 
   // Phase 15.2 — Master schedule («Графік роботи»). The destination of the
