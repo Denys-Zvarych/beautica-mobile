@@ -1145,4 +1145,151 @@ void main() {
       },
     );
   });
+
+  // ── Close button — pop-with-fallback regression guard ──────────────────────
+  //
+  // Three close/return sites in ServiceSetupScreen were changed from
+  // `context.go(RouteNames.services)` to
+  // `canPop ? context.pop() : context.go(RouteNames.services)`.
+  //
+  // The change ensures deep-link safety: when the screen is reached directly
+  // (no back stack), it falls back to go(); when it is pushed (has a back
+  // stack), it pops instead of replacing the stack with a go().
+  //
+  // Test 1 — pushed path (canPop true): pump the setup screen on top of a
+  //   previous route. Tap the close button. Assert the navigator returns to the
+  //   previous route (pop happened) rather than replacing the stack with
+  //   /services (go would have happened).
+  //
+  // Test 2 — direct-entry path (canPop false): pump the setup screen as the
+  //   initial (only) route. Tap close. Assert the router lands on
+  //   RouteNames.services (the go() fallback fired).
+
+  group('close button pop-with-fallback (swipe-back regression guard)', () {
+    // ── 1. Pushed path — close pops back to previous route ───────────────────
+
+    testWidgets(
+      'close button pops back to the previous route when a back stack exists',
+      (tester) async {
+        // A 3-route router: /prev → /services/setup → /services.
+        // Starting at /prev and pushing /services/setup gives us a poppable stack.
+        const prevPath = '/prev';
+        final router = GoRouter(
+          initialLocation: prevPath,
+          routes: <RouteBase>[
+            GoRoute(
+              path: prevPath,
+              builder: (_, _) => const Scaffold(body: Text('PREVIOUS_SCREEN')),
+            ),
+            GoRoute(
+              path: RouteNames.serviceSetup,
+              builder: (_, _) => const ServiceSetupScreen(),
+            ),
+            GoRoute(
+              path: RouteNames.services,
+              builder: (_, _) =>
+                  const Scaffold(body: Text('SERVICES_LIST_STUB')),
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: h
+                .overrides(
+                  categories: const AsyncData(<ServiceCategoryOption>[]),
+                )
+                .cast(),
+            child: MediaQuery(
+              data: const MediaQueryData(size: Size(800, 1200)),
+              child: MaterialApp.router(
+                routerConfig: router,
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+                locale: const Locale('uk'),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Navigate from /prev to /services/setup via push.
+        unawaited(router.push(RouteNames.serviceSetup));
+        await tester.pumpAndSettle();
+
+        // Verify setup screen rendered (categories empty — just the chip area).
+        expect(
+          router.canPop(),
+          isTrue,
+          reason: 'canPop must be true — /prev is still on the back stack',
+        );
+
+        // Tap the close button.
+        final closeBtn = find.byKey(const Key('btn-setup-close'));
+        expect(
+          closeBtn,
+          findsOneWidget,
+          reason: 'close button (Key btn-setup-close) must be present',
+        );
+        await tester.tap(closeBtn);
+        await tester.pumpAndSettle();
+
+        // Must have returned to /prev, NOT replaced the stack with /services.
+        // The PREVIOUS_SCREEN text is present; SERVICES_LIST_STUB is absent.
+        expect(
+          find.text('PREVIOUS_SCREEN'),
+          findsOneWidget,
+          reason:
+              'close button must pop (return to /prev) when canPop is true. '
+              'If this fails, the code reverted to context.go(services) which '
+              'replaces the stack instead of popping.',
+        );
+        expect(
+          find.text('SERVICES_LIST_STUB'),
+          findsNothing,
+          reason:
+              'the services-list fallback screen must NOT appear — '
+              'context.go(services) must not have fired when canPop was true',
+        );
+      },
+    );
+
+    // ── 2. Direct-entry path — close falls back to go(services) ─────────────
+
+    testWidgets(
+      'close button goes to services when there is no back stack (deep-link entry)',
+      (tester) async {
+        // The harness router uses serviceSetup as initialLocation — no prior
+        // route on the stack — so canPop() is false and the fallback go() fires.
+        await _pump(
+          tester,
+          h,
+          overrides: h.overrides(
+            categories: const AsyncData(<ServiceCategoryOption>[]),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The harness router starts at serviceSetup with no back-stack entry.
+        // canPop() is false, so the close button must fire go(services).
+        final closeBtn = find.byKey(const Key('btn-setup-close'));
+        expect(
+          closeBtn,
+          findsOneWidget,
+          reason: 'close button (Key btn-setup-close) must be present',
+        );
+        await tester.tap(closeBtn);
+        await tester.pumpAndSettle();
+
+        // The services-list stub body text must be visible — go(services) fired.
+        expect(
+          find.text('SERVICES_LIST_STUB'),
+          findsOneWidget,
+          reason:
+              'close button must navigate to services via go() when the '
+              'back stack is empty (deep-link / direct-entry path)',
+        );
+      },
+    );
+  });
 }

@@ -366,7 +366,11 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
       // Success — refresh the list and land on it (now populated).
       ref.invalidate(servicesListProvider);
       _showSnack(l10n.serviceSetupSuccess);
-      context.go(RouteNames.services);
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go(RouteNames.services);
+      }
       return;
     }
 
@@ -377,7 +381,11 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
       // refresh + route to the (now-populated) list rather than retry.
       ref.invalidate(servicesListProvider);
       _showSnack(error.userMessage(context));
-      context.go(RouteNames.services);
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go(RouteNames.services);
+      }
       return;
     }
     final message = error is Failure
@@ -416,7 +424,13 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
             _TopBar(
               title: l10n.serviceSetupTitle,
               closeLabel: l10n.serviceSetupClose,
-              onClose: () => context.go(RouteNames.services),
+              onClose: () {
+                if (context.canPop()) {
+                  context.pop();
+                } else {
+                  context.go(RouteNames.services);
+                }
+              },
             ),
             Expanded(
               child: categoriesAsync.when(

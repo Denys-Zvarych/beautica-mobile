@@ -200,10 +200,11 @@ GoRouter appRouter(Ref ref) {
       ),
       // Phase 4.3 — Master profile edit form. Auth-guarded (Phase 2.9 redirect
       // guard already covers all non-login routes when session is null).
+      // Uses MaterialPage (builder:) so the theme's CupertinoPageTransitionsBuilder
+      // installs the left-edge swipe-back gesture when pushed from MasterProfileScreen.
       GoRoute(
         path: RouteNames.masterEdit,
-        pageBuilder: (context, state) =>
-            _instantPage(state, const MasterEditScreen()),
+        builder: (context, state) => const MasterEditScreen(),
       ),
       // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
       // Phase 6.x — `expandCategory` query param: when present, the matching

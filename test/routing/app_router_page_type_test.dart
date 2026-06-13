@@ -283,6 +283,48 @@ void main() {
           );
         },
       );
+
+      // SB-6 — /master/edit
+      //
+      // Regression guard for the Phase 4.3 masterEdit conversion:
+      // RouteNames.masterEdit was changed from `pageBuilder: _instantPage(...)`
+      // to `builder:` so the theme's CupertinoPageTransitionsBuilder installs the
+      // left-edge swipe-back gesture when the screen is pushed from
+      // MasterProfileScreen. If this route reverts to `pageBuilder:`, the
+      // swipe-back gesture silently dies on the edit drill-down.
+      test(
+        'SB-6: RouteNames.masterEdit (/master/edit) uses builder: not pageBuilder:',
+        () {
+          final route = _findRoute(
+            router.configuration.routes,
+            RouteNames.masterEdit,
+          );
+          expect(
+            route,
+            isNotNull,
+            reason:
+                'RouteNames.masterEdit (${RouteNames.masterEdit}) must be '
+                'registered in appRouter',
+          );
+          expect(
+            route!.builder,
+            isNotNull,
+            reason:
+                '/master/edit must use builder: so go_router wraps it in a '
+                'MaterialPage — the only page type that honors the theme\'s '
+                'CupertinoPageTransitionsBuilder and installs the swipe-back '
+                'gesture when pushed from MasterProfileScreen',
+          );
+          expect(
+            route.pageBuilder,
+            isNull,
+            reason:
+                '/master/edit must NOT use pageBuilder: — a CustomTransitionPage '
+                'returned by _instantPage() overrides the theme builder and '
+                'suppresses the left-edge swipe-back gesture',
+          );
+        },
+      );
     },
   );
 

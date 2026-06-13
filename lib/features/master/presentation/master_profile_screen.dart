@@ -190,7 +190,7 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
         key: const Key('btn-edit-master'),
         icon: Icons.edit_outlined,
         semanticLabel: l10n.masterEditButton,
-        onTap: () => context.go(RouteNames.masterEdit),
+        onTap: () => context.push(RouteNames.masterEdit),
       ),
       bottomNavBar: const VelvetBottomNavBar(activeIndex: 3),
       // Pull-to-refresh: invalidate the master profile and the services list

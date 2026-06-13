@@ -1008,6 +1008,146 @@ void main() {
     });
   });
 
+  // ── 13b. Edit button — push-not-go regression guard ─────────────────────────
+  //
+  // The edit-tile onTap was changed from `context.go(RouteNames.masterEdit)` to
+  // `context.push(RouteNames.masterEdit)`. `push` stacks the destination on top
+  // of the current route; `go` replaces the stack. The swipe-back gesture REQUIRES
+  // a poppable stack — if the call reverts to `go`, `canPop()` returns false on
+  // the edit screen and the back gesture silently breaks.
+  //
+  // Strategy: pump inside a 2-route GoRouter (/master/profile + /master/edit).
+  // After tapping the edit button, assert:
+  //   (a) the router has navigated to RouteNames.masterEdit; AND
+  //   (b) `router.canPop()` is true — proving push (not go) was used.
+
+  group('edit button pushes masterEdit (swipe-back regression guard)', () {
+    // NOTE on go_router path inspection in tests:
+    // `routeInformationProvider.value.uri.path` reflects the initial location
+    // and does NOT update after a `context.push(...)`. Use `find` assertions and
+    // `router.canPop()` instead — `canPop()` is true only when a back-stack entry
+    // exists, which proves `push` (not `go`) was used.
+
+    testWidgets(
+      'tapping the edit button renders the edit screen and leaves back stack '
+      'poppable (canPop true)',
+      (tester) async {
+        final router = GoRouter(
+          initialLocation: RouteNames.masterProfile,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.masterProfile,
+              builder: (_, _) => const MasterProfileScreen(),
+            ),
+            GoRoute(
+              path: RouteNames.masterEdit,
+              builder: (_, _) => const Scaffold(body: Text('edit-screen-stub')),
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Confirm the edit button is present (data state rendered).
+        final editBtn = find.byKey(const Key('btn-edit-master'));
+        expect(
+          editBtn,
+          findsOneWidget,
+          reason:
+              'edit button (Key btn-edit-master) must be present in the data state',
+        );
+
+        await tester.tap(editBtn);
+        await tester.pumpAndSettle();
+
+        // (a) The edit screen stub content must be visible — confirms navigation
+        // reached the /master/edit route.
+        expect(
+          find.text('edit-screen-stub'),
+          findsOneWidget,
+          reason:
+              'tapping the edit button must navigate to the masterEdit screen '
+              '(${RouteNames.masterEdit})',
+        );
+
+        // (b) canPop() must be true — proves push was used, not go.
+        // With go() the navigator stack is replaced: canPop() returns false.
+        // With push() the profile is still on the stack: canPop() returns true.
+        expect(
+          router.canPop(),
+          isTrue,
+          reason:
+              'after tapping the edit button, canPop() must be true — '
+              'the profile screen must remain on the back stack so the '
+              'left-edge swipe-back gesture can return to it. '
+              'If this fails, the call reverted to context.go() which '
+              'replaces the stack and breaks swipe-back.',
+        );
+      },
+    );
+
+    testWidgets('navigating back from masterEdit returns to masterProfile', (
+      tester,
+    ) async {
+      final router = GoRouter(
+        initialLocation: RouteNames.masterProfile,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.masterProfile,
+            builder: (_, _) => const MasterProfileScreen(),
+          ),
+          GoRoute(
+            path: RouteNames.masterEdit,
+            builder: (_, _) => const Scaffold(body: Text('edit-screen-stub')),
+          ),
+        ],
+      );
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Push onto the edit screen.
+      await tester.tap(find.byKey(const Key('btn-edit-master')));
+      await tester.pumpAndSettle();
+      // Verify we are on the edit screen.
+      expect(find.text('edit-screen-stub'), findsOneWidget);
+
+      // Pop back (simulates swipe-back / system back).
+      router.pop();
+      await tester.pumpAndSettle();
+
+      // The profile screen content must be visible again — confirms the
+      // back-stack was restored after pop.
+      expect(
+        find.text('edit-screen-stub'),
+        findsNothing,
+        reason: 'edit screen must be gone after pop',
+      );
+      expect(
+        find.byKey(const Key('master-profile-name')),
+        findsOneWidget,
+        reason:
+            'popping the masterEdit screen must return to masterProfile — '
+            'confirms a true back-stack exists after the push',
+      );
+    });
+  });
+
   // ── 14. Services section — category cards (profile-category-cards feature) ──
   //
   // The profile screen no longer renders a flat tile list or a bounded
