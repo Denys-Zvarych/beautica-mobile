@@ -269,16 +269,40 @@ class IntervalEditor extends StatelessWidget {
     }
   }
 
+  /// Seed length (minutes) for a freshly added break — a sensible 1h lunch.
+  static const int _defaultBreakMinutes = 60;
+
+  /// Minimum gap (minutes) left between the previous break and a new one, so the
+  /// seed never lands flush against (and thus overlapping) an existing break.
+  static const int _breakSeedGap = 15;
+
+  /// `true` when there is room to seed another non-overlapping, in-bounds break
+  /// after the latest existing break. Drives the add-break guard + disabled UX.
+  bool get _hasRoomForBreak =>
+      _nextBreakCursor() + _breakSeedGap + _defaultBreakMinutes <=
+      day.window.endMinutes;
+
+  /// Minute-of-day to seed the next break AFTER — the latest existing break's
+  /// end, or the window start when there are no breaks yet.
+  int _nextBreakCursor() {
+    int cursor = day.window.startMinutes;
+    for (final BreakRange b in day.breaks) {
+      if (b.endMinutes > cursor) cursor = b.endMinutes;
+    }
+    return cursor;
+  }
+
   void _addBreak() {
-    // Seed a sensible 1h lunch around the middle of the window, snapped so it
-    // sits clearly inside the working hours.
-    final int winStart = day.window.startMinutes;
     final int winEnd = day.window.endMinutes;
-    final int mid = (winStart + winEnd) ~/ 2;
-    int start = (mid - 30).clamp(winStart + 15, winEnd - 60);
+    final int cursor = _nextBreakCursor();
+    // Seed a small gap after the latest break (or window start), snapped to a
+    // 15-min step, with a default 1h length, clamped to fit before window end.
+    int start = cursor + _breakSeedGap;
     start = (start ~/ 15) * 15;
-    int end = (start + 60).clamp(winStart + 15, winEnd - 15);
-    if (end <= start) end = (start + 15).clamp(0, 23 * 60 + 45);
+    int end = start + _defaultBreakMinutes;
+    // No room for a non-overlapping, in-bounds break → no-op the tap rather than
+    // appending a degenerate/overlapping range that would gate Save.
+    if (end > winEnd) return;
     day.breaks.add(
       BreakRange(
         start: TimeOfDay(hour: start ~/ 60, minute: start % 60),
@@ -373,39 +397,45 @@ class IntervalEditor extends StatelessWidget {
         ],
 
         // ── Add-break action ────────────────────────────────────────────────
+        // Disabled (dimmed, no tap) once the day is full — there's no room to
+        // seed another non-overlapping, in-bounds break.
         const SizedBox(height: VelvetSpacing.md),
         Align(
           alignment: Alignment.centerLeft,
-          child: Semantics(
-            button: true,
-            label: strings.addBreak,
-            child: GestureDetector(
-              key: prefix == null ? null : Key('$prefix-add-break'),
-              onTap: _addBreak,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: VelvetSpacing.md,
-                  vertical: VelvetSpacing.sm + 2,
-                ),
-                decoration: BoxDecoration(
-                  color: BrandColors.base,
-                  borderRadius: BorderRadius.circular(VelvetRadii.field),
-                  boxShadow: VelvetShadows.extrudedSmall,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    const Icon(
-                      Icons.coffee_rounded,
-                      size: 16,
-                      color: BrandColors.accentDeep,
-                    ),
-                    const SizedBox(width: VelvetSpacing.sm),
-                    Text(
-                      strings.addBreak,
-                      style: VelvetText.link().copyWith(fontSize: 13),
-                    ),
-                  ],
+          child: Opacity(
+            opacity: _hasRoomForBreak ? 1.0 : 0.4,
+            child: Semantics(
+              button: true,
+              enabled: _hasRoomForBreak,
+              label: strings.addBreak,
+              child: GestureDetector(
+                key: prefix == null ? null : Key('$prefix-add-break'),
+                onTap: _hasRoomForBreak ? _addBreak : null,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: VelvetSpacing.md,
+                    vertical: VelvetSpacing.sm + 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: BrandColors.base,
+                    borderRadius: BorderRadius.circular(VelvetRadii.field),
+                    boxShadow: VelvetShadows.extrudedSmall,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const Icon(
+                        Icons.coffee_rounded,
+                        size: 16,
+                        color: BrandColors.accentDeep,
+                      ),
+                      const SizedBox(width: VelvetSpacing.sm),
+                      Text(
+                        strings.addBreak,
+                        style: VelvetText.link().copyWith(fontSize: 13),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
