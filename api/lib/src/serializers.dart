@@ -64,6 +64,8 @@ import 'package:beautica_api/src/model/available_slots_response.dart';
 import 'package:beautica_api/src/model/avatar_response.dart';
 import 'package:beautica_api/src/model/booking_detail_response.dart';
 import 'package:beautica_api/src/model/booking_response.dart';
+import 'package:beautica_api/src/model/bulk_create_services_request.dart';
+import 'package:beautica_api/src/model/bulk_service_item_request.dart';
 import 'package:beautica_api/src/model/cancel_booking_request.dart';
 import 'package:beautica_api/src/model/catalog_category_response.dart';
 import 'package:beautica_api/src/model/category_request_response.dart';
@@ -195,6 +197,8 @@ part 'serializers.g.dart';
   AvatarResponse,
   BookingDetailResponse,
   BookingResponse,
+  BulkCreateServicesRequest,
+  BulkServiceItemRequest,
   CancelBookingRequest,
   CatalogCategoryResponse,
   CategoryRequestResponse,

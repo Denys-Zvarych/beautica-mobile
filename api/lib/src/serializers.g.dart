@@ -60,6 +60,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(BookingDetailResponseStatusEnum.serializer)
       ..add(BookingResponse.serializer)
       ..add(BookingResponseStatusEnum.serializer)
+      ..add(BulkCreateServicesRequest.serializer)
+      ..add(BulkServiceItemRequest.serializer)
+      ..add(BulkServiceItemRequestPriceTypeEnum.serializer)
       ..add(CancelBookingRequest.serializer)
       ..add(CancelBookingRequestCancellationReasonEnum.serializer)
       ..add(CatalogCategoryResponse.serializer)
@@ -168,6 +171,10 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(BookingResponse)]),
           () => ListBuilder<BookingResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(BulkServiceItemRequest)]),
+          () => ListBuilder<BulkServiceItemRequest>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(CatalogCategoryResponse)]),

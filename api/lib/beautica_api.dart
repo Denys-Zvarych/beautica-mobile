@@ -78,6 +78,8 @@ export 'package:beautica_api/src/model/available_slots_response.dart';
 export 'package:beautica_api/src/model/avatar_response.dart';
 export 'package:beautica_api/src/model/booking_detail_response.dart';
 export 'package:beautica_api/src/model/booking_response.dart';
+export 'package:beautica_api/src/model/bulk_create_services_request.dart';
+export 'package:beautica_api/src/model/bulk_service_item_request.dart';
 export 'package:beautica_api/src/model/cancel_booking_request.dart';
 export 'package:beautica_api/src/model/catalog_category_response.dart';
 export 'package:beautica_api/src/model/category_request_response.dart';
