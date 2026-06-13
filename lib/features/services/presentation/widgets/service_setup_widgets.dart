@@ -589,10 +589,9 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
                           maxController: row.max,
                           rangeError: rangeError,
                           fixedError: fixedPriceError,
-                          // The compact duration well is rendered by
-                          // PricingField itself (label-less, "хв" affix) so
-                          // duration + price always share one line, overflow-
-                          // free, down to ~320 dp in both fixed and range modes.
+                          // compact=true: label-less wells, tight padding so
+                          // duration + price always share one line at ~320 dp.
+                          compact: true,
                           durationController: row.duration,
                           durationError: durationError,
                         ),

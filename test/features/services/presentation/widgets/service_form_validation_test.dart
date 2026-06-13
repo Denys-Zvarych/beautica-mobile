@@ -150,7 +150,11 @@ void main() {
     ) async {
       await pumpForm(tester, onSubmit: shouldNotSubmit);
       await fillValidExceptDuration(tester);
-      await tester.enterText(_durationField, '1123');
+      // 481 is 3 digits (within the LengthLimitingTextInputFormatter(3) limit)
+      // and exceeds the 480-minute cap — the max-480 validation must block it.
+      // The former '1123' was 4 digits and silently truncated to '112' by the
+      // formatter, which is a valid duration and caused onSubmit to fire.
+      await tester.enterText(_durationField, '481');
       await tapSubmit(tester);
 
       expect(find.text(_l10n(tester).errDurationMax), findsOneWidget);

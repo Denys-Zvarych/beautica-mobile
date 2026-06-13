@@ -900,31 +900,16 @@ class _ServiceFormState extends State<ServiceForm> {
         ),
         const SizedBox(height: VelvetSpacing.lg),
 
-        // 2 — Duration field (required, integer 1–480 min / 8 h — backend cap).
-        //     Same per-field re-validation isolation as the name field.
-        ValueListenableBuilder<int>(
-          valueListenable: _revalidateTick,
-          builder: (BuildContext context, _, _) => _buildField(
-            fieldKey: const Key('field-service-duration'),
-            label: l10n.serviceDurationLabel,
-            controller: _durationCtrl,
-            errorText: _durationError(l10n),
-            hintText: '60',
-            suffixText: 'хв',
-            keyboardType: TextInputType.number,
-            inputFormatters: <TextInputFormatter>[
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(4),
-            ],
-            enabled: !_submitting,
-          ),
-        ),
-        const SizedBox(height: VelvetSpacing.lg),
-
-        // 3 — Pricing: FIXED (single amount) or RANGE (min–max) via the
-        //     two-mode segmented toggle + conditional field area. Wrapped in a
-        //     ValueListenableBuilder so a price keystroke re-validates only the
-        //     pricing sub-tree — the chip row stays out of scope (perf MEDIUM).
+        // 2+3 — Duration + Pricing on ONE line:
+        //   FIXED mode : [duration | price]        — 2 equal Expanded slots
+        //   RANGE mode : [duration | min – max]    — 3 equal Expanded slots
+        // Passing [durationController] into PricingField moves the duration
+        // well inside PricingField's outer Row so it shares one horizontal line
+        // with the price field(s) in both modes, overflow-proof at ~320 dp.
+        // The standalone duration _buildField above this block is intentionally
+        // removed — the duration well is now rendered inside PricingField.
+        // Wrapped in a single ValueListenableBuilder so a keystroke in either
+        // field re-validates only the duration+pricing sub-tree together.
         ValueListenableBuilder<int>(
           valueListenable: _revalidateTick,
           builder: (BuildContext context, _, _) => PricingField(
@@ -944,6 +929,12 @@ class _ServiceFormState extends State<ServiceForm> {
             fixedError: _fixedPriceError(l10n),
             minError: _rangeMinError(l10n),
             rangeError: _rangeMaxError(l10n),
+            // Duration well: rendered as the leading slot inside PricingField's
+            // one-line Row. compact=false so the well shows its label and uses
+            // full horizontal padding (matches the pricing wells).
+            durationController: _durationCtrl,
+            durationError: _durationError(l10n),
+            durationLabel: l10n.serviceDurationLabel,
           ),
         ),
         const SizedBox(height: VelvetSpacing.xl),

@@ -59,26 +59,42 @@ class PricingField extends StatelessWidget {
     this.rangeError,
     this.durationController,
     this.durationError,
+    this.durationLabel,
     this.showSectionLabel = true,
+    this.compact = false,
   });
 
-  /// Optional controller for the per-row DURATION (minutes) field. When
-  /// supplied (the compact first-time service-setup row), [PricingField]
-  /// renders a compact, label-less duration well to the LEFT of the price
-  /// field(s) so duration + price always share a single horizontal line — at
-  /// every phone width down to ~320 dp, in both fixed and range modes. When
-  /// null the price field(s) take the full width and carry their labels (the
-  /// create/edit form, where duration lives in its own row above).
+  /// Optional controller for the DURATION (minutes) field.
+  ///
+  /// When supplied, [PricingField] renders the duration well to the LEFT of
+  /// the price field(s) so duration + price always share a single horizontal
+  /// line — at every phone width down to ~320 dp, in both fixed and range
+  /// modes. In the compact service-setup row the well is label-less; in the
+  /// create/edit form ([showSectionLabel] == true) the well carries
+  /// [durationLabel] as its visible label.
+  ///
+  /// When null the price field(s) take the full width and carry their own
+  /// labels (legacy layout, not used after Phase 5.x).
   final TextEditingController? durationController;
 
-  /// Inline error for the compact duration well (only consulted when
+  /// Inline error for the duration well (only consulted when
   /// [durationController] is supplied).
   final String? durationError;
+
+  /// Label shown above the duration well in non-compact (create/edit) mode.
+  /// Ignored when [durationController] is null or in compact mode.
+  final String? durationLabel;
 
   /// Whether to render the "ЦІНА" section label above the mode toggle. The
   /// create/edit form shows it; the compact service-setup row hides it (the
   /// surrounding card already frames the pricing block).
   final bool showSectionLabel;
+
+  /// When true the wells are rendered without visible labels (a11y preserved
+  /// via Semantics) and with tighter horizontal padding + gap, so the
+  /// duration+price row fits a single line at ~320 dp. Used by the bulk
+  /// service-setup row. The create/edit form uses false (default).
+  final bool compact;
 
   /// Currently selected pricing mode.
   final ServicePriceType mode;
@@ -128,22 +144,10 @@ class PricingField extends StatelessWidget {
     BrandColors.error,
   );
 
-  // Flex weights for the compact service-setup row's single line of wells.
-  // Duration holds a short minutes value ("60") so it gets the smaller share;
-  // the price area (one fixed field, or the min+max pair) carries the larger
-  // amounts. The outer compact Row is duration (_durationFlex) | price area
-  // (_priceAreaFlex); inside the price area the range min+max each take an
-  // equal Expanded share. These are proportional only — every slot is an
-  // Expanded, so the Row can never overflow no matter how narrow the phone is;
-  // the TextFields shrink to their slot and scroll their own content
-  // internally rather than forcing a horizontal RenderFlex.
-  static const int _durationFlex = 3;
-  static const int _priceAreaFlex = 5;
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final bool compact = durationController != null;
+    final bool hasDuration = durationController != null;
 
     // The conditional price field area — cross-fades + resizes between modes.
     // CRITICAL: the duration well is NOT inside this switcher. Toggling
@@ -173,19 +177,28 @@ class PricingField extends StatelessWidget {
       ),
     );
 
-    // In the compact service-setup row the duration well rides OUTSIDE the
-    // switcher (stable identity) as the first Expanded slot; only the price
-    // area reflows on toggle. Every slot is an Expanded, so the Row can never
-    // overflow regardless of phone width (320/360/412 dp). In the create/edit
-    // form (durationController == null) the price area spans the full width
-    // and carries its own label, with no duration well here.
-    final Widget pricingBody = compact
+    // When a durationController is provided the duration well rides OUTSIDE the
+    // mode switcher (stable State identity across fixed↔range toggles) as the
+    // first Expanded slot in a single Row. In BOTH the compact service-setup row
+    // and the non-compact create/edit form the layout is:
+    //   FIXED : [duration | price]          — 2 equal Expanded slots
+    //   RANGE : [duration | min | max]      — 3 equal Expanded slots (the
+    //           separator '–' is non-Expanded between min and max)
+    // Every slot is Expanded so the Row is overflow-proof at any phone width
+    // (320 dp and up). When durationController is null the price area spans
+    // the full width (legacy path — not used after Phase 5.x).
+    final Widget pricingBody = hasDuration
         ? Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            // In compact mode the wells have no labels and are equal-height,
+            // so centering looks correct. In non-compact mode the labels sit
+            // above the wells, so top-alignment keeps them visually anchored.
+            crossAxisAlignment: compact
+                ? CrossAxisAlignment.center
+                : CrossAxisAlignment.start,
             children: <Widget>[
-              Expanded(flex: _durationFlex, child: _buildDurationWell(l10n)),
-              const SizedBox(width: VelvetSpacing.sm),
-              Expanded(flex: _priceAreaFlex, child: priceArea),
+              Expanded(child: _buildDurationWell(l10n, compact: compact)),
+              SizedBox(width: compact ? VelvetSpacing.xs : VelvetSpacing.sm),
+              Expanded(child: priceArea),
             ],
           )
         : priceArea;
@@ -221,20 +234,26 @@ class PricingField extends StatelessWidget {
     );
   }
 
-  /// The compact, label-less duration well shown to the left of the price
-  /// field(s) in the service-setup row. Minutes affix ("хв") keeps it tight so
-  /// three numeric wells still fit one line at ~320 dp.
-  Widget _buildDurationWell(AppLocalizations l10n) {
+  /// The duration well shown to the left of the price field(s).
+  ///
+  /// In compact mode (service-setup row) the label is suppressed (a11y via
+  /// Semantics). In non-compact mode (create/edit form) [durationLabel] is
+  /// shown above the well. The "хв" affix always stays visible — it is never
+  /// hidden on focus/typing (only the "грн" affix on price fields hides).
+  Widget _buildDurationWell(AppLocalizations l10n, {required bool compact}) {
     return _PricingInputField(
-      fieldKey: const Key('service-setup-duration'),
-      label: l10n.serviceSetupDurationLabel,
-      compact: true,
+      fieldKey: compact
+          ? const Key('service-setup-duration')
+          : const Key('field-service-duration'),
+      label: durationLabel ?? l10n.serviceSetupDurationLabel,
+      compact: compact,
       controller: durationController!,
       enabled: enabled,
       hint: '60',
       suffixText: l10n.serviceSetupDurationSuffix,
       formatters: _durationFormatters,
       errorText: durationError,
+      hideSuffixWhenActive: false,
     );
   }
 
@@ -249,15 +268,25 @@ class PricingField extends StatelessWidget {
       suffixText: 'грн',
       formatters: _priceFormatters,
       errorText: fixedError,
+      // Hide "грн" while the price field is active/non-empty to prevent the
+      // suffix from overlapping digits on narrow screens. "хв" on the duration
+      // well always stays visible (hideSuffixWhenActive defaults to false).
+      hideSuffixWhenActive: true,
     );
-    // In the compact row the duration well lives OUTSIDE this switcher (in the
-    // parent Row), so the fixed price area is just the single price field —
-    // identical to the create/edit form save for the compact styling.
+    // The duration well lives OUTSIDE this switcher (in the parent Row), so
+    // the fixed price area is just the single price field — identical for
+    // the compact and non-compact paths save for the compact styling flag.
     return KeyedSubtree(
       key: const ValueKey<String>('pricing-fixed'),
       child: priceField,
     );
   }
+
+  // Hoisted text style for the en-dash separator between min and max.
+  static final TextStyle _separatorStyle = VelvetText.input().copyWith(
+    color: BrandColors.muted,
+    fontWeight: FontWeight.w700,
+  );
 
   Widget _buildRange(AppLocalizations l10n, {required bool compact}) {
     final bool hasRangeError = rangeError != null;
@@ -271,6 +300,8 @@ class PricingField extends StatelessWidget {
       suffixText: 'грн',
       formatters: _priceFormatters,
       errorText: minError,
+      // Hide "грн" while the price field is active/non-empty.
+      hideSuffixWhenActive: true,
     );
     final Widget maxField = _PricingInputField(
       fieldKey: const Key('pricing-range-max'),
@@ -285,24 +316,49 @@ class PricingField extends StatelessWidget {
       // string to flag the field ring without a duplicate message (mirrors the
       // approved preview).
       errorText: hasRangeError ? '' : null,
+      // Hide "грн" while the price field is active/non-empty.
+      hideSuffixWhenActive: true,
     );
+
+    // En-dash separator between min and max. It is NOT Expanded so it does not
+    // steal width from the fields; both price fields remain equal-width Expanded
+    // slots. Horizontal padding is minimal to keep 3 equal slots at ~320 dp.
+    // In non-compact mode top-padding offsets the separator to align visually
+    // with the vertical centre of the well (label area ≈22 dp + half well ≈24 dp
+    // = 46 dp; separator text ≈14 dp → top ≈39–40 dp → lg+md = 40 dp).
+    // In compact mode the Row uses CrossAxisAlignment.center so no top offset.
+    final Widget separator = Padding(
+      padding: EdgeInsets.only(
+        left: VelvetSpacing.xs,
+        right: VelvetSpacing.xs,
+        top: compact ? 0 : VelvetSpacing.lg + VelvetSpacing.md,
+      ),
+      child: Text('–', style: _separatorStyle),
+    );
+
     return KeyedSubtree(
       key: const ValueKey<String>('pricing-range'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          // The range price area is the min+max pair. In the compact row the
-          // duration well sits OUTSIDE this switcher (in the parent Row), so on
-          // a 320 dp phone the visible line is still duration | min | max, but
-          // duration never disposes on toggle. Both slots are Expanded, so the
-          // pair is overflow-proof at any width; the compact gap tightens to
-          // keep the digits legible when squeezed. The create/edit form
-          // (compact == false) keeps the labelled side-by-side pair.
+          // The range price area is the min+max pair. In both the compact row
+          // and the non-compact create/edit form, the duration well sits OUTSIDE
+          // this switcher (in the parent Row), so the visible line is:
+          //   compact    : duration | min – max
+          //   non-compact: duration | min – max  (with labels above each well)
+          // Both price slots are equal-width Expanded; the separator is not
+          // Expanded so field widths are not stolen. Overflow-proof at 320 dp.
+          // In compact mode (no well labels) CrossAxisAlignment.center aligns
+          // the separator with the well content; in non-compact mode
+          // CrossAxisAlignment.start is used and the separator carries top
+          // padding to reach the well's vertical centre instead.
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: compact
+                ? CrossAxisAlignment.center
+                : CrossAxisAlignment.start,
             children: <Widget>[
               Expanded(child: minField),
-              SizedBox(width: compact ? VelvetSpacing.sm : VelvetSpacing.md),
+              separator,
               Expanded(child: maxField),
             ],
           ),
@@ -540,6 +596,7 @@ class _PricingInputField extends StatefulWidget {
     this.enabled = true,
     this.errorText,
     this.compact = false,
+    this.hideSuffixWhenActive = false,
   });
 
   final Key fieldKey;
@@ -556,6 +613,12 @@ class _PricingInputField extends StatefulWidget {
   /// accessibility) and the field→affix gap tightens so three numeric wells
   /// fit a single line down to ~320 dp without clipping the digits or affix.
   final bool compact;
+
+  /// When true the suffix is hidden while the field is focused OR has
+  /// non-empty text, preventing digits from overlapping the affix on narrow
+  /// screens. Should be true for price fields ("грн") and false for the
+  /// duration well ("хв" must stay visible at all times).
+  final bool hideSuffixWhenActive;
 
   @override
   State<_PricingInputField> createState() => _PricingInputFieldState();
@@ -576,21 +639,39 @@ class _PricingInputFieldState extends State<_PricingInputField> {
 
   late final FocusNode _focus;
   bool _focused = false;
+  bool _hasText = false;
+
+  void _onFocusChanged() {
+    if (_focus.hasFocus != _focused && mounted) {
+      setState(() => _focused = _focus.hasFocus);
+    }
+  }
+
+  void _onTextChanged() {
+    final bool nowHasText = widget.controller.text.isNotEmpty;
+    if (nowHasText != _hasText && mounted) {
+      setState(() => _hasText = nowHasText);
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    _focus = FocusNode()
-      ..addListener(() {
-        if (_focus.hasFocus != _focused && mounted) {
-          setState(() => _focused = _focus.hasFocus);
-        }
-      });
+    _hasText = widget.controller.text.isNotEmpty;
+    _focus = FocusNode()..addListener(_onFocusChanged);
+    // Controller listener for hide-suffix-when-active: only attached when the
+    // feature is enabled to avoid an unnecessary listener on the duration well.
+    if (widget.hideSuffixWhenActive) {
+      widget.controller.addListener(_onTextChanged);
+    }
   }
 
   @override
   void dispose() {
     _focus.dispose();
+    if (widget.hideSuffixWhenActive) {
+      widget.controller.removeListener(_onTextChanged);
+    }
     super.dispose();
   }
 
@@ -598,6 +679,13 @@ class _PricingInputFieldState extends State<_PricingInputField> {
   Widget build(BuildContext context) {
     final bool hasError =
         widget.errorText != null && widget.errorText!.isNotEmpty;
+
+    // Suffix visibility: for price fields hide the "грн" affix whenever the
+    // field is focused OR has non-empty text, so digits never overlap the
+    // suffix on narrow screens. The "хв" suffix on the duration well is always
+    // visible (hideSuffixWhenActive == false).
+    final bool showSuffix =
+        !widget.hideSuffixWhenActive || (!_focused && !_hasText);
 
     // Compact wells (the one-line service-setup row) drop the visible label and
     // tighten the horizontal padding + field→affix gap so three numeric wells
@@ -651,8 +739,10 @@ class _PricingInputFieldState extends State<_PricingInputField> {
                   ),
                 ),
               ),
-              SizedBox(width: affixGap),
-              Text(widget.suffixText, style: _suffixStyle),
+              if (showSuffix) ...<Widget>[
+                SizedBox(width: affixGap),
+                Text(widget.suffixText, style: _suffixStyle),
+              ],
             ],
           ),
         ),

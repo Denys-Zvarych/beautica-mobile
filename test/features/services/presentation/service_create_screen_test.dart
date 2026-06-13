@@ -13,7 +13,9 @@
 //   2. Empty duration (digitsOnly formatter blocks non-digits; leaving it empty
 //      after submit shows errRequired).
 //   3. Zero duration shows errDurationPositive.
-//   4. Duration > 1440 shows errDurationMax.
+//   4. Duration > 480 shows errDurationMax (3-digit value 999 used; the
+//      LengthLimitingTextInputFormatter(3) on the duration field silently
+//      truncates a 4-digit entry, so values like 1441 become 144 and pass).
 //   5. Negative price blocked by FilteringTextInputFormatter (digits-only;
 //      cannot type '-', so entering '-500' leaves the field as '500').
 //   6. Valid submit calls repository.create() with the correct payload.
@@ -335,9 +337,12 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // 4. Duration > 1440 shows errDurationMax.
+  // 4. Duration > 480 shows errDurationMax.
+  //    Using 999 (3 digits, > 480). The LengthLimitingTextInputFormatter(3)
+  //    on the duration well truncates 4-digit entries (e.g. '1441' → '144'),
+  //    so only a 3-digit value above the cap reliably triggers the error.
   // ---------------------------------------------------------------------------
-  testWidgets('duration > 1440 shows errDurationMax', (tester) async {
+  testWidgets('duration > 480 shows errDurationMax', (tester) async {
     await pumpCreate(tester);
     final l10n = _l10n(tester);
 
@@ -353,7 +358,7 @@ void main() {
         of: find.byKey(const Key('field-service-duration')),
         matching: find.byType(TextField),
       ),
-      '1441',
+      '999', // 3-digit value > 480 cap; 1441 would silently truncate to 144
     );
     await tester.enterText(
       find.descendant(
@@ -362,6 +367,7 @@ void main() {
       ),
       '100',
     );
+    await selectCategoryOption(tester, 'MANICURE');
     await tapSubmit(tester);
 
     expect(find.text(l10n.errDurationMax), findsOneWidget);
