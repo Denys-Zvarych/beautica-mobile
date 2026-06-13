@@ -46,34 +46,12 @@ enum RowFlagReason {
   invalidRange,
 }
 
-/// Maps a platform-category wire slug to a leading glyph for the chip / group
-/// header. Categories are dynamic (sourced from the backend), so this is a
-/// best-effort visual hint with a calm spa fallback for unknown slugs — it never
-/// affects data, only the icon shown.
-IconData serviceCategoryIcon(String slug) {
-  switch (slug.trim().toUpperCase()) {
-    case 'MANICURE':
-      return Icons.brush_rounded;
-    case 'PEDICURE':
-      return Icons.spa_rounded;
-    case 'HAIR':
-    case 'HAIRCUT':
-      return Icons.content_cut_rounded;
-    case 'BROWS_LASHES':
-    case 'BROWS':
-    case 'EYELASH':
-    case 'LASHES':
-      return Icons.remove_red_eye_rounded;
-    case 'FACE':
-      return Icons.face_rounded;
-    case 'BODY':
-      return Icons.self_improvement_rounded;
-    case 'MAKEUP':
-      return Icons.palette_rounded;
-    default:
-      return Icons.spa_rounded;
-  }
-}
+/// Returns the uniform category glyph used for every chip / group-header icon
+/// on the service-setup page. A single consistent icon is intentional — the
+/// platform categories are dynamic (sourced from the backend) and the visual
+/// language of the setup page treats them as peers rather than assigning each a
+/// distinct pictogram.
+IconData serviceCategoryIcon(String slug) => Icons.spa_rounded;
 
 /// A multi-selectable category chip — the entry point that, when selected,
 /// expands inline to reveal every service-type under the category.
