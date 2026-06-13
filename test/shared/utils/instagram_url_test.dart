@@ -141,6 +141,31 @@ void main() {
       expect(canonicalInstagramUri('https://evilinstagram.com'), isNull);
     });
 
+    test('userinfo "https://instagram.com@evil.com/x" → null (host is evil.com)',
+        () {
+      // The real authority host is evil.com; "instagram.com" is only the
+      // userinfo. Must never resolve to the allow-list.
+      expect(canonicalInstagramUri('https://instagram.com@evil.com/x'), isNull);
+    });
+
+    test('userinfo "https://user@instagram.com/x" → null (userInfo non-empty)',
+        () {
+      // Host really is instagram.com, but non-empty userInfo is a laundering
+      // surface and never appears in a legitimate profile URL → rejected.
+      expect(canonicalInstagramUri('https://user@instagram.com/x'), isNull);
+    });
+
+    test('bare host handle "instagram.com" → null', () {
+      // No "://", not "@"-prefixed, matches the handle charset (period legal),
+      // but equals an allowed host — must NOT compose
+      // https://instagram.com/instagram.com.
+      expect(canonicalInstagramUri('instagram.com'), isNull);
+    });
+
+    test('bare host handle "www.instagram.com" → null', () {
+      expect(canonicalInstagramUri('www.instagram.com'), isNull);
+    });
+
     test('scheme-relative //evil.com → null', () {
       // No "://" so this enters the handle branch; the slashes are not in the
       // Instagram charset → rejected (never composed into a host).
@@ -170,6 +195,21 @@ void main() {
 
     test('empty handle after stripping a lone "@" → null', () {
       expect(canonicalInstagramUri('@'), isNull);
+    });
+
+    test('degenerate dot handles "." / ".." are ACCEPTED today (known LOW)',
+        () {
+      // known LOW: "." and ".." match the handle charset [A-Za-z0-9._]{1,30}
+      // and are not in the host allow-list, so they pass validation and reach
+      // Uri.parse. Uri then NORMALIZES the dot path segments away, collapsing
+      // both to the bare canonical host https://instagram.com/ — harmless
+      // (still the canonical Instagram host) but not a real profile. Pinned to
+      // today's behavior; not "fixed" here. Tracked in
+      // docs/mobile-phases/mobile-backlog.md.
+      expect(canonicalInstagramUri('.'), isNotNull);
+      expect(canonicalInstagramUri('.').toString(), 'https://instagram.com/');
+      expect(canonicalInstagramUri('..'), isNotNull);
+      expect(canonicalInstagramUri('..').toString(), 'https://instagram.com/');
     });
   });
 }

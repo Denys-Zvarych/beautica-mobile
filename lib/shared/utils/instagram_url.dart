@@ -52,6 +52,11 @@ Uri? canonicalInstagramUri(String? value) {
     final Uri? parsed = Uri.tryParse(trimmed);
     if (parsed == null) return null;
     if (parsed.scheme != 'https') return null;
+    // Reject userinfo (e.g. "https://evil.com@instagram.com/x"): the host
+    // really resolves to instagram.com so it is not currently exploitable, but
+    // userinfo is a confusing laundering surface and never appears in a
+    // legitimate Instagram profile URL.
+    if (parsed.userInfo.isNotEmpty) return null;
     if (!_allowedHosts.contains(parsed.host)) return null;
     return parsed;
   }
@@ -61,6 +66,12 @@ Uri? canonicalInstagramUri(String? value) {
   final String handle = trimmed.startsWith('@')
       ? trimmed.substring(1)
       : trimmed;
+  // Reject a bare hostname masquerading as a handle (e.g. "instagram.com"):
+  // it has no "://", isn't "@"-prefixed, and matches the handle charset
+  // (period is allowed), which would otherwise compose the wrong destination
+  // https://instagram.com/instagram.com. Narrow check — '.' stays legal in
+  // real handles like "olena.nails".
+  if (_allowedHosts.contains(handle.toLowerCase())) return null;
   if (!_instagramHandlePattern.hasMatch(handle)) return null;
 
   return Uri.parse('https://instagram.com/$handle');

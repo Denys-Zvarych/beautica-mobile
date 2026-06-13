@@ -44,6 +44,7 @@ import 'package:beautica_mobile/features/services/domain/service_category_option
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
+import 'package:beautica_mobile/shared/utils/phone_uri.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
@@ -604,10 +605,15 @@ class _ProfileBody extends StatelessWidget {
                 value: master.phoneNumber ?? '—',
                 semanticLabel: l10n.masterPhoneSemantics,
                 onTap: () {
-                  final phone = master.phoneNumber;
-                  if (phone == null) return;
-                  if (!RegExp(r'^[+\d\s\-() ]*$').hasMatch(phone)) return;
-                  // TODO(Phase-4.x): launchUrl(Uri(scheme: 'tel', path: phone));
+                  // Sanitize verbatim stored input through canonicalTelUri
+                  // (STRICT tel: allow-list — rejects empty / '—' / non-
+                  // dialable). An unvalidated string is never handed to
+                  // launchUrl; no-op on null. Validation is wired in front of
+                  // the deferred launch so the contract is correct when it
+                  // lands.
+                  final Uri? telUri = canonicalTelUri(master.phoneNumber);
+                  if (telUri == null) return;
+                  // TODO(Phase-4.x): launchUrl(telUri);
                 },
               ),
               const SizedBox(height: VelvetSpacing.sm),
