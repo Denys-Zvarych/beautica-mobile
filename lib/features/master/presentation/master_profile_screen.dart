@@ -22,9 +22,13 @@
 // (Key('btn-menu-master')) pushes RouteNames.masterMenu — the settings hub that
 // lists the per-section edit pages (personal / contacts / location / account).
 
+import 'dart:developer';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
@@ -39,6 +43,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
@@ -615,12 +620,60 @@ class _ProfileBody extends StatelessWidget {
                 // URL depending on what the user entered.
                 value: master.instagram ?? '—',
                 semanticLabel: l10n.masterInstagramLabel,
-                onTap: () {},
+                onTap: () => _openInstagram(context, master.instagram),
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  /// Opens the master's Instagram profile in the Instagram app or a browser.
+  ///
+  /// [rawValue] is the verbatim stored contact string (bare handle,
+  /// "@"-prefixed, or full URL). It is sanitized through
+  /// [canonicalInstagramUri] (STRICT https + host/charset allow-list) before
+  /// launch — an unvalidated string is never handed to [launchUrl]. On a null
+  /// result (no safe URL) or a launch failure, a localized SnackBar is shown.
+  ///
+  /// Invoked fire-and-forget from the tile's synchronous [ContactTile.onTap];
+  /// [context.mounted] is re-checked after the await before touching the tree.
+  /// No PII (handle/URL) is logged.
+  static Future<void> _openInstagram(
+    BuildContext context,
+    String? rawValue,
+  ) async {
+    final Uri? uri = canonicalInstagramUri(rawValue);
+    if (uri == null) {
+      _showInstagramError(context);
+      return;
+    }
+
+    bool launched = false;
+    try {
+      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } on Object catch (error) {
+      if (kDebugMode) {
+        log(
+          'Instagram launch threw',
+          name: 'feature.master',
+          level: 900,
+          error: error,
+        );
+      }
+    }
+
+    if (!context.mounted) return;
+    if (!launched) _showInstagramError(context);
+  }
+
+  /// Shows the localized "couldn't open Instagram" SnackBar.
+  static void _showInstagramError(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(AppLocalizations.of(context).masterInstagramOpenError),
+      ),
     );
   }
 

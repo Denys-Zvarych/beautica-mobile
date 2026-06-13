@@ -1684,6 +1684,11 @@
     "description": "Label and semantic label for the Instagram ContactTile on the master profile screen."
   },
 
+  "masterInstagramOpenError": "Couldn’t open Instagram",
+  "@masterInstagramOpenError": {
+    "description": "SnackBar shown when the master's Instagram link cannot be opened (no validated URL, or no app/browser can handle it)."
+  },
+
   "masterPortfolioTileSemantics": "Portfolio photo {index}",
   "@masterPortfolioTileSemantics": {
     "description": "Accessibility semantic label for each portfolio placeholder tile on the master profile screen.",
