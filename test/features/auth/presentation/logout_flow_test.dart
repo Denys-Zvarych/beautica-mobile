@@ -9,8 +9,9 @@
 //      state still becomes Unauthenticated and deleteAll is still called.
 //   3. Calling logout() twice is idempotent (no crash, no duplicate side effects
 //      that could break tests). Asserts logoutCallCount == 2.
-//   4. SettingsScreen widget-layer: tap Key('btn-logout') → logout() called →
-//      navigate to /login.
+//   4. SettingsHubScreen widget-layer: tap Key('row-logout') → confirm →
+//      logout() called → navigate to /login. (Logout was removed from the
+//      Account page; the hub is now the only widget-layer trigger.)
 //
 // Phase 2.16 HIGH-1 regression tests for reset() callers:
 //   5. logout-clears-draft — populated [registerDraftProvider] is wiped to
@@ -36,7 +37,7 @@ import 'package:beautica_mobile/features/auth/presentation/done_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_step_1_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/role_selection_screen.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
-import 'package:beautica_mobile/features/settings/presentation/settings_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -195,7 +196,7 @@ void main() {
     // Test 4 — SettingsScreen widget-layer logout
     // -----------------------------------------------------------------------
     testWidgets(
-      'tapping btn-logout in SettingsScreen calls logout and navigates to /login',
+      'tapping row-logout in SettingsHubScreen calls logout and navigates to /login',
       (tester) async {
         final storage = FakeSecureStorage();
         await storage.writeRefreshToken('stored-refresh');
@@ -205,12 +206,12 @@ void main() {
           ..meResult = _testUser;
 
         final router = GoRouter(
-          initialLocation: RouteNames.settings,
+          initialLocation: RouteNames.masterMenu,
           redirect: (context, state) => null,
           routes: [
             GoRoute(
-              path: RouteNames.settings,
-              builder: (context, state) => const SettingsScreen(),
+              path: RouteNames.masterMenu,
+              builder: (context, state) => const SettingsHubScreen(),
             ),
             GoRoute(
               path: RouteNames.login,
@@ -237,8 +238,8 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Tap the logout tile — this opens the confirmation dialog.
-        await tester.tap(find.byKey(const Key('btn-logout')));
+        // Tap the logout row — this opens the confirmation dialog.
+        await tester.tap(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle(); // dialog animates in
 
         // Confirm the dialog — tap the confirm button.
@@ -533,12 +534,12 @@ void main() {
   // (continuation of the original AuthNotifier.logout group)
   // ---------------------------------------------------------------------------
 
-  group('AuthNotifier.logout — settings dialog', () {
+  group('AuthNotifier.logout — settings hub dialog', () {
     // -----------------------------------------------------------------------
-    // Test 5 — SettingsScreen widget-layer: cancel dialog stays on settings
+    // Test 5 — SettingsHubScreen widget-layer: cancel dialog stays on the hub
     // -----------------------------------------------------------------------
     testWidgets(
-      'tapping btn-logout-cancel in the dialog stays on settings and does not call logout',
+      'tapping btn-logout-cancel in the dialog stays on the hub and does not call logout',
       (tester) async {
         final storage = FakeSecureStorage();
         await storage.writeRefreshToken('stored-refresh');
@@ -548,12 +549,12 @@ void main() {
           ..meResult = _testUser;
 
         final router = GoRouter(
-          initialLocation: RouteNames.settings,
+          initialLocation: RouteNames.masterMenu,
           redirect: (context, state) => null,
           routes: [
             GoRoute(
-              path: RouteNames.settings,
-              builder: (context, state) => const SettingsScreen(),
+              path: RouteNames.masterMenu,
+              builder: (context, state) => const SettingsHubScreen(),
             ),
             GoRoute(
               path: RouteNames.login,
@@ -580,15 +581,15 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Tap the logout tile — opens the confirmation dialog.
-        await tester.tap(find.byKey(const Key('btn-logout')));
+        // Tap the logout row — opens the confirmation dialog.
+        await tester.tap(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle(); // dialog animates in
 
         // Dismiss the dialog via the cancel button.
         await tester.tap(find.byKey(const Key('btn-logout-cancel')));
         await tester.pumpAndSettle(); // dialog dismisses
 
-        // The router must NOT have navigated — settings content still visible.
+        // The router must NOT have navigated — hub content still visible.
         expect(find.text('login'), findsNothing);
 
         // Repository logout must NOT have been called.

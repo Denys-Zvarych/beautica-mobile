@@ -10,13 +10,24 @@
 //     destination sentinel keyed per route);
 //   • the close button pops / navigates to the profile;
 //   • the logout row raises the confirm dialog (cancel + confirm keys present);
-//   • cancelling the dialog does NOT log out.
+//   • cancelling the dialog does NOT log out;
+//   • confirming logout calls logout() once and clears the dialog;
+//   • confirming logout (with a real repo/storage) navigates to /login AND
+//     leaves secure storage empty (M5 — migrated from the Account-page test
+//     after logout was removed from the Account page);
+//   • the double-tap guard prevents a second concurrent logout (migrated);
+//   • a failing logout surfaces the l10n.logoutFailed SnackBar (migrated).
+//
+// Logout now lives ONLY on the hub — the Account page no longer triggers it, so
+// the full logout flow coverage was migrated here to avoid any net loss.
 //
 // Finders use widget Keys (row-personal, row-contacts, …) — never localized
 // strings (M2). Layer: Widget.
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
@@ -26,6 +37,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/fakes/fake_auth_repository.dart';
+import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
 
 /// AuthNotifier whose logout() never resolves — lets a test confirm the dialog
@@ -40,6 +53,19 @@ class _TrackingAuthNotifier extends AuthNotifier {
   Future<void> logout() async {
     logoutCalls++;
     await Completer<void>().future; // block forever
+  }
+}
+
+/// AuthNotifier whose logout() throws a non-Failure exception — the only way the
+/// failure SnackBar in runLogoutFlow is reachable (AuthNotifier.logout swallows
+/// Failure internally).
+class _ThrowingLogoutAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.unauthenticated();
+
+  @override
+  Future<void> logout() async {
+    throw Exception('simulated unexpected platform failure');
   }
 }
 
@@ -227,6 +253,114 @@ void main() {
         reason: 'confirming must invoke authProvider.logout() exactly once',
       );
       expect(find.byType(AlertDialog), findsNothing);
+    });
+
+    // Migrated from the Account-page test (A4 + A7 / M5): a real logout (backed
+    // by FakeAuthRepository + FakeSecureStorage) calls repo.logout() once,
+    // navigates to /login, and leaves secure storage empty.
+    testWidgets(
+      'confirming logout calls repo.logout() once, navigates to /login and '
+      'leaves secure storage empty (M5)',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        // Storage starts empty: pre-seeding would trigger the AuthNotifier
+        // cold-start restore, whose write-back of refreshed tokens races the
+        // logout deleteAll() at the widget layer. The "wipe a populated token"
+        // assertion lives in logout_flow_test.dart Test 1 (unit layer, restore
+        // fully awaited). Here we assert the widget-layer logout reaches
+        // secureStorage.deleteAll() and leaves it empty (M5).
+        final storage = FakeSecureStorage();
+        final router = _hubRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('row-logout')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('btn-logout-confirm')));
+        await tester.pumpAndSettle();
+
+        expect(repo.logoutCallCount, 1);
+        expect(
+          find.byKey(const Key('stub-login')),
+          findsOneWidget,
+          reason: 'a successful logout must go(/login)',
+        );
+        expect(
+          await storage.readRefreshToken(),
+          isNull,
+          reason: 'M5: logout must clear the refresh token from secure storage',
+        );
+      },
+    );
+
+    // Migrated from the Account-page test (A5): the in-flight guard must block a
+    // second concurrent logout while the first is still running.
+    testWidgets(
+      'double-tap guard: a second confirm while logout is in flight does not '
+      'trigger a second logout',
+      (tester) async {
+        final auth = _TrackingAuthNotifier(); // logout() blocks forever
+        final router = _hubRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[authProvider.overrideWith(() => auth)],
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('row-logout')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('btn-logout-confirm')));
+        await tester.pump(); // logout() now in flight (blocks forever)
+
+        // Re-open + re-confirm: the inFlight guard must short-circuit.
+        await tester.tap(find.byKey(const Key('row-logout')));
+        await tester.pumpAndSettle();
+        if (find.byKey(const Key('btn-logout-confirm')).evaluate().isNotEmpty) {
+          await tester.tap(find.byKey(const Key('btn-logout-confirm')));
+          await tester.pump();
+        }
+
+        expect(
+          auth.logoutCalls,
+          1,
+          reason: 'the in-flight guard must prevent a second concurrent logout',
+        );
+      },
+    );
+
+    // Migrated from the Account-page test (A6): a logout failure surfaces the
+    // l10n.logoutFailed SnackBar.
+    testWidgets('logout failure shows the l10n.logoutFailed SnackBar', (
+      tester,
+    ) async {
+      final router = _hubRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          authProvider.overrideWith(() => _ThrowingLogoutAuthNotifier()),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('row-logout')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-logout-confirm')));
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(find.text(l10n.logoutFailed), findsOneWidget);
     });
   });
 
