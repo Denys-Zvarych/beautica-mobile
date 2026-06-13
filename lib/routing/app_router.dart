@@ -209,38 +209,38 @@ GoRouter appRouter(Ref ref) {
       // Phase 6.x — `expandCategory` query param: when present, the matching
       // category section is pre-expanded and all others start collapsed. Passed
       // from profile category cards via context.push('/services?expandCategory=SLUG').
+      // Uses MaterialPage (builder:) so the theme's CupertinoPageTransitionsBuilder
+      // installs the left-edge swipe-back gesture on push entries.
       GoRoute(
         path: RouteNames.services,
-        pageBuilder: (context, state) {
+        builder: (context, state) {
           final raw = state.uri.queryParameters['expandCategory']
               ?.trim()
               .toUpperCase();
           final expandCategory = (raw != null && isValidCategorySlug(raw))
               ? raw
               : null;
-          return _instantPage(
-            state,
-            ServicesListScreen(initialExpandCategory: expandCategory),
-          );
+          return ServicesListScreen(initialExpandCategory: expandCategory);
         },
       ),
       // Phase 5.3 — Service create form (INDEPENDENT_MASTER).
+      // Uses MaterialPage so swipe-back works on the push stack.
       GoRoute(
         path: RouteNames.serviceCreate,
-        pageBuilder: (context, state) =>
-            _instantPage(state, const ServiceCreateScreen()),
+        builder: (context, state) => const ServiceCreateScreen(),
       ),
       // First-time service setup (INDEPENDENT_MASTER) — the one-pass empty-state
       // menu builder reached from the services-list empty state.
+      // Uses MaterialPage so swipe-back works on the push stack.
       GoRoute(
         path: RouteNames.serviceSetup,
-        pageBuilder: (context, state) =>
-            _instantPage(state, const ServiceSetupScreen()),
+        builder: (context, state) => const ServiceSetupScreen(),
       ),
       // Phase 5.4 — Service edit form (INDEPENDENT_MASTER).
       // Parameterised route — extracts `id` from the path. An empty id
       // redirects to /services defensively; this keeps the guard resilient to
       // programmatic pushes with a missing segment.
+      // Uses MaterialPage so swipe-back works on the push stack.
       GoRoute(
         path: '/services/:id/edit',
         redirect: (context, state) {
@@ -248,9 +248,9 @@ GoRouter appRouter(Ref ref) {
           if (id.isEmpty) return RouteNames.services;
           return null;
         },
-        pageBuilder: (context, state) {
+        builder: (context, state) {
           final id = state.pathParameters['id']!;
-          return _instantPage(state, ServiceEditScreen(id: id));
+          return ServiceEditScreen(id: id);
         },
       ),
       // Phase 6.2 — Working hours editor (INDEPENDENT_MASTER). Reachable as a
@@ -275,10 +275,11 @@ GoRouter appRouter(Ref ref) {
       // [effectiveScheduleProvider] on success so the calendar repaints. This
       // replaces the dead-end route to the deprecated /master/working-hours
       // editor (which wrote the legacy `working_hours` table, no longer bookable).
+      // Uses MaterialPage so the left-edge swipe-back gesture works when pushed
+      // from MasterScheduleScreen.
       GoRoute(
         path: RouteNames.scheduleWeeklyEditor,
-        pageBuilder: (context, state) =>
-            _instantPage(state, const WeeklyTemplateEditorScreen()),
+        builder: (context, state) => const WeeklyTemplateEditorScreen(),
       ),
       // Phase 15.4 — the per-date override surface graduated to the modal
       // [DayHoursSheet] (opened by the day pencil on `master_schedule_screen`),

@@ -40,8 +40,6 @@
 // The bounded-pump approach avoids that. Each pump step is annotated with its
 // purpose so the sequencing is not "magic".
 
-import 'dart:async';
-
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -53,8 +51,6 @@ import 'package:beautica_mobile/features/schedule/data/schedule_repository_provi
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
-import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
-import 'package:beautica_mobile/features/calendar/domain/working_hours.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
