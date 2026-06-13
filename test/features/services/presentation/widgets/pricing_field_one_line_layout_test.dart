@@ -357,14 +357,14 @@ void main() {
             .getSize(find.byKey(const Key('pricing-range-max')))
             .width;
 
-        // RANGE layout (post-fix, 2026-06-13):
-        //   outer Row: [Expanded(flex:1, duration) | gap | Expanded(flex:2, priceArea)]
-        //   priceArea child: Stack{ Row[Expanded(min) | Expanded(max)], dashOverlay }
-        //   The '–' is a Stack overlay (zero layout width) so it does NOT steal
-        //   any dp from the Expanded slots.
-        //   Arithmetic: durW = (rowW − gap) / 3
-        //               minW = maxW = priceAreaW / 2 = (rowW − gap) / 3
-        //   → all three slots are equal thirds (within 1-pixel rounding).
+        // RANGE layout (flat Row, 2026-06-13):
+        //   Row[Expanded(flex:1, dur) | SizedBox(gap) | Expanded(flex:1, min) |
+        //       Padding(dash) | Expanded(flex:1, max)]
+        //   All three wells are Expanded(flex:1) siblings in the SAME flat Row
+        //   so Flutter distributes remaining width equally among all three.
+        //   Arithmetic at 360 dp (32 dp screen padding ⇒ 328 dp row):
+        //     gap=8 (sm), dash slot ~16 dp; each = (328−8−16)/3 ≈ 104 dp
+        //   → duration == min == max (within 1-pixel rounding).
         expect(
           durW,
           closeTo(minW, _kWidthTolerance),
@@ -501,8 +501,10 @@ void main() {
       );
     });
 
-    testWidgets('RANGE mode: "–" center is at the min/max boundary '
-        '(Stack overlay, not a flex sibling)', (tester) async {
+    testWidgets('RANGE mode: "–" is a real in-flow element between min and max '
+        '(not a Stack overlay) — dash sits strictly in the gap, not adjacent', (
+      tester,
+    ) async {
       await _pumpPricingField(tester, mode: ServicePriceType.range, width: 360);
 
       final Rect minRect = tester.getRect(
@@ -513,34 +515,43 @@ void main() {
       );
       final Rect dashRect = tester.getRect(find.text('–'));
 
-      // The '–' is a Stack overlay (IgnorePointer + Align) centred over the
-      // priceArea. Because min and max each occupy exactly half of priceArea
-      // (both Expanded(flex:1)), the priceArea's horizontal midpoint is
-      // precisely at minRect.right == maxRect.left.
-      // The dash Text is centred at that same point (Align.topCenter over
-      // the priceArea → dashRect.center.dx == priceAreaCenter).
-      // Tolerance of 4 dp accounts for sub-pixel rounding across font sizes.
+      // The '–' is a REAL layout element (Padding(horizontal:xs) + Text)
+      // between min and max in the flat Row:
+      //   Expanded(duration) | SizedBox(gap) | Expanded(min) | Padding(dash) | Expanded(max)
+      // This means min and max are NOT adjacent — the dash slot occupies real
+      // horizontal dp between them.
 
-      // (a) min and max are adjacent equal Expanded siblings (no gap between
-      //     them — the '–' is a zero-layout-width overlay, not a Row child).
+      // (a) The gap between min and max is larger than 4 dp (the dash element
+      //     has at least 2×xs = 8 dp padding alone, plus text width).
       expect(
-        minRect.right,
-        closeTo(maxRect.left, _kWidthTolerance),
+        maxRect.left,
+        greaterThan(minRect.right + 4.0),
         reason:
-            'RANGE: min right edge must equal max left edge — the two wells '
-            'are adjacent Expanded siblings with no gap; the "–" is a Stack '
-            'overlay and contributes 0 dp to the flex layout',
+            'RANGE: max left must be more than 4 dp past min right — the '
+            '"–" is a real in-flow Row child with horizontal padding, not a '
+            'zero-width Stack overlay',
       );
 
-      // (b) The dash center must sit at that shared boundary.
-      final double boundary = minRect.right;
+      // (b) The dash center is in the middle of the gap between min and max.
+      final double gapCenter = (minRect.right + maxRect.left) / 2;
       expect(
         dashRect.center.dx,
-        closeTo(boundary, 4.0),
+        closeTo(gapCenter, 4.0),
         reason:
-            '"–" center must be at the min/max boundary (minRect.right ≈ '
-            'maxRect.left). The dash is centred by Align(topCenter) over '
-            'the priceArea, whose midpoint is that boundary.',
+            '"–" center must be halfway between min right edge and max left '
+            'edge — dash is centred by its Padding in the gap',
+      );
+
+      // (c) Dash is strictly between the two wells (no overlap with either).
+      expect(
+        dashRect.left,
+        greaterThanOrEqualTo(minRect.right),
+        reason: '"–" must not overlap the min well on the right',
+      );
+      expect(
+        dashRect.right,
+        lessThanOrEqualTo(maxRect.left),
+        reason: '"–" must not overlap the max well on the left',
       );
 
       expect(tester.takeException(), isNull);
@@ -699,6 +710,161 @@ void main() {
               'submitted priceMax must be 800 — suffix hiding must not alter '
               'the controller value',
         );
+      },
+    );
+  });
+
+  // ==========================================================================
+  // 6. NO-OVERLAP GUARD — dash must not intersect either price well.
+  //    This directly guards the regression the user reported: the old Stack
+  //    overlay could render on top of adjacent well borders. The flat-Row
+  //    layout fixes this; this test asserts the invariant permanently.
+  // ==========================================================================
+  group('no-overlap guard: dash rect does not intersect min or max wells', () {
+    testWidgets('RANGE mode: dash left edge ≥ min right edge and '
+        'dash right edge ≤ max left edge (no pixel overlap)', (tester) async {
+      await _pumpPricingField(tester, mode: ServicePriceType.range, width: 360);
+
+      final Rect minRect = tester.getRect(
+        find.byKey(const Key('pricing-range-min')),
+      );
+      final Rect maxRect = tester.getRect(
+        find.byKey(const Key('pricing-range-max')),
+      );
+      final Rect dashRect = tester.getRect(find.text('–'));
+
+      expect(
+        dashRect.left,
+        greaterThanOrEqualTo(minRect.right),
+        reason:
+            'no-overlap guard: "–" left edge must be at or past min right '
+            'edge — dash must not paint over the min price well',
+      );
+      expect(
+        dashRect.right,
+        lessThanOrEqualTo(maxRect.left),
+        reason:
+            'no-overlap guard: "–" right edge must be at or before max left '
+            'edge — dash must not paint over the max price well',
+      );
+
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  // ==========================================================================
+  // 7. TOGGLE PRESERVES DURATION VALUE
+  //    The durationController is parent-owned. A FIXED↔RANGE toggle changes
+  //    only the price fields visible; it must NOT reset the duration well.
+  //    This guards against flatten regressions that might drop the duration
+  //    controller or re-create the state on toggle.
+  // ==========================================================================
+  group('toggle preserves duration value', () {
+    testWidgets(
+      'duration value typed in FIXED mode survives a toggle to RANGE and back',
+      (tester) async {
+        // Use a StatefulWidget wrapper to hold mode so we can drive the toggle
+        // externally via setState, keeping PricingField stateless.
+        ServicePriceType currentMode = ServicePriceType.fixed;
+        late StateSetter outerSetState;
+
+        final durationCtrl = TextEditingController();
+        final fixedCtrl = TextEditingController();
+        final minCtrl = TextEditingController();
+        final maxCtrl = TextEditingController();
+        addTearDown(durationCtrl.dispose);
+        addTearDown(fixedCtrl.dispose);
+        addTearDown(minCtrl.dispose);
+        addTearDown(maxCtrl.dispose);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+            home: Scaffold(
+              body: StatefulBuilder(
+                builder: (context, setState) {
+                  outerSetState = setState;
+                  return SizedBox(
+                    width: 360,
+                    child: SingleChildScrollView(
+                      child: PricingField(
+                        mode: currentMode,
+                        onModeChanged: (m) => outerSetState(() {
+                          currentMode = m;
+                        }),
+                        fixedController: fixedCtrl,
+                        minController: minCtrl,
+                        maxController: maxCtrl,
+                        durationController: durationCtrl,
+                        compact: false,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // ── (a) Type a duration value while in FIXED mode ─────────────────────
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-service-duration')),
+            matching: find.byType(TextField),
+          ),
+          '45',
+        );
+        await tester.pump();
+        expect(
+          durationCtrl.text,
+          '45',
+          reason: 'precondition: duration controller must hold the typed value',
+        );
+
+        // ── (b) Toggle to RANGE — duration field must still show '45' ─────────
+        await tester.tap(find.byKey(const Key('pricing-toggle-range')));
+        await tester.pumpAndSettle();
+
+        expect(
+          durationCtrl.text,
+          '45',
+          reason:
+              'toggle to RANGE must not reset the duration controller — the '
+              'parent owns it and the flat-Row layout must keep the same '
+              '_PricingInputField state alive',
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('field-service-duration')),
+            matching: find.text('45'),
+          ),
+          findsOneWidget,
+          reason: 'duration well must render "45" after toggle to RANGE',
+        );
+
+        // ── (c) Toggle back to FIXED — duration value still intact ────────────
+        await tester.tap(find.byKey(const Key('pricing-toggle-fixed')));
+        await tester.pumpAndSettle();
+
+        expect(
+          durationCtrl.text,
+          '45',
+          reason: 'toggle back to FIXED must not reset the duration controller',
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('field-service-duration')),
+            matching: find.text('45'),
+          ),
+          findsOneWidget,
+          reason:
+              'duration well must still render "45" after toggle back to FIXED',
+        );
+
+        expect(tester.takeException(), isNull);
       },
     );
   });

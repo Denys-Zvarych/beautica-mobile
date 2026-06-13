@@ -8,11 +8,14 @@
 // VelvetTouch craft preserved:
 //   - Two-segment recessed inset track (NeumorphicInset) with a sliding
 //     camel-gradient "thumb" (AnimatedAlign + extrudedSmall shadows).
-//   - Field area cross-fades + resizes (AnimatedSize + AnimatedSwitcher) when
-//     the mode changes.
-//   - FIXED → one "Сума" field with "грн" suffix.
-//   - RANGE → side-by-side "Від" / "До" fields with an inline cross-field
-//     "max > min" hint line (static + error variant).
+//   - FIXED: one "Сума" field with "грн" suffix.
+//   - RANGE (with durationController): flat Row — duration / min / '–' / max —
+//     all three wells are equal Expanded(flex:1) siblings so they are rendered
+//     at EXACTLY the same width. The '–' dash is a real in-flow element with
+//     its own horizontal extent (never overlaps the well borders).
+//     AnimatedSwitcher is replaced by an instant swap; AnimatedSize is retained
+//     on the rangeError row so error appearance is still animated.
+//   - Cross-field "max > min" validation line below the range pair.
 //
 // Internals deliberately avoid holding any business logic: all state lives in
 // [_ServiceFormState]. This widget is purely presentational — it renders
@@ -149,78 +152,145 @@ class PricingField extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final bool hasDuration = durationController != null;
 
-    // The conditional price field area — cross-fades + resizes between modes.
-    // CRITICAL: the duration well is NOT inside this switcher. Toggling
-    // fixed↔range only swaps the price field(s), so the duration field's
-    // _PricingInputFieldState + FocusNode keep their identity across mode
-    // changes (no focus/keyboard drop, no per-toggle State churn — perf M1).
-    final Widget priceArea = AnimatedSize(
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
-      alignment: Alignment.topCenter,
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 240),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeIn,
-        transitionBuilder: (Widget child, Animation<double> anim) =>
-            FadeTransition(
-              opacity: anim,
-              child: SizeTransition(
-                sizeFactor: anim,
-                axisAlignment: -1,
-                child: child,
-              ),
-            ),
-        child: mode == ServicePriceType.fixed
-            ? _buildFixed(l10n, compact: compact)
-            : _buildRange(l10n, compact: compact),
-      ),
-    );
+    // ---------------------------------------------------------------------------
+    // Flat RANGE row — all three input wells are equal-flex siblings.
+    //
+    // Previous layout nested min+max inside Expanded(flex:2) which made them
+    // ~8 dp narrower than duration (dash subtracted only from the price area).
+    // New flat layout puts duration / min / max all as Expanded(flex:1) in the
+    // SAME Row so Flutter distributes remaining width equally among all three.
+    //
+    //   FIXED (hasDuration):
+    //     Row[Expanded(flex:1, duration) | SizedBox(gap) | Expanded(flex:1, price)]
+    //
+    //   RANGE (hasDuration):
+    //     Row[
+    //       Expanded(flex:1, duration),
+    //       SizedBox(gap),
+    //       Expanded(flex:1, min),
+    //       Padding(horizontal xs, Text('--')),   <- fixed width, in-flow
+    //       Expanded(flex:1, max),
+    //     ]
+    //
+    // Width at 360 dp (32 dp screen padding => 328 dp row):
+    //   FIXED  : gap=8 dp; each = (328-8)/2 = 160 dp
+    //   RANGE  : gap=8, dash=8; each = (328-16)/3 = 104 dp  (duration == min == max)
+    //   320 dp : each = (288-16)/3 ~ 90.7 dp  -- overflow-proof (Expanded)
+    //
+    // Duration State identity: _buildDurationWell always emits the same
+    // _PricingInputField (locked key) as children[0]. Flutter keeps its
+    // _PricingInputFieldState + FocusNode alive across fixed<->range toggles.
+    //
+    // Transition: AnimatedSwitcher could no longer wrap a single price-area
+    // child after flattening, so it is replaced by an instant swap (the row
+    // children change in place). AnimatedSize is retained on the rangeError
+    // row so error appearance/disappearance stays smooth. Per spec,
+    // correctness takes priority over the cross-fade.
+    //
+    // Legacy path (hasDuration == false): price area fills the full width,
+    // delegated to _buildFixed / _buildRange as before.
+    // ---------------------------------------------------------------------------
 
-    // When a durationController is provided the duration well rides OUTSIDE the
-    // mode switcher (stable State identity across fixed↔range toggles) as the
-    // first Expanded slot in a single Row.
-    //
-    // Layout targets (both compact service-setup row and non-compact create/edit
-    // form):
-    //
-    //   FIXED : [duration ½ | gap | price ½]
-    //           — 2 equal Expanded(flex:1) slots; gap = xs (compact) or sm.
-    //
-    //   RANGE : [duration ⅓ | gap | price-area ⅔]
-    //           where price-area = Expanded(flex:2) whose child is a Stack:
-    //             · bottom layer: Row[Expanded(min) | Expanded(max)]
-    //             · top layer (overlay, zero-layout-width): centred '–' Text
-    //           Because the dash is a Stack overlay it contributes 0 dp to the
-    //           Row's flex distribution, so each slot resolves to exactly:
-    //             slotW = (rowW − outerGap) / 3
-    //           giving duration ≈ min ≈ max to sub-pixel accuracy.
-    //
-    // Every flex slot is Expanded so the Row is overflow-proof at any phone
-    // width (320 dp and up). When durationController is null the price area
-    // spans the full width (legacy path — not used after Phase 5.x).
-    final Widget pricingBody = hasDuration
-        ? Row(
-            // In compact mode the wells have no labels and are equal-height,
-            // so centering looks correct. In non-compact mode the labels sit
-            // above the wells, so top-alignment keeps them visually anchored.
+    final Widget pricingBody;
+    if (!hasDuration) {
+      pricingBody = mode == ServicePriceType.fixed
+          ? _buildFixed(l10n, compact: compact)
+          : _buildRange(l10n, compact: compact);
+    } else if (mode == ServicePriceType.fixed) {
+      pricingBody = Row(
+        crossAxisAlignment: compact
+            ? CrossAxisAlignment.center
+            : CrossAxisAlignment.start,
+        children: <Widget>[
+          Expanded(child: _buildDurationWell(l10n, compact: compact)),
+          SizedBox(width: compact ? VelvetSpacing.xs : VelvetSpacing.sm),
+          Expanded(child: _buildFixed(l10n, compact: compact)),
+        ],
+      );
+    } else {
+      final bool hasRangeError = rangeError != null;
+      pricingBody = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
             crossAxisAlignment: compact
                 ? CrossAxisAlignment.center
                 : CrossAxisAlignment.start,
             children: <Widget>[
               Expanded(child: _buildDurationWell(l10n, compact: compact)),
               SizedBox(width: compact ? VelvetSpacing.xs : VelvetSpacing.sm),
-              // FIXED: flex:1 → equal half. RANGE: flex:2 → ⅔ so that
-              // each individual price slot (Expanded inside the Stack Row)
-              // equals the duration slot (⅓ of the outer Row's available
-              // width after the outer gap is removed).
               Expanded(
-                flex: mode == ServicePriceType.range ? 2 : 1,
-                child: priceArea,
+                child: _PricingInputField(
+                  fieldKey: const Key('pricing-range-min'),
+                  label: l10n.pricingFromLabel,
+                  compact: compact,
+                  controller: minController,
+                  enabled: enabled,
+                  hint: '500',
+                  suffixText: 'грн',
+                  formatters: _priceFormatters,
+                  errorText: minError,
+                  hideSuffixWhenActive: true,
+                ),
+              ),
+              _buildDash(compact: compact),
+              Expanded(
+                child: _PricingInputField(
+                  fieldKey: const Key('pricing-range-max'),
+                  label: l10n.pricingToLabel,
+                  compact: compact,
+                  controller: maxController,
+                  enabled: enabled,
+                  hint: '800',
+                  suffixText: 'грн',
+                  formatters: _priceFormatters,
+                  // Pass empty string to flag the error ring without a
+                  // duplicate message below (mirrors the approved preview).
+                  errorText: hasRangeError ? '' : null,
+                  hideSuffixWhenActive: true,
+                ),
               ),
             ],
-          )
-        : priceArea;
+          ),
+          // Range validation line: AnimatedSize handles the height transition
+          // when the error appears / disappears (no layout jump).
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: hasRangeError
+                ? Padding(
+                    padding: const EdgeInsets.only(
+                      left: VelvetSpacing.xs,
+                      right: VelvetSpacing.xs,
+                      top: VelvetSpacing.sm - 2,
+                    ),
+                    child: Semantics(
+                      liveRegion: true,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          const Padding(
+                            padding: EdgeInsets.only(top: 1.5),
+                            child: Icon(
+                              Icons.error_outline_rounded,
+                              size: 15,
+                              color: BrandColors.error,
+                            ),
+                          ),
+                          const SizedBox(width: VelvetSpacing.xs + 2),
+                          Expanded(
+                            child: Text(rangeError!, style: _rangeErrorStyle),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -244,10 +314,10 @@ class PricingField extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.md),
 
-        // In the create/edit form (durationController == null) this is the
-        // single labelled price field; in the compact service-setup row it is
-        // a Row[ duration well | price area ] where the duration well sits
-        // OUTSIDE the mode AnimatedSwitcher (stable across fixed↔range toggle).
+        // Flat pricing body: see comment block above for full geometry rationale.
+        // FIXED (hasDuration): Row[duration | gap | price]
+        // RANGE (hasDuration): Row[duration | gap | min | dash | max] + rangeError
+        // Legacy (no duration): delegated to _buildFixed / _buildRange.
         pricingBody,
       ],
     );
@@ -292,9 +362,8 @@ class PricingField extends StatelessWidget {
       // well always stays visible (hideSuffixWhenActive defaults to false).
       hideSuffixWhenActive: true,
     );
-    // The duration well lives OUTSIDE this switcher (in the parent Row), so
-    // the fixed price area is just the single price field — identical for
-    // the compact and non-compact paths save for the compact styling flag.
+    // _buildFixed returns only the price field. When hasDuration is true the
+    // duration well is rendered as a sibling Expanded in build(), not here.
     return KeyedSubtree(
       key: const ValueKey<String>('pricing-fixed'),
       child: priceField,
@@ -307,93 +376,87 @@ class PricingField extends StatelessWidget {
     fontWeight: FontWeight.w700,
   );
 
-  Widget _buildRange(AppLocalizations l10n, {required bool compact}) {
-    final bool hasRangeError = rangeError != null;
-    final Widget minField = _PricingInputField(
-      fieldKey: const Key('pricing-range-min'),
-      label: l10n.pricingFromLabel,
-      compact: compact,
-      controller: minController,
-      enabled: enabled,
-      hint: '500',
-      suffixText: 'грн',
-      formatters: _priceFormatters,
-      errorText: minError,
-      // Hide "грн" while the price field is active/non-empty.
-      hideSuffixWhenActive: true,
-    );
-    final Widget maxField = _PricingInputField(
-      fieldKey: const Key('pricing-range-max'),
-      label: l10n.pricingToLabel,
-      compact: compact,
-      controller: maxController,
-      enabled: enabled,
-      hint: '800',
-      suffixText: 'грн',
-      formatters: _priceFormatters,
-      // The cross-field error is surfaced once below the pair. Pass an empty
-      // string to flag the field ring without a duplicate message (mirrors the
-      // approved preview).
-      errorText: hasRangeError ? '' : null,
-      // Hide "грн" while the price field is active/non-empty.
-      hideSuffixWhenActive: true,
-    );
-
-    // En-dash separator rendered as a zero-layout-width Stack overlay so it
-    // does NOT steal any dp from the min/max Expanded slots.
-    //
-    // Layout arithmetic (see pricingBody comment above):
-    //   outerRow available = rowWidth − outerGap
-    //   priceArea = Expanded(flex:2) → outerRow available × 2/3
-    //   min = max  = Expanded(flex:1) each inside the priceArea Row
-    //             → priceArea width / 2
-    //             = (rowWidth − outerGap) / 3   ← same as duration slot
-    //
-    // The separator Text is centred over the priceArea by a Stack so it is
-    // purely cosmetic and contributes 0 dp to the Row's flex computation.
-    // In non-compact mode an Alignment.topCenter child is offset downward
-    // to visually reach the well's midpoint (label area ≈22 dp + half well
-    // ≈24 dp = 46 dp; separator text ≈14 dp high → top ≈ 39 dp ≈ lg+md).
-    // In compact mode Alignment.center naturally centres on the well body.
-    final Widget dashOverlay = IgnorePointer(
-      child: Align(
-        alignment: compact ? Alignment.center : Alignment.topCenter,
-        child: Padding(
-          padding: EdgeInsets.only(
-            top: compact ? 0.0 : VelvetSpacing.lg + VelvetSpacing.md,
-          ),
-          child: Text('–', style: _separatorStyle),
-        ),
+  /// Builds the in-flow en-dash separator between min and max wells.
+  ///
+  /// In compact mode (no labels) a plain Center suffices. In non-compact mode
+  /// a SizedBox offset of [VelvetSpacing.lg] pushes the dash down to align
+  /// visually with the well body rather than floating near the label row.
+  ///
+  /// The dash is a REAL layout element with its own horizontal extent
+  /// (2 x [VelvetSpacing.xs] padding) — it never overlaps either well.
+  Widget _buildDash({required bool compact}) {
+    if (compact) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.xs),
+        child: Center(child: Text('–', style: _separatorStyle)),
+      );
+    }
+    // Non-compact: label row above each well is ~VelvetSpacing.lg dp tall
+    // (label text line-height + bottom gap). A matching SizedBox offset keeps
+    // the dash vertically centred on the well body, not on label + well.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.xs),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const SizedBox(height: VelvetSpacing.lg),
+          Text('–', style: _separatorStyle),
+        ],
       ),
     );
+  }
+
+  /// Legacy RANGE layout used only when [durationController] is null (i.e.
+  /// the create/edit form without an inline duration well). When a
+  /// [durationController] is supplied the flat-row RANGE is built directly
+  /// inside [build] so all three fields are equal-flex siblings.
+  Widget _buildRange(AppLocalizations l10n, {required bool compact}) {
+    final bool hasRangeError = rangeError != null;
 
     return KeyedSubtree(
       key: const ValueKey<String>('pricing-range'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          // Min and max wells share the priceArea width as two equal Expanded
-          // slots. The '–' separator is a Stack overlay so it does not
-          // participate in flex distribution — min and max each receive exactly
-          // half of priceArea, which (via the flex:2 on the outer Expanded)
-          // equals the duration slot width: (rowW − outerGap) / 3.
-          Stack(
+          Row(
+            crossAxisAlignment: compact
+                ? CrossAxisAlignment.center
+                : CrossAxisAlignment.start,
             children: <Widget>[
-              Row(
-                crossAxisAlignment: compact
-                    ? CrossAxisAlignment.center
-                    : CrossAxisAlignment.start,
-                children: <Widget>[
-                  Expanded(child: minField),
-                  Expanded(child: maxField),
-                ],
+              Expanded(
+                child: _PricingInputField(
+                  fieldKey: const Key('pricing-range-min'),
+                  label: l10n.pricingFromLabel,
+                  compact: compact,
+                  controller: minController,
+                  enabled: enabled,
+                  hint: '500',
+                  suffixText: 'грн',
+                  formatters: _priceFormatters,
+                  errorText: minError,
+                  hideSuffixWhenActive: true,
+                ),
               ),
-              dashOverlay,
+              _buildDash(compact: compact),
+              Expanded(
+                child: _PricingInputField(
+                  fieldKey: const Key('pricing-range-max'),
+                  label: l10n.pricingToLabel,
+                  compact: compact,
+                  controller: maxController,
+                  enabled: enabled,
+                  hint: '800',
+                  suffixText: 'грн',
+                  formatters: _priceFormatters,
+                  // The cross-field error surfaces once below the pair.
+                  // Empty string flags the field ring without a duplicate msg.
+                  errorText: hasRangeError ? '' : null,
+                  hideSuffixWhenActive: true,
+                ),
+              ),
             ],
           ),
-          // Inline range VALIDATION line beneath the pair — rendered only
-          // when there is a range error. The always-on static hint was removed
-          // per design; the cross-field error message still surfaces here.
+          // Inline range validation line rendered only when there is an error.
           if (hasRangeError)
             Padding(
               padding: const EdgeInsets.only(
