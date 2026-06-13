@@ -74,6 +74,52 @@ Future<void> _pumpField(
   await tester.pump(); // settle AnimatedSwitcher
 }
 
+/// Pump [PricingField] with a [durationController] so all well variants render.
+///
+/// Used by the centered-placeholder regression group to exercise both the
+/// non-compact create/edit form layout and the compact service-setup row.
+Future<void> _pumpWithDuration(
+  WidgetTester tester, {
+  ServicePriceType mode = ServicePriceType.fixed,
+  bool compact = false,
+  bool enabled = true,
+}) async {
+  final fixedCtrl = TextEditingController();
+  final minCtrl = TextEditingController();
+  final maxCtrl = TextEditingController();
+  final durationCtrl = TextEditingController();
+  addTearDown(fixedCtrl.dispose);
+  addTearDown(minCtrl.dispose);
+  addTearDown(maxCtrl.dispose);
+  addTearDown(durationCtrl.dispose);
+
+  await tester.pumpWidget(
+    MaterialApp(
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      locale: const Locale('uk'),
+      home: Scaffold(
+        body: SizedBox(
+          width: 360,
+          child: SingleChildScrollView(
+            child: PricingField(
+              mode: mode,
+              onModeChanged: (_) {},
+              fixedController: fixedCtrl,
+              minController: minCtrl,
+              maxController: maxCtrl,
+              durationController: durationCtrl,
+              enabled: enabled,
+              compact: compact,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
 // ---------------------------------------------------------------------------
 // Test group
 // ---------------------------------------------------------------------------
@@ -577,5 +623,179 @@ void main() {
         );
       },
     );
+  });
+
+  // ── Regression: centered-placeholder contract ──────────────────────────────
+  //
+  // Change under test (2026-06-13): [_PricingInputField] now passes
+  // `textAlign: TextAlign.center` to its [TextField], so the hint/placeholder
+  // and any typed value render horizontally centred inside the well.
+  //
+  // This group asserts that every well key exposed by [PricingField] contains a
+  // [TextField] whose `textAlign` property equals [TextAlign.center]:
+  //
+  //   FIXED mode (durationController supplied, compact=false):
+  //     Key('field-service-duration')  — duration "хв" well
+  //     Key('pricing-fixed-amount')    — FIXED price "грн" well
+  //
+  //   RANGE mode (durationController supplied, compact=false):
+  //     Key('field-service-duration')  — duration "хв" well
+  //     Key('pricing-range-min')       — RANGE min "грн" well
+  //     Key('pricing-range-max')       — RANGE max "грн" well
+  //
+  //   Compact FIXED mode (compact=true):
+  //     Key('service-setup-duration')  — duration well in the service-setup row
+  //     Key('pricing-fixed-amount')    — FIXED price well (compact layout)
+  //
+  // Each assertion is a direct widget-property check — NOT a golden — so it
+  // fails immediately if any future refactor drops `textAlign: TextAlign.center`
+  // from [_PricingInputField], regardless of visual appearance.
+  //
+  // Pattern used throughout this group:
+  //   find.descendant(of: find.byKey(wellKey), matching: find.byType(TextField))
+  //   then tester.widget<TextField>(finder).textAlign == TextAlign.center
+
+  group('Regression — centered-placeholder: TextField.textAlign == center', () {
+    // Helper: locate the single TextField inside a keyed well and return it.
+    // Named as a local function so it can be const-called without closure alloc.
+    TextField textFieldInWell(WidgetTester tester, Key wellKey) {
+      final finder = find.descendant(
+        of: find.byKey(wellKey),
+        matching: find.byType(TextField),
+      );
+      expect(
+        finder,
+        findsOneWidget,
+        reason: 'expected exactly one TextField descendant of $wellKey',
+      );
+      return tester.widget<TextField>(finder);
+    }
+
+    // ── CENTER-DURATION-FIXED ─────────────────────────────────────────────────
+    testWidgets(
+      'CENTER-DURATION-FIXED: duration well TextField.textAlign is center '
+      'in non-compact FIXED mode',
+      (tester) async {
+        await _pumpWithDuration(tester, mode: ServicePriceType.fixed);
+
+        final tf = textFieldInWell(tester, const Key('field-service-duration'));
+
+        expect(
+          tf.textAlign,
+          TextAlign.center,
+          reason:
+              'CENTER-DURATION-FIXED: _PricingInputField sets '
+              'textAlign: TextAlign.center on its TextField; the duration well '
+              'in FIXED mode must reflect this so the "60" placeholder and '
+              'typed values render centred in the хв well',
+        );
+      },
+    );
+
+    // ── CENTER-PRICE-FIXED ────────────────────────────────────────────────────
+    testWidgets(
+      'CENTER-PRICE-FIXED: fixed-price well TextField.textAlign is center '
+      'in non-compact FIXED mode',
+      (tester) async {
+        await _pumpWithDuration(tester, mode: ServicePriceType.fixed);
+
+        final tf = textFieldInWell(tester, const Key('pricing-fixed-amount'));
+
+        expect(
+          tf.textAlign,
+          TextAlign.center,
+          reason:
+              'CENTER-PRICE-FIXED: the fixed-price well must have '
+              'textAlign: TextAlign.center so the "500" placeholder and typed '
+              'amounts render centred inside the грн well',
+        );
+      },
+    );
+
+    // ── CENTER-DURATION-RANGE ─────────────────────────────────────────────────
+    testWidgets(
+      'CENTER-DURATION-RANGE: duration well TextField.textAlign is center '
+      'in non-compact RANGE mode',
+      (tester) async {
+        await _pumpWithDuration(tester, mode: ServicePriceType.range);
+
+        final tf = textFieldInWell(tester, const Key('field-service-duration'));
+
+        expect(
+          tf.textAlign,
+          TextAlign.center,
+          reason:
+              'CENTER-DURATION-RANGE: the duration well\'s TextField must '
+              'keep textAlign: TextAlign.center in RANGE mode — the same '
+              '_PricingInputField instance is reused across FIXED/RANGE toggles',
+        );
+      },
+    );
+
+    // ── CENTER-RANGE-MIN ──────────────────────────────────────────────────────
+    testWidgets(
+      'CENTER-RANGE-MIN: range-min well TextField.textAlign is center '
+      'in non-compact RANGE mode',
+      (tester) async {
+        await _pumpWithDuration(tester, mode: ServicePriceType.range);
+
+        final tf = textFieldInWell(tester, const Key('pricing-range-min'));
+
+        expect(
+          tf.textAlign,
+          TextAlign.center,
+          reason:
+              'CENTER-RANGE-MIN: the range-min price well must have '
+              'textAlign: TextAlign.center so the "500" placeholder renders '
+              'centred inside the narrow one-third-width well',
+        );
+      },
+    );
+
+    // ── CENTER-RANGE-MAX ──────────────────────────────────────────────────────
+    testWidgets(
+      'CENTER-RANGE-MAX: range-max well TextField.textAlign is center '
+      'in non-compact RANGE mode',
+      (tester) async {
+        await _pumpWithDuration(tester, mode: ServicePriceType.range);
+
+        final tf = textFieldInWell(tester, const Key('pricing-range-max'));
+
+        expect(
+          tf.textAlign,
+          TextAlign.center,
+          reason:
+              'CENTER-RANGE-MAX: the range-max price well must have '
+              'textAlign: TextAlign.center so the "800" placeholder renders '
+              'centred inside the narrow one-third-width well',
+        );
+      },
+    );
+
+    // ── CENTER-COMPACT-DURATION ───────────────────────────────────────────────
+    //
+    // compact=true is used by the bulk service-setup row.  The duration well
+    // switches to Key('service-setup-duration') but the same _PricingInputField
+    // is rendered — it must also carry textAlign: TextAlign.center.
+
+    testWidgets('CENTER-COMPACT-DURATION: compact service-setup-duration well '
+        'TextField.textAlign is center', (tester) async {
+      await _pumpWithDuration(
+        tester,
+        mode: ServicePriceType.fixed,
+        compact: true,
+      );
+
+      final tf = textFieldInWell(tester, const Key('service-setup-duration'));
+
+      expect(
+        tf.textAlign,
+        TextAlign.center,
+        reason:
+            'CENTER-COMPACT-DURATION: compact=true emits '
+            'Key(\'service-setup-duration\'); the TextField inside must still '
+            'have textAlign: TextAlign.center',
+      );
+    });
   });
 }

@@ -858,6 +858,7 @@ class _PricingInputFieldState extends State<_PricingInputField> {
                   controller: widget.controller,
                   focusNode: _focus,
                   enabled: widget.enabled,
+                  textAlign: TextAlign.center,
                   keyboardType: TextInputType.number,
                   inputFormatters: widget.formatters,
                   style: _inputStyle,
