@@ -378,12 +378,26 @@ class PricingField extends StatelessWidget {
 
   /// Builds the in-flow en-dash separator between min and max wells.
   ///
-  /// In compact mode (no labels) a plain Center suffices. In non-compact mode
-  /// a SizedBox offset of [VelvetSpacing.lg] pushes the dash down to align
-  /// visually with the well body rather than floating near the label row.
+  /// In compact mode (no labels) a plain Center suffices — the Row uses
+  /// CrossAxisAlignment.center so the dash aligns naturally.
+  ///
+  /// In non-compact mode each sibling [_PricingInputField] column has two
+  /// stacked sections:
+  ///   1. Label row  — Padding(only(bottom: sm)) + Text at VelvetText.label()
+  ///   2. Well body  — Padding(symmetric(vertical: sm+2)) + ConstrainedBox
+  ///                   minHeight (VelvetSizes.field − 2×(sm+2))
+  ///                   → total well outer height == VelvetSizes.field (49 dp)
+  ///
+  /// The dash column mirrors that exact structure:
+  ///   • An invisible clone of the label row (Opacity 0) so its height matches
+  ///     the real label row pixel-for-pixel — robust to future font/token
+  ///     changes without a separate magic-number constant.
+  ///   • A SizedBox of height [VelvetSizes.field] with the '–' Center-ed —
+  ///     this puts the dash at the same vertical midpoint as the well's digit
+  ///     row without any hard-coded offset.
   ///
   /// The dash is a REAL layout element with its own horizontal extent
-  /// (2 x [VelvetSpacing.xs] padding) — it never overlaps either well.
+  /// (2 × [VelvetSpacing.xs] padding) — it never overlaps either well.
   Widget _buildDash({required bool compact}) {
     if (compact) {
       return Padding(
@@ -391,16 +405,32 @@ class PricingField extends StatelessWidget {
         child: Center(child: Text('–', style: _separatorStyle)),
       );
     }
-    // Non-compact: label row above each well is ~VelvetSpacing.lg dp tall
-    // (label text line-height + bottom gap). A matching SizedBox offset keeps
-    // the dash vertically centred on the well body, not on label + well.
+    // Non-compact: mirror the label-row + well-body structure of the sibling
+    // _PricingInputField so the '–' sits exactly on the well's input line.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.xs),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const SizedBox(height: VelvetSpacing.lg),
-          Text('–', style: _separatorStyle),
+          // Invisible label placeholder — same structure as _PricingInputField's
+          // visible label so this column's height matches the sibling's label
+          // row exactly, regardless of font metrics or future token changes.
+          Opacity(
+            opacity: 0,
+            child: Padding(
+              padding: const EdgeInsets.only(
+                left: VelvetSpacing.xs,
+                bottom: VelvetSpacing.sm,
+              ),
+              child: Text('A', style: VelvetText.label()),
+            ),
+          ),
+          // Well-height box with '–' vertically centered — matches the outer
+          // height of the NeumorphicInset well (VelvetSizes.field = 49 dp).
+          SizedBox(
+            height: VelvetSizes.field,
+            child: Center(child: Text('–', style: _separatorStyle)),
+          ),
         ],
       ),
     );
@@ -779,16 +809,30 @@ class _PricingInputFieldState extends State<_PricingInputField> {
     final bool showSuffix =
         !widget.hideSuffixWhenActive || (!_focused && !_hasText);
 
-    // Compact wells (the one-line service-setup row) drop the visible label and
-    // tighten the horizontal padding + field→affix gap so three numeric wells
-    // fit a single line at ~320 dp. The label is preserved for screen readers
-    // via Semantics so accessibility is unchanged.
+    // Horizontal padding / affix-gap sizing for the well interior.
+    //
+    // Compact (service-setup row): three wells fit a single line → use tight
+    // tokens (sm / xs) as before.
+    //
+    // Non-compact (create/edit form) in RANGE mode: after the three-way split
+    // each well is ~99 dp at 360 dp (or ~85 dp at 320 dp). With the old
+    // md/md values (16 + 16 + 16 + ~28 грн = 76 dp consumed) only ~23 dp
+    // remained for digits — "500" clipped to "5...". Using the same tight
+    // tokens as compact (sm=8 hpad, xs=4 affix-gap) leaves:
+    //   360 dp: 99 − 8 − 8 − 4 − 28 грн ≈ 51 dp for digits  ✓
+    //   320 dp: 85 − 8 − 8 − 4 − 28 грн ≈ 37 dp for digits  ✓
+    // "500" (~27 dp) and "8000" (~36 dp) both fit; the TextField is Expanded
+    // so it scrolls horizontally for any longer value without overflow.
+    //
+    // In FIXED mode the non-compact price field spans only half the row (~160
+    // dp), so both sm/xs and md/md would work — the tight values keep the
+    // appearance consistent between FIXED and RANGE modes.
     final double wellHPad = widget.compact
         ? VelvetSpacing.sm
-        : VelvetSpacing.md;
+        : VelvetSpacing.sm;
     final double affixGap = widget.compact
         ? VelvetSpacing.xs
-        : VelvetSpacing.md;
+        : VelvetSpacing.xs;
 
     final Widget well = NeumorphicInset(
       key: widget.fieldKey,

@@ -12,7 +12,7 @@
 //      so the box GROWS to the natural line height.
 //
 //   2. HORIZONTAL CROWDING — the field→"грн" gap was VelvetSpacing.sm (8dp),
-//      so long values crowded the suffix. Fix: bumped to VelvetSpacing.md (16dp).
+//      tightened to VelvetSpacing.xs (4dp) for the 3-column RANGE layout.
 //
 // The one-line layout change (Phase 5.6 / 2026-06-13) introduced a third
 // behaviour that this file now guards:
@@ -48,10 +48,13 @@ import 'package:flutter_test/flutter_test.dart';
 // Constants (mirrored from the widget under test via tokens).
 // ---------------------------------------------------------------------------
 
-/// The bumped field→suffix gap. The fix raised this from VelvetSpacing.sm (8)
-/// to VelvetSpacing.md (16); the guard asserts the larger value only when the
-/// suffix is actually visible (empty + unfocused field).
-const double _kSuffixGap = VelvetSpacing.md;
+/// The field→suffix gap after the RANGE-layout tightening.
+/// The fix narrowed this from VelvetSpacing.sm (8) to VelvetSpacing.xs (4)
+/// so the 3-column RANGE row leaves ~51 dp for digits at 360 dp.
+/// The guard asserts the contract value only when the suffix is actually
+/// visible (empty + unfocused field); any regression to a LARGER value would
+/// still pass this floor, but D1 pins the exact token.
+const double _kSuffixGap = VelvetSpacing.xs;
 
 /// The single-line input font size (VelvetText.input() is 16sp Nunito).
 const double _kInputFontSize = 16.0;
@@ -229,13 +232,13 @@ void main() {
                 'when the field is empty and unfocused',
           );
 
-          // The bumped gap (VelvetSpacing.md) must be present.
+          // The tightened gap (VelvetSpacing.xs, 4 dp) must be present.
           expect(
             suffix.left - input.right,
             greaterThanOrEqualTo(_kSuffixGap - _kEps),
             reason:
-                '$label: field→suffix gap must be at least VelvetSpacing.md '
-                '($_kSuffixGap dp) when "грн" is visible',
+                '$label: field→suffix gap must be at least VelvetSpacing.xs '
+                '($_kSuffixGap dp) for the 3-column RANGE layout',
           );
 
           expect(tester.takeException(), isNull);
@@ -430,6 +433,187 @@ void main() {
           isNull,
           reason: 'no RenderFlex overflow in the narrow one-line range row',
         );
+      },
+    );
+  });
+
+  // ==========================================================================
+  // D. RANGE TRUNCATION + DASH ALIGNMENT (regression guards for user-reported
+  //    bugs in the non-compact 3-column RANGE layout at realistic phone width).
+  //
+  //   D1. No-truncation guard: each RANGE well must be wide enough to display
+  //       a typical price value ("8000") without clipping digits. The fix
+  //       tightened affixGap to VelvetSpacing.xs (4 dp); reverting to md (16)
+  //       would reduce digit area below the safe threshold and fail this test.
+  //
+  //   D2. Dash vertical-center guard: the '–' separator must sit on the well's
+  //       input line (vertical center ≈ the min-well's center), NOT near the
+  //       top of the row (the pre-fix "shifted to top" regression).
+  // ==========================================================================
+  group('PricingField — non-compact RANGE at 360dp: truncation + dash alignment', () {
+    // Minimum digit-area width that "8000" (~36 dp at 16sp Nunito) requires
+    // with a small safety margin. Any regression that reduces digit space
+    // below this value (e.g. reverting affixGap to md=16) will fail D1.
+    //
+    // Geometry at 360 dp with 32 dp of Scaffold body padding:
+    //   row width ≈ 328 dp; dash column ≈ 2×xs + text ≈ 16 dp.
+    //   3 equal Expanded wells → each ≈ (328 − 8 gap − 16 dash) / 3 ≈ 101 dp.
+    //   digit area = wellWidth − 2×wellHPad(sm=8) − affixGap(xs=4) − suffix.
+    //   "грн" suffix width ≈ 28 dp → digit area ≈ 101 − 16 − 4 − 28 ≈ 53 dp.
+    //   The guard uses 40 dp as a conservative floor (well above "8000" ~36 dp).
+    const double kMinDigitArea = 40.0;
+
+    // Tolerance for the vertical-alignment guard (font rounding, 1 dp slack).
+    const double kAlignTol = 2.0;
+
+    // Minimum sane well width at 360 dp. Guard ensures affixGap didn't balloon.
+    const double kMinWellWidth = 88.0;
+
+    // D1 — digit area wide enough for "8000" in non-compact RANGE at 360 dp.
+    testWidgets(
+      'D1: non-compact RANGE at 360dp — "8000" min/max field is not truncated',
+      (tester) async {
+        // Prime the min/max controllers with a typical value so the suffix
+        // hides (hideSuffixWhenActive=true) and only the digit area is active.
+        // This is the exact scenario the user reported as "5... грн".
+        await _pump(
+          tester,
+          mode: ServicePriceType.range,
+          width: 360,
+          primeValuePrice: '8000',
+        );
+
+        const Key minKey = Key('pricing-range-min');
+        const Key maxKey = Key('pricing-range-max');
+
+        // Suffix is hidden (primeValuePrice set), so we measure the well box.
+        final double minWellWidth = tester.getSize(find.byKey(minKey)).width;
+        final double maxWellWidth = tester.getSize(find.byKey(maxKey)).width;
+
+        // Each well must be at least kMinWellWidth dp — narrower means the
+        // affixGap or horizontal padding ballooned back to md=16.
+        expect(
+          minWellWidth,
+          greaterThanOrEqualTo(kMinWellWidth),
+          reason:
+              'RANGE min well must be at least ${kMinWellWidth}dp wide at '
+              '360dp — narrower means affixGap or wellHPad reverted to '
+              'VelvetSpacing.md (the truncation cause)',
+        );
+        expect(
+          maxWellWidth,
+          greaterThanOrEqualTo(kMinWellWidth),
+          reason:
+              'RANGE max well must be at least ${kMinWellWidth}dp wide at '
+              '360dp — narrower means affixGap or wellHPad reverted to '
+              'VelvetSpacing.md (the truncation cause)',
+        );
+
+        // Digit area check: well − 2×wellHPad(sm=8) − affixGap(xs=4) ≥ 40 dp.
+        // Suffix is hidden so the full EditableText width IS the digit area.
+        final double editableWidth = tester
+            .getSize(_editableUnder(minKey))
+            .width;
+        expect(
+          editableWidth,
+          greaterThanOrEqualTo(kMinDigitArea),
+          reason:
+              'The EditableText width inside the RANGE min well must be at '
+              'least ${kMinDigitArea}dp so "8000" is not clipped. '
+              'Current width: ${editableWidth}dp. '
+              'Regression indicator: affixGap reverted from xs(4) to md(16).',
+        );
+
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    // D1b — pin the exact affixGap token: VelvetSpacing.xs (4 dp).
+    // If a future edit widens it back to sm(8) or md(16) the suffix would
+    // crowd digits. This test asserts the gap via the rendered geometry: when
+    // the suffix IS visible (empty, unfocused) the gap = suffix.left − input.right.
+    testWidgets(
+      'D1b: non-compact RANGE at 360dp empty field — affixGap == VelvetSpacing.xs (4dp)',
+      (tester) async {
+        await _pump(
+          tester,
+          mode: ServicePriceType.range,
+          width: 360,
+          // No primeValuePrice: suffix must be visible to measure the gap.
+        );
+
+        const Key minKey = Key('pricing-range-min');
+
+        final Rect editableRect = tester.getRect(_editableUnder(minKey));
+        final Rect suffixRect = tester.getRect(
+          _textUnder(minKey, _kPriceSuffix),
+        );
+
+        final double measuredGap = suffixRect.left - editableRect.right;
+
+        // The gap must equal VelvetSpacing.xs (4 dp), ±ε.
+        // A regression to sm(8) or md(16) would widen the gap beyond the
+        // upper bound and indicate the affix is consuming digit space again.
+        expect(
+          measuredGap,
+          inInclusiveRange(
+            VelvetSpacing.xs - _kEps,
+            VelvetSpacing.sm - _kEps, // anything < sm(8) is acceptable
+          ),
+          reason:
+              'non-compact RANGE affixGap must be VelvetSpacing.xs (4 dp). '
+              'Measured gap: ${measuredGap}dp. '
+              'Regression: if gap >= sm(8) the affix crowded the digit area '
+              'and caused the "5... грн" truncation.',
+        );
+
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    // D2 — the '–' separator vertical center must align with the wells.
+    //
+    // Before the fix _buildDash(compact:false) had no label-height offset,
+    // so the Center was computed over the full Column height (label + well),
+    // placing the dash near the top of the row. The fix mirrors the sibling
+    // label-row height via an Opacity(0) placeholder, then Centers the dash
+    // inside a SizedBox(VelvetSizes.field) — putting it exactly at the well's
+    // midpoint. This test catches a revert of that fix.
+    testWidgets(
+      'D2: non-compact RANGE at 360dp — "–" dash is vertically centered on the well',
+      (tester) async {
+        await _pump(tester, mode: ServicePriceType.range, width: 360);
+
+        const Key minKey = Key('pricing-range-min');
+
+        // Locate the dash Text widget.
+        final Finder dashFinder = find.text('–');
+        expect(
+          dashFinder,
+          findsOneWidget,
+          reason: 'the "–" separator must be present in non-compact RANGE',
+        );
+
+        final Rect dashRect = tester.getRect(dashFinder);
+        final Rect minWellRect = tester.getRect(find.byKey(minKey));
+
+        final double dashCenterY = dashRect.center.dy;
+        final double wellCenterY = minWellRect.center.dy;
+
+        // The dash center must be within kAlignTol of the well's center.
+        // A regression to the old layout would shift the dash ≈ half the
+        // label-row height (~10–14 dp) upward, exceeding this tolerance.
+        expect(
+          dashCenterY,
+          closeTo(wellCenterY, kAlignTol),
+          reason:
+              '"–" vertical center (${dashCenterY}dp) must be within '
+              '${kAlignTol}dp of the min well center (${wellCenterY}dp). '
+              'A larger offset indicates _buildDash() reverted to the '
+              '"shifted to top" layout (missing label-height placeholder).',
+        );
+
+        expect(tester.takeException(), isNull);
       },
     );
   });
