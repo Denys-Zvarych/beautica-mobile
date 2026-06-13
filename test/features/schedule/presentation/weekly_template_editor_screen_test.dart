@@ -26,6 +26,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
@@ -60,6 +61,26 @@ WeeklySchedule _template({String? id = 'sched-1'}) => WeeklySchedule(
   id: id,
   validFrom: _clock,
   validTo: null,
+  days: <TemplateDay>[
+    for (int dow = 1; dow <= 7; dow++)
+      TemplateDay(
+        dayOfWeek: dow,
+        label: 'd$dow',
+        intervals: dow <= 5
+            ? <WorkInterval>[_interval(9, 0, 18, 0)]
+            : <WorkInterval>[],
+      ),
+  ],
+);
+
+/// A persisted RANGED template: same days as [_template] but with a closed
+/// validity window (`validTo` set), so the editor renders the
+/// `weeklyEditorActiveWindowRange(from, to)` label. validFrom = _clock
+/// (09.06), validTo = 31.12 → deterministic under the fixed clock.
+WeeklySchedule _rangedTemplate({String? id = 'sched-1'}) => WeeklySchedule(
+  id: id,
+  validFrom: _clock,
+  validTo: DateTime(2026, 12, 31),
   days: <TemplateDay>[
     for (int dow = 1; dow <= 7; dow++)
       TemplateDay(
@@ -1110,6 +1131,160 @@ void main() {
       },
     );
   });
+
+  // ── Active-window card label (unset-prompt UX change) ──────────────────────
+  //
+  // The editor's active-window card no longer fabricates a "Графік діє з
+  // <today>" value for a first-time master (NO_SCHEDULE / `_serverTemplate ==
+  // null`); it shows the muted `weeklyEditorActiveWindowUnset` prompt instead.
+  // When a template IS persisted it shows the committed open-ended / ranged
+  // label. All assertions resolve the expected copy through `AppLocalizations`
+  // (M2 — never a raw UA literal) and are scoped to the card's Key.
+  group('WeeklyTemplateEditorScreen — active-window card', () {
+    /// The active-window value `Text` widgets inside the card (the prompt/value
+    /// line + its hint sub-line). The value line is the first descendant.
+    Finder _windowCardTexts() => find.descendant(
+      of: find.byKey(const Key('weekly-active-window-card')),
+      matching: find.byType(Text),
+    );
+
+    testWidgets(
+      'NO_SCHEDULE (no template) shows the unset prompt, NOT a '
+      '"Графік діє з <date>" value — and the card is present + tappable',
+      (tester) async {
+        // Seed the provider with an EMPTY server list → first-time master,
+        // `_serverTemplate == null`.
+        final ProviderContainer c = await _pumpEmpty(tester);
+        addTearDown(c.dispose);
+
+        final AppLocalizations l10n = _l10n(tester);
+        final String unset = l10n.weeklyEditorActiveWindowUnset;
+        // The old default-today value would have rendered with `from` = the
+        // fixed clock (09.06). Build that exact would-be string to prove it is
+        // ABSENT — the regression guard against re-introducing default-today.
+        final String wouldBeTodayValue = l10n.weeklyEditorActiveWindowOpenEnded(
+          '09.06',
+        );
+
+        // The card itself is present.
+        expect(
+          find.byKey(const Key('weekly-active-window-card')),
+          findsOneWidget,
+        );
+
+        // The prompt is shown inside the card; the fabricated default-today
+        // value is NOT.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('weekly-active-window-card')),
+            matching: find.text(unset),
+          ),
+          findsOneWidget,
+          reason: 'unset state must show the placeholder prompt',
+        );
+        expect(
+          find.text(wouldBeTodayValue),
+          findsNothing,
+          reason:
+              'a first-time master must NOT see a fabricated '
+              '"Графік діє з <today>" value (the old default-today behaviour)',
+        );
+
+        // The card is still an interactive affordance (opens the apply sheet).
+        // Tapping must not throw and the prompt remains (no template persisted).
+        await tester.tap(find.byKey(const Key('weekly-active-window-card')));
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('weekly-active-window-card')),
+            matching: find.text(unset),
+          ),
+          findsOneWidget,
+          reason: 'card remains tappable; prompt persists with no template',
+        );
+      },
+    );
+
+    testWidgets(
+      'persisted open-ended template shows the filled '
+      'weeklyEditorActiveWindowOpenEnded(validFrom), NOT the unset prompt',
+      (tester) async {
+        // `_template()` has validFrom = _clock (2026-06-09), validTo = null.
+        final ProviderContainer c = await _pumpLoaded(tester, _template());
+        addTearDown(c.dispose);
+
+        final AppLocalizations l10n = _l10n(tester);
+        final String filled = l10n.weeklyEditorActiveWindowOpenEnded('09.06');
+
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('weekly-active-window-card')),
+            matching: find.text(filled),
+          ),
+          findsOneWidget,
+          reason: 'open-ended template shows the committed validFrom value',
+        );
+        expect(
+          find.text(l10n.weeklyEditorActiveWindowUnset),
+          findsNothing,
+          reason: 'a persisted template must not show the unset prompt',
+        );
+      },
+    );
+
+    testWidgets(
+      'persisted ranged template shows the filled '
+      'weeklyEditorActiveWindowRange(validFrom, validTo)',
+      (tester) async {
+        final ProviderContainer c = await _pumpLoaded(tester, _rangedTemplate());
+        addTearDown(c.dispose);
+
+        final AppLocalizations l10n = _l10n(tester);
+        final String filled = l10n.weeklyEditorActiveWindowRange(
+          '09.06',
+          '31.12',
+        );
+
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('weekly-active-window-card')),
+            matching: find.text(filled),
+          ),
+          findsOneWidget,
+          reason: 'ranged template shows the committed validFrom–validTo value',
+        );
+        expect(
+          find.text(l10n.weeklyEditorActiveWindowUnset),
+          findsNothing,
+          reason: 'a persisted template must not show the unset prompt',
+        );
+      },
+    );
+
+    testWidgets(
+      'unset prompt renders in the muted placeholder style; the filled '
+      'value renders in the committed style',
+      (tester) async {
+        // Unset: placeholder color + w600.
+        final ProviderContainer cEmpty = await _pumpEmpty(tester);
+        addTearDown(cEmpty.dispose);
+        final AppLocalizations l10nEmpty = _l10n(tester);
+        final Text unsetText = tester.widget<Text>(
+          find
+              .descendant(
+                of: find.byKey(const Key('weekly-active-window-card')),
+                matching: find.text(l10nEmpty.weeklyEditorActiveWindowUnset),
+              )
+              .first,
+        );
+        expect(
+          unsetText.style?.color,
+          BrandColors.placeholder,
+          reason: 'unset prompt uses the muted placeholder colour',
+        );
+      },
+    );
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1139,6 +1314,19 @@ Future<ProviderContainer> _pumpLoaded(
   overrides: <Object>[
     weeklyScheduleProvider.overrideWith(
       () => _RecordingWeekly(<WeeklySchedule>[template]),
+    ),
+    effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+  ],
+);
+
+/// Pumps the editor seeded with an EMPTY server list — the first-time /
+/// NO_SCHEDULE master (`_serverTemplate == null`). Drives the unset-prompt
+/// active-window state.
+Future<ProviderContainer> _pumpEmpty(WidgetTester tester) => _pump(
+  tester,
+  overrides: <Object>[
+    weeklyScheduleProvider.overrideWith(
+      () => _RecordingWeekly(const <WeeklySchedule>[]),
     ),
     effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
   ],

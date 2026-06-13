@@ -451,6 +451,7 @@ class _WeeklyTemplateEditorScreenState
                     saveGateListenable: _saveGateNotifier,
                     saving: _saving,
                     activeWindow: _activeWindowLabel(l10n),
+                    isWindowSet: _serverTemplate != null,
                     l10n: l10n,
                     onToggle: _toggleDay,
                     onMutated: _onDayMutated,
@@ -500,10 +501,17 @@ class _WeeklyTemplateEditorScreenState
   }
 
   /// The informational active-window line for the card.
+  ///
+  /// When no window has ever been persisted (`_serverTemplate == null` —
+  /// first-time / NO_SCHEDULE), returns the placeholder prompt instead of
+  /// fabricating a date from `_today`, so the card reads as «not chosen yet».
   String _activeWindowLabel(AppLocalizations l10n) {
     final WeeklySchedule? t = _serverTemplate;
-    final DateTime from = t?.validFrom ?? _today;
-    final DateTime? to = t?.validTo;
+    if (t == null) {
+      return l10n.weeklyEditorActiveWindowUnset;
+    }
+    final DateTime from = t.validFrom;
+    final DateTime? to = t.validTo;
     if (to == null) {
       return l10n.weeklyEditorActiveWindowOpenEnded(_ddmm(from));
     }
@@ -524,12 +532,26 @@ class _LoadedBody extends StatelessWidget {
     required this.saveGateListenable,
     required this.saving,
     required this.activeWindow,
+    required this.isWindowSet,
     required this.l10n,
     required this.onToggle,
     required this.onMutated,
     required this.onSave,
     required this.onTapWindow,
   });
+
+  /// Filled active-window label style — committed value (Nunito 13/700, text).
+  static final TextStyle _windowSetStyle = VelvetText.bodyStrong().copyWith(
+    fontSize: 13,
+  );
+
+  /// Unset active-window prompt style — reads as a placeholder, not a value
+  /// (Nunito 13/600, placeholder color). See frontend-design judgment.
+  static final TextStyle _windowUnsetStyle = VelvetText.bodyStrong().copyWith(
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+    color: BrandColors.placeholder,
+  );
 
   final List<DayHours?> days;
 
@@ -541,6 +563,11 @@ class _LoadedBody extends StatelessWidget {
   final ValueListenable<_SaveGate> saveGateListenable;
   final bool saving;
   final String activeWindow;
+
+  /// Whether a validity window has been persisted. When `false`, [activeWindow]
+  /// is the unset placeholder prompt and the card renders it as a placeholder
+  /// (muted weight/color) rather than a committed value.
+  final bool isWindowSet;
   final AppLocalizations l10n;
 
   /// Applies a day toggle in the host and returns the new slot value for the
@@ -728,7 +755,7 @@ class _LoadedBody extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       activeWindow,
-                      style: VelvetText.bodyStrong().copyWith(fontSize: 13),
+                      style: isWindowSet ? _windowSetStyle : _windowUnsetStyle,
                     ),
                     const SizedBox(height: VelvetSpacing.xs),
                     Text(

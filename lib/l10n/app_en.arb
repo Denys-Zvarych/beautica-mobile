@@ -1998,6 +1998,10 @@
   "@weeklyEditorActiveWindowHint": {
     "description": "Helper line under the active-window card on the weekly-template editor (Phase 15.5)."
   },
+  "weeklyEditorActiveWindowUnset": "Choose the date the schedule starts",
+  "@weeklyEditorActiveWindowUnset": {
+    "description": "Placeholder prompt on the active-window card when no validity window has ever been chosen (first-time / NO_SCHEDULE). Reads as a call-to-action to tap and pick a start date, not as a filled value."
+  },
   "weeklyEditorDayOffRest": "Day off",
   "@weeklyEditorDayOffRest": {
     "description": "Rest-state body text shown inside a collapsed (day-off) weekday card in the weekly-template editor (Phase 15.5)."
