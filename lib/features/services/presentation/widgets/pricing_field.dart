@@ -841,6 +841,18 @@ class _PricingInputFieldState extends State<_PricingInputField> {
       ),
     );
 
+    // Wrap the entire well in a GestureDetector so that taps on the suffix
+    // text ("грн" / "хв") and the surrounding padding still focus the field.
+    // HitTestBehavior.opaque ensures empty space inside the well is hittable.
+    // The TextField itself consumes taps on the digit area first (cursor
+    // placement), so GestureDetector only fires for taps the TextField
+    // doesn't absorb. Disabled fields get onTap:null so they remain inert.
+    final Widget tappableWell = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: widget.enabled ? () => _focus.requestFocus() : null,
+      child: well,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -857,9 +869,9 @@ class _PricingInputFieldState extends State<_PricingInputField> {
         // Inset well with focus ring. In compact mode the suppressed label is
         // re-attached via Semantics so screen readers still announce the field.
         if (widget.compact)
-          Semantics(textField: true, label: widget.label, child: well)
+          Semantics(textField: true, label: widget.label, child: tappableWell)
         else
-          well,
+          tappableWell,
 
         // Inline error row (only when there's a non-empty error message).
         if (hasError)
