@@ -81,11 +81,17 @@ final class HttpWorkingHoursRepository implements WorkingHoursRepository {
   HttpWorkingHoursRepository({
     required MasterControllerApi masterApi,
     required String masterId,
+    DateTime Function() now = DateTime.now,
   }) : _masterApi = masterApi,
-       _masterId = masterId;
+       _masterId = masterId,
+       _now = now;
 
   final MasterControllerApi _masterApi;
   final String _masterId;
+
+  /// Injectable wall-clock seam — defaults to [DateTime.now] in production;
+  /// the provider wires [clockProvider] so tests can pin "today".
+  final DateTime Function() _now;
 
   static const _tag = 'feature.calendar.workinghours.repository';
 
@@ -237,7 +243,7 @@ final class HttpWorkingHoursRepository implements WorkingHoursRepository {
   /// with the schedule feature's date math) and strips the time-of-day so the
   /// window comparison is purely date-based.
   DateTime _todayKyiv() {
-    final now = DateTime.now();
+    final now = _now();
     return DateTime(now.year, now.month, now.day);
   }
 

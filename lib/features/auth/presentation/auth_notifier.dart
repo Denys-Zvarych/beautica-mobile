@@ -37,6 +37,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
 import '../../../core/security/screen_protection.dart';
+import '../../../core/time/clock_provider.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../../../shared/util/mask_email.dart';
 import '../data/auth_repository_provider.dart';
@@ -140,7 +141,8 @@ class AuthNotifier extends _$AuthNotifier {
       if (exp is! int) return false;
       // Apply a 30-second grace window to account for minor clock skew.
       const kGraceSeconds = 30;
-      final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final nowSeconds =
+          ref.read(clockProvider)().millisecondsSinceEpoch ~/ 1000;
       return exp < nowSeconds + kGraceSeconds;
     } catch (_) {
       // Fail-open — let the server decide if we cannot decode the token.

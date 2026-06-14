@@ -12,12 +12,17 @@
 // Note: `test/` is excluded from the `no_raw_ui_strings` custom lint rule —
 // raw string literals in test find expressions are acceptable here.
 
+import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/data/master_repository.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -27,7 +32,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
+import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/fakes/fake_service_repository.dart';
 
 void main() {
   group('appRouter smoke tests', () {
@@ -123,12 +130,32 @@ void main() {
   // currentConfiguration URI is the deterministic signal.
   // -------------------------------------------------------------------------
   group('appRouter real redirect wiring', () {
+    // Park the splash gate in the past so authRedirect does not pin the router
+    // on /splash waiting for AppStartTime.minSplashDuration to elapse.
+    setUp(
+      () => AppStartTime.setStartForTest(
+        DateTime.now().subtract(const Duration(seconds: 5)),
+      ),
+    );
+    tearDown(AppStartTime.resetForTest);
+
     ProviderContainer makeContainer(AsyncValue<AuthSession> session) {
       final container = ProviderContainer(
         overrides: [
           authProvider.overrideWith(() => _FixedAuthNotifier(session)),
           authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
           secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+          // The authenticated-redirect test lands on MasterProfileScreen, which
+          // (without these) would call the REAL HttpMasterRepository — a live
+          // Dio request that schedules a Timer never drained by a bounded
+          // `pump`, intermittently tripping '!timersPending'. Override the
+          // landed screen's data providers with settled fakes so the screen
+          // resolves synchronously and schedules no wall-clock timer.
+          masterProfileProvider.overrideWith(_SettledMasterProfileNotifier.new),
+          masterRepositoryProvider.overrideWith((_) => FakeMasterRepository()),
+          serviceRepositoryProvider.overrideWith(
+            (_) => FakeServiceRepository(),
+          ),
         ],
       );
       addTearDown(container.dispose);
@@ -201,6 +228,21 @@ const _authenticatedSession = AsyncData<AuthSession>(
 const _unauthenticatedSession = AsyncData<AuthSession>(
   AuthSession.unauthenticated(),
 );
+
+/// [MasterProfile] stub that resolves immediately to a fixed [Master] so the
+/// authenticated-redirect test can land on MasterProfileScreen without the real
+/// repository firing a Dio request (which would leak a Timer).
+class _SettledMasterProfileNotifier extends MasterProfile {
+  @override
+  Future<Master> build() async => const Master(
+    id: 'u1',
+    firstName: 'Test',
+    lastName: 'User',
+    avgRating: 0,
+    reviewCount: 0,
+    type: MasterType.independentMaster,
+  );
+}
 
 /// [AuthNotifier] stub that immediately settles to a fixed [AsyncValue].
 /// Mirrors the `_FixedAuthNotifier` used across the auth test suite.
