@@ -14,8 +14,9 @@
 // allocations in build(); a static Tween<Offset> is reused across reveals.
 //
 // Design source: `docs/signup-designs/ProfileSettingsHub/lib/screens/
-// settings_hub_screen.dart` — ported 1:1, swapping Navigator.push for go_router
-// pushes and the placeholder logout for the production flow.
+// settings_hub_screen.dart` — ported 1:1, swapping the preview's imperative
+// route pushes for go_router pushes and the placeholder logout for the
+// production flow.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
