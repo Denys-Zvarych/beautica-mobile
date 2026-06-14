@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:beautica_api/src/model/auth_response.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -15,6 +16,7 @@ part 'api_response_auth_response.g.dart';
 /// * [success]
 /// * [data]
 /// * [message]
+/// * [errors]
 @BuiltValue()
 abstract class ApiResponseAuthResponse
     implements Built<ApiResponseAuthResponse, ApiResponseAuthResponseBuilder> {
@@ -26,6 +28,9 @@ abstract class ApiResponseAuthResponse
 
   @BuiltValueField(wireName: r'message')
   String? get message;
+
+  @BuiltValueField(wireName: r'errors')
+  BuiltMap<String, String>? get errors;
 
   ApiResponseAuthResponse._();
 
@@ -78,6 +83,14 @@ class _$ApiResponseAuthResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.errors != null) {
+      yield r'errors';
+      yield serializers.serialize(
+        object.errors,
+        specifiedType:
+            const FullType(BuiltMap, [FullType(String), FullType(String)]),
+      );
+    }
   }
 
   @override
@@ -123,6 +136,14 @@ class _$ApiResponseAuthResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.message = valueDes;
+          break;
+        case r'errors':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType(BuiltMap, [FullType(String), FullType(String)]),
+          ) as BuiltMap<String, String>;
+          result.errors.replace(valueDes);
           break;
         default:
           unhandled.add(key);

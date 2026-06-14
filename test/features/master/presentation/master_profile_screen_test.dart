@@ -61,6 +61,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../../../helpers/pump_app.dart';
 
@@ -71,6 +73,20 @@ import '../../../helpers/pump_app.dart';
 class _MockMasterRepository extends Mock implements MasterRepository {}
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
+
+/// Mock [UrlLauncherPlatform] for the Instagram-launch tests.
+///
+/// `url_launcher` 6.3.x routes every `launchUrl(uri, mode: ...)` call through
+/// `UrlLauncherPlatform.instance.launchUrl(String url, LaunchOptions options)`.
+/// We swap the platform instance for this mocktail double so no real intent /
+/// browser is ever fired, and so we can assert the exact URL string that the
+/// screen handed to the launcher (proving the canonicalization gate ran).
+///
+/// `MockPlatformInterfaceMixin` lets `UrlLauncherPlatform.instance =` accept a
+/// mock without throwing the `PlatformInterface.verify` token assertion.
+class _MockUrlLauncher extends Mock
+    with MockPlatformInterfaceMixin
+    implements UrlLauncherPlatform {}
 
 // ---------------------------------------------------------------------------
 // Stub data
@@ -1008,6 +1024,145 @@ void main() {
     });
   });
 
+  // ── 13b. Menu button — push-not-go regression guard ─────────────────────────
+  //
+  // The monolithic edit screen was replaced by a settings hub: the profile's
+  // top-right button changed from btn-edit-master (→ masterEdit) to
+  // btn-menu-master (→ masterMenu), and the onTap uses `context.push(...)` not
+  // `context.go(...)`. `push` stacks the destination on top of the current
+  // route; `go` replaces the stack. The swipe-back gesture REQUIRES a poppable
+  // stack — if the call reverts to `go`, `canPop()` returns false on the hub
+  // and the back gesture silently breaks.
+  //
+  // Strategy: pump inside a 2-route GoRouter (/master/profile + /master/menu).
+  // After tapping the menu button, assert:
+  //   (a) the router has navigated to RouteNames.masterMenu; AND
+  //   (b) `router.canPop()` is true — proving push (not go) was used.
+
+  group('menu button pushes masterMenu (swipe-back regression guard)', () {
+    // NOTE on go_router path inspection in tests:
+    // `routeInformationProvider.value.uri.path` reflects the initial location
+    // and does NOT update after a `context.push(...)`. Use `find` assertions and
+    // `router.canPop()` instead — `canPop()` is true only when a back-stack entry
+    // exists, which proves `push` (not `go`) was used.
+
+    testWidgets('tapping the menu button renders the hub and leaves back stack '
+        'poppable (canPop true)', (tester) async {
+      final router = GoRouter(
+        initialLocation: RouteNames.masterProfile,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.masterProfile,
+            builder: (_, _) => const MasterProfileScreen(),
+          ),
+          GoRoute(
+            path: RouteNames.masterMenu,
+            builder: (_, _) => const Scaffold(body: Text('hub-screen-stub')),
+          ),
+        ],
+      );
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Confirm the menu button is present (data state rendered).
+      final menuBtn = find.byKey(const Key('btn-menu-master'));
+      expect(
+        menuBtn,
+        findsOneWidget,
+        reason:
+            'menu button (Key btn-menu-master) must be present in the data state',
+      );
+
+      await tester.tap(menuBtn);
+      await tester.pumpAndSettle();
+
+      // (a) The hub stub content must be visible — confirms navigation
+      // reached the /master/menu route.
+      expect(
+        find.text('hub-screen-stub'),
+        findsOneWidget,
+        reason:
+            'tapping the menu button must navigate to the masterMenu screen '
+            '(${RouteNames.masterMenu})',
+      );
+
+      // (b) canPop() must be true — proves push was used, not go.
+      // With go() the navigator stack is replaced: canPop() returns false.
+      // With push() the profile is still on the stack: canPop() returns true.
+      expect(
+        router.canPop(),
+        isTrue,
+        reason:
+            'after tapping the menu button, canPop() must be true — '
+            'the profile screen must remain on the back stack so the '
+            'left-edge swipe-back gesture can return to it. '
+            'If this fails, the call reverted to context.go() which '
+            'replaces the stack and breaks swipe-back.',
+      );
+    });
+
+    testWidgets('navigating back from masterMenu returns to masterProfile', (
+      tester,
+    ) async {
+      final router = GoRouter(
+        initialLocation: RouteNames.masterProfile,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.masterProfile,
+            builder: (_, _) => const MasterProfileScreen(),
+          ),
+          GoRoute(
+            path: RouteNames.masterMenu,
+            builder: (_, _) => const Scaffold(body: Text('hub-screen-stub')),
+          ),
+        ],
+      );
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Push onto the hub screen.
+      await tester.tap(find.byKey(const Key('btn-menu-master')));
+      await tester.pumpAndSettle();
+      // Verify we are on the hub screen.
+      expect(find.text('hub-screen-stub'), findsOneWidget);
+
+      // Pop back (simulates swipe-back / system back).
+      router.pop();
+      await tester.pumpAndSettle();
+
+      // The profile screen content must be visible again — confirms the
+      // back-stack was restored after pop.
+      expect(
+        find.text('hub-screen-stub'),
+        findsNothing,
+        reason: 'hub screen must be gone after pop',
+      );
+      expect(
+        find.byKey(const Key('master-profile-name')),
+        findsOneWidget,
+        reason:
+            'popping the masterEdit screen must return to masterProfile — '
+            'confirms a true back-stack exists after the push',
+      );
+    });
+  });
+
   // ── 14. Services section — category cards (profile-category-cards feature) ──
   //
   // The profile screen no longer renders a flat tile list or a bounded
@@ -1257,6 +1412,205 @@ void main() {
               'tapping a category card must push the services route '
               '(/services path)',
         );
+      },
+    );
+  });
+
+  // ── 15. Instagram contact tile — launch / no-launch behavior ───────────────
+  //
+  // The Instagram ContactTile (Key('master-contact-instagram')) onTap funnels
+  // through _openInstagram → canonicalInstagramUri → launchUrl. These tests
+  // assert the OBSERVABLE security contract:
+  //   • a valid handle → launchUrl invoked with the canonical
+  //     `https://instagram.com/<handle>` URL.
+  //   • a full canonical URL → launchUrl invoked with that exact URL.
+  //   • null / '—' → NO launch + localized masterInstagramOpenError SnackBar.
+  //
+  // The platform launcher is mocked (UrlLauncherPlatform.instance) so no real
+  // intent/browser fires and the URL string handed to it can be captured.
+  // Widget lookups use the tile Key, never raw Ukrainian finders; the SnackBar
+  // text is resolved via l10n from the live tree (no hardcoded string).
+
+  group('instagram contact tile — launch behavior', () {
+    late _MockUrlLauncher launcher;
+    late UrlLauncherPlatform originalPlatform;
+
+    setUp(() {
+      originalPlatform = UrlLauncherPlatform.instance;
+      launcher = _MockUrlLauncher();
+      UrlLauncherPlatform.instance = launcher;
+      registerFallbackValue(const LaunchOptions());
+    });
+
+    tearDown(() {
+      // Restore the real platform so other test files are unaffected.
+      UrlLauncherPlatform.instance = originalPlatform;
+    });
+
+    /// Pumps the screen on a tall viewport so the contacts section (the last
+    /// staggered reveal, section 6) is laid out, then scrolls the Instagram
+    /// tile into view so [WidgetTester.tap] lands on it. The default 800×600
+    /// surface leaves the tile below the fold → tap misses the hit-test.
+    Future<Finder> pumpAndRevealInstagramTile(
+      WidgetTester tester, {
+      required Master master,
+    }) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: AsyncData<Master>(master),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final tile = find.byKey(const Key('master-contact-instagram'));
+      await tester.ensureVisible(tile);
+      await tester.pumpAndSettle();
+      return tile;
+    }
+
+    testWidgets(
+      'tapping the instagram tile with a valid handle launches the canonical '
+      'https://instagram.com/<handle> URL',
+      (tester) async {
+        // Stub the launcher to report success — captures the URL via the
+        // when() matcher so we can assert the exact string.
+        when(
+          () => launcher.launchUrl(any(), any()),
+        ).thenAnswer((_) async => true);
+
+        final tile = await pumpAndRevealInstagramTile(
+          tester,
+          master: _stubMaster.copyWith(instagram: '@olena_nails'),
+        );
+
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+
+        // launchUrl must have been called exactly once with the canonical URL —
+        // the leading "@" stripped and the canonical host composed.
+        final captured = verify(
+          () => launcher.launchUrl(captureAny(), any()),
+        ).captured;
+        expect(captured, hasLength(1));
+        expect(captured.single, 'https://instagram.com/olena_nails');
+      },
+    );
+
+    testWidgets(
+      'tapping the instagram tile with a full canonical URL launches it as-is',
+      (tester) async {
+        when(
+          () => launcher.launchUrl(any(), any()),
+        ).thenAnswer((_) async => true);
+
+        final tile = await pumpAndRevealInstagramTile(
+          tester,
+          master: _stubMaster.copyWith(
+            instagram: 'https://instagram.com/olena_nails',
+          ),
+        );
+
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+
+        final captured = verify(
+          () => launcher.launchUrl(captureAny(), any()),
+        ).captured;
+        expect(captured.single, 'https://instagram.com/olena_nails');
+      },
+    );
+
+    testWidgets(
+      'tapping the instagram tile when instagram is null does NOT launch and '
+      'shows the masterInstagramOpenError SnackBar',
+      (tester) async {
+        when(
+          () => launcher.launchUrl(any(), any()),
+        ).thenAnswer((_) async => true);
+
+        // _stubMaster has instagram == null → value renders as '—'.
+        final tile = await pumpAndRevealInstagramTile(
+          tester,
+          master: _stubMaster,
+        );
+
+        await tester.tap(tile);
+        await tester.pump(); // let the SnackBar insert.
+
+        // No launch attempt — canonicalInstagramUri(null) returned null.
+        verifyNever(() => launcher.launchUrl(any(), any()));
+
+        // The localized error SnackBar must be shown (resolved via l10n, not a
+        // hardcoded Ukrainian literal).
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterProfileScreen)),
+        );
+        expect(find.text(l10n.masterInstagramOpenError), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'tapping the instagram tile when value is the "—" sentinel does NOT '
+      'launch and shows the error SnackBar',
+      (tester) async {
+        when(
+          () => launcher.launchUrl(any(), any()),
+        ).thenAnswer((_) async => true);
+
+        final tile = await pumpAndRevealInstagramTile(
+          tester,
+          master: _stubMaster.copyWith(instagram: '—'),
+        );
+
+        await tester.tap(tile);
+        await tester.pump();
+
+        verifyNever(() => launcher.launchUrl(any(), any()));
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterProfileScreen)),
+        );
+        expect(find.text(l10n.masterInstagramOpenError), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'when the launcher reports failure (returns false) the error SnackBar '
+      'is shown',
+      (tester) async {
+        // Valid handle so the URL passes the allow-list, but the platform
+        // launcher fails — the screen must surface the localized error.
+        when(
+          () => launcher.launchUrl(any(), any()),
+        ).thenAnswer((_) async => false);
+
+        final tile = await pumpAndRevealInstagramTile(
+          tester,
+          master: _stubMaster.copyWith(instagram: 'olena_nails'),
+        );
+
+        await tester.tap(tile);
+        await tester.pumpAndSettle();
+
+        // launch was attempted with the canonical URL...
+        final captured = verify(
+          () => launcher.launchUrl(captureAny(), any()),
+        ).captured;
+        expect(captured.single, 'https://instagram.com/olena_nails');
+
+        // ...but failed, so the error SnackBar appears.
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterProfileScreen)),
+        );
+        expect(find.text(l10n.masterInstagramOpenError), findsOneWidget);
       },
     );
   });

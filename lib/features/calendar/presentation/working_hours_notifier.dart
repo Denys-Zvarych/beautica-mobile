@@ -6,24 +6,25 @@
 // on every paint, so it is [keepAlive: true] — disposing and refetching on each
 // navigation would waste bandwidth and flash a loader on the calendar.
 //
-// PERF M2 (cache coherence): the canonical working week lives on the cached
-// [Master] profile. [build] watches [workingHoursRepositoryProvider] (which in
-// turn watches [masterProfileProvider]), so any profile invalidation — a
-// profile edit, a locality change, or a working-hours save — propagates here
-// and the week is re-derived from the fresh profile rather than going stale.
+// [list] is a NETWORK read (`getWeeklySchedules`) since the weekly-schedule
+// migration (Phase 6.2): working hours are no longer bundled on the [Master]
+// profile envelope (`master_mapper.dart` sets `workingHours: const []`), so
+// there is no profile-cache coherence to maintain here. [build] watches only the
+// Master-row id (via [workingHoursRepositoryProvider]), so an unrelated profile
+// invalidation (a bio edit, a locality change) does NOT re-run [list].
 //
 // [save] commits the whole week atomically via [WorkingHoursRepository.replaceAll]
-// then invalidates [masterProfileProvider] so the authoritative server response
-// is folded back into the profile cache; that invalidation flows through
-// [build] and re-emits the saved (server-confirmed, gap-filled) list to every
-// watcher.
+// and writes the server-confirmed (gap-filled) week straight into [state]. It
+// deliberately does NOT invalidate [masterProfileProvider]: the profile no
+// longer carries working hours, so a post-write profile GET + re-[list] would be
+// pure waste (a redundant `/weekly-schedules` round-trip and a loader flash) with
+// the authoritative result already in [state].
 
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../master/presentation/master_profile_notifier.dart';
 import '../data/working_hours_repository_provider.dart';
 import '../domain/working_hours.dart';
 
@@ -38,22 +39,20 @@ class WorkingHoursNotifier extends _$WorkingHoursNotifier {
 
   @override
   Future<List<WorkingHours>> build() {
-    // ref.watch (PERF M2): workingHoursRepositoryProvider rebuilds whenever the
-    // cached master profile is invalidated, so a profile refresh propagates the
-    // fresh week here instead of leaving this notifier stale. [list] is a pure
-    // cache read (no network call) per PERF M1.
+    // [list] is a network read (`getWeeklySchedules`). The repository provider
+    // watches only the Master-row id, so this rebuilds when the authenticated
+    // master changes but NOT on an unrelated profile invalidation.
     return ref.watch(workingHoursRepositoryProvider).list();
   }
 
-  /// Persists the whole week and folds the server-confirmed result back into
-  /// the profile cache.
+  /// Persists the whole week and emits the server-confirmed result.
   ///
   /// Wraps the save in [AsyncValue.guard] so a thrown [Failure] becomes an
   /// [AsyncError] the screen can render — the notifier never leaks a raw
-  /// exception. On success it invalidates [masterProfileProvider] so the
-  /// canonical profile re-fetches with the saved week; that invalidation flows
-  /// back through [build] and re-emits the gap-filled 7-entry list to every
-  /// watcher.
+  /// exception. [replaceAll] returns the saved (server-confirmed, gap-filled)
+  /// 7-entry week, which is written straight into [state]; there is no follow-up
+  /// profile invalidation or re-[list] (the profile no longer carries working
+  /// hours, so a post-write GET would be redundant work and a loader flash).
   Future<void> save(List<WorkingHours> hours) async {
     if (kDebugMode) {
       log(
@@ -63,16 +62,10 @@ class WorkingHoursNotifier extends _$WorkingHoursNotifier {
       );
     }
     state = const AsyncLoading<List<WorkingHours>>();
-    final result = await AsyncValue.guard(
+    // [replaceAll] does GET(pick) + PUT/POST and returns the authoritative week;
+    // that result is the new state — no extra profile GET, no re-list.
+    state = await AsyncValue.guard(
       () => ref.read(workingHoursRepositoryProvider).replaceAll(hours),
     );
-    // Surface the optimistic server-confirmed list immediately …
-    state = result;
-    // … then refresh the canonical profile cache so the working hours carried on
-    // [Master] stay coherent with what was just persisted (PERF M2). The
-    // resulting rebuild of [build] re-emits the same authoritative week.
-    if (result.hasValue) {
-      ref.invalidate(masterProfileProvider);
-    }
   }
 }

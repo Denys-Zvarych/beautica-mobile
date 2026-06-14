@@ -225,7 +225,13 @@ class _VelvetFieldState extends State<VelvetField> {
                   Expanded(
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
-                        minHeight: multiline ? 0 : VelvetSizes.field - 24,
+                        // Single-line well height matches the documented
+                        // VelvetSizes.field (49dp) so it lines up with the
+                        // pricing field and clears Material's 48dp tap target:
+                        // 29 (inner) + 2 * (VelvetSpacing.sm + 2) (=20 padding).
+                        minHeight: multiline
+                            ? 0
+                            : VelvetSizes.field - 2 * (VelvetSpacing.sm + 2),
                       ),
                       child: Center(
                         widthFactor: 1,

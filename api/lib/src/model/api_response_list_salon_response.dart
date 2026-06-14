@@ -16,6 +16,7 @@ part 'api_response_list_salon_response.g.dart';
 /// * [success]
 /// * [data]
 /// * [message]
+/// * [errors]
 @BuiltValue()
 abstract class ApiResponseListSalonResponse
     implements
@@ -29,6 +30,9 @@ abstract class ApiResponseListSalonResponse
 
   @BuiltValueField(wireName: r'message')
   String? get message;
+
+  @BuiltValueField(wireName: r'errors')
+  BuiltMap<String, String>? get errors;
 
   ApiResponseListSalonResponse._();
 
@@ -81,6 +85,14 @@ class _$ApiResponseListSalonResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.errors != null) {
+      yield r'errors';
+      yield serializers.serialize(
+        object.errors,
+        specifiedType:
+            const FullType(BuiltMap, [FullType(String), FullType(String)]),
+      );
+    }
   }
 
   @override
@@ -126,6 +138,14 @@ class _$ApiResponseListSalonResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.message = valueDes;
+          break;
+        case r'errors':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType(BuiltMap, [FullType(String), FullType(String)]),
+          ) as BuiltMap<String, String>;
+          result.errors.replace(valueDes);
           break;
         default:
           unhandled.add(key);

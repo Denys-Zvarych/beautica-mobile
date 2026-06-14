@@ -341,3 +341,20 @@ final class CategoryRequestThrottledFailure extends Failure {
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).categoryRequestErrThrottled;
 }
+
+/// Emitted when `POST /api/v1/independent-masters/me/services/bulk` returns
+/// **409 Conflict** because the master already has at least one active service.
+///
+/// The bulk endpoint is the first-time-setup guard: it only succeeds while the
+/// master's catalogue is empty. A 409 means another path (e.g. the single-create
+/// form, or a concurrent device) already populated the catalogue, so the
+/// one-pass setup screen is no longer the right surface. The screen surfaces
+/// this with a friendly "you already have services" message and routes the user
+/// to the regular services list (which now has content) instead of retrying.
+final class MasterAlreadyHasServicesFailure extends Failure {
+  const MasterAlreadyHasServicesFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).serviceSetupErrAlreadyHasServices;
+}

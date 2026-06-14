@@ -166,6 +166,18 @@
   "@errNameTooLong": {
     "description": "Validation error when a name field exceeds 100 characters."
   },
+  "errNameHasDigit": "Ім'я не може містити цифри",
+  "@errNameHasDigit": {
+    "description": "Validation error when a name field contains a digit. Mirrors backend @NoDigits."
+  },
+  "errFirstNameHasDigit": "Ім'я не може містити цифри",
+  "@errFirstNameHasDigit": {
+    "description": "Validation error when the first-name field contains a digit. Mirrors backend @NoDigits."
+  },
+  "errLastNameHasDigit": "Прізвище не може містити цифри",
+  "@errLastNameHasDigit": {
+    "description": "Validation error when the last-name field contains a digit. Mirrors backend @NoDigits."
+  },
   "roleClient": "Клієнт",
   "@roleClient": {
     "description": "Label for the Client role."
@@ -1284,6 +1296,10 @@
   "@serviceNameHint": {
     "description": "Hint text inside the service name input field on the service create form (Phase 5.3)."
   },
+  "serviceNameOptionalLabel": "Назва (необов’язково)",
+  "@serviceNameOptionalLabel": {
+    "description": "Field label above the now-optional service custom-name input on the service create/edit form (Item 4). The name defaults to the selected service-type name when left blank."
+  },
   "serviceDurationLabel": "Тривалість",
   "@serviceDurationLabel": {
     "description": "Field label above the duration input on the service create/edit form (Phase 5.3)."
@@ -1422,6 +1438,50 @@
   "@serviceCategorySuggest": {
     "description": "Label for the trailing chip/button on the category picker that opens the 'suggest a category' dialog."
   },
+  "serviceTypeLabel": "Тип послуги",
+  "@serviceTypeLabel": {
+    "description": "Section label above the second-level service-type chip selector row on the service create/edit form (shown only once a category is selected)."
+  },
+  "serviceTypeEmpty": "Немає типів послуг для цієї категорії",
+  "@serviceTypeEmpty": {
+    "description": "Calm passive hint shown on the service-type chip row when the selected category has no service types to choose from. Not an error."
+  },
+  "serviceSelectSearchHint": "Пошук…",
+  "@serviceSelectSearchHint": {
+    "description": "Placeholder text in the search field at the top of the searchable single-select dropdown menu (category / service-type)."
+  },
+  "serviceSelectSearchEmpty": "Нічого не знайдено",
+  "@serviceSelectSearchEmpty": {
+    "description": "Calm empty-state text shown inside the searchable dropdown menu when the typed query matches no option."
+  },
+  "serviceSelectRetry": "Спробувати знову",
+  "@serviceSelectRetry": {
+    "description": "Retry button label shown inside the searchable dropdown menu when its option list failed to load."
+  },
+  "serviceCategoryPlaceholder": "Оберіть зі списку",
+  "@serviceCategoryPlaceholder": {
+    "description": "Placeholder shown in the closed category dropdown field before a category is selected."
+  },
+  "serviceCategoryMenuTitle": "Категорія",
+  "@serviceCategoryMenuTitle": {
+    "description": "Header title of the category dropdown bottom-sheet menu."
+  },
+  "serviceTypePlaceholder": "Оберіть тип послуги",
+  "@serviceTypePlaceholder": {
+    "description": "Placeholder shown in the closed service-type dropdown field before a type is selected (while options are available)."
+  },
+  "serviceTypeMenuTitle": "Тип послуги",
+  "@serviceTypeMenuTitle": {
+    "description": "Header title of the service-type dropdown bottom-sheet menu."
+  },
+  "serviceTypeLoadError": "Не вдалося завантажити типи послуг",
+  "@serviceTypeLoadError": {
+    "description": "Error text shown inside the service-type dropdown (menu and closed field) when the service-type list fails to load or times out. Accompanied by a retry affordance."
+  },
+  "serviceTypeLoading": "Завантаження…",
+  "@serviceTypeLoading": {
+    "description": "Text shown in the closed service-type dropdown field while its option list is still loading."
+  },
   "serviceCategoryUncategorized": "Без категорії",
   "@serviceCategoryUncategorized": {
     "description": "Header label for the services-list expandable section that groups services with no category set."
@@ -1449,6 +1509,14 @@
   "categoryRequestNameHint": "Напр. Нарощування вій",
   "@categoryRequestNameHint": {
     "description": "Hint text inside the Ukrainian display-name input in the suggest-a-category dialog."
+  },
+  "categoryRequestInitialServiceLabel": "Перша послуга (необов'язково)",
+  "@categoryRequestInitialServiceLabel": {
+    "description": "Field label above the optional initial service-name input in the suggest-a-category dialog (forwarded as initialServiceName)."
+  },
+  "categoryRequestInitialServiceHint": "напр. Ламінування вій",
+  "@categoryRequestInitialServiceHint": {
+    "description": "Placeholder hint for the optional initial service-name field in the suggest-a-category dialog."
   },
   "categoryRequestCodeLabel": "Код",
   "@categoryRequestCodeLabel": {
@@ -1489,6 +1557,43 @@
   "categoryRequestErrThrottled": "Забагато запитів, спробуйте пізніше",
   "@categoryRequestErrThrottled": {
     "description": "Error message for a 429 response when the category-request rate limit (5/hr) is exhausted."
+  },
+
+  "serviceTypeSuggestChip": "Не знайшли? Запропонувати послугу",
+  "@serviceTypeSuggestChip": {
+    "description": "Menu-footer affordance in the service-type picker that opens the suggest-a-service-type dialog when the type list lacks the desired service (Phase 16.6)."
+  },
+  "serviceTypeSuggestTitle": "Запропонувати послугу",
+  "@serviceTypeSuggestTitle": {
+    "description": "Title of the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestSubtitle": "Опишіть послугу — ми додамо її після перевірки.",
+  "@serviceTypeSuggestSubtitle": {
+    "description": "Subtitle in the suggest-a-service-type dialog setting the out-of-band admin-review expectation (Phase 16.6)."
+  },
+  "serviceTypeSuggestNameLabel": "Назва послуги",
+  "@serviceTypeSuggestNameLabel": {
+    "description": "Field label above the required service-type name input in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestNameHint": "Напр. Ламінування вій",
+  "@serviceTypeSuggestNameHint": {
+    "description": "Placeholder hint for the service-type name field in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestNameError": "Введіть назву послуги",
+  "@serviceTypeSuggestNameError": {
+    "description": "Validation error shown when the name field is empty in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestSubmit": "Надіслати",
+  "@serviceTypeSuggestSubmit": {
+    "description": "Primary submit button label in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestCancel": "Скасувати",
+  "@serviceTypeSuggestCancel": {
+    "description": "Cancel affordance label in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestSuccess": "Пропозицію надіслано на розгляд",
+  "@serviceTypeSuggestSuccess": {
+    "description": "SnackBar message shown after a service-type suggestion is successfully submitted (Phase 16.6)."
   },
 
   "deleteServiceTitle": "Видалити послугу?",
@@ -1591,6 +1696,11 @@
     "description": "Label and semantic label for the Instagram ContactTile on the master profile screen."
   },
 
+  "masterInstagramOpenError": "Не вдалося відкрити Instagram",
+  "@masterInstagramOpenError": {
+    "description": "SnackBar shown when the master's Instagram link cannot be opened (no validated URL, or no app/browser can handle it)."
+  },
+
   "masterPortfolioTileSemantics": "Фото портфоліо {index}",
   "@masterPortfolioTileSemantics": {
     "description": "Accessibility semantic label for each portfolio placeholder tile on the master profile screen.",
@@ -1651,5 +1761,639 @@
   "fieldNameEmail": "Електронна пошта",
   "@fieldNameEmail": {
     "description": "Field name used in server-error validation banners for the email field."
+  },
+
+  "workingHoursTitle": "Робочі години",
+  "@workingHoursTitle": {
+    "description": "Title of the working hours editor screen (Phase 6.2)."
+  },
+  "workingHoursSubtext": "Налаштуйте щотижневий графік. Клієнти зможуть бронювати лише у відчинені дні та години.",
+  "@workingHoursSubtext": {
+    "description": "Sub-text below the working hours screen headline (Phase 6.2)."
+  },
+  "workingHoursClosedLabel": "Вихідний",
+  "@workingHoursClosedLabel": {
+    "description": "Status label shown in the day toggle row when the day is closed/inactive (Phase 6.2)."
+  },
+  "workingHoursOpenCount": "{count, plural, =0{Жодного робочого дня} =1{1 робочий день} few{{count} робочих дні} many{{count} робочих днів} other{{count} робочих днів}}",
+  "@workingHoursOpenCount": {
+    "description": "Summary chip showing how many days per week the master works (Phase 6.2).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "errEndAfterStart": "Час завершення має бути пізніше початку",
+  "@errEndAfterStart": {
+    "description": "Inline per-row validation error on the working hours screen when end time ≤ start time (Phase 6.2)."
+  },
+  "weekdayMon": "Понеділок",
+  "@weekdayMon": {
+    "description": "Full Ukrainian name for Monday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayTue": "Вівторок",
+  "@weekdayTue": {
+    "description": "Full Ukrainian name for Tuesday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayWed": "Середа",
+  "@weekdayWed": {
+    "description": "Full Ukrainian name for Wednesday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayThu": "Четвер",
+  "@weekdayThu": {
+    "description": "Full Ukrainian name for Thursday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayFri": "П'ятниця",
+  "@weekdayFri": {
+    "description": "Full Ukrainian name for Friday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdaySat": "Субота",
+  "@weekdaySat": {
+    "description": "Full Ukrainian name for Saturday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdaySun": "Неділя",
+  "@weekdaySun": {
+    "description": "Full Ukrainian name for Sunday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+
+  "workingHoursActiveLabel": "Відчинено",
+  "@workingHoursActiveLabel": {
+    "description": "Status label shown in the day toggle row when the day is open/active (Phase 6.2). Opposite of workingHoursClosedLabel."
+  },
+  "workingHoursStartSemanticLabel": "Початок",
+  "@workingHoursStartSemanticLabel": {
+    "description": "Accessibility semantic label prefix for the start-time well in a working-hours day row (Phase 6.2). The formatted time is appended by the widget."
+  },
+  "workingHoursEndSemanticLabel": "Завершення",
+  "@workingHoursEndSemanticLabel": {
+    "description": "Accessibility semantic label prefix for the end-time well in a working-hours day row (Phase 6.2). The formatted time is appended by the widget."
+  },
+  "workingHoursDayToggleSemantic": "{day} — робочий день",
+  "@workingHoursDayToggleSemantic": {
+    "description": "Accessibility semantic label for the open/closed toggle in a working-hours day row. {day} is the localised day name (e.g. 'Понеділок') (Phase 6.2).",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "Понеділок"
+      }
+    }
+  },
+
+  "scheduleTitle": "Графік роботи",
+  "@scheduleTitle": {
+    "description": "App-bar title of the Master Schedule screen (Phase 15.2)."
+  },
+  "scheduleCalendarSection": "Календар",
+  "@scheduleCalendarSection": {
+    "description": "Section header above the calendar card on the Master Schedule screen (Phase 15.2)."
+  },
+  "scheduleWeeklyCardTitle": "Робочі дні та години",
+  "@scheduleWeeklyCardTitle": {
+    "description": "Title of the weekly-template summary card on the Master Schedule screen (Phase 15.2)."
+  },
+  "scheduleWeeklyCardEditSemantic": "Робочі дні та години. Натисніть, щоб редагувати",
+  "@scheduleWeeklyCardEditSemantic": {
+    "description": "Accessibility semantic label for the tappable weekly-template card (editable viewers) on the Master Schedule screen (Phase 15.2)."
+  },
+  "scheduleTodayAction": "Сьогодні",
+  "@scheduleTodayAction": {
+    "description": "Label of the 'jump to today' button in the month navigator (Phase 15.2)."
+  },
+  "schedulePrevMonth": "Попередній місяць",
+  "@schedulePrevMonth": {
+    "description": "Accessibility label for the previous-month arrow in the month navigator (Phase 15.2)."
+  },
+  "scheduleNextMonth": "Наступний місяць",
+  "@scheduleNextMonth": {
+    "description": "Accessibility label for the next-month arrow in the month navigator (Phase 15.2)."
+  },
+  "schedulePrevWeek": "Попередній тиждень",
+  "@schedulePrevWeek": {
+    "description": "Accessibility label for the previous-week chevron on the week strip (Phase 15.2)."
+  },
+  "scheduleNextWeek": "Наступний тиждень",
+  "@scheduleNextWeek": {
+    "description": "Accessibility label for the next-week chevron on the week strip (Phase 15.2)."
+  },
+  "scheduleStripDay": "{weekday} {day}",
+  "@scheduleStripDay": {
+    "description": "Accessibility label for a present/future day cell in the week strip (Phase 15.2). {weekday} is the short Ukrainian weekday (e.g. 'Пн'); {day} is the day-of-month number.",
+    "placeholders": {
+      "weekday": { "type": "String", "example": "Пн" },
+      "day": { "type": "int", "example": "13" }
+    }
+  },
+  "scheduleStripDayPast": "{weekday} {day}, минулий день",
+  "@scheduleStripDayPast": {
+    "description": "Accessibility label for a past day cell in the week strip (Phase 15.2). Same placeholders as scheduleStripDay; suffixed to mark it read-only.",
+    "placeholders": {
+      "weekday": { "type": "String", "example": "Пн" },
+      "day": { "type": "int", "example": "13" }
+    }
+  },
+  "scheduleEditDaySemantic": "Редагувати години дня",
+  "@scheduleEditDaySemantic": {
+    "description": "Accessibility label for the day edit pencil in the selected-day panel (Phase 15.2)."
+  },
+  "schedulePastDaySemantic": "Минулий день — лише перегляд",
+  "@schedulePastDaySemantic": {
+    "description": "Accessibility label for the read-only badge shown on past days in the selected-day panel (Phase 15.2)."
+  },
+  "scheduleViewOnly": "Лише перегляд",
+  "@scheduleViewOnly": {
+    "description": "Read-only badge label replacing the edit pencil for past days (Phase 15.2)."
+  },
+  "scheduleDaySummaryWorking": "Робочий день: {intervals}",
+  "@scheduleDaySummaryWorking": {
+    "description": "Selected-day summary line for a working day (Phase 15.2). {intervals} is the formatted interval list (e.g. '09:00–18:00').",
+    "placeholders": {
+      "intervals": { "type": "String", "example": "09:00–18:00" }
+    }
+  },
+  "scheduleDaySummaryUnset": "Графік не задано",
+  "@scheduleDaySummaryUnset": {
+    "description": "Selected-day summary line when the day resolves to NO_SCHEDULE (Phase 15.2)."
+  },
+  "scheduleSlotWorking": "Робочий час",
+  "@scheduleSlotWorking": {
+    "description": "Legend + slot label for an available (working) 30-min slot — green (Phase 15.2)."
+  },
+  "scheduleSlotTimeOff": "Час відпочинку",
+  "@scheduleSlotTimeOff": {
+    "description": "Legend + slot label for a time-off slot (deliberate rest / day-off override) — pink (Phase 15.2)."
+  },
+  "scheduleSlotOff": "Неробочий час",
+  "@scheduleSlotOff": {
+    "description": "Legend + slot label for a non-working slot (outside intervals / no schedule) — grey (Phase 15.2)."
+  },
+  "scheduleErrTimeNotAligned": "Час має бути кратним 15 хвилинам",
+  "@scheduleErrTimeNotAligned": {
+    "description": "Validation error shown when a working-window or break edge is not a multiple of 15 minutes."
+  },
+  "scheduleNoScheduleDay": "На цей день графік не задано",
+  "@scheduleNoScheduleDay": {
+    "description": "NO_SCHEDULE banner primary line when a single viewed day has no published hours (Phase 15.2, OQ-3)."
+  },
+  "scheduleNoSchedulePeriod": "На цей період графік не задано",
+  "@scheduleNoSchedulePeriod": {
+    "description": "NO_SCHEDULE banner primary line when the whole visible week/period has no published hours (Phase 15.2, OQ-3)."
+  },
+  "scheduleNoScheduleHelper": "Додайте робочі години, щоб клієнти могли бронювати.",
+  "@scheduleNoScheduleHelper": {
+    "description": "NO_SCHEDULE banner secondary helper line (Phase 15.2, OQ-3)."
+  },
+  "scheduleAddHoursCta": "Додати робочі години",
+  "@scheduleAddHoursCta": {
+    "description": "NO_SCHEDULE banner CTA — opens the weekly-template editor (Phase 15.2, OQ-3). Hidden for read-only viewers."
+  },
+  "scheduleWeeklyEditorTitle": "Робочі дні та години",
+  "@scheduleWeeklyEditorTitle": {
+    "description": "Title of the weekly-template editor stub screen (Phase 15.2; real editor lands in 15.3)."
+  },
+  "scheduleOverrideEditorTitle": "Години на день",
+  "@scheduleOverrideEditorTitle": {
+    "description": "Title of the per-date override editor stub screen (Phase 15.2; real editor lands in 15.4)."
+  },
+  "schedulePropagateTitle": "Копіювати графік",
+  "@schedulePropagateTitle": {
+    "description": "Title of the copy/propagate stub screen (Phase 15.2; real surface lands in 15.5)."
+  },
+  "scheduleEditorComingSoon": "Цей редактор скоро буде доступний.",
+  "@scheduleEditorComingSoon": {
+    "description": "Body text shared by the schedule editor stub screens (Phase 15.2)."
+  },
+  "timePickerStartTitle": "Початок робочого дня",
+  "@timePickerStartTitle": {
+    "description": "Title of the VelvetTouch wheel time picker when choosing a working-day start time (replaces the Material clock dial)."
+  },
+  "timePickerEndTitle": "Кінець робочого дня",
+  "@timePickerEndTitle": {
+    "description": "Title of the VelvetTouch wheel time picker when choosing a working-day end time (replaces the Material clock dial)."
+  },
+  "timePickerConfirm": "Готово",
+  "@timePickerConfirm": {
+    "description": "Confirm CTA inside the VelvetTouch wheel time picker bottom sheet."
+  },
+  "timePickerHoursSemantic": "Години",
+  "@timePickerHoursSemantic": {
+    "description": "Accessibility label for the hours scroll wheel in the VelvetTouch time picker."
+  },
+  "timePickerMinutesSemantic": "Хвилини",
+  "@timePickerMinutesSemantic": {
+    "description": "Accessibility label for the minutes scroll wheel in the VelvetTouch time picker (15-minute steps)."
+  },
+  "weeklyEditorOpenCount": "Робочих днів на тиждень: {count}",
+  "@weeklyEditorOpenCount": {
+    "description": "Static summary chip on the weekly-template editor (Phase 15.5): how many ISO weekdays are open.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "weeklyEditorActiveWindowOpenEnded": "Графік діє з {from}",
+  "@weeklyEditorActiveWindowOpenEnded": {
+    "description": "Active-window card on the weekly-template editor when the template has no end date (open-ended). {from} is a DD.MM date.",
+    "placeholders": {
+      "from": { "type": "String" }
+    }
+  },
+  "weeklyEditorActiveWindowRange": "Графік діє: {from} – {to}",
+  "@weeklyEditorActiveWindowRange": {
+    "description": "Active-window card on the weekly-template editor when the template has a start and end date. {from} and {to} are DD.MM dates.",
+    "placeholders": {
+      "from": { "type": "String" },
+      "to": { "type": "String" }
+    }
+  },
+  "weeklyEditorActiveWindowHint": "Тижневий графік діє протягом цього періоду. Окремі дні можна змінити пізніше.",
+  "@weeklyEditorActiveWindowHint": {
+    "description": "Helper line under the active-window card on the weekly-template editor (Phase 15.5)."
+  },
+  "weeklyEditorActiveWindowUnset": "Оберіть дату, з якої діє графік",
+  "@weeklyEditorActiveWindowUnset": {
+    "description": "Placeholder prompt on the active-window card when no validity window has ever been chosen (first-time / NO_SCHEDULE). Reads as a call-to-action to tap and pick a start date, not as a filled value."
+  },
+  "weeklyEditorDayOffRest": "Вихідний день",
+  "@weeklyEditorDayOffRest": {
+    "description": "Rest-state body text shown inside a collapsed (day-off) weekday card in the weekly-template editor (Phase 15.5)."
+  },
+  "weeklyEditorNoChangesHint": "Немає змін для збереження",
+  "@weeklyEditorNoChangesHint": {
+    "description": "Hint shown above the Save button on the weekly-template editor when the draft matches the saved schedule (a clean no-op), explaining why Save is disabled. Covers the all-days-off, no-existing-template case so a day-off selection never looks broken."
+  },
+  "weeklyEditorDayToggleSemantic": "{day} — робочий день",
+  "@weeklyEditorDayToggleSemantic": {
+    "description": "Accessibility label for the per-weekday open/closed toggle in the weekly-template editor (Phase 15.5).",
+    "placeholders": {
+      "day": { "type": "String" }
+    }
+  },
+  "weeklyEditorErrorsBanner": "Виправте години, виділені червоним",
+  "@weeklyEditorErrorsBanner": {
+    "description": "Snackbar shown when the user tries to save the weekly template with invalid hours (Phase 15.5)."
+  },
+  "intervalEditorWorkHours": "Робочі години",
+  "@intervalEditorWorkHours": {
+    "description": "Label above the working-window start/end time wells in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreaks": "Перерви",
+  "@intervalEditorBreaks": {
+    "description": "Label above the break rows in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorAddBreak": "Додати перерву",
+  "@intervalEditorAddBreak": {
+    "description": "Action to add a break range to the working window in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorWorkStartTitle": "Початок робочого дня",
+  "@intervalEditorWorkStartTitle": {
+    "description": "Time-picker title / semantic label for the working-window start in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorWorkEndTitle": "Кінець робочого дня",
+  "@intervalEditorWorkEndTitle": {
+    "description": "Time-picker title / semantic label for the working-window end in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreakStartTitle": "Початок перерви",
+  "@intervalEditorBreakStartTitle": {
+    "description": "Time-picker title for a break start in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreakEndTitle": "Кінець перерви",
+  "@intervalEditorBreakEndTitle": {
+    "description": "Time-picker title for a break end in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreakStartSemantic": "Початок перерви {index}",
+  "@intervalEditorBreakStartSemantic": {
+    "description": "Accessibility label for a break start time well in the interval editor (Phase 15.5). {index} is the 1-based break number.",
+    "placeholders": {
+      "index": { "type": "int" }
+    }
+  },
+  "intervalEditorBreakEndSemantic": "Кінець перерви {index}",
+  "@intervalEditorBreakEndSemantic": {
+    "description": "Accessibility label for a break end time well in the interval editor (Phase 15.5). {index} is the 1-based break number.",
+    "placeholders": {
+      "index": { "type": "int" }
+    }
+  },
+  "intervalEditorRemoveBreak": "Видалити перерву {index}",
+  "@intervalEditorRemoveBreak": {
+    "description": "Accessibility label for the remove-break button in the interval editor (Phase 15.5). {index} is the 1-based break number.",
+    "placeholders": {
+      "index": { "type": "int" }
+    }
+  },
+  "intervalEditorErrEndAfterStart": "Час завершення робочого дня має бути пізніше початку",
+  "@intervalEditorErrEndAfterStart": {
+    "description": "Inline validation: working-window end must be after start (Phase 15.5)."
+  },
+  "intervalEditorErrBreakEndAfterStart": "Час завершення перерви має бути пізніше початку",
+  "@intervalEditorErrBreakEndAfterStart": {
+    "description": "Inline validation: break end must be after break start (Phase 15.5)."
+  },
+  "intervalEditorErrBreakInsideWindow": "Перерва має бути в межах робочих годин",
+  "@intervalEditorErrBreakInsideWindow": {
+    "description": "Inline validation: a break must sit inside the working window (Phase 15.5)."
+  },
+  "intervalEditorErrBreaksOverlap": "Перерви не можуть перетинатися",
+  "@intervalEditorErrBreaksOverlap": {
+    "description": "Inline validation: two breaks may not overlap (Phase 15.5)."
+  },
+  "scheduleOverrideSheetSubtitle": "Перевизначити графік на цей день",
+  "@scheduleOverrideSheetSubtitle": {
+    "description": "Subtitle under the date heading in the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideCloseSemantic": "Закрити",
+  "@scheduleOverrideCloseSemantic": {
+    "description": "Accessibility label for the close button in the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideModeToggleSemantic": "Режим перевизначення",
+  "@scheduleOverrideModeToggleSemantic": {
+    "description": "Accessibility group label for the working-hours / day-off mode toggle in the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideModeWorking": "Робочі години",
+  "@scheduleOverrideModeWorking": {
+    "description": "Mode-toggle option: edit custom working hours for the date (Phase 15.4)."
+  },
+  "scheduleOverrideModeDayOff": "Вихідний",
+  "@scheduleOverrideModeDayOff": {
+    "description": "Mode-toggle option: mark the whole date as a day off (Phase 15.4)."
+  },
+  "scheduleOverrideDayOffRest": "У вихідний день не може бути записів",
+  "@scheduleOverrideDayOffRest": {
+    "description": "Explanatory line shown in day-off mode of the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleDayOffEmptyState": "Цей день — вихідний",
+  "@scheduleDayOffEmptyState": {
+    "description": "Friendly empty-state message shown on the selected-day detail panel in place of the hour grid when the day is a settled day off (no working hours)."
+  },
+  "scheduleOverrideSave": "Зберегти",
+  "@scheduleOverrideSave": {
+    "description": "Primary save action in the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideDelete": "Повернути до графіка",
+  "@scheduleOverrideDelete": {
+    "description": "Action to clear an existing per-date override and revert the date to the recurring weekly template (Phase 15.4)."
+  },
+  "scheduleOverrideClearedSnack": "Перевизначення видалено",
+  "@scheduleOverrideClearedSnack": {
+    "description": "Confirmation snackbar after clearing a per-date override (Phase 15.4)."
+  },
+  "scheduleOverrideErrorsBanner": "Виправте години, виділені червоним",
+  "@scheduleOverrideErrorsBanner": {
+    "description": "Snackbar shown when trying to save custom hours with validation errors in the per-date override sheet (Phase 15.4)."
+  },
+  "applyScheduleTitle": "Період дії графіка",
+  "@applyScheduleTitle": {
+    "description": "Title of the apply-schedule sheet where the master sets the weekly template's validity window (Phase 15.5)."
+  },
+  "applyScheduleBody": "Ваш тижневий графік діятиме протягом цього періоду. Окремі дні можна змінити пізніше.",
+  "@applyScheduleBody": {
+    "description": "Explanatory body under the apply-schedule sheet title (Phase 15.5)."
+  },
+  "applyScheduleQuickPick": "Швидкий вибір",
+  "@applyScheduleQuickPick": {
+    "description": "Section label above the quick-pick preset chips in the apply-schedule sheet (Phase 15.5)."
+  },
+  "applySchedulePresetThisMonth": "Весь поточний місяць",
+  "@applySchedulePresetThisMonth": {
+    "description": "Preset chip: apply the schedule for the rest of the current month (Phase 15.5)."
+  },
+  "applySchedulePresetNextThreeMonths": "Наступні 3 місяці",
+  "@applySchedulePresetNextThreeMonths": {
+    "description": "Preset chip: apply the schedule for the next three months (Phase 15.5)."
+  },
+  "applySchedulePresetWholeYear": "Весь рік",
+  "@applySchedulePresetWholeYear": {
+    "description": "Preset chip: apply the schedule through Dec 31 of the current year (Phase 15.5)."
+  },
+  "applySchedulePeriodLabel": "Період",
+  "@applySchedulePeriodLabel": {
+    "description": "Label above the manual date-range well in the apply-schedule sheet (Phase 15.5)."
+  },
+  "applyScheduleRangePlaceholder": "Виберіть діапазон дат",
+  "@applyScheduleRangePlaceholder": {
+    "description": "Placeholder in the apply-schedule date well before a range is chosen (Phase 15.5)."
+  },
+  "applyScheduleDayCount": "Період дії: {count, plural, one{{count} день} few{{count} дні} many{{count} днів} other{{count} днів}}",
+  "@applyScheduleDayCount": {
+    "description": "Live inclusive day-count readout for the chosen validity window in the apply-schedule sheet (Phase 15.5).",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "applyScheduleCta": "Застосувати",
+  "@applyScheduleCta": {
+    "description": "Primary CTA that persists the chosen validity window in the apply-schedule sheet (Phase 15.5)."
+  },
+  "applyScheduleOverlapError": "Цей період перетинається з уже наявним графіком. Оберіть інший період.",
+  "@applyScheduleOverlapError": {
+    "description": "Inline error shown when the backend rejects a validity window because it overlaps an existing one (Phase 15.4/15.5)."
+  },
+  "rangePickerTitle": "Виберіть період",
+  "@rangePickerTitle": {
+    "description": "Title of the VelvetTouch scrolling-months range picker (Phase 15.5)."
+  },
+  "rangePickerEmptyHint": "Оберіть період",
+  "@rangePickerEmptyHint": {
+    "description": "Summary-chip hint in the range picker before any day is tapped (Phase 15.5)."
+  },
+  "weekdayShortMon": "Пн",
+  "@weekdayShortMon": {
+    "description": "Two-letter Monday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortTue": "Вт",
+  "@weekdayShortTue": {
+    "description": "Two-letter Tuesday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortWed": "Ср",
+  "@weekdayShortWed": {
+    "description": "Two-letter Wednesday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortThu": "Чт",
+  "@weekdayShortThu": {
+    "description": "Two-letter Thursday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortFri": "Пт",
+  "@weekdayShortFri": {
+    "description": "Two-letter Friday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortSat": "Сб",
+  "@weekdayShortSat": {
+    "description": "Two-letter Saturday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortSun": "Нд",
+  "@weekdayShortSun": {
+    "description": "Two-letter Sunday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "serviceSetupTitle": "Налаштування послуг",
+  "@serviceSetupTitle": {
+    "description": "App-bar title of the first-time service-setup screen."
+  },
+  "serviceSetupClose": "Закрити",
+  "@serviceSetupClose": {
+    "description": "Semantic label for the close button on the service-setup screen."
+  },
+  "serviceSetupMissingNoteLead": "Не знайшли потрібну послугу? ",
+  "@serviceSetupMissingNoteLead": {
+    "description": "Bold lead-in of the helper note at the top of the service-setup screen."
+  },
+  "serviceSetupMissingNoteBody": "Нічого страшного — додайте те, що пропонуєте зараз, а решту зможете запросити пізніше на сторінці ",
+  "@serviceSetupMissingNoteBody": {
+    "description": "Body of the helper note explaining missing service-types can be requested later."
+  },
+  "serviceSetupMissingNoteServicesWord": "«Послуги»",
+  "@serviceSetupMissingNoteServicesWord": {
+    "description": "The emphasised «Послуги» (Services) page name inside the helper note."
+  },
+  "serviceSetupSectionCategories": "ОБЕРІТЬ КАТЕГОРІЇ",
+  "@serviceSetupSectionCategories": {
+    "description": "Section label above the category chip selector on the service-setup screen."
+  },
+  "serviceSetupEmptyHint": "Оберіть категорію вище, щоб почати",
+  "@serviceSetupEmptyHint": {
+    "description": "Passive hint shown below the chips when no category is selected yet."
+  },
+  "serviceSetupGroupCount": "{included} з {total}",
+  "@serviceSetupGroupCount": {
+    "description": "Included-of-total count shown in an expanded category group header (e.g. '3 з 6').",
+    "placeholders": {
+      "included": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  },
+  "serviceSetupRowExcluded": "Не пропонується",
+  "@serviceSetupRowExcluded": {
+    "description": "Sub-label shown on a service-type row card when its include toggle is OFF."
+  },
+  "serviceSetupRowMissingPrice": "Вкажіть тривалість і ціну",
+  "@serviceSetupRowMissingPrice": {
+    "description": "Validation flag on an included row that is missing its duration and/or price."
+  },
+  "serviceSetupRowMissingDuration": "Вкажіть тривалість",
+  "@serviceSetupRowMissingDuration": {
+    "description": "Validation flag on an included row that has a valid price but is missing its duration."
+  },
+  "serviceSetupRowMissingPriceOnly": "Вкажіть ціну",
+  "@serviceSetupRowMissingPriceOnly": {
+    "description": "Validation flag on an included row that has a valid duration but is missing its (fixed) price."
+  },
+  "serviceSetupRowFixRange": "Виправте діапазон цін",
+  "@serviceSetupRowFixRange": {
+    "description": "Validation flag on an included range-priced row whose duration is set but whose price range is missing or invalid (max must exceed min); the precise range message is shown inline beneath the price fields."
+  },
+  "serviceSetupDurationRequired": "Вкажіть тривалість у хвилинах",
+  "@serviceSetupDurationRequired": {
+    "description": "Inline per-field hint shown under the duration input when an included row's duration is empty or invalid on save."
+  },
+  "serviceSetupPriceRequired": "Вкажіть ціну",
+  "@serviceSetupPriceRequired": {
+    "description": "Inline per-field hint shown under the fixed-price input when an included row's price is empty or invalid on save."
+  },
+  "serviceSetupDurationLabel": "Тривалість",
+  "@serviceSetupDurationLabel": {
+    "description": "Label for the per-row duration (minutes) field on the service-setup screen."
+  },
+  "serviceSetupDurationSuffix": "хв",
+  "@serviceSetupDurationSuffix": {
+    "description": "Minutes suffix for the duration field (abbreviation of 'хвилин')."
+  },
+  "serviceSetupPriceLabel": "Ціна",
+  "@serviceSetupPriceLabel": {
+    "description": "Label for the fixed-mode price field on a service-setup row."
+  },
+  "serviceSetupCtaEmpty": "Оберіть послуги",
+  "@serviceSetupCtaEmpty": {
+    "description": "Disabled footer CTA label shown while no service-type is included."
+  },
+  "serviceSetupCtaCreate": "{count, plural, =0{Оберіть послуги} one{Створити {count} послугу} few{Створити {count} послуги} many{Створити {count} послуг} other{Створити {count} послуг}}",
+  "@serviceSetupCtaCreate": {
+    "description": "Footer CTA label counting the services the save would create, with Ukrainian plural.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "serviceSetupSuccess": "Послуги створено",
+  "@serviceSetupSuccess": {
+    "description": "Snackbar shown after the first-time bulk service setup succeeds."
+  },
+  "serviceSetupErrAlreadyHasServices": "У вас вже є послуги",
+  "@serviceSetupErrAlreadyHasServices": {
+    "description": "Error shown when the bulk-setup endpoint returns 409 because the master already has services."
+  },
+  "settingsHubMenuButton": "Налаштування",
+  "@settingsHubMenuButton": {
+    "description": "Semantic label for the menu icon on the master profile screen that opens the settings hub."
+  },
+  "settingsHubClose": "Закрити",
+  "@settingsHubClose": {
+    "description": "Semantic label for the close glyph on the settings hub top bar."
+  },
+  "settingsHubSubheading": "Керуйте даними профілю та акаунтом",
+  "@settingsHubSubheading": {
+    "description": "Subheading under the settings hub title."
+  },
+  "settingsHubPersonal": "Особисті дані",
+  "@settingsHubPersonal": {
+    "description": "Settings hub row label that opens the personal-info edit page."
+  },
+  "settingsHubContacts": "Контакти",
+  "@settingsHubContacts": {
+    "description": "Settings hub row label that opens the contacts edit page."
+  },
+  "settingsHubLocation": "Локація",
+  "@settingsHubLocation": {
+    "description": "Settings hub row label that opens the location edit page."
+  },
+  "settingsHubAccount": "Акаунт",
+  "@settingsHubAccount": {
+    "description": "Settings hub row label that opens the account page."
+  },
+  "personalInfoTitle": "Особисті дані",
+  "@personalInfoTitle": {
+    "description": "Top-bar title of the personal-info edit page."
+  },
+  "contactsTitle": "Контакти",
+  "@contactsTitle": {
+    "description": "Top-bar title of the contacts edit page."
+  },
+  "contactsSubheading": "Як з вами зв’язатися",
+  "@contactsSubheading": {
+    "description": "Subheading on the contacts edit page."
+  },
+  "locationTitle": "Локація",
+  "@locationTitle": {
+    "description": "Top-bar title of the location edit page."
+  },
+  "locationSubheading": "Де вас знайти клієнтам",
+  "@locationSubheading": {
+    "description": "Subheading on the location edit page."
+  },
+  "accountTitle": "Акаунт",
+  "@accountTitle": {
+    "description": "Top-bar title of the account page."
+  },
+  "accountSubheading": "Налаштування застосунку",
+  "@accountSubheading": {
+    "description": "Subheading on the account page."
+  },
+  "accountLanguageLabel": "Мова",
+  "@accountLanguageLabel": {
+    "description": "Account page language row label."
+  },
+  "accountLanguageValue": "Українська",
+  "@accountLanguageValue": {
+    "description": "Account page language row current value (the active app language)."
+  },
+  "accountLanguageSoon": "Тут відкриється вибір мови",
+  "@accountLanguageSoon": {
+    "description": "Placeholder snackbar shown when tapping the not-yet-functional language row."
+  },
+  "accountNotificationsLabel": "Сповіщення",
+  "@accountNotificationsLabel": {
+    "description": "Account page notifications toggle row label."
+  },
+  "accountNotificationsSubtitle": "Push про нові записи та зміни",
+  "@accountNotificationsSubtitle": {
+    "description": "Account page notifications toggle row subtitle."
   }
 }

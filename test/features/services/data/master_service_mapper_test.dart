@@ -19,12 +19,35 @@
 //   G-FIXED. toUpdateRequest sets priceType=FIXED + price for FIXED update.
 //   G-RANGE. toUpdateRequest sets priceType=RANGE + priceMin + priceMax for RANGE update.
 //   G-NO-PRICE. toUpdateRequest omits price block when all price fields are null.
+//   G-ST-SET.  toUpdateRequest carries serviceTypeId when the patch sets one (M4).
+//   G-ST-NULL. toUpdateRequest omits serviceTypeId when the patch leaves it null
+//              (PATCH no-change — an unrelated edit never overwrites the type).
 //   H-1.  fromApprovedCategoryList maps name+displayName and drops blank names.
 //   I-1.  fromDto populates serviceDefId from serviceDefinition.id.
 //   I-2.  fromServiceDefinitionDto carries the assignment id + maps base fields.
 //   I-PRICE-FIXED.  fromDto maps FIXED pricing fields (priceType/priceMin/priceDisplay).
 //   I-PRICE-RANGE.  fromDto maps RANGE pricing fields (priceType/priceMin/priceMax/priceDisplay).
 //   I-SDR-PRICE.    fromServiceDefinitionDto maps RANGE pricing from ServiceDefinitionResponse.
+//
+//   ── Phase 16.3 — serviceTypeId create wiring + name pre-fill ──────────────
+//   ST-CREATE-SET.    toCreateRequest sets serviceTypeId on the request when the
+//                     input carries one.
+//   ST-CREATE-NULL.   toCreateRequest leaves serviceTypeId null when the input's
+//                     serviceTypeId is null (no regression to the existing create
+//                     path — the generated serializer omits the null wire field).
+//   ST-DTO-MSR.       fromDto reads serviceTypeId + serviceTypeNameUk from the
+//                     top-level MSR envelope (V67+ precedence).
+//   ST-DTO-FALLBACK.  fromDto falls back to the nested serviceDefinition for
+//                     serviceTypeId + serviceTypeNameUk when the MSR envelope
+//                     omits them.
+//   ST-DTO-PRECEDENCE. fromDto prefers the MSR-envelope values over the nested
+//                     serviceDefinition values when both are present.
+//   ST-DTO-NULL.      fromDto carries null serviceTypeId/serviceTypeNameUk back
+//                     when neither level supplies them.
+//   ST-SDR-SET.       fromServiceDefinitionDto carries serviceTypeId +
+//                     serviceTypeNameUk back from the definition response.
+//   ST-SDR-NULL.      fromServiceDefinitionDto carries nulls when the definition
+//                     response omits them.
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/features/services/data/master_service_mapper.dart';
@@ -40,12 +63,14 @@ import 'package:flutter_test/flutter_test.dart';
 MasterServiceCreate _createFixed({
   String? category = 'MANICURE',
   double price = 500.0,
+  String? serviceTypeId,
 }) => MasterServiceCreate(
   name: 'Test',
   durationMinutes: 30,
   priceType: ServicePriceType.fixed,
   price: price,
   category: category,
+  serviceTypeId: serviceTypeId,
 );
 
 /// Builds a minimal RANGE [MasterServiceCreate].
@@ -71,6 +96,8 @@ ServiceDefinitionResponse buildDef({
   num priceMin = 500,
   num? priceMax,
   String? priceDisplay,
+  String? serviceTypeId,
+  String? serviceTypeNameUk,
 }) =>
     (ServiceDefinitionResponseBuilder()
           ..id = id
@@ -80,6 +107,8 @@ ServiceDefinitionResponse buildDef({
           ..priceMin = priceMin
           ..priceMax = priceMax
           ..priceDisplay = priceDisplay ?? '${priceMin.toInt()} грн'
+          ..serviceTypeId = serviceTypeId
+          ..serviceTypeNameUk = serviceTypeNameUk
           ..isActive = true)
         .build();
 
@@ -296,6 +325,44 @@ void main() {
       expect(request.priceMin, isNull);
       expect(request.priceMax, isNull);
     });
+
+    // ── Item 3 (M4) — serviceTypeId on the PATCH wire ─────────────────────
+    // Guards the silent-drop bug: a non-null serviceTypeId MUST reach the
+    // generated request; a null serviceTypeId MUST be omitted (PATCH "no
+    // change"), so a save that does not touch the type never overwrites it.
+
+    test(
+      'G-ST-SET. toUpdateRequest carries serviceTypeId when the patch sets one',
+      () {
+        final request = MasterServiceMapper.toUpdateRequest(
+          const MasterServiceUpdate(serviceTypeId: 'type-new'),
+        );
+        expect(
+          request.serviceTypeId,
+          equals('type-new'),
+          reason:
+              'a non-null serviceTypeId must reach the wire request (M4 — '
+              'guards the silent-drop regression)',
+        );
+      },
+    );
+
+    test(
+      'G-ST-NULL. toUpdateRequest omits serviceTypeId when the patch leaves it '
+      'null (PATCH no-change)',
+      () {
+        final request = MasterServiceMapper.toUpdateRequest(
+          const MasterServiceUpdate(name: 'Інша назва'),
+        );
+        expect(
+          request.serviceTypeId,
+          isNull,
+          reason:
+              'a null serviceTypeId must be omitted so an unrelated edit never '
+              'overwrites the current service type',
+        );
+      },
+    );
 
     // B4 (MEDIUM) — toUpdateRequest invalid-price fail-fasts ─────────────────
 
@@ -524,6 +591,267 @@ void main() {
             'a null priceDisplay on both MSR and nested def must resolve to '
             "an empty string (the mapper's '' last-resort default)",
       );
+    });
+  });
+
+  // ── ST. Phase 16.3 — serviceTypeId create wiring + response round-trip ────
+
+  group('ST. toCreateRequest — serviceTypeId wiring', () {
+    test('ST-CREATE-SET. sets serviceTypeId when the input carries one', () {
+      final request = MasterServiceMapper.toCreateRequest(
+        _createFixed(serviceTypeId: 'type-abc'),
+      );
+      expect(
+        request.serviceTypeId,
+        equals('type-abc'),
+        reason: 'a selected service type must reach the create request',
+      );
+    });
+
+    test('ST-CREATE-NULL. leaves serviceTypeId null when input is null', () {
+      // The master skipped the (optional) picker. The generated serializer
+      // omits null builder fields, so this is the "omitted from the wire body"
+      // case — and proves the existing no-type create path is unchanged.
+      final request = MasterServiceMapper.toCreateRequest(_createFixed());
+      expect(
+        request.serviceTypeId,
+        isNull,
+        reason:
+            'no service type selected → serviceTypeId must stay null on the '
+            'request (omitted from the wire body — no regression)',
+      );
+      // Sanity: the rest of the request is still well-formed.
+      expect(request.name, equals('Test'));
+      expect(
+        request.priceType,
+        CreateServiceDefinitionRequestPriceTypeEnum.FIXED,
+      );
+      expect(request.price, equals(500.0));
+    });
+  });
+
+  group('ST. response round-trip — serviceTypeId + serviceTypeNameUk', () {
+    test(
+      'ST-DTO-MSR. fromDto reads service type from the top-level MSR envelope',
+      () {
+        final dto =
+            (MasterServiceResponseBuilder()
+                  ..id = 'a-st-msr'
+                  ..serviceDefinition.replace(buildDef(id: 'def-st-msr'))
+                  ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                  ..priceMin = 500
+                  ..priceDisplay = '500 грн'
+                  ..serviceTypeId = 'type-msr'
+                  ..serviceTypeNameUk = 'Класичний манікюр'
+                  ..isActive = true)
+                .build();
+
+        final service = MasterServiceMapper.fromDto(dto);
+
+        expect(service.serviceTypeId, equals('type-msr'));
+        expect(service.serviceTypeNameUk, equals('Класичний манікюр'));
+      },
+    );
+
+    test(
+      'ST-DTO-FALLBACK. fromDto falls back to nested serviceDefinition when the '
+      'MSR envelope omits the service type',
+      () {
+        final dto =
+            (MasterServiceResponseBuilder()
+                  ..id = 'a-st-fb'
+                  ..serviceDefinition.replace(
+                    buildDef(
+                      id: 'def-st-fb',
+                      serviceTypeId: 'type-nested',
+                      serviceTypeNameUk: 'Педикюр',
+                    ),
+                  )
+                  ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                  ..priceMin = 500
+                  ..priceDisplay = '500 грн'
+                  // serviceTypeId / serviceTypeNameUk intentionally unset on MSR
+                  ..isActive = true)
+                .build();
+
+        final service = MasterServiceMapper.fromDto(dto);
+
+        expect(service.serviceTypeId, equals('type-nested'));
+        expect(service.serviceTypeNameUk, equals('Педикюр'));
+      },
+    );
+
+    test('ST-DTO-PRECEDENCE. fromDto prefers the MSR envelope over the nested '
+        'definition when both supply a service type', () {
+      final dto =
+          (MasterServiceResponseBuilder()
+                ..id = 'a-st-prec'
+                ..serviceDefinition.replace(
+                  buildDef(
+                    id: 'def-st-prec',
+                    serviceTypeId: 'type-nested',
+                    serviceTypeNameUk: 'Nested name',
+                  ),
+                )
+                ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                ..priceMin = 500
+                ..priceDisplay = '500 грн'
+                ..serviceTypeId = 'type-envelope'
+                ..serviceTypeNameUk = 'Envelope name'
+                ..isActive = true)
+              .build();
+
+      final service = MasterServiceMapper.fromDto(dto);
+
+      expect(
+        service.serviceTypeId,
+        equals('type-envelope'),
+        reason: 'MSR-envelope-first precedence (dto.serviceTypeId ?? def…)',
+      );
+      expect(service.serviceTypeNameUk, equals('Envelope name'));
+    });
+
+    test(
+      'ST-DTO-NULL. fromDto carries null when neither level supplies a type',
+      () {
+        final dto =
+            (MasterServiceResponseBuilder()
+                  ..id = 'a-st-null'
+                  ..serviceDefinition.replace(buildDef(id: 'def-st-null'))
+                  ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                  ..priceMin = 500
+                  ..priceDisplay = '500 грн'
+                  ..isActive = true)
+                .build();
+
+        final service = MasterServiceMapper.fromDto(dto);
+
+        expect(service.serviceTypeId, isNull);
+        expect(service.serviceTypeNameUk, isNull);
+      },
+    );
+
+    test('ST-SDR-SET. fromServiceDefinitionDto carries service type back', () {
+      final def = buildDef(
+        id: 'def-st-sdr',
+        serviceTypeId: 'type-sdr',
+        serviceTypeNameUk: 'Стрижка',
+      );
+
+      final service = MasterServiceMapper.fromServiceDefinitionDto(
+        def,
+        assignmentId: 'assign-st-sdr',
+      );
+
+      expect(service.serviceTypeId, equals('type-sdr'));
+      expect(service.serviceTypeNameUk, equals('Стрижка'));
+    });
+
+    test('ST-SDR-NULL. fromServiceDefinitionDto carries null when omitted', () {
+      final def = buildDef(id: 'def-st-sdr-null');
+
+      final service = MasterServiceMapper.fromServiceDefinitionDto(
+        def,
+        assignmentId: 'assign-st-sdr-null',
+      );
+
+      expect(service.serviceTypeId, isNull);
+      expect(service.serviceTypeNameUk, isNull);
+    });
+  });
+
+  // ── ND. Regression guard — the service "draft" concept is GONE ────────────
+  //
+  // Backend V80 removed the draft flag (`isDraft`) from MasterServiceResponse
+  // and ServiceDefinitionResponse. The mobile app's draft affordance — the
+  // domain `isDraft` field, the draft badge, the "set price" CTA, and the
+  // draft card variant — were all deleted (user-approved clean removal). The
+  // deleted file `services_list_draft_card_test.dart` is intentionally gone and
+  // must NOT be recreated.
+  //
+  // These tests are the data-layer half of that guard. They assert that a
+  // realistic DTO maps to a plain, fully-priced, ACTIVE [MasterService] with no
+  // residual draft state. The omission of `isDraft` from [MasterService] is
+  // type-enforced — re-introducing the field (or any draft inference from a
+  // zero price) would either fail to compile here or flip one of these
+  // assertions, blocking the merge before it can reach a broken APK build.
+  group('ND. no draft affordance — mapper produces plain active services', () {
+    test('ND-1. fromDto maps a realistic MSR to a plain active service — no '
+        'draft state, full price + duration meta', () {
+      final dto =
+          (MasterServiceResponseBuilder()
+                ..id = 'assignment-nd'
+                ..serviceDefinition.replace(
+                  buildDef(
+                    id: 'def-nd',
+                    name: 'Стрижка',
+                    baseDurationMinutes: 45,
+                    priceType: ServiceDefinitionResponsePriceTypeEnum.FIXED,
+                    priceMin: 750,
+                    priceDisplay: '750 грн',
+                  ),
+                )
+                ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                ..priceMin = 750
+                ..priceDisplay = '750 грн'
+                ..isActive = true)
+              .build();
+
+      final service = MasterServiceMapper.fromDto(dto);
+
+      // The service is bookable (active), fully priced, and time-bounded — the
+      // exact opposite of a "draft awaiting a price".
+      expect(service.isActive, isTrue);
+      expect(service.priceDisplay, equals('750 грн'));
+      expect(service.priceMin, equals(750.0));
+      expect(service.durationMinutes, equals(45));
+
+      // A zero/absent price must NOT be re-interpreted as a draft signal, and
+      // [MasterService] must expose no draft member. freezed's generated
+      // toString() enumerates every field of the value object, so asserting it
+      // never mentions "draft" is a real text-level guard: re-adding an
+      // `isDraft` (or any `draft*`) field to the model flips this red.
+      expect(
+        service.toString().toLowerCase(),
+        isNot(contains('draft')),
+        reason:
+            'MasterService must carry no draft field — re-introducing isDraft '
+            'would surface in freezed toString() and fail this guard (V80 '
+            'removed the draft concept; the draft affordance was deleted)',
+      );
+    });
+
+    test('ND-2. a zero-floor RANGE service still maps to an active service — '
+        'no draft inference from a missing/zero price', () {
+      // Even if pricing data is incomplete, the mapper must never synthesise a
+      // draft state. The service stays active and renders whatever priceDisplay
+      // the backend supplied — there is no "set price" pathway anymore.
+      final dto =
+          (MasterServiceResponseBuilder()
+                ..id = 'assignment-nd-zero'
+                ..serviceDefinition.replace(
+                  buildDef(
+                    id: 'def-nd-zero',
+                    priceType: ServiceDefinitionResponsePriceTypeEnum.RANGE,
+                    priceMin: 0,
+                    priceMax: 500,
+                    priceDisplay: 'до 500 грн',
+                  ),
+                )
+                ..priceType = MasterServiceResponsePriceTypeEnum.RANGE
+                ..priceMin = 0
+                ..priceMax = 500
+                ..priceDisplay = 'до 500 грн'
+                ..isActive = true)
+              .build();
+
+      final service = MasterServiceMapper.fromDto(dto);
+
+      expect(service.isActive, isTrue);
+      expect(service.priceType, ServicePriceType.range);
+      expect(service.priceMin, equals(0.0));
+      expect(service.priceMax, equals(500.0));
+      expect(service.priceDisplay, equals('до 500 грн'));
     });
   });
 }

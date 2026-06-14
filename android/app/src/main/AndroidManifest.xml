@@ -110,5 +110,19 @@
             <data
                 android:mimeType="text/plain"/>
         </intent>
+        <!--
+            Android 11+ (API 30) package visibility for url_launcher. Without this
+            declaration, launchUrl() of an https ACTION_VIEW intent (the Instagram
+            profile link on the master profile screen) silently fails because the
+            calling package cannot "see" any browser/Instagram activity that can
+            handle https. Scheme-only data filter — no host — so any validated
+            https URL can resolve to the user's default handler.
+        -->
+        <intent>
+            <action
+                android:name="android.intent.action.VIEW"/>
+            <data
+                android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>

@@ -49,11 +49,53 @@ abstract final class RouteNames {
   // Phase 4.2 — Master profile (read-only).
   static const String masterProfile = '/master/profile';
 
-  // Phase 4.3 — Master profile edit form (INDEPENDENT_MASTER only).
-  static const String masterEdit = '/master/edit';
+  // Master profile settings hub (INDEPENDENT_MASTER). Pushed from the profile
+  // screen's top-right menu icon. Lists edit sections, each pushing its own
+  // dedicated page; the terminal logout row raises the logout confirm dialog.
+  static const String masterMenu = '/master/menu';
+
+  // Master profile section edit pages — each edits one slice of the profile.
+  // Personal-info and Contacts both call updateMyProfile (merging onto the
+  // cached master so sibling fields are never cleared); Location calls
+  // updateLocality. The old monolithic /master/edit form they replace is
+  // retired.
+  static const String masterEditPersonal = '/master/edit/personal';
+  static const String masterEditContacts = '/master/edit/contacts';
+  static const String masterEditLocation = '/master/edit/location';
 
   // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
   static const String services = '/services';
   static const String serviceCreate = '/services/create';
   static String serviceEdit(String id) => '/services/$id/edit';
+
+  /// First-time service setup (INDEPENDENT_MASTER). The empty-state, one-pass
+  /// menu builder reached from the services-list empty state when the master
+  /// has zero services. Saves via `POST /independent-masters/me/services/bulk`.
+  static const String serviceSetup = '/services/setup';
+
+  // Phase 6.2 — legacy working-hours editor path. The route is NO LONGER
+  // registered in [app_router] (it was orphaned + deep-link-reachable, writing
+  // the deprecated `working_hours` table; the live edit path is
+  // [scheduleWeeklyEditor]). The constant is retained ONLY because the SEC
+  // role-gate regression tests in auth_redirect_test.dart use it as a
+  // representative `/master/*` location to pin the prefix guard. Do not wire a
+  // GoRoute back onto it.
+  static const String workingHours = '/master/working-hours';
+
+  // Phase 15.2 — Master schedule («Графік роботи»). The destination of the
+  // Календар bottom-nav tile: a calendar-first availability view (read path).
+  static const String masterSchedule = '/schedule';
+
+  // Phase 15.5 — the weekly-template editor («Робочі дні та години»). The
+  // schedule screen's empty-state CTA and «Редагувати» affordance route here;
+  // the editor saves via the `weekly-schedules` data path (the one the calendar
+  // reads) — NOT the deprecated `working_hours` editor at [workingHours].
+  static const String scheduleWeeklyEditor = '/schedule/weekly';
+
+  // Phase 15.2 — routed editor stubs (real placeholder screens until the
+  // corresponding phase lands; they replace these at the same paths):
+  //   • 15.4 — per-date override sheet (day pencil / + Додати час / + Time Off)
+  //   • 15.5 — copy/propagate range surface
+  static const String scheduleDayOverride = '/schedule/day';
+  static const String schedulePropagate = '/schedule/copy';
 }

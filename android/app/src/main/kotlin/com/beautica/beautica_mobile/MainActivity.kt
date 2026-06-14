@@ -9,10 +9,15 @@ class MainActivity : FlutterActivity() {
         super.onCreate(savedInstanceState)
         // Prevent screenshots and screen recording — protects booking/payment
         // screens from appearing in the system task switcher thumbnail and from
-        // third-party screen-capture tools.
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE,
-        )
+        // third-party screen-capture tools (MASVS-PLATFORM MS6 / mobile-security MS-4).
+        //
+        // Debug builds skip FLAG_SECURE so developers can screen-record demos
+        // on their device. Release and profile builds always enforce this flag.
+        if (!BuildConfig.DEBUG) {
+            window.setFlags(
+                WindowManager.LayoutParams.FLAG_SECURE,
+                WindowManager.LayoutParams.FLAG_SECURE,
+            )
+        }
     }
 }

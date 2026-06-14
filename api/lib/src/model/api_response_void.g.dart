@@ -13,11 +13,14 @@ class _$ApiResponseVoid extends ApiResponseVoid {
   final JsonObject? data;
   @override
   final String? message;
+  @override
+  final BuiltMap<String, String>? errors;
 
   factory _$ApiResponseVoid([void Function(ApiResponseVoidBuilder)? updates]) =>
       (ApiResponseVoidBuilder()..update(updates))._build();
 
-  _$ApiResponseVoid._({this.success, this.data, this.message}) : super._();
+  _$ApiResponseVoid._({this.success, this.data, this.message, this.errors})
+      : super._();
   @override
   ApiResponseVoid rebuild(void Function(ApiResponseVoidBuilder) updates) =>
       (toBuilder()..update(updates)).build();
@@ -31,7 +34,8 @@ class _$ApiResponseVoid extends ApiResponseVoid {
     return other is ApiResponseVoid &&
         success == other.success &&
         data == other.data &&
-        message == other.message;
+        message == other.message &&
+        errors == other.errors;
   }
 
   @override
@@ -40,6 +44,7 @@ class _$ApiResponseVoid extends ApiResponseVoid {
     _$hash = $jc(_$hash, success.hashCode);
     _$hash = $jc(_$hash, data.hashCode);
     _$hash = $jc(_$hash, message.hashCode);
+    _$hash = $jc(_$hash, errors.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -49,7 +54,8 @@ class _$ApiResponseVoid extends ApiResponseVoid {
     return (newBuiltValueToStringHelper(r'ApiResponseVoid')
           ..add('success', success)
           ..add('data', data)
-          ..add('message', message))
+          ..add('message', message)
+          ..add('errors', errors))
         .toString();
   }
 }
@@ -70,6 +76,11 @@ class ApiResponseVoidBuilder
   String? get message => _$this._message;
   set message(String? message) => _$this._message = message;
 
+  MapBuilder<String, String>? _errors;
+  MapBuilder<String, String> get errors =>
+      _$this._errors ??= MapBuilder<String, String>();
+  set errors(MapBuilder<String, String>? errors) => _$this._errors = errors;
+
   ApiResponseVoidBuilder() {
     ApiResponseVoid._defaults(this);
   }
@@ -80,6 +91,7 @@ class ApiResponseVoidBuilder
       _success = $v.success;
       _data = $v.data;
       _message = $v.message;
+      _errors = $v.errors?.toBuilder();
       _$v = null;
     }
     return this;
@@ -99,12 +111,26 @@ class ApiResponseVoidBuilder
   ApiResponseVoid build() => _build();
 
   _$ApiResponseVoid _build() {
-    final _$result = _$v ??
-        _$ApiResponseVoid._(
-          success: success,
-          data: data,
-          message: message,
-        );
+    _$ApiResponseVoid _$result;
+    try {
+      _$result = _$v ??
+          _$ApiResponseVoid._(
+            success: success,
+            data: data,
+            message: message,
+            errors: _errors?.build(),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'errors';
+        _errors?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'ApiResponseVoid', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

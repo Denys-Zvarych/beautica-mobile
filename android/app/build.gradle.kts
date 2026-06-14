@@ -20,6 +20,13 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // AGP 8+ requires explicit opt-in to emit BuildConfig.java.
+    // Required so MainActivity.kt can read BuildConfig.DEBUG to gate FLAG_SECURE
+    // in debug builds while keeping screenshot protection in release/profile builds.
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "com.beautica.beautica_mobile"
         minSdk = 26

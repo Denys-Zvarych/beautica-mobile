@@ -71,7 +71,7 @@ class _$CreateServiceDefinitionRequestPriceTypeEnumSerializer
 
 class _$CreateServiceDefinitionRequest extends CreateServiceDefinitionRequest {
   @override
-  final String name;
+  final String? name;
   @override
   final String? description;
   @override
@@ -96,7 +96,7 @@ class _$CreateServiceDefinitionRequest extends CreateServiceDefinitionRequest {
       (CreateServiceDefinitionRequestBuilder()..update(updates))._build();
 
   _$CreateServiceDefinitionRequest._(
-      {required this.name,
+      {this.name,
       this.description,
       required this.category,
       required this.baseDurationMinutes,
@@ -255,8 +255,7 @@ class CreateServiceDefinitionRequestBuilder
   _$CreateServiceDefinitionRequest _build() {
     final _$result = _$v ??
         _$CreateServiceDefinitionRequest._(
-          name: BuiltValueNullFieldError.checkNotNull(
-              name, r'CreateServiceDefinitionRequest', 'name'),
+          name: name,
           description: description,
           category: BuiltValueNullFieldError.checkNotNull(
               category, r'CreateServiceDefinitionRequest', 'category'),

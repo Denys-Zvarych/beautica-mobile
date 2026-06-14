@@ -10,7 +10,7 @@ import 'package:dio/dio.dart';
 
 import 'package:beautica_api/src/api_util.dart';
 import 'package:beautica_api/src/model/api_response_list_catalog_category_response.dart';
-import 'package:beautica_api/src/model/api_response_list_service_type_response.dart';
+import 'package:beautica_api/src/model/api_response_list_platform_service_type_response.dart';
 import 'package:beautica_api/src/model/api_response_void.dart';
 import 'package:beautica_api/src/model/suggest_service_type_request.dart';
 
@@ -96,12 +96,11 @@ class ServiceCatalogControllerApi {
     );
   }
 
-  /// getServiceTypes
+  /// getServiceTypesByPlatformCategory
   ///
   ///
   /// Parameters:
-  /// * [categoryId]
-  /// * [q]
+  /// * [categoryName] - Canonical platform-category name slug (e.g. EYELASH, HAIR). Required.
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -109,11 +108,11 @@ class ServiceCatalogControllerApi {
   /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
   /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
   ///
-  /// Returns a [Future] containing a [Response] with a [ApiResponseListServiceTypeResponse] as data
+  /// Returns a [Future] containing a [Response] with a [ApiResponseListPlatformServiceTypeResponse] as data
   /// Throws [DioException] if API call or serialization fails
-  Future<Response<ApiResponseListServiceTypeResponse>> getServiceTypes({
-    String? categoryId,
-    String? q,
+  Future<Response<ApiResponseListPlatformServiceTypeResponse>>
+      getServiceTypesByPlatformCategory({
+    required String categoryName,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -135,11 +134,8 @@ class ServiceCatalogControllerApi {
     );
 
     final _queryParameters = <String, dynamic>{
-      if (categoryId != null)
-        r'categoryId': encodeQueryParameter(
-            _serializers, categoryId, const FullType(String)),
-      if (q != null)
-        r'q': encodeQueryParameter(_serializers, q, const FullType(String)),
+      r'categoryName': encodeQueryParameter(
+          _serializers, categoryName, const FullType(String)),
     };
 
     final _response = await _dio.request<Object>(
@@ -151,7 +147,7 @@ class ServiceCatalogControllerApi {
       onReceiveProgress: onReceiveProgress,
     );
 
-    ApiResponseListServiceTypeResponse? _responseData;
+    ApiResponseListPlatformServiceTypeResponse? _responseData;
 
     try {
       final rawResponse = _response.data;
@@ -159,8 +155,9 @@ class ServiceCatalogControllerApi {
           ? null
           : _serializers.deserialize(
               rawResponse,
-              specifiedType: const FullType(ApiResponseListServiceTypeResponse),
-            ) as ApiResponseListServiceTypeResponse;
+              specifiedType:
+                  const FullType(ApiResponseListPlatformServiceTypeResponse),
+            ) as ApiResponseListPlatformServiceTypeResponse;
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _response.requestOptions,
@@ -171,7 +168,7 @@ class ServiceCatalogControllerApi {
       );
     }
 
-    return Response<ApiResponseListServiceTypeResponse>(
+    return Response<ApiResponseListPlatformServiceTypeResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

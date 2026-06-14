@@ -4,7 +4,9 @@
 //   • With initialExpandCategory: 'MANICURE', the MANICURE section is expanded
 //     and every other section is collapsed on first build, without any user
 //     interaction.
-//   • With initialExpandCategory: null, every section defaults to expanded.
+//   • With initialExpandCategory: null (or empty), every section defaults to
+//     COLLAPSED (UX change in commit 84ae042 — was default-expanded); the user
+//     can expand any section by tapping its header.
 //
 // Strategy:
 //   • Override [servicesListProvider] with a stub that resolves to an AsyncData
@@ -202,10 +204,17 @@ void main() {
       );
     });
 
-    // ── 3. With null: all sections default to expanded ────────────────────────
+    // ── 3. With null: all sections default to COLLAPSED ───────────────────────
+    //
+    // Post-84ae042 default-state contract: with no expand target every section
+    // starts collapsed (no cards in the tree). The original intent — that the
+    // "no target" path applies the SAME default to every section, and that each
+    // section is freely togglable afterward — is preserved by asserting the
+    // collapsed default first, then tapping a header to reveal its card.
 
     testWidgets(
-      'all sections default to expanded when initialExpandCategory is null',
+      'all sections default to collapsed when initialExpandCategory is null; '
+      'tapping a header reveals its card',
       (tester) async {
         tester.view.physicalSize = const Size(480, 1200);
         tester.view.devicePixelRatio = 1.0;
@@ -214,48 +223,58 @@ void main() {
 
         await _pumpScreen(tester, mockRepo, initialExpandCategory: null);
 
-        // Both service cards must be visible — both sections default expanded.
+        // Default-collapsed: neither card is in the tree on first build.
         expect(
           find.byKey(const Key('service_card_svc-m')),
-          findsOneWidget,
+          findsNothing,
           reason:
-              'MANICURE card must be visible when no expand param is set '
-              '(default expanded)',
+              'MANICURE card must be hidden when no expand param is set '
+              '(default collapsed — UX change 84ae042)',
         );
         expect(
           find.byKey(const Key('service_card_svc-b')),
-          findsOneWidget,
+          findsNothing,
           reason:
-              'BROWS card must be visible when no expand param is set '
-              '(default expanded)',
+              'BROWS card must be hidden when no expand param is set '
+              '(default collapsed — UX change 84ae042)',
+        );
+
+        // The user can still expand any section by tapping its header.
+        await tester.tap(find.byKey(const Key('category_section_MANICURE')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('service_card_svc-m')),
+          findsOneWidget,
+          reason: 'tapping the MANICURE header must reveal its card',
         );
       },
     );
 
-    // ── 4. Empty string is treated the same as null: all expanded ─────────────
+    // ── 4. Empty string is treated the same as null: all collapsed ────────────
 
     testWidgets(
-      'all sections default to expanded when initialExpandCategory is empty',
+      'all sections default to collapsed when initialExpandCategory is empty',
       (tester) async {
         tester.view.physicalSize = const Size(480, 1200);
         tester.view.devicePixelRatio = 1.0;
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
 
-        // The screen source normalises '' to null (trim().toUpperCase().isEmpty).
+        // The screen source normalises '' to null (trim().toUpperCase().isEmpty),
+        // so empty behaves exactly like null: every section starts collapsed.
         await _pumpScreen(tester, mockRepo, initialExpandCategory: '');
 
         expect(
           find.byKey(const Key('service_card_svc-m')),
-          findsOneWidget,
+          findsNothing,
           reason:
-              'empty string must be treated as null — all sections expanded',
+              'empty string must be treated as null — all sections collapsed',
         );
         expect(
           find.byKey(const Key('service_card_svc-b')),
-          findsOneWidget,
+          findsNothing,
           reason:
-              'empty string must be treated as null — all sections expanded',
+              'empty string must be treated as null — all sections collapsed',
         );
       },
     );

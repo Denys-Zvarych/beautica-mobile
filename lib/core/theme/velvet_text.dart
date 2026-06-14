@@ -327,6 +327,21 @@ abstract final class VelvetText {
   /// [subheading] so the service title is the clear anchor of each row.
   static TextStyle cardTitle() => _cardTitleStyle;
 
+  // ---------------------------------------------------------------------------
+  // Schedule month-navigator title — a slightly smaller subheading used by the
+  // two-row month/year stack in master_schedule_screen. Same Comfortaa family,
+  // weight, and color as [subheading] (so it still reads as the header) but at
+  // 14 sp instead of 17 sp, giving a tasteful one-step reduction that keeps the
+  // fixed two-row stack compact. Cached once at class-load time.
+  // ---------------------------------------------------------------------------
+
+  /// Month-navigator header title — Comfortaa 14/600, espresso (a touch smaller
+  /// than [subheading]). Used for both the month and year rows.
+  static final TextStyle monthNavTitle = _subheadingStyle.copyWith(
+    fontSize: 14,
+    height: 1.1,
+  );
+
   /// Pill content (duration / price chips) — Nunito 13/800, accentDeep with
   /// mild tracking so the short strings sit evenly inside the inset chip.
   static TextStyle pill() => _pillStyle;

@@ -8,11 +8,14 @@
 //   - Tap the submit CTA and inspect field-level error text.
 //
 // Coverage:
-//   1. Empty name shows errRequired / errNameRequired.
+//   1. Blank name is OPTIONAL — submit proceeds with an empty name, no
+//      required error (Item 4, 2026-06-08; required-name contract removed).
 //   2. Empty duration (digitsOnly formatter blocks non-digits; leaving it empty
 //      after submit shows errRequired).
 //   3. Zero duration shows errDurationPositive.
-//   4. Duration > 1440 shows errDurationMax.
+//   4. Duration > 480 shows errDurationMax (3-digit value 999 used; the
+//      LengthLimitingTextInputFormatter(3) on the duration field silently
+//      truncates a 4-digit entry, so values like 1441 become 144 and pass).
 //   5. Negative price blocked by FilteringTextInputFormatter (digits-only;
 //      cannot type '-', so entering '-500' leaves the field as '500').
 //   6. Valid submit calls repository.create() with the correct payload.
@@ -30,13 +33,17 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:beautica_mobile/features/services/presentation/service_create_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+
+import 'widgets/select_dropdown_test_helpers.dart';
 
 // pump_app.dart intentionally not imported — this test pumps widgets directly.;
 
@@ -129,7 +136,15 @@ class _StubMasterProfileNotifier extends MasterProfile {
 
 /// Overrides [serviceRepositoryProvider] with [mock] in a [ProviderScope].
 List<Object> _overrides(_MockServiceRepository mock) {
-  return <Object>[serviceRepositoryProvider.overrideWithValue(mock)];
+  return <Object>[
+    serviceRepositoryProvider.overrideWithValue(mock),
+    // Selecting a category mounts the second-level service-type dropdown →
+    // serviceTypesProvider. Stub it to a calm empty list so no un-mocked fetch
+    // fires in-tree (the dropdown then resolves to its empty state).
+    serviceTypesProvider.overrideWith(
+      (ref, String categoryName) async => const <ServiceTypeOption>[],
+    ),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -214,13 +229,18 @@ void main() {
   }
 
   // ---------------------------------------------------------------------------
-  // 1. Empty name shows a required-field error after submit.
+  // 1. Blank name is OPTIONAL — submit proceeds (no required error) and
+  //    repository.create() is called with an EMPTY name (Item 4, 2026-06-08).
+  //    The required-name contract was removed: the backend defaults a blank name
+  //    to the selected service-type name, so the client must NOT block on it.
   // ---------------------------------------------------------------------------
-  testWidgets('empty name shows required error after submit', (tester) async {
+  testWidgets('blank name submits with empty name (no required error)', (
+    tester,
+  ) async {
     await pumpCreate(tester);
     final l10n = _l10n(tester);
 
-    // Leave name empty; fill valid duration and price.
+    // Leave name empty; fill valid duration, price, and category.
     await tester.enterText(
       find.descendant(
         of: find.byKey(const Key('field-service-duration')),
@@ -235,9 +255,25 @@ void main() {
       ),
       '100',
     );
+    await selectCategoryOption(tester, 'MANICURE');
     await tapSubmit(tester);
+    await tester.pumpAndSettle();
 
-    expect(find.text(l10n.errRequired), findsWidgets);
+    // No required-name error surfaces for the (now optional) name field.
+    expect(find.text(l10n.errNameRequired), findsNothing);
+
+    // Submit proceeds: create() is called once with an empty name (NOT
+    // substituted with the category / type name — the stopgap was removed).
+    final captured = verify(() => mockRepo.create(captureAny())).captured;
+    expect(captured.length, 1);
+    final input = captured.first as MasterServiceCreate;
+    expect(
+      input.name,
+      '',
+      reason:
+          'blank name flows through verbatim — the backend defaults it, the '
+          'client does not substitute the type name',
+    );
   });
 
   // ---------------------------------------------------------------------------
@@ -301,9 +337,12 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // 4. Duration > 1440 shows errDurationMax.
+  // 4. Duration > 480 shows errDurationMax.
+  //    Using 999 (3 digits, > 480). The LengthLimitingTextInputFormatter(3)
+  //    on the duration well truncates 4-digit entries (e.g. '1441' → '144'),
+  //    so only a 3-digit value above the cap reliably triggers the error.
   // ---------------------------------------------------------------------------
-  testWidgets('duration > 1440 shows errDurationMax', (tester) async {
+  testWidgets('duration > 480 shows errDurationMax', (tester) async {
     await pumpCreate(tester);
     final l10n = _l10n(tester);
 
@@ -319,7 +358,7 @@ void main() {
         of: find.byKey(const Key('field-service-duration')),
         matching: find.byType(TextField),
       ),
-      '1441',
+      '999', // 3-digit value > 480 cap; 1441 would silently truncate to 144
     );
     await tester.enterText(
       find.descendant(
@@ -328,6 +367,7 @@ void main() {
       ),
       '100',
     );
+    await selectCategoryOption(tester, 'MANICURE');
     await tapSubmit(tester);
 
     expect(find.text(l10n.errDurationMax), findsOneWidget);
@@ -396,8 +436,7 @@ void main() {
     );
     // Category is required by the backend — select the stubbed MANICURE chip.
     await tester.pumpAndSettle(); // resolve approvedCategoriesProvider
-    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await selectCategoryOption(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester.pumpAndSettle();
@@ -448,15 +487,10 @@ void main() {
         ),
         '200',
       );
-      // Category is required — settle the category provider, then select a chip.
-      // Settling first also resolves the category loading skeleton so the only
-      // CircularProgressIndicator below is the CTA spinner.
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
+      // Category is required — select it via the dropdown (which settles the
+      // category provider first, so the only CircularProgressIndicator below is
+      // the CTA spinner).
+      await selectCategoryOption(tester, 'MANICURE');
 
       await tapSubmit(tester);
       await tester.pump();
@@ -549,8 +583,7 @@ void main() {
       '500',
     );
     // Category is required — select the stubbed MANICURE chip.
-    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await selectCategoryOption(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester
@@ -595,12 +628,8 @@ void main() {
         ),
         '500',
       );
-      // Category is required — select the stubbed MANICURE chip.
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
+      // Category is required — select the stubbed MANICURE option.
+      await selectCategoryOption(tester, 'MANICURE');
       await tapSubmit(tester);
       await tester.pumpAndSettle();
 
@@ -642,8 +671,7 @@ void main() {
     );
     // Category is required — select the stubbed MANICURE chip.
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await selectCategoryOption(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester.pumpAndSettle();
@@ -669,8 +697,7 @@ void main() {
     await tester.pumpAndSettle(); // resolve approvedCategoriesProvider
 
     // Tap the MANICURE chip.
-    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await selectCategoryOption(tester, 'MANICURE');
     await tester.pumpAndSettle();
 
     // Fill the required text fields.
@@ -754,94 +781,64 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
-  // C. Tapping a selected chip deselects it — payload reverts to null category.
+  // C. Re-selecting the same category option keeps its wire slug on submit.
+  //    (Dropdowns are select-only; clearing happens via category change, not by
+  //    re-tapping. This locks that re-selection does not corrupt the wire value.)
   // ---------------------------------------------------------------------------
-  testWidgets(
-    'C. tapping a selected chip a second time deselects it (category → null)',
-    (tester) async {
-      await pumpCreate(tester);
-      await tester.pumpAndSettle(); // resolve approvedCategoriesProvider
+  testWidgets('C. re-selecting a category option submits the same wire slug', (
+    tester,
+  ) async {
+    await pumpCreate(tester);
 
-      // First tap — selects HAIRCUT.
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-HAIRCUT')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-HAIRCUT')));
-      await tester.pumpAndSettle();
+    // Select HAIRCUT via the dropdown, then re-select it a second time.
+    await selectCategoryOption(tester, 'HAIRCUT');
+    await selectCategoryOption(tester, 'HAIRCUT');
 
-      // Verify it is selected: a check icon should be present inside the chip.
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('chip-category-HAIRCUT')),
-          matching: find.byIcon(Icons.check_rounded),
-        ),
-        findsOneWidget,
-        reason: 'chip must show a check icon when selected',
-      );
+    // The closed field shows the Ukrainian label (not the raw slug).
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('select-category-field')),
+        matching: find.text('Стрижка'),
+      ),
+      findsOneWidget,
+    );
 
-      // Second tap — deselects HAIRCUT.
-      await tester.tap(find.byKey(const Key('chip-category-HAIRCUT')));
-      await tester.pumpAndSettle();
+    // Fill valid fields and submit; category must be the re-selected slug.
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-name')),
+        matching: find.byType(TextField),
+      ),
+      'Стрижка',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-duration')),
+        matching: find.byType(TextField),
+      ),
+      '30',
+    );
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('pricing-fixed-amount')),
+        matching: find.byType(TextField),
+      ),
+      '200',
+    );
+    await tapSubmit(tester);
+    await tester.pumpAndSettle();
 
-      // The check icon must be gone after deselection.
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('chip-category-HAIRCUT')),
-          matching: find.byIcon(Icons.check_rounded),
-        ),
-        findsNothing,
-        reason: 'check icon must disappear after second tap (deselect)',
-      );
-
-      // Third tap — re-select HAIRCUT (toggle cycle must be reversible).
-      await tester.tap(find.byKey(const Key('chip-category-HAIRCUT')));
-      await tester.pumpAndSettle();
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('chip-category-HAIRCUT')),
-          matching: find.byIcon(Icons.check_rounded),
-        ),
-        findsOneWidget,
-        reason: 'check icon must reappear after re-selecting the chip',
-      );
-
-      // Fill valid fields and submit; category must be the re-selected slug.
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('field-service-name')),
-          matching: find.byType(TextField),
-        ),
-        'Стрижка',
-      );
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('field-service-duration')),
-          matching: find.byType(TextField),
-        ),
-        '30',
-      );
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('pricing-fixed-amount')),
-          matching: find.byType(TextField),
-        ),
-        '200',
-      );
-      await tapSubmit(tester);
-      await tester.pumpAndSettle();
-
-      final captured = verify(() => mockRepo.create(captureAny())).captured;
-      expect(captured.length, 1);
-      final input = captured.first as MasterServiceCreate;
-      expect(
-        input.category,
-        'HAIRCUT',
-        reason:
-            'after select → deselect → reselect, the submitted category must '
-            'be the re-selected wire slug (toggle cycle is reversible)',
-      );
-    },
-  );
+    final captured = verify(() => mockRepo.create(captureAny())).captured;
+    expect(captured.length, 1);
+    final input = captured.first as MasterServiceCreate;
+    expect(
+      input.category,
+      'HAIRCUT',
+      reason:
+          'after select → deselect → reselect, the submitted category must '
+          'be the re-selected wire slug (toggle cycle is reversible)',
+    );
+  });
 
   // ---------------------------------------------------------------------------
   // 12. masterProfileProvider is invalidated after successful create (gap 7).
@@ -903,8 +900,7 @@ void main() {
       '500',
     );
     // Category is required — select the stubbed MANICURE chip.
-    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+    await selectCategoryOption(tester, 'MANICURE');
     await tester.pump();
     await tapSubmit(tester);
     await tester.pump(); // let Riverpod fire the invalidation rebuild
@@ -967,12 +963,8 @@ void main() {
         ),
         '60',
       );
-      // Select category.
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
+      // Select category via the dropdown.
+      await selectCategoryOption(tester, 'MANICURE');
 
       await tapSubmit(tester);
       await tester.pumpAndSettle();

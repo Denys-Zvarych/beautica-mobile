@@ -17,21 +17,22 @@
 
 import 'dart:developer';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:screen_protector/screen_protector.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
@@ -48,8 +49,10 @@ export 'services_list_notifier.dart' show servicesListProvider;
 /// Pull-to-refresh triggers [ServicesListNotifier.refresh].
 ///
 /// [initialExpandCategory] — when non-null and non-empty, the matching
-/// category section is pre-expanded on first build and all others are
-/// collapsed. The user can still toggle any section freely afterward.
+/// category section is pre-expanded on first build and all others start
+/// collapsed. When null or empty (the default — e.g. "Усі послуги" link or
+/// bottom-nav "Послуги" tab) ALL sections start collapsed; the user can
+/// toggle any section freely afterward.
 /// Passed from the profile screen's category cards via the `expandCategory`
 /// query parameter on the `/services` route.
 ///
@@ -61,7 +64,8 @@ class ServicesListScreen extends ConsumerStatefulWidget {
   const ServicesListScreen({super.key, this.initialExpandCategory});
 
   /// Optional upper-cased wire slug. When set, the matching category section
-  /// is pre-expanded and all others start collapsed on first entry.
+  /// is pre-expanded and all others start collapsed on first entry. When null
+  /// or empty all sections start collapsed (the default).
   final String? initialExpandCategory;
 
   @override
@@ -69,10 +73,16 @@ class ServicesListScreen extends ConsumerStatefulWidget {
 }
 
 class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
+  // Captured in initState so dispose() never touches `ref` — under Riverpod
+  // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
+  late final ScreenProtectionManager _screenProtection;
+
   @override
   void initState() {
     super.initState();
-    if (!kDebugMode) ScreenProtector.preventScreenshotOn();
+    // SEC MEDIUM: ref-counted screenshot + iOS app-switcher-snapshot guard
+    // (single app-wide owner; the manager is internally !kDebugMode-guarded).
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
     // The approved-category list ([approvedCategoriesProvider], keepAlive) is
     // cached in the root container for the whole session, so the picker can go
     // stale after an admin approves a category server-side. Invalidating on
@@ -80,13 +90,18 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
     // (Returns to this kept-alive route are handled by [_openAndRefresh],
     // since initState does NOT re-fire on pop-back.)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ref.invalidate(approvedCategoriesProvider);
+      if (mounted) {
+        ref.invalidate(approvedCategoriesProvider);
+        // Also drop the whole service-types family (no arg = all categories):
+        // a type newly approved under an EXISTING category must appear on entry.
+        ref.invalidate(serviceTypesProvider);
+      }
     });
   }
 
   @override
   void dispose() {
-    if (!kDebugMode) ScreenProtector.preventScreenshotOff();
+    _screenProtection.release();
     super.dispose();
   }
 
@@ -101,7 +116,10 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
   /// from the create / edit / request-category flows.
   Future<void> _openAndRefresh(String location) async {
     await context.push<void>(location);
-    if (mounted) ref.invalidate(approvedCategoriesProvider);
+    if (mounted) {
+      ref.invalidate(approvedCategoriesProvider);
+      ref.invalidate(serviceTypesProvider);
+    }
   }
 
   @override
@@ -123,7 +141,7 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
         orElse: () => null,
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      body: RefreshIndicator(
+      body: AppRefreshIndicator(
         // Pull-to-refresh refreshes BOTH the master's own services AND the
         // approved-category cache, so a category approved by an admin appears
         // on the next pull without a cold restart. `refresh()` awaits the
@@ -131,10 +149,12 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
         // lazily on the next watch) — both are kicked off here.
         onRefresh: () async {
           ref.invalidate(approvedCategoriesProvider);
+          ref.invalidate(serviceTypesProvider);
+          // approvedCategoriesProvider and serviceTypesProvider are intentionally
+          // NOT awaited: their stale humanized-label fallback degrades gracefully,
+          // and the spinner dismissal is gated only on the services re-fetch below.
           await ref.read(servicesListProvider.notifier).refresh();
         },
-        color: BrandColors.accentDeep,
-        backgroundColor: BrandColors.base,
         child: asyncServices.when(
           loading: () => const _LoadingBody(),
           error: (e, _) {
@@ -154,8 +174,12 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
           },
           data: (list) {
             if (list.isEmpty) {
+              // First-time path: a master with zero services lands on the
+              // one-pass setup screen (bulk menu builder), NOT the single-create
+              // form. The setup screen invalidates this list and routes back
+              // here (now populated) on a successful bulk save.
               return _EmptyState(
-                onCreate: () => _openAndRefresh(RouteNames.serviceCreate),
+                onCreate: () => _openAndRefresh(RouteNames.serviceSetup),
               );
             }
             return _LoadedBody(
@@ -222,7 +246,7 @@ class _LoadedBody extends ConsumerStatefulWidget {
   final List<MasterService> services;
 
   /// Upper-cased wire slug of the category to pre-expand on first build.
-  /// When null or empty all categories use the default (expanded) state.
+  /// When null or empty all sections start collapsed (the default).
   final String? initialExpandCategory;
 
   @override
@@ -387,9 +411,10 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
             // When a target slug was requested:
             //   • the matching section starts expanded,
             //   • every other section starts collapsed.
-            // When no target slug is set all sections use the default (expanded).
+            // When no target slug is set (null — "Усі послуги" link or
+            // bottom-nav tab) all sections start collapsed.
             final bool initiallyExpanded =
-                targetSlug == null || group.key == targetSlug;
+                targetSlug != null && group.key == targetSlug;
             final String sectionSlug = group.key.isEmpty ? '_none' : group.key;
             return Padding(
               padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
@@ -534,11 +559,14 @@ class _SectionItem extends _ListItem {
 
 /// A soft neumorphic disclosure section: an extruded header pillow (category
 /// name + count badge + rotating chevron) over a collapsible body of service
-/// cards. Defaults to expanded so the master still sees their services on load.
+/// cards.
 ///
-/// [initiallyExpanded] overrides the default: pass `false` to start collapsed
-/// or `true` (the default) to start expanded. The user can toggle at will after
-/// first build — the initial value is applied only once in [initState].
+/// [initiallyExpanded] controls the initial open/close state of this section:
+/// `true` starts expanded, `false` (the default) starts collapsed. The
+/// [_LoadedBodyState] passes `true` only for the explicitly-targeted category
+/// (when the master navigated via a specific category card). The user can
+/// toggle freely after first build — the initial value is applied only once
+/// in [initState].
 ///
 /// This is the VelvetTouch analogue of an [ExpansionTile] — no raw Material
 /// chrome. The header reuses the same [BrandColors.base] + [VelvetShadows]
@@ -549,7 +577,7 @@ class _CategorySection extends StatefulWidget {
     required this.title,
     required this.count,
     required this.children,
-    this.initiallyExpanded = true,
+    this.initiallyExpanded = false,
   });
 
   final String title;
@@ -557,7 +585,10 @@ class _CategorySection extends StatefulWidget {
   final List<Widget> children;
 
   /// Whether this section starts expanded. Applied once in [initState];
-  /// the user can toggle freely afterward.
+  /// the user can toggle freely afterward. Defaults to `false` (collapsed).
+  /// [_LoadedBodyState] passes `true` only for the explicitly-requested
+  /// category (non-null [_LoadedBody.initialExpandCategory] that matches this
+  /// section's slug).
   final bool initiallyExpanded;
 
   @override
@@ -767,6 +798,27 @@ class _ServiceCardState extends State<_ServiceCard>
     // priceDisplay is empty (pre-V67 data / broken contract).
     final priceLabel = ServicePriceDisplay.format(s);
 
+    // Item 1: the PRIMARY card label is the platform service-type name
+    // (e.g. "Стрижка"), not the master's custom name. The custom name — now
+    // optional — is shown as a quiet secondary line ONLY when it is present AND
+    // differs from the service-type label (so we never echo the same text
+    // twice). When no service type is selected the custom name (or, if also
+    // empty, the empty string) takes the primary slot so a card is never blank.
+    //
+    // M4 (contract correctness): serviceTypeNameUk is read straight off the
+    // mapped MasterService; the mapper sources it from
+    // MasterServiceResponse.serviceTypeNameUk (top-level, V16.3+) with a
+    // ServiceDefinitionResponse.serviceTypeNameUk fallback — both confirmed
+    // present in the generated DTOs. A null here means no type is assigned,
+    // NOT a dropped field.
+    final String typeName = (s.serviceTypeNameUk ?? '').trim();
+    final String customName = s.name.trim();
+    final String primaryLabel = typeName.isNotEmpty ? typeName : customName;
+    final String? secondaryLabel =
+        (typeName.isNotEmpty && customName.isNotEmpty && customName != typeName)
+        ? customName
+        : null;
+
     // P-H1 fix: FadeTransition + SlideTransition replace Opacity +
     // Transform.translate. Both transitions are compositing-friendly and
     // do not force an extra GPU raster layer per card.
@@ -776,7 +828,10 @@ class _ServiceCardState extends State<_ServiceCard>
         position: _slide,
         child: Semantics(
           button: true,
-          label: '${s.name}. $durationLabel, $priceLabel. Редагувати',
+          label:
+              '$primaryLabel. '
+              '${secondaryLabel != null ? '$secondaryLabel. ' : ''}'
+              '$durationLabel, $priceLabel. Редагувати',
           // priceLabel renders from priceDisplay (server-formatted) so the
           // accessibility label always matches what the user sees in the card.
           child: GestureDetector(
@@ -811,7 +866,8 @@ class _ServiceCardState extends State<_ServiceCard>
                     const SizedBox(width: VelvetSpacing.sm + 2),
                     Expanded(
                       child: _ServiceInfo(
-                        name: s.name,
+                        name: primaryLabel,
+                        secondaryName: secondaryLabel,
                         durationLabel: durationLabel,
                         priceLabel: priceLabel,
                       ),
@@ -873,9 +929,18 @@ class _ServiceInfo extends StatelessWidget {
     required this.name,
     required this.durationLabel,
     required this.priceLabel,
+    this.secondaryName,
   });
 
+  /// Primary card label — the platform service-type name (Item 1), or the
+  /// custom name as a fallback when no service type is assigned.
   final String name;
+
+  /// Optional secondary label — the master's custom name, shown as a quiet
+  /// subtitle beneath [name] only when a custom name is present and differs
+  /// from the service-type label. Null suppresses the row entirely.
+  final String? secondaryName;
+
   final String durationLabel;
   final String priceLabel;
 
@@ -885,8 +950,15 @@ class _ServiceInfo extends StatelessWidget {
     height: 1.15,
   );
 
+  // Secondary (custom name) style — quieter than the primary: smaller and
+  // muted, so the service-type name stays the dominant label.
+  static final TextStyle _secondaryStyle = VelvetText.pill().copyWith(
+    fontSize: 12.5,
+  );
+
   @override
   Widget build(BuildContext context) {
+    final String? secondary = secondaryName;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -899,9 +971,19 @@ class _ServiceInfo extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
+        if (secondary != null) ...<Widget>[
+          const SizedBox(height: 1),
+          Text(
+            secondary,
+            key: const Key('service-card-custom-name'),
+            style: _secondaryStyle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
         const SizedBox(height: VelvetSpacing.xs),
-        // Single inline metadata line: duration · price. The category is no
-        // longer shown here — it is now the section header the card lives under.
+        // Inline duration · price metadata line. The category is shown as the
+        // section header the card lives under, not here.
         _MetaLine(durationLabel: durationLabel, priceLabel: priceLabel),
       ],
     );

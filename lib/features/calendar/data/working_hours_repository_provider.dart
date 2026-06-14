@@ -10,6 +10,7 @@
 
 import 'package:beautica_mobile/core/network/api_client_provider.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'working_hours_repository.dart';
@@ -22,21 +23,26 @@ part 'working_hours_repository_provider.g.dart';
 /// Override in tests with a mocktail mock — never construct
 /// [HttpWorkingHoursRepository] directly outside this provider and its tests.
 ///
-/// Both `masterId` and the read-path `cachedWeek` are read from
-/// [masterProfileProvider]; both that provider and this one are
-/// [keepAlive: true]. The watch is reactive on purpose (PERF M2): when the
-/// profile is invalidated (profile edit, locality change, or a working-hours
-/// save) this provider rebuilds with the fresh cached week, so the repository
-/// never serves a stale read. When the profile has not resolved yet the id is
-/// `''` and the week is empty; the repository's `_assertAuthenticated` guard
-/// converts a write attempt into an [UnauthorizedFailure] instead of a
-/// malformed-URL [NotFoundFailure].
+/// `masterId` is read from [masterProfileProvider]; both that provider and this
+/// one are [keepAlive: true]. The read path is now a network call
+/// (`getWeeklySchedules`) inside the repository, so no cached week is injected —
+/// the provider only needs the Master-row UUID and the API client. When the
+/// profile has not resolved yet the id is `''`; the repository's
+/// `_assertAuthenticated` guard converts a call into an [UnauthorizedFailure]
+/// instead of a malformed-URL [NotFoundFailure].
+///
+/// Watches only the Master-row id via `.select` — an unrelated profile
+/// invalidation (a bio or locality edit) leaves the id unchanged, so this
+/// provider (and the working-hours notifier that watches it) does NOT rebuild or
+/// re-fetch the week. It rebuilds only when the authenticated master's id
+/// actually changes (login / logout / account switch).
 @Riverpod(keepAlive: true)
 WorkingHoursRepository workingHoursRepository(Ref ref) {
-  final master = ref.watch(masterProfileProvider).value;
+  final masterId = ref.watch(
+    masterProfileProvider.select((async) => async.value?.id),
+  );
   return HttpWorkingHoursRepository(
     masterApi: ref.watch(masterApiProvider),
-    masterId: master?.id ?? '',
-    cachedWeek: master?.workingHours ?? const [],
+    masterId: masterId ?? '',
   );
 }

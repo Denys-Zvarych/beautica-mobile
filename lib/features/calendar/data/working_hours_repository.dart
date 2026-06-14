@@ -1,18 +1,29 @@
-// Phase 6.1 — WorkingHoursRepository: the calendar feature's working-hours
-// data layer.
+// Phase 6.2 — WorkingHoursRepository: the calendar feature's working-hours
+// data layer, backed by the backend weekly-schedule API.
 //
-// Contract (verified against the generated client 2026-06-04):
-//   Read  — there is NO standalone GET working-hours endpoint. Working hours
-//           come bundled in MasterDetailResponse.workingHours. Rather than
-//           re-fetch that envelope (PERF M1), [list] returns the working week
-//           already carried on the cached [Master] profile — the provider wires
-//           in the dense, gap-filled week from [masterProfileProvider] at
-//           construction time, so [list] performs NO network call.
-//   Write — MasterControllerApi.upsertWorkingHours(masterId, BuiltList<
-//           WorkingHoursRequest>) → PATCH /api/v1/masters/{masterId}/working-hours,
-//           returning ApiResponseListWorkingHoursResponse (the saved list).
-//           The endpoint requires the real Master-row UUID in the path and is
-//           authorised by @authz.canManageMasterSchedule.
+// Contract (verified against the generated client 2026-06-10):
+//   Read  — getWeeklySchedules(masterId)
+//             → GET /api/v1/masters/{masterId}/weekly-schedules
+//             → ApiResponseListWeeklyScheduleResponse (a list of schedules).
+//           [list] picks the schedule whose [validFrom, validTo] window covers
+//           today (Kyiv); if none covers today it falls back to the latest
+//           open-ended schedule. The picked schedule is gap-filled to a dense,
+//           ordered 7-entry week. (This IS a network read — the old PERF-M1
+//           "read from the cached profile, no network call" contract is gone:
+//           working hours are no longer bundled on the profile envelope.)
+//   Write — there is no single "upsert" call. [replaceAll] first reads the
+//           schedules (same selection as [list]); if a covering / latest
+//           schedule exists it UPDATEs it in place via
+//             updateWeeklySchedule(masterId, scheduleId, body)
+//             → PUT /api/v1/masters/{masterId}/weekly-schedules/{scheduleId},
+//           preserving that schedule's `validFrom` (the backend's
+//           `@FutureOrPresent` rejects a re-stamped past date). If NO schedule
+//           exists yet it CREATEs one via
+//             createWeeklySchedule(masterId, body)
+//             → POST /api/v1/masters/{masterId}/weekly-schedules,
+//           stamping `validFrom = today (Kyiv)`, `validTo = null`
+//           (open-ended). Both return the saved [WeeklyScheduleResponse], which
+//           is mapped back through the gap-filler.
 //
 // [_masterId] is the Master-row UUID (from MasterDetailResponse.masterId), NOT
 // the User UUID from the auth session — they differ (see the services feature's
@@ -21,7 +32,7 @@
 //
 // Every method either resolves successfully or throws a typed [Failure] from
 // `core/errors/failures.dart`. Raw [DioException]s are caught here and never
-// escape. A 400 (server-side time-range / @Size validation) surfaces as a
+// escape. A 400 (server-side time-range / window validation) surfaces as a
 // [ValidationFailure] — the [ErrorMapperInterceptor] maps the 400 envelope and
 // attaches it to `DioException.error`, which [_mapDioException] re-throws.
 
@@ -39,22 +50,22 @@ import 'working_hours_mapper.dart';
 ///
 /// [replaceAll] is intentionally an atomic "save the whole week" operation
 /// rather than a per-day patch — the Phase 6.2 editor commits all seven days in
-/// one PATCH so a half-applied state (e.g. Monday saved, Tuesday failed) is
+/// one call so a half-applied state (e.g. Monday saved, Tuesday failed) is
 /// impossible.
 abstract interface class WorkingHoursRepository {
   /// Returns the authenticated master's week as a dense, ordered 7-entry list
-  /// (Monday(1) … Sunday(7)). Missing / closed days are already filled by the
-  /// mapper (at profile-mapping time) so the editor always has all seven days.
+  /// (Monday(1) … Sunday(7)). Missing / closed days are filled by the mapper so
+  /// the editor always has all seven days.
   ///
-  /// PERF M1: this reads from the already-cached [masterProfileProvider] value's
-  /// working hours (injected at construction) and performs NO network call —
-  /// the profile fetch the app already made carries the bundled week.
+  /// Reads over the network via `getWeeklySchedules`, picking the schedule that
+  /// covers today (Kyiv) or, failing that, the latest open-ended schedule.
   Future<List<WorkingHours>> list();
 
   /// Replaces the entire week with [hours] and returns the saved list (mapped
   /// back through the gap-filler so the result is always 7 ordered entries).
-  /// Throws [ValidationFailure] on a backend 400, or another typed [Failure]
-  /// on any transport / server error.
+  /// Updates the covering / latest schedule in place when one exists, otherwise
+  /// creates a new open-ended schedule. Throws [ValidationFailure] on a backend
+  /// 400, or another typed [Failure] on any transport / server error.
   Future<List<WorkingHours>> replaceAll(List<WorkingHours> hours);
 }
 
@@ -62,34 +73,28 @@ abstract interface class WorkingHoursRepository {
 ///
 /// Inject via `workingHoursRepositoryProvider` — never construct directly.
 ///
-/// [_masterApi] drives the write ([MasterControllerApi.upsertWorkingHours])
-/// path through the generated client so built_value handles serialization.
-/// [_masterId] is the Master-row UUID resolved at provider construction time.
-/// [_cachedWeek] is the dense, gap-filled working week already carried on the
-/// cached [Master] profile — [list] returns it directly with NO network call
-/// (PERF M1).
+/// [_masterApi] drives both the read (`getWeeklySchedules`) and the write
+/// (`createWeeklySchedule` / `updateWeeklySchedule`) through the generated
+/// client so built_value handles serialization. [_masterId] is the Master-row
+/// UUID resolved at provider construction time.
 final class HttpWorkingHoursRepository implements WorkingHoursRepository {
   HttpWorkingHoursRepository({
     required MasterControllerApi masterApi,
     required String masterId,
-    required List<WorkingHours> cachedWeek,
   }) : _masterApi = masterApi,
-       _masterId = masterId,
-       _cachedWeek = cachedWeek;
+       _masterId = masterId;
 
   final MasterControllerApi _masterApi;
   final String _masterId;
-  final List<WorkingHours> _cachedWeek;
 
   static const _tag = 'feature.calendar.workinghours.repository';
 
   /// Throws [UnauthorizedFailure] immediately if [_masterId] is empty.
   ///
   /// An empty masterId means [masterProfileProvider] has not resolved an
-  /// authenticated master yet. Proceeding would PATCH `/api/v1/masters//working-hours`
-  /// and surface an opaque [NotFoundFailure]; failing fast surfaces the real
-  /// cause to callers. Only the write path guards this — the read path resolves
-  /// the master from the JWT and needs no path id.
+  /// authenticated master yet. Proceeding would hit
+  /// `/api/v1/masters//weekly-schedules` and surface an opaque
+  /// [NotFoundFailure]; failing fast surfaces the real cause to callers.
   void _assertAuthenticated() {
     if (_masterId.isEmpty) {
       throw const UnauthorizedFailure();
@@ -98,36 +103,152 @@ final class HttpWorkingHoursRepository implements WorkingHoursRepository {
 
   @override
   Future<List<WorkingHours>> list() async {
-    // PERF M1: no network call. The week is already on the cached [Master]
-    // profile (fetched once via masterProfileProvider) and gap-filled to 7
-    // entries at profile-mapping time; the provider injects it here. Returning a
-    // Future keeps the [WorkingHoursRepository] contract unchanged.
-    return _cachedWeek;
+    _assertAuthenticated();
+    try {
+      final schedules = await _fetchSchedules();
+      return WorkingHoursMapper.weeklyScheduleToDomainWeek(
+        _pickSchedule(schedules),
+      );
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      _logDio('list', e, st);
+      throw _mapDioException(e);
+    }
   }
 
   @override
   Future<List<WorkingHours>> replaceAll(List<WorkingHours> hours) async {
     _assertAuthenticated();
     try {
-      final res = await _masterApi.upsertWorkingHours(
-        masterId: _masterId,
-        workingHoursRequest: WorkingHoursMapper.toRequestList(hours),
-      );
-      // The backend returns the saved list; re-run it through the gap-filler so
-      // callers always receive a dense, ordered 7-entry week.
-      return WorkingHoursMapper.toDomainWeek(res.data?.data);
+      final existing = _pickSchedule(await _fetchSchedules());
+      final WeeklyScheduleResponse? saved;
+      if (existing != null && existing.id != null && existing.id!.isNotEmpty) {
+        // UPDATE in place — preserve the existing schedule's validFrom (the
+        // backend's @FutureOrPresent rejects a re-stamped past date). Fall back
+        // to today only if the existing window somehow has no validFrom.
+        final validFrom = existing.validFrom?.toDateTime() ?? _todayKyiv();
+        final res = await _masterApi.updateWeeklySchedule(
+          masterId: _masterId,
+          scheduleId: existing.id!,
+          weeklyScheduleRequest: WorkingHoursMapper.toWeeklyScheduleRequest(
+            hours,
+            validFrom: validFrom,
+          ),
+        );
+        saved = res.data?.data;
+      } else {
+        // CREATE — no schedule exists yet. Stamp validFrom = today (Kyiv),
+        // validTo = null (open-ended).
+        final res = await _masterApi.createWeeklySchedule(
+          masterId: _masterId,
+          weeklyScheduleRequest: WorkingHoursMapper.toWeeklyScheduleRequest(
+            hours,
+            validFrom: _todayKyiv(),
+          ),
+        );
+        saved = res.data?.data;
+      }
+      // The backend returns the saved schedule; re-run it through the gap-filler
+      // so callers always receive a dense, ordered 7-entry week.
+      return WorkingHoursMapper.weeklyScheduleToDomainWeek(saved);
     } on Failure {
       rethrow;
     } on DioException catch (e, st) {
-      if (kDebugMode) {
-        log(
-          'replaceAll failed: ${e.type} ${e.response?.statusCode}',
-          name: _tag,
-          level: 900,
-          stackTrace: st,
-        );
-      }
+      _logDio('replaceAll', e, st);
       throw _mapDioException(e);
+    }
+  }
+
+  /// Fetches the master's weekly schedules, returning an empty iterable when the
+  /// envelope carries none.
+  ///
+  /// Returns the built_value [BuiltList] (an [Iterable]) directly — [_pickSchedule]
+  /// walks it once, so there is no need to copy it into a growable [List].
+  Future<Iterable<WeeklyScheduleResponse>> _fetchSchedules() async {
+    final res = await _masterApi.getWeeklySchedules(masterId: _masterId);
+    return res.data?.data ?? const <WeeklyScheduleResponse>[];
+  }
+
+  /// Picks the schedule that governs "today", deterministically.
+  ///
+  /// Selection (the backend forbids overlapping windows, so at most one
+  /// schedule can cover today):
+  ///   1. The schedule whose [validFrom, validTo] window covers today (Kyiv) —
+  ///      `validFrom <= today` AND (`validTo == null` OR `today <= validTo`).
+  ///   2. Otherwise the latest OPEN-ENDED schedule (`validTo == null`, max
+  ///      `validFrom`) — the one that will become active.
+  ///   3. Otherwise the schedule with the latest `validFrom` (best effort).
+  ///   4. `null` when there are no schedules at all (the create path).
+  ///
+  /// Shared by [list] and [replaceAll] so read and write always agree on which
+  /// schedule is "the" schedule.
+  WeeklyScheduleResponse? _pickSchedule(
+    Iterable<WeeklyScheduleResponse> schedules,
+  ) {
+    final today = _todayKyiv();
+
+    WeeklyScheduleResponse? covering;
+    WeeklyScheduleResponse? latestOpenEnded;
+    WeeklyScheduleResponse? latestAny;
+
+    for (final s in schedules) {
+      final from = s.validFrom?.toDateTime();
+      final to = s.validTo?.toDateTime();
+
+      final coversToday =
+          from != null &&
+          !today.isBefore(from) &&
+          (to == null || !today.isAfter(to));
+      if (coversToday) {
+        // Deterministic even if (contract-violating) duplicates exist: keep the
+        // one with the later validFrom.
+        if (covering == null || _validFromAfter(s, covering)) {
+          covering = s;
+        }
+      }
+
+      if (to == null) {
+        if (latestOpenEnded == null || _validFromAfter(s, latestOpenEnded)) {
+          latestOpenEnded = s;
+        }
+      }
+
+      if (latestAny == null || _validFromAfter(s, latestAny)) {
+        latestAny = s;
+      }
+    }
+
+    return covering ?? latestOpenEnded ?? latestAny;
+  }
+
+  /// True when [a]'s `validFrom` is strictly after [b]'s (nulls sort earliest),
+  /// used to break ties deterministically in [_pickSchedule].
+  bool _validFromAfter(WeeklyScheduleResponse a, WeeklyScheduleResponse b) {
+    final fa = a.validFrom;
+    final fb = b.validFrom;
+    if (fa == null) return false;
+    if (fb == null) return true;
+    return fa.compareTo(fb) > 0;
+  }
+
+  /// "Today" as a date-only [DateTime] at local midnight. The mobile client
+  /// treats its already-local `DateTime.now()` as Kyiv civil time (consistent
+  /// with the schedule feature's date math) and strips the time-of-day so the
+  /// window comparison is purely date-based.
+  DateTime _todayKyiv() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  void _logDio(String op, DioException e, StackTrace st) {
+    if (kDebugMode) {
+      log(
+        '$op failed: ${e.type} ${e.response?.statusCode}',
+        name: _tag,
+        level: 900,
+        stackTrace: st,
+      );
     }
   }
 

@@ -14,12 +14,15 @@ class _$ApiResponseMasterDetailResponse
   final MasterDetailResponse? data;
   @override
   final String? message;
+  @override
+  final BuiltMap<String, String>? errors;
 
   factory _$ApiResponseMasterDetailResponse(
           [void Function(ApiResponseMasterDetailResponseBuilder)? updates]) =>
       (ApiResponseMasterDetailResponseBuilder()..update(updates))._build();
 
-  _$ApiResponseMasterDetailResponse._({this.success, this.data, this.message})
+  _$ApiResponseMasterDetailResponse._(
+      {this.success, this.data, this.message, this.errors})
       : super._();
   @override
   ApiResponseMasterDetailResponse rebuild(
@@ -36,7 +39,8 @@ class _$ApiResponseMasterDetailResponse
     return other is ApiResponseMasterDetailResponse &&
         success == other.success &&
         data == other.data &&
-        message == other.message;
+        message == other.message &&
+        errors == other.errors;
   }
 
   @override
@@ -45,6 +49,7 @@ class _$ApiResponseMasterDetailResponse
     _$hash = $jc(_$hash, success.hashCode);
     _$hash = $jc(_$hash, data.hashCode);
     _$hash = $jc(_$hash, message.hashCode);
+    _$hash = $jc(_$hash, errors.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -54,7 +59,8 @@ class _$ApiResponseMasterDetailResponse
     return (newBuiltValueToStringHelper(r'ApiResponseMasterDetailResponse')
           ..add('success', success)
           ..add('data', data)
-          ..add('message', message))
+          ..add('message', message)
+          ..add('errors', errors))
         .toString();
   }
 }
@@ -78,6 +84,11 @@ class ApiResponseMasterDetailResponseBuilder
   String? get message => _$this._message;
   set message(String? message) => _$this._message = message;
 
+  MapBuilder<String, String>? _errors;
+  MapBuilder<String, String> get errors =>
+      _$this._errors ??= MapBuilder<String, String>();
+  set errors(MapBuilder<String, String>? errors) => _$this._errors = errors;
+
   ApiResponseMasterDetailResponseBuilder() {
     ApiResponseMasterDetailResponse._defaults(this);
   }
@@ -88,6 +99,7 @@ class ApiResponseMasterDetailResponseBuilder
       _success = $v.success;
       _data = $v.data?.toBuilder();
       _message = $v.message;
+      _errors = $v.errors?.toBuilder();
       _$v = null;
     }
     return this;
@@ -114,12 +126,16 @@ class ApiResponseMasterDetailResponseBuilder
             success: success,
             data: _data?.build(),
             message: message,
+            errors: _errors?.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
         _$failedField = 'data';
         _data?.build();
+
+        _$failedField = 'errors';
+        _errors?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'ApiResponseMasterDetailResponse', _$failedField, e.toString());

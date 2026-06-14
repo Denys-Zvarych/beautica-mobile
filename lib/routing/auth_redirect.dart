@@ -192,6 +192,20 @@ String? authRedirectForLocation(
     }
   }
 
+  // Role gate: /master/* is only accessible to INDEPENDENT_MASTER.
+  //
+  // Any other authenticated role (CLIENT, SALON_OWNER, SALON_ADMIN,
+  // SALON_MASTER) that navigates to a /master/* path (working hours, profile,
+  // edit, etc.) is redirected to the home shell which renders the "coming
+  // soon" surface. SALON_MASTER has a read-only calendar but that surface is
+  // under /calendar, not /master — so no /master/* role is carved out for it.
+  if (isAuthenticated && location.startsWith('/master/')) {
+    final Authenticated auth = session.value! as Authenticated;
+    if (auth.user.role != UserRole.independentMaster) {
+      return RouteNames.home;
+    }
+  }
+
   // No redirect needed.
   return null;
 }

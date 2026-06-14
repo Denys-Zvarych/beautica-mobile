@@ -19,8 +19,8 @@ part 'service_definition_response.g.dart';
 /// * [baseDurationMinutes]
 /// * [bufferMinutesAfter]
 /// * [isActive]
-/// * [serviceTypeId]
-/// * [serviceTypeNameUk]
+/// * [serviceTypeId] - Chosen service type id; null when no service type was selected.
+/// * [serviceTypeNameUk] - Ukrainian display name of the chosen service type; null when none was selected.
 /// * [photoUrl]
 /// * [priceType]
 /// * [priceMin]
@@ -51,9 +51,11 @@ abstract class ServiceDefinitionResponse
   @BuiltValueField(wireName: r'isActive')
   bool? get isActive;
 
+  /// Chosen service type id; null when no service type was selected.
   @BuiltValueField(wireName: r'serviceTypeId')
   String? get serviceTypeId;
 
+  /// Ukrainian display name of the chosen service type; null when none was selected.
   @BuiltValueField(wireName: r'serviceTypeNameUk')
   String? get serviceTypeNameUk;
 
@@ -156,14 +158,14 @@ class _$ServiceDefinitionResponseSerializer
       yield r'serviceTypeId';
       yield serializers.serialize(
         object.serviceTypeId,
-        specifiedType: const FullType(String),
+        specifiedType: const FullType.nullable(String),
       );
     }
     if (object.serviceTypeNameUk != null) {
       yield r'serviceTypeNameUk';
       yield serializers.serialize(
         object.serviceTypeNameUk,
-        specifiedType: const FullType(String),
+        specifiedType: const FullType.nullable(String),
       );
     }
     if (object.photoUrl != null) {
@@ -278,15 +280,17 @@ class _$ServiceDefinitionResponseSerializer
         case r'serviceTypeId':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.serviceTypeId = valueDes;
           break;
         case r'serviceTypeNameUk':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.serviceTypeNameUk = valueDes;
           break;
         case r'photoUrl':

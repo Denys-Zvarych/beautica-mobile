@@ -14,6 +14,8 @@ class _$ApiResponseListPlatformCategoryUsageResponse
   final BuiltList<PlatformCategoryUsageResponse>? data;
   @override
   final String? message;
+  @override
+  final BuiltMap<String, String>? errors;
 
   factory _$ApiResponseListPlatformCategoryUsageResponse(
           [void Function(ApiResponseListPlatformCategoryUsageResponseBuilder)?
@@ -22,7 +24,7 @@ class _$ApiResponseListPlatformCategoryUsageResponse
           ._build();
 
   _$ApiResponseListPlatformCategoryUsageResponse._(
-      {this.success, this.data, this.message})
+      {this.success, this.data, this.message, this.errors})
       : super._();
   @override
   ApiResponseListPlatformCategoryUsageResponse rebuild(
@@ -40,7 +42,8 @@ class _$ApiResponseListPlatformCategoryUsageResponse
     return other is ApiResponseListPlatformCategoryUsageResponse &&
         success == other.success &&
         data == other.data &&
-        message == other.message;
+        message == other.message &&
+        errors == other.errors;
   }
 
   @override
@@ -49,6 +52,7 @@ class _$ApiResponseListPlatformCategoryUsageResponse
     _$hash = $jc(_$hash, success.hashCode);
     _$hash = $jc(_$hash, data.hashCode);
     _$hash = $jc(_$hash, message.hashCode);
+    _$hash = $jc(_$hash, errors.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -59,7 +63,8 @@ class _$ApiResponseListPlatformCategoryUsageResponse
             r'ApiResponseListPlatformCategoryUsageResponse')
           ..add('success', success)
           ..add('data', data)
-          ..add('message', message))
+          ..add('message', message)
+          ..add('errors', errors))
         .toString();
   }
 }
@@ -84,6 +89,11 @@ class ApiResponseListPlatformCategoryUsageResponseBuilder
   String? get message => _$this._message;
   set message(String? message) => _$this._message = message;
 
+  MapBuilder<String, String>? _errors;
+  MapBuilder<String, String> get errors =>
+      _$this._errors ??= MapBuilder<String, String>();
+  set errors(MapBuilder<String, String>? errors) => _$this._errors = errors;
+
   ApiResponseListPlatformCategoryUsageResponseBuilder() {
     ApiResponseListPlatformCategoryUsageResponse._defaults(this);
   }
@@ -94,6 +104,7 @@ class ApiResponseListPlatformCategoryUsageResponseBuilder
       _success = $v.success;
       _data = $v.data?.toBuilder();
       _message = $v.message;
+      _errors = $v.errors?.toBuilder();
       _$v = null;
     }
     return this;
@@ -122,12 +133,16 @@ class ApiResponseListPlatformCategoryUsageResponseBuilder
             success: success,
             data: _data?.build(),
             message: message,
+            errors: _errors?.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
         _$failedField = 'data';
         _data?.build();
+
+        _$failedField = 'errors';
+        _errors?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'ApiResponseListPlatformCategoryUsageResponse',

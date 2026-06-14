@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/json_object.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -15,6 +16,7 @@ part 'api_response_void.g.dart';
 /// * [success]
 /// * [data]
 /// * [message]
+/// * [errors]
 @BuiltValue()
 abstract class ApiResponseVoid
     implements Built<ApiResponseVoid, ApiResponseVoidBuilder> {
@@ -26,6 +28,9 @@ abstract class ApiResponseVoid
 
   @BuiltValueField(wireName: r'message')
   String? get message;
+
+  @BuiltValueField(wireName: r'errors')
+  BuiltMap<String, String>? get errors;
 
   ApiResponseVoid._();
 
@@ -74,6 +79,14 @@ class _$ApiResponseVoidSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.errors != null) {
+      yield r'errors';
+      yield serializers.serialize(
+        object.errors,
+        specifiedType:
+            const FullType(BuiltMap, [FullType(String), FullType(String)]),
+      );
+    }
   }
 
   @override
@@ -120,6 +133,14 @@ class _$ApiResponseVoidSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.message = valueDes;
+          break;
+        case r'errors':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType(BuiltMap, [FullType(String), FullType(String)]),
+          ) as BuiltMap<String, String>;
+          result.errors.replace(valueDes);
           break;
         default:
           unhandled.add(key);
