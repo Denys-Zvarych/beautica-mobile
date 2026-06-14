@@ -47,7 +47,15 @@ import 'widgets/schedule_widgets.dart';
 
 /// The calendar-first Master Schedule screen.
 class MasterScheduleScreen extends ConsumerStatefulWidget {
-  const MasterScheduleScreen({super.key});
+  const MasterScheduleScreen({super.key, DateTime? clock}) : _clock = clock;
+
+  /// Injectable "now" (wall-clock decoupling, mirroring
+  /// [WeeklyTemplateEditorScreen]): "today" — which day the calendar selects on
+  /// mount, anchors its month/week request on, and gates past days against —
+  /// resolves from this. Defaults to `DateTime.now()` in production; tests pass
+  /// a fixed clock so the rendered calendar (and its goldens) are run-day
+  /// independent.
+  final DateTime? _clock;
 
   @override
   ConsumerState<MasterScheduleScreen> createState() =>
@@ -67,8 +75,9 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     'Нд',
   ];
 
-  /// "Today" anchored to the device date (date-only). Used for past-day gating.
-  late final DateTime _today = _dateOnly(DateTime.now());
+  /// "Today" anchored to the injected clock (or the device date in production),
+  /// date-only. Used for past-day gating and today-selection on mount.
+  late final DateTime _today = _dateOnly(widget._clock ?? DateTime.now());
 
   /// Selected date as a notifier (HIGH-1): day selection updates this WITHOUT a
   /// `setState`, so only the listeners — the two affected week-strip pills and

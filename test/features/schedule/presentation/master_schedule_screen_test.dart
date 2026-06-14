@@ -57,7 +57,14 @@ import 'package:go_router/go_router.dart';
 // ───────────────────────────────────────────────────────────────────────────
 
 DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
-final DateTime _today = _dateOnly(DateTime.now());
+
+/// Fixed test "today" — injected into the screen via [MasterScheduleScreen.clock]
+/// so the rendered calendar (and the date-sensitive goldens) are run-day
+/// independent. Previously this read `DateTime.now()`, which made the goldens
+/// flip every calendar day (the highlighted day + the date label moved), so the
+/// suite passed its logic assertions but its goldens failed on any day other
+/// than the one they were captured on. All fakes anchor on this date.
+final DateTime _today = _dateOnly(DateTime(2026, 6, 13));
 DateTime _mondayOf(DateTime d) =>
     _dateOnly(d).subtract(Duration(days: d.weekday - 1));
 final DateTime _weekStart = _mondayOf(_today);
@@ -722,14 +729,14 @@ class _ContainerListenable extends ChangeNotifier {
 List<RouteBase> _routes() => <RouteBase>[
   GoRoute(
     path: RouteNames.masterSchedule,
-    builder: (context, state) => const MasterScheduleScreen(),
+    builder: (context, state) => MasterScheduleScreen(clock: _today),
   ),
   // The REAL weekly-template editor the CTA now routes to (Phase 15.5).
   // It reads `weeklyScheduleProvider` (overridden per-test) and saves via
   // `WeeklyScheduleNotifier`, so navigating here stays hermetic.
   GoRoute(
     path: RouteNames.scheduleWeeklyEditor,
-    builder: (context, state) => const WeeklyTemplateEditorScreen(),
+    builder: (context, state) => WeeklyTemplateEditorScreen(clock: _today),
   ),
   // Deprecated legacy editor — kept routable so the auth guard stays exercised,
   // but it is no longer a CTA destination.
@@ -746,7 +753,7 @@ List<RouteBase> _routes() => <RouteBase>[
   // so the retired `SchedulePropagateStubScreen` is no longer wired here.
   GoRoute(
     path: RouteNames.schedulePropagate,
-    builder: (context, state) => const WeeklyTemplateEditorScreen(),
+    builder: (context, state) => WeeklyTemplateEditorScreen(clock: _today),
   ),
   GoRoute(
     path: RouteNames.masterProfile,
