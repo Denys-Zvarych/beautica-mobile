@@ -66,8 +66,8 @@ android {
             val releaseConfig = signingConfigs.findByName("release")
             signingConfig = releaseConfig ?: signingConfigs.getByName("debug")
             // R8 shrinking and obfuscation enabled for release builds.
-            // ProGuard rules in proguard-rules.pro protect flutter_secure_storage
-            // and firebase_messaging reflection paths (Phase 2.1).
+            // ProGuard rules in proguard-rules.pro protect the reflection-based
+            // native plugins (flutter_secure_storage, screen_protector, etc.).
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

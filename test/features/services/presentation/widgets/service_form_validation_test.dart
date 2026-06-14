@@ -29,6 +29,8 @@ import 'package:beautica_mobile/features/services/domain/master_service_input.da
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/validators/name_validator.dart'
+    show kNameMaxLength;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -438,6 +440,78 @@ void main() {
       await tester.pump();
 
       expect(find.text(_l10n(tester).errPriceMaxGtMin), findsOneWidget);
+    });
+  });
+
+  // =========================================================================
+  // 3b. Name length cap — LengthLimitingTextInputFormatter(kNameMaxLength).
+  //     Security-backlog: an over-long name must never reach the wire. The
+  //     formatter truncates at input time (covers both typing and paste, which
+  //     both flow through TextField's formatter pipeline).
+  // =========================================================================
+  group('name length cap (kNameMaxLength = 100)', () {
+    testWidgets('over-long input is truncated to 100 chars at input time', (
+      tester,
+    ) async {
+      await pumpForm(tester, onSubmit: shouldNotSubmit);
+
+      // Simulate pasting a 150-char string into the name field.
+      await tester.enterText(_nameField, 'a' * 150);
+      await tester.pump();
+
+      expect(
+        tester.widget<TextField>(_nameField).controller?.text.length,
+        kNameMaxLength,
+      );
+      expect(
+        tester.widget<TextField>(_nameField).controller?.text,
+        'a' * kNameMaxLength,
+      );
+    });
+
+    testWidgets('exactly 100 chars is accepted unchanged', (tester) async {
+      await pumpForm(tester, onSubmit: shouldNotSubmit);
+
+      await tester.enterText(_nameField, 'b' * 100);
+      await tester.pump();
+
+      expect(tester.widget<TextField>(_nameField).controller?.text, 'b' * 100);
+    });
+
+    testWidgets('a short (<=100) name is unaffected by the formatter', (
+      tester,
+    ) async {
+      await pumpForm(tester, onSubmit: shouldNotSubmit);
+
+      await tester.enterText(_nameField, 'Манікюр');
+      await tester.pump();
+
+      expect(tester.widget<TextField>(_nameField).controller?.text, 'Манікюр');
+    });
+
+    testWidgets('truncated 100-char name passes validation and submits', (
+      tester,
+    ) async {
+      MasterServiceCreate? captured;
+      await pumpForm(tester, onSubmit: (input) async => captured = input);
+
+      // Paste over-long → formatter truncates to 100 → still a valid name.
+      await tester.enterText(_nameField, 'c' * 150);
+      await tester.enterText(_durationField, '60');
+      await tester.enterText(_fixedPriceField, '500');
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const Key('chip-category-MANICURE')),
+      );
+      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+      await tester.pump();
+      await tapSubmit(tester);
+      await tester.pumpAndSettle();
+
+      expect(captured, isNotNull);
+      expect(captured!.name, 'c' * kNameMaxLength);
+      // No too-long error surfaced (the value was capped before validation).
+      expect(find.text(_l10n(tester).errNameTooLong), findsNothing);
     });
   });
 

@@ -54,4 +54,14 @@ void main() {
       expect(validateName('Іван', l10n), isNull);
     });
   });
+
+  // Security-backlog regression: the name cap is shared between the validator
+  // and the LengthLimitingTextInputFormatter on the service-name field. Pin the
+  // constant so a silent change (e.g. someone bumping it to 255) is caught here
+  // rather than slipping past as an over-long value that reaches the wire.
+  group('kNameMaxLength', () {
+    test('is pinned to 100 (mirrors backend @Size(max = 100))', () {
+      expect(kNameMaxLength, 100);
+    });
+  });
 }

@@ -355,14 +355,14 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
           }
         }
       }
-    } catch (e, st) {
-      log(
-        'Locality pre-population failed — cascade will be empty',
-        name: 'feature.master.edit',
-        level: 800,
-        error: e,
-        stackTrace: st,
-      );
+    } catch (_) {
+      if (kDebugMode) {
+        log(
+          'Locality pre-population failed — cascade will be empty',
+          name: 'feature.master.edit',
+          level: 800,
+        );
+      }
       // Swallow: leave whatever resolved so far. The reconcile block below
       // still runs so the orig/selected pair stays consistent.
     }
@@ -741,8 +741,11 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
       }
     } on ValidationFailure catch (f) {
       if (kDebugMode) {
+        // Log only the field NAMES, never the messages — server-supplied error
+        // text can echo back user input / server data.
         log(
-          'updateMyProfile validation failure: ${f.fieldErrors}',
+          'updateMyProfile validation failure on fields: '
+          '${f.fieldErrors.keys.toList()}',
           name: 'feature.master',
           level: 800,
         );
@@ -777,18 +780,18 @@ class _MasterEditScreenState extends ConsumerState<MasterEditScreen>
         context,
       ).showSnackBar(SnackBar(content: Text(f.userMessage(context))));
       setState(() => _saving = false);
-    } catch (e, st) {
+    } catch (e) {
       // Catch-all: any non-Failure throw (e.g. TypeError / StateError) would
       // otherwise propagate uncaught, the finally would clear _saving, and the
       // user would see NO feedback — the original "absolutely nothing happens"
       // bug. Surface a generic error SnackBar so Save always reacts.
       if (kDebugMode) {
+        // Log the runtime type only — never the exception object, which can
+        // carry server data / user input in its message.
         log(
-          'updateMyProfile unexpected error',
+          'updateMyProfile unexpected error: ${e.runtimeType}',
           name: 'feature.master',
           level: 1000,
-          error: e,
-          stackTrace: st,
         );
       }
       if (!mounted) return;
