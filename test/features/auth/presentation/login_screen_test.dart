@@ -850,6 +850,83 @@ void main() {
         reason: 'VelvetLogo must render the "beautica" wordmark text.',
       );
     });
+
+    // -----------------------------------------------------------------------
+    // Test 14 — ScreenProtector guard: kDebugMode skips preventScreenshotOn/Off
+    //
+    // LoginScreen calls ScreenProtector.preventScreenshotOn() in initState and
+    // preventScreenshotOff() in dispose, both inside `if (!kDebugMode)` guards.
+    // In the test runner kDebugMode == true, so the platform-channel calls are
+    // intentionally suppressed.
+    //
+    // This test exists to catch the regression where the guard is removed (e.g.
+    // the `!kDebugMode` condition is accidentally deleted).  Without the guard,
+    // the un-mocked `screen_protector` MethodChannel throws a
+    // MissingPluginException and the test fails — proving the guard is gone.
+    //
+    // This also documents the property that the MainActivity.kt change
+    // (`if (!BuildConfig.DEBUG) { window.setFlags(FLAG_SECURE, ...) }`) did NOT
+    // alter the Dart-side guard: both layers use the same "skip in debug"
+    // contract and must be maintained in sync.
+    //
+    // Cannot verify the Android FLAG_SECURE window attribute from flutter_test —
+    // that is a native platform concern only verifiable via manual device testing
+    // or an instrumented Espresso test.  See: manual verification checklist in
+    // the QA audit report for this fix.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '14. ScreenProtector guard: LoginScreen mounts and disposes without a '
+      'platform-channel exception (kDebugMode skips preventScreenshotOn/Off)',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final storage = FakeSecureStorage();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith((_) => repo),
+              secureStorageProvider.overrideWith((_) => storage),
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Mounted cleanly — initState ran, no platform-channel exception.
+        expect(find.byType(LoginScreen), findsOneWidget);
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'LoginScreen must mount cleanly — ScreenProtector.preventScreenshotOn() '
+              'is guarded by !kDebugMode and must not hit the platform channel '
+              'in the test runner.',
+        );
+
+        // Dispose the screen by replacing the widget tree.
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+        );
+        await tester.pump();
+
+        expect(find.byType(LoginScreen), findsNothing);
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'LoginScreen must dispose cleanly — ScreenProtector.preventScreenshotOff() '
+              'is guarded by !kDebugMode and must not hit the platform channel '
+              'in the test runner.',
+        );
+      },
+    );
   });
 }
 

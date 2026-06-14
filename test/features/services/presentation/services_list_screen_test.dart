@@ -303,11 +303,90 @@ void main() {
       // Advance entrance animation so the card becomes visible.
       await tester.pump(const Duration(milliseconds: 500));
 
+      // _stubService has no category, so it lands in the uncategorized bucket
+      // which starts collapsed (new default behaviour). Expand it before
+      // asserting on card content.
+      await tester.tap(find.byKey(const Key('category_section__none')));
+      await tester.pumpAndSettle();
+
       expect(find.byType(ListView), findsOneWidget);
       expect(find.text('Стрижка'), findsOneWidget);
       // Phase 5.6: price rendered from priceDisplay (server-formatted).
       expect(find.text('750 грн'), findsOneWidget);
       expect(find.text('45 хв'), findsOneWidget);
+    },
+  );
+
+  // ── 4b. No draft affordance on the populated card (V80 removal guard) ──────
+  //
+  // Backend V80 removed the service draft flag; the mobile draft affordance —
+  // the draft badge, the "set price" CTA, and the draft card variant — were all
+  // deleted (user-approved). The dedicated `services_list_draft_card_test.dart`
+  // was removed with them and must NOT be recreated. This test is the widget
+  // half of the regression guard: a normal active service renders ONLY the
+  // plain duration·price meta line with no draft badge and no set-price CTA.
+  //
+  // Re-introducing a draft badge/CTA (keyed `service_draft_badge_*` /
+  // `btn-set-price-*`, the keys the deleted UI used) would make one of the
+  // findsNothing assertions fail here, blocking the regression before it could
+  // reach a broken APK build. Finders are keyed/structural (M2/M11) — none of
+  // the removed `servicesDraft*` localized strings are referenced.
+
+  testWidgets(
+    'populated card shows the plain duration·price meta only — no draft badge, '
+    'no set-price CTA',
+    (tester) async {
+      await tester.pumpApp(
+        const ServicesListScreen(),
+        overrides: [
+          _servicesOverride(const AsyncData(_stubServiceList)),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+        ],
+      );
+      // Loading frame → microtask → data frame → entrance animation.
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // _stubService has no category → uncategorized bucket starts collapsed.
+      await tester.tap(find.byKey(const Key('category_section__none')));
+      await tester.pumpAndSettle();
+
+      // The card and its plain duration·price meta line are present.
+      expect(find.byKey(const Key('service_card_svc-001')), findsOneWidget);
+      expect(find.text('750 грн'), findsOneWidget);
+      expect(find.text('45 хв'), findsOneWidget);
+
+      // No draft affordance — the badge and the set-price CTA the deleted draft
+      // UI rendered are absent. Keyed structural finders, matched against the
+      // card subtree so an unrelated future key collision can't mask a miss.
+      final cardFinder = find.byKey(const Key('service_card_svc-001'));
+      expect(
+        find.descendant(
+          of: cardFinder,
+          matching: find.byKey(const Key('service_draft_badge_svc-001')),
+        ),
+        findsNothing,
+        reason: 'V80 removed drafts — no draft badge may render on a card',
+      );
+      expect(
+        find.descendant(
+          of: cardFinder,
+          matching: find.byKey(const Key('btn-set-price-svc-001')),
+        ),
+        findsNothing,
+        reason: 'V80 removed drafts — no "set price" CTA may render on a card',
+      );
+      // Belt-and-braces: no draft-keyed widget of any id leaked into the tree.
+      expect(
+        find.byWidgetPredicate(
+          (w) =>
+              w.key is ValueKey<String> &&
+              (w.key as ValueKey<String>).value.toLowerCase().contains('draft'),
+        ),
+        findsNothing,
+        reason: 'no draft-keyed widget may exist anywhere in the list',
+      );
     },
   );
 
@@ -346,6 +425,11 @@ void main() {
     await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
+
+    // _stubService has no category → uncategorized bucket starts collapsed.
+    // Expand the section before tapping the card.
+    await tester.tap(find.byKey(const Key('category_section__none')));
+    await tester.pumpAndSettle();
 
     final cardFinder = find.byKey(const Key('service_card_svc-001'));
     expect(cardFinder, findsOneWidget);
@@ -612,6 +696,13 @@ void main() {
         reason: 'no uncategorized service was seeded',
       );
 
+      // Both sections start collapsed (new default behaviour). Expand them so
+      // their cards are laid out and can be measured by getTopLeft.
+      await tester.tap(sectionKey('HAIRCUT'));
+      await tester.pumpAndSettle();
+      await tester.tap(sectionKey('BROWS'));
+      await tester.pumpAndSettle();
+
       // Section order: HAIRCUT (A first-appearance) before BROWS.
       final double haircutDy = tester.getTopLeft(sectionKey('HAIRCUT')).dy;
       final double browsDy = tester.getTopLeft(sectionKey('BROWS')).dy;
@@ -636,9 +727,14 @@ void main() {
     });
 
     // ── B3 (MEDIUM) — expand / collapse toggle ───────────────────────────────
+    //
+    // Regression: sections used to default-expanded when no initialExpandCategory
+    // was set. The UX fix changed the default to COLLAPSED so the list opens
+    // without any section contents visible. This test verifies the new default
+    // and confirms the toggle still works in both directions.
     testWidgets(
-      'B3 — sections default-expanded; tapping the header collapses then '
-      're-expands the cards',
+      'B3 — sections default-collapsed; tapping the header expands then '
+      're-collapses the cards',
       (tester) async {
         when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
           (_) async => const <ServiceCategoryOption>[
@@ -648,33 +744,41 @@ void main() {
 
         await pumpList(tester, const <MasterService>[aHaircut, cHaircut]);
 
-        // Default-expanded: both cards visible on first build.
-        expect(cardKey('a'), findsOneWidget);
-        expect(cardKey('c'), findsOneWidget);
-
-        // Tap the section header (its title) to collapse. Tapping the whole
-        // section bounds would land on a card while expanded, so target the
-        // header label text directly.
-        await tester.tap(find.text('Стрижка'));
-        await tester.pumpAndSettle();
-
+        // Default-collapsed: neither card is visible on first build.
         expect(
           cardKey('a'),
           findsNothing,
-          reason: 'collapsing the section must remove its cards from the tree',
+          reason:
+              'sections start collapsed when no initialExpandCategory is set '
+              '(UX fix — was default-expanded)',
         );
         expect(cardKey('c'), findsNothing);
 
-        // Tap again to re-expand.
+        // Tap the section header to expand. When the section is collapsed its
+        // cards are absent, so sectionKey() reliably targets the header area.
         await tester.tap(sectionKey('HAIRCUT'));
         await tester.pumpAndSettle();
 
         expect(
           cardKey('a'),
           findsOneWidget,
-          reason: 're-expanding the section must bring its cards back',
+          reason: 'tapping the header must reveal its cards',
         );
         expect(cardKey('c'), findsOneWidget);
+
+        // Tap again to collapse. When expanded the section key's rect spans
+        // the header + all visible cards, so tapping its center would land on
+        // a card. Target the header label text instead — it always maps to the
+        // header GestureDetector regardless of expansion state.
+        await tester.tap(find.text('Стрижка'));
+        await tester.pumpAndSettle();
+
+        expect(
+          cardKey('a'),
+          findsNothing,
+          reason: 'tapping the header label again must collapse the section',
+        );
+        expect(cardKey('c'), findsNothing);
       },
     );
 
@@ -691,8 +795,19 @@ void main() {
 
         await pumpList(tester, const <MasterService>[aHaircut]);
 
-        // The label is present (in the header).
+        // The section header is present even when the section is collapsed.
         expect(find.text('Стрижка'), findsOneWidget);
+
+        // Expand the section so the card is in the tree; then assert the label
+        // lives only in the header and is NOT duplicated inside the card.
+        await tester.tap(sectionKey('HAIRCUT'));
+        await tester.pumpAndSettle();
+
+        expect(
+          cardKey('a'),
+          findsOneWidget,
+          reason: 'card must be in the tree after expanding the section',
+        );
         // …but NOT inside the card subtree.
         expect(
           find.descendant(of: cardKey('a'), matching: find.text('Стрижка')),
@@ -756,8 +871,172 @@ void main() {
           ),
           findsOneWidget,
         );
+
+        // Expand the uncategorized section so its card enters the tree, then
+        // verify the card is present. The section starts collapsed (new default
+        // behaviour: null initialExpandCategory → all sections collapsed).
+        await tester.tap(uncategorized);
+        await tester.pumpAndSettle();
+
         // The uncategorized service card is present in that section.
         expect(cardKey('z'), findsOneWidget);
+      },
+    );
+  });
+
+  // ── REGRESSION: collapsed-by-default behaviour (UX fix guard) ──────────────
+  //
+  // These two tests exist solely to guard the UX fix that changed the default
+  // initiallyExpanded value from true to false when no initialExpandCategory is
+  // provided. They MUST fail against the pre-fix code (where all sections started
+  // expanded and service cards were immediately visible). A green run here proves
+  // the new collapsed-by-default behaviour is in place.
+
+  group('REGRESSION — collapsed-by-default (null initialExpandCategory)', () {
+    // Shared services covering two categories so both code paths are exercised.
+    const hairService = MasterService(
+      id: 'reg-hair',
+      serviceDefId: 'def-reg-hair',
+      name: 'Регресія A',
+      durationMinutes: 20,
+      priceMin: 150,
+      priceDisplay: '150 грн',
+      category: 'HAIR',
+    );
+    const bodyService = MasterService(
+      id: 'reg-body',
+      serviceDefId: 'def-reg-body',
+      name: 'Регресія B',
+      durationMinutes: 20,
+      priceMin: 200,
+      priceDisplay: '200 грн',
+      category: 'BODY',
+    );
+
+    // ── REGRESSION-1 ─────────────────────────────────────────────────────────
+    //
+    // Precondition: ServicesListScreen with null initialExpandCategory (the
+    // default — bottom-nav "Послуги" tab, or "Усі послуги" link).
+    //
+    // Expected (post-fix):  NO service-card keys are present in the widget tree
+    //                        immediately after the data frame. All sections are
+    //                        collapsed; their children are not built.
+    //
+    // Pre-fix behaviour: cards were immediately visible because initiallyExpanded
+    //                    was `targetSlug == null || group.key == targetSlug`,
+    //                    which always evaluated true when targetSlug was null.
+    //
+    // This test WOULD FAIL against the pre-fix code: both service_card_reg-hair
+    // and service_card_reg-body would have been found by the find.byKey finders,
+    // and the findsNothing assertions would have thrown.
+    testWidgets('REGRESSION-1: null initialExpandCategory — all sections collapsed; '
+        'no service-card keys present in the widget tree', (tester) async {
+      when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
+        (_) async => const <ServiceCategoryOption>[
+          ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
+          ServiceCategoryOption(name: 'BODY', displayName: 'Тіло'),
+        ],
+      );
+
+      // ServicesListScreen with the default null initialExpandCategory.
+      await tester.pumpApp(
+        const ServicesListScreen(),
+        overrides: [
+          _servicesOverride(
+            const AsyncData(<MasterService>[hairService, bodyService]),
+          ),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+        ],
+      );
+      // Loading frame → microtask delivers data → data frame.
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+
+      // Section HEADERS must be present (collapsed state still renders headers).
+      expect(
+        find.byKey(const Key('category_section_HAIR')),
+        findsOneWidget,
+        reason: 'section headers are rendered even when collapsed',
+      );
+      expect(
+        find.byKey(const Key('category_section_BODY')),
+        findsOneWidget,
+        reason: 'section headers are rendered even when collapsed',
+      );
+
+      // Service CARDS must NOT be in the tree — the sections are collapsed.
+      // Pre-fix: these findsNothing assertions would have failed because the
+      // old initiallyExpanded logic evaluated to true when targetSlug was null.
+      expect(
+        find.byKey(const Key('service_card_reg-hair')),
+        findsNothing,
+        reason:
+            'HAIR section starts collapsed — its card must not be in the tree',
+      );
+      expect(
+        find.byKey(const Key('service_card_reg-body')),
+        findsNothing,
+        reason:
+            'BODY section starts collapsed — its card must not be in the tree',
+      );
+    });
+
+    // ── REGRESSION-2 ─────────────────────────────────────────────────────────
+    //
+    // Precondition: ServicesListScreen with a specific initialExpandCategory
+    //               ('HAIR') — the targeted-category-card navigation path.
+    //
+    // Expected (post-fix):  HAIR section is expanded (card visible); BODY section
+    //                        is collapsed (card absent). This path is unchanged by
+    //                        the fix; this test confirms no regression there.
+    //
+    // Pre-fix behaviour was identical for this specific path (targetSlug != null
+    // matched the specific section) so the targeted-expand logic was never broken.
+    //
+    // This test confirms the targeted path is unchanged and also rules out an
+    // accidental regression where both sections start collapsed even when a slug
+    // is provided.
+    testWidgets(
+      'REGRESSION-2: specific initialExpandCategory="HAIR" — only HAIR expanded; '
+      'BODY section remains collapsed',
+      (tester) async {
+        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
+          (_) async => const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
+            ServiceCategoryOption(name: 'BODY', displayName: 'Тіло'),
+          ],
+        );
+
+        await tester.pumpApp(
+          const ServicesListScreen(initialExpandCategory: 'HAIR'),
+          overrides: [
+            _servicesOverride(
+              const AsyncData(<MasterService>[hairService, bodyService]),
+            ),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 600));
+
+        // HAIR section was requested → must be expanded; card in the tree.
+        expect(
+          find.byKey(const Key('service_card_reg-hair')),
+          findsOneWidget,
+          reason:
+              'HAIR was explicitly requested — its section must start expanded',
+        );
+
+        // BODY section was NOT requested → must remain collapsed; card absent.
+        expect(
+          find.byKey(const Key('service_card_reg-body')),
+          findsNothing,
+          reason:
+              'BODY was not requested — its section must stay collapsed when a '
+              'different category was explicitly targeted',
+        );
       },
     );
   });

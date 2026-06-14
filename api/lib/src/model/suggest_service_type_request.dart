@@ -12,7 +12,7 @@ part 'suggest_service_type_request.g.dart';
 ///
 /// Properties:
 /// * [name]
-/// * [categoryId]
+/// * [categoryName]
 /// * [description]
 @BuiltValue()
 abstract class SuggestServiceTypeRequest
@@ -21,8 +21,8 @@ abstract class SuggestServiceTypeRequest
   @BuiltValueField(wireName: r'name')
   String get name;
 
-  @BuiltValueField(wireName: r'categoryId')
-  String get categoryId;
+  @BuiltValueField(wireName: r'categoryName')
+  String get categoryName;
 
   @BuiltValueField(wireName: r'description')
   String? get description;
@@ -62,9 +62,9 @@ class _$SuggestServiceTypeRequestSerializer
       object.name,
       specifiedType: const FullType(String),
     );
-    yield r'categoryId';
+    yield r'categoryName';
     yield serializers.serialize(
-      object.categoryId,
+      object.categoryName,
       specifiedType: const FullType(String),
     );
     if (object.description != null) {
@@ -106,12 +106,12 @@ class _$SuggestServiceTypeRequestSerializer
           ) as String;
           result.name = valueDes;
           break;
-        case r'categoryId':
+        case r'categoryName':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
-          result.categoryId = valueDes;
+          result.categoryName = valueDes;
           break;
         case r'description':
           final valueDes = serializers.deserialize(

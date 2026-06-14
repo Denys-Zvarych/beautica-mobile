@@ -431,6 +431,133 @@ void main() {
     });
   });
 
+  // ── Name no-digit validation (Step 2.7 Rule 3 regression) ────────────────
+  //
+  // validateName now rejects any Unicode decimal digit (mirrors backend
+  // @NoDigits). The digit guard is layered AFTER required/too-long, so a name
+  // that contains a digit surfaces errNameHasDigit and blocks navigation to
+  // Step 3. A name made only of letters / hyphen / apostrophe / space passes.
+  group('Name no-digit validation', () {
+    testWidgets(
+      'first name with a digit (valid last name + phone) blocks submit and '
+      'shows errNameHasDigit',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'John2',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Коваль',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380671234567',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        // Navigation blocked.
+        expect(find.text('step-3'), findsNothing);
+
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('step2_first_name')),
+          ),
+        );
+        expect(find.text(l10n.errNameHasDigit), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'last name with a digit (valid first name + phone) blocks submit and '
+      'shows errNameHasDigit',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Аня',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Kov4l',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380671234567',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('step-3'), findsNothing);
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('step2_last_name'))),
+        );
+        expect(find.text(l10n.errNameHasDigit), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'hyphen / apostrophe / space names (valid phone) navigate to step-3 '
+      '(no digit error)',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('step2_first_name')),
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Anne-Marie',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          "O'Brien",
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380671234567',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.errNameHasDigit), findsNothing);
+        expect(find.text('step-3'), findsOneWidget);
+      },
+    );
+  });
+
   // ── Test 4 — Pre-fill from draft in initState ────────────────────────────
   group('Pre-fill from draft', () {
     testWidgets('initState seeds controllers from existing draft', (

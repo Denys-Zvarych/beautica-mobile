@@ -20,6 +20,8 @@ Name | Type | Description | Notes
 **priceMin** | **num** |  | [optional] 
 **priceMax** | **num** |  | [optional] 
 **priceDisplay** | **String** |  | [optional] 
+**serviceTypeId** | **String** | Chosen service type id; null when no service type was selected. | [optional] 
+**serviceTypeNameUk** | **String** | Ukrainian display name of the chosen service type; null when none was selected. | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

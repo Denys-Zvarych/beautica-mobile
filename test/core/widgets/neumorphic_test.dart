@@ -340,8 +340,17 @@ void main() {
         ),
       );
 
+      // Scope to the card's own subtree: velvetTheme()'s Cupertino page
+      // transition wraps even the initial route in a DecoratedBox carrying a
+      // _CupertinoEdgeShadowDecoration, which would otherwise be matched by
+      // `find.byType(DecoratedBox).first` and fail the BoxDecoration cast.
       final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
-        find.byType(DecoratedBox).first,
+        find
+            .descendant(
+              of: find.byType(NeumorphicCard),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
       );
       final BoxDecoration decoration = decoratedBox.decoration as BoxDecoration;
       // extrudedCard has 2 box shadows — assert the count matches.

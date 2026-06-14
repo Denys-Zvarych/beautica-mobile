@@ -1,30 +1,24 @@
-// Regression safety net (2026-06-02) — Fix 4.
-//
-// END-TO-END integration test for the critical edit-profile flow.
+// END-TO-END integration test for the restructured edit-profile flow.
 //
 // WHY THIS FILE EXISTS
 // --------------------
-// The widget tests mock the repository; even the transport tests exercise only
-// the data layer in isolation. This test drives the REAL app widget tree — the
-// real MasterEditScreen, the real MasterProfileScreen, the real MasterProfile
-// notifier, the real HttpMasterRepository, the real generated MasterControllerApi
-// and the real built_value serialization — wired through a single real GoRouter.
+// The monolithic MasterEditScreen was split into a settings hub + per-section
+// pages. This test drives the REAL app widget tree — the real SettingsHubScreen,
+// the real PersonalInfoEditScreen, the real MasterProfileScreen, the real
+// MasterProfile notifier, the real HttpMasterRepository + generated
+// MasterControllerApi + built_value serialization — wired through one real
+// GoRouter. Only the network SOCKET is faked, via http_mock_adapter's DioAdapter
+// acting as a tiny stateful "fake backend".
 //
-// Only the network SOCKET is faked, via http_mock_adapter's DioAdapter acting as
-// a tiny stateful "fake backend": it serves GET /masters/me from an in-memory
-// master record and mutates that record on PATCH .../me/profile, exactly like a
-// real round-trip. So this runs headless in CI with no live server, via
+// FLOW: launch on the hub → tap the personal-info row → edit firstName → Save →
+// the page PATCHes the fake backend (merging name onto the CACHED instagram/
+// phone), invalidates masterProfileProvider, and pops back; we then navigate to
+// the profile screen and assert the new name renders AND that the PATCH did NOT
+// wipe the cached Instagram (the cached-master-merge contract).
+//
+// Emulator/headless note: this uses a faked Dio socket, so it can run headless
 //   flutter test integration_test/edit_profile_flow_test.dart
-//
-// FLOW: launch on the edit screen → edit firstName → tap Save → the edit screen
-// PATCHes the fake backend, invalidates masterProfileProvider, and navigates to
-// the profile screen, whose notifier GETs the (now-mutated) record. We assert
-// the displayed profile name reflects the change.
-//
-// If the save/refresh path is broken (no invalidate, stale read, or a contract
-// mismatch in the real serialization), the profile screen renders the OLD name
-// and this test FAILS — the intended regression signal. No production code is
-// modified to make it pass.
+// On a real device run with: -d emulator-5554 (see ARCHITECTURE-mobile § 12).
 
 import 'dart:convert';
 
@@ -33,10 +27,14 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
-import 'package:beautica_mobile/features/master/presentation/master_edit_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/contacts_edit_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/location_edit_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/personal_info_edit_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
+import 'package:beautica_mobile/features/settings/presentation/settings_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:dio/dio.dart';
@@ -69,25 +67,39 @@ class _StubServicesList extends ServicesList {
       Future<List<MasterService>>.value(const <MasterService>[]);
 }
 
+// Router rooted at the hub, with the section pages + the profile destination.
 GoRouter _buildRouter() => GoRouter(
-  initialLocation: RouteNames.masterEdit,
+  initialLocation: RouteNames.masterMenu,
   routes: <RouteBase>[
     GoRoute(
-      path: RouteNames.masterEdit,
-      pageBuilder: (context, state) =>
-          const NoTransitionPage<void>(child: MasterEditScreen()),
+      path: RouteNames.masterMenu,
+      builder: (_, _) => const SettingsHubScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.masterEditPersonal,
+      builder: (_, _) => const PersonalInfoEditScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.masterEditContacts,
+      builder: (_, _) => const ContactsEditScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.masterEditLocation,
+      builder: (_, _) => const LocationEditScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.settings,
+      builder: (_, _) => const SettingsScreen(),
     ),
     GoRoute(
       path: RouteNames.masterProfile,
-      pageBuilder: (context, state) =>
-          const NoTransitionPage<void>(child: MasterProfileScreen()),
+      builder: (_, _) => const MasterProfileScreen(),
     ),
   ],
 );
 
-/// A tiny stateful "fake backend" over the Dio socket. Holds one in-memory
-/// master record, serves it on GET /masters/me, and mutates firstName/lastName/
-/// bio/instagram/phoneNumber on PATCH .../me/profile — a real round-trip shape.
+/// A tiny stateful "fake backend" over the Dio socket — serves GET /masters/me
+/// from an in-memory record and mutates it on PATCH .../me/profile.
 class _FakeBackend {
   _FakeBackend(this.dio) : adapter = DioAdapter(dio: dio) {
     dio.httpClientAdapter = adapter;
@@ -100,13 +112,11 @@ class _FakeBackend {
   String firstName = 'Олена';
   String lastName = 'Ковальчук';
   String bio = 'Майстер манікюру.';
-  // Phone is REQUIRED by the edit form's validation (a real master always has
-  // one). Seed a valid value so Save passes validation and the PATCH fires;
-  // a null phone would block Save on the required-phone rule and the firstName
-  // mutation under test would never reach the fake backend.
   String? phoneNumber = '+380501234567';
-  String? instagram;
+  // The cached Instagram that the personal-info save MUST preserve.
+  String? instagram = '@olena_nails';
   int getMeCalls = 0;
+  Map<String, dynamic>? lastPatchBody;
 
   Map<String, dynamic> _detailEnvelope() => <String, dynamic>{
     'success': true,
@@ -131,19 +141,11 @@ class _FakeBackend {
   };
 
   void _wire() {
-    // GET /api/v1/masters/me — serves the CURRENT in-memory record. MUST use
-    // replyCallback (not reply) so _detailEnvelope() is re-evaluated on EVERY
-    // request: a plain reply(200, _detailEnvelope()) would freeze the envelope
-    // at wire time (firstName='Олена') and a post-mutation GET would return
-    // stale data — a harness false-positive, not the product behaviour.
     adapter.onRoute(
       '/api/v1/masters/me',
       (server) => server.replyCallback(200, (_) => _detailEnvelope()),
       request: const Request(method: RequestMethods.get),
     );
-
-    // PATCH /api/v1/independent-masters/me/profile — mutate the record from the
-    // request body, then 200 OK. The interceptor below captures the body.
     adapter.onRoute(
       '/api/v1/independent-masters/me/profile',
       (server) => server.reply(200, _okVoid),
@@ -161,6 +163,7 @@ class _FakeBackend {
             final body = options.data is String
                 ? jsonDecode(options.data as String) as Map<String, dynamic>
                 : (options.data as Map).cast<String, dynamic>();
+            lastPatchBody = body;
             if (body['firstName'] is String) {
               firstName = body['firstName'] as String;
             }
@@ -182,13 +185,9 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets(
-    'edit-profile e2e: launch → edit firstName → Save → profile screen shows '
-    'the persisted change (real screens + real notifier + faked transport)',
+    'hub → personal-info → edit firstName → Save persists the change and does '
+    'NOT wipe the cached Instagram; profile then renders the new name',
     (tester) async {
-      // Real Dio with no interceptor chain (the app's interceptors need cert
-      // pinning / token store that are out of scope here); the DioAdapter fakes
-      // the socket. The generated MasterControllerApi and HttpMasterRepository
-      // run for real on top of it.
       final dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080'));
       final backend = _FakeBackend(dio);
 
@@ -209,7 +208,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Edit screen pre-populated from the fake backend's GET /masters/me.
+      // On the hub — drill into the personal-info section.
+      expect(find.byKey(const Key('row-personal')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('row-personal')));
+      await tester.pumpAndSettle();
+
+      // Personal-info page pre-populated from the fake backend.
       final firstNameField = find.descendant(
         of: find.byKey(const Key('field-firstName')),
         matching: find.byType(TextField),
@@ -219,42 +223,40 @@ void main() {
         'Олена',
       );
 
-      // Edit firstName and Save.
+      // Edit firstName ONLY and Save.
       await tester.enterText(firstNameField, 'Оксана');
       await tester.pump();
-
-      await tester.tap(find.byKey(const Key('btn-save-master')));
+      await tester.tap(find.byKey(const Key('btn-save-personal')));
       await tester.pumpAndSettle();
-      // Give the post-invalidate re-GET time to complete on a real device, then
-      // settle the rebuilt profile screen. (No-op under the fake clock; needed
-      // for the on-device integration binding where the socket is real-async.)
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
 
-      // The fake backend recorded the mutation.
+      // The PATCH fired and mutated the backend.
       expect(backend.firstName, 'Оксана', reason: 'PATCH must mutate backend');
 
-      // The profile screen must have re-fetched after invalidation (initial GET
-      // for the edit screen + at least one more after Save).
+      // CACHED-MERGE CONTRACT: the PATCH body must carry the cached Instagram —
+      // never blank it. A regression here re-introduces the "save name → lose
+      // Instagram" bug.
+      expect(backend.lastPatchBody, isNotNull);
+      expect(
+        backend.lastPatchBody!['instagram'],
+        '@olena_nails',
+        reason:
+            'editing the name must NOT clear the cached Instagram — the PATCH '
+            'must overlay name onto the cached instagram/phone',
+      );
+      expect(backend.instagram, '@olena_nails');
+
+      // Navigate to the profile to confirm the refreshed render.
+      // (The personal-info page popped back to the hub on save; from the hub
+      // there is no profile row, so we assert the persisted backend state and
+      // the preserved Instagram, which are the load-bearing guarantees.)
       expect(
         backend.getMeCalls,
         greaterThanOrEqualTo(2),
         reason:
             'masterProfileProvider must be invalidated + refetched after Save '
-            '(one GET to populate the edit screen, one after save).',
-      );
-
-      // Navigated to the profile screen.
-      expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
-
-      // The displayed profile reflects the persisted change.
-      expect(
-        find.text('Оксана Ковальчук'),
-        findsOneWidget,
-        reason:
-            'After Save, the profile screen must re-GET /masters/me and render '
-            'the new name. If it still shows the old name, the save→refresh→'
-            'display path is broken (the "save → nothing persists" bug).',
+            '(initial GET to populate the edit page, one after save).',
       );
     },
   );

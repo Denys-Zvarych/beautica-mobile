@@ -15,7 +15,8 @@
 //   3. RANGE decimal price — 2-dp accepted, 3-dp rejected by the formatter,
 //      priceMax must be strictly > priceMin (equal → rejected, max<min →
 //      rejected).
-//   4. Empty / blank / whitespace name → specific required message.
+//   4. Name is OPTIONAL — blank / whitespace name submits an empty name (no
+//      required error); only a >100-char name is rejected (too-long message).
 //
 // Isolation: fresh ProviderScope per pump; serviceRepositoryProvider overridden
 // with a mock so approvedCategoriesProvider resolves without real HTTP. No raw
@@ -35,6 +36,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+
+import 'select_dropdown_test_helpers.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks + fallbacks
@@ -137,10 +140,7 @@ void main() {
   Future<void> fillValidExceptDuration(WidgetTester tester) async {
     await tester.enterText(_nameField, 'Манікюр');
     await tester.enterText(_fixedPriceField, '500');
-    await tester.pumpAndSettle(); // resolve category provider
-    await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-    await tester.pump();
+    await selectCategoryOption(tester, 'MANICURE');
   }
 
   // =========================================================================
@@ -152,7 +152,11 @@ void main() {
     ) async {
       await pumpForm(tester, onSubmit: shouldNotSubmit);
       await fillValidExceptDuration(tester);
-      await tester.enterText(_durationField, '1123');
+      // 481 is 3 digits (within the LengthLimitingTextInputFormatter(3) limit)
+      // and exceeds the 480-minute cap — the max-480 validation must block it.
+      // The former '1123' was 4 digits and silently truncated to '112' by the
+      // formatter, which is a valid duration and caused onSubmit to fire.
+      await tester.enterText(_durationField, '481');
       await tapSubmit(tester);
 
       expect(find.text(_l10n(tester).errDurationMax), findsOneWidget);
@@ -223,12 +227,7 @@ void main() {
       await tester.enterText(_nameField, 'Манікюр');
       await tester.enterText(_durationField, '60');
       await tester.enterText(_fixedPriceField, '500');
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
+      await selectCategoryOption(tester, 'MANICURE');
     }
 
     testWidgets(
@@ -288,11 +287,7 @@ void main() {
         await tester.enterText(_durationField, '60');
         await tester.enterText(_rangeMinField, '400');
         await tester.enterText(_rangeMaxField, '700');
-        await tester.ensureVisible(
-          find.byKey(const Key('chip-category-MANICURE')),
-        );
-        await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-        await tester.pump();
+        await selectCategoryOption(tester, 'MANICURE');
         await tapSubmit(tester);
         await tester.pumpAndSettle();
 
@@ -365,11 +360,7 @@ void main() {
       await tester.enterText(_durationField, '60');
       await tester.enterText(_rangeMinField, '400.25');
       await tester.enterText(_rangeMaxField, '700.50');
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
+      await selectCategoryOption(tester, 'MANICURE');
       await tapSubmit(tester);
       await tester.pumpAndSettle();
 
@@ -500,11 +491,7 @@ void main() {
       await tester.enterText(_durationField, '60');
       await tester.enterText(_fixedPriceField, '500');
       await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
+      await selectCategoryOption(tester, 'MANICURE');
       await tapSubmit(tester);
       await tester.pumpAndSettle();
 
@@ -516,42 +503,76 @@ void main() {
   });
 
   // =========================================================================
-  // 4. Empty / blank / whitespace name → specific required message.
+  // 4. Name is OPTIONAL (Item 4). A blank / whitespace name is VALID — submit
+  //    proceeds, no required error. Only a too-long value is rejected.
+  //    (Updated 2026-06-08: the required-name contract was removed — the backend
+  //    now defaults a blank name to the selected service-type name.)
   // =========================================================================
-  group('name required', () {
-    testWidgets('empty name shows the required-name message after submit', (
-      tester,
-    ) async {
-      await pumpForm(tester, onSubmit: shouldNotSubmit);
-      await tester.enterText(_durationField, '60');
-      await tester.enterText(_fixedPriceField, '500');
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
-      await tapSubmit(tester);
+  group('name optional (required-name contract removed)', () {
+    testWidgets(
+      'blank name is VALID → onSubmit fires with an empty name, no required '
+      'error',
+      (tester) async {
+        var submitted = false;
+        MasterServiceCreate? captured;
+        await pumpForm(
+          tester,
+          onSubmit: (input) async {
+            submitted = true;
+            captured = input;
+          },
+        );
+        // Leave the name field blank; fill everything else.
+        await tester.enterText(_durationField, '60');
+        await tester.enterText(_fixedPriceField, '500');
+        await selectCategoryOption(tester, 'MANICURE');
+        await tapSubmit(tester);
+        await tester.pumpAndSettle();
 
-      expect(find.text(_l10n(tester).errNameRequired), findsOneWidget);
-    });
+        expect(
+          submitted,
+          isTrue,
+          reason: 'a blank name must not block submit (name is optional)',
+        );
+        // The blank name flows through verbatim — NOT substituted with the
+        // category / type name (the _effectiveName stopgap was removed).
+        expect(captured!.name, '');
+        // No required-name error is ever rendered.
+        expect(find.text(_l10n(tester).errNameRequired), findsNothing);
+      },
+    );
 
-    testWidgets('whitespace-only name is treated as blank → required', (
-      tester,
-    ) async {
-      await pumpForm(tester, onSubmit: shouldNotSubmit);
-      await tester.enterText(_nameField, '   ');
-      await tester.enterText(_durationField, '60');
-      await tester.enterText(_fixedPriceField, '500');
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byKey(const Key('chip-category-MANICURE')),
-      );
-      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-      await tester.pump();
-      await tapSubmit(tester);
+    testWidgets(
+      'whitespace-only name is treated as blank → VALID, submits empty name',
+      (tester) async {
+        var submitted = false;
+        MasterServiceCreate? captured;
+        await pumpForm(
+          tester,
+          onSubmit: (input) async {
+            submitted = true;
+            captured = input;
+          },
+        );
+        await tester.enterText(_nameField, '   ');
+        await tester.enterText(_durationField, '60');
+        await tester.enterText(_fixedPriceField, '500');
+        await selectCategoryOption(tester, 'MANICURE');
+        await tapSubmit(tester);
+        await tester.pumpAndSettle();
 
-      expect(find.text(_l10n(tester).errNameRequired), findsOneWidget);
-    });
+        expect(submitted, isTrue);
+        // Whitespace is trimmed to the empty string on the wire.
+        expect(captured!.name, '');
+        expect(find.text(_l10n(tester).errNameRequired), findsNothing);
+      },
+    );
+
+    // NOTE: the former 'a name longer than 100 chars is rejected with the
+    // too-long message' test was removed during the dev merge — the service-name
+    // field now carries a LengthLimitingTextInputFormatter(kNameMaxLength)
+    // (security-backlog), so an over-100 value can no longer be entered to
+    // trigger the validation error. The input cap is covered by the
+    // 'name length cap (kNameMaxLength = 100)' group above.
   });
 }

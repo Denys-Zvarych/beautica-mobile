@@ -17,6 +17,7 @@ Name | Type | Description | Notes
 **price** | **num** |  | [optional] 
 **priceMin** | **num** |  | [optional] 
 **priceMax** | **num** |  | [optional] 
+**serviceTypeId** | **String** | Optional id of the platform service type to switch this service to. Omit or send null to leave the current service type unchanged. | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

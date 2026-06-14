@@ -2,8 +2,13 @@
 //
 // Wraps the generated [ServiceControllerApi] for the INDEPENDENT_MASTER service
 // management surface:
-//   - listMyServices()  → GET  /api/v1/masters/{masterId}/services
-//   - getMyService(id)  → GET  /api/v1/masters/{masterId}/services (filter by id;
+//   - listMyServices()  → GET  /api/v1/independent-masters/me/services
+//                          (Phase 16.9 — authenticated owner endpoint; derives
+//                           the master from the JWT principal and INCLUDES
+//                           drafts. The public GET /masters/{masterId}/services
+//                           still exists for public-browse but is no longer
+//                           used here because it filters drafts out.)
+//   - getMyService(id)  → GET  /api/v1/independent-masters/me/services (filter by id;
 //                          no single-resource endpoint exists in the current API)
 //   - create(input)     → POST  /api/v1/independent-masters/me/services
 //   - update(defId, …)  → PATCH /api/v1/services/{serviceDefId}
@@ -30,11 +35,13 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'master_service_mapper.dart';
+import 'service_type_mapper.dart';
 
 part 'service_repository.g.dart';
 
@@ -46,8 +53,9 @@ part 'service_repository.g.dart';
 abstract interface class ServiceRepository {
   /// Returns the full list of services configured for the authenticated master.
   ///
-  /// Wraps `GET /api/v1/masters/{masterId}/services`. Returns an empty list
-  /// when the master has no services configured.
+  /// Wraps `GET /api/v1/independent-masters/me/services` — the authenticated
+  /// owner endpoint, master derived from the JWT principal. Returns an empty
+  /// list when the master has no services configured.
   Future<List<MasterService>> listMyServices();
 
   /// Returns a single service by its assignment [id].
@@ -62,6 +70,28 @@ abstract interface class ServiceRepository {
   /// Wraps `POST /api/v1/independent-masters/me/services`. Returns the
   /// newly-created [MasterService] as mapped from the backend response.
   Future<MasterService> create(MasterServiceCreate input);
+
+  /// Creates ALL of [items] in one request for the authenticated master.
+  ///
+  /// Wraps `POST /api/v1/independent-masters/me/services/bulk` — the first-time
+  /// (empty-catalogue) one-pass setup endpoint. The backend derives each
+  /// service's name + category from its `serviceTypeId`, then persists the
+  /// per-item duration + pricing block. Returns the list of newly-created
+  /// [MasterService] records as mapped from the response (same envelope shape
+  /// `listMyServices()` parses).
+  ///
+  /// The generated [ServiceControllerApi] does NOT yet expose this operation
+  /// (the backend endpoint is on an unpushed branch; the mobile OpenAPI spec is
+  /// stale), so the implementation issues the POST via the raw authenticated
+  /// [Dio] instance and deserializes the response with the same
+  /// [standardSerializers] used by the generated client.
+  ///
+  /// Throws:
+  ///   - [MasterAlreadyHasServicesFailure] on **409** (the master already has
+  ///     at least one active service — the first-time guard tripped).
+  ///   - [ValidationFailure] on **400/422** (malformed items).
+  ///   - [NetworkFailure] / [ServerFailure] on other transport errors.
+  Future<List<MasterService>> bulkCreate(List<MasterServiceBulkItem> items);
 
   /// Partially updates an existing service identified by its
   /// service-definition id ([serviceDefId]).
@@ -109,6 +139,9 @@ abstract interface class ServiceRepository {
   ///
   /// - [name]: uppercase wire slug matching `^[A-Z][A-Z0-9_]*$` (≤50 chars).
   /// - [displayName]: non-blank Ukrainian label (≤100 chars).
+  /// - [initialServiceName]: OPTIONAL free-text name of an initial service-type
+  ///   the requester wants seeded under the new category (≤255 chars server-side;
+  ///   the UI caps at 100). Sent only when non-null/non-empty.
   ///
   /// Throws:
   ///   - [CategoryAlreadyExistsFailure] on **409** (already exists/pending).
@@ -117,6 +150,46 @@ abstract interface class ServiceRepository {
   Future<void> requestCategory({
     required String name,
     required String displayName,
+    String? initialServiceName,
+  });
+
+  /// Returns the list of platform service types under [categoryName] for the
+  /// second-level picker.
+  ///
+  /// Wraps `GET /api/v1/service-catalog/service-types?categoryName=...`
+  /// (the slug-contract `PlatformServiceTypeResponse` branch). Each option
+  /// carries the wire [ServiceTypeOption.slug] (persisted on the service) and
+  /// the Ukrainian [ServiceTypeOption.nameUk] (shown to the user and used to
+  /// pre-fill the service name).
+  ///
+  /// Degrades gracefully: an unknown category, an empty backend result, or a
+  /// response that resolves to the legacy alternate branch all yield an **empty
+  /// list** rather than throwing. Transport errors are mapped to the feature's
+  /// typed [Failure] subclasses.
+  Future<List<ServiceTypeOption>> fetchServiceTypes(String categoryName);
+
+  /// Submits a suggestion for a new platform service type under [categoryName]
+  /// for admin review.
+  ///
+  /// Wraps `POST /api/v1/service-types/suggest` (authenticated). The suggested
+  /// type is created in a PENDING state and approved out-of-band by an admin —
+  /// it does NOT immediately appear in [fetchServiceTypes].
+  ///
+  /// - [categoryName]: the System-B slug of the owning category (NOT a UUID).
+  ///   This is the wire `categoryName` field per the backend 16.7 contract.
+  /// - [name]: non-blank Ukrainian label for the suggested service type.
+  /// - [description]: optional free-form context for the reviewer; omitted from
+  ///   the request when null/empty.
+  ///
+  /// Throws:
+  ///   - [ValidationFailure] on **400/422** (malformed name/description),
+  ///     carrying any field errors keyed by `name` / `description`.
+  ///   - [CategoryRequestThrottledFailure] on **429** (rate-limited).
+  ///   - [ServerFailure] / [NetworkFailure] on other transport errors.
+  Future<void> suggestServiceType({
+    required String categoryName,
+    required String name,
+    String? description,
   });
 }
 
@@ -126,28 +199,43 @@ abstract interface class ServiceRepository {
 ///
 /// [_serviceApi] drives all generated-API calls (list/create/update/deactivate).
 /// [_masterId] is resolved from the authenticated session at provider
-/// construction time and used as the path parameter for list/get operations.
+/// construction time. As of Phase 16.9 it is no longer a path parameter (the
+/// list/get/create/update/deactivate endpoints all derive the master from the
+/// JWT principal); it is retained purely as a readiness guard — a non-empty
+/// value means the master profile has resolved, so [_assertAuthenticated] can
+/// fail fast before issuing a call on an unauthenticated session.
 final class HttpServiceRepository implements ServiceRepository {
   HttpServiceRepository({
     required ServiceControllerApi serviceApi,
     required CategoryRequestControllerApi categoryApi,
+    required ServiceCatalogControllerApi catalogApi,
+    required Dio dio,
     required String masterId,
   }) : _serviceApi = serviceApi,
        _categoryApi = categoryApi,
+       _catalogApi = catalogApi,
+       _dio = dio,
        _masterId = masterId;
 
   final ServiceControllerApi _serviceApi;
   final CategoryRequestControllerApi _categoryApi;
+  final ServiceCatalogControllerApi _catalogApi;
+
+  /// The raw authenticated [Dio] instance (full interceptor chain). Used ONLY
+  /// for the bulk-setup POST, which the generated [ServiceControllerApi] does
+  /// not yet expose. All other calls go through the generated client.
+  final Dio _dio;
   final String _masterId;
 
   static const _tag = 'feature.services.repository';
 
   /// Throws [UnauthorizedFailure] immediately if [_masterId] is empty.
   ///
-  /// An empty masterId means the auth session is not [Authenticated]. Letting
-  /// the call proceed would produce a malformed URL
-  /// (`/api/v1/masters//services`) and an opaque [NotFoundFailure]. Failing
-  /// fast here surfaces the real cause to callers.
+  /// An empty masterId means the master profile has not yet resolved (the auth
+  /// session is not [Authenticated]). The owner endpoints derive the master
+  /// from the JWT principal, so this is no longer about a missing path segment;
+  /// it is a readiness guard that surfaces the real cause to callers instead of
+  /// firing a call that would 401 mid-flight.
   void _assertAuthenticated() {
     if (_masterId.isEmpty) {
       throw const UnauthorizedFailure();
@@ -158,7 +246,12 @@ final class HttpServiceRepository implements ServiceRepository {
   Future<List<MasterService>> listMyServices() async {
     _assertAuthenticated();
     try {
-      final res = await _serviceApi.getMasterServices(masterId: _masterId);
+      // The owner's own services list uses the authenticated endpoint
+      // `GET /api/v1/independent-masters/me/services`, which derives the master
+      // from the JWT principal (no masterId path param). The public
+      // `GET /masters/{masterId}/services` endpoint stays available for any
+      // public-browse use; this caller no longer touches it.
+      final res = await _serviceApi.getMyServices();
       final list = res.data?.data;
       if (list == null) {
         if (kDebugMode) {
@@ -230,6 +323,119 @@ final class HttpServiceRepository implements ServiceRepository {
       }
       throw _mapDioException(e);
     }
+  }
+
+  @override
+  Future<List<MasterService>> bulkCreate(
+    List<MasterServiceBulkItem> items,
+  ) async {
+    _assertAuthenticated();
+    if (items.isEmpty) return const [];
+
+    // Build the wire body by hand: the generated client has no bulk operation,
+    // so we serialise each item to the shape the backend expects. Mode-
+    // conditional price fields are omitted (not null) when not applicable so the
+    // backend receives only the relevant subset, mirroring the generated
+    // serializer's null-omission behaviour.
+    final body = <String, Object?>{
+      'items': <Map<String, Object?>>[
+        for (final item in items) _bulkItemToJson(item),
+      ],
+    };
+
+    try {
+      // Path note: the generated client's relative paths all begin with
+      // `/api/v1/...` (e.g. `r'/api/v1/independent-masters/me/services'`), and
+      // `AppConfig.baseUrl` is normalised to NEVER carry the `/api/v1` prefix.
+      // So the raw path MUST include `/api/v1` to match the generated calls —
+      // omitting it would 404. (This is the inverse of the "double-prefix"
+      // trap: here the prefix lives on the path, not the base URL.)
+      final res = await _dio.post<Object?>(
+        '/api/v1/independent-masters/me/services/bulk',
+        data: body,
+      );
+
+      // The response envelope is ApiResponse<List<MasterServiceResponse>> — the
+      // same shape `getMyServices()` parses. Deserialize each element with the
+      // generated serializers, then map through the existing DTO→domain mapper.
+      final raw = res.data;
+      final dataList = (raw is Map<String, Object?>) ? raw['data'] : null;
+      if (dataList is! List) {
+        if (kDebugMode) {
+          log(
+            'bulkCreate: response `data` is not a list (got '
+            '${dataList.runtimeType})',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      return dataList
+          .map((Object? element) {
+            final dto = standardSerializers.deserializeWith(
+              MasterServiceResponse.serializer,
+              element,
+            );
+            if (dto == null) {
+              throw const ServerFailure(statusCode: null);
+            }
+            return MasterServiceMapper.fromDto(dto);
+          })
+          .toList(growable: false);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'bulkCreate failed: ${e.type} ${e.response?.statusCode} '
+          '(${items.length} items)',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapBulkCreateException(e);
+    }
+  }
+
+  /// Serialises one [MasterServiceBulkItem] to the wire JSON the bulk endpoint
+  /// expects, emitting only the mode-appropriate price fields.
+  Map<String, Object?> _bulkItemToJson(MasterServiceBulkItem item) {
+    final json = <String, Object?>{
+      'serviceTypeId': item.serviceTypeId,
+      'durationMinutes': item.durationMinutes,
+      'priceType': switch (item.priceType) {
+        ServicePriceType.fixed => 'FIXED',
+        ServicePriceType.range => 'RANGE',
+      },
+    };
+    switch (item.priceType) {
+      case ServicePriceType.fixed:
+        json['price'] = item.price;
+      case ServicePriceType.range:
+        json['priceMin'] = item.priceMin;
+        json['priceMax'] = item.priceMax;
+    }
+    return json;
+  }
+
+  /// Maps a [DioException] from the bulk-setup POST to a typed [Failure].
+  ///
+  ///   - **409** → [MasterAlreadyHasServicesFailure] (the first-time guard
+  ///     tripped — the master already has an active service).
+  ///   - **400/422** → [ValidationFailure].
+  /// All other statuses defer to the shared [_mapDioException].
+  ///
+  /// The 409 status check runs BEFORE deferring to any [Failure] the
+  /// [ErrorMapperInterceptor] may have attached (it maps a non-auth 409 to a
+  /// generic [ServerFailure], which lacks the first-time-guard copy), so we
+  /// re-map by status code here to surface the friendly message + routing.
+  Failure _mapBulkCreateException(DioException e) {
+    final statusCode = e.response?.statusCode;
+    if (statusCode == 409) return MasterAlreadyHasServicesFailure(cause: e);
+    if (e.error is Failure) return e.error as Failure;
+    return _mapDioException(e);
   }
 
   @override
@@ -342,12 +548,20 @@ final class HttpServiceRepository implements ServiceRepository {
   Future<void> requestCategory({
     required String name,
     required String displayName,
+    String? initialServiceName,
   }) async {
     try {
+      // The optional initial service name is attached only when
+      // non-null/non-empty (mirrors the suggestServiceType description-omission
+      // pattern); the generated model omits a null `initialServiceName` key.
+      final initial = initialServiceName?.trim();
       final request = CreateCategoryRequestRequest(
         (b) => b
           ..name = name
-          ..displayName = displayName,
+          ..displayName = displayName
+          ..initialServiceName = (initial == null || initial.isEmpty)
+              ? null
+              : initial,
       );
       await _categoryApi.submitRequest(createCategoryRequestRequest: request);
     } on Failure {
@@ -362,6 +576,79 @@ final class HttpServiceRepository implements ServiceRepository {
         );
       }
       throw _mapCategoryRequestException(e);
+    }
+  }
+
+  @override
+  Future<List<ServiceTypeOption>> fetchServiceTypes(String categoryName) async {
+    try {
+      // The 200 response is now a single-shape
+      // ApiResponseListPlatformServiceTypeResponse (the legacy oneOf alternate
+      // was removed backend-side — the legacy operation is @Hidden). Read
+      // `data` directly, mirroring [fetchApprovedCategories].
+      final res = await _catalogApi.getServiceTypesByPlatformCategory(
+        categoryName: categoryName,
+      );
+      final list = res.data?.data;
+      if (list == null) {
+        if (kDebugMode) {
+          log(
+            'fetchServiceTypes($categoryName): '
+            'ApiResponseListPlatformServiceTypeResponse.data is null',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        return const [];
+      }
+      return ServiceTypeMapper.fromDtoList(list);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'fetchServiceTypes($categoryName) failed: '
+          '${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<void> suggestServiceType({
+    required String categoryName,
+    required String name,
+    String? description,
+  }) async {
+    try {
+      // Sends the System-B `categoryName` slug (per backend 16.7) — NOT a
+      // categoryId UUID. The generated SuggestServiceTypeRequest exposes
+      // `name`, `categoryName`, and an optional `description`; the description
+      // is only attached when non-null/non-empty (the serializer omits a null).
+      final desc = description?.trim();
+      final request = SuggestServiceTypeRequest(
+        (b) => b
+          ..name = name
+          ..categoryName = categoryName
+          ..description = (desc == null || desc.isEmpty) ? null : desc,
+      );
+      await _catalogApi.suggestServiceType(suggestServiceTypeRequest: request);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'suggestServiceType failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapServiceTypeSuggestionException(e);
     }
   }
 
@@ -381,6 +668,32 @@ final class HttpServiceRepository implements ServiceRepository {
     if (statusCode == 409) return CategoryAlreadyExistsFailure(cause: e);
     if (statusCode == 429) return CategoryRequestThrottledFailure(cause: e);
     if (e.error is Failure) return e.error as Failure;
+    return _mapDioException(e);
+  }
+
+  /// Maps a [DioException] from `POST /service-types/suggest` to a typed
+  /// [Failure]:
+  ///   - **400/422** → [ValidationFailure] (malformed name/description). If
+  ///     [ErrorMapperInterceptor] already attached a [ValidationFailure] (with
+  ///     parsed field errors), that instance is preferred so inline field-level
+  ///     messages survive.
+  ///   - **429** → [CategoryRequestThrottledFailure] (rate-limited). Reuses the
+  ///     existing throttle failure / copy shared with the category-request flow.
+  /// All other statuses defer to the shared [_mapDioException].
+  ///
+  /// The status checks run BEFORE deferring to any [Failure] already attached by
+  /// the interceptor for the 429 case (the interceptor maps an unmatched 429 to
+  /// [UnknownFailure], which lacks the throttle copy), so we re-map by status
+  /// code here to surface the friendly message.
+  Failure _mapServiceTypeSuggestionException(DioException e) {
+    final statusCode = e.response?.statusCode;
+    if (statusCode == 429) return CategoryRequestThrottledFailure(cause: e);
+    // Prefer an interceptor-attached ValidationFailure (it carries the parsed
+    // fieldErrors used for inline name/description messages).
+    if (e.error is Failure) return e.error as Failure;
+    if (statusCode == 400 || statusCode == 422) {
+      return ValidationFailure(fieldErrors: const {}, cause: e);
+    }
     return _mapDioException(e);
   }
 
@@ -416,11 +729,13 @@ final class HttpServiceRepository implements ServiceRepository {
 /// the generated [ServiceControllerApi], and the current master's UUID from
 /// [masterProfileProvider].
 ///
-/// IMPORTANT: [_masterId] must be the Master-row UUID
-/// (from MasterDetailResponse.masterId), NOT the User UUID from the auth
-/// session. User.id != Master.id. The list endpoint
-/// `GET /api/v1/masters/{masterId}/services` matches against the masters table
-/// primary key; passing a user UUID always returns [].
+/// As of Phase 16.9 the owner list endpoint
+/// (`GET /api/v1/independent-masters/me/services`) derives the master from the
+/// JWT principal, so [_masterId] is no longer sent as a path parameter. It is
+/// still watched here so the repository is re-created once the master profile
+/// resolves and so [_assertAuthenticated] can fail fast on an unready session.
+/// The value remains the Master-row UUID (from MasterDetailResponse.masterId),
+/// NOT the User UUID — User.id != Master.id.
 ///
 /// Both this provider and [masterProfileProvider] are [keepAlive: true], so
 /// the watch is stable. The repository is re-created whenever the master
@@ -439,6 +754,10 @@ ServiceRepository serviceRepository(Ref ref) {
   return HttpServiceRepository(
     serviceApi: ref.watch(serviceApiProvider),
     categoryApi: ref.watch(categoryRequestApiProvider),
+    catalogApi: ref.watch(serviceCatalogApiProvider),
+    // Raw authenticated Dio (full interceptor chain) for the bulk-setup POST,
+    // which the generated ServiceControllerApi does not yet expose.
+    dio: ref.watch(dioProvider),
     masterId: masterId,
   );
 }
@@ -461,6 +780,16 @@ ServiceControllerApi serviceApi(Ref ref) =>
 @Riverpod(keepAlive: true)
 CategoryRequestControllerApi categoryRequestApi(Ref ref) =>
     CategoryRequestControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the generated [ServiceCatalogControllerApi] singleton.
+///
+/// Drives the platform service-catalog lookups — specifically the second-level
+/// service-type picker (`GET /service-catalog/service-types?categoryName=...`).
+/// Same authenticated Dio + serializers as the other API providers. Kept alive
+/// to avoid re-construction on every provider read.
+@Riverpod(keepAlive: true)
+ServiceCatalogControllerApi serviceCatalogApi(Ref ref) =>
+    ServiceCatalogControllerApi(ref.watch(dioProvider), standardSerializers);
 
 /// Async list of approved service categories for the service-form picker.
 ///

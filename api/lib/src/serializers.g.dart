@@ -19,11 +19,14 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseListCatalogCategoryResponse.serializer)
       ..add(ApiResponseListCityDistrictResponse.serializer)
       ..add(ApiResponseListCityResponse.serializer)
+      ..add(ApiResponseListEffectiveDayResponse.serializer)
       ..add(ApiResponseListMasterServiceResponse.serializer)
       ..add(ApiResponseListOblastResponse.serializer)
       ..add(ApiResponseListPlatformCategoryUsageResponse.serializer)
+      ..add(ApiResponseListPlatformServiceTypeResponse.serializer)
       ..add(ApiResponseListSalonResponse.serializer)
-      ..add(ApiResponseListServiceTypeResponse.serializer)
+      ..add(ApiResponseListScheduleOverrideResponse.serializer)
+      ..add(ApiResponseListWeeklyScheduleResponse.serializer)
       ..add(ApiResponseListWorkingHoursResponse.serializer)
       ..add(ApiResponseMasterDetailResponse.serializer)
       ..add(ApiResponseMasterPublicProfileResponse.serializer)
@@ -41,9 +44,11 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseRevenueResponse.serializer)
       ..add(ApiResponseReviewResponse.serializer)
       ..add(ApiResponseSalonResponse.serializer)
+      ..add(ApiResponseScheduleOverrideResponse.serializer)
       ..add(ApiResponseServiceDefinitionResponse.serializer)
       ..add(ApiResponseUserProfileResponse.serializer)
       ..add(ApiResponseVoid.serializer)
+      ..add(ApiResponseWeeklyScheduleResponse.serializer)
       ..add(ApprovedCategoryResponse.serializer)
       ..add(AssignServiceToMasterRequest.serializer)
       ..add(AuthResponse.serializer)
@@ -55,6 +60,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(BookingDetailResponseStatusEnum.serializer)
       ..add(BookingResponse.serializer)
       ..add(BookingResponseStatusEnum.serializer)
+      ..add(BulkCreateServicesRequest.serializer)
+      ..add(BulkServiceItemRequest.serializer)
+      ..add(BulkServiceItemRequestPriceTypeEnum.serializer)
       ..add(CancelBookingRequest.serializer)
       ..add(CancelBookingRequestCancellationReasonEnum.serializer)
       ..add(CatalogCategoryResponse.serializer)
@@ -68,6 +76,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CreateSalonRequest.serializer)
       ..add(CreateServiceDefinitionRequest.serializer)
       ..add(CreateServiceDefinitionRequestPriceTypeEnum.serializer)
+      ..add(EffectiveDayResponse.serializer)
+      ..add(EffectiveDayResponseSource_Enum.serializer)
       ..add(ForgotPasswordRequest.serializer)
       ..add(IndependentMasterUpdateRequest.serializer)
       ..add(InviteAcceptRequest.serializer)
@@ -102,6 +112,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(PageableObject.serializer)
       ..add(PlatformCategoryResponse.serializer)
       ..add(PlatformCategoryUsageResponse.serializer)
+      ..add(PlatformServiceTypeResponse.serializer)
       ..add(PublicSalonResponse.serializer)
       ..add(RefreshRequest.serializer)
       ..add(RegisterDeviceTokenRequest.serializer)
@@ -119,11 +130,12 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SalonResponse.serializer)
       ..add(SalonSearchRequest.serializer)
       ..add(SalonSearchResult.serializer)
-      ..add(ScheduleExceptionRequest.serializer)
-      ..add(ScheduleExceptionRequestReasonEnum.serializer)
+      ..add(ScheduleOverrideRequest.serializer)
+      ..add(ScheduleOverrideRequestKindEnum.serializer)
+      ..add(ScheduleOverrideResponse.serializer)
+      ..add(ScheduleOverrideResponseKindEnum.serializer)
       ..add(ServiceDefinitionResponse.serializer)
       ..add(ServiceDefinitionResponsePriceTypeEnum.serializer)
-      ..add(ServiceTypeResponse.serializer)
       ..add(SortObject.serializer)
       ..add(StatusUpdateRequest.serializer)
       ..add(StatusUpdateRequestCancellationReasonEnum.serializer)
@@ -137,12 +149,21 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(UploadPortfolioPhotoRequest.serializer)
       ..add(UserProfileResponse.serializer)
       ..add(VerifyEmailRequest.serializer)
+      ..add(WeeklyScheduleDayRequest.serializer)
+      ..add(WeeklyScheduleDayResponse.serializer)
+      ..add(WeeklyScheduleRequest.serializer)
+      ..add(WeeklyScheduleResponse.serializer)
+      ..add(WorkIntervalDto.serializer)
       ..add(WorkingHoursRequest.serializer)
       ..add(WorkingHoursResponse.serializer)
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(ApprovedCategoryResponse)]),
           () => ListBuilder<ApprovedCategoryResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(AvailableSlotResponse)]),
@@ -152,15 +173,39 @@ Serializers _$serializers = (Serializers().toBuilder()
           () => ListBuilder<BookingResponse>())
       ..addBuilderFactory(
           const FullType(
+              BuiltList, const [const FullType(BulkServiceItemRequest)]),
+          () => ListBuilder<BulkServiceItemRequest>())
+      ..addBuilderFactory(
+          const FullType(
               BuiltList, const [const FullType(CatalogCategoryResponse)]),
           () => ListBuilder<CatalogCategoryResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(CityDistrictResponse)]),
           () => ListBuilder<CityDistrictResponse>())
       ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(CityResponse)]),
           () => ListBuilder<CityResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(EffectiveDayResponse)]),
+          () => ListBuilder<EffectiveDayResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(MasterSearchResult)]),
           () => ListBuilder<MasterSearchResult>())
@@ -168,6 +213,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(MasterServiceResponse)]),
           () => ListBuilder<MasterServiceResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(MasterSummaryResponse)]),
@@ -180,8 +229,24 @@ Serializers _$serializers = (Serializers().toBuilder()
           () => ListBuilder<OblastResponse>())
       ..addBuilderFactory(
           const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
               BuiltList, const [const FullType(PlatformCategoryUsageResponse)]),
           () => ListBuilder<PlatformCategoryUsageResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(PlatformServiceTypeResponse)]),
+          () => ListBuilder<PlatformServiceTypeResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(RevenueByMasterDto)]),
           () => ListBuilder<RevenueByMasterDto>())
@@ -199,15 +264,54 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(SalonResponse)]),
           () => ListBuilder<SalonResponse>())
       ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(SalonSearchResult)]),
           () => ListBuilder<SalonSearchResult>())
       ..addBuilderFactory(
           const FullType(
-              BuiltList, const [const FullType(ServiceTypeResponse)]),
-          () => ListBuilder<ServiceTypeResponse>())
+              BuiltList, const [const FullType(ScheduleOverrideResponse)]),
+          () => ListBuilder<ScheduleOverrideResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(WeeklyScheduleDayRequest)]),
+          () => ListBuilder<WeeklyScheduleDayRequest>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(WeeklyScheduleDayResponse)]),
+          () => ListBuilder<WeeklyScheduleDayResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(WeeklyScheduleResponse)]),
+          () => ListBuilder<WeeklyScheduleResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(WorkIntervalDto)]),
+          () => ListBuilder<WorkIntervalDto>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(WorkIntervalDto)]),
+          () => ListBuilder<WorkIntervalDto>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(WorkIntervalDto)]),
+          () => ListBuilder<WorkIntervalDto>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(WorkIntervalDto)]),
+          () => ListBuilder<WorkIntervalDto>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(WorkIntervalDto)]),
+          () => ListBuilder<WorkIntervalDto>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
@@ -215,7 +319,127 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
-          () => ListBuilder<WorkingHoursResponse>()))
+          () => ListBuilder<WorkingHoursResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>()))
     .build();
 
 // ignore_for_file: deprecated_member_use_from_same_package,type=lint

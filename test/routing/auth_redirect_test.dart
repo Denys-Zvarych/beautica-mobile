@@ -421,6 +421,61 @@ void main() {
         equals(RouteNames.home),
       );
     });
+
+    // Phase 6.2 — /master/working-hours role gate (SEC regression).
+    //
+    // The /master/* prefix guard in auth_redirect.dart redirects any
+    // authenticated role that is NOT INDEPENDENT_MASTER to RouteNames.home.
+    // These three tests pin that guard for the working-hours route specifically
+    // so a refactor that widens /master/* access is caught immediately.
+
+    test('INDEPENDENT_MASTER at /master/working-hours is allowed (null)', () {
+      expect(
+        authRedirectForLocation(_authenticatedSession, RouteNames.workingHours),
+        isNull,
+      );
+    });
+
+    test('SALON_MASTER at /master/working-hours is redirected to /', () {
+      const salonMasterUser = User(
+        id: 'u-sm',
+        email: 'salonmaster@example.com',
+        role: UserRole.salonMaster,
+        firstName: 'Salon',
+        lastName: 'Master',
+      );
+      const salonMasterSession = AsyncData<AuthSession>(
+        AuthSession.authenticated(user: salonMasterUser, accessToken: 'token'),
+      );
+      expect(
+        authRedirectForLocation(salonMasterSession, RouteNames.workingHours),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('SALON_OWNER at /master/working-hours is redirected to /', () {
+      const salonOwnerUser = User(
+        id: 'u-so',
+        email: 'owner@example.com',
+        role: UserRole.salonOwner,
+        firstName: 'Salon',
+        lastName: 'Owner',
+      );
+      const salonOwnerSession = AsyncData<AuthSession>(
+        AuthSession.authenticated(user: salonOwnerUser, accessToken: 'token'),
+      );
+      expect(
+        authRedirectForLocation(salonOwnerSession, RouteNames.workingHours),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('CLIENT at /master/working-hours is redirected to /', () {
+      expect(
+        authRedirectForLocation(_clientSession, RouteNames.workingHours),
+        equals(RouteNames.home),
+      );
+    });
   });
 
   // Splash duration gate — the animated wordmark (880 ms reveal) must always

@@ -36,6 +36,7 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/security/screen_protection.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../../../shared/util/mask_email.dart';
 import '../data/auth_repository_provider.dart';
@@ -654,9 +655,11 @@ class AuthNotifier extends _$AuthNotifier {
   /// Clears the session and wipes all tokens from secure storage.
   ///
   /// Makes a best-effort server-side revocation call via the repository before
-  /// wiping local state. Any [Failure] from the server call is tolerated — the
-  /// local wipe always proceeds. Sets state to [AsyncData<Unauthenticated>]
-  /// so the router guard (Phase 2.9) redirects to the login screen.
+  /// wiping local state. ANY error from the server call (a [Failure] or an
+  /// unmapped error such as a platform exception or [StateError]) is tolerated —
+  /// the local wipe always proceeds so a logout never leaves tokens on device
+  /// (M5 hardening). Sets state to [AsyncData<Unauthenticated>] so the router
+  /// guard (Phase 2.9) redirects to the login screen.
   Future<void> logout() async {
     try {
       await ref.read(authRepositoryProvider).logout();
@@ -664,6 +667,18 @@ class AuthNotifier extends _$AuthNotifier {
       if (kDebugMode) {
         log(
           'Logout server call failed (tolerated): ${f.runtimeType}',
+          name: 'auth',
+          level: 900,
+        );
+      }
+    } catch (e) {
+      // M5 hardening: a NON-Failure error (unmapped platform exception, raw
+      // StateError, …) must NOT propagate past the wipe — otherwise the user's
+      // refresh token would survive an explicit logout. Logout stays best-effort
+      // for every error type; the unconditional wipe below always runs.
+      if (kDebugMode) {
+        log(
+          'Logout server call threw non-Failure (tolerated): ${e.runtimeType}',
           name: 'auth',
           level: 900,
         );
@@ -689,6 +704,11 @@ class AuthNotifier extends _$AuthNotifier {
     // carry a stale Bearer token after an explicit logout.
     _lastKnownAccessToken = null;
     coldStartAccessToken = null;
+    // SEC (LOW hygiene): force-clear the app-wide screenshot guard so a PII
+    // screen that was never disposed (e.g. logout triggered from a dialog above
+    // a live acquirer) cannot leave native protection latched across the auth
+    // boundary. Resets the ref count to zero and tears down native protection.
+    ref.read(screenProtectionProvider).reset();
     if (kDebugMode) {
       log('Logout: session cleared', name: 'auth', level: 800);
     }

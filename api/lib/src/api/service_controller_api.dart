@@ -13,6 +13,7 @@ import 'package:beautica_api/src/model/api_response_list_master_service_response
 import 'package:beautica_api/src/model/api_response_master_service_response.dart';
 import 'package:beautica_api/src/model/api_response_service_definition_response.dart';
 import 'package:beautica_api/src/model/assign_service_to_master_request.dart';
+import 'package:beautica_api/src/model/bulk_create_services_request.dart';
 import 'package:beautica_api/src/model/create_service_definition_request.dart';
 import 'package:beautica_api/src/model/update_service_definition_request.dart';
 import 'package:beautica_api/src/model/update_service_photo_request.dart';
@@ -331,6 +332,213 @@ class ServiceControllerApi {
     );
   }
 
+  /// Bulk-create a salon master&#39;s services (first-time setup)
+  /// Creates every selected service for the given master in one transaction. Only valid when the master has no active services yet (409 otherwise).
+  ///
+  /// Parameters:
+  /// * [salonId]
+  /// * [masterId]
+  /// * [bulkCreateServicesRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponseListMasterServiceResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponseListMasterServiceResponse>>
+      bulkCreateMasterServices({
+    required String salonId,
+    required String masterId,
+    required BulkCreateServicesRequest bulkCreateServicesRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/salons/{salonId}/masters/{masterId}/services/bulk'
+        .replaceAll(
+            '{' r'salonId' '}',
+            encodeQueryParameter(_serializers, salonId, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'masterId' '}',
+            encodeQueryParameter(_serializers, masterId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(BulkCreateServicesRequest);
+      _bodyData = _serializers.serialize(bulkCreateServicesRequest,
+          specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponseListMasterServiceResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType:
+                  const FullType(ApiResponseListMasterServiceResponse),
+            ) as ApiResponseListMasterServiceResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponseListMasterServiceResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// Bulk-create my services (first-time setup)
+  /// Creates every selected service in one transaction. Only valid when the master has no active services yet (409 otherwise).
+  ///
+  /// Parameters:
+  /// * [bulkCreateServicesRequest]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponseListMasterServiceResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponseListMasterServiceResponse>> bulkCreateMyServices({
+    required BulkCreateServicesRequest bulkCreateServicesRequest,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/independent-masters/me/services/bulk';
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'application/json',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      const _type = FullType(BulkCreateServicesRequest);
+      _bodyData = _serializers.serialize(bulkCreateServicesRequest,
+          specifiedType: _type);
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponseListMasterServiceResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType:
+                  const FullType(ApiResponseListMasterServiceResponse),
+            ) as ApiResponseListMasterServiceResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponseListMasterServiceResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// deactivateServiceDefinition
   ///
   ///
@@ -408,6 +616,81 @@ class ServiceControllerApi {
         '{' r'masterId' '}',
         encodeQueryParameter(_serializers, masterId, const FullType(String))
             .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponseListMasterServiceResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType:
+                  const FullType(ApiResponseListMasterServiceResponse),
+            ) as ApiResponseListMasterServiceResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponseListMasterServiceResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// List my own active services
+  /// Returns the authenticated master&#39;s own active services. Owner-scoped to the authenticated principal; never exposes another master&#39;s services.
+  ///
+  /// Parameters:
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponseListMasterServiceResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponseListMasterServiceResponse>> getMyServices({
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/independent-masters/me/services';
     final _options = Options(
       method: r'GET',
       headers: <String, dynamic>{

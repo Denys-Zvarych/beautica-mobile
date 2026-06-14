@@ -72,6 +72,17 @@ abstract class MasterService with _$MasterService {
     /// Optional service category string (e.g. "MANICURE", "HAIRCUT").
     String? category,
 
+    /// Id of the chosen platform service type, or null when none was selected
+    /// (Phase 16.3). Round-trips from `serviceTypeId` on the backend response so
+    /// the UI can confirm and pre-select the master's chosen type.
+    String? serviceTypeId,
+
+    /// Ukrainian display name of the chosen service type, or null when none was
+    /// selected (Phase 16.3). Round-trips from `serviceTypeNameUk` on the
+    /// backend response so the UI can render the selection without a second
+    /// lookup.
+    String? serviceTypeNameUk,
+
     /// Effective duration of this service in minutes.
     required int durationMinutes,
 

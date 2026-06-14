@@ -34,14 +34,17 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+
+import 'widgets/select_dropdown_test_helpers.dart';
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
@@ -78,10 +81,24 @@ Future<void> _pumpForm(
   _MockServiceRepository repo, {
   required void Function(MasterServiceCreate) onSubmit,
 }) async {
+  // Selecting a category mounts the second-level _ServiceTypeChips section,
+  // making the form taller. Use a roomy viewport so every chip + the submit CTA
+  // stay laid out and hit-testable (otherwise a select→deselect→reselect cycle
+  // lands on a shifted offset that no longer hits the chip).
+  tester.view.physicalSize = const Size(800, 1600);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
   await tester.pumpWidget(
     ProviderScope(
       overrides: <Object>[
         serviceRepositoryProvider.overrideWithValue(repo),
+        // Selecting a category mounts _ServiceTypeChips → serviceTypesProvider.
+        // Stub it to a calm empty list so no un-mocked fetch fires in-tree.
+        serviceTypesProvider.overrideWith(
+          (ref, String categoryName) async => const <ServiceTypeOption>[],
+        ),
       ].cast(),
       child: MaterialApp.router(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -129,6 +146,11 @@ Future<void> _pumpFormWithInitial(
     ProviderScope(
       overrides: <Object>[
         serviceRepositoryProvider.overrideWithValue(repo),
+        // The seeded initial.category mounts _ServiceTypeChips on pump → stub
+        // serviceTypesProvider to an empty list so no real fetch fires.
+        serviceTypesProvider.overrideWith(
+          (ref, String categoryName) async => const <ServiceTypeOption>[],
+        ),
       ].cast(),
       child: MaterialApp.router(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -170,6 +192,9 @@ void main() {
   testWidgets('1. picker renders Ukrainian displayName labels', (tester) async {
     await _pumpForm(tester, repo, onSubmit: (_) {});
 
+    // Labels live inside the dropdown menu now — open it to inspect them.
+    await openCategoryMenu(tester);
+
     expect(find.text('Манікюр'), findsOneWidget);
     expect(find.text('Нейл-арт'), findsOneWidget);
     // The English wire slug must NOT be displayed.
@@ -179,13 +204,11 @@ void main() {
 
   // ── 2. select → deselect → reselect; submitted value is the wire slug ───────
 
-  testWidgets('2. select/deselect/reselect submits the wire name slug', (
+  testWidgets('2. selecting a category submits the wire name slug', (
     tester,
   ) async {
     MasterServiceCreate? submitted;
     await _pumpForm(tester, repo, onSubmit: (i) => submitted = i);
-
-    final chip = find.byKey(const Key('chip-category-MANICURE'));
 
     // Fill required fields so submit passes validation.
     await tester.enterText(
@@ -210,13 +233,10 @@ void main() {
       '500',
     );
 
-    // select → deselect → reselect
-    await tester.tap(chip);
-    await tester.pump();
-    await tester.tap(chip); // deselect
-    await tester.pump();
-    await tester.tap(chip); // reselect
-    await tester.pump();
+    // Re-select twice (open menu → pick the same option) to prove the selection
+    // is stable and re-selecting does not break the wire-value contract.
+    await selectCategoryOption(tester, 'MANICURE');
+    await selectCategoryOption(tester, 'MANICURE');
 
     await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
     await tester.tap(find.byKey(const Key('btn-submit-service')));
@@ -230,7 +250,7 @@ void main() {
     );
   });
 
-  testWidgets('2b. deselecting all categories blocks submit (required)', (
+  testWidgets('2b. no category selected blocks submit (required)', (
     tester,
   ) async {
     MasterServiceCreate? submitted;
@@ -258,27 +278,25 @@ void main() {
       '500',
     );
 
-    final chip = find.byKey(const Key('chip-category-NAIL_ART'));
-    await tester.tap(chip); // select
-    await tester.pump();
-    await tester.tap(chip); // deselect → no category selected
-    await tester.pump();
-
+    // Leave the category dropdown untouched (no selection).
     await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
     await tester.tap(find.byKey(const Key('btn-submit-service')));
     await tester.pump();
 
     // Category is required by the backend; submit must be blocked.
     expect(submitted, isNull);
+    // The inline required error renders beneath the category field.
+    expect(find.text(_l10n(tester).serviceCategoryRequired), findsOneWidget);
   });
 
   // ── 3. Suggest affordance opens the dialog ──────────────────────────────────
 
-  testWidgets('3. suggest chip opens the category-request dialog', (
+  testWidgets('3. suggest action opens the category-request dialog', (
     tester,
   ) async {
     await _pumpForm(tester, repo, onSubmit: (_) {});
 
+    await openCategoryMenu(tester);
     final suggest = find.byKey(const Key('chip-category-suggest'));
     await tester.ensureVisible(suggest);
     await tester.tap(suggest);
@@ -306,6 +324,7 @@ void main() {
     ).thenAnswer((_) async {});
 
     await _pumpForm(tester, repo, onSubmit: (_) {});
+    await openCategoryMenu(tester);
     await tester.ensureVisible(find.byKey(const Key('chip-category-suggest')));
     await tester.tap(find.byKey(const Key('chip-category-suggest')));
     await tester.pumpAndSettle();
@@ -348,6 +367,7 @@ void main() {
 
     await _pumpForm(tester, repo, onSubmit: (_) {});
     final l10n = _l10n(tester);
+    await openCategoryMenu(tester);
     await tester.ensureVisible(find.byKey(const Key('chip-category-suggest')));
     await tester.tap(find.byKey(const Key('chip-category-suggest')));
     await tester.pumpAndSettle();
@@ -395,6 +415,7 @@ void main() {
 
     await _pumpForm(tester, repo, onSubmit: (_) {});
     final l10n = _l10n(tester);
+    await openCategoryMenu(tester);
     await tester.ensureVisible(find.byKey(const Key('chip-category-suggest')));
     await tester.tap(find.byKey(const Key('chip-category-suggest')));
     await tester.pumpAndSettle();
@@ -424,6 +445,7 @@ void main() {
 
     await _pumpForm(tester, repo, onSubmit: (_) {});
     final l10n = _l10n(tester);
+    await openCategoryMenu(tester);
     await tester.ensureVisible(find.byKey(const Key('chip-category-suggest')));
     await tester.tap(find.byKey(const Key('chip-category-suggest')));
     await tester.pumpAndSettle();
@@ -460,21 +482,31 @@ void main() {
 
       await _pumpForm(tester, repo, onSubmit: (_) {});
 
-      // Error state present, success chips absent.
-      expect(find.byKey(const Key('category-chips-error')), findsOneWidget);
-      expect(find.byKey(const Key('btn-category-retry')), findsOneWidget);
-      expect(find.byKey(const Key('chip-category-MANICURE')), findsNothing);
+      // The closed category field shows an error affordance (not a chevron),
+      // and no option is selectable yet.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('select-category-field')),
+          matching: find.byIcon(Icons.error_outline_rounded),
+        ),
+        findsOneWidget,
+      );
 
-      // Recovery: flip the stub to success, then tap retry. The retry chip
-      // invalidates approvedCategoriesProvider, forcing a fresh repo call.
+      // Opening the menu surfaces an escapable error state with a Retry button.
+      await openCategoryMenu(tester);
+      expect(find.byKey(const Key('select-menu-error')), findsOneWidget);
+      expect(find.byKey(const Key('select-menu-retry')), findsOneWidget);
+
+      // Recovery: flip the stub to success, then tap retry. The retry button
+      // closes the sheet and invalidates approvedCategoriesProvider, forcing a
+      // fresh repo call.
       fail = false;
-      await tester.tap(find.byKey(const Key('btn-category-retry')));
+      await tester.tap(find.byKey(const Key('select-menu-retry')));
       await tester.pumpAndSettle();
 
-      // Re-fetch happened (the chip cleared and reloaded) and the success state
-      // is now rendered.
+      // Re-fetch happened. Re-open the (now resolved) menu → the option renders.
       verify(() => repo.fetchApprovedCategories()).called(greaterThan(1));
-      expect(find.byKey(const Key('category-chips-error')), findsNothing);
+      await openCategoryMenu(tester);
       expect(find.byKey(const Key('chip-category-MANICURE')), findsOneWidget);
       expect(find.text('Манікюр'), findsOneWidget);
     },
@@ -510,8 +542,14 @@ void main() {
     // Single pump only — do NOT settle (the future never resolves).
     await tester.pump();
 
-    expect(find.byKey(const Key('category-chips-loading')), findsOneWidget);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    // The closed category field shows its inline loading spinner affordance.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('select-category-field')),
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
 
     // Resolve the future so the widget tree can be torn down cleanly.
     completer.complete(_options);
@@ -534,6 +572,7 @@ void main() {
 
       await _pumpForm(tester, repo, onSubmit: (_) {});
       final l10n = _l10n(tester);
+      await openCategoryMenu(tester);
       await tester.ensureVisible(
         find.byKey(const Key('chip-category-suggest')),
       );
@@ -586,6 +625,7 @@ void main() {
 
       await _pumpForm(tester, repo, onSubmit: (_) {});
       final l10n = _l10n(tester);
+      await openCategoryMenu(tester);
       await tester.ensureVisible(
         find.byKey(const Key('chip-category-suggest')),
       );
@@ -642,19 +682,18 @@ void main() {
         initial: _serviceWithCategory('BROWS'),
       );
 
-      // The selected chip exists, keyed by the WIRE slug — this is the value
-      // submitted to the backend (Key = `chip-category-${option.name}`), so its
-      // presence proves the wire value is preserved unchanged.
-      final chip = find.byKey(const Key('chip-category-BROWS'));
-      expect(chip, findsOneWidget);
+      // The persisted selection stays visible in the closed dropdown field even
+      // though BROWS is absent from the approved list.
+      final field = find.byKey(const Key('select-category-field'));
+      expect(field, findsOneWidget);
 
       // The raw ALL-CAPS slug must NOT be rendered as the label.
       expect(find.text('BROWS'), findsNothing);
-      // The humanized form is shown instead.
-      expect(find.text('Brows'), findsOneWidget);
-
-      // It is rendered as the SELECTED chip (selection stays visible).
-      expect(_isSelectedChip(tester, chip), isTrue);
+      // The humanized form is shown instead, inside the closed field.
+      expect(
+        find.descendant(of: field, matching: find.text('Brows')),
+        findsOneWidget,
+      );
     },
   );
 
@@ -675,14 +714,16 @@ void main() {
         initial: _serviceWithCategory('NAIL_ART'),
       );
 
-      // Keyed by the wire slug → submission value preserved.
-      final chip = find.byKey(const Key('chip-category-NAIL_ART'));
-      expect(chip, findsOneWidget);
+      final field = find.byKey(const Key('select-category-field'));
+      expect(field, findsOneWidget);
 
-      // Raw slug never shown; multi-word slug humanized to title-case.
+      // Raw slug never shown; multi-word slug humanized to title-case in the
+      // closed field.
       expect(find.text('NAIL_ART'), findsNothing);
-      expect(find.text('Nail Art'), findsOneWidget);
-      expect(_isSelectedChip(tester, chip), isTrue);
+      expect(
+        find.descendant(of: field, matching: find.text('Nail Art')),
+        findsOneWidget,
+      );
     },
   );
 
@@ -702,25 +743,25 @@ void main() {
         initial: _serviceWithCategory('MANICURE'),
       );
 
-      final chip = find.byKey(const Key('chip-category-MANICURE'));
-      expect(chip, findsOneWidget);
+      final field = find.byKey(const Key('select-category-field'));
+      expect(field, findsOneWidget);
 
-      // Ukrainian label, not the slug nor a humanized fallback.
-      expect(find.text('Манікюр'), findsOneWidget);
+      // Ukrainian label, not the slug nor a humanized fallback — in the field.
+      expect(
+        find.descendant(of: field, matching: find.text('Манікюр')),
+        findsOneWidget,
+      );
       expect(find.text('MANICURE'), findsNothing);
       expect(find.text('Manicure'), findsNothing);
-      expect(_isSelectedChip(tester, chip), isTrue);
     },
   );
 
-  // ── 14. Narrow viewport: selected chip stays within the visible viewport ─────
+  // ── 14. Narrow viewport: closed field stays within the visible viewport ──────
 
   testWidgets(
-    '14. on a narrow ~360dp viewport the selected chip renders inside the '
-    'visible viewport (Wrap-in-horizontal-scroll regression guard)',
+    '14. on a narrow ~360dp viewport the selected category dropdown field '
+    'renders inside the visible viewport (no horizontal overflow)',
     (tester) async {
-      // A long approved list forces multiple rows; on a narrow viewport a Wrap
-      // nested in a horizontal scroll view would push later chips off-screen.
       const many = <ServiceCategoryOption>[
         ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
         ServiceCategoryOption(name: 'NAIL_ART', displayName: 'Нейл-арт'),
@@ -739,28 +780,27 @@ void main() {
         physicalWidth: 360,
       );
 
-      final chip = find.byKey(const Key('chip-category-BROWS'));
-      expect(chip, findsOneWidget);
+      final field = find.byKey(const Key('select-category-field'));
+      expect(field, findsOneWidget);
 
-      // The selected chip must lie within the screen bounds — not pushed off the
-      // right edge by a non-wrapping Wrap.
-      final Rect rect = tester.getRect(chip);
+      // The full-width dropdown field must lie within the screen bounds.
+      final Rect rect = tester.getRect(field);
       final Size screen =
           tester.view.physicalSize / tester.view.devicePixelRatio;
       expect(
         rect.left,
         greaterThanOrEqualTo(0),
-        reason: 'chip must not be clipped off the left edge',
+        reason: 'field must not be clipped off the left edge',
       );
       expect(
         rect.right,
-        lessThanOrEqualTo(screen.width),
-        reason: 'chip must wrap within the viewport, not overflow horizontally',
+        lessThanOrEqualTo(screen.width + 0.5),
+        reason: 'field must not overflow horizontally',
       );
       expect(
         rect.top,
         greaterThanOrEqualTo(0),
-        reason: 'chip must be within the visible viewport',
+        reason: 'field must be within the visible viewport',
       );
     },
   );
@@ -782,6 +822,7 @@ void main() {
       ).thenAnswer((_) async {});
 
       await _pumpForm(tester, repo, onSubmit: (_) {});
+      await openCategoryMenu(tester);
       await tester.ensureVisible(
         find.byKey(const Key('chip-category-suggest')),
       );
@@ -824,6 +865,7 @@ void main() {
 
       await _pumpForm(tester, repo, onSubmit: (_) {});
       final l10n = _l10n(tester);
+      await openCategoryMenu(tester);
       await tester.ensureVisible(
         find.byKey(const Key('chip-category-suggest')),
       );
@@ -845,14 +887,4 @@ void main() {
       );
     },
   );
-}
-
-/// True when the chip located by [chip] is rendered in its selected state.
-/// The chip wraps its content in `Semantics(selected: isSelected, button: true)`,
-/// so the selected flag is read directly from the merged semantics node.
-bool _isSelectedChip(WidgetTester tester, Finder chip) {
-  final SemanticsNode node = tester.getSemantics(
-    find.descendant(of: chip, matching: find.byType(Semantics)).first,
-  );
-  return node.flagsCollection.isSelected.toBoolOrNull() ?? false;
 }

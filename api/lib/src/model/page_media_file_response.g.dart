@@ -12,6 +12,8 @@ class _$PageMediaFileResponse extends PageMediaFileResponse {
   @override
   final int? totalPages;
   @override
+  final PageableObject? pageable;
+  @override
   final int? size;
   @override
   final BuiltList<MediaFileResponse>? content;
@@ -20,13 +22,11 @@ class _$PageMediaFileResponse extends PageMediaFileResponse {
   @override
   final SortObject? sort;
   @override
+  final int? numberOfElements;
+  @override
   final bool? first;
   @override
   final bool? last;
-  @override
-  final int? numberOfElements;
-  @override
-  final PageableObject? pageable;
   @override
   final bool? empty;
 
@@ -37,14 +37,14 @@ class _$PageMediaFileResponse extends PageMediaFileResponse {
   _$PageMediaFileResponse._(
       {this.totalElements,
       this.totalPages,
+      this.pageable,
       this.size,
       this.content,
       this.number,
       this.sort,
+      this.numberOfElements,
       this.first,
       this.last,
-      this.numberOfElements,
-      this.pageable,
       this.empty})
       : super._();
   @override
@@ -62,14 +62,14 @@ class _$PageMediaFileResponse extends PageMediaFileResponse {
     return other is PageMediaFileResponse &&
         totalElements == other.totalElements &&
         totalPages == other.totalPages &&
+        pageable == other.pageable &&
         size == other.size &&
         content == other.content &&
         number == other.number &&
         sort == other.sort &&
+        numberOfElements == other.numberOfElements &&
         first == other.first &&
         last == other.last &&
-        numberOfElements == other.numberOfElements &&
-        pageable == other.pageable &&
         empty == other.empty;
   }
 
@@ -78,14 +78,14 @@ class _$PageMediaFileResponse extends PageMediaFileResponse {
     var _$hash = 0;
     _$hash = $jc(_$hash, totalElements.hashCode);
     _$hash = $jc(_$hash, totalPages.hashCode);
+    _$hash = $jc(_$hash, pageable.hashCode);
     _$hash = $jc(_$hash, size.hashCode);
     _$hash = $jc(_$hash, content.hashCode);
     _$hash = $jc(_$hash, number.hashCode);
     _$hash = $jc(_$hash, sort.hashCode);
+    _$hash = $jc(_$hash, numberOfElements.hashCode);
     _$hash = $jc(_$hash, first.hashCode);
     _$hash = $jc(_$hash, last.hashCode);
-    _$hash = $jc(_$hash, numberOfElements.hashCode);
-    _$hash = $jc(_$hash, pageable.hashCode);
     _$hash = $jc(_$hash, empty.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -96,14 +96,14 @@ class _$PageMediaFileResponse extends PageMediaFileResponse {
     return (newBuiltValueToStringHelper(r'PageMediaFileResponse')
           ..add('totalElements', totalElements)
           ..add('totalPages', totalPages)
+          ..add('pageable', pageable)
           ..add('size', size)
           ..add('content', content)
           ..add('number', number)
           ..add('sort', sort)
+          ..add('numberOfElements', numberOfElements)
           ..add('first', first)
           ..add('last', last)
-          ..add('numberOfElements', numberOfElements)
-          ..add('pageable', pageable)
           ..add('empty', empty))
         .toString();
   }
@@ -121,6 +121,11 @@ class PageMediaFileResponseBuilder
   int? _totalPages;
   int? get totalPages => _$this._totalPages;
   set totalPages(int? totalPages) => _$this._totalPages = totalPages;
+
+  PageableObjectBuilder? _pageable;
+  PageableObjectBuilder get pageable =>
+      _$this._pageable ??= PageableObjectBuilder();
+  set pageable(PageableObjectBuilder? pageable) => _$this._pageable = pageable;
 
   int? _size;
   int? get size => _$this._size;
@@ -140,6 +145,11 @@ class PageMediaFileResponseBuilder
   SortObjectBuilder get sort => _$this._sort ??= SortObjectBuilder();
   set sort(SortObjectBuilder? sort) => _$this._sort = sort;
 
+  int? _numberOfElements;
+  int? get numberOfElements => _$this._numberOfElements;
+  set numberOfElements(int? numberOfElements) =>
+      _$this._numberOfElements = numberOfElements;
+
   bool? _first;
   bool? get first => _$this._first;
   set first(bool? first) => _$this._first = first;
@@ -147,16 +157,6 @@ class PageMediaFileResponseBuilder
   bool? _last;
   bool? get last => _$this._last;
   set last(bool? last) => _$this._last = last;
-
-  int? _numberOfElements;
-  int? get numberOfElements => _$this._numberOfElements;
-  set numberOfElements(int? numberOfElements) =>
-      _$this._numberOfElements = numberOfElements;
-
-  PageableObjectBuilder? _pageable;
-  PageableObjectBuilder get pageable =>
-      _$this._pageable ??= PageableObjectBuilder();
-  set pageable(PageableObjectBuilder? pageable) => _$this._pageable = pageable;
 
   bool? _empty;
   bool? get empty => _$this._empty;
@@ -171,14 +171,14 @@ class PageMediaFileResponseBuilder
     if ($v != null) {
       _totalElements = $v.totalElements;
       _totalPages = $v.totalPages;
+      _pageable = $v.pageable?.toBuilder();
       _size = $v.size;
       _content = $v.content?.toBuilder();
       _number = $v.number;
       _sort = $v.sort?.toBuilder();
+      _numberOfElements = $v.numberOfElements;
       _first = $v.first;
       _last = $v.last;
-      _numberOfElements = $v.numberOfElements;
-      _pageable = $v.pageable?.toBuilder();
       _empty = $v.empty;
       _$v = null;
     }
@@ -205,27 +205,27 @@ class PageMediaFileResponseBuilder
           _$PageMediaFileResponse._(
             totalElements: totalElements,
             totalPages: totalPages,
+            pageable: _pageable?.build(),
             size: size,
             content: _content?.build(),
             number: number,
             sort: _sort?.build(),
+            numberOfElements: numberOfElements,
             first: first,
             last: last,
-            numberOfElements: numberOfElements,
-            pageable: _pageable?.build(),
             empty: empty,
           );
     } catch (_) {
       late String _$failedField;
       try {
+        _$failedField = 'pageable';
+        _pageable?.build();
+
         _$failedField = 'content';
         _content?.build();
 
         _$failedField = 'sort';
         _sort?.build();
-
-        _$failedField = 'pageable';
-        _pageable?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'PageMediaFileResponse', _$failedField, e.toString());

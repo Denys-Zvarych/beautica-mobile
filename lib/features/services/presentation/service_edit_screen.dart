@@ -35,9 +35,9 @@ import 'package:beautica_mobile/features/services/presentation/widgets/service_f
 import 'package:beautica_mobile/features/services/presentation/widgets/service_photo_slot.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:screen_protector/screen_protector.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -89,15 +89,21 @@ class ServiceEditScreen extends ConsumerStatefulWidget {
 class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
   static const _tag = 'feature.services.edit_screen';
 
+  // Captured in initState so dispose() never touches `ref` — under Riverpod
+  // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
+  late final ScreenProtectionManager _screenProtection;
+
   @override
   void initState() {
     super.initState();
-    if (!kDebugMode) ScreenProtector.preventScreenshotOn();
+    // SEC MEDIUM: ref-counted screenshot guard (single app-wide owner;
+    // the manager is internally !kDebugMode-guarded).
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
   }
 
   @override
   void dispose() {
-    if (!kDebugMode) ScreenProtector.preventScreenshotOff();
+    _screenProtection.release();
     super.dispose();
   }
 
@@ -195,6 +201,10 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
             priceMin: input.priceMin,
             priceMax: input.priceMax,
             category: input.category,
+            // Thread the chosen service type through the PATCH so a type change
+            // actually persists. Previously this was dropped, so the picker was
+            // editable in the UI but silently lost on save (M4 API-contract).
+            serviceTypeId: input.serviceTypeId,
           );
           // Backend keys PATCH /api/v1/services/{serviceDefId} on the
           // service-definition id; the assignment id (service.id) is threaded

@@ -97,15 +97,21 @@ Class | Method | HTTP request | Description
 [*LocationControllerApi*](doc/LocationControllerApi.md) | [**getCitiesByOblast**](doc/LocationControllerApi.md#getcitiesbyoblast) | **GET** /api/v1/locations/oblasts/{oblastId}/cities | 
 [*LocationControllerApi*](doc/LocationControllerApi.md) | [**getDistrictsByCity**](doc/LocationControllerApi.md#getdistrictsbycity) | **GET** /api/v1/locations/cities/{cityId}/districts | 
 [*LocationControllerApi*](doc/LocationControllerApi.md) | [**getOblasts**](doc/LocationControllerApi.md#getoblasts) | **GET** /api/v1/locations/oblasts | 
-[*MasterControllerApi*](doc/MasterControllerApi.md) | [**addScheduleException**](doc/MasterControllerApi.md#addscheduleexception) | **POST** /api/v1/masters/{masterId}/schedule-exceptions | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**clearOverride**](doc/MasterControllerApi.md#clearoverride) | **DELETE** /api/v1/masters/{masterId}/overrides/{date} | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**createWeeklySchedule**](doc/MasterControllerApi.md#createweeklyschedule) | **POST** /api/v1/masters/{masterId}/weekly-schedules | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**deactivateMaster**](doc/MasterControllerApi.md#deactivatemaster) | **DELETE** /api/v1/masters/{masterId} | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**deleteWeeklySchedule**](doc/MasterControllerApi.md#deleteweeklyschedule) | **DELETE** /api/v1/masters/{masterId}/weekly-schedules/{scheduleId} | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getAvailableSlots**](doc/MasterControllerApi.md#getavailableslots) | **GET** /api/v1/masters/{masterId}/slots | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**getEffectiveSchedule**](doc/MasterControllerApi.md#geteffectiveschedule) | **GET** /api/v1/masters/{masterId}/effective-schedule | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getMasterCalendar**](doc/MasterControllerApi.md#getmastercalendar) | **GET** /api/v1/masters/me/calendar | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getMasterDetail**](doc/MasterControllerApi.md#getmasterdetail) | **GET** /api/v1/masters/{masterId} | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getMastersBySalon1**](doc/MasterControllerApi.md#getmastersbysalon1) | **GET** /api/v1/masters/by-salon/{salonId} | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getMyProfile**](doc/MasterControllerApi.md#getmyprofile) | **GET** /api/v1/masters/me | 
-[*MasterControllerApi*](doc/MasterControllerApi.md) | [**removeScheduleException**](doc/MasterControllerApi.md#removescheduleexception) | **DELETE** /api/v1/masters/{masterId}/schedule-exceptions/{date} | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**getOverrides**](doc/MasterControllerApi.md#getoverrides) | **GET** /api/v1/masters/{masterId}/overrides | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**getWeeklySchedules**](doc/MasterControllerApi.md#getweeklyschedules) | **GET** /api/v1/masters/{masterId}/weekly-schedules | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**updateMyProfile**](doc/MasterControllerApi.md#updatemyprofile) | **PATCH** /api/v1/masters/me/profile | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**updateWeeklySchedule**](doc/MasterControllerApi.md#updateweeklyschedule) | **PUT** /api/v1/masters/{masterId}/weekly-schedules/{scheduleId} | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**upsertOverride**](doc/MasterControllerApi.md#upsertoverride) | **PUT** /api/v1/masters/{masterId}/overrides/{date} | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**upsertWorkingHours**](doc/MasterControllerApi.md#upsertworkinghours) | **PATCH** /api/v1/masters/{masterId}/working-hours | 
 [*MediaControllerApi*](doc/MediaControllerApi.md) | [**deleteAvatar**](doc/MediaControllerApi.md#deleteavatar) | **DELETE** /api/v1/media/avatar | 
 [*MediaControllerApi*](doc/MediaControllerApi.md) | [**deletePortfolioPhoto**](doc/MediaControllerApi.md#deleteportfoliophoto) | **DELETE** /api/v1/media/portfolio/{mediaId} | 
@@ -128,13 +134,16 @@ Class | Method | HTTP request | Description
 [*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchMasters**](doc/SearchControllerApi.md#searchmasters) | **GET** /api/v1/search/masters | 
 [*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchSalons**](doc/SearchControllerApi.md#searchsalons) | **GET** /api/v1/search/salons | 
 [*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getCategories**](doc/ServiceCatalogControllerApi.md#getcategories) | **GET** /api/v1/service-categories | 
-[*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getServiceTypes**](doc/ServiceCatalogControllerApi.md#getservicetypes) | **GET** /api/v1/service-types | 
+[*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getServiceTypesByPlatformCategory**](doc/ServiceCatalogControllerApi.md#getservicetypesbyplatformcategory) | **GET** /api/v1/service-types | 
 [*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**suggestServiceType**](doc/ServiceCatalogControllerApi.md#suggestservicetype) | **POST** /api/v1/service-types/suggest | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**addIndependentMasterService**](doc/ServiceControllerApi.md#addindependentmasterservice) | **POST** /api/v1/independent-masters/me/services | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**addServiceToSalon**](doc/ServiceControllerApi.md#addservicetosalon) | **POST** /api/v1/salons/{salonId}/services | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**assignServiceToMaster**](doc/ServiceControllerApi.md#assignservicetomaster) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**bulkCreateMasterServices**](doc/ServiceControllerApi.md#bulkcreatemasterservices) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services/bulk | Bulk-create a salon master&#39;s services (first-time setup)
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**bulkCreateMyServices**](doc/ServiceControllerApi.md#bulkcreatemyservices) | **POST** /api/v1/independent-masters/me/services/bulk | Bulk-create my services (first-time setup)
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**deactivateServiceDefinition**](doc/ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMasterServices**](doc/ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMyServices**](doc/ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own active services
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServiceDefinition**](doc/ServiceControllerApi.md#updateservicedefinition) | **PATCH** /api/v1/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServicePhoto**](doc/ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**getMe**](doc/UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
@@ -155,11 +164,14 @@ Class | Method | HTTP request | Description
  - [ApiResponseListCatalogCategoryResponse](doc/ApiResponseListCatalogCategoryResponse.md)
  - [ApiResponseListCityDistrictResponse](doc/ApiResponseListCityDistrictResponse.md)
  - [ApiResponseListCityResponse](doc/ApiResponseListCityResponse.md)
+ - [ApiResponseListEffectiveDayResponse](doc/ApiResponseListEffectiveDayResponse.md)
  - [ApiResponseListMasterServiceResponse](doc/ApiResponseListMasterServiceResponse.md)
  - [ApiResponseListOblastResponse](doc/ApiResponseListOblastResponse.md)
  - [ApiResponseListPlatformCategoryUsageResponse](doc/ApiResponseListPlatformCategoryUsageResponse.md)
+ - [ApiResponseListPlatformServiceTypeResponse](doc/ApiResponseListPlatformServiceTypeResponse.md)
  - [ApiResponseListSalonResponse](doc/ApiResponseListSalonResponse.md)
- - [ApiResponseListServiceTypeResponse](doc/ApiResponseListServiceTypeResponse.md)
+ - [ApiResponseListScheduleOverrideResponse](doc/ApiResponseListScheduleOverrideResponse.md)
+ - [ApiResponseListWeeklyScheduleResponse](doc/ApiResponseListWeeklyScheduleResponse.md)
  - [ApiResponseListWorkingHoursResponse](doc/ApiResponseListWorkingHoursResponse.md)
  - [ApiResponseMasterDetailResponse](doc/ApiResponseMasterDetailResponse.md)
  - [ApiResponseMasterPublicProfileResponse](doc/ApiResponseMasterPublicProfileResponse.md)
@@ -177,9 +189,11 @@ Class | Method | HTTP request | Description
  - [ApiResponseRevenueResponse](doc/ApiResponseRevenueResponse.md)
  - [ApiResponseReviewResponse](doc/ApiResponseReviewResponse.md)
  - [ApiResponseSalonResponse](doc/ApiResponseSalonResponse.md)
+ - [ApiResponseScheduleOverrideResponse](doc/ApiResponseScheduleOverrideResponse.md)
  - [ApiResponseServiceDefinitionResponse](doc/ApiResponseServiceDefinitionResponse.md)
  - [ApiResponseUserProfileResponse](doc/ApiResponseUserProfileResponse.md)
  - [ApiResponseVoid](doc/ApiResponseVoid.md)
+ - [ApiResponseWeeklyScheduleResponse](doc/ApiResponseWeeklyScheduleResponse.md)
  - [ApprovedCategoryResponse](doc/ApprovedCategoryResponse.md)
  - [AssignServiceToMasterRequest](doc/AssignServiceToMasterRequest.md)
  - [AuthResponse](doc/AuthResponse.md)
@@ -188,6 +202,8 @@ Class | Method | HTTP request | Description
  - [AvatarResponse](doc/AvatarResponse.md)
  - [BookingDetailResponse](doc/BookingDetailResponse.md)
  - [BookingResponse](doc/BookingResponse.md)
+ - [BulkCreateServicesRequest](doc/BulkCreateServicesRequest.md)
+ - [BulkServiceItemRequest](doc/BulkServiceItemRequest.md)
  - [CancelBookingRequest](doc/CancelBookingRequest.md)
  - [CatalogCategoryResponse](doc/CatalogCategoryResponse.md)
  - [CategoryRequestResponse](doc/CategoryRequestResponse.md)
@@ -199,6 +215,7 @@ Class | Method | HTTP request | Description
  - [CreateReviewRequest](doc/CreateReviewRequest.md)
  - [CreateSalonRequest](doc/CreateSalonRequest.md)
  - [CreateServiceDefinitionRequest](doc/CreateServiceDefinitionRequest.md)
+ - [EffectiveDayResponse](doc/EffectiveDayResponse.md)
  - [ForgotPasswordRequest](doc/ForgotPasswordRequest.md)
  - [IndependentMasterUpdateRequest](doc/IndependentMasterUpdateRequest.md)
  - [InviteAcceptRequest](doc/InviteAcceptRequest.md)
@@ -226,6 +243,7 @@ Class | Method | HTTP request | Description
  - [PageableObject](doc/PageableObject.md)
  - [PlatformCategoryResponse](doc/PlatformCategoryResponse.md)
  - [PlatformCategoryUsageResponse](doc/PlatformCategoryUsageResponse.md)
+ - [PlatformServiceTypeResponse](doc/PlatformServiceTypeResponse.md)
  - [PublicSalonResponse](doc/PublicSalonResponse.md)
  - [RefreshRequest](doc/RefreshRequest.md)
  - [RegisterDeviceTokenRequest](doc/RegisterDeviceTokenRequest.md)
@@ -242,9 +260,9 @@ Class | Method | HTTP request | Description
  - [SalonResponse](doc/SalonResponse.md)
  - [SalonSearchRequest](doc/SalonSearchRequest.md)
  - [SalonSearchResult](doc/SalonSearchResult.md)
- - [ScheduleExceptionRequest](doc/ScheduleExceptionRequest.md)
+ - [ScheduleOverrideRequest](doc/ScheduleOverrideRequest.md)
+ - [ScheduleOverrideResponse](doc/ScheduleOverrideResponse.md)
  - [ServiceDefinitionResponse](doc/ServiceDefinitionResponse.md)
- - [ServiceTypeResponse](doc/ServiceTypeResponse.md)
  - [SortObject](doc/SortObject.md)
  - [StatusUpdateRequest](doc/StatusUpdateRequest.md)
  - [SuggestServiceTypeRequest](doc/SuggestServiceTypeRequest.md)
@@ -256,6 +274,11 @@ Class | Method | HTTP request | Description
  - [UploadPortfolioPhotoRequest](doc/UploadPortfolioPhotoRequest.md)
  - [UserProfileResponse](doc/UserProfileResponse.md)
  - [VerifyEmailRequest](doc/VerifyEmailRequest.md)
+ - [WeeklyScheduleDayRequest](doc/WeeklyScheduleDayRequest.md)
+ - [WeeklyScheduleDayResponse](doc/WeeklyScheduleDayResponse.md)
+ - [WeeklyScheduleRequest](doc/WeeklyScheduleRequest.md)
+ - [WeeklyScheduleResponse](doc/WeeklyScheduleResponse.md)
+ - [WorkIntervalDto](doc/WorkIntervalDto.md)
  - [WorkingHoursRequest](doc/WorkingHoursRequest.md)
  - [WorkingHoursResponse](doc/WorkingHoursResponse.md)
 

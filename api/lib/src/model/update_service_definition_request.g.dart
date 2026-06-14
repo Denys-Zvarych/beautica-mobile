@@ -88,6 +88,8 @@ class _$UpdateServiceDefinitionRequest extends UpdateServiceDefinitionRequest {
   final num? priceMin;
   @override
   final num? priceMax;
+  @override
+  final String? serviceTypeId;
 
   factory _$UpdateServiceDefinitionRequest(
           [void Function(UpdateServiceDefinitionRequestBuilder)? updates]) =>
@@ -102,7 +104,8 @@ class _$UpdateServiceDefinitionRequest extends UpdateServiceDefinitionRequest {
       this.priceType,
       this.price,
       this.priceMin,
-      this.priceMax})
+      this.priceMax,
+      this.serviceTypeId})
       : super._();
   @override
   UpdateServiceDefinitionRequest rebuild(
@@ -125,7 +128,8 @@ class _$UpdateServiceDefinitionRequest extends UpdateServiceDefinitionRequest {
         priceType == other.priceType &&
         price == other.price &&
         priceMin == other.priceMin &&
-        priceMax == other.priceMax;
+        priceMax == other.priceMax &&
+        serviceTypeId == other.serviceTypeId;
   }
 
   @override
@@ -140,6 +144,7 @@ class _$UpdateServiceDefinitionRequest extends UpdateServiceDefinitionRequest {
     _$hash = $jc(_$hash, price.hashCode);
     _$hash = $jc(_$hash, priceMin.hashCode);
     _$hash = $jc(_$hash, priceMax.hashCode);
+    _$hash = $jc(_$hash, serviceTypeId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -155,7 +160,8 @@ class _$UpdateServiceDefinitionRequest extends UpdateServiceDefinitionRequest {
           ..add('priceType', priceType)
           ..add('price', price)
           ..add('priceMin', priceMin)
-          ..add('priceMax', priceMax))
+          ..add('priceMax', priceMax)
+          ..add('serviceTypeId', serviceTypeId))
         .toString();
   }
 }
@@ -206,6 +212,11 @@ class UpdateServiceDefinitionRequestBuilder
   num? get priceMax => _$this._priceMax;
   set priceMax(num? priceMax) => _$this._priceMax = priceMax;
 
+  String? _serviceTypeId;
+  String? get serviceTypeId => _$this._serviceTypeId;
+  set serviceTypeId(String? serviceTypeId) =>
+      _$this._serviceTypeId = serviceTypeId;
+
   UpdateServiceDefinitionRequestBuilder() {
     UpdateServiceDefinitionRequest._defaults(this);
   }
@@ -222,6 +233,7 @@ class UpdateServiceDefinitionRequestBuilder
       _price = $v.price;
       _priceMin = $v.priceMin;
       _priceMax = $v.priceMax;
+      _serviceTypeId = $v.serviceTypeId;
       _$v = null;
     }
     return this;
@@ -252,6 +264,7 @@ class UpdateServiceDefinitionRequestBuilder
           price: price,
           priceMin: priceMin,
           priceMax: priceMax,
+          serviceTypeId: serviceTypeId,
         );
     replace(_$result);
     return _$result;

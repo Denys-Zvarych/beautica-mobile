@@ -13,6 +13,7 @@ part 'create_category_request_request.g.dart';
 /// Properties:
 /// * [name]
 /// * [displayName]
+/// * [initialServiceName]
 @BuiltValue()
 abstract class CreateCategoryRequestRequest
     implements
@@ -23,6 +24,9 @@ abstract class CreateCategoryRequestRequest
 
   @BuiltValueField(wireName: r'displayName')
   String get displayName;
+
+  @BuiltValueField(wireName: r'initialServiceName')
+  String? get initialServiceName;
 
   CreateCategoryRequestRequest._();
 
@@ -64,6 +68,13 @@ class _$CreateCategoryRequestRequestSerializer
       object.displayName,
       specifiedType: const FullType(String),
     );
+    if (object.initialServiceName != null) {
+      yield r'initialServiceName';
+      yield serializers.serialize(
+        object.initialServiceName,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -102,6 +113,13 @@ class _$CreateCategoryRequestRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.displayName = valueDes;
+          break;
+        case r'initialServiceName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.initialServiceName = valueDes;
           break;
         default:
           unhandled.add(key);

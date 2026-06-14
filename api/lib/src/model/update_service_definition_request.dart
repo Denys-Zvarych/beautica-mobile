@@ -21,6 +21,7 @@ part 'update_service_definition_request.g.dart';
 /// * [price]
 /// * [priceMin]
 /// * [priceMax]
+/// * [serviceTypeId] - Optional id of the platform service type to switch this service to. Omit or send null to leave the current service type unchanged.
 @BuiltValue()
 abstract class UpdateServiceDefinitionRequest
     implements
@@ -53,6 +54,10 @@ abstract class UpdateServiceDefinitionRequest
 
   @BuiltValueField(wireName: r'priceMax')
   num? get priceMax;
+
+  /// Optional id of the platform service type to switch this service to. Omit or send null to leave the current service type unchanged.
+  @BuiltValueField(wireName: r'serviceTypeId')
+  String? get serviceTypeId;
 
   UpdateServiceDefinitionRequest._();
 
@@ -148,6 +153,13 @@ class _$UpdateServiceDefinitionRequestSerializer
         specifiedType: const FullType(num),
       );
     }
+    if (object.serviceTypeId != null) {
+      yield r'serviceTypeId';
+      yield serializers.serialize(
+        object.serviceTypeId,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
   }
 
   @override
@@ -236,6 +248,14 @@ class _$UpdateServiceDefinitionRequestSerializer
             specifiedType: const FullType(num),
           ) as num;
           result.priceMax = valueDes;
+          break;
+        case r'serviceTypeId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.serviceTypeId = valueDes;
           break;
         default:
           unhandled.add(key);

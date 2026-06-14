@@ -53,6 +53,15 @@ abstract class MasterServiceCreate with _$MasterServiceCreate {
     /// Optional service category string (e.g. "MANICURE", "HAIRCUT").
     String? category,
 
+    /// Optional id of the chosen platform service type (Phase 16.3).
+    ///
+    /// Null when the master skipped the (optional) service-type picker. When
+    /// set, the mapper assigns it to [CreateServiceDefinitionRequest.serviceTypeId]
+    /// (omitted from the wire body otherwise). The backend cross-validates that
+    /// the type belongs to [category]; a mismatch surfaces as a
+    /// [ValidationFailure] keyed on the `serviceTypeId` field.
+    String? serviceTypeId,
+
     /// Optional buffer in minutes after the appointment.
     int? bufferMinutesAfter,
   }) = _MasterServiceCreate;
@@ -81,6 +90,15 @@ abstract class MasterServiceUpdate with _$MasterServiceUpdate {
     /// New category string. `null` means "do not change".
     String? category,
 
+    /// Id of the platform service type to switch this service to (Phase 16.x).
+    ///
+    /// `null` means "do not change" (PATCH semantics): the mapper omits the
+    /// `serviceTypeId` key from the wire body so the backend leaves the current
+    /// service type untouched. When set, the backend re-validates the type
+    /// against [category]; a mismatch surfaces as a [ValidationFailure] keyed on
+    /// the `serviceTypeId` field.
+    String? serviceTypeId,
+
     /// New duration in minutes. `null` means "do not change".
     int? durationMinutes,
 
@@ -102,4 +120,39 @@ abstract class MasterServiceUpdate with _$MasterServiceUpdate {
     /// Whether the service is active. `null` means "do not change".
     bool? isActive,
   }) = _MasterServiceUpdate;
+}
+
+/// One item in the first-time bulk service-setup payload.
+///
+/// Maps to a single element of the `items` array sent to
+/// `POST /api/v1/independent-masters/me/services/bulk` (the empty-catalogue
+/// one-pass setup endpoint). Each item carries the chosen platform service type,
+/// a duration, and the mode-conditional pricing block — the backend derives the
+/// service name + category from the [serviceTypeId], so there is deliberately
+/// no name/category field here.
+///
+/// Pure Dart: no Flutter imports.
+@freezed
+abstract class MasterServiceBulkItem with _$MasterServiceBulkItem {
+  const factory MasterServiceBulkItem({
+    /// Id of the chosen platform service type. Required — the backend resolves
+    /// the service name + category from it.
+    required String serviceTypeId,
+
+    /// Duration of the service in minutes. Required; must be >= 1.
+    required int durationMinutes,
+
+    /// Pricing mode — FIXED or RANGE. Required.
+    required ServicePriceType priceType,
+
+    /// FIXED-mode amount. Required when [priceType] == FIXED; null for RANGE.
+    double? price,
+
+    /// RANGE floor. Required when [priceType] == RANGE; null for FIXED.
+    double? priceMin,
+
+    /// RANGE ceiling. Required when [priceType] == RANGE; null for FIXED.
+    /// Must be strictly greater than [priceMin].
+    double? priceMax,
+  }) = _MasterServiceBulkItem;
 }

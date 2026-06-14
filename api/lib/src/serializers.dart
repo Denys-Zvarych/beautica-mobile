@@ -26,11 +26,14 @@ import 'package:beautica_api/src/model/api_response_list_approved_category_respo
 import 'package:beautica_api/src/model/api_response_list_catalog_category_response.dart';
 import 'package:beautica_api/src/model/api_response_list_city_district_response.dart';
 import 'package:beautica_api/src/model/api_response_list_city_response.dart';
+import 'package:beautica_api/src/model/api_response_list_effective_day_response.dart';
 import 'package:beautica_api/src/model/api_response_list_master_service_response.dart';
 import 'package:beautica_api/src/model/api_response_list_oblast_response.dart';
 import 'package:beautica_api/src/model/api_response_list_platform_category_usage_response.dart';
+import 'package:beautica_api/src/model/api_response_list_platform_service_type_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_response.dart';
-import 'package:beautica_api/src/model/api_response_list_service_type_response.dart';
+import 'package:beautica_api/src/model/api_response_list_schedule_override_response.dart';
+import 'package:beautica_api/src/model/api_response_list_weekly_schedule_response.dart';
 import 'package:beautica_api/src/model/api_response_list_working_hours_response.dart';
 import 'package:beautica_api/src/model/api_response_master_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_master_public_profile_response.dart';
@@ -48,9 +51,11 @@ import 'package:beautica_api/src/model/api_response_registration_response.dart';
 import 'package:beautica_api/src/model/api_response_revenue_response.dart';
 import 'package:beautica_api/src/model/api_response_review_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_response.dart';
+import 'package:beautica_api/src/model/api_response_schedule_override_response.dart';
 import 'package:beautica_api/src/model/api_response_service_definition_response.dart';
 import 'package:beautica_api/src/model/api_response_user_profile_response.dart';
 import 'package:beautica_api/src/model/api_response_void.dart';
+import 'package:beautica_api/src/model/api_response_weekly_schedule_response.dart';
 import 'package:beautica_api/src/model/approved_category_response.dart';
 import 'package:beautica_api/src/model/assign_service_to_master_request.dart';
 import 'package:beautica_api/src/model/auth_response.dart';
@@ -59,6 +64,8 @@ import 'package:beautica_api/src/model/available_slots_response.dart';
 import 'package:beautica_api/src/model/avatar_response.dart';
 import 'package:beautica_api/src/model/booking_detail_response.dart';
 import 'package:beautica_api/src/model/booking_response.dart';
+import 'package:beautica_api/src/model/bulk_create_services_request.dart';
+import 'package:beautica_api/src/model/bulk_service_item_request.dart';
 import 'package:beautica_api/src/model/cancel_booking_request.dart';
 import 'package:beautica_api/src/model/catalog_category_response.dart';
 import 'package:beautica_api/src/model/category_request_response.dart';
@@ -70,6 +77,7 @@ import 'package:beautica_api/src/model/create_platform_category_request.dart';
 import 'package:beautica_api/src/model/create_review_request.dart';
 import 'package:beautica_api/src/model/create_salon_request.dart';
 import 'package:beautica_api/src/model/create_service_definition_request.dart';
+import 'package:beautica_api/src/model/effective_day_response.dart';
 import 'package:beautica_api/src/model/forgot_password_request.dart';
 import 'package:beautica_api/src/model/independent_master_update_request.dart';
 import 'package:beautica_api/src/model/invite_accept_request.dart';
@@ -97,6 +105,7 @@ import 'package:beautica_api/src/model/pageable.dart';
 import 'package:beautica_api/src/model/pageable_object.dart';
 import 'package:beautica_api/src/model/platform_category_response.dart';
 import 'package:beautica_api/src/model/platform_category_usage_response.dart';
+import 'package:beautica_api/src/model/platform_service_type_response.dart';
 import 'package:beautica_api/src/model/public_salon_response.dart';
 import 'package:beautica_api/src/model/refresh_request.dart';
 import 'package:beautica_api/src/model/register_device_token_request.dart';
@@ -113,9 +122,9 @@ import 'package:beautica_api/src/model/review_response.dart';
 import 'package:beautica_api/src/model/salon_response.dart';
 import 'package:beautica_api/src/model/salon_search_request.dart';
 import 'package:beautica_api/src/model/salon_search_result.dart';
-import 'package:beautica_api/src/model/schedule_exception_request.dart';
+import 'package:beautica_api/src/model/schedule_override_request.dart';
+import 'package:beautica_api/src/model/schedule_override_response.dart';
 import 'package:beautica_api/src/model/service_definition_response.dart';
-import 'package:beautica_api/src/model/service_type_response.dart';
 import 'package:beautica_api/src/model/sort_object.dart';
 import 'package:beautica_api/src/model/status_update_request.dart';
 import 'package:beautica_api/src/model/suggest_service_type_request.dart';
@@ -127,6 +136,11 @@ import 'package:beautica_api/src/model/update_service_photo_request.dart';
 import 'package:beautica_api/src/model/upload_portfolio_photo_request.dart';
 import 'package:beautica_api/src/model/user_profile_response.dart';
 import 'package:beautica_api/src/model/verify_email_request.dart';
+import 'package:beautica_api/src/model/weekly_schedule_day_request.dart';
+import 'package:beautica_api/src/model/weekly_schedule_day_response.dart';
+import 'package:beautica_api/src/model/weekly_schedule_request.dart';
+import 'package:beautica_api/src/model/weekly_schedule_response.dart';
+import 'package:beautica_api/src/model/work_interval_dto.dart';
 import 'package:beautica_api/src/model/working_hours_request.dart';
 import 'package:beautica_api/src/model/working_hours_response.dart';
 
@@ -145,11 +159,14 @@ part 'serializers.g.dart';
   ApiResponseListCatalogCategoryResponse,
   ApiResponseListCityDistrictResponse,
   ApiResponseListCityResponse,
+  ApiResponseListEffectiveDayResponse,
   ApiResponseListMasterServiceResponse,
   ApiResponseListOblastResponse,
   ApiResponseListPlatformCategoryUsageResponse,
+  ApiResponseListPlatformServiceTypeResponse,
   ApiResponseListSalonResponse,
-  ApiResponseListServiceTypeResponse,
+  ApiResponseListScheduleOverrideResponse,
+  ApiResponseListWeeklyScheduleResponse,
   ApiResponseListWorkingHoursResponse,
   ApiResponseMasterDetailResponse,
   ApiResponseMasterPublicProfileResponse,
@@ -167,9 +184,11 @@ part 'serializers.g.dart';
   ApiResponseRevenueResponse,
   ApiResponseReviewResponse,
   ApiResponseSalonResponse,
+  ApiResponseScheduleOverrideResponse,
   ApiResponseServiceDefinitionResponse,
   ApiResponseUserProfileResponse,
   ApiResponseVoid,
+  ApiResponseWeeklyScheduleResponse,
   ApprovedCategoryResponse,
   AssignServiceToMasterRequest,
   AuthResponse,
@@ -178,6 +197,8 @@ part 'serializers.g.dart';
   AvatarResponse,
   BookingDetailResponse,
   BookingResponse,
+  BulkCreateServicesRequest,
+  BulkServiceItemRequest,
   CancelBookingRequest,
   CatalogCategoryResponse,
   CategoryRequestResponse,
@@ -189,6 +210,7 @@ part 'serializers.g.dart';
   CreateReviewRequest,
   CreateSalonRequest,
   CreateServiceDefinitionRequest,
+  EffectiveDayResponse,
   ForgotPasswordRequest,
   IndependentMasterUpdateRequest,
   InviteAcceptRequest,
@@ -216,6 +238,7 @@ part 'serializers.g.dart';
   PageableObject,
   PlatformCategoryResponse,
   PlatformCategoryUsageResponse,
+  PlatformServiceTypeResponse,
   PublicSalonResponse,
   RefreshRequest,
   RegisterDeviceTokenRequest,
@@ -232,9 +255,9 @@ part 'serializers.g.dart';
   SalonResponse,
   SalonSearchRequest,
   SalonSearchResult,
-  ScheduleExceptionRequest,
+  ScheduleOverrideRequest,
+  ScheduleOverrideResponse,
   ServiceDefinitionResponse,
-  ServiceTypeResponse,
   SortObject,
   StatusUpdateRequest,
   SuggestServiceTypeRequest,
@@ -246,6 +269,11 @@ part 'serializers.g.dart';
   UploadPortfolioPhotoRequest,
   UserProfileResponse,
   VerifyEmailRequest,
+  WeeklyScheduleDayRequest,
+  WeeklyScheduleDayResponse,
+  WeeklyScheduleRequest,
+  WeeklyScheduleResponse,
+  WorkIntervalDto,
   WorkingHoursRequest,
   WorkingHoursResponse,
 ])

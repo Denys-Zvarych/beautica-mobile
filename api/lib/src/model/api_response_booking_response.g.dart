@@ -13,12 +13,15 @@ class _$ApiResponseBookingResponse extends ApiResponseBookingResponse {
   final BookingResponse? data;
   @override
   final String? message;
+  @override
+  final BuiltMap<String, String>? errors;
 
   factory _$ApiResponseBookingResponse(
           [void Function(ApiResponseBookingResponseBuilder)? updates]) =>
       (ApiResponseBookingResponseBuilder()..update(updates))._build();
 
-  _$ApiResponseBookingResponse._({this.success, this.data, this.message})
+  _$ApiResponseBookingResponse._(
+      {this.success, this.data, this.message, this.errors})
       : super._();
   @override
   ApiResponseBookingResponse rebuild(
@@ -35,7 +38,8 @@ class _$ApiResponseBookingResponse extends ApiResponseBookingResponse {
     return other is ApiResponseBookingResponse &&
         success == other.success &&
         data == other.data &&
-        message == other.message;
+        message == other.message &&
+        errors == other.errors;
   }
 
   @override
@@ -44,6 +48,7 @@ class _$ApiResponseBookingResponse extends ApiResponseBookingResponse {
     _$hash = $jc(_$hash, success.hashCode);
     _$hash = $jc(_$hash, data.hashCode);
     _$hash = $jc(_$hash, message.hashCode);
+    _$hash = $jc(_$hash, errors.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -53,7 +58,8 @@ class _$ApiResponseBookingResponse extends ApiResponseBookingResponse {
     return (newBuiltValueToStringHelper(r'ApiResponseBookingResponse')
           ..add('success', success)
           ..add('data', data)
-          ..add('message', message))
+          ..add('message', message)
+          ..add('errors', errors))
         .toString();
   }
 }
@@ -75,6 +81,11 @@ class ApiResponseBookingResponseBuilder
   String? get message => _$this._message;
   set message(String? message) => _$this._message = message;
 
+  MapBuilder<String, String>? _errors;
+  MapBuilder<String, String> get errors =>
+      _$this._errors ??= MapBuilder<String, String>();
+  set errors(MapBuilder<String, String>? errors) => _$this._errors = errors;
+
   ApiResponseBookingResponseBuilder() {
     ApiResponseBookingResponse._defaults(this);
   }
@@ -85,6 +96,7 @@ class ApiResponseBookingResponseBuilder
       _success = $v.success;
       _data = $v.data?.toBuilder();
       _message = $v.message;
+      _errors = $v.errors?.toBuilder();
       _$v = null;
     }
     return this;
@@ -111,12 +123,16 @@ class ApiResponseBookingResponseBuilder
             success: success,
             data: _data?.build(),
             message: message,
+            errors: _errors?.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
         _$failedField = 'data';
         _data?.build();
+
+        _$failedField = 'errors';
+        _errors?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'ApiResponseBookingResponse', _$failedField, e.toString());

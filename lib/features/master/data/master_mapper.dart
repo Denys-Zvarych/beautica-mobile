@@ -17,7 +17,6 @@ import 'dart:developer';
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 
-import '../../calendar/data/working_hours_mapper.dart';
 import '../domain/master.dart';
 
 /// Converts generated API types from the `beautica_api` package into the
@@ -63,12 +62,12 @@ abstract final class MasterMapper {
       salonId: dto.salon?.id,
       phoneNumber: dto.phoneNumber,
       instagram: dto.instagram,
-      // Carry the bundled working hours through the cached profile so the
-      // calendar feature reads them here instead of issuing a second
-      // getMyProfile round-trip (PERF M1). Reuse the calendar gap-filler so the
-      // list is always a dense, ordered 7-entry week; the generated
-      // WorkingHoursResponse type never leaks past this data-layer boundary.
-      workingHours: WorkingHoursMapper.toDomainWeek(dto.workingHours),
+      // Working hours are NOT populated from the (deprecated) bundled profile
+      // field anymore — the calendar feature now reads them over the network
+      // via the weekly-schedule API (getWeeklySchedules). The domain field is
+      // kept on [Master] for compatibility but left empty here so no deprecated
+      // working-hours DTO crosses this boundary.
+      workingHours: const [],
     );
   }
 

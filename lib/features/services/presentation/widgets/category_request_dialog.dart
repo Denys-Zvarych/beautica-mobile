@@ -1,8 +1,10 @@
 // Service-category request feature — "Suggest a category" dialog.
 //
 // Lets a master / salon owner propose a new platform category from the service
-// form's category picker. A single input:
+// form's category picker. Two inputs:
 //   1. Display name (Ukrainian) — what the user types, e.g. "Нарощування вій".
+//   2. Initial service (optional) — a service-type name the requester wants
+//      seeded under the new category; forwarded as `initialServiceName`.
 //
 // The technical wire slug is an internal value the user never sees: it is
 // derived from the display name at submit time via [deriveCategorySlug] (which
@@ -22,6 +24,7 @@
 import 'dart:developer';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
@@ -32,7 +35,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 /// Opens the suggest-a-category dialog.
 ///
@@ -61,6 +63,11 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
 
   late final TextEditingController _nameCtrl;
 
+  /// Optional initial service-type name the requester wants under the new
+  /// category. Forwarded to the backend as `initialServiceName` (nullable when
+  /// blank). No inline required-error — the field is optional.
+  late final TextEditingController _serviceNameCtrl;
+
   bool _submitted = false;
   bool _submitting = false;
 
@@ -73,6 +80,7 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController();
+    _serviceNameCtrl = TextEditingController();
     _nameCtrl.addListener(_onNameChanged);
   }
 
@@ -88,6 +96,7 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _serviceNameCtrl.dispose();
     super.dispose();
   }
 
@@ -124,6 +133,7 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
     setState(() => _submitting = true);
     try {
       final displayName = _nameCtrl.text.trim();
+      final initialService = _serviceNameCtrl.text.trim();
       await ref
           .read(serviceRepositoryProvider)
           .requestCategory(
@@ -132,13 +142,16 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
             // it satisfies the backend contract before we reach here.
             name: deriveCategorySlug(displayName),
             displayName: displayName,
+            // Optional — send only when non-empty; blank submits no
+            // `initialServiceName` key (the generated model omits a null).
+            initialServiceName: initialService.isEmpty ? null : initialService,
           );
       if (mounted) {
         // Return true so the caller surfaces the success SnackBar against the
         // parent screen's messenger (not the dialog's transient context).
-        // context.pop pops the dialog route and resolves the awaiting
+        // dismissOverlay pops the dialog route and resolves the awaiting
         // showDialog<bool> future in _openSuggestDialog with `true`.
-        context.pop(true);
+        dismissOverlay(context, true);
       }
     } catch (e) {
       if (kDebugMode) {
@@ -172,6 +185,14 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
 
+    // The Dialog widget already accounts for the software keyboard by applying
+    // MediaQuery.viewInsetsOf(context) internally to its effectivePadding.
+    // Adding viewInsetsBottom manually to insetPadding.bottom and subtracting
+    // it from maxHeight double-counts the keyboard height — causing the card to
+    // shrink (button clipped) and re-centre upward (jump-to-top).  Both
+    // problems are fixed by using static insetPadding and omitting the keyboard
+    // term from the height constraint.  SingleChildScrollView already handles
+    // any overflow so the submit button is always reachable.
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
@@ -182,74 +203,91 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: NeumorphicCard(
-          child: Padding(
-            padding: const EdgeInsets.all(VelvetSpacing.lg),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  // Title.
-                  Text(
-                    l10n.categoryRequestTitle,
-                    style: VelvetText.subheading(),
-                  ),
-                  const SizedBox(height: VelvetSpacing.sm),
-                  // Quiet subline — sets the out-of-band approval expectation.
-                  Text(l10n.categoryRequestSubtitle, style: VelvetText.body()),
-                  const SizedBox(height: VelvetSpacing.xl),
+          // NeumorphicCard already applies EdgeInsets.all(VelvetSpacing.lg) as
+          // its default padding. The inner Padding wrapper that used to sit here
+          // has been removed to eliminate the double-padding that consumed
+          // 2 × 24 dp = 48 dp per horizontal side and squeezed the CTA label.
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                // Title.
+                Text(l10n.categoryRequestTitle, style: VelvetText.subheading()),
+                const SizedBox(height: VelvetSpacing.sm),
+                // Quiet subline — sets the out-of-band approval expectation.
+                Text(l10n.categoryRequestSubtitle, style: VelvetText.body()),
+                const SizedBox(height: VelvetSpacing.xl),
 
-                  // Sole input — display name. The wire slug is derived from it
-                  // internally at submit time and never surfaced to the user.
-                  _DialogField(
-                    fieldKey: const Key('field-category-request-name'),
-                    label: l10n.categoryRequestNameLabel,
-                    controller: _nameCtrl,
-                    hintText: l10n.categoryRequestNameHint,
-                    errorText: _nameError(l10n),
-                    enabled: !_submitting,
-                    textCapitalization: TextCapitalization.sentences,
-                    inputFormatters: <TextInputFormatter>[
-                      LengthLimitingTextInputFormatter(
-                        kCategoryDisplayNameMaxLength,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: VelvetSpacing.xl),
+                // Display name (required). The wire slug is derived from it
+                // internally at submit time and never surfaced to the user.
+                _DialogField(
+                  fieldKey: const Key('field-category-request-name'),
+                  label: l10n.categoryRequestNameLabel,
+                  controller: _nameCtrl,
+                  hintText: l10n.categoryRequestNameHint,
+                  errorText: _nameError(l10n),
+                  enabled: !_submitting,
+                  textCapitalization: TextCapitalization.sentences,
+                  inputFormatters: <TextInputFormatter>[
+                    LengthLimitingTextInputFormatter(
+                      kCategoryDisplayNameMaxLength,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: VelvetSpacing.lg),
 
-                  // Footer — cancel (text) + submit (gradient CTA).
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: <Widget>[
-                      TextButton(
-                        key: const Key('btn-cancel-suggest-category'),
-                        onPressed: _submitting
-                            ? null
-                            : () => context.pop(false),
-                        child: Text(
-                          l10n.categoryRequestCancel,
-                          style: VelvetText.body().copyWith(
-                            color: const Color(0xFF9A8367), // BrandColors.muted
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: VelvetSpacing.md),
-                      Flexible(
-                        child: NeumorphicButton(
-                          key: const Key('btn-submit-suggest-category'),
-                          label: l10n.categoryRequestSubmit,
-                          icon: Icons.send_rounded,
-                          loading: _submitting,
-                          onPressed: _submitting
-                              ? null
-                              : () => _handleSubmit(l10n),
-                        ),
-                      ),
-                    ],
+                // Optional initial service-type name under the new category.
+                // Forwarded as `initialServiceName` (null when blank). Client
+                // cap 100; backend cap 255. No inline required-error.
+                _DialogField(
+                  fieldKey: const Key(
+                    'field-category-request-initial-service-name',
                   ),
-                ],
-              ),
+                  label: l10n.categoryRequestInitialServiceLabel,
+                  controller: _serviceNameCtrl,
+                  hintText: l10n.categoryRequestInitialServiceHint,
+                  errorText: null,
+                  enabled: !_submitting,
+                  textCapitalization: TextCapitalization.sentences,
+                  inputFormatters: <TextInputFormatter>[
+                    LengthLimitingTextInputFormatter(100),
+                  ],
+                ),
+                const SizedBox(height: VelvetSpacing.xl),
+
+                // Footer — primary CTA (full-width) then Cancel below it.
+                //
+                // Previously the CTA was wrapped in Flexible inside a Row with
+                // a natural-width Cancel button. On a 360 dp screen the leftover
+                // width for the Flexible CTA was too narrow for "Надіслати" +
+                // the send icon, causing ellipsis. Stacking the actions removes
+                // the squeeze: crossAxisAlignment.stretch on the parent Column
+                // makes NeumorphicButton expand to the full card width.
+                NeumorphicButton(
+                  key: const Key('btn-submit-suggest-category'),
+                  label: l10n.categoryRequestSubmit,
+                  icon: Icons.send_rounded,
+                  loading: _submitting,
+                  onPressed: _submitting ? null : () => _handleSubmit(l10n),
+                ),
+                const SizedBox(height: VelvetSpacing.sm),
+                Center(
+                  child: TextButton(
+                    key: const Key('btn-cancel-suggest-category'),
+                    onPressed: _submitting
+                        ? null
+                        : () => dismissOverlay(context, false),
+                    child: Text(
+                      l10n.categoryRequestCancel,
+                      style: VelvetText.body().copyWith(
+                        color: const Color(0xFF9A8367), // BrandColors.muted
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),

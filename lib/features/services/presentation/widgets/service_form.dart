@@ -25,6 +25,7 @@
 import 'dart:developer';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:flutter/foundation.dart';
@@ -35,8 +36,12 @@ import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/category_request_dialog.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/searchable_select_field.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_type_suggestion_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/validators/name_validator.dart';
 import 'package:beautica_mobile/shared/validators/numeric_validators.dart';
@@ -87,6 +92,75 @@ class ServiceForm extends StatefulWidget {
   /// [Failure] or any exception to surface an error at the screen level.
   final Future<void> Function(MasterServiceCreate input) onSubmit;
 
+  /// Pre-fill rule for the service name when a service type is selected
+  /// (Phase 16.3). Pure helper — given the current name text and the value this
+  /// form last auto-filled, decide whether the chosen type's `nameUk` may
+  /// overwrite the name.
+  ///
+  /// The name is overwritten ONLY when it is empty (after trim) OR still equals
+  /// the value this form last auto-filled — i.e. the user has not hand-edited
+  /// it. This keeps a user-edited name from being clobbered when the master
+  /// changes the selected type. Lives on the public widget (not the private
+  /// State) so the rule is unit-testable in isolation from the widget tree.
+  @visibleForTesting
+  static bool shouldPrefillName({
+    required String currentName,
+    required String? lastAutoFilledName,
+  }) {
+    if (currentName.trim().isEmpty) return true;
+    return lastAutoFilledName != null && currentName == lastAutoFilledName;
+  }
+
+  /// Edit-flow hardening rule (Phase 16.5). Decides whether a currently-selected
+  /// service type stays valid when the category changes from [previousCategory]
+  /// to [newCategory].
+  ///
+  /// A service type belongs to exactly one category. The type the form holds was
+  /// chosen from `serviceTypesProvider(previousCategory)`, so its `categoryName`
+  /// equals [previousCategory] (also passed explicitly as [selectedTypeCategory]
+  /// when known, e.g. from the loaded service's option, to make the check
+  /// independent of the form's old `_selectedCategory`). The selection survives
+  /// ONLY when the new category matches the type's category; otherwise it is
+  /// incompatible and must be cleared so the submit never carries a
+  /// cross-category `serviceTypeId` (backend 16.3).
+  ///
+  /// Returns `true` when the selection must be CLEARED (incompatible),
+  /// `false` when it may be kept. A null/empty [newCategory] (category cleared
+  /// entirely) also clears the type — an orphan type with no category is invalid.
+  /// Lives on the public widget so the rule is unit-testable without the tree.
+  @visibleForTesting
+  static bool shouldClearServiceTypeOnCategoryChange({
+    required String? previousCategory,
+    required String? newCategory,
+    String? selectedTypeCategory,
+  }) {
+    if (newCategory == null || newCategory.isEmpty) return true;
+    // Prefer the type's own category when known; otherwise the type was chosen
+    // under [previousCategory], so that is its effective category.
+    final String? typeCategory =
+        (selectedTypeCategory != null && selectedTypeCategory.isNotEmpty)
+        ? selectedTypeCategory
+        : previousCategory;
+    if (typeCategory == null || typeCategory.isEmpty) return true;
+    return typeCategory != newCategory;
+  }
+
+  /// Edit-flow hardening rule (Phase 16.5). Decides whether the name field
+  /// should be reset to empty when an incompatible service type is cleared.
+  ///
+  /// The name is reset ONLY when it is still the value this form auto-filled
+  /// from the now-incompatible type (i.e. the user did not hand-edit it). A
+  /// user-typed name is never clobbered. Returns `true` when the name should be
+  /// cleared. Pure helper for direct unit testing.
+  @visibleForTesting
+  static bool shouldResetNameOnTypeCleared({
+    required String currentName,
+    required String? lastAutoFilledName,
+  }) {
+    if (lastAutoFilledName == null) return false;
+    return currentName == lastAutoFilledName;
+  }
+
   @override
   State<ServiceForm> createState() => _ServiceFormState();
 }
@@ -114,12 +188,19 @@ class _ServiceFormState extends State<ServiceForm> {
   bool _submitting = false;
   bool _wasDirty = false;
 
+  /// True only while [onServiceTypeSelected] is programmatically writing the
+  /// auto-filled name into [_nameCtrl] (Phase 16.3). The name controller's
+  /// listener checks this so it does NOT treat the auto-fill as a manual edit
+  /// (which would immediately reset [_lastAutoFilledName] and defeat the
+  /// don't-clobber tracking).
+  bool _applyingAutoFill = false;
+
   /// Bumped on every keystroke that can change a field's inline error text
   /// (live re-validation after the first submit, or a cleared server error).
-  /// Only the per-field error sub-trees listen to this — `_CategoryChips`
-  /// (which reads [approvedCategoriesProvider] and rebuilds N chips) stays
-  /// outside its scope, so typing in a price/name field never rebuilds the
-  /// chip row. Replaces the old form-wide `setState(() {})` (perf MEDIUM).
+  /// Only the per-field error sub-trees listen to this — `_CategoryDropdown`
+  /// (which reads [approvedCategoriesProvider]) stays outside its scope, so
+  /// typing in a price/name field never rebuilds the dropdown. Replaces the
+  /// old form-wide `setState(() {})` (perf MEDIUM).
   final ValueNotifier<int> _revalidateTick = ValueNotifier<int>(0);
 
   /// Drives only the [_DirtyMarker] repaint when the dirty edge flips, instead
@@ -147,8 +228,51 @@ class _ServiceFormState extends State<ServiceForm> {
   late final String _baselinePriceMax;
   late final String? _baselineCategory;
 
+  /// Service-type id the form loaded with (edit mode). Compared against
+  /// [_selectedServiceTypeId] so changing the type flips the dirty marker.
+  late final String? _baselineServiceTypeId;
+
   /// Currently selected category wire name. Null = no category selected.
   String? _selectedCategory;
+
+  /// Currently selected platform service-type id (Phase 16.3). Null = the
+  /// master has not chosen a service type (the picker is optional). Submitted
+  /// as [MasterServiceCreate.serviceTypeId]; a null value sends no type.
+  ///
+  /// The picker UI that drives this lives in Phase 16.4 — it calls
+  /// [onServiceTypeSelected] / [clearServiceType]; this phase only wires the
+  /// behavior.
+  String? _selectedServiceTypeId;
+
+  /// Ukrainian name of the currently-selected service type. Captured alongside
+  /// [_selectedServiceTypeId] purely to label the service-type dropdown's closed
+  /// field while its option list is still loading (Item 2 — edit prefill, see
+  /// [_ServiceTypeDropdown.selectedFallbackLabel]).
+  ///
+  /// It is NO LONGER used as a blank-name fallback for the submitted wire
+  /// `name`: the backend now defaults a blank/null name to the service type's
+  /// nameUk server-side, so the form sends the master's actual (possibly empty)
+  /// name and lets the backend apply the default. Null when no type is selected.
+  String? _selectedServiceTypeNameUk;
+
+  /// Parent platform-category slug the currently-selected service type belongs
+  /// to (Phase 16.5). Captured from the chosen [ServiceTypeOption.categoryName]
+  /// so the edit-flow compatibility check
+  /// ([ServiceForm.shouldClearServiceTypeOnCategoryChange]) can decide directly
+  /// whether a category change orphans the type, instead of inferring it from
+  /// the form's previously-selected category. Null when no type is selected.
+  ///
+  /// On edit pre-seed the loaded service carries no explicit type-category, so
+  /// this starts null and the compatibility check falls back to the loaded
+  /// `_selectedCategory` (which is the type's category by construction).
+  String? _selectedServiceTypeCategory;
+
+  /// The exact name string this form last auto-filled from a selected service
+  /// type's `nameUk` (Phase 16.3). Used to detect whether the user has since
+  /// hand-edited the name: pre-fill is only allowed to overwrite the name when
+  /// it is still empty OR still equals this value. Reset to null whenever the
+  /// user edits the name themselves, so a manual edit is never clobbered.
+  String? _lastAutoFilledName;
 
   /// True when the form is in edit mode ([widget.initial] is set) and at
   /// least one field (including category or pricing) differs from the loaded
@@ -161,7 +285,8 @@ class _ServiceFormState extends State<ServiceForm> {
         _priceFixedCtrl.text != _baselinePriceFixed ||
         _priceMinCtrl.text != _baselinePriceMin ||
         _priceMaxCtrl.text != _baselinePriceMax ||
-        _selectedCategory != _baselineCategory;
+        _selectedCategory != _baselineCategory ||
+        _selectedServiceTypeId != _baselineServiceTypeId;
   }
 
   @override
@@ -196,6 +321,15 @@ class _ServiceFormState extends State<ServiceForm> {
         : '';
 
     _selectedCategory = initial?.category;
+    // Item 2 fix: seed the service-type selection from the loaded service so the
+    // second-level picker pre-selects on edit. Previously the form left
+    // _selectedServiceTypeId null in edit mode, so the type field rendered empty
+    // even though the backend returns serviceTypeId on the service response and
+    // the mapper carries it onto MasterService. The _ServiceTypeDropdown resolves
+    // its closed-field label by matching this id against the loaded type options.
+    _baselineServiceTypeId = initial?.serviceTypeId;
+    _selectedServiceTypeId = initial?.serviceTypeId;
+    _selectedServiceTypeNameUk = initial?.serviceTypeNameUk;
     _pricingMode = _baselinePricingMode;
 
     _nameCtrl = TextEditingController(text: _baselineName);
@@ -208,7 +342,7 @@ class _ServiceFormState extends State<ServiceForm> {
     // the instant the field becomes valid. In edit mode, also repaint the dirty
     // badge on each keystroke. Editing a field also clears any stale
     // server-side error keyed to that field's backend wire name.
-    _nameCtrl.addListener(() => _onChanged('name'));
+    _nameCtrl.addListener(_onNameChanged);
     _durationCtrl.addListener(() => _onChanged('baseDurationMinutes'));
     _priceFixedCtrl.addListener(() => _onChanged('price'));
     _priceMinCtrl.addListener(() => _onChanged('priceMin'));
@@ -229,7 +363,7 @@ class _ServiceFormState extends State<ServiceForm> {
       );
     }
     // Live re-validation: bump the error tick so ONLY the per-field error
-    // sub-trees recompute. Never calls setState, so `_CategoryChips` and the
+    // sub-trees recompute. Never calls setState, so `_CategoryDropdown` and the
     // rest of the form do not rebuild on a keystroke.
     if (_submitted || clearedServerError) {
       _revalidateTick.value++;
@@ -240,6 +374,141 @@ class _ServiceFormState extends State<ServiceForm> {
       _wasDirty = dirty;
       _dirtyNotifier.value = dirty;
     }
+  }
+
+  /// Drops a stale server-side error keyed by backend wire [field] from
+  /// [_serverFieldErrors], if present. Must be called inside a [setState] (or a
+  /// frame that otherwise rebuilds) — it only mutates the map. Used by the
+  /// service-type handlers, which have no [TextEditingController] to hang an
+  /// edit-clears-error listener on.
+  void _clearServerError(String field) {
+    if (!_serverFieldErrors.containsKey(field)) return;
+    _serverFieldErrors = Map<String, String>.unmodifiable(
+      Map<String, String>.from(_serverFieldErrors)..remove(field),
+    );
+  }
+
+  /// Inline error for the service type, sourced solely from the backend
+  /// cross-field validation (Phase 16.3 — e.g. the chosen type does not belong
+  /// to the selected category). There is no client-side validator because the
+  /// service type is optional; the error is purely the mapped-back
+  /// `serviceTypeId` server message. Null when there is none.
+  String? _serviceTypeError() => _serverFieldErrors['serviceTypeId'];
+
+  /// Name-controller listener. Behaves exactly like `_onChanged('name')` for
+  /// re-validation / dirty tracking, but additionally resets
+  /// [_lastAutoFilledName] when the change is a genuine *user* edit (i.e. not
+  /// the programmatic write performed by [onServiceTypeSelected]). Once the
+  /// user hand-edits the name, the next service-type selection must not
+  /// overwrite it.
+  void _onNameChanged() {
+    if (!_applyingAutoFill && _lastAutoFilledName != null) {
+      _lastAutoFilledName = null;
+    }
+    _onChanged('name');
+  }
+
+  /// Called by the Phase 16.4 picker when the master selects a service type.
+  ///
+  /// Sets [_selectedServiceTypeId] to [option.id] and pre-fills the name field
+  /// with [option.nameUk] — but only when [shouldPrefillName] allows it, so a
+  /// name the user typed by hand is never overwritten. When the name is
+  /// auto-filled, [_lastAutoFilledName] is updated so a *subsequent* selection
+  /// is still allowed to replace this auto-filled value (but a manual edit in
+  /// between resets it and locks the name).
+  void onServiceTypeSelected(ServiceTypeOption option) {
+    if (!mounted) return;
+    final bool prefill = ServiceForm.shouldPrefillName(
+      currentName: _nameCtrl.text,
+      lastAutoFilledName: _lastAutoFilledName,
+    );
+    setState(() {
+      _selectedServiceTypeId = option.id;
+      _selectedServiceTypeNameUk = option.nameUk;
+      _selectedServiceTypeCategory = option.categoryName;
+      _clearServerError('serviceTypeId');
+      if (prefill) {
+        // Guard the programmatic write so the name listener does not mistake
+        // the auto-fill for a manual edit.
+        _applyingAutoFill = true;
+        _nameCtrl.text = option.nameUk;
+        _applyingAutoFill = false;
+        _lastAutoFilledName = option.nameUk;
+      }
+    });
+    // Re-evaluate dirty state (name and/or type may have changed).
+    _wasDirty = _isDirty;
+    _dirtyNotifier.value = _wasDirty;
+  }
+
+  /// Called by the Phase 16.4 picker when the master clears the service-type
+  /// selection. Nulls [_selectedServiceTypeId] so the create payload submits
+  /// `serviceTypeId = null`. The name is intentionally left as-is (clearing a
+  /// type never edits the name), though future auto-fills are again permitted
+  /// when the name still matches the last auto-filled value.
+  void clearServiceType() {
+    if (!mounted) return;
+    setState(() {
+      _selectedServiceTypeId = null;
+      _selectedServiceTypeNameUk = null;
+      _selectedServiceTypeCategory = null;
+      _clearServerError('serviceTypeId');
+    });
+    _wasDirty = _isDirty;
+    _dirtyNotifier.value = _wasDirty;
+  }
+
+  /// Handles a category change on the form (Phase 16.5 edit-flow hardening).
+  ///
+  /// Sets the new [newCategory] and, when a service type is currently selected,
+  /// drops it ONLY when it is incompatible with the new category
+  /// ([ServiceForm.shouldClearServiceTypeOnCategoryChange]) — re-selecting the
+  /// same category keeps a still-valid selection rather than silently discarding
+  /// the master's choice. When an incompatible type is cleared, a name that was
+  /// auto-filled from that type is reset too (but a user-edited name is never
+  /// clobbered — [ServiceForm.shouldResetNameOnTypeCleared]).
+  ///
+  /// The clear is SILENT (no dialog/banner — reuse-only per the 16.5 design
+  /// gate). The type picker below re-watches `serviceTypesProvider(newCategory)`
+  /// on the rebuild triggered by [setState], so the options repopulate for the
+  /// new category automatically.
+  void _onCategoryChanged(String? newCategory) {
+    if (!mounted) return;
+    final String? previousCategory = _selectedCategory;
+    final bool hasType = _selectedServiceTypeId != null;
+    final bool clearType =
+        hasType &&
+        ServiceForm.shouldClearServiceTypeOnCategoryChange(
+          previousCategory: previousCategory,
+          newCategory: newCategory,
+          selectedTypeCategory: _selectedServiceTypeCategory,
+        );
+    final bool resetName =
+        clearType &&
+        ServiceForm.shouldResetNameOnTypeCleared(
+          currentName: _nameCtrl.text,
+          lastAutoFilledName: _lastAutoFilledName,
+        );
+
+    setState(() {
+      _selectedCategory = newCategory;
+      if (clearType) {
+        _selectedServiceTypeId = null;
+        _selectedServiceTypeNameUk = null;
+        _selectedServiceTypeCategory = null;
+        _clearServerError('serviceTypeId');
+        if (resetName) {
+          // Reset the type-derived name pre-fill. Guard the programmatic write
+          // so the name listener does not treat it as a manual edit.
+          _applyingAutoFill = true;
+          _nameCtrl.clear();
+          _applyingAutoFill = false;
+          _lastAutoFilledName = null;
+        }
+      }
+    });
+    _wasDirty = _isDirty;
+    _dirtyNotifier.value = _wasDirty;
   }
 
   @override
@@ -256,11 +525,14 @@ class _ServiceFormState extends State<ServiceForm> {
 
   // --- Validators -----------------------------------------------------------
 
+  /// Name is OPTIONAL (Item 4). A blank name is valid — the backend defaults it
+  /// to the selected service-type name. Only a too-long value (or a server-side
+  /// `name` error) surfaces a message; an empty field never does.
   String? _nameError(AppLocalizations l10n) {
     final String? server = _serverFieldErrors['name'];
     if (server != null) return server;
     if (!_submitted) return null;
-    return validateName(_nameCtrl.text, l10n);
+    return validateOptionalName(_nameCtrl.text, l10n);
   }
 
   String? _durationError(AppLocalizations l10n) {
@@ -339,11 +611,12 @@ class _ServiceFormState extends State<ServiceForm> {
   }
 
   bool _isValid(AppLocalizations l10n) =>
+      // Name is optional (Item 4) — only its length is checked via _nameError;
+      // an empty name does NOT block submit.
       _nameError(l10n) == null &&
       _durationError(l10n) == null &&
       _pricingValid(l10n) &&
       _categoryError(l10n) == null &&
-      _nameCtrl.text.trim().isNotEmpty &&
       _durationCtrl.text.trim().isNotEmpty;
 
   // --- Submit ---------------------------------------------------------------
@@ -364,6 +637,14 @@ class _ServiceFormState extends State<ServiceForm> {
     }
     setState(() => _submitting = true);
     try {
+      // Name is optional and now backend-defaulted: send the master's actual
+      // (trimmed) name. When it is blank the empty string flows to the backend,
+      // which defaults a blank/null name to the selected service type's nameUk.
+      // The client no longer substitutes the service-type name itself — doing so
+      // (the old `_effectiveName` stopgap) risked sending a name that diverged
+      // from the backend default and is now redundant.
+      final String submittedName = _nameCtrl.text.trim();
+
       // Prices parsed via the shared parser so the submitted value is computed
       // exactly as the validator checked it (comma → dot, ≤ 2 dp). _isValid
       // guarantees these are non-null at this point.
@@ -371,21 +652,25 @@ class _ServiceFormState extends State<ServiceForm> {
       switch (_pricingMode) {
         case ServicePriceType.fixed:
           input = MasterServiceCreate(
-            name: _nameCtrl.text.trim(),
+            name: submittedName,
             durationMinutes: int.parse(_durationCtrl.text.trim()),
             priceType: ServicePriceType.fixed,
             price: parsePrice(_priceFixedCtrl.text),
             // Description intentionally omitted (user decision, Phase 5.3).
             category: _selectedCategory,
+            // Optional service type (Phase 16.3); null when none selected.
+            serviceTypeId: _selectedServiceTypeId,
           );
         case ServicePriceType.range:
           input = MasterServiceCreate(
-            name: _nameCtrl.text.trim(),
+            name: submittedName,
             durationMinutes: int.parse(_durationCtrl.text.trim()),
             priceType: ServicePriceType.range,
             priceMin: parsePrice(_priceMinCtrl.text),
             priceMax: parsePrice(_priceMaxCtrl.text),
             category: _selectedCategory,
+            // Optional service type (Phase 16.3); null when none selected.
+            serviceTypeId: _selectedServiceTypeId,
           );
       }
       await widget.onSubmit(input);
@@ -459,6 +744,7 @@ class _ServiceFormState extends State<ServiceForm> {
       'priceMin',
       'priceMax',
       'category',
+      'serviceTypeId',
       'bufferMinutesAfter',
     };
     final Map<String, String> out = <String, String>{};
@@ -537,14 +823,78 @@ class _ServiceFormState extends State<ServiceForm> {
 
         const SizedBox(height: VelvetSpacing.lg),
 
-        // 1 — Service name (required, 1–255 chars). Wrapped in a
-        // ValueListenableBuilder so a keystroke re-validates only this field's
-        // inline error — `_CategoryChips` stays out of the rebuild (perf MEDIUM).
+        // Field order (Item 4): category → service type → Name. The custom name
+        // moved to LAST and is now OPTIONAL — see the name field below.
+
+        // 1 — Category searchable dropdown (required; reuses
+        //      [SearchableSelectField]). Options sourced from the approved-
+        //      category provider (Ukrainian labels); the selected wire slug is
+        //      routed back via [onSelect]. Selecting a category clears any
+        //      previously-selected service type below.
+        _CategoryDropdown(
+          selected: _selectedCategory,
+          disabled: _submitting,
+          label: l10n.serviceCategoryLabel,
+          errorText: _categoryError(l10n),
+          // Phase 16.5 edit-flow hardening: route the category change through
+          // [_onCategoryChanged], which clears a selected service type ONLY when
+          // it is incompatible with the new category (re-selecting the same
+          // category keeps a valid selection) and resets a type-derived name
+          // pre-fill without clobbering a user-edited name. The picker below
+          // re-queries `serviceTypesProvider(newCategory)` on the rebuild, so
+          // its options repopulate for the new category. The clear is silent
+          // (no dialog/banner — reuse-only per the 16.5 design gate).
+          onSelect: _onCategoryChanged,
+        ),
+
+        // 1c — Second-level service-type searchable dropdown (Phase 16.6). Shown
+        //      only when a category is selected; reuses [SearchableSelectField]
+        //      over `serviceTypesProvider(category)`. Selection drives the
+        //      existing 16.3 handler (`onServiceTypeSelected`) so there is a
+        //      single source of truth for `_selectedServiceTypeId`; clearing on
+        //      an incompatible category change is handled above via
+        //      `_onCategoryChanged` (Phase 16.5 edit-flow hardening).
+        //      A slow/failed type lookup degrades to a retryable error inside
+        //      the dropdown (field affordance + menu retry) — never an infinite
+        //      spinner. The mapped-back `serviceTypeId` cross-field error (16.3)
+        //      renders beneath via [_ServiceTypeError]; ONLY that inline error
+        //      subtree rebuilds on a revalidate tick so a backend mismatch is
+        //      never swallowed.
+        if (_selectedCategory != null &&
+            _selectedCategory!.isNotEmpty) ...<Widget>[
+          const SizedBox(height: VelvetSpacing.lg),
+          _ServiceTypeDropdown(
+            categoryName: _selectedCategory!,
+            selectedId: _selectedServiceTypeId,
+            // Item 2: show the loaded service-type name immediately on edit so
+            // the closed field is never blank while the type list is still
+            // fetching. Once options resolve, the matched option's label wins.
+            selectedFallbackLabel: _selectedServiceTypeNameUk,
+            disabled: _submitting,
+            label: l10n.serviceTypeLabel,
+            onSelect: onServiceTypeSelected,
+          ),
+          ValueListenableBuilder<int>(
+            valueListenable: _revalidateTick,
+            builder: (BuildContext context, _, _) =>
+                _ServiceTypeError(errorText: _serviceTypeError()),
+          ),
+        ],
+        const SizedBox(height: VelvetSpacing.lg),
+
+        // 3 — Service name (Item 4: now OPTIONAL, and moved to LAST of the
+        //      identity fields — under category + service type). When a service
+        //      type is selected its Ukrainian name auto-fills this field (16.3
+        //      don't-clobber rule), but the master may clear it: an empty name is
+        //      accepted on submit and the backend defaults it to the service-type
+        //      name. The label carries an "(optional)" hint so the field reads as
+        //      non-mandatory. Wrapped in a ValueListenableBuilder so a keystroke
+        //      re-validates only this field's inline error.
         ValueListenableBuilder<int>(
           valueListenable: _revalidateTick,
           builder: (BuildContext context, _, _) => _buildField(
             fieldKey: const Key('field-service-name'),
-            label: l10n.serviceNameLabel,
+            label: l10n.serviceNameOptionalLabel,
             controller: _nameCtrl,
             errorText: _nameError(l10n),
             hintText: l10n.serviceNameHint,
@@ -559,49 +909,16 @@ class _ServiceFormState extends State<ServiceForm> {
         ),
         const SizedBox(height: VelvetSpacing.lg),
 
-        // 1b — Category chip selector (optional; tapping a selected chip
-        //      deselects it so the master can clear the category). Chips are
-        //      sourced from the approved-category provider (Ukrainian labels).
-        _CategoryChips(
-          selected: _selectedCategory,
-          disabled: _submitting,
-          label: l10n.serviceCategoryLabel,
-          errorText: _categoryError(l10n),
-          onSelect: (String? wire) {
-            setState(() {
-              _selectedCategory = wire;
-            });
-            _wasDirty = _isDirty;
-            _dirtyNotifier.value = _wasDirty;
-          },
-        ),
-        const SizedBox(height: VelvetSpacing.lg),
-
-        // 2 — Duration field (required, integer 1–480 min / 8 h — backend cap).
-        //     Same per-field re-validation isolation as the name field.
-        ValueListenableBuilder<int>(
-          valueListenable: _revalidateTick,
-          builder: (BuildContext context, _, _) => _buildField(
-            fieldKey: const Key('field-service-duration'),
-            label: l10n.serviceDurationLabel,
-            controller: _durationCtrl,
-            errorText: _durationError(l10n),
-            hintText: '60',
-            suffixText: 'хв',
-            keyboardType: TextInputType.number,
-            inputFormatters: <TextInputFormatter>[
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(4),
-            ],
-            enabled: !_submitting,
-          ),
-        ),
-        const SizedBox(height: VelvetSpacing.lg),
-
-        // 3 — Pricing: FIXED (single amount) or RANGE (min–max) via the
-        //     two-mode segmented toggle + conditional field area. Wrapped in a
-        //     ValueListenableBuilder so a price keystroke re-validates only the
-        //     pricing sub-tree — the chip row stays out of scope (perf MEDIUM).
+        // 2+3 — Duration + Pricing on ONE line:
+        //   FIXED mode : [duration | price]        — 2 equal Expanded slots
+        //   RANGE mode : [duration | min – max]    — 3 equal Expanded slots
+        // Passing [durationController] into PricingField moves the duration
+        // well inside PricingField's outer Row so it shares one horizontal line
+        // with the price field(s) in both modes, overflow-proof at ~320 dp.
+        // The standalone duration _buildField above this block is intentionally
+        // removed — the duration well is now rendered inside PricingField.
+        // Wrapped in a single ValueListenableBuilder so a keystroke in either
+        // field re-validates only the duration+pricing sub-tree together.
         ValueListenableBuilder<int>(
           valueListenable: _revalidateTick,
           builder: (BuildContext context, _, _) => PricingField(
@@ -621,6 +938,12 @@ class _ServiceFormState extends State<ServiceForm> {
             fixedError: _fixedPriceError(l10n),
             minError: _rangeMinError(l10n),
             rangeError: _rangeMaxError(l10n),
+            // Duration well: rendered as the leading slot inside PricingField's
+            // one-line Row. compact=false so the well shows its label and uses
+            // full horizontal padding (matches the pricing wells).
+            durationController: _durationCtrl,
+            durationError: _durationError(l10n),
+            durationLabel: l10n.serviceDurationLabel,
           ),
         ),
         const SizedBox(height: VelvetSpacing.xl),
@@ -701,33 +1024,244 @@ class _DirtyMarker extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Category chip selector
+// Service-type searchable dropdown (Phase 16.6)
 //
-// A labelled section containing a horizontally-scrollable Wrap of neumorphic
-// category pills. Unselected chips are inset (recessed well), selected chips
-// are extruded with the camel/mocha CTA gradient and a leading check icon.
+// The second-level picker: reuses [SearchableSelectField] over
+// `serviceTypesProvider(categoryName)` (the service types under the currently-
+// selected platform category). Single-select, optional. The parent form is
+// shown this only when a category is selected, so [categoryName] is non-empty.
 //
-// Extracted to a StatelessWidget so that the callback-driven tap response
-// is self-contained and the parent form's rebuild scope is tightly bounded.
+// This widget owns NO selection state: it reflects [selectedId] from the form
+// and routes the chosen [ServiceTypeOption] back through [onSelect], which
+// drives the form's existing 16.3 handler. Single source of truth lives on the
+// form (clearing on an incompatible category change is handled there via
+// `_onCategoryChanged`, Phase 16.5).
+//
+// Robust load states (the spinner fix): the provider's async value maps to a
+// [SelectFieldState]; a slow/failed lookup shows the field's loading/error
+// affordance and, when opened, an ESCAPABLE menu spinner or a Retry state that
+// `ref.invalidate(serviceTypesProvider(categoryName))`. The empty case (a
+// category with no types) resolves to data → the menu shows the calm empty
+// hint. A hang/failure therefore never strands the user on an infinite spinner.
 // ---------------------------------------------------------------------------
 
-/// A labelled row of neumorphic category chips for the service form.
+/// A labelled searchable single-select dropdown of service types.
 ///
-/// Chips are sourced from [approvedCategoriesProvider] — each chip renders the
-/// Ukrainian [ServiceCategoryOption.displayName] as its label while the
-/// [ServiceCategoryOption.name] wire slug is the value sent to [onSelect].
+/// Options are sourced from [serviceTypesProvider] for [categoryName] — each
+/// option's [ServiceTypeOption.nameUk] is the searchable display label while
+/// [ServiceTypeOption.id] is the value. The chosen [ServiceTypeOption] is passed
+/// back to [onSelect] (so the form can pre-fill the name and persist the id).
+/// [selectedId] is the currently-selected service-type id, or null.
+///
+/// [disabled] suppresses opening the menu while a submit is in-flight.
+class _ServiceTypeDropdown extends ConsumerWidget {
+  const _ServiceTypeDropdown({
+    required this.categoryName,
+    required this.selectedId,
+    required this.label,
+    required this.onSelect,
+    this.selectedFallbackLabel,
+    this.disabled = false,
+  });
+
+  final String categoryName;
+  final String? selectedId;
+  final String label;
+  final ValueChanged<ServiceTypeOption> onSelect;
+
+  /// Label to display in the closed field for [selectedId] until the option
+  /// list resolves a match (Item 2 — edit prefill). Sourced from the loaded
+  /// service's `serviceTypeNameUk`. The matched-option label takes precedence
+  /// once options load; this only fills the gap while loading or if the option
+  /// is momentarily absent.
+  final String? selectedFallbackLabel;
+  final bool disabled;
+
+  /// Opens the suggest-a-service-type dialog for the active [categoryName] slug.
+  ///
+  /// Mirrors `_CategoryDropdown._openSuggestDialog`: closes the menu first so
+  /// the dialog is the top surface, opens it on the root context (the sheet
+  /// context is torn down by the pop), then raises the success SnackBar on the
+  /// parent messenger when the dialog pops `true`. The picker is only rendered
+  /// once a category is selected, so [categoryName] is always a non-empty slug
+  /// here — the backend requires it.
+  Future<void> _openSuggestDialog(
+    BuildContext sheetContext,
+    BuildContext rootContext,
+  ) async {
+    final l10n = AppLocalizations.of(rootContext);
+    dismissOverlay(sheetContext);
+    final submitted = await showServiceTypeSuggestionDialog(
+      rootContext,
+      categoryName: categoryName,
+    );
+    if (submitted == true && rootContext.mounted) {
+      ScaffoldMessenger.of(rootContext).showSnackBar(
+        SnackBar(
+          content: Text(l10n.serviceTypeSuggestSuccess),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final typesAsync = ref.watch(serviceTypesProvider(categoryName));
+
+    final List<ServiceTypeOption> options =
+        typesAsync.value ?? const <ServiceTypeOption>[];
+
+    // Resolve the selected option's label for the closed field. The selection
+    // lives on the form; if the option list hasn't loaded yet but a selection
+    // is held (edit flow), fall back to a null label until it resolves.
+    String? selectedLabel;
+    for (final ServiceTypeOption o in options) {
+      if (o.id == selectedId) {
+        selectedLabel = o.nameUk;
+        break;
+      }
+    }
+    // Item 2: while options are still loading (or the matched option is
+    // momentarily absent), fall back to the loaded service-type name so the
+    // edit form's closed field shows the selection instead of an empty field.
+    if (selectedLabel == null &&
+        selectedId != null &&
+        (selectedFallbackLabel?.isNotEmpty ?? false)) {
+      selectedLabel = selectedFallbackLabel;
+    }
+
+    final SelectFieldState fieldState = typesAsync.when(
+      data: (_) => SelectFieldState.idle,
+      loading: () => SelectFieldState.loading,
+      error: (_, _) => SelectFieldState.error,
+    );
+
+    // Empty category → an empty option list with idle state; the menu surfaces
+    // the calm `serviceTypeEmpty` hint via [emptyLabel].
+    return SearchableSelectField<ServiceTypeOption>(
+      key: const Key('select-service-type-field-wrapper'),
+      fieldKey: const Key('select-service-type-field'),
+      label: label,
+      menuTitle: l10n.serviceTypeMenuTitle,
+      placeholder: l10n.serviceTypePlaceholder,
+      searchHint: l10n.serviceSelectSearchHint,
+      emptyLabel: l10n.serviceTypeEmpty,
+      errorLabel: l10n.serviceTypeLoadError,
+      retryLabel: l10n.serviceSelectRetry,
+      loadingLabel: l10n.serviceTypeLoading,
+      selectedLabel: selectedLabel,
+      fieldState: fieldState,
+      enabled: !disabled,
+      options: <SelectOption<ServiceTypeOption>>[
+        for (final ServiceTypeOption o in options)
+          SelectOption<ServiceTypeOption>(
+            value: o,
+            label: o.nameUk,
+            rowKey: Key('chip-service-type-${o.id}'),
+          ),
+      ],
+      onSelected: onSelect,
+      onMenuRetry: () => ref.invalidate(serviceTypesProvider(categoryName)),
+      // "Не знайшли? Запропонувати послугу" — escape hatch into the suggestion
+      // dialog. Mounted in the menu footer (mirrors the category suggest chip).
+      // The picker is only rendered when a category is selected, so a non-empty
+      // slug (categoryName) is always available to forward to the backend.
+      menuFooter: (BuildContext sheetContext) => SelectMenuActionRow(
+        key: const Key('chip-service-type-suggest'),
+        label: l10n.serviceTypeSuggestChip,
+        onTap: disabled
+            ? () {}
+            : () => _openSuggestDialog(sheetContext, context),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Service-type inline error
+//
+// The mapped-back `serviceTypeId` cross-field error (Phase 16.3) — e.g. the
+// chosen type does not belong to the selected category. Rendered as a separate
+// leaf so the parent can wrap ONLY this subtree in the `_revalidateTick`
+// listener: a revalidate tick reflows the error without rebuilding the pill
+// `Wrap` above or re-watching `serviceTypesProvider` (perf HIGH).
+// ---------------------------------------------------------------------------
+
+class _ServiceTypeError extends StatelessWidget {
+  const _ServiceTypeError({required this.errorText});
+
+  /// The backend-mapped error message, or null when there is none. There is no
+  /// client-side validator (the service type is optional).
+  final String? errorText;
+
+  // Error style — hoisted; matches the field/category feedback style.
+  static final TextStyle _errorStyle = VelvetText.feedback(
+    const Color(0xFFB0452F), // BrandColors.error
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final String? message = errorText;
+    if (message == null) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(
+        left: VelvetSpacing.xs,
+        right: VelvetSpacing.xs,
+        top: VelvetSpacing.sm,
+      ),
+      child: Semantics(
+        liveRegion: true,
+        child: Row(
+          key: const Key('error-service-type'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Icon(
+              Icons.error_outline_rounded,
+              size: 15,
+              color: Color(0xFFB0452F), // BrandColors.error
+            ),
+            const SizedBox(width: VelvetSpacing.xs + 2),
+            Expanded(child: Text(message, style: _errorStyle)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Category searchable dropdown (Phase 16.6)
+//
+// Replaces the chip wrap with a [SearchableSelectField] over
+// `approvedCategoriesProvider`. Options render the Ukrainian
+// [ServiceCategoryOption.displayName]; the wire [ServiceCategoryOption.name]
+// slug is routed back via [onSelect] (preserving the existing wire-name
+// contract). The required-field error renders inline beneath the field.
+//
+// The "suggest a category" affordance moves into the menu footer
+// ("Не знайшли? Запропонувати категорію") → [showCategoryRequestDialog].
+//
+// The deprecated/absent-category guard (`_withSelected` + humanize) is kept so
+// a persisted selection whose slug is no longer in the approved list still
+// shows a readable label in the closed field.
+// ---------------------------------------------------------------------------
+
+/// A labelled searchable single-select dropdown of approved categories.
+///
+/// Options are sourced from [approvedCategoriesProvider] — each option renders
+/// the Ukrainian [ServiceCategoryOption.displayName] as its searchable label
+/// while the [ServiceCategoryOption.name] wire slug is the value sent to
+/// [onSelect].
 ///
 /// [selected] is the currently-selected wire name, or null for none.
-/// [onSelect] is called with the new wire name (or null when deselected).
-/// [disabled] suppresses tap responses when a submit is in-flight.
-///
-/// The async provider's states are handled compactly so the rest of the form
-/// stays usable (category is optional):
-///   - loading → a single inset "skeleton" chip;
-///   - error   → a compact error line + retry chip;
-///   - data    → the chip row + a trailing "suggest a category" chip.
-class _CategoryChips extends ConsumerWidget {
-  const _CategoryChips({
+/// [onSelect] is called with the chosen wire name.
+/// [disabled] suppresses opening the menu when a submit is in-flight.
+class _CategoryDropdown extends ConsumerWidget {
+  const _CategoryDropdown({
     required this.selected,
     required this.label,
     required this.onSelect,
@@ -739,21 +1273,22 @@ class _CategoryChips extends ConsumerWidget {
   final String label;
   final ValueChanged<String?> onSelect;
 
-  /// Required-field error surfaced beneath the chip row after a submit attempt
+  /// Required-field error surfaced beneath the field after a submit attempt
   /// with no category selected. Null when there is no error.
   final String? errorText;
   final bool disabled;
 
-  // Section-label style — hoisted as a static final to avoid per-frame
-  // TextStyle allocations. Matches the field-label convention already used by
-  // _VelvetFieldRow (VelvetText.label(), then uppercased at render time).
-  static final TextStyle _sectionLabelStyle = VelvetText.label();
-
-  Future<void> _openSuggestDialog(BuildContext context) async {
-    final l10n = AppLocalizations.of(context);
-    final submitted = await showCategoryRequestDialog(context);
-    if (submitted == true && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+  Future<void> _openSuggestDialog(
+    BuildContext sheetContext,
+    BuildContext rootContext,
+  ) async {
+    final l10n = AppLocalizations.of(rootContext);
+    // Close the menu first so the dialog is the top surface, then open it on
+    // the root context (the sheet context is torn down by the pop).
+    dismissOverlay(sheetContext);
+    final submitted = await showCategoryRequestDialog(rootContext);
+    if (submitted == true && rootContext.mounted) {
+      ScaffoldMessenger.of(rootContext).showSnackBar(
         SnackBar(
           content: Text(l10n.categoryRequestSuccess),
           behavior: SnackBarBehavior.floating,
@@ -762,385 +1297,64 @@ class _CategoryChips extends ConsumerWidget {
     }
   }
 
+  /// The selected option's display label for the closed field. Resolves the
+  /// Ukrainian displayName from [options]; when the persisted [selected] slug is
+  /// absent from the approved list (deactivated/retired, or a transient empty
+  /// list while the backend is slow), humanizes the slug instead of leaking the
+  /// raw ALL-CAPS value.
+  String? _selectedLabel(List<ServiceCategoryOption> options) {
+    final String? sel = selected;
+    if (sel == null || sel.isEmpty) return null;
+    for (final ServiceCategoryOption o in options) {
+      if (categorySlugMatches(sel, o.name)) return o.displayName;
+    }
+    return humanizeCategorySlug(sel);
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
     final categoriesAsync = ref.watch(approvedCategoriesProvider);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        // Section label (uppercased at render time, same as field labels).
-        Padding(
-          padding: const EdgeInsets.only(
-            left: VelvetSpacing.xs,
-            bottom: VelvetSpacing.sm,
-          ),
-          child: Text(label.toUpperCase(), style: _sectionLabelStyle),
-        ),
-        categoriesAsync.when(
-          loading: () => const _CategoryChipsLoading(),
-          error: (_, _) => _CategoryChipsError(
-            l10n: l10n,
-            disabled: disabled,
-            onRetry: () => ref.invalidate(approvedCategoriesProvider),
-          ),
-          data: (List<ServiceCategoryOption> options) {
-            // Guard: if the loaded service's category was deprecated/removed
-            // from the approved list, still render a chip for it so the
-            // selection stays visible (and reversible).
-            final List<ServiceCategoryOption> chips = _withSelected(options);
-            // A Wrap inside a horizontal SingleChildScrollView gets unbounded
-            // width and never wraps, so chips run off-screen on narrow devices.
-            // Letting the Wrap wrap within the form's bounded width keeps every
-            // chip (incl. the selected + "suggest" affordance) visible; the
-            // outer form already provides vertical scrolling.
-            return Wrap(
-              spacing: VelvetSpacing.sm,
-              runSpacing: VelvetSpacing.sm,
-              children: <Widget>[
-                for (final ServiceCategoryOption option in chips)
-                  _CategoryChip(
-                    key: Key('chip-category-${option.name}'),
-                    wire: option.name,
-                    label: option.displayName,
-                    isSelected: _matches(selected, option.name),
-                    disabled: disabled,
-                    onTap: () => onSelect(
-                      _matches(selected, option.name) ? null : option.name,
-                    ),
-                  ),
-                // Trailing affordance — opens the suggest-a-category dialog.
-                _SuggestCategoryChip(
-                  key: const Key('chip-category-suggest'),
-                  label: l10n.serviceCategorySuggest,
-                  disabled: disabled,
-                  onTap: () => _openSuggestDialog(context),
-                ),
-              ],
-            );
-          },
-        ),
-        // Required-field error row (shown after a submit with no selection).
-        if (errorText != null)
-          Padding(
-            padding: const EdgeInsets.only(
-              left: VelvetSpacing.xs,
-              right: VelvetSpacing.xs,
-              top: VelvetSpacing.sm,
-            ),
-            child: Semantics(
-              liveRegion: true,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  const Icon(
-                    Icons.error_outline_rounded,
-                    size: 15,
-                    color: Color(0xFFB0452F), // BrandColors.error
-                  ),
-                  const SizedBox(width: VelvetSpacing.xs + 2),
-                  Expanded(child: Text(errorText!, style: _categoryErrorStyle)),
-                ],
-              ),
-            ),
+    final List<ServiceCategoryOption> options =
+        categoriesAsync.value ?? const <ServiceCategoryOption>[];
+
+    final SelectFieldState fieldState = categoriesAsync.when(
+      data: (_) => SelectFieldState.idle,
+      loading: () => SelectFieldState.loading,
+      error: (_, _) => SelectFieldState.error,
+    );
+
+    return SearchableSelectField<String>(
+      key: const Key('select-category-field-wrapper'),
+      fieldKey: const Key('select-category-field'),
+      label: label,
+      menuTitle: l10n.serviceCategoryMenuTitle,
+      placeholder: l10n.serviceCategoryPlaceholder,
+      searchHint: l10n.serviceSelectSearchHint,
+      emptyLabel: l10n.serviceSelectSearchEmpty,
+      errorLabel: l10n.serviceCategoryLoadError,
+      retryLabel: l10n.serviceSelectRetry,
+      selectedLabel: _selectedLabel(options),
+      fieldState: fieldState,
+      errorText: errorText,
+      enabled: !disabled,
+      options: <SelectOption<String>>[
+        for (final ServiceCategoryOption o in options)
+          SelectOption<String>(
+            value: o.name,
+            label: o.displayName,
+            rowKey: Key('chip-category-${o.name}'),
           ),
       ],
-    );
-  }
-
-  // Error style — hoisted; matches the field-error feedback style.
-  static final TextStyle _categoryErrorStyle = VelvetText.feedback(
-    const Color(0xFFB0452F), // BrandColors.error
-  );
-
-  /// Returns [options] with the currently-[selected] category appended when it
-  /// is absent from the approved list, so an existing service's category chip
-  /// never disappears (keeps the toggle reversible).
-  List<ServiceCategoryOption> _withSelected(
-    List<ServiceCategoryOption> options,
-  ) {
-    final String? sel = selected;
-    if (sel == null || sel.isEmpty) return options;
-    final present = options.any((o) => _matches(sel, o.name));
-    if (present) return options;
-    return <ServiceCategoryOption>[
-      ...options,
-      // No Ukrainian displayName available client-side for a category absent
-      // from the approved list (deactivated/retired, or a transient empty list
-      // while the backend is slow). Humanize the wire slug for the visible
-      // label instead of leaking the raw ALL-CAPS slug; the wire value [name]
-      // is preserved unchanged for submission.
-      ServiceCategoryOption(name: sel, displayName: humanizeCategorySlug(sel)),
-    ];
-  }
-
-  /// Case/whitespace-insensitive equality for wire slugs — defends against
-  /// drift between the persisted selection and the approved-list entries.
-  static bool _matches(String? a, String b) => categorySlugMatches(a, b);
-}
-
-/// Compact loading state for the category chip row — a single inset skeleton
-/// pill so the row keeps its height while the approved list loads.
-class _CategoryChipsLoading extends StatelessWidget {
-  const _CategoryChipsLoading();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Row(
-      key: Key('category-chips-loading'),
-      children: <Widget>[
-        NeumorphicInset(
-          radius: VelvetRadii.pill,
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.lg,
-              vertical: VelvetSpacing.md,
-            ),
-            child: SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: BrandColors.accent,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Compact error state for the category chip row — an error line plus a retry
-/// chip. The rest of the form stays usable because the category is optional.
-class _CategoryChipsError extends StatelessWidget {
-  const _CategoryChipsError({
-    required this.l10n,
-    required this.onRetry,
-    this.disabled = false,
-  });
-
-  final AppLocalizations l10n;
-  final VoidCallback onRetry;
-  final bool disabled;
-
-  static final TextStyle _errorStyle = VelvetText.feedback(
-    const Color(0xFFB0452F), // BrandColors.error
-  );
-  static final TextStyle _retryStyle = VelvetText.pill();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      key: const Key('category-chips-error'),
-      children: <Widget>[
-        const Icon(
-          Icons.error_outline_rounded,
-          size: 15,
-          color: Color(0xFFB0452F), // BrandColors.error
-        ),
-        const SizedBox(width: VelvetSpacing.xs + 2),
-        Expanded(
-          child: Text(l10n.serviceCategoryLoadError, style: _errorStyle),
-        ),
-        const SizedBox(width: VelvetSpacing.sm),
-        GestureDetector(
-          key: const Key('btn-category-retry'),
-          onTap: disabled ? null : onRetry,
-          child: Semantics(
-            button: true,
-            label: l10n.serviceCategoryRetry,
-            child: NeumorphicInset(
-              radius: VelvetRadii.pill,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: VelvetSpacing.md,
-                  vertical: VelvetSpacing.sm,
-                ),
-                child: Text(l10n.serviceCategoryRetry, style: _retryStyle),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// A dashed-feel "suggest a category" chip rendered after the category list.
-///
-/// Reuses the unselected-chip neumorphic inset look with a leading "+" so it
-/// reads as an additive affordance rather than a selectable category.
-class _SuggestCategoryChip extends StatelessWidget {
-  const _SuggestCategoryChip({
-    super.key,
-    required this.label,
-    required this.onTap,
-    this.disabled = false,
-  });
-
-  final String label;
-  final VoidCallback onTap;
-  final bool disabled;
-
-  static final TextStyle _labelStyle = VelvetText.pill();
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: disabled ? null : onTap,
-      child: Semantics(
-        button: true,
-        label: label,
-        child: NeumorphicInset(
-          radius: VelvetRadii.pill,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.md,
-              vertical: VelvetSpacing.sm,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const Icon(
-                  Icons.add_rounded,
-                  size: 15,
-                  color: BrandColors.accentDeep,
-                ),
-                const SizedBox(width: VelvetSpacing.xs),
-                Text(label, style: _labelStyle),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A single neumorphic category chip.
-///
-/// **Unselected:** inset pill — [NeumorphicInset] with [VelvetText.pill()] in
-/// [BrandColors.accentDeep] color.
-/// **Selected:** extruded pill — camel/mocha gradient fill (identical to the
-/// CTA gradient), white label, leading check icon, [VelvetShadows.extrudedButtonAccent].
-///
-/// [AnimatedContainer] provides the 150 ms cross-fade between states.
-class _CategoryChip extends StatelessWidget {
-  const _CategoryChip({
-    super.key,
-    required this.wire,
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-    this.disabled = false,
-  });
-
-  final String wire;
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-  final bool disabled;
-
-  // ---------------------------------------------------------------------------
-  // Hoisted style constants — zero allocation per frame.
-  // ---------------------------------------------------------------------------
-
-  // Pill border radius (VelvetRadii.pill = 999) — a static const so the
-  // BorderRadius is computed once at compile time.
-  static const BorderRadius _pillRadius = BorderRadius.all(
-    Radius.circular(VelvetRadii.pill),
-  );
-
-  // Selected chip: white label (BrandColors.white = #F5EDE0).
-  static final TextStyle _selectedLabel = VelvetText.pill().copyWith(
-    color: BrandColors.white,
-  );
-
-  // Unselected chip: default pill style (accentDeep, no copyWith needed).
-  static final TextStyle _unselectedLabel = VelvetText.pill();
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: disabled ? null : onTap,
-      child: Semantics(
-        button: true,
-        selected: isSelected,
-        label: label,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          curve: Curves.easeOut,
-          decoration: isSelected
-              ? const BoxDecoration(
-                  borderRadius: _pillRadius,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: <Color>[
-                      BrandColors.accentLatte,
-                      BrandColors.accentDeep,
-                    ],
-                  ),
-                  boxShadow: VelvetShadows.extrudedButtonAccent,
-                )
-              : null,
-          child: isSelected
-              ? _SelectedPillContent(label: label, labelStyle: _selectedLabel)
-              : _UnselectedPillContent(
-                  label: label,
-                  labelStyle: _unselectedLabel,
-                ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Content inside a selected chip (gradient background + check + label).
-class _SelectedPillContent extends StatelessWidget {
-  const _SelectedPillContent({required this.label, required this.labelStyle});
-
-  final String label;
-  final TextStyle labelStyle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: VelvetSpacing.md,
-        vertical: VelvetSpacing.sm,
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          const Icon(Icons.check_rounded, size: 14, color: BrandColors.white),
-          const SizedBox(width: VelvetSpacing.xs),
-          Text(label, style: labelStyle),
-        ],
-      ),
-    );
-  }
-}
-
-/// Content inside an unselected chip (inset neumorphic well + label).
-class _UnselectedPillContent extends StatelessWidget {
-  const _UnselectedPillContent({required this.label, required this.labelStyle});
-
-  final String label;
-  final TextStyle labelStyle;
-
-  @override
-  Widget build(BuildContext context) {
-    return NeumorphicInset(
-      radius: VelvetRadii.pill,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: VelvetSpacing.md,
-          vertical: VelvetSpacing.sm,
-        ),
-        child: Text(label, style: labelStyle),
+      onSelected: onSelect,
+      onMenuRetry: () => ref.invalidate(approvedCategoriesProvider),
+      menuFooter: (BuildContext sheetContext) => SelectMenuActionRow(
+        key: const Key('chip-category-suggest'),
+        label: l10n.serviceCategorySuggest,
+        onTap: disabled
+            ? () {}
+            : () => _openSuggestDialog(sheetContext, context),
       ),
     );
   }

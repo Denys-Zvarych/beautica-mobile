@@ -31,6 +31,9 @@ class _MockServiceControllerApi extends Mock implements ServiceControllerApi {}
 class _MockCategoryRequestControllerApi extends Mock
     implements CategoryRequestControllerApi {}
 
+class _MockServiceCatalogControllerApi extends Mock
+    implements ServiceCatalogControllerApi {}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const _masterId = 'master-abc';
@@ -40,7 +43,9 @@ const _serviceId = 'svc-001';
 /// assignment id [_serviceId]). The backend keys
 /// `PATCH/DELETE /api/v1/services/{serviceDefId}` on this id.
 const _serviceDefId = 'def-001';
-const _listPath = '/api/v1/masters/$_masterId/services';
+// Phase 16.9: listMyServices() now hits the authenticated owner endpoint
+// (no masterId path param). Used only as the mock RequestOptions.path.
+const _listPath = '/api/v1/independent-masters/me/services';
 
 /// Builds a [ServiceDefinitionResponse] with sensible defaults.
 /// Phase 5.6: uses priceType/priceMin/priceMax instead of basePrice.
@@ -146,14 +151,18 @@ Response<ApiResponseServiceDefinitionResponse> _updateResponse(
 void main() {
   late _MockServiceControllerApi serviceApi;
   late _MockCategoryRequestControllerApi categoryApi;
+  late _MockServiceCatalogControllerApi catalogApi;
   late HttpServiceRepository repository;
 
   setUp(() {
     serviceApi = _MockServiceControllerApi();
     categoryApi = _MockCategoryRequestControllerApi();
+    catalogApi = _MockServiceCatalogControllerApi();
     repository = HttpServiceRepository(
       serviceApi: serviceApi,
       categoryApi: categoryApi,
+      catalogApi: catalogApi,
+      dio: Dio(),
       masterId: _masterId,
     );
     // Register fallback values required by mocktail for named-typed matchers.
@@ -186,7 +195,7 @@ void main() {
       'returns empty list when the backend returns an empty array',
       () async {
         when(
-          () => serviceApi.getMasterServices(masterId: _masterId),
+          () => serviceApi.getMyServices(),
         ).thenAnswer((_) async => _listResponse([]));
 
         final result = await repository.listMyServices();
@@ -223,7 +232,7 @@ void main() {
       );
 
       when(
-        () => serviceApi.getMasterServices(masterId: _masterId),
+        () => serviceApi.getMyServices(),
       ).thenAnswer((_) async => _listResponse([dto1, dto2]));
 
       final result = await repository.listMyServices();
@@ -249,7 +258,7 @@ void main() {
     });
 
     test('maps NetworkFailure on connectionError', () async {
-      when(() => serviceApi.getMasterServices(masterId: _masterId)).thenThrow(
+      when(() => serviceApi.getMyServices()).thenThrow(
         DioException(
           requestOptions: RequestOptions(path: _listPath),
           type: DioExceptionType.connectionError,
@@ -259,6 +268,28 @@ void main() {
       await expectLater(
         repository.listMyServices(),
         throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    // ── Phase 16.9 — owner-endpoint repoint ──────────────────────────────────
+    //
+    // The master's own list MUST hit the authenticated owner endpoint
+    // getMyServices() (`GET /independent-masters/me/services`, which INCLUDES
+    // drafts), NOT the public getMasterServices(masterId) browse endpoint
+    // (`GET /masters/{masterId}/services`, which filters drafts out). This test
+    // would FAIL if the repository were reverted to the public endpoint.
+
+    test('calls getMyServices() (owner endpoint) and NEVER getMasterServices() '
+        '(public browse endpoint)', () async {
+      when(
+        () => serviceApi.getMyServices(),
+      ).thenAnswer((_) async => _listResponse([_buildMasterServiceDto()]));
+
+      await repository.listMyServices();
+
+      verify(() => serviceApi.getMyServices()).called(1);
+      verifyNever(
+        () => serviceApi.getMasterServices(masterId: any(named: 'masterId')),
       );
     });
   });
@@ -562,9 +593,7 @@ void main() {
         expect(captured.price, 600.0);
 
         // The list endpoint must NOT have been called (no extra round-trip).
-        verifyNever(
-          () => serviceApi.getMasterServices(masterId: any(named: 'masterId')),
-        );
+        verifyNever(() => serviceApi.getMyServices());
       },
     );
 
@@ -604,6 +633,8 @@ void main() {
       unauthRepo = HttpServiceRepository(
         serviceApi: serviceApi,
         categoryApi: categoryApi,
+        catalogApi: catalogApi,
+        dio: Dio(),
         masterId: '',
       );
     });
@@ -616,9 +647,7 @@ void main() {
           throwsA(isA<UnauthorizedFailure>()),
         );
 
-        verifyNever(
-          () => serviceApi.getMasterServices(masterId: any(named: 'masterId')),
-        );
+        verifyNever(() => serviceApi.getMyServices());
       },
     );
 
@@ -805,6 +834,105 @@ void main() {
       expect(captured.name, 'NAIL_ART');
       expect(captured.displayName, 'Нейл-арт');
     });
+
+    // ── Change 3 — optional initialServiceName wire shape ─────────────────────
+    // Mirrors the suggestServiceType description-omission guard: the value is
+    // attached to the request model ONLY when non-empty; a blank/whitespace
+    // value must be omitted (null on the wire), and a real value is trimmed.
+
+    test(
+      'Change 3: non-empty initialServiceName is forwarded (trimmed) on the body',
+      () async {
+        when(
+          () => categoryApi.submitRequest(
+            createCategoryRequestRequest: any(
+              named: 'createCategoryRequestRequest',
+            ),
+          ),
+        ).thenAnswer((_) async => createdResponse());
+
+        await repository.requestCategory(
+          name: 'NAIL_ART',
+          displayName: 'Нейл-арт',
+          initialServiceName: '  Ламінування вій  ',
+        );
+
+        final captured =
+            verify(
+                  () => categoryApi.submitRequest(
+                    createCategoryRequestRequest: captureAny(
+                      named: 'createCategoryRequestRequest',
+                    ),
+                  ),
+                ).captured.single
+                as CreateCategoryRequestRequest;
+        expect(captured.initialServiceName, 'Ламінування вій');
+      },
+    );
+
+    test(
+      'Change 3: null initialServiceName → request.initialServiceName omitted',
+      () async {
+        when(
+          () => categoryApi.submitRequest(
+            createCategoryRequestRequest: any(
+              named: 'createCategoryRequestRequest',
+            ),
+          ),
+        ).thenAnswer((_) async => createdResponse());
+
+        await repository.requestCategory(
+          name: 'NAIL_ART',
+          displayName: 'Нейл-арт',
+          // initialServiceName omitted (defaults to null).
+        );
+
+        final captured =
+            verify(
+                  () => categoryApi.submitRequest(
+                    createCategoryRequestRequest: captureAny(
+                      named: 'createCategoryRequestRequest',
+                    ),
+                  ),
+                ).captured.single
+                as CreateCategoryRequestRequest;
+        expect(captured.initialServiceName, isNull);
+      },
+    );
+
+    test(
+      'Change 3: blank / whitespace initialServiceName → omitted (null on wire)',
+      () async {
+        when(
+          () => categoryApi.submitRequest(
+            createCategoryRequestRequest: any(
+              named: 'createCategoryRequestRequest',
+            ),
+          ),
+        ).thenAnswer((_) async => createdResponse());
+
+        await repository.requestCategory(
+          name: 'NAIL_ART',
+          displayName: 'Нейл-арт',
+          initialServiceName: '   ',
+        );
+
+        final captured =
+            verify(
+                  () => categoryApi.submitRequest(
+                    createCategoryRequestRequest: captureAny(
+                      named: 'createCategoryRequestRequest',
+                    ),
+                  ),
+                ).captured.single
+                as CreateCategoryRequestRequest;
+        expect(
+          captured.initialServiceName,
+          isNull,
+          reason: 'a blank optional name must not be sent as an empty string',
+        );
+      },
+    );
 
     test('409 → CategoryAlreadyExistsFailure', () async {
       when(

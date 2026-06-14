@@ -13,12 +13,15 @@ class _$ApiResponseListCityResponse extends ApiResponseListCityResponse {
   final BuiltList<CityResponse>? data;
   @override
   final String? message;
+  @override
+  final BuiltMap<String, String>? errors;
 
   factory _$ApiResponseListCityResponse(
           [void Function(ApiResponseListCityResponseBuilder)? updates]) =>
       (ApiResponseListCityResponseBuilder()..update(updates))._build();
 
-  _$ApiResponseListCityResponse._({this.success, this.data, this.message})
+  _$ApiResponseListCityResponse._(
+      {this.success, this.data, this.message, this.errors})
       : super._();
   @override
   ApiResponseListCityResponse rebuild(
@@ -35,7 +38,8 @@ class _$ApiResponseListCityResponse extends ApiResponseListCityResponse {
     return other is ApiResponseListCityResponse &&
         success == other.success &&
         data == other.data &&
-        message == other.message;
+        message == other.message &&
+        errors == other.errors;
   }
 
   @override
@@ -44,6 +48,7 @@ class _$ApiResponseListCityResponse extends ApiResponseListCityResponse {
     _$hash = $jc(_$hash, success.hashCode);
     _$hash = $jc(_$hash, data.hashCode);
     _$hash = $jc(_$hash, message.hashCode);
+    _$hash = $jc(_$hash, errors.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -53,7 +58,8 @@ class _$ApiResponseListCityResponse extends ApiResponseListCityResponse {
     return (newBuiltValueToStringHelper(r'ApiResponseListCityResponse')
           ..add('success', success)
           ..add('data', data)
-          ..add('message', message))
+          ..add('message', message)
+          ..add('errors', errors))
         .toString();
   }
 }
@@ -77,6 +83,11 @@ class ApiResponseListCityResponseBuilder
   String? get message => _$this._message;
   set message(String? message) => _$this._message = message;
 
+  MapBuilder<String, String>? _errors;
+  MapBuilder<String, String> get errors =>
+      _$this._errors ??= MapBuilder<String, String>();
+  set errors(MapBuilder<String, String>? errors) => _$this._errors = errors;
+
   ApiResponseListCityResponseBuilder() {
     ApiResponseListCityResponse._defaults(this);
   }
@@ -87,6 +98,7 @@ class ApiResponseListCityResponseBuilder
       _success = $v.success;
       _data = $v.data?.toBuilder();
       _message = $v.message;
+      _errors = $v.errors?.toBuilder();
       _$v = null;
     }
     return this;
@@ -113,12 +125,16 @@ class ApiResponseListCityResponseBuilder
             success: success,
             data: _data?.build(),
             message: message,
+            errors: _errors?.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
         _$failedField = 'data';
         _data?.build();
+
+        _$failedField = 'errors';
+        _errors?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'ApiResponseListCityResponse', _$failedField, e.toString());

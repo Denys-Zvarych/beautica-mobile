@@ -22,8 +22,10 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:beautica_mobile/features/services/presentation/service_create_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:dio/dio.dart';
@@ -31,6 +33,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
+
+import 'widgets/select_dropdown_test_helpers.dart';
 
 const _baseUrl = 'http://localhost:8080';
 const _masterId = 'master-1';
@@ -123,6 +127,8 @@ class _StubMasterProfile extends MasterProfile {
   final repo = HttpServiceRepository(
     serviceApi: ServiceControllerApi(dio, standardSerializers),
     categoryApi: CategoryRequestControllerApi(dio, standardSerializers),
+    catalogApi: ServiceCatalogControllerApi(dio, standardSerializers),
+    dio: dio,
     masterId: _masterId,
   );
   return (dio: dio, adapter: adapter, repo: repo);
@@ -151,6 +157,14 @@ Future<void> _pump(
         // the category picker has data without hitting the socket.
         servicesListProvider.overrideWith(() => _StubServicesList(cachedList)),
         approvedCategoriesProvider.overrideWith((ref) async => categories),
+        // The second-level service-type picker (_ServiceTypeChips) mounts as
+        // soon as a category is selected/seeded and would otherwise drive a
+        // real fetch over the faked socket (an unmatched route → DioException).
+        // Override the provider with a calm empty list so this contract test
+        // stays focused on the create/edit/delete endpoints under test.
+        serviceTypesProvider.overrideWith(
+          (ref, String categoryName) async => const <ServiceTypeOption>[],
+        ),
       ],
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -196,10 +210,8 @@ Future<void> _fillValidCreateForm(WidgetTester tester) async {
     ),
     '500',
   );
-  await tester.pumpAndSettle(); // resolve category provider
-  await tester.ensureVisible(find.byKey(const Key('chip-category-MANICURE')));
-  await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
-  await tester.pump();
+  // Select the category via the dropdown (open menu → tap option → settle).
+  await selectCategoryOption(tester, 'MANICURE');
 }
 
 Future<void> _tapSubmit(WidgetTester tester) async {

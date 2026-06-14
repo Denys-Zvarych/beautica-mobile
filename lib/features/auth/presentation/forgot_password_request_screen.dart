@@ -36,9 +36,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
@@ -77,16 +77,22 @@ class _ForgotPasswordRequestScreenState
   /// error occurs (NOT shown for the generic anti-enumeration success).
   String? _inlineError;
 
+  // Captured in initState so dispose() never touches `ref` — under Riverpod
+  // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
+  late final ScreenProtectionManager _screenProtection;
+
   @override
   void initState() {
     super.initState();
-    if (!kDebugMode) ScreenProtector.preventScreenshotOn();
+    // SEC MEDIUM: ref-counted screenshot guard (single app-wide owner;
+    // the manager is internally !kDebugMode-guarded).
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
   }
 
   @override
   void dispose() {
+    _screenProtection.release();
     _emailController.dispose();
-    if (!kDebugMode) ScreenProtector.preventScreenshotOff();
     super.dispose();
   }
 

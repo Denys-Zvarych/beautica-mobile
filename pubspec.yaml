@@ -90,6 +90,13 @@ dependencies:
   # Logging — dart:developer log() is the official channel; no extra package.
   cupertino_icons: ^1.0.8
 
+  # External link launching — opens the master's Instagram profile (validated
+  # https URL only) in the Instagram app or browser via ACTION_VIEW. The stored
+  # value is sanitized through shared/utils/instagram_url.dart before launch.
+  # Requires the <queries> ACTION_VIEW/https entry in AndroidManifest.xml for
+  # Android 11+ package visibility.
+  url_launcher: ^6.3.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -108,6 +115,13 @@ dev_dependencies:
   # When golden tests are needed, use Flutter's built-in matchesGoldenFile or the alchemist package.
   mocktail: ^1.0.4
   network_image_mock: ^2.1.1
+
+  # Declared so widget tests can swap UrlLauncherPlatform.instance for a mock
+  # (mocktail + MockPlatformInterfaceMixin) when asserting launchUrl behavior.
+  # Both are transitive via url_launcher; declaring them here satisfies the
+  # depend_on_referenced_packages lint that CI runs.
+  url_launcher_platform_interface: ^2.3.2
+  plugin_platform_interface: ^2.1.8
 
   # Regression safety net (2026-06-02): http_mock_adapter fakes the HTTP socket
   # at the Dio transport layer so the REAL repository + REAL Dio + REAL generated

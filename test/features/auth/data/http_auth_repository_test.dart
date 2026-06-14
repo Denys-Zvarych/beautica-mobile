@@ -852,4 +852,280 @@ void main() {
       );
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Group 10 — confirmPasswordReset (backend Phase 11.3) — HIGHEST PRIORITY
+  //
+  // The domain-significant behaviour here is the remap of a generic 400
+  // (surfaced as ValidationFailure by ErrorMapperInterceptor) into the
+  // dedicated [ResetTokenInvalidFailure] the forgot-password recovery screen
+  // renders as its "link invalid or expired" state. If that remap is deleted
+  // or made conditional, the screen silently shows the wrong (or no) error
+  // state and account recovery breaks — these tests pin it.
+  // -------------------------------------------------------------------------
+
+  group('confirmPasswordReset', () {
+    test('success (200) → completes without throwing; no auto-login', () async {
+      final res = Response<ApiResponseVoid>(
+        data: ApiResponseVoid((b) => b..success = true),
+        statusCode: 200,
+        requestOptions: _fakeOptions('/auth/reset-password'),
+      );
+      when(
+        () => mockAuthApi.resetPassword(
+          resetPasswordRequest: any(named: 'resetPasswordRequest'),
+        ),
+      ).thenAnswer((_) async => res);
+
+      await expectLater(
+        repository.confirmPasswordReset(
+          token: 'valid-reset-token',
+          newPassword: 'N3wP@ssw0rd!',
+        ),
+        completes,
+      );
+    });
+
+    test(
+      'ValidationFailure (400) → remapped to ResetTokenInvalidFailure',
+      () async {
+        const failure = ValidationFailure(
+          fieldErrors: {},
+          cause: 'invalid or expired token',
+        );
+        when(
+          () => mockAuthApi.resetPassword(
+            resetPasswordRequest: any(named: 'resetPasswordRequest'),
+          ),
+        ).thenThrow(_dioWithFailure(failure, statusCode: 400));
+
+        await expectLater(
+          () => repository.confirmPasswordReset(
+            token: 'used-or-expired-token',
+            newPassword: 'N3wP@ssw0rd!',
+          ),
+          throwsA(isA<ResetTokenInvalidFailure>()),
+        );
+      },
+    );
+
+    test('non-ValidationFailure (e.g. NetworkFailure) → propagates unchanged, '
+        'NOT remapped to ResetTokenInvalidFailure', () async {
+      const failure = NetworkFailure();
+      when(
+        () => mockAuthApi.resetPassword(
+          resetPasswordRequest: any(named: 'resetPasswordRequest'),
+        ),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 503));
+
+      await expectLater(
+        () => repository.confirmPasswordReset(token: 'tok', newPassword: 'pw'),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test(
+      'raw DioException (no mapped Failure) → throws UnknownFailure',
+      () async {
+        when(
+          () => mockAuthApi.resetPassword(
+            resetPasswordRequest: any(named: 'resetPasswordRequest'),
+          ),
+        ).thenThrow(_rawDioException());
+
+        await expectLater(
+          () =>
+              repository.confirmPasswordReset(token: 'tok', newPassword: 'pw'),
+          throwsA(isA<UnknownFailure>()),
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 11 — requestPasswordReset (backend Phase 11.2)
+  //
+  // Contract pinned against the ACTUAL implementation: the anti-enumeration
+  // "always 200" guarantee is enforced BACKEND-side. The repository does NOT
+  // swallow errors — it forwards a successful call as a completed Future, and
+  // re-throws a mapped [Failure] on a DioException. These tests pin that real
+  // behaviour (no silent swallow at the repo layer).
+  // -------------------------------------------------------------------------
+
+  group('requestPasswordReset', () {
+    test('success (200) → completes without throwing', () async {
+      final res = Response<ApiResponseVoid>(
+        data: ApiResponseVoid((b) => b..success = true),
+        statusCode: 200,
+        requestOptions: _fakeOptions('/auth/forgot-password'),
+      );
+      when(
+        () => mockAuthApi.forgotPassword(
+          forgotPasswordRequest: any(named: 'forgotPasswordRequest'),
+        ),
+      ).thenAnswer((_) async => res);
+
+      await expectLater(
+        repository.requestPasswordReset('known@beautica.test'),
+        completes,
+      );
+    });
+
+    test('DioException → re-throws mapped Failure (repo does NOT swallow; '
+        'anti-enumeration is enforced backend-side, not here)', () async {
+      const failure = NetworkFailure();
+      when(
+        () => mockAuthApi.forgotPassword(
+          forgotPasswordRequest: any(named: 'forgotPasswordRequest'),
+        ),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 503));
+
+      await expectLater(
+        () => repository.requestPasswordReset('x@beautica.test'),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test(
+      'raw DioException (no mapped Failure) → throws UnknownFailure',
+      () async {
+        when(
+          () => mockAuthApi.forgotPassword(
+            forgotPasswordRequest: any(named: 'forgotPasswordRequest'),
+          ),
+        ).thenThrow(_rawDioException());
+
+        await expectLater(
+          () => repository.requestPasswordReset('x@beautica.test'),
+          throwsA(isA<UnknownFailure>()),
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 12 — resendVerificationCode (backend Phase 1.6)
+  //
+  // Returns void; the mobile layer needs no field from the body. Happy path
+  // completes; a DioException surfaces as the mapped Failure.
+  // -------------------------------------------------------------------------
+
+  group('resendVerificationCode', () {
+    test('success (200) → completes without throwing', () async {
+      final res = Response<ApiResponseRegistrationResponse>(
+        data: ApiResponseRegistrationResponse((b) => b..success = true),
+        statusCode: 200,
+        requestOptions: _fakeOptions('/auth/resend-verification'),
+      );
+      when(
+        () => mockAuthApi.resendVerification(
+          resendVerificationRequest: any(named: 'resendVerificationRequest'),
+        ),
+      ).thenAnswer((_) async => res);
+
+      await expectLater(
+        repository.resendVerificationCode(email: 'master@beautica.test'),
+        completes,
+      );
+    });
+
+    test('DioException → re-throws mapped Failure', () async {
+      const failure = ValidationFailure(fieldErrors: {'email': 'unknown'});
+      when(
+        () => mockAuthApi.resendVerification(
+          resendVerificationRequest: any(named: 'resendVerificationRequest'),
+        ),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 400));
+
+      await expectLater(
+        () => repository.resendVerificationCode(email: 'x@beautica.test'),
+        throwsA(isA<ValidationFailure>()),
+      );
+    });
+
+    test(
+      'raw DioException (no mapped Failure) → throws UnknownFailure',
+      () async {
+        when(
+          () => mockAuthApi.resendVerification(
+            resendVerificationRequest: any(named: 'resendVerificationRequest'),
+          ),
+        ).thenThrow(_rawDioException());
+
+        await expectLater(
+          () => repository.resendVerificationCode(email: 'x@beautica.test'),
+          throwsA(isA<UnknownFailure>()),
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 13 — logout (best-effort server call)
+  //
+  // Pinned against the ACTUAL implementation: HttpAuthRepository.logout() makes
+  // a best-effort POST /auth/logout and SWALLOWS any DioException so the caller
+  // can unconditionally wipe local storage afterwards. NOTE: this repository
+  // layer does NOT touch flutter_secure_storage itself — token clearing is the
+  // caller's (notifier's) responsibility (see source comment, line ~275). So
+  // the storage-clear assertion belongs in a notifier-level test, tracked as a
+  // backlog gap below. Here we pin: (a) network failure does not propagate,
+  // (b) the server call IS still attempted exactly once.
+  // -------------------------------------------------------------------------
+
+  group('logout', () {
+    test(
+      'network failure on POST /auth/logout → does NOT propagate (swallowed)',
+      () async {
+        when(() => mockAuthApi.logout()).thenThrow(
+          DioException(
+            requestOptions: _fakeOptions('/auth/logout'),
+            type: DioExceptionType.connectionError,
+          ),
+        );
+
+        await expectLater(repository.logout(), completes);
+      },
+    );
+
+    test('4xx DioException on logout → swallowed (still completes)', () async {
+      const failure = UnauthorizedFailure();
+      when(
+        () => mockAuthApi.logout(),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 401));
+
+      await expectLater(repository.logout(), completes);
+    });
+
+    test('success → server logout invoked exactly once', () async {
+      final res = Response<void>(
+        statusCode: 200,
+        requestOptions: _fakeOptions('/auth/logout'),
+      );
+      when(() => mockAuthApi.logout()).thenAnswer((_) async => res);
+
+      await repository.logout();
+
+      verify(() => mockAuthApi.logout()).called(1);
+    });
+
+    test(
+      'server logout still attempted even though the call will fail (best-effort)',
+      () async {
+        when(() => mockAuthApi.logout()).thenThrow(
+          DioException(
+            requestOptions: _fakeOptions('/auth/logout'),
+            type: DioExceptionType.connectionError,
+          ),
+        );
+
+        await repository.logout();
+
+        // The server call is made unconditionally; swallowing the error must
+        // not skip the network attempt (otherwise sessions never get
+        // server-side invalidated when the network later recovers).
+        verify(() => mockAuthApi.logout()).called(1);
+      },
+    );
+  });
 }
