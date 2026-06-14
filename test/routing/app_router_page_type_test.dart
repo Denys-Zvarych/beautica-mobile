@@ -293,7 +293,7 @@ void main() {
       // CupertinoPageTransitionsBuilder installs the left-edge swipe-back
       // gesture. If any reverts to `pageBuilder:`, the swipe-back gesture
       // silently dies on that drill-down.
-      const Map<String, String> _hubRoutes = <String, String>{
+      const Map<String, String> hubRoutes = <String, String>{
         'masterMenu (/master/menu)': RouteNames.masterMenu,
         'masterEditPersonal (/master/edit/personal)':
             RouteNames.masterEditPersonal,
@@ -303,7 +303,7 @@ void main() {
             RouteNames.masterEditLocation,
       };
 
-      _hubRoutes.forEach((String label, String path) {
+      hubRoutes.forEach((String label, String path) {
         test('SB-6: RouteNames.$label uses builder: not pageBuilder:', () {
           final route = _findRoute(router.configuration.routes, path);
           expect(

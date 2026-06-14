@@ -46,7 +46,7 @@ void main() {
     });
 
     test('exactly 15 digits (upper boundary) is accepted', () {
-      final fifteen = '123456789012345';
+      const fifteen = '123456789012345';
       final uri = canonicalTelUri(fifteen);
       expect(uri, isNotNull);
       expect(uri!.path, fifteen);
