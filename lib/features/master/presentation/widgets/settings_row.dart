@@ -262,7 +262,7 @@ class _NeumorphicSwitch extends StatelessWidget {
                       ? Alignment.centerRight
                       : Alignment.centerLeft,
                   child: Padding(
-                    padding: const EdgeInsets.all(4),
+                    padding: const EdgeInsets.all(VelvetSpacing.xs),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
                       height: _thumb,
