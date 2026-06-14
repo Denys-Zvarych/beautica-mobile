@@ -50,6 +50,7 @@
 //                     response omits them.
 
 import 'package:beautica_api/beautica_api.dart';
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/master_service_mapper.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
@@ -590,6 +591,52 @@ void main() {
         reason:
             'a null priceDisplay on both MSR and nested def must resolve to '
             "an empty string (the mapper's '' last-resort default)",
+      );
+    });
+  });
+
+  // ── J. fromDto broken-contract guard (log-hygiene regression) ─────────────
+  //
+  // Security-backlog: the broken-contract log in fromDto is now kDebugMode-
+  // gated and no longer interpolates raw values. These tests pin the OBSERVABLE
+  // behaviour — that a missing/blank assignment id still throws the same
+  // ServerFailure(statusCode: null) — so the log-hygiene refactor cannot
+  // silently turn the guard into a no-op. We assert the failure, never any log
+  // text.
+  group('J. fromDto broken-contract guard', () {
+    test('J-1. null id throws ServerFailure(statusCode: null)', () {
+      final dto =
+          (MasterServiceResponseBuilder()
+                // id intentionally left unset (null on the builder)
+                ..serviceDefinition.replace(buildDef(id: 'def-x'))
+                ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                ..priceMin = 500
+                ..priceDisplay = '500 грн'
+                ..isActive = true)
+              .build();
+
+      expect(
+        () => MasterServiceMapper.fromDto(dto),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', null),
+        ),
+      );
+    });
+
+    test('J-2. empty-string id throws ServerFailure(statusCode: null)', () {
+      final dto =
+          (MasterServiceResponseBuilder()
+                ..id = ''
+                ..serviceDefinition.replace(buildDef(id: 'def-x'))
+                ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+                ..priceMin = 500
+                ..priceDisplay = '500 грн'
+                ..isActive = true)
+              .build();
+
+      expect(
+        () => MasterServiceMapper.fromDto(dto),
+        throwsA(isA<ServerFailure>()),
       );
     });
   });

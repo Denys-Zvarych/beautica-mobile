@@ -2,24 +2,10 @@
 -keep class com.it_nomads.fluttersecurestorage.** { *; }
 -keepclassmembers class com.it_nomads.fluttersecurestorage.** { *; }
 
-# firebase_messaging — FCM listener and service classes
--keep class com.google.firebase.messaging.** { *; }
--keepclassmembers class com.google.firebase.messaging.** { *; }
--keep class io.flutter.plugins.firebase.messaging.** { *; }
-
-# Kotlin metadata (required for kotlinx-coroutines used by firebase)
+# Kotlin metadata — keep generic signatures / annotations for the reflection-
+# based native plugins above.
 -keepattributes *Annotation*, Signature, Exception
 -dontwarn kotlin.**
-
-# json_serializable / freezed — preserve fromJson factory and toJson methods
-# (Dart AOT strips unreferenced methods; these are called via dart:convert, not reflection)
--keepclassmembers class ** {
-    @com.google.gson.annotations.SerializedName <fields>;
-}
--keepclassmembers class * {
-    *** fromJson(com.google.gson.JsonElement);
-    com.google.gson.JsonElement toJson();
-}
 
 # flutter_native_splash — MethodChannel handler reached via Flutter native bridge (Phase 2.15)
 -keep class net.jonhanson.flutter_native_splash.** { *; }
@@ -36,18 +22,3 @@
 -keep class okhttp3.** { *; }
 -dontwarn okhttp3.**
 -dontwarn retrofit2.**
-
-# Phase 3.1 — built_value serializer registry (accessed via reflection at runtime)
-# Required: built_value model classes and their serializers are enumerated by name.
-# Missing these rules causes MissingFieldException / StateError on first API response deserialization.
--keep class **.model.** { *; }
--keep class ** implements built_value.Serializer { *; }
--keepnames class ** { @com.google.auto.value.AutoValue *; }
--keep @com.google.auto.value.AutoValue class * { *; }
-
-# Phase 3.1 — one_of / one_of_serializer discriminated union runtime dispatch
--keep class ** implements one_of_serializer.** { *; }
--keepclassmembers class * {
-    *** oneOf;
-    *** anyOf;
-}

@@ -17,6 +17,7 @@
 
 import 'dart:developer';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -158,11 +159,15 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
         child: asyncServices.when(
           loading: () => const _LoadingBody(),
           error: (e, _) {
-            log(
-              'ServicesListScreen: async error — $e',
-              name: 'feature.services.presentation',
-              level: 900,
-            );
+            if (kDebugMode) {
+              // Log the runtime type only — never the exception object, which
+              // can carry server data in its message.
+              log(
+                'ServicesListScreen: async error — ${e.runtimeType}',
+                name: 'feature.services.presentation',
+                level: 900,
+              );
+            }
             final failure = e is Failure ? e : UnknownFailure(cause: e);
             return _errorScrollable(
               ErrorState(

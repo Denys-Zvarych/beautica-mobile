@@ -5,6 +5,11 @@
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
+/// Maximum allowed length for a name field, mirroring the backend `@Size(max =
+/// 100)` constraint on first/last name and the service-definition name. Shared
+/// so validators and input formatters agree on the same cap.
+const int kNameMaxLength = 100;
+
 /// Matches any Unicode decimal digit (`\p{Nd}` — ASCII 0-9 plus other-script
 /// digits such as Arabic-Indic ٠-٩ or Devanagari ०-९). Mirrors the backend
 /// `@NoDigits` constraint, which rejects names containing any decimal digit.
@@ -17,12 +22,12 @@ bool nameContainsDigit(String v) => _nameDigitPattern.hasMatch(v);
 ///
 /// Validation rules (mirrors backend constraints):
 ///   - Not null and not blank (at least one non-whitespace character).
-///   - No longer than 100 characters.
+///   - No longer than [kNameMaxLength] characters.
 ///   - Must not contain any digit (`@NoDigits` on the backend). Letters of any
 ///     script, hyphen, apostrophe and spaces are all allowed.
 String? validateName(String? v, AppLocalizations l10n) {
   if (v == null || v.trim().isEmpty) return l10n.errNameRequired;
-  if (v.length > 100) return l10n.errNameTooLong;
+  if (v.length > kNameMaxLength) return l10n.errNameTooLong;
   if (nameContainsDigit(v)) return l10n.errNameHasDigit;
   return null;
 }
@@ -35,6 +40,6 @@ String? validateName(String? v, AppLocalizations l10n) {
 /// (mirrors the backend `@Size(max = 100)`) is enforced when a value is present.
 String? validateOptionalName(String? v, AppLocalizations l10n) {
   if (v == null || v.trim().isEmpty) return null;
-  if (v.length > 100) return l10n.errNameTooLong;
+  if (v.length > kNameMaxLength) return l10n.errNameTooLong;
   return null;
 }

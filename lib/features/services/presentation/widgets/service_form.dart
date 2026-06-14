@@ -682,8 +682,11 @@ class _ServiceFormState extends State<ServiceForm> {
       // wire field names are name / baseDurationMinutes / price / priceMin /
       // priceMax / category / bufferMinutesAfter.
       if (kDebugMode) {
+        // Log only the field NAMES — server-supplied messages can echo back
+        // user input / server data.
         log(
-          'ServiceForm.onSubmit validation failure: ${f.fieldErrors}',
+          'ServiceForm.onSubmit validation failure on fields: '
+          '${f.fieldErrors.keys.toList()}',
           name: _tag,
           level: 900,
         );
@@ -709,14 +712,14 @@ class _ServiceFormState extends State<ServiceForm> {
       }
       // Swallow — the inline errors now communicate the problem; rethrowing
       // would also pop a redundant generic snackbar.
-    } catch (e, st) {
+    } catch (e) {
       if (kDebugMode) {
+        // Log the runtime type only — never the exception object, which can
+        // carry server data / user input in its message.
         log(
-          'ServiceForm.onSubmit threw: $e',
+          'ServiceForm.onSubmit threw: ${e.runtimeType}',
           name: _tag,
           level: 900,
-          error: e,
-          stackTrace: st,
         );
       }
       rethrow;
@@ -895,6 +898,12 @@ class _ServiceFormState extends State<ServiceForm> {
             controller: _nameCtrl,
             errorText: _nameError(l10n),
             hintText: l10n.serviceNameHint,
+            // Cap input at the backend `@Size(max = 100)` name limit so an
+            // over-long value can never reach the wire; mirrors the duration
+            // field's LengthLimitingTextInputFormatter.
+            inputFormatters: <TextInputFormatter>[
+              LengthLimitingTextInputFormatter(kNameMaxLength),
+            ],
             enabled: !_submitting,
           ),
         ),

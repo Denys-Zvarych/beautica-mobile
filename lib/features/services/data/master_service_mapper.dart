@@ -42,6 +42,8 @@
 import 'dart:developer';
 
 import 'package:beautica_api/beautica_api.dart';
+import 'package:flutter/foundation.dart';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
 
 import '../domain/master_service.dart';
@@ -119,11 +121,13 @@ abstract final class MasterServiceMapper {
   static MasterService fromDto(MasterServiceResponse dto) {
     final id = dto.id;
     if (id == null || id.isEmpty) {
-      log(
-        'MasterServiceResponse.id is null — broken backend contract',
-        name: 'feature.services.mapper',
-        level: 1000,
-      );
+      if (kDebugMode) {
+        log(
+          'MasterServiceResponse.id is null — broken backend contract',
+          name: 'feature.services.mapper',
+          level: 1000,
+        );
+      }
       throw const ServerFailure(statusCode: null);
     }
 
@@ -176,10 +180,12 @@ abstract final class MasterServiceMapper {
     // correctly. A null/empty value means the backend omitted it — log so the
     // broken contract surfaces, but do not throw (list/read still works).
     final serviceDefId = def?.id ?? '';
-    if (serviceDefId.isEmpty) {
+    if (serviceDefId.isEmpty && kDebugMode) {
+      // Static message only — never interpolate the assignment id (PII-adjacent
+      // identifier) into a log that could ship to release.
       log(
         'MasterServiceResponse.serviceDefinition.id is null — update/delete '
-        'will fail for assignment id=$id',
+        'will fail for this assignment',
         name: 'feature.services.mapper',
         level: 1000,
       );
@@ -229,11 +235,13 @@ abstract final class MasterServiceMapper {
   }) {
     final serviceDefId = dto.id;
     if (serviceDefId == null || serviceDefId.isEmpty) {
-      log(
-        'ServiceDefinitionResponse.id is null — broken backend contract',
-        name: 'feature.services.mapper',
-        level: 1000,
-      );
+      if (kDebugMode) {
+        log(
+          'ServiceDefinitionResponse.id is null — broken backend contract',
+          name: 'feature.services.mapper',
+          level: 1000,
+        );
+      }
       throw const ServerFailure(statusCode: null);
     }
 
