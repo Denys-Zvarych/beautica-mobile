@@ -26,6 +26,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/errors/failures.dart';
 import '../../../core/security/screen_protection.dart';
+import '../../../core/time/clock_provider.dart';
 import '../../../shared/formatters/ua_phone_input_formatter.dart';
 import '../../../shared/validators/name_validator.dart';
 import '../../../shared/validators/phone_validator.dart';
@@ -293,8 +294,12 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
           ],
         ),
       ),
-      data: (invite) =>
-          _buildForm(l10n, invite.email, invite.role, invite.expiresInHours),
+      data: (invite) => _buildForm(
+        l10n,
+        invite.email,
+        invite.role,
+        invite.expiresInHoursFrom(ref.watch(clockProvider)()),
+      ),
     );
   }
 

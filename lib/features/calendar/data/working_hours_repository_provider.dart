@@ -9,6 +9,7 @@
 // [MasterControllerApi]. Mirrors the services feature's provider split.
 
 import 'package:beautica_mobile/core/network/api_client_provider.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -44,5 +45,6 @@ WorkingHoursRepository workingHoursRepository(Ref ref) {
   return HttpWorkingHoursRepository(
     masterApi: ref.watch(masterApiProvider),
     masterId: masterId ?? '',
+    now: ref.watch(clockProvider),
   );
 }
