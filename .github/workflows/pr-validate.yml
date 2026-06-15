@@ -359,4 +359,4 @@ jobs:
           # The FCM cases are skip-marked at the Dart level (Firebase deferred)
           # so they report as skipped, not failed.
           script: |
-            patrol test --target integration_test/patrol
+            patrol test --target integration_test/patrol --verbose
