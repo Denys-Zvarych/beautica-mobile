@@ -46,7 +46,8 @@ void main() {
       expect(
         aggregator.existsSync(),
         isTrue,
-        reason: 'integration_test/all_tests.dart aggregating entrypoint must '
+        reason:
+            'integration_test/all_tests.dart aggregating entrypoint must '
             'exist (Phase 17.3)',
       );
     });
@@ -55,14 +56,15 @@ void main() {
       // Runnable flow files: top-level `*_test.dart` in integration_test/,
       // excluding the aggregator itself and anything under support/ (helpers,
       // not runnable tests — they are never top-level entries here anyway).
-      final List<String> flowFiles = integrationDir
-          .listSync()
-          .whereType<File>()
-          .map((File f) => f.uri.pathSegments.last)
-          .where((String name) => name.endsWith('_test.dart'))
-          .where((String name) => name != 'all_tests.dart')
-          .toList()
-        ..sort();
+      final List<String> flowFiles =
+          integrationDir
+              .listSync()
+              .whereType<File>()
+              .map((File f) => f.uri.pathSegments.last)
+              .where((String name) => name.endsWith('_test.dart'))
+              .where((String name) => name != 'all_tests.dart')
+              .toList()
+            ..sort();
 
       // Sanity: the directory is not empty (a glob-mismatch or a moved folder
       // would otherwise make this test vacuously pass).
@@ -86,7 +88,8 @@ void main() {
       expect(
         missing,
         isEmpty,
-        reason: 'these flow files exist in integration_test/ but are NOT '
+        reason:
+            'these flow files exist in integration_test/ but are NOT '
             'imported by all_tests.dart, so they will NOT run in CI: $missing. '
             'Add `import \'<file>\' as <alias>;` and a `group(...)` entry.',
       );
@@ -117,7 +120,8 @@ void main() {
       expect(
         unregistered,
         isEmpty,
-        reason: 'these flows are imported but never registered via '
+        reason:
+            'these flows are imported but never registered via '
             'group(..., <alias>.main) in all_tests.dart, so they will NOT run: '
             '$unregistered',
       );
