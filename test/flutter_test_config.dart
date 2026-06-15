@@ -22,6 +22,10 @@
 //   3. Install an [HttpOverrides] that throws on any real socket, so an
 //      un-mocked network call fails loudly in the offending test instead of
 //      silently leaking a Timer (the dominant flake mode this phase targets).
+//   4. Install the Phase 17.2 overflow guard suite-wide so ANY `RenderFlex`
+//      overflow fails the offending test. It chains to the default presenter
+//      (it does NOT touch `HttpOverrides`/font setup above), so the 17.1
+//      no-network net and font determinism are preserved.
 
 import 'dart:async';
 import 'dart:io';
@@ -31,6 +35,8 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+import 'helpers/overflow_guard.dart';
 
 // The bundled font families and their backing TTF assets (declared in
 // pubspec.yaml `flutter > fonts`). Registered under the real family name so
@@ -91,6 +97,18 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   // (4) Fail loudly on any real socket — an un-mocked network call must surface
   // as a test failure, not a leaked timer.
   HttpOverrides.global = _NoNetworkHttpOverrides();
+
+  // (5) Phase 17.2 — record every RenderFlex overflow suite-wide. Installed
+  // AFTER step (4) and the binding init so it captures the default presenter as
+  // its delegate (non-overflow errors still report normally). The 17.1 net
+  // lives on HttpOverrides + the font collection, not on FlutterError.onError,
+  // so chaining here leaves it fully intact.
+  //
+  // We install the RECORDER (not the full guard) here because `testExecutable`
+  // runs outside any test, where `addTearDown` is invalid. Tests that pump via
+  // `pumpApp`/`pumpRoutedApp` arm the failing tearDown themselves
+  // (installOverflowGuard), so an overflow at the stress size fails the test.
+  installOverflowRecorder();
 
   await testMain();
 }

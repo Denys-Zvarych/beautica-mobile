@@ -827,19 +827,19 @@ class _PricingInputFieldState extends State<_PricingInputField> {
     // In FIXED mode the non-compact price field spans only half the row (~160
     // dp), so both sm/xs and md/md would work — the tight values keep the
     // appearance consistent between FIXED and RANGE modes.
-    final double wellHPad = widget.compact
-        ? VelvetSpacing.sm
-        : VelvetSpacing.sm;
-    final double affixGap = widget.compact
-        ? VelvetSpacing.xs
-        : VelvetSpacing.xs;
+    //
+    // Compact and non-compact resolved to the SAME tokens (sm / xs), so the
+    // per-variant ternary was dead. Collapsed to the constants directly
+    // (perf LOW, Phase 17.2).
+    const double wellHPad = VelvetSpacing.sm;
+    const double affixGap = VelvetSpacing.xs;
 
     final Widget well = NeumorphicInset(
       key: widget.fieldKey,
       focused: _focused,
       hasError: hasError || widget.errorText == '',
       child: Padding(
-        padding: EdgeInsets.symmetric(
+        padding: const EdgeInsets.symmetric(
           horizontal: wellHPad,
           vertical: VelvetSpacing.sm + 2,
         ),
@@ -877,7 +877,7 @@ class _PricingInputFieldState extends State<_PricingInputField> {
                 ),
               ),
               if (showSuffix) ...<Widget>[
-                SizedBox(width: affixGap),
+                const SizedBox(width: affixGap),
                 Text(widget.suffixText, style: _suffixStyle),
               ],
             ],
