@@ -493,20 +493,27 @@ class VelvetBottomNavBar extends StatelessWidget {
           borderRadius: _pillRadius,
           child: SafeArea(
             top: false,
-            child: SizedBox(
-              height: 62,
-              child: Row(
-                children: <Widget>[
-                  for (int i = 0; i < _navItems.length; i++)
-                    Expanded(
-                      child: _VelvetNavTile(
-                        key: Key('master-nav-tile-$i'),
-                        item: _navItems[i],
-                        index: i,
-                        active: i == activeIndex,
+            // ConstrainedBox (minHeight, not a fixed SizedBox height) so the bar
+            // grows with the tile's intrinsic content at large text scales
+            // (textScale 1.3 pushed the icon + pill + label past a fixed 62 dp
+            // and overflowed the nav tile column by 5 px). IntrinsicHeight keeps
+            // all four tiles the same height as the tallest one.
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 62),
+              child: IntrinsicHeight(
+                child: Row(
+                  children: <Widget>[
+                    for (int i = 0; i < _navItems.length; i++)
+                      Expanded(
+                        child: _VelvetNavTile(
+                          key: Key('master-nav-tile-$i'),
+                          item: _navItems[i],
+                          index: i,
+                          active: i == activeIndex,
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

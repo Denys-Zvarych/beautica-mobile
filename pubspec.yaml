@@ -151,6 +151,7 @@ dev_dependencies:
   # monochrome variant, and the iOS AppIcon.appiconset family from the
   # source PNGs in assets/branding/.
   flutter_launcher_icons: ^0.14.1
+  alchemist: ^0.14.0
 
 # Launcher icon configuration — read by `dart run flutter_launcher_icons`.
 # Lives at the TOP level (not under `flutter:`) because the dev tool — not the

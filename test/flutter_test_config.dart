@@ -26,11 +26,24 @@
 //      overflow fails the offending test. It chains to the default presenter
 //      (it does NOT touch `HttpOverrides`/font setup above), so the 17.1
 //      no-network net and font determinism are preserved.
+//   5. Phase 17.4 — Install the Alchemist config suite-wide so every
+//      `goldenTest(...)` call uses a fixed path resolver (pointing at
+//      `test/golden/goldens/`) and CI-only rendering (platform goldens are
+//      disabled to prevent host-OS font-rendering drift). We intentionally
+//      skip Alchemist's own `loadFonts()` (which fires via
+//      `goldenTestAdapter.setUp`) because: (a) we already loaded fonts above
+//      via `ui.loadFontFromList` which does NOT broadcast
+//      `systemFonts.notifyListeners()`, and (b) Alchemist's `FontLoader.load`
+//      path DOES broadcast, which triggers the same deactivated-subtree
+//      re-render deadlock that step (2) was designed to avoid. Because CI
+//      golden mode sets `obscureText: true` (text → coloured blocks), the
+//      actual font loaded by Alchemist is irrelevant for comparison stability.
 
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:alchemist/alchemist.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
@@ -110,8 +123,50 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   // (installOverflowGuard), so an overflow at the stress size fails the test.
   installOverflowRecorder();
 
-  await testMain();
+  // (6) Phase 17.4 — Configure Alchemist suite-wide.
+  //
+  // Strategy:
+  //   • Only CI goldens are enabled (platform goldens disabled). CI mode sets
+  //     `obscureText: true` (text → coloured blocks), which is platform-agnostic
+  //     — identical bytes regardless of the runner OS. This is what makes goldens
+  //     byte-stable in GitHub Actions (Linux) vs local dev (also Linux here, but
+  //     the gate future-proofs macOS/Windows contributors).
+  //   • The CI file-path resolver writes to `goldens/<fileName>.png` (flat,
+  //     no `CI/` subdirectory). Each golden test file lives under
+  //     `test/golden/`, so the final path on disk is
+  //     `test/golden/goldens/<name>.png` — checked into git as the master.
+  //   • `renderShadows: false` keeps CI images stable between Flutter patch
+  //     releases that tweak shadow blending.
+  //   • We do NOT wrap testMain with runWithConfig here because
+  //     `AlchemistConfig.runWithConfig` is synchronous (Zone.current) and
+  //     testMain is async — the Zone would exit before tests run. Instead we
+  //     rely on Alchemist's `AlchemistConfig.current()` Zone lookup which each
+  //     `goldenTest` call performs at its own call site; we set the global
+  //     default by running the whole testMain inside the zone.
+  await AlchemistConfig.runWithConfig(
+    config: const AlchemistConfig(
+      platformGoldensConfig: PlatformGoldensConfig(enabled: false),
+      ciGoldensConfig: CiGoldensConfig(
+        enabled: true,
+        obscureText: true,
+        renderShadows: false,
+        filePathResolver: _ciFilePathResolver,
+      ),
+    ),
+    run: testMain,
+  );
 }
+
+/// Resolves the path for a CI golden image.
+///
+/// Alchemist calls this with [fileName] (the test's logical name, no extension)
+/// and [environmentName] ('CI'). The returned path is RELATIVE to the test
+/// file that calls `goldenTest`. Golden test files live under
+/// `test/golden/`, so `goldens/<fileName>.png` places the PNG at
+/// `test/golden/goldens/<fileName>.png` (flat, no `CI/` subdirectory) —
+/// the intended master location.
+FutureOr<String> _ciFilePathResolver(String fileName, String environmentName) =>
+    'goldens/$fileName.png';
 
 /// Forces the lazy `VelvetText` static styles to build, so every backing
 /// `GoogleFonts.*` call queues its load future into `GoogleFonts.pendingFonts()`

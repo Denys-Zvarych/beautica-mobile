@@ -103,7 +103,28 @@ jobs:
           fi
 
       - name: Test
-        run: flutter test --coverage --reporter=expanded
+        run: flutter test --coverage --reporter=expanded --exclude-tags golden
+
+      # Phase 17.4 — Golden regression suite.
+      # Runs the alchemist CI goldens (obscureText=true, renderShadows=false)
+      # against the committed masters in test/golden/goldens/.
+      # On failure, golden-diff PNGs are collected from the framework's default
+      # failures/ subdirectory (alchemist writes isolatedDiff, maskedDiff,
+      # masterImage, testImage to <test-file-dir>/failures/) and uploaded so
+      # reviewers can inspect regressions without pulling the branch locally.
+      - name: Golden regression tests
+        run: flutter test test/golden/ --reporter=expanded
+
+      - name: Upload golden failure diffs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: golden-failure-diffs-${{ github.event.pull_request.number || github.run_number }}
+          path: |
+            test/golden/failures/
+            test/golden/**/failures/
+          if-no-files-found: ignore
+          retention-days: 14
 
       # Decode the release keystore from the base64 secret.
       # Skipped silently on forks / branches where the secret is absent.
