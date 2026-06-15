@@ -54,6 +54,10 @@ test/**/failures/
 android/key.properties
 android/app/upload-keystore.jks
 android/app/*.jks
+# Release signing keystore decoded into $GITHUB_WORKSPACE by CI (pr-validate.yml
+# "Decode keystore" step) — ignore at the repo root so it can never be committed.
+*.jks
+beautica-release.jks
 build/symbols/
 .env
 .env.*

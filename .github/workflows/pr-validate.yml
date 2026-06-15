@@ -120,9 +120,11 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: golden-failure-diffs-${{ github.event.pull_request.number || github.run_number }}
+          # All golden tests live directly under test/golden/, so alchemist only
+          # ever writes test/golden/failures/. The recursive **/failures/ glob
+          # matched nothing and was removed (PERF INFO).
           path: |
             test/golden/failures/
-            test/golden/**/failures/
           if-no-files-found: ignore
           retention-days: 14
 
@@ -142,14 +144,19 @@ jobs:
 
       - name: Build APK (debug)
         env:
-          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app/api/v1
+          # NO /api/v1 suffix — the generated OpenAPI client and raw Dio calls
+          # already prepend /api/v1/. A suffix here double-prefixes every URL
+          # (.../api/v1/api/v1/...) → 404. Contract pinned by
+          # test/core/config/app_config_path_test.dart.
+          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app
         run: |
           flutter build apk --debug \
             --dart-define=BEAUTICA_BASE_URL="$BEAUTICA_BASE_URL"
 
       - name: Build APK (release)
         env:
-          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app/api/v1
+          # NO /api/v1 suffix — see the debug build note above. Double-prefix → 404.
+          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app
           BEAUTICA_KEYSTORE_PATH: ${{ github.workspace }}/beautica-release.jks
           BEAUTICA_KEYSTORE_PASSWORD: ${{ secrets.BEAUTICA_KEYSTORE_PASSWORD }}
           BEAUTICA_KEY_ALIAS: ${{ secrets.BEAUTICA_KEY_ALIAS }}
@@ -234,4 +241,18 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
-          script: flutter test integration_test/
+          # Run each E2E flow file as its OWN `flutter test` process. A single
+          # batched `flutter test integration_test/` cannot relaunch the app
+          # between files — the first flow passes and the rest fail with
+          # "Unable to start the app on the device". Iterating one file per
+          # process gives each flow a fresh app launch.
+          #
+          # Only top-level *_test.dart entrypoints are run; integration_test/
+          # support/** holds shared helpers, not runnable test files.
+          # `|| exit 1` propagates the first failure so the job fails fast and
+          # non-zero exits are never swallowed.
+          script: |
+            for f in integration_test/*_test.dart; do
+              echo "== $f =="
+              flutter test "$f" || exit 1
+            done
