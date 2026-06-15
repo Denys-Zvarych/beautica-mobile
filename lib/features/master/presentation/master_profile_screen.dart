@@ -845,9 +845,16 @@ class _ProfileCategoriesSectionState
           padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
           child: Row(
             children: <Widget>[
-              Text(
-                l10n.masterProfileCategoriesLabel,
-                style: VelvetText.sectionLabel(),
+              // Flexible so the section label ellipsizes instead of overflowing
+              // the header Row at 320 dp / textScale 1.3 (was a 12 px right
+              // overflow when both labels rendered at their natural width).
+              Flexible(
+                child: Text(
+                  l10n.masterProfileCategoriesLabel,
+                  style: VelvetText.sectionLabel(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
               const Spacer(),
               GestureDetector(

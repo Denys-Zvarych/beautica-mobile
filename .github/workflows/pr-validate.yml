@@ -103,7 +103,30 @@ jobs:
           fi
 
       - name: Test
-        run: flutter test --coverage --reporter=expanded
+        run: flutter test --coverage --reporter=expanded --exclude-tags golden
+
+      # Phase 17.4 — Golden regression suite.
+      # Runs the alchemist CI goldens (obscureText=true, renderShadows=false)
+      # against the committed masters in test/golden/goldens/.
+      # On failure, golden-diff PNGs are collected from the framework's default
+      # failures/ subdirectory (alchemist writes isolatedDiff, maskedDiff,
+      # masterImage, testImage to <test-file-dir>/failures/) and uploaded so
+      # reviewers can inspect regressions without pulling the branch locally.
+      - name: Golden regression tests
+        run: flutter test test/golden/ --reporter=expanded
+
+      - name: Upload golden failure diffs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: golden-failure-diffs-${{ github.event.pull_request.number || github.run_number }}
+          # All golden tests live directly under test/golden/, so alchemist only
+          # ever writes test/golden/failures/. The recursive **/failures/ glob
+          # matched nothing and was removed (PERF INFO).
+          path: |
+            test/golden/failures/
+          if-no-files-found: ignore
+          retention-days: 14
 
       # Decode the release keystore from the base64 secret.
       # Skipped silently on forks / branches where the secret is absent.
@@ -121,14 +144,19 @@ jobs:
 
       - name: Build APK (debug)
         env:
-          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app/api/v1
+          # NO /api/v1 suffix — the generated OpenAPI client and raw Dio calls
+          # already prepend /api/v1/. A suffix here double-prefixes every URL
+          # (.../api/v1/api/v1/...) → 404. Contract pinned by
+          # test/core/config/app_config_path_test.dart.
+          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app
         run: |
           flutter build apk --debug \
             --dart-define=BEAUTICA_BASE_URL="$BEAUTICA_BASE_URL"
 
       - name: Build APK (release)
         env:
-          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app/api/v1
+          # NO /api/v1 suffix — see the debug build note above. Double-prefix → 404.
+          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app
           BEAUTICA_KEYSTORE_PATH: ${{ github.workspace }}/beautica-release.jks
           BEAUTICA_KEYSTORE_PASSWORD: ${{ secrets.BEAUTICA_KEYSTORE_PASSWORD }}
           BEAUTICA_KEY_ALIAS: ${{ secrets.BEAUTICA_KEY_ALIAS }}
@@ -213,4 +241,23 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
-          script: flutter test integration_test/
+          # Run ALL 5 E2E flows via a single aggregating entrypoint to recover
+          # emulator boot cost (L87). integration_test/all_tests.dart imports
+          # each flow's main() and runs them in ONE `flutter test` process / one
+          # isolate. Each testWidgets still pumps a fresh app via
+          # AppHarness.boot() and resets global state via tearDownHarness BETWEEN
+          # flows — so the app re-launches per-testWidgets (the supported model),
+          # not per-process. This avoids cold-booting the app 5× (the old
+          # per-file loop) while keeping every flow's fresh-launch semantics.
+          #
+          # NOTE: directory-mode batching (`flutter test integration_test/`) does
+          # NOT work — it launches the app once and cannot relaunch between files
+          # ("Unable to start the app on the device" after the first flow). A
+          # single AGGREGATING FILE does work: one isolate, harness re-launches
+          # per testWidgets. That is the distinction this entrypoint relies on.
+          #
+          # No `|| exit 1` fail-fast wrapper (L88): the single run continues past
+          # a failing testWidgets and reports EVERY failure across all 5 flows at
+          # the end. `flutter test`'s own non-zero exit on any failure is the gate.
+          script: |
+            flutter test integration_test/all_tests.dart

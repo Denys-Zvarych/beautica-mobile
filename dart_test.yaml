@@ -1,0 +1,12 @@
+# dart_test.yaml — test runner configuration for beautica_mobile.
+#
+# Declaring the `golden` tag here silences the "A tag was used that wasn't
+# specified" warnings emitted by alchemist's goldenTest() during the
+# Phase 17.4 golden suite run.
+
+tags:
+  golden:
+    description: >
+      Visual regression golden tests (Phase 17.4).
+      Run with: flutter test test/golden/
+      Update masters with: flutter test test/golden/ --update-goldens

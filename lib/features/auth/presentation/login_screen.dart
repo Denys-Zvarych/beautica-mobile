@@ -321,8 +321,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           const SizedBox(height: VelvetSpacing.lg),
 
           // ── Sign-up link row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          // Wrapped in Wrap so the two text spans reflow onto a second line at
+          // narrow viewports (320 dp) with large text scale (1.3×) instead of
+          // overflowing the Row. At normal sizes (360 dp / 1.0×) they always
+          // fit on one line and Wrap renders identically to a Row.
+          Wrap(
+            alignment: WrapAlignment.center,
             children: <Widget>[
               Text(l10n.loginNoAccount, style: VelvetText.body()),
               GestureDetector(

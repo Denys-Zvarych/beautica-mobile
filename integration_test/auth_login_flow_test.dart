@@ -36,8 +36,8 @@ void main() {
   /// does not have GoRouter in its ancestor chain and throws
   /// "No GoRouter found in context".
   void expectLocation(GoRouter router, String expected) {
-    final String current =
-        router.routerDelegate.currentConfiguration.uri.toString();
+    final String current = router.routerDelegate.currentConfiguration.uri
+        .toString();
     expect(
       current,
       startsWith(expected),

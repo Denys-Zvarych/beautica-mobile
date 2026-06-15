@@ -31,8 +31,8 @@ void main() {
   // RC2 — reads current location from the router instance rather than via
   // GoRouter.of(context), which fails at the MaterialApp context level.
   void expectLocation(GoRouter router, String expected) {
-    final String current =
-        router.routerDelegate.currentConfiguration.uri.toString();
+    final String current = router.routerDelegate.currentConfiguration.uri
+        .toString();
     expect(
       current,
       startsWith(expected),
@@ -155,7 +155,6 @@ void main() {
             '_isDirty is false despite the toggle, which means _baseline[0] '
             'is empty (seed bug) or _days[0] was already null.',
       );
-
 
       // The save button is pinned below the ListView (in a Column outside the
       // scroll view). Ensure it's visible and tap it.

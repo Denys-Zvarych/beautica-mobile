@@ -40,8 +40,8 @@ void main() {
   // RC2 — reads current location from the router instance rather than via
   // GoRouter.of(context), which fails at the MaterialApp context level.
   void expectLocation(GoRouter router, String expected) {
-    final String current =
-        router.routerDelegate.currentConfiguration.uri.toString();
+    final String current = router.routerDelegate.currentConfiguration.uri
+        .toString();
     expect(
       current,
       startsWith(expected),
@@ -126,7 +126,9 @@ void main() {
       // Use bounded pumps for the sheet lifecycle — the bottom sheet has a
       // slide-in animation (ModalBottomSheet) and the dismiss has a slide-out
       // animation. Both complete in ~300ms; 12 × 100ms covers both directions.
-      final Finder categoryField = find.byKey(const Key('select-category-field'));
+      final Finder categoryField = find.byKey(
+        const Key('select-category-field'),
+      );
       await tester.ensureVisible(categoryField);
       await tester.pump(const Duration(milliseconds: 100));
       await tester.tap(categoryField);
@@ -135,7 +137,11 @@ void main() {
         await tester.pump(const Duration(milliseconds: 100));
       }
       final Finder nailsChip = find.byKey(const Key('chip-category-NAILS'));
-      expect(nailsChip, findsOneWidget, reason: 'NAILS category chip must appear in the picker sheet');
+      expect(
+        nailsChip,
+        findsOneWidget,
+        reason: 'NAILS category chip must appear in the picker sheet',
+      );
       await tester.tap(nailsChip);
       // Let the sheet dismiss: bottom-sheet exit animation ~300ms.
       for (int i = 0; i < 6; i++) {
