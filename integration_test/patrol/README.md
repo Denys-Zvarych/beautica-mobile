@@ -50,6 +50,10 @@ patrol test --target integration_test/patrol/deep_link_patrol_test.dart
 > pick up the non-patrol `testWidgets` flows that live directly under
 > `integration_test/`. Always scope to the `patrol` subfolder.
 
+> **patrol test descriptions must not contain `/`** (it breaks the AndroidX Test
+> Orchestrator's per-test output filename — `File ...txt contains a path
+> separator`). Use route assertions inside the test, never `/` in the test name.
+
 `patrol test` builds the `androidTest` variant (PatrolJUnitRunner +
 ANDROIDX_TEST_ORCHESTRATOR — configured in `android/app/build.gradle.kts`),
 installs the app + test APKs, enumerates the Dart `patrolTest(...)` cases via

@@ -46,7 +46,7 @@ void main() {
   }
 
   patrolTest(
-    'INDEPENDENT_MASTER login navigates to /master/profile (patrol template)',
+    'INDEPENDENT_MASTER login navigates to master profile route (patrol template)',
     config: config,
     ($) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
@@ -67,7 +67,7 @@ void main() {
   );
 
   patrolTest(
-    'CLIENT login navigates to / (home placeholder, patrol template)',
+    'CLIENT login navigates to home placeholder route (patrol template)',
     config: config,
     ($) async {
       final fb = FakeBackend()..currentRole = UserRole.client;

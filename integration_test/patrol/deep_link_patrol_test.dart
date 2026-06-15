@@ -45,46 +45,47 @@ const String _kResetPasswordDeepLink =
     '/reset-password?token=patrol-e2e-smoke-token';
 
 void main() {
-  patrolTest('deep link /reset-password opens the reset-password screen', (
-    $,
-  ) async {
-    // Launch the REAL app tree. Under patrol native instrumentation the
-    // platform channels main() touches (FlutterNativeSplash, SystemChrome,
-    // cert-pinning) ARE available, but we pump BeauticaApp directly to keep
-    // the test focused on routing and skip main()'s one-shot startup work.
-    await $.pumpWidgetAndSettle(const ProviderScope(child: BeauticaApp()));
+  patrolTest(
+    'deep link to reset-password route opens the reset-password screen',
+    ($) async {
+      // Launch the REAL app tree. Under patrol native instrumentation the
+      // platform channels main() touches (FlutterNativeSplash, SystemChrome,
+      // cert-pinning) ARE available, but we pump BeauticaApp directly to keep
+      // the test focused on routing and skip main()'s one-shot startup work.
+      await $.pumpWidgetAndSettle(const ProviderScope(child: BeauticaApp()));
 
-    // Cold start with no stored token settles to /login (the unauthenticated
-    // home). Sanity-check we are NOT already on reset-password so the
-    // assertion after openUrl proves the deep link did the navigation.
-    expect(
-      find.byKey(const ValueKey<String>('reset_submit')),
-      findsNothing,
-      reason: 'Precondition: reset-password screen must not be shown yet',
-    );
+      // Cold start with no stored token settles to /login (the unauthenticated
+      // home). Sanity-check we are NOT already on reset-password so the
+      // assertion after openUrl proves the deep link did the navigation.
+      expect(
+        find.byKey(const ValueKey<String>('reset_submit')),
+        findsNothing,
+        reason: 'Precondition: reset-password screen must not be shown yet',
+      );
 
-    // Fire the OS-level App Link intent. Android routes it to MainActivity
-    // (singleTop) → Flutter deep-link handler → go_router /reset-password.
-    // `$.platform.mobile.openUrl` is the non-deprecated successor to the old
-    // `$.native.openUrl` (NativeAutomator is being phased out in patrol 4.x).
-    await $.platform.mobile.openUrl(_kResetPasswordDeepLink);
+      // Fire the OS-level App Link intent. Android routes it to MainActivity
+      // (singleTop) → Flutter deep-link handler → go_router /reset-password.
+      // `$.platform.mobile.openUrl` is the non-deprecated successor to the old
+      // `$.native.openUrl` (NativeAutomator is being phased out in patrol 4.x).
+      await $.platform.mobile.openUrl(_kResetPasswordDeepLink);
 
-    // Let the intent propagate into the Flutter engine and the router settle.
-    await $.pumpAndSettle();
+      // Let the intent propagate into the Flutter engine and the router settle.
+      await $.pumpAndSettle();
 
-    // Destination assertion: the reset-password form is now mounted. Keys are
-    // locale-invariant (no Ukrainian find.text), per the integration-test
-    // navigation policy.
-    expect(
-      find.byKey(const ValueKey<String>('reset_submit')),
-      findsOneWidget,
-      reason: 'Deep link must land on the reset-password screen',
-    );
-    expect(
-      find.byKey(const ValueKey<String>('reset_password')),
-      findsOneWidget,
-    );
-  });
+      // Destination assertion: the reset-password form is now mounted. Keys are
+      // locale-invariant (no Ukrainian find.text), per the integration-test
+      // navigation policy.
+      expect(
+        find.byKey(const ValueKey<String>('reset_submit')),
+        findsOneWidget,
+        reason: 'Deep link must land on the reset-password screen',
+      );
+      expect(
+        find.byKey(const ValueKey<String>('reset_password')),
+        findsOneWidget,
+      );
+    },
+  );
 
   // ── FCM tap-through + notification-permission prompt (DEFERRED) ────────────
   //
