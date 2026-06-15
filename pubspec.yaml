@@ -136,6 +136,22 @@ dev_dependencies:
   integration_test:
     sdk: flutter
 
+  # Native E2E (Phase 17.5) — patrol drives OS-level surfaces that
+  # integration_test cannot reach: permission dialogs, notifications, deep-link
+  # intents and WebViews via `$.native.*`. patrol 4.6.x requires Dart >=3.8 /
+  # Flutter >=3.32 — satisfied by this project's Flutter 3.41 / Dart 3.11.
+  #
+  # patrol native tests run ONLY on an Android emulator/device under native
+  # instrumentation (PatrolJUnitRunner) — NOT under `flutter test`. They are
+  # driven by the patrol_cli global tool (`patrol test`), which is intentionally
+  # NOT a repo dependency: install it in CI / locally via
+  #   dart pub global activate patrol_cli
+  # See integration_test/patrol/README.md for the full runbook. The fast
+  # headless `flutter test integration_test/all_tests.dart` path is unaffected —
+  # patrol tests live under integration_test/patrol/ and are excluded from the
+  # aggregator.
+  patrol: ^4.6.1
+
   # Lints — flutter_lints + riverpod_lint via custom_lint.
   # Upgraded custom_lint stack to ^0.8.1 in Phase 1.4 to resolve the
   # analyzer_plugin 0.12.0 vs analyzer 7.6.0 incompatibility that prevented
@@ -152,6 +168,19 @@ dev_dependencies:
   # source PNGs in assets/branding/.
   flutter_launcher_icons: ^0.14.1
   alchemist: ^0.14.0
+
+# Patrol native-test configuration (Phase 17.5) — read by `patrol test` /
+# `patrol_cli`. Top-level key (the patrol_cli tool, not the Flutter framework,
+# consumes it). app_name is cosmetic; android.package_name MUST match the
+# applicationId in android/app/build.gradle.kts so patrol can install + drive
+# the right APK. iOS is declared for parity but iOS native patrol is not part of
+# this phase (Android-only emulator job in CI).
+patrol:
+  app_name: Beautica
+  android:
+    package_name: com.beautica.beautica_mobile
+  ios:
+    bundle_id: com.beautica.beauticaMobile
 
 # Launcher icon configuration — read by `dart run flutter_launcher_icons`.
 # Lives at the TOP level (not under `flutter:`) because the dev tool — not the

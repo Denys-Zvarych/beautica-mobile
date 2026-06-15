@@ -5,6 +5,15 @@ on:
     branches: [main, dev]
   push:
     branches: [main, dev]
+  # Phase 17.5 — nightly trigger for the heavy patrol native-E2E job (see the
+  # `patrol` job below). The fast `validate` + `integration` jobs run on every
+  # push/PR as before; the patrol job is gated to schedule / manual dispatch /
+  # an opt-in PR label so its slow native compile + emulator run never blocks
+  # the per-PR critical path.
+  schedule:
+    # 03:30 UTC nightly (off-peak; after typical EU working hours).
+    - cron: '30 3 * * *'
+  workflow_dispatch: {}
 
 jobs:
   validate:
@@ -261,3 +270,86 @@ jobs:
           # the end. `flutter test`'s own non-zero exit on any failure is the gate.
           script: |
             flutter test integration_test/all_tests.dart
+
+  # ---------------------------------------------------------------------------
+  # Patrol native E2E (Phase 17.5).
+  #
+  # Covers OS-level surfaces integration_test cannot reach (deep-link intents,
+  # permission dialogs, notifications, WebViews) via patrol's `$.native.*`.
+  # Tests live under integration_test/patrol/ and run through native
+  # instrumentation (PatrolJUnitRunner) driven by the patrol_cli global tool —
+  # NOT `flutter test`. The headless `integration` job above is unaffected: the
+  # all_tests.dart aggregator does not import anything under patrol/.
+  #
+  # WHY THIS JOB IS GATED (not per-PR):
+  #   The native compile builds the androidTest variant + AndroidX Test
+  #   Orchestrator and boots a full emulator — materially slower than the fast
+  #   jobs. The patrol flow set is small and changes rarely, so per-PR runtime
+  #   cost is not justified. This job therefore runs only on:
+  #     • the nightly `schedule` trigger,
+  #     • manual `workflow_dispatch`,
+  #     • PRs explicitly labelled `run-patrol`.
+  #   It is a SEPARATE job, so it never blocks or merges into the fast
+  #   `validate` / `integration` jobs.
+  patrol:
+    name: Patrol native E2E (emulator)
+    runs-on: ubuntu-latest
+    # Skip on ordinary push/PR; opt in via schedule, manual dispatch, or label.
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'run-patrol'))
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
+        with:
+          flutter-version: '3.41.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Codegen (build_runner)
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      # patrol_cli is a GLOBAL tool — intentionally not a repo dependency.
+      # Pin the major to match the patrol package (^4.x) so the CLI protocol
+      # matches the on-device test bundle.
+      - name: Install patrol_cli
+        run: |
+          dart pub global activate patrol_cli
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: patrol doctor
+        run: patrol doctor
+
+      # KVM is required for hardware-accelerated emulator boot on the runner.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run patrol native tests on emulator
+        uses: reactivecircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d  # v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          # `patrol test` (no --target) runs every patrolTest under
+          # integration_test/patrol/. The FCM cases are skip-marked at the Dart
+          # level (Firebase deferred) so they report as skipped, not failed.
+          script: |
+            patrol test

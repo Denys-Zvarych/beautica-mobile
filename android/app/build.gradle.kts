@@ -18,6 +18,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Phase 17.5 — patrol's androidx.test orchestrator + JUnit runner pull
+        // in Java 8+ APIs that must be desugared for minSdk 26. Required by
+        // patrol's native test setup; harmless for the app's own code.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     // AGP 8+ requires explicit opt-in to emit BuildConfig.java.
@@ -33,6 +37,22 @@ android {
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Phase 17.5 — patrol native E2E test runner. PatrolJUnitRunner replaces
+        // the default AndroidJUnitRunner so `patrol test` can discover and drive
+        // the Dart patrolTest(...) cases through native instrumentation. This
+        // affects ONLY the androidTest variant — the app's production/debug APK
+        // and the headless `flutter test integration_test/` path are untouched.
+        // clearPackageData wipes app data between native test cases for isolation.
+        testInstrumentationRunner = "pl.leancode.patrol.PatrolJUnitRunner"
+        testInstrumentationRunnerArguments["clearPackageData"] = "true"
+    }
+
+    // Phase 17.5 — run each patrol native test in an isolated process via the
+    // AndroidX Test Orchestrator. Required by patrol for reliable native runs
+    // (permission grants, app restarts) and pairs with clearPackageData above.
+    testOptions {
+        execution = "ANDROIDX_TEST_ORCHESTRATOR"
     }
 
     // MEDIUM-1 (mobile-security 2026-05-24): production keystore sourced from
@@ -93,4 +113,14 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+// Phase 17.5 — patrol native test dependencies.
+//   * coreLibraryDesugaring backs `isCoreLibraryDesugaredEnabled = true` above
+//     so the test orchestrator's Java 8+ APIs work on minSdk 26.
+//   * androidTestUtil orchestrator powers ANDROIDX_TEST_ORCHESTRATOR execution.
+// Both are androidTest-only — they add nothing to the shipped app APK.
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    androidTestUtil("androidx.test:orchestrator:1.5.1")
 }
