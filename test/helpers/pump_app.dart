@@ -8,12 +8,21 @@
 //
 // The UK locale is used by default because UA is the primary language.
 // Pass locale: const Locale('en') to test English strings.
+//
+// Phase 17.2 — stress knobs:
+//   await tester.pumpApp(MyWidget(), width: 320, textScaleFactor: 2.0);
+// pumps the widget at a constrained logical width and an overridden text scale
+// so narrow-phone / large-font overflows are reproduced. The overflow guard is
+// installed here too, so any RenderFlex overflow at the stress size fails the
+// test automatically (no manual assertion needed).
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+
+import 'overflow_guard.dart';
 
 /// Extension on [WidgetTester] that wraps [widget] in a minimal
 /// [ProviderScope] + [MaterialApp] with l10n configured for tests.
@@ -23,7 +32,22 @@ extension PumpApp on WidgetTester {
     Widget widget, {
     List<Object> overrides = const [],
     Locale locale = const Locale('uk'),
+    double? width,
+    double? textScaleFactor,
   }) async {
+    installOverflowGuard();
+    // Stress width: constrain the whole surface to [width] logical px (default
+    // 800) at a 1.0 device-pixel-ratio, so the pumped tree lays out at a
+    // narrow-phone width without wrapping the widget in a SingleChildScrollView
+    // (which would conflict with a Scaffold `home`). The tall default height
+    // (2400) keeps a column from reporting a *vertical* overflow that would mask
+    // the horizontal one under test. Reset in a tearDown.
+    if (width != null) {
+      view.physicalSize = Size(width, 2400);
+      view.devicePixelRatio = 1.0;
+      addTearDown(view.resetPhysicalSize);
+      addTearDown(view.resetDevicePixelRatio);
+    }
     await pumpWidget(
       ProviderScope(
         // ProviderScope.overrides accepts List<Override>; we cast so callers
@@ -34,7 +58,7 @@ extension PumpApp on WidgetTester {
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           locale: locale,
-          home: widget,
+          home: _stress(widget, textScaleFactor: textScaleFactor),
         ),
       ),
     );
@@ -47,6 +71,7 @@ extension PumpApp on WidgetTester {
     List<Object> overrides = const [],
     Locale locale = const Locale('uk'),
   }) async {
+    installOverflowGuard();
     await pumpWidget(
       ProviderScope(
         overrides: overrides.cast(),
@@ -59,4 +84,24 @@ extension PumpApp on WidgetTester {
       ),
     );
   }
+}
+
+/// Applies the [PumpApp.pumpApp] `textScaleFactor` knob.
+///
+/// When [textScaleFactor] is given, overrides the ambient [MediaQuery] text
+/// scaler with `TextScaler.linear(textScaleFactor)` so large-font layouts are
+/// exercised (1.3 / 2.0). The surface WIDTH is applied separately via
+/// `tester.view.physicalSize` in [PumpApp.pumpApp] (not here) so a Scaffold
+/// `home` is never placed inside a scroll view. Passing null returns [child]
+/// unchanged so existing call sites keep their previous behaviour.
+Widget _stress(Widget child, {double? textScaleFactor}) {
+  if (textScaleFactor == null) return child;
+  return Builder(
+    builder: (BuildContext context) => MediaQuery(
+      data: MediaQuery.of(
+        context,
+      ).copyWith(textScaler: TextScaler.linear(textScaleFactor)),
+      child: child,
+    ),
+  );
 }

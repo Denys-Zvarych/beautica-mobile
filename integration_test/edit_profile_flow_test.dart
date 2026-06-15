@@ -45,6 +45,8 @@ import 'package:go_router/go_router.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
 import 'package:integration_test/integration_test.dart';
 
+import '../test/helpers/overflow_guard.dart';
+
 const _stubUser = User(
   id: 'user-1',
   email: 'test@beautica.ua',
@@ -183,6 +185,12 @@ class _FakeBackend {
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  // Phase 17.2 — the integration binding does not route through
+  // flutter_test_config.dart's testExecutable, so install the overflow guard
+  // here too. It chains to the default presenter, so the no-network net is
+  // unaffected; any RenderFlex overflow in the real driven tree fails the test.
+  setUp(installOverflowGuard);
 
   testWidgets(
     'hub → personal-info → edit firstName → Save persists the change and does '
