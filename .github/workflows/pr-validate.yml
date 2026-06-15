@@ -359,4 +359,23 @@ jobs:
           # The FCM cases are skip-marked at the Dart level (Firebase deferred)
           # so they report as skipped, not failed.
           script: |
+            # Capture full device logcat in the background so a crash stack
+            # (Process crashed → FATAL EXCEPTION) survives — patrol/gradle only
+            # surface "Process crashed", not the device-side stack.
+            adb logcat -c || true
+            adb logcat -b all -v time > "$GITHUB_WORKSPACE/patrol-logcat.txt" 2>&1 &
+            LOGCAT_PID=$!
+            set +e
             patrol test --target integration_test/patrol --verbose
+            CODE=$?
+            kill "$LOGCAT_PID" 2>/dev/null || true
+            exit $CODE
+
+      - name: Upload patrol device logcat
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: patrol-logcat-${{ github.run_number }}
+          path: patrol-logcat.txt
+          if-no-files-found: ignore
+          retention-days: 7
