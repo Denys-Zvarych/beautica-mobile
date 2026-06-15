@@ -3,6 +3,9 @@ name: PR Validation
 on:
   pull_request:
     branches: [main, dev]
+    # `labeled` lets the opt-in `run-patrol` label trigger the heavy patrol job
+    # on a PR before this workflow (with workflow_dispatch) reaches the default branch.
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main, dev]
   # Phase 17.5 — nightly trigger for the heavy patrol native-E2E job (see the
