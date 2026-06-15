@@ -348,8 +348,12 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
-          # `patrol test` (no --target) runs every patrolTest under
-          # integration_test/patrol/. The FCM cases are skip-marked at the Dart
-          # level (Firebase deferred) so they report as skipped, not failed.
+          # Scope to integration_test/patrol so patrol only bundles the
+          # patrolTest flows. With test_directory: integration_test in
+          # pubspec.yaml, a bare `patrol test` would also discover the 5
+          # non-patrol flow files + all_tests.dart (testWidgets, not
+          # patrolTest) — those stay on the fast headless `integration` job.
+          # The FCM cases are skip-marked at the Dart level (Firebase deferred)
+          # so they report as skipped, not failed.
           script: |
-            patrol test
+            patrol test --target integration_test/patrol

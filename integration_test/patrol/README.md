@@ -38,12 +38,17 @@ dart pub global activate patrol_cli
 ./scripts/connect_adb.sh
 flutter devices            # confirm a device is listed
 
-# 3. Run a single patrol target.
-patrol test --target integration_test/patrol/deep_link_patrol_test.dart
+# 3. Run all patrol targets under this folder.
+patrol test --target integration_test/patrol
 
-# Or all patrol targets under this folder.
-patrol test --target integration_test/patrol/
+# Or a single patrol target (single-file form).
+patrol test --target integration_test/patrol/deep_link_patrol_test.dart
 ```
+
+> `--target integration_test/patrol` is required: `pubspec.yaml` sets
+> `patrol: test_directory: integration_test`, so a bare `patrol test` would also
+> pick up the non-patrol `testWidgets` flows that live directly under
+> `integration_test/`. Always scope to the `patrol` subfolder.
 
 `patrol test` builds the `androidTest` variant (PatrolJUnitRunner +
 ANDROIDX_TEST_ORCHESTRATOR — configured in `android/app/build.gradle.kts`),

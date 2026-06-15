@@ -177,6 +177,12 @@ dev_dependencies:
 # this phase (Android-only emulator job in CI).
 patrol:
   app_name: Beautica
+  # patrol_cli defaults test_directory to `patrol_test`; without this key the
+  # generated bundle import is built from the project's ABSOLUTE path, and the
+  # `beautica-mobile` hyphen breaks the Dart import-prefix alias
+  # ("Expected a declaration, but got '-'"). Pointing it at integration_test
+  # lets patrol_cli strip the project path → valid relative alias.
+  test_directory: integration_test
   android:
     package_name: com.beautica.beautica_mobile
   ios:
