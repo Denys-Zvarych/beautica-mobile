@@ -241,18 +241,23 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
-          # Run each E2E flow file as its OWN `flutter test` process. A single
-          # batched `flutter test integration_test/` cannot relaunch the app
-          # between files — the first flow passes and the rest fail with
-          # "Unable to start the app on the device". Iterating one file per
-          # process gives each flow a fresh app launch.
+          # Run ALL 5 E2E flows via a single aggregating entrypoint to recover
+          # emulator boot cost (L87). integration_test/all_tests.dart imports
+          # each flow's main() and runs them in ONE `flutter test` process / one
+          # isolate. Each testWidgets still pumps a fresh app via
+          # AppHarness.boot() and resets global state via tearDownHarness BETWEEN
+          # flows — so the app re-launches per-testWidgets (the supported model),
+          # not per-process. This avoids cold-booting the app 5× (the old
+          # per-file loop) while keeping every flow's fresh-launch semantics.
           #
-          # Only top-level *_test.dart entrypoints are run; integration_test/
-          # support/** holds shared helpers, not runnable test files.
-          # `|| exit 1` propagates the first failure so the job fails fast and
-          # non-zero exits are never swallowed.
+          # NOTE: directory-mode batching (`flutter test integration_test/`) does
+          # NOT work — it launches the app once and cannot relaunch between files
+          # ("Unable to start the app on the device" after the first flow). A
+          # single AGGREGATING FILE does work: one isolate, harness re-launches
+          # per testWidgets. That is the distinction this entrypoint relies on.
+          #
+          # No `|| exit 1` fail-fast wrapper (L88): the single run continues past
+          # a failing testWidgets and reports EVERY failure across all 5 flows at
+          # the end. `flutter test`'s own non-zero exit on any failure is the gate.
           script: |
-            for f in integration_test/*_test.dart; do
-              echo "== $f =="
-              flutter test "$f" || exit 1
-            done
+            flutter test integration_test/all_tests.dart

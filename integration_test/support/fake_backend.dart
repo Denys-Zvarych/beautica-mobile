@@ -538,7 +538,10 @@ final class FakeBackend {
           }
           return _ok(_services[idx >= 0 ? idx : 0]);
         }),
-        request: const Request(method: RequestMethods.patch, data: Matchers.any),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
       );
     }
 
@@ -667,9 +670,12 @@ final class FakeBackend {
     // Shape: list of ApprovedCategoryResponse { name, displayName }.
     _adapter.onRoute(
       '/api/v1/service-categories/approved',
-      (server) => server.reply(200, _okList(<Map<String, dynamic>>[
-        <String, dynamic>{'name': 'NAILS', 'displayName': 'Нігті'},
-      ])),
+      (server) => server.reply(
+        200,
+        _okList(<Map<String, dynamic>>[
+          <String, dynamic>{'name': 'NAILS', 'displayName': 'Нігті'},
+        ]),
+      ),
       request: const Request(method: RequestMethods.get),
     );
 

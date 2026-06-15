@@ -40,8 +40,8 @@ void main() {
   // RC2 — reads current location from the router instance rather than via
   // GoRouter.of(context), which would fail at the MaterialApp level.
   void expectLocation(GoRouter router, String expected) {
-    final String current =
-        router.routerDelegate.currentConfiguration.uri.toString();
+    final String current = router.routerDelegate.currentConfiguration.uri
+        .toString();
     expect(
       current,
       startsWith(expected),
@@ -51,104 +51,103 @@ void main() {
 
   // ── Test 1 — Wizard steps 1→2→3 (CLIENT, skip address) → /verification ───
 
-  testWidgets(
-    'CLIENT wizard: role → step1 → step2 → step3 (skip) → /verification',
-    (tester) async {
-      final fb = FakeBackend();
-      final GoRouter router = await AppHarness.boot(tester, fb);
+  testWidgets('CLIENT wizard: role → step1 → step2 → step3 (skip) → /verification', (
+    tester,
+  ) async {
+    final fb = FakeBackend();
+    final GoRouter router = await AppHarness.boot(tester, fb);
 
-      // Cold start → /login. Verify login screen is visible, then navigate
-      // directly to /register/role via the router reference — tapping the
-      // login_signup GestureDetector is unreliable in the headless flutter-tester
-      // viewport because the link sits below the fold in a SingleChildScrollView
-      // and the pointer event on the GestureDetector does not always land after
-      // ensureVisible in the virtual canvas. Using router.go() is the
-      // key-based-navigation equivalent for screen-to-screen transitions that
-      // the harness architecture supports (the router reference is the first-class
-      // navigation handle in this test suite).
-      expect(find.byKey(const ValueKey<String>('login_email')), findsOneWidget);
-      router.go(RouteNames.registerRole);
-      await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.registerRole);
+    // Cold start → /login. Verify login screen is visible, then navigate
+    // directly to /register/role via the router reference — tapping the
+    // login_signup GestureDetector is unreliable in the headless flutter-tester
+    // viewport because the link sits below the fold in a SingleChildScrollView
+    // and the pointer event on the GestureDetector does not always land after
+    // ensureVisible in the virtual canvas. Using router.go() is the
+    // key-based-navigation equivalent for screen-to-screen transitions that
+    // the harness architecture supports (the router reference is the first-class
+    // navigation handle in this test suite).
+    expect(find.byKey(const ValueKey<String>('login_email')), findsOneWidget);
+    router.go(RouteNames.registerRole);
+    await tester.pumpAndSettle();
+    expectLocation(router, RouteNames.registerRole);
 
-      // ── Role selection: pick CLIENT ────────────────────────────────────────
-      expect(find.byKey(const ValueKey<String>('role_client')), findsOneWidget);
-      await tester.tap(find.byKey(const ValueKey<String>('role_client')));
-      await tester.pump();
+    // ── Role selection: pick CLIENT ────────────────────────────────────────
+    expect(find.byKey(const ValueKey<String>('role_client')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey<String>('role_client')));
+    await tester.pump();
 
-      // Tap Continue — advances to Step 1.
-      await tester.tap(find.byKey(const ValueKey<String>('role_continue')));
-      await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.register);
+    // Tap Continue — advances to Step 1.
+    await tester.tap(find.byKey(const ValueKey<String>('role_continue')));
+    await tester.pumpAndSettle();
+    expectLocation(router, RouteNames.register);
 
-      // ── Step 1 — Credentials ──────────────────────────────────────────────
-      expect(find.byKey(const ValueKey<String>('step1_email')), findsOneWidget);
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_email')),
-        'new@beautica.ua',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_password')),
-        'Secret1234',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step1_confirm')),
-        'Secret1234',
-      );
-      await tester.pump();
+    // ── Step 1 — Credentials ──────────────────────────────────────────────
+    expect(find.byKey(const ValueKey<String>('step1_email')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('step1_email')),
+      'new@beautica.ua',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('step1_password')),
+      'Secret1234',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('step1_confirm')),
+      'Secret1234',
+    );
+    await tester.pump();
 
-      await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
-      await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.registerStep2);
+    await tester.tap(find.byKey(const ValueKey<String>('step1_submit')));
+    await tester.pumpAndSettle();
+    expectLocation(router, RouteNames.registerStep2);
 
-      // ── Step 2 — Profile (name + phone) ──────────────────────────────────
-      expect(
-        find.byKey(const ValueKey<String>('step2_first_name')),
-        findsOneWidget,
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step2_first_name')),
-        'Тест',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step2_last_name')),
-        'Клієнт',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('step2_phone')),
-        '+380501234567',
-      );
-      await tester.pump();
+    // ── Step 2 — Profile (name + phone) ──────────────────────────────────
+    expect(
+      find.byKey(const ValueKey<String>('step2_first_name')),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('step2_first_name')),
+      'Тест',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('step2_last_name')),
+      'Клієнт',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('step2_phone')),
+      '+380501234567',
+    );
+    await tester.pump();
 
-      await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
-      await tester.pumpAndSettle();
-      expectLocation(router, RouteNames.registerStep3);
+    await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+    await tester.pumpAndSettle();
+    expectLocation(router, RouteNames.registerStep3);
 
-      // ── Step 3 — Address (CLIENT can skip) ────────────────────────────────
-      // The CLIENT path shows a "Пропустити" skip link.
-      // Key: 'address_skip' (ValueKey).
-      expect(
-        find.byKey(const ValueKey<String>('address_skip')),
-        findsOneWidget,
-        reason:
-            'CLIENT step 3 must show the skip link (no required address fields)',
-      );
-      await tester.tap(find.byKey(const ValueKey<String>('address_skip')));
-      await tester.pumpAndSettle();
+    // ── Step 3 — Address (CLIENT can skip) ────────────────────────────────
+    // The CLIENT path shows a "Пропустити" skip link.
+    // Key: 'address_skip' (ValueKey).
+    expect(
+      find.byKey(const ValueKey<String>('address_skip')),
+      findsOneWidget,
+      reason:
+          'CLIENT step 3 must show the skip link (no required address fields)',
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('address_skip')));
+    await tester.pumpAndSettle();
 
-      // Skip triggers the register POST → backend returns verificationRequired.
-      // Router should navigate to /verification.
-      expectLocation(router, RouteNames.verification);
-      expect(fb.registerCalls, greaterThanOrEqualTo(1));
+    // Skip triggers the register POST → backend returns verificationRequired.
+    // Router should navigate to /verification.
+    expectLocation(router, RouteNames.verification);
+    expect(fb.registerCalls, greaterThanOrEqualTo(1));
 
-      // ── /verification screen visible ──────────────────────────────────────
-      expect(
-        find.byKey(const ValueKey<String>('verify_code_input')),
-        findsOneWidget,
-        reason: 'Verification OTP field must be visible on /verification',
-      );
-    },
-  );
+    // ── /verification screen visible ──────────────────────────────────────
+    expect(
+      find.byKey(const ValueKey<String>('verify_code_input')),
+      findsOneWidget,
+      reason: 'Verification OTP field must be visible on /verification',
+    );
+  });
 
   // ── Test 2 — OTP entry on /verification → /done ───────────────────────────
 
