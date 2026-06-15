@@ -164,6 +164,27 @@ abstract final class AppHarness {
     // /login (unauthenticated cold start) or the role-appropriate home.
     await tester.pumpAndSettle();
 
+    // AGGREGATION FIX (Phase 17.3) — unmount the app tree at tearDown.
+    //
+    // all_tests.dart runs all 5 E2E flows in ONE isolate via
+    // group('<flow>', <flow>.main). flutter_test does NOT fully reset the
+    // persistent overlay between testWidgets in a shared isolate (the suites
+    // used to run as 5 separate processes). Without an explicit unmount, the
+    // prior test's MaterialApp.router / Navigator / overlay entries survive
+    // into the next test, overlaying the fresh /login screen — the
+    // login_submit button ends up under RenderOffstage/RenderAbsorbPointer,
+    // tester.tap() "would not hit test", _submit() never runs, and
+    // fb.loginCalls stays 0 (failing the 2nd/3rd login flow).
+    //
+    // addTearDown runs LIFO, BEFORE the flow's own
+    // tearDown(AppHarness.tearDownHarness), so it fully unmounts the current
+    // MaterialApp.router (Navigator + all overlay entries) and disposes the
+    // ProviderScope/keepAlive router container before the next test boots.
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    });
+
     // RC2 — read the live GoRouter from the ProviderScope container. The
     // container is accessible from the ProviderScope element's context.
     // appRouterProvider is keepAlive: true and is guaranteed to be
