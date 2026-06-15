@@ -295,8 +295,14 @@ jobs:
   #   It is a SEPARATE job, so it never blocks or merges into the fast
   #   `validate` / `integration` jobs.
   patrol:
-    name: Patrol native E2E (emulator)
+    name: Patrol native E2E (emulator) (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
+    # Matrix axis: run the patrol flows on API 34 (modern) + API 29 (older) in
+    # parallel. fail-fast: false so one API level failing never cancels the other.
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [34, 29]
     # Skip on ordinary push/PR; opt in via schedule, manual dispatch, or label.
     if: >-
       github.event_name == 'schedule' ||
@@ -348,7 +354,7 @@ jobs:
       - name: Run patrol native tests on emulator
         uses: reactivecircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d  # v2
         with:
-          api-level: 34
+          api-level: ${{ matrix.api-level }}
           arch: x86_64
           profile: pixel_6
           # Scope to integration_test/patrol so patrol only bundles the
@@ -375,7 +381,9 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
-          name: patrol-logcat-${{ github.run_number }}
+          # Per-API suffix keeps the artifact name unique across the parallel
+          # matrix jobs — actions/upload-artifact requires unique names.
+          name: patrol-logcat-${{ github.run_number }}-api${{ matrix.api-level }}
           path: patrol-logcat.txt
           if-no-files-found: ignore
           retention-days: 7
