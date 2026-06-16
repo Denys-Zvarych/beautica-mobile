@@ -399,6 +399,172 @@ void main() {
         );
       },
     );
+
+    // ── G-PARTIAL. Partial-update non-null guarantee (mobile-qa LOW) ─────────
+    // PATCH semantics: a MasterServiceUpdate that sets only a SUBSET of fields
+    // must produce a request that carries EXACTLY those fields and leaves every
+    // unset field null on the builder — the generated serializer then omits the
+    // null keys, so the backend treats absent keys as "no change". This is the
+    // single combined assertion the per-field G-tests above don't make: set a
+    // few fields, leave the rest null, and prove the present set equals the
+    // touched set with no leakage into untouched fields.
+
+    test('G-PARTIAL. toUpdateRequest carries only the non-null fields — '
+        'untouched fields stay null on the request', () {
+      // Touch exactly three fields (name, durationMinutes, category); leave
+      // everything else — description, serviceTypeId, buffer, and the whole
+      // price block — null.
+      final request = MasterServiceMapper.toUpdateRequest(
+        const MasterServiceUpdate(
+          name: 'Оновлена назва',
+          durationMinutes: 50,
+          category: 'HAIRCUT',
+        ),
+      );
+
+      // Present — exactly the three fields the patch set.
+      expect(request.name, equals('Оновлена назва'));
+      expect(request.baseDurationMinutes, equals(50));
+      expect(request.category, equals('HAIRCUT'));
+
+      // Absent — every field the patch did NOT touch must be null so the
+      // serializer drops it from the PATCH body (no accidental overwrite).
+      expect(
+        request.description,
+        isNull,
+        reason: 'description was not in the patch — must stay null',
+      );
+      expect(
+        request.serviceTypeId,
+        isNull,
+        reason: 'serviceTypeId was not in the patch — must stay null',
+      );
+      expect(
+        request.bufferMinutesAfter,
+        isNull,
+        reason: 'bufferMinutesAfter was not in the patch — must stay null',
+      );
+      expect(
+        request.priceType,
+        isNull,
+        reason: 'no price field in the patch — price block must be absent',
+      );
+      expect(request.price, isNull);
+      expect(request.priceMin, isNull);
+      expect(request.priceMax, isNull);
+    });
+
+    test('G-PARTIAL-PRICE-ONLY. a price-only patch carries the price block and '
+        'leaves all non-price fields null', () {
+      // The complementary subset: touch ONLY the FIXED price block. name,
+      // category, duration, buffer, serviceTypeId must all stay null.
+      final request = MasterServiceMapper.toUpdateRequest(
+        const MasterServiceUpdate(
+          priceType: ServicePriceType.fixed,
+          price: 650.0,
+        ),
+      );
+
+      expect(
+        request.priceType,
+        UpdateServiceDefinitionRequestPriceTypeEnum.FIXED,
+      );
+      expect(request.price, equals(650.0));
+
+      expect(request.name, isNull);
+      expect(request.category, isNull);
+      expect(request.baseDurationMinutes, isNull);
+      expect(request.bufferMinutesAfter, isNull);
+      expect(request.serviceTypeId, isNull);
+      // RANGE-only fields must remain null in FIXED mode.
+      expect(request.priceMin, isNull);
+      expect(request.priceMax, isNull);
+    });
+
+    // ── G-ERR. toUpdateRequest error branches (mobile-qa LOW) ────────────────
+    // Each branch below feeds an invalid value into a field the patch DOES set
+    // and asserts the mapper throws ArgumentError at the data boundary (before
+    // the request reaches the network layer). These guard the fail-fast
+    // validation in toUpdateRequest that the existing B4 tests only partially
+    // cover (B4 hit FIXED price:0 and the inverted RANGE; these add the
+    // duration, buffer, and the null/zero-floor branches).
+
+    test('G-ERR-DURATION. durationMinutes:0 throws ArgumentError', () {
+      expect(
+        () => MasterServiceMapper.toUpdateRequest(
+          const MasterServiceUpdate(durationMinutes: 0),
+        ),
+        throwsA(
+          isA<ArgumentError>().having((e) => e.name, 'name', 'durationMinutes'),
+        ),
+        reason: 'durationMinutes must be >= 1 when present',
+      );
+    });
+
+    test('G-ERR-BUFFER. negative bufferMinutesAfter throws ArgumentError', () {
+      expect(
+        () => MasterServiceMapper.toUpdateRequest(
+          const MasterServiceUpdate(bufferMinutesAfter: -5),
+        ),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.name,
+            'name',
+            'bufferMinutesAfter',
+          ),
+        ),
+        reason: 'bufferMinutesAfter must be >= 0 when present',
+      );
+    });
+
+    test(
+      'G-ERR-FIXED-NULL. FIXED priceType with null price throws ArgumentError',
+      () {
+        // priceType present (so the price block is validated) but price omitted
+        // — the mapper must reject it rather than emit a FIXED body with no
+        // amount. Complements B4-FIXED-ZERO (price:0) with the null case.
+        expect(
+          () => MasterServiceMapper.toUpdateRequest(
+            const MasterServiceUpdate(priceType: ServicePriceType.fixed),
+          ),
+          throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'price')),
+          reason: 'FIXED mode requires a non-null price > 0',
+        );
+      },
+    );
+
+    test('G-ERR-RANGE-MIN-ZERO. RANGE priceType with priceMin:0 throws '
+        'ArgumentError', () {
+      expect(
+        () => MasterServiceMapper.toUpdateRequest(
+          const MasterServiceUpdate(
+            priceType: ServicePriceType.range,
+            priceMin: 0,
+            priceMax: 500.0,
+          ),
+        ),
+        throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'priceMin')),
+        reason: 'RANGE mode requires priceMin > 0',
+      );
+    });
+
+    test('G-ERR-RANGE-MAX-NULL. RANGE priceType with null priceMax throws '
+        'ArgumentError', () {
+      // priceMin valid but priceMax omitted — the RANGE invariant
+      // (priceMax > priceMin) cannot hold with a null ceiling, so the mapper
+      // must reject. Complements B4-RANGE-INVERTED (max <= min) with the
+      // null-ceiling case.
+      expect(
+        () => MasterServiceMapper.toUpdateRequest(
+          const MasterServiceUpdate(
+            priceType: ServicePriceType.range,
+            priceMin: 400.0,
+          ),
+        ),
+        throwsA(isA<ArgumentError>().having((e) => e.name, 'name', 'priceMax')),
+        reason: 'RANGE mode requires a non-null priceMax > priceMin',
+      );
+    });
   });
 
   // ── I. serviceDefId plumbing + pricing ────────────────────────────────────
