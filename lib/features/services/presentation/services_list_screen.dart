@@ -803,12 +803,11 @@ class _ServiceCardState extends State<_ServiceCard>
     // priceDisplay is empty (pre-V67 data / broken contract).
     final priceLabel = ServicePriceDisplay.format(s);
 
-    // Item 1: the PRIMARY card label is the platform service-type name
-    // (e.g. "Стрижка"), not the master's custom name. The custom name — now
-    // optional — is shown as a quiet secondary line ONLY when it is present AND
-    // differs from the service-type label (so we never echo the same text
-    // twice). When no service type is selected the custom name (or, if also
-    // empty, the empty string) takes the primary slot so a card is never blank.
+    // Card label rule: the master's OPTIONAL custom name REPLACES the platform
+    // service-type name. When a custom name is present we show ONLY it; when it
+    // is absent we fall back to the service-type name (e.g. "Стрижка"). The two
+    // names are never shown together. If both are empty the label is the empty
+    // string so a card is never blank / never crashes.
     //
     // M4 (contract correctness): serviceTypeNameUk is read straight off the
     // mapped MasterService; the mapper sources it from
@@ -818,11 +817,7 @@ class _ServiceCardState extends State<_ServiceCard>
     // NOT a dropped field.
     final String typeName = (s.serviceTypeNameUk ?? '').trim();
     final String customName = s.name.trim();
-    final String primaryLabel = typeName.isNotEmpty ? typeName : customName;
-    final String? secondaryLabel =
-        (typeName.isNotEmpty && customName.isNotEmpty && customName != typeName)
-        ? customName
-        : null;
+    final String primaryLabel = customName.isNotEmpty ? customName : typeName;
 
     // P-H1 fix: FadeTransition + SlideTransition replace Opacity +
     // Transform.translate. Both transitions are compositing-friendly and
@@ -833,10 +828,7 @@ class _ServiceCardState extends State<_ServiceCard>
         position: _slide,
         child: Semantics(
           button: true,
-          label:
-              '$primaryLabel. '
-              '${secondaryLabel != null ? '$secondaryLabel. ' : ''}'
-              '$durationLabel, $priceLabel. Редагувати',
+          label: '$primaryLabel. $durationLabel, $priceLabel. Редагувати',
           // priceLabel renders from priceDisplay (server-formatted) so the
           // accessibility label always matches what the user sees in the card.
           child: GestureDetector(
@@ -872,7 +864,6 @@ class _ServiceCardState extends State<_ServiceCard>
                     Expanded(
                       child: _ServiceInfo(
                         name: primaryLabel,
-                        secondaryName: secondaryLabel,
                         durationLabel: durationLabel,
                         priceLabel: priceLabel,
                       ),
@@ -934,17 +925,11 @@ class _ServiceInfo extends StatelessWidget {
     required this.name,
     required this.durationLabel,
     required this.priceLabel,
-    this.secondaryName,
   });
 
-  /// Primary card label — the platform service-type name (Item 1), or the
-  /// custom name as a fallback when no service type is assigned.
+  /// Card label — the master's custom name when present, otherwise the platform
+  /// service-type name. The two names are never shown together.
   final String name;
-
-  /// Optional secondary label — the master's custom name, shown as a quiet
-  /// subtitle beneath [name] only when a custom name is present and differs
-  /// from the service-type label. Null suppresses the row entirely.
-  final String? secondaryName;
 
   final String durationLabel;
   final String priceLabel;
@@ -955,15 +940,8 @@ class _ServiceInfo extends StatelessWidget {
     height: 1.15,
   );
 
-  // Secondary (custom name) style — quieter than the primary: smaller and
-  // muted, so the service-type name stays the dominant label.
-  static final TextStyle _secondaryStyle = VelvetText.pill().copyWith(
-    fontSize: 12.5,
-  );
-
   @override
   Widget build(BuildContext context) {
-    final String? secondary = secondaryName;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -976,16 +954,6 @@ class _ServiceInfo extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        if (secondary != null) ...<Widget>[
-          const SizedBox(height: 1),
-          Text(
-            secondary,
-            key: const Key('service-card-custom-name'),
-            style: _secondaryStyle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
         const SizedBox(height: VelvetSpacing.xs),
         // Inline duration · price metadata line. The category is shown as the
         // section header the card lives under, not here.

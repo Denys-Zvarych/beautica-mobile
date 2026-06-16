@@ -1,16 +1,16 @@
-// Item 1 regression — services-list tile label resolution (2026-06-08).
+// Item 1 regression — services-list tile label resolution (2026-06-08;
+// single-name contract since feat/service-card-custom-name).
 //
-// The service-list card's PRIMARY label is now the platform service-type name
-// (e.g. "Стрижка"), not the master's custom name. The custom name — now
-// optional — is shown as a quiet SECONDARY subtitle keyed
-// `service-card-custom-name` ONLY when it is present AND differs from the
-// service-type label (so the same text is never echoed twice). When no service
-// type is assigned the custom name takes the primary slot and no secondary line
-// renders.
+// The service-list card shows a SINGLE label. The master's OPTIONAL custom name
+// REPLACES the platform service-type name: when a custom name is present we show
+// ONLY it; when it is absent we fall back to the service-type name
+// (e.g. "Стрижка"). The two names are never shown together — the old SECONDARY
+// subtitle (keyed `service-card-custom-name`) was REMOVED, so it must never
+// render.
 //
 // This guards the four branches of [_ServiceCard]'s label logic in
 // services_list_screen.dart (M3 — cover every branch, not just the happy path):
-//   L1. type present, custom name differs  → primary = type, secondary = custom
+//   L1. type present, custom name differs  → primary = custom (type NOT shown)
 //   L2. type present, custom name == type  → primary = type, NO secondary
 //   L3. type present, custom name blank     → primary = type, NO secondary
 //   L4. type absent, custom name present    → primary = custom, NO secondary
@@ -18,8 +18,9 @@
 // Isolation: fresh ProviderScope per pump (via pumpApp); servicesListProvider
 // overridden with a stub notifier; serviceRepositoryProvider mocked so
 // approvedCategoriesProvider resolves without real HTTP. Widgets located by Key
-// (M2) — the secondary line carries `service-card-custom-name`; the primary
-// label is asserted inside the `service_card_<id>` subtree.
+// (M2) — the (removed) secondary line carried `service-card-custom-name` and is
+// asserted absent; the primary label is asserted inside the
+// `service_card_<id>` subtree.
 
 import 'dart:async';
 
@@ -58,8 +59,9 @@ class _StubServicesList extends ServicesList {
 // Finders
 // ---------------------------------------------------------------------------
 
-/// Asserts the PRIMARY label [text] is rendered inside the card for [id], and
-/// is NOT the secondary `service-card-custom-name` line.
+/// Asserts the single label [text] is rendered inside the card for [id]. The
+/// secondary `service-card-custom-name` line no longer exists (single-name
+/// contract), so it is asserted absent separately in each case.
 Finder _primaryLabel(String id, String text) => find.descendant(
   of: find.byKey(Key('service_card_$id')),
   matching: find.text(text),
@@ -102,10 +104,10 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  // L1 — type present, custom name differs → primary=type, secondary=custom.
+  // L1 — type present, distinct custom name → custom REPLACES type, no secondary.
   testWidgets(
-    'L1. type present + distinct custom name → primary is type, custom shown '
-    'as secondary',
+    'L1. type present + distinct custom name → custom REPLACES type, no '
+    'secondary line',
     (tester) async {
       const svc = MasterService(
         id: 's1',
@@ -119,15 +121,19 @@ void main() {
       );
       await pumpList(tester, const <MasterService>[svc]);
 
-      // PRIMARY label = the service-type name.
-      expect(_primaryLabel('s1', 'Стрижка'), findsOneWidget);
-      // SECONDARY subtitle = the custom name, rendered on the keyed Text line.
-      final secondary = find.byKey(const Key('service-card-custom-name'));
-      expect(secondary, findsOneWidget);
+      // The custom name is the ONE label rendered.
+      expect(_primaryLabel('s1', 'Мій фірмовий зріз'), findsOneWidget);
+      // The service-type name is REPLACED — it is not rendered anywhere.
       expect(
-        tester.widget<Text>(secondary).data,
-        'Мій фірмовий зріз',
-        reason: 'the custom name renders on the secondary line',
+        find.text('Стрижка'),
+        findsNothing,
+        reason: 'a present custom name replaces the service-type name entirely',
+      );
+      // The old secondary subtitle was removed and must never render.
+      expect(
+        find.byKey(const Key('service-card-custom-name')),
+        findsNothing,
+        reason: 'the secondary custom-name line no longer exists',
       );
     },
   );
