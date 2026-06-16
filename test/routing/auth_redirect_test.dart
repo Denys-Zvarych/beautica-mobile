@@ -494,7 +494,7 @@ void main() {
     // Local role fixtures (the existing _clientSession + _authenticatedSession
     // cover CLIENT and INDEPENDENT_MASTER; SALON_MASTER/OWNER/ADMIN are built
     // inline to keep this block self-contained and the matrix explicit).
-    const _salonMasterSession = AsyncData<AuthSession>(
+    const salonMasterSession = AsyncData<AuthSession>(
       AuthSession.authenticated(
         user: User(
           id: 'u-sm',
@@ -506,7 +506,7 @@ void main() {
         accessToken: 'token',
       ),
     );
-    const _salonOwnerSession = AsyncData<AuthSession>(
+    const salonOwnerSession = AsyncData<AuthSession>(
       AuthSession.authenticated(
         user: User(
           id: 'u-so',
@@ -518,7 +518,7 @@ void main() {
         accessToken: 'token',
       ),
     );
-    const _salonAdminSession = AsyncData<AuthSession>(
+    const salonAdminSession = AsyncData<AuthSession>(
       AuthSession.authenticated(
         user: User(
           id: 'u-sa',
@@ -559,7 +559,7 @@ void main() {
 
         test('SALON_MASTER at $route is redirected to /', () {
           expect(
-            authRedirectForLocation(_salonMasterSession, route),
+            authRedirectForLocation(salonMasterSession, route),
             equals(RouteNames.home),
             reason:
                 'a read-only SALON_MASTER must NOT reach the schedule edit '
@@ -569,14 +569,14 @@ void main() {
 
         test('SALON_OWNER at $route is redirected to /', () {
           expect(
-            authRedirectForLocation(_salonOwnerSession, route),
+            authRedirectForLocation(salonOwnerSession, route),
             equals(RouteNames.home),
           );
         });
 
         test('SALON_ADMIN at $route is redirected to /', () {
           expect(
-            authRedirectForLocation(_salonAdminSession, route),
+            authRedirectForLocation(salonAdminSession, route),
             equals(RouteNames.home),
           );
         });
