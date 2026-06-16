@@ -85,6 +85,36 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   /// Initialised in [didChangeDependencies] so AppLocalizations is available.
   List<PasswordRule>? _rules;
 
+  /// Cached read-only invite summary. The preview depends only on the invite
+  /// (email/role/expiry) and the active locale — none of which change while the
+  /// user is typing into the form fields. Caching the instance lets the element
+  /// layer skip its subtree on keystroke-driven [setState] rebuilds; it is
+  /// recreated only when one of its inputs actually changes (e.g. the expiry
+  /// countdown ticks down an hour or the locale switches).
+  _InvitePreview? _invitePreview;
+
+  _InvitePreview _previewFor(
+    AppLocalizations l10n,
+    String email,
+    UserRole role,
+    int expiresInHours,
+  ) {
+    final cached = _invitePreview;
+    if (cached != null &&
+        cached.email == email &&
+        cached.role == role &&
+        cached.expiresInHours == expiresInHours &&
+        identical(cached.l10n, l10n)) {
+      return cached;
+    }
+    return _invitePreview = _InvitePreview(
+      email: email,
+      role: role,
+      expiresInHours: expiresInHours,
+      l10n: l10n,
+    );
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -326,12 +356,7 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
           const SizedBox(height: VelvetSpacing.sm),
           Text(l10n.inviteSubtitle, style: VelvetText.body()),
           const SizedBox(height: VelvetSpacing.lg),
-          _InvitePreview(
-            email: email,
-            role: role,
-            expiresInHours: expiresInHours,
-            l10n: l10n,
-          ),
+          _previewFor(l10n, email, role, expiresInHours),
           const SizedBox(height: VelvetSpacing.xl),
           NeumorphicTextField(
             key: const ValueKey<String>('invite_password'),
