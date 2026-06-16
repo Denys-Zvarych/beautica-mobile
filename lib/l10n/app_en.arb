@@ -2437,5 +2437,18 @@
   "discreteTimesDuplicateMessage": "This time is already added",
   "@discreteTimesDuplicateMessage": {
     "description": "Transient info message shown when the picked time already exists in the discrete list (Phase 15.8)."
+  },
+  "scheduleDiscreteTimesTitle": "Appointment times",
+  "@scheduleDiscreteTimesTitle": {
+    "description": "Heading shown above the read-only discrete start-time chips for an EXPLICIT_TIMES day on the master calendar (Phase 15.9)."
+  },
+  "scheduleDiscreteTimesSemantic": "Appointment times: {times}",
+  "@scheduleDiscreteTimesSemantic": {
+    "description": "Accessibility label collapsing the read-only discrete start-time chips into one announcement for an EXPLICIT_TIMES day (Phase 15.9). {times} is the comma-separated list of HH:MM times.",
+    "placeholders": {
+      "times": {
+        "type": "String"
+      }
+    }
   }
 }

@@ -105,6 +105,36 @@ EffectiveDay _templateWorking(DateTime date) => EffectiveDay(
   intervals: <WorkInterval>[_interval(9, 0, 18, 0)],
 );
 
+/// Phase 15.9 — an EXPLICIT_TIMES working day for [date]: NO continuous
+/// [intervals] (the wire response for a discrete day returns an empty
+/// intervals list), only the discrete start [times]. `isExplicitTimes` is
+/// derived from the non-empty `times`, so this is the exact projection the
+/// calendar reads to choose the discrete-chip body over the interval grid.
+/// The default times (09:00 · 13:00 · 15:00) match the phase-doc example so
+/// the keyed chip finders are stable.
+EffectiveDay _discrete(
+  DateTime date, {
+  EffectiveSource source = EffectiveSource.template,
+  List<TimeOfDay>? times,
+}) => EffectiveDay(
+  date: _dateOnly(date),
+  source: source,
+  intervals: const <WorkInterval>[],
+  times:
+      times ??
+      const <TimeOfDay>[
+        TimeOfDay(hour: 9, minute: 0),
+        TimeOfDay(hour: 13, minute: 0),
+        TimeOfDay(hour: 15, minute: 0),
+      ],
+);
+
+/// `HH:MM` zero-padded — mirrors `_DiscreteTimesView._fmt` so chip keys built
+/// in the test (`schedule-discrete-chip-HH:MM`) match the rendered keys.
+String _hhmm(TimeOfDay t) =>
+    '${t.hour.toString().padLeft(2, '0')}:'
+    '${t.minute.toString().padLeft(2, '0')}';
+
 /// The single-date Friday override under test, resolved exactly as the backend
 /// would resolve a `ScheduleOverride.custom(start: friday, end: friday)`: a
 /// CUSTOM_HOURS [EffectiveDay] carrying the override's intervals. Built FROM a
@@ -918,6 +948,82 @@ Color? _dotColorForDay(WidgetTester tester, int dayNumber) {
   return (tester.widget<Container>(dot).decoration! as BoxDecoration).color;
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// _MutableDiscreteRepository (Phase 15.9 refresh) — drives the effective-schedule
+// REFRESH read-back over the GENUINE EffectiveScheduleNotifier. The target date
+// starts as a plain INTERVAL working day; flipping [promoteToDiscrete] makes the
+// NEXT `effectiveSchedule` read return that date as an EXPLICIT_TIMES day with
+// discrete [times]. The test invalidates `effectiveScheduleProvider` (the same
+// chain the 15.8 save → invalidate path uses) and asserts the new times surface
+// as chips — proving the calendar re-reads `times` on refresh, not a stale
+// interval snapshot. Only the repo is overridden so the real notifier (with its
+// keepAlive TTL) runs end-to-end.
+// ───────────────────────────────────────────────────────────────────────────
+class _MutableDiscreteRepository implements ScheduleRepository {
+  _MutableDiscreteRepository(this.target, this.discreteTimes);
+
+  /// The date whose composition flips from interval → discrete on refresh.
+  final DateTime target;
+
+  /// The discrete start times the [target] day exposes once promoted.
+  final List<TimeOfDay> discreteTimes;
+
+  /// Until set true the [target] is a plain interval working day; after the flip
+  /// the next effective read returns it as an EXPLICIT_TIMES day.
+  bool promoteToDiscrete = false;
+
+  EffectiveDay _dayFor(DateTime date) {
+    if (_dateOnly(date) == _dateOnly(target)) {
+      return promoteToDiscrete
+          ? _discrete(date, times: discreteTimes)
+          : _templateWorking(date);
+    }
+    return _templateWorking(date);
+  }
+
+  @override
+  Future<List<EffectiveDay>> effectiveSchedule(
+    DateTime from,
+    DateTime to,
+  ) async {
+    final List<EffectiveDay> out = <EffectiveDay>[];
+    DateTime cursor = _dateOnly(from);
+    final DateTime end = _dateOnly(to);
+    while (!cursor.isAfter(end)) {
+      out.add(_dayFor(cursor));
+      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+    }
+    return out;
+  }
+
+  @override
+  Future<List<ScheduleOverride>> listOverrides(
+    DateTime from,
+    DateTime to,
+  ) async => const <ScheduleOverride>[];
+
+  @override
+  Future<ScheduleOverride> putOverride(ScheduleOverride override) async =>
+      override;
+
+  @override
+  Future<void> clearOverride(DateTime date) async {}
+
+  @override
+  Future<List<WeeklySchedule>> listWeeklySchedules() async => <WeeklySchedule>[
+    _template(),
+  ];
+
+  @override
+  Future<WeeklySchedule> upsertWeeklySchedule(
+    WeeklySchedule schedule, {
+    String? scheduleId,
+  }) async => schedule;
+
+  @override
+  Future<void> deleteWeeklySchedule(String scheduleId) async {}
+}
+
 void main() {
   // ── Slot-projection-bearing data states (golden + finder) ─────────────────
 
@@ -1063,6 +1169,320 @@ void main() {
         expect(find.byType(SlotChip), findsNothing);
         // …and a gap is NOT a day off: the day-off empty state is absent.
         expect(find.byKey(const Key('schedule-day-off-empty')), findsNothing);
+      },
+    );
+  });
+
+  // ── Phase 15.9 — discrete-times calendar read-back ────────────────────────
+  //
+  // An EXPLICIT_TIMES effective day (non-empty `times`, empty `intervals`)
+  // renders the discrete start times as read-only chips via `_DiscreteTimesView`
+  // INSTEAD of the interval hour grid, and reads as a WORKING day (not a day
+  // off / not a NO_SCHEDULE gap). INTERVAL days are unchanged. All finders are
+  // structural Keys + `AppLocalizations` values (M2/M11): no raw UA literals and
+  // — because every fake anchors on the injected `_today` clock — no device
+  // weekday/clock coupling.
+  group('MasterScheduleScreen — discrete times (Phase 15.9)', () {
+    testWidgets(
+      'discrete-mode selected day renders the discrete-times block + each chip '
+      'by key, and NOT the interval grid',
+      (tester) async {
+        // Today is a discrete day (09:00 · 13:00 · 15:00); the rest of the week
+        // is plain interval working days so the selected (today) body is the
+        // discrete branch.
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: (DateTime d) => _discrete(d),
+          filler: _working,
+        );
+        await _pump(tester, overrides: _editableData(days));
+
+        // The discrete-times container renders (the EXPLICIT_TIMES body branch).
+        expect(
+          find.byKey(const Key('schedule-discrete-times')),
+          findsOneWidget,
+        );
+
+        // Each expected start time renders as its own keyed chip.
+        for (final String hhmm in const <String>['09:00', '13:00', '15:00']) {
+          expect(
+            find.byKey(Key('schedule-discrete-chip-$hhmm')),
+            findsOneWidget,
+            reason: 'expected a discrete chip for $hhmm',
+          );
+        }
+
+        // The discrete-times title renders via l10n (M11 — assert the localised
+        // value, never a raw UA literal).
+        final AppLocalizations l10n = _l10n(tester);
+        expect(find.text(l10n.scheduleDiscreteTimesTitle), findsOneWidget);
+
+        // The continuous-availability hour grid is GONE — a discrete day is a set
+        // of bookable starts, not a span.
+        expect(find.byType(SlotChip), findsNothing);
+        // It is a WORKING day, not a day off / gap.
+        expect(find.byKey(const Key('schedule-day-off-empty')), findsNothing);
+        expect(find.byKey(const Key('no-schedule-banner')), findsNothing);
+      },
+    );
+
+    testWidgets('discrete day panel summary shows the derived min–max window '
+        '(times.first–times.last)', (tester) async {
+      // Non-contiguous discrete times → the secondary window summary is derived
+      // from first–last (08:30–17:00), proving the panel reads `times`, not
+      // empty `intervals` (which would render the closed-day summary).
+      const List<TimeOfDay> times = <TimeOfDay>[
+        TimeOfDay(hour: 8, minute: 30),
+        TimeOfDay(hour: 12, minute: 0),
+        TimeOfDay(hour: 17, minute: 0),
+      ];
+      final List<EffectiveDay> days = _weekWith(
+        todayDay: (DateTime d) => _discrete(d, times: times),
+        filler: _working,
+      );
+      await _pump(tester, overrides: _editableData(days));
+
+      final AppLocalizations l10n = _l10n(tester);
+      // The day-panel summary derives the span from first–last (M11 — built
+      // from the l10n template + formatTime, not a hardcoded string).
+      expect(
+        find.text(l10n.scheduleDaySummaryWorking('08:30–17:00')),
+        findsOneWidget,
+      );
+      // The chips still match the (non-contiguous) source times by key.
+      for (final TimeOfDay t in times) {
+        expect(
+          find.byKey(Key('schedule-discrete-chip-${_hhmm(t)}')),
+          findsOneWidget,
+        );
+      }
+    });
+
+    testWidgets(
+      'override-sourced discrete day also renders the discrete block (source '
+      'does not gate the discrete branch)',
+      (tester) async {
+        // A single-date override that resolved to discrete times must read back
+        // identically to a template-sourced discrete day.
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: (DateTime d) =>
+              _discrete(d, source: EffectiveSource.overrideCustom),
+          filler: _working,
+        );
+        await _pump(tester, overrides: _editableData(days));
+
+        expect(
+          find.byKey(const Key('schedule-discrete-times')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('schedule-day-off-empty')), findsNothing);
+        expect(find.byType(SlotChip), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'INTERVAL day regression — an interval working day renders the grid and '
+      'NO discrete-times block (unchanged path)',
+      (tester) async {
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: _working,
+          filler: _working,
+        );
+        await _pump(tester, overrides: _editableData(days));
+
+        // Interval branch unchanged: the SlotChip grid renders…
+        expect(find.byType(SlotChip), findsWidgets);
+        // …and the discrete-times block is absent.
+        expect(find.byKey(const Key('schedule-discrete-times')), findsNothing);
+        expect(find.byKey(const Key('schedule-day-off-empty')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'day-off regression — an empty-intervals day-off still routes to the '
+      'day-off empty state (NOT the discrete block)',
+      (tester) async {
+        // A day off has empty intervals AND empty times → `isExplicitTimes` is
+        // false → it must NOT be mistaken for a discrete day.
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: _dayOff,
+          filler: _working,
+        );
+        await _pump(tester, overrides: _editableData(days));
+
+        expect(find.byKey(const Key('schedule-day-off-empty')), findsOneWidget);
+        expect(find.byKey(const Key('schedule-discrete-times')), findsNothing);
+        expect(find.byType(SlotChip), findsNothing);
+      },
+    );
+
+    // ── Overflow guard (Phase 17.2) — narrow width + 1.3× text scale ──────────
+    //
+    // Many discrete times at a 320px width and 1.3× text scale must reflow in the
+    // chip [Wrap] without a RenderFlex overflow. The suite-wide overflow guard
+    // (`flutter_test_config.dart` / `installOverflowGuard`) fails the test in
+    // tearDown if any overflow is reported; the explicit `takeException` is a
+    // belt-and-braces assertion that the pumped frame is overflow-free.
+    testWidgets(
+      'discrete chips reflow with NO overflow at 320px + 1.3× text scale',
+      (tester) async {
+        tester.view.physicalSize = const Size(320, 800);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        // A long run of discrete times to force the Wrap to reflow onto
+        // multiple rows under the cramped width + enlarged text.
+        const List<TimeOfDay> manyTimes = <TimeOfDay>[
+          TimeOfDay(hour: 8, minute: 0),
+          TimeOfDay(hour: 9, minute: 30),
+          TimeOfDay(hour: 11, minute: 0),
+          TimeOfDay(hour: 12, minute: 30),
+          TimeOfDay(hour: 14, minute: 0),
+          TimeOfDay(hour: 15, minute: 30),
+          TimeOfDay(hour: 17, minute: 0),
+          TimeOfDay(hour: 18, minute: 30),
+        ];
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: (DateTime d) => _discrete(d, times: manyTimes),
+          filler: _working,
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: <Object>[
+              ..._editableData(days),
+              _fakeWorkingHours(),
+            ].cast(),
+            child: MaterialApp.router(
+              routerConfig: _router(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+              builder: (BuildContext context, Widget? child) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: const TextScaler.linear(1.3)),
+                child: child!,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The block + every chip still render (no clipped/dropped chip).
+        expect(
+          find.byKey(const Key('schedule-discrete-times')),
+          findsOneWidget,
+        );
+        for (final TimeOfDay t in manyTimes) {
+          expect(
+            find.byKey(Key('schedule-discrete-chip-${_hhmm(t)}')),
+            findsOneWidget,
+          );
+        }
+        // No RenderFlex overflow at the cramped width + enlarged text.
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    // ── Golden (supplementary) + structural pin ───────────────────────────────
+    //
+    // The golden is SUPPLEMENTARY (golden-is-not-acceptance): the load-bearing
+    // assertions are the structural keyed finders above + here; the PNG only
+    // catches incidental pixel drift in the chip styling. The discrete-times
+    // container + each chip key are pinned BEFORE the golden so a regression that
+    // (e.g.) drops a chip or swaps the body branch fails on the structure, not on
+    // a re-generated baseline.
+    testWidgets('discrete-day calendar panel golden (+ structural pin)', (
+      tester,
+    ) async {
+      final List<EffectiveDay> days = _weekWith(
+        todayDay: (DateTime d) => _discrete(d),
+        filler: _working,
+      );
+      await _pump(tester, overrides: _editableData(days));
+
+      // Structural pin (the real acceptance gate).
+      expect(find.byKey(const Key('schedule-discrete-times')), findsOneWidget);
+      for (final String hhmm in const <String>['09:00', '13:00', '15:00']) {
+        expect(find.byKey(Key('schedule-discrete-chip-$hhmm')), findsOneWidget);
+      }
+
+      // Supplementary pixel snapshot.
+      await expectLater(
+        find.byType(MasterScheduleScreen),
+        matchesGoldenFile('goldens/schedule_discrete_times_day.png'),
+      );
+    });
+
+    // ── Refresh — newly-saved discrete day surfaces its times on re-read ──────
+    //
+    // Drives the GENUINE EffectiveScheduleNotifier over a mutable repo: today
+    // starts as a plain INTERVAL day (grid renders), then the repo is promoted
+    // to serve that date as EXPLICIT_TIMES and `effectiveScheduleProvider` is
+    // invalidated (the same invalidate path the 15.8 save chain fires). After
+    // the refresh the discrete chips must surface and the grid must disappear —
+    // proving the calendar re-reads `times`, not a stale interval snapshot.
+    testWidgets(
+      'effective-schedule refresh picks up a newly-saved discrete day\'s times',
+      (tester) async {
+        const List<TimeOfDay> savedTimes = <TimeOfDay>[
+          TimeOfDay(hour: 10, minute: 0),
+          TimeOfDay(hour: 14, minute: 30),
+        ];
+        final repo = _MutableDiscreteRepository(_today, savedTimes);
+        final ProviderContainer container = ProviderContainer(
+          overrides: <Object>[
+            authProvider.overrideWith(
+              () => _FixedAuth(UserRole.independentMaster),
+            ),
+            scheduleRepositoryProvider.overrideWithValue(repo),
+            _fakeWorkingHours(),
+          ].cast(),
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: _router(),
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Pre-refresh: today is an interval working day — the grid renders and
+        // there is NO discrete block.
+        expect(find.byType(SlotChip), findsWidgets);
+        expect(find.byKey(const Key('schedule-discrete-times')), findsNothing);
+
+        // The discrete day is saved (the repo now serves it as EXPLICIT_TIMES)
+        // and the effective-schedule family is invalidated — the exact refresh
+        // chain a 15.8 save fires.
+        repo.promoteToDiscrete = true;
+        container.invalidate(effectiveScheduleProvider);
+        await tester.pumpAndSettle();
+
+        // Post-refresh: the discrete chips surfaced and the grid is gone.
+        expect(
+          find.byKey(const Key('schedule-discrete-times')),
+          findsOneWidget,
+        );
+        for (final TimeOfDay t in savedTimes) {
+          expect(
+            find.byKey(Key('schedule-discrete-chip-${_hhmm(t)}')),
+            findsOneWidget,
+            reason: 'refreshed discrete time ${_hhmm(t)} must render as a chip',
+          );
+        }
+        expect(find.byType(SlotChip), findsNothing);
+
+        // Drain the real notifier's keepAlive release timers (test-side hygiene).
+        await _drainKeepAliveTimers(tester);
       },
     );
   });

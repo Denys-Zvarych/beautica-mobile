@@ -2437,5 +2437,18 @@
   "discreteTimesDuplicateMessage": "Цей час вже додано",
   "@discreteTimesDuplicateMessage": {
     "description": "Transient inline info message shown for ~2.5 s when the user picks a time that already exists in the discrete list. Nothing is mutated (Phase 15.8)."
+  },
+  "scheduleDiscreteTimesTitle": "Час прийому",
+  "@scheduleDiscreteTimesTitle": {
+    "description": "Heading shown above the read-only discrete start-time chips for an EXPLICIT_TIMES day on the master calendar (Phase 15.9)."
+  },
+  "scheduleDiscreteTimesSemantic": "Час прийому: {times}",
+  "@scheduleDiscreteTimesSemantic": {
+    "description": "Accessibility label collapsing the read-only discrete start-time chips into one announcement for an EXPLICIT_TIMES day (Phase 15.9). {times} is the comma-separated list of HH:MM times.",
+    "placeholders": {
+      "times": {
+        "type": "String"
+      }
+    }
   }
 }
