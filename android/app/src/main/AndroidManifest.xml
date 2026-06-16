@@ -25,6 +25,17 @@
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme"/>
+            <!--
+                Phase 17.5 — REQUIRED for App Link / deep-link routing into go_router.
+                Without this, an approved https ACTION_VIEW intent reaching MainActivity
+                is NOT forwarded to Flutter's RouteInformationProvider, so go_router never
+                navigates to /reset-password. Flutter's automatic deep-linking hands the
+                launch/onNewIntent intent URL to the framework, which go_router
+                (MaterialApp.router) consumes via the default RouteInformationProvider.
+            -->
+            <meta-data
+                android:name="flutter_deeplinking_enabled"
+                android:value="true"/>
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

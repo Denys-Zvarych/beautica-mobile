@@ -373,45 +373,28 @@ jobs:
           script: |
             # Capture full device logcat in the background so a crash stack
             # (Process crashed → FATAL EXCEPTION) survives — patrol/gradle only
-            # surface "Process crashed", not the device-side stack.
-            adb logcat -c || true
-            adb logcat -b all -v time > "$GITHUB_WORKSPACE/patrol-logcat.txt" 2>&1 &
-            LOGCAT_PID=$!
-            set +e
-            # App Links autoVerify cannot pass on a CI emulator: the App Link
-            # host serves no /.well-known/assetlinks.json (see AndroidManifest.xml)
-            # and the APK is debug-signed, so on Android 12+ the https ACTION_VIEW
-            # intent is routed to a browser instead of MainActivity and the
-            # deep-link test never reaches go_router. (The host is matched as a
-            # STRING only — no network call is made to it, so this is unaffected
-            # by the backend being offline/local-only.)
-            #
-            # Force-approve the App Link domain via the VERIFICATION STATE
-            # (`pm set-app-links ... 2` = STATE_APPROVED), which overrides
-            # autoVerify regardless of assetlinks.json and is durable across
-            # `patrol test`'s same-signature reinstall — unlike the per-user
-            # selection (`set-app-links-user-selection`), which is fragile and
-            # invisible without a user id. pm needs the package INSTALLED, so we
-            # build + install the patrol APK once, set the state, then run.
-            #   • Read it back with `--user 0`: verification state is ONLY
-            #     printed under a user id; a bare get-app-links shows `none` even
-            #     when approved (this misled the earlier runs).
-            #   • verifier_verify_adb_installs 0 is a secondary belt-and-braces
-            #     to keep the verifier out of the way; the set-app-links line is
-            #     the load-bearing fix.
-            #
-            # NOTE: android-emulator-runner runs EACH script line in its own
-            # `sh -c`, so shell variables do NOT persist across lines. Every
-            # command below must be self-contained on a single line — in
-            # particular the APK lookup is inlined into `adb install`.
+            # surface "Process crashed", not the device-side stack. Backgrounded
+            # on its own line so it survives this line's sh -c exit.
+            adb logcat -c || true; adb logcat -b all -v time > "$GITHUB_WORKSPACE/patrol-logcat.txt" 2>&1 &
+            # Keep the ADB-install verifier out of the way during patrol's reinstall.
             adb shell settings put global verifier_verify_adb_installs 0 || true
+            # BACKGROUND RE-APPROVAL LOOP (load-bearing fix). patrol test rebuilds +
+            # reinstalls the app right before running, which WIPES App Link approval,
+            # so a one-shot pre-approval is gone by the time openUrl fires (deep-link
+            # test runs 3rd). This loop re-asserts STATE_APPROVED every second for
+            # both default and user scope, so whenever patrol's reinstall lands the
+            # domain is re-approved before the intent is fired. MUST be a single
+            # self-contained line so the `&` background survives this line's sh -c.
+            ( while true; do adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; sleep 1; done ) &
+            set +e
             patrol build android --target integration_test/patrol
-            adb install -r -t "$(find build/app/outputs -name 'app-debug.apk' | head -1)"
-            adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app || true
-            adb shell pm get-app-links --user 0 com.beautica.beautica_mobile || true
             patrol test --target integration_test/patrol --verbose
             CODE=$?
-            kill "$LOGCAT_PID" 2>/dev/null || true
+            # Tear down the re-approval loop and logcat capture by pattern (the loop
+            # PID lives in a different sh -c, so a PID var would not carry here).
+            pkill -f 'pm set-app-links --package com.beautica.beautica_mobile' 2>/dev/null || true
+            pkill -f 'adb logcat -b all' 2>/dev/null || true
+            adb shell pm get-app-links --user 0 com.beautica.beautica_mobile || true
             exit $CODE
 
       - name: Upload patrol device logcat
