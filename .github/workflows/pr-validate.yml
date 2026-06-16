@@ -386,21 +386,29 @@ jobs:
             # STRING only — no network call is made to it, so this is unaffected
             # by the backend being offline/local-only.)
             #
-            # Force-approve the domain so the intent resolves to the app. pm
-            # set-app-links needs the package INSTALLED, but `patrol test` only
-            # installs at run time with no hook before the test fires. So: build,
-            # install the app APK once, record the user selection, then run.
-            # `patrol test`'s reinstall is a same-signature update, which
-            # preserves the domain-verification user selection.
+            # Force-approve the App Link domain via the VERIFICATION STATE
+            # (`pm set-app-links ... 2` = STATE_APPROVED), which overrides
+            # autoVerify regardless of assetlinks.json and is durable across
+            # `patrol test`'s same-signature reinstall — unlike the per-user
+            # selection (`set-app-links-user-selection`), which is fragile and
+            # invisible without a user id. pm needs the package INSTALLED, so we
+            # build + install the patrol APK once, set the state, then run.
+            #   • Read it back with `--user 0`: verification state is ONLY
+            #     printed under a user id; a bare get-app-links shows `none` even
+            #     when approved (this misled the earlier runs).
+            #   • verifier_verify_adb_installs 0 is a secondary belt-and-braces
+            #     to keep the verifier out of the way; the set-app-links line is
+            #     the load-bearing fix.
             #
             # NOTE: android-emulator-runner runs EACH script line in its own
             # `sh -c`, so shell variables do NOT persist across lines. Every
             # command below must be self-contained on a single line — in
             # particular the APK lookup is inlined into `adb install`.
+            adb shell settings put global verifier_verify_adb_installs 0 || true
             patrol build android --target integration_test/patrol
             adb install -r -t "$(find build/app/outputs -name 'app-debug.apk' | head -1)"
-            adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app || true
-            adb shell pm get-app-links com.beautica.beautica_mobile || true
+            adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app || true
+            adb shell pm get-app-links --user 0 com.beautica.beautica_mobile || true
             patrol test --target integration_test/patrol --verbose
             CODE=$?
             kill "$LOGCAT_PID" 2>/dev/null || true
