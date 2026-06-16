@@ -92,3 +92,12 @@ openapi_generator_config.json
 # Generated localization (`flutter gen-l10n` output).
 lib/l10n/app_localizations*.dart
 
+# patrol_cli generated test bundle — written on every `patrol test` run and
+# marked `// DO NOT COMMIT`. Regenerated from the patrolTest sources under
+# integration_test/patrol; never commit it.
+integration_test/test_bundle.dart
+**/patrol_test_bundle.dart
+# Legacy patrol_cli default location (used before test_directory was set) —
+# ignore so a stale bundle there can never be committed or break analyze.
+/patrol_test/
+

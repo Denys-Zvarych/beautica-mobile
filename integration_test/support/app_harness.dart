@@ -224,6 +224,15 @@ abstract final class AppHarness {
       _ => 'master@beautica.ua',
     };
 
+    // Drain any in-flight splash→login redirect / route transition BEFORE
+    // touching the form. Flake guard (phase 17.1): boot()'s single pumpAndSettle
+    // can return just before the auth-resolution microtask fires the
+    // /splash→/login redirect, so without this the form is mid-transition. A tap
+    // during a transition lands on the route barrier (RenderAbsorbPointer /
+    // RenderOffstage / RenderIgnorePointer in the hit path) and is SWALLOWED, so
+    // _submit() never runs (loginCalls stays 0 → "Expected 1, Actual 0").
+    await tester.pumpAndSettle();
+
     // We should be on the login screen — fill the fields and submit.
     await tester.enterText(
       find.byKey(const ValueKey<String>('login_email')),
@@ -233,7 +242,40 @@ abstract final class AppHarness {
       find.byKey(const ValueKey<String>('login_password')),
       'Secret1234',
     );
-    await tester.tap(find.byKey(const ValueKey<String>('login_submit')));
+    await tester.pumpAndSettle();
+
+    // Ensure the submit button is on-screen + interactive before tapping
+    // (best-effort: only scrolls if the form has a Scrollable ancestor).
+    final Finder submit = find.byKey(const ValueKey<String>('login_submit'));
+    try {
+      await tester.ensureVisible(submit);
+      await tester.pumpAndSettle();
+    } catch (_) {
+      // No scrollable ancestor / already fully visible — nothing to do.
+    }
+
+    // Tap submit and confirm it actually triggered _submit(). If the tap was
+    // absorbed (loginCalls did not advance), settle and retry ONCE, then fail
+    // loudly AT THE CAUSE rather than as a confusing downstream navigation
+    // assertion. loginCalls is captured relative to its prior value so repeat
+    // loginAs() calls within one test stay correct.
+    final int callsBefore = fakeBackend.loginCalls;
+    await tester.tap(submit);
+    await tester.pump();
+    await tester.pump();
+    if (fakeBackend.loginCalls == callsBefore) {
+      await tester.pumpAndSettle();
+      await tester.tap(submit);
+      await tester.pump();
+      await tester.pump();
+    }
+    expect(
+      fakeBackend.loginCalls,
+      greaterThan(callsBefore),
+      reason:
+          'login_submit tap did not trigger _submit() — the button was absorbed '
+          'by an in-flight overlay/route transition (see app_harness flake guard)',
+    );
 
     // Pump until all auth microtasks and router redirects settle:
     //   1. pump()     — tap event is processed; _submit() suspends at await login()
