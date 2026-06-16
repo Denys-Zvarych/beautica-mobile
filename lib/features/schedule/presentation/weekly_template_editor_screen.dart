@@ -79,6 +79,12 @@ enum _SaveGate {
   /// Save would surface the errors banner).
   hasErrors,
 
+  /// First-time create where the validity window («Графік діє з…») has NOT yet
+  /// been explicitly chosen → Save is disabled and the inline hint routes the
+  /// user to the «Період дії графіка» sheet. Prevents the editor from silently
+  /// persisting a `validFrom = today` the master never picked.
+  windowUnset,
+
   /// A save/delete is in flight → Save shows its loading state.
   saving,
 }
@@ -345,6 +351,14 @@ class _WeeklyTemplateEditorScreenState
     if (_saving) return _SaveGate.saving;
     if (_hasErrors) return _SaveGate.hasErrors;
     if (!_isDirty) return _SaveGate.noChanges;
+    // FIRST-CREATE window gate: the master has built working days (dirty), but
+    // no validity window has been explicitly chosen yet (`_serverTemplate ==
+    // null` — no template has ever been persisted). Block Save until the
+    // effective-from period is picked via the «Період дія графіка» sheet, so we
+    // never persist a fabricated `validFrom = today`. Once the sheet applies, it
+    // persists the schedule and the editor re-seeds with a non-null
+    // `_serverTemplate`, so this gate clears and Save enables for the next edit.
+    if (_serverTemplate == null) return _SaveGate.windowUnset;
     return _SaveGate.saveable;
   }
 
@@ -447,6 +461,19 @@ class _WeeklyTemplateEditorScreenState
     final WeeklySchedule? existing = _serverTemplate;
     final bool allOff = days.every((DayHours? d) => d == null);
 
+    // Defensive: a first-time create (no persisted template) MUST go through the
+    // «Період дії графіка» sheet to choose its validity window — never persist a
+    // fabricated `validFrom = today`. The Save gate already disables Save in this
+    // state (`_SaveGate.windowUnset`); this guard mirrors the sheet's
+    // `if (range == null) return;` so the create branch can never reach
+    // `_buildSchedule`'s `_today` fallback. (Mirrors apply_schedule_sheet.dart.)
+    if (existing == null && !allOff) {
+      if (kDebugMode) {
+        log('save: blocked — window not chosen for first create', name: _tag);
+      }
+      return;
+    }
+
     setState(() => _saving = true);
     _saveGateNotifier.value = _saveGate;
     try {
@@ -537,10 +564,17 @@ class _WeeklyTemplateEditorScreenState
   }
 
   /// Maps the 7 draft days onto a [WeeklySchedule], preserving the loaded
-  /// template's active window (open-ended from `today` for a fresh create).
-  /// For each weekday the mode is taken from [_templateDays]; EXPLICIT_TIMES
-  /// days carry [TemplateDay.times]; INTERVAL days carry the collapsed
-  /// [DayHours.toIntervals()] list.
+  /// template's active window. For each weekday the mode is taken from
+  /// [_templateDays]; EXPLICIT_TIMES days carry [TemplateDay.times]; INTERVAL
+  /// days carry the collapsed [DayHours.toIntervals()] list.
+  ///
+  /// `validFrom` is taken from [existing] whenever a template has been
+  /// persisted. The `?? _today` fallback is reached ONLY when building the base
+  /// for [_openApplyWindowSheet] on a fresh create — there `today` is a harmless
+  /// placeholder the «Період дія графіка» sheet immediately overwrites with the
+  /// master's explicitly-picked range. The [_save] create path can never reach
+  /// this fallback: it is gated by `_SaveGate.windowUnset` and the defensive
+  /// early-return in [_save].
   WeeklySchedule _buildSchedule(
     List<DayHours?> days,
     WeeklySchedule? existing,
@@ -915,6 +949,23 @@ class _LoadedBody extends StatelessWidget {
                       l10n.weeklyEditorNoChangesHint,
                       style: VelvetText.feedback(BrandColors.muted),
                       textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: VelvetSpacing.xs),
+                  ],
+                  // First-time create with working days but no chosen validity
+                  // window: explain why Save is disabled and route the tap to the
+                  // «Період дії графіка» sheet so the dead button becomes an
+                  // actionable affordance.
+                  if (gate == _SaveGate.windowUnset) ...<Widget>[
+                    GestureDetector(
+                      key: const Key('weekly-window-unset-hint'),
+                      onTap: onTapWindow,
+                      behavior: HitTestBehavior.opaque,
+                      child: Text(
+                        l10n.weeklyEditorWindowUnsetHint,
+                        style: VelvetText.feedback(BrandColors.accentDeep),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                     const SizedBox(height: VelvetSpacing.xs),
                   ],

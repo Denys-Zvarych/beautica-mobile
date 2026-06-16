@@ -2022,6 +2022,10 @@
   "@weeklyEditorNoChangesHint": {
     "description": "Hint shown above the Save button on the weekly-template editor when the draft matches the saved schedule (a clean no-op), explaining why Save is disabled. Covers the all-days-off, no-existing-template case so a day-off selection never looks broken."
   },
+  "weeklyEditorWindowUnsetHint": "Спочатку оберіть період «Графік діє з…»",
+  "@weeklyEditorWindowUnsetHint": {
+    "description": "Hint shown above the Save button on the weekly-template editor for a first-time create when the validity window («Графік діє з…») has not yet been explicitly chosen. Explains why Save is disabled and invites the user to tap the active-window card to pick the effective-from period before the first schedule can be saved."
+  },
   "weeklyEditorDayToggleSemantic": "{day} — робочий день",
   "@weeklyEditorDayToggleSemantic": {
     "description": "Accessibility label for the per-weekday open/closed toggle in the weekly-template editor (Phase 15.5).",
