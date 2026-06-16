@@ -1216,9 +1216,24 @@ void main() {
         final AppLocalizations l10n = _l10n(tester);
         expect(find.text(l10n.scheduleDiscreteTimesTitle), findsOneWidget);
 
-        // The continuous-availability hour grid is GONE — a discrete day is a set
-        // of bookable starts, not a span.
-        expect(find.byType(SlotChip), findsNothing);
+        // Restyle (discrete-times-client): each discrete start now renders with
+        // the SHARED [SlotChip] (synthetic available cell), matching the interval
+        // grid's chip styling — the whole point of the change. Assert the chips
+        // ARE SlotChips AND that they live UNDER the discrete container.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('schedule-discrete-times')),
+            matching: find.byType(SlotChip),
+          ),
+          findsNWidgets(3),
+        );
+        // …and that this is the DISCRETE body branch, NOT the interval hour grid.
+        // Both branches now use SlotChip, so we distinguish by CONTAINER, not by
+        // type: every SlotChip on screen is a discrete chip (count == discrete
+        // chips). The interval grid would emit chips OUTSIDE the discrete
+        // container, inflating the total — so a total equal to the discrete count
+        // proves the grid code path was not taken.
+        expect(find.byType(SlotChip), findsNWidgets(3));
         // It is a WORKING day, not a day off / gap.
         expect(find.byKey(const Key('schedule-day-off-empty')), findsNothing);
         expect(find.byKey(const Key('no-schedule-banner')), findsNothing);
@@ -1275,7 +1290,17 @@ void main() {
           findsOneWidget,
         );
         expect(find.byKey(const Key('schedule-day-off-empty')), findsNothing);
-        expect(find.byType(SlotChip), findsNothing);
+        // Restyle: discrete starts render as the shared [SlotChip] under the
+        // discrete container — assert by container, not by SlotChip type. Three
+        // default discrete chips, none escaping the container (no interval grid).
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('schedule-discrete-times')),
+            matching: find.byType(SlotChip),
+          ),
+          findsNWidgets(3),
+        );
+        expect(find.byType(SlotChip), findsNWidgets(3));
       },
     );
 
@@ -1402,13 +1427,27 @@ void main() {
       );
       await _pump(tester, overrides: _editableData(days));
 
-      // Structural pin (the real acceptance gate).
+      // Structural pin (the real acceptance gate). Strengthened for the restyle:
+      // the discrete starts must render as the SHARED [SlotChip] UNDER the
+      // discrete container (the whole point of the change), and NO chip may
+      // escape that container (the interval grid path must not be taken). This
+      // keeps the golden strictly SUPPLEMENTARY — a body-branch regression fails
+      // here on structure, never silently on a re-blessed PNG.
       expect(find.byKey(const Key('schedule-discrete-times')), findsOneWidget);
       for (final String hhmm in const <String>['09:00', '13:00', '15:00']) {
         expect(find.byKey(Key('schedule-discrete-chip-$hhmm')), findsOneWidget);
       }
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('schedule-discrete-times')),
+          matching: find.byType(SlotChip),
+        ),
+        findsNWidgets(3),
+      );
+      expect(find.byType(SlotChip), findsNWidgets(3));
 
-      // Supplementary pixel snapshot.
+      // Supplementary pixel snapshot (re-baselined for the pills → SlotChip
+      // restyle; ~2.82% intended drift).
       await expectLater(
         find.byType(MasterScheduleScreen),
         matchesGoldenFile('goldens/schedule_discrete_times_day.png'),
@@ -1479,7 +1518,19 @@ void main() {
             reason: 'refreshed discrete time ${_hhmm(t)} must render as a chip',
           );
         }
-        expect(find.byType(SlotChip), findsNothing);
+        // Restyle: the interval grid is gone and the discrete starts now render
+        // as the shared [SlotChip] under the discrete container. Assert by
+        // container (both branches use SlotChip): exactly the two saved discrete
+        // chips, none escaping the container — proving the grid path is gone, not
+        // merely that SlotChips disappeared.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('schedule-discrete-times')),
+            matching: find.byType(SlotChip),
+          ),
+          findsNWidgets(savedTimes.length),
+        );
+        expect(find.byType(SlotChip), findsNWidgets(savedTimes.length));
 
         // Drain the real notifier's keepAlive release timers (test-side hygiene).
         await _drainKeepAliveTimers(tester);

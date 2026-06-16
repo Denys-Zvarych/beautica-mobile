@@ -44,6 +44,7 @@ import 'schedule_range.dart';
 import 'weekly_schedule_notifier.dart';
 import 'widgets/day_schedule.dart';
 import 'widgets/schedule_widgets.dart';
+import 'widgets/slot_colors.dart';
 
 /// The calendar-first Master Schedule screen.
 class MasterScheduleScreen extends ConsumerStatefulWidget {
@@ -1379,13 +1380,21 @@ class _SelectedDayView extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// _DiscreteTimesView (Phase 15.9) — read-only render of an EXPLICIT_TIMES day's
-// discrete start times as neumorphic chips, reusing the [DiscreteTimesEditor]
-// `_TimeChip` look WITHOUT its ✕ remove control (this surface is read-only). A
-// section heading sits above a [Wrap] of chips so the row reflows at narrow
-// widths / large text scale and never overflows (Phase 17.2 guard). The whole
-// block is collapsed into a single semantic announcement of the times so the
-// chips are conveyed without relying on layout.
+// _DiscreteTimesView (Phase 15.9; restyled in the discrete-times-client track) —
+// read-only render of an EXPLICIT_TIMES day's discrete start times. To stay
+// visually consistent with the INTERVAL day's hour grid, each discrete start is
+// rendered with the SAME [SlotChip] used by [_SelectedDayView._timeGrid]: a
+// discrete start IS a bookable working start, so it maps to a synthetic
+// [SlotState.available] cell and reads as a green "working" chip identical to
+// the grid's. A section heading sits above a [Wrap] of chips so the row reflows
+// at narrow widths / large text scale and never overflows (Phase 17.2 guard).
+// Each chip is given a fixed slot width so it reads as a tile (matching the
+// grid chips' spacious column fill) rather than shrink-wrapping its label. The
+// whole block is collapsed into a single semantic announcement of the times so
+// the chips are conveyed without relying on layout.
+//
+// Read-only: the [SlotChip]s pass `onTap: null` exactly like the interval grid
+// render, so there is no tap / edit affordance.
 //
 // The derived min–max window is intentionally NOT repeated here — it is already
 // the secondary summary in [_SelectedDayView._dayPanel] above (window label as
@@ -1399,7 +1408,8 @@ class _DiscreteTimesView extends StatelessWidget {
   /// working day; an empty list is a day-off and routes to [_DayOffEmptyState]).
   final List<TimeOfDay> times;
 
-  /// `HH:MM` zero-padded — matches the editor chip / window-label formatting.
+  /// `HH:MM` zero-padded — matches the editor chip / window-label formatting and
+  /// the per-chip render key.
   static String _fmt(TimeOfDay t) =>
       '${t.hour.toString().padLeft(2, '0')}:'
       '${t.minute.toString().padLeft(2, '0')}';
@@ -1410,6 +1420,12 @@ class _DiscreteTimesView extends StatelessWidget {
     fontSize: 12,
     color: BrandColors.textSecondary,
   );
+
+  // Fixed slot width so each [SlotChip] reads as a tile (matching the interval
+  // grid chips, which fill their `Expanded` column) instead of shrink-wrapping
+  // its `HH:MM` label. Sized to fit the label with the same breathing room as a
+  // grid column; the [Wrap] reflows these tiles at narrow widths / large text.
+  static const double _chipWidth = 92;
 
   @override
   Widget build(BuildContext context) {
@@ -1433,52 +1449,26 @@ class _DiscreteTimesView extends StatelessWidget {
                 runSpacing: VelvetSpacing.sm,
                 children: <Widget>[
                   for (final TimeOfDay t in times)
-                    _ReadOnlyTimeChip(
+                    SizedBox(
                       key: Key('schedule-discrete-chip-${_fmt(t)}'),
-                      label: _fmt(t),
+                      width: _chipWidth,
+                      // Same chip as the interval grid: a working start →
+                      // SlotState.available (green). `onTap: null` keeps it
+                      // read-only, mirroring the grid render.
+                      child: SlotChip(
+                        cell: SlotCell(time: t, state: SlotState.available),
+                        stateLabel: slotCellLabel(
+                          l10n,
+                          SlotCell(time: t, state: SlotState.available),
+                        ),
+                        onTap: null,
+                      ),
                     ),
                 ],
               ),
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// _ReadOnlyTimeChip — a single discrete start-time pill for the calendar
-// read-back. Visually identical to the editor's `_TimeChip` (same neumorphic
-// raised base, pill radius, extruded shadow, tabular figures) but WITHOUT the ✕
-// remove sub-button — this is a read-only display surface.
-// ─────────────────────────────────────────────────────────────────────────────
-class _ReadOnlyTimeChip extends StatelessWidget {
-  const _ReadOnlyTimeChip({super.key, required this.label});
-
-  final String label;
-
-  // Perf #56: hoisted once — the chip text style never varies per instance.
-  static final TextStyle _chipStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 13,
-    color: BrandColors.accentDeep,
-    fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: BrandColors.base,
-        borderRadius: BorderRadius.circular(VelvetRadii.pill),
-        boxShadow: VelvetShadows.extrudedSmall,
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: VelvetSpacing.md,
-          vertical: VelvetSpacing.sm - 2,
-        ),
-        child: Text(label, style: _chipStyle),
       ),
     );
   }
