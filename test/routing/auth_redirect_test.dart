@@ -476,6 +476,122 @@ void main() {
         equals(RouteNames.home),
       );
     });
+
+    // Phase 15.6 — /schedule/* role gate (OQ-2 hardening regression).
+    //
+    // The schedule EDIT surfaces are INDEPENDENT_MASTER-only in MVP. The
+    // /schedule prefix guard in auth_redirect.dart:223-228 redirects EVERY
+    // authenticated role that is NOT INDEPENDENT_MASTER to RouteNames.home —
+    // closing the leak where a read-only role (SALON_MASTER) or any other role
+    // deep-linking/pushing straight to /schedule/weekly|day|copy could reach
+    // editable controls (those editor screens do NOT self-check the capability;
+    // only MasterScheduleScreen gates on scheduleEditableProvider). These tests
+    // pin the gate across the WHOLE /schedule subtree and every role so a
+    // refactor that widens access is caught immediately. The auth gate keeps
+    // precedence — an unauthenticated session still goes to /login regardless of
+    // path — so that is asserted too.
+    //
+    // Local role fixtures (the existing _clientSession + _authenticatedSession
+    // cover CLIENT and INDEPENDENT_MASTER; SALON_MASTER/OWNER/ADMIN are built
+    // inline to keep this block self-contained and the matrix explicit).
+    const _salonMasterSession = AsyncData<AuthSession>(
+      AuthSession.authenticated(
+        user: User(
+          id: 'u-sm',
+          email: 'salonmaster@example.com',
+          role: UserRole.salonMaster,
+          firstName: 'Salon',
+          lastName: 'Master',
+        ),
+        accessToken: 'token',
+      ),
+    );
+    const _salonOwnerSession = AsyncData<AuthSession>(
+      AuthSession.authenticated(
+        user: User(
+          id: 'u-so',
+          email: 'owner@example.com',
+          role: UserRole.salonOwner,
+          firstName: 'Salon',
+          lastName: 'Owner',
+        ),
+        accessToken: 'token',
+      ),
+    );
+    const _salonAdminSession = AsyncData<AuthSession>(
+      AuthSession.authenticated(
+        user: User(
+          id: 'u-sa',
+          email: 'admin@example.com',
+          role: UserRole.salonAdmin,
+          firstName: 'Salon',
+          lastName: 'Admin',
+        ),
+        accessToken: 'token',
+      ),
+    );
+
+    // The full /schedule subtree under audit: the landing screen plus the three
+    // deep edit destinations that do NOT self-check the capability.
+    const scheduleRoutes = <String>[
+      RouteNames.masterSchedule, // /schedule
+      RouteNames.scheduleWeeklyEditor, // /schedule/weekly
+      RouteNames.scheduleDayOverride, // /schedule/day
+      RouteNames.schedulePropagate, // /schedule/copy
+    ];
+
+    group('/schedule role gate (Phase 15.6 OQ-2)', () {
+      for (final route in scheduleRoutes) {
+        test('INDEPENDENT_MASTER at $route is allowed (null)', () {
+          expect(
+            authRedirectForLocation(_authenticatedSession, route),
+            isNull,
+            reason: 'the schedule owner role must reach $route',
+          );
+        });
+
+        test('CLIENT at $route is redirected to /', () {
+          expect(
+            authRedirectForLocation(_clientSession, route),
+            equals(RouteNames.home),
+          );
+        });
+
+        test('SALON_MASTER at $route is redirected to /', () {
+          expect(
+            authRedirectForLocation(_salonMasterSession, route),
+            equals(RouteNames.home),
+            reason:
+                'a read-only SALON_MASTER must NOT reach the schedule edit '
+                'surfaces (the exact OQ-2 leak this gate closes)',
+          );
+        });
+
+        test('SALON_OWNER at $route is redirected to /', () {
+          expect(
+            authRedirectForLocation(_salonOwnerSession, route),
+            equals(RouteNames.home),
+          );
+        });
+
+        test('SALON_ADMIN at $route is redirected to /', () {
+          expect(
+            authRedirectForLocation(_salonAdminSession, route),
+            equals(RouteNames.home),
+          );
+        });
+
+        // Auth gate precedence: an unauthenticated session is forwarded to
+        // /login BEFORE the role gate is even reached — deep-linking to a
+        // /schedule route while signed out must never expose the screen.
+        test('unauthenticated at $route is redirected to /login', () {
+          expect(
+            authRedirectForLocation(_unauthenticatedSession, route),
+            equals(RouteNames.login),
+          );
+        });
+      }
+    });
   });
 
   // Splash duration gate — the animated wordmark (880 ms reveal) must always

@@ -206,6 +206,27 @@ String? authRedirectForLocation(
     }
   }
 
+  // Role gate (Phase 15.6 — OQ-2 hardening): the schedule EDIT surfaces are
+  // INDEPENDENT_MASTER-only in MVP. `/schedule` (MasterScheduleScreen) already
+  // gates every edit affordance on `scheduleEditableProvider` and is a safe
+  // read-only landing for any future viewer; but the deep edit destinations —
+  // `/schedule/weekly` (WeeklyTemplateEditorScreen), `/schedule/day`,
+  // `/schedule/copy` — are full edit surfaces that do NOT self-check the
+  // capability. A read-only role (SALON_MASTER) deep-linking/pushing straight
+  // to one of those would otherwise reach editable controls. Redirect every
+  // non-INDEPENDENT_MASTER role away from the entire `/schedule` subtree to the
+  // home "coming soon" shell, mirroring the `/master/*` and `/services` gates
+  // above. When salon staff gain a (read-only/editable-per-membership) schedule
+  // surface in a later phase, this gate widens to admit those roles and the
+  // editor screens add their own `scheduleEditableProvider` check — but for MVP
+  // the single-point router gate keeps the edit surfaces fully enclosed.
+  if (isAuthenticated && location.startsWith('/schedule')) {
+    final Authenticated auth = session.value! as Authenticated;
+    if (auth.user.role != UserRole.independentMaster) {
+      return RouteNames.home;
+    }
+  }
+
   // No redirect needed.
   return null;
 }

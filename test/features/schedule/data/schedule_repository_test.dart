@@ -166,6 +166,86 @@ void main() {
         );
       },
     );
+
+    // Phase 15.6 — pin the guard on listOverrides for the INVERTED case too. The
+    // existing >366-day test covers listOverrides' upper bound; this adds the
+    // ordering half so BOTH range methods reject BOTH invariants before any call.
+    test('listOverrides inverted range rejects before any API call', () async {
+      await expectLater(
+        repository.listOverrides(DateTime(2026, 6, 10), DateTime(2026, 6, 1)),
+        rejectsBeforeCall,
+      );
+
+      verifyNever(
+        () => masterApi.getOverrides(
+          masterId: any(named: 'masterId'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+        ),
+      );
+    });
+
+    // Phase 15.6 — the guard's ACCEPT path: a normal in-bounds window (and the
+    // exact 366-day boundary, which is inclusive) must pass through to the API.
+    // Without this, all three guard tests above would still pass if the guard
+    // rejected EVERYTHING — this proves it admits the valid range.
+    test('a normal month range passes the guard and reaches the API', () async {
+      when(
+        () => masterApi.getEffectiveSchedule(
+          masterId: any(named: 'masterId'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<ApiResponseListEffectiveDayResponse>(
+          data: ApiResponseListEffectiveDayResponse((b) => b..success = true),
+          requestOptions: RequestOptions(path: _path),
+          statusCode: 200,
+        ),
+      );
+
+      await repository.effectiveSchedule(
+        DateTime(2026, 6, 1),
+        DateTime(2026, 6, 30),
+      );
+
+      verify(
+        () => masterApi.getEffectiveSchedule(
+          masterId: any(named: 'masterId'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+        ),
+      ).called(1);
+    });
+
+    test(
+      'the inclusive 366-day boundary is accepted (reaches the API)',
+      () async {
+        when(
+          () => masterApi.getOverrides(
+            masterId: any(named: 'masterId'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer(
+          (_) async => _overridesEnvelope(const <ScheduleOverrideResponse>[]),
+        );
+
+        final from = DateTime(2026, 1, 1);
+        // Exactly kMaxScheduleRangeDays apart → span == 366 → on the inclusive bound.
+        final to = from.add(const Duration(days: kMaxScheduleRangeDays));
+
+        await repository.listOverrides(from, to);
+
+        verify(
+          () => masterApi.getOverrides(
+            masterId: any(named: 'masterId'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).called(1);
+      },
+    );
   });
 
   group('listOverrides — happy path', () {
