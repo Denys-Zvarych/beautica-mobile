@@ -383,19 +383,24 @@ jobs:
             # so a one-shot pre-approval is gone by the time openUrl fires (deep-link
             # test runs 3rd). This loop re-asserts STATE_APPROVED every second for
             # both default and user scope, so whenever patrol's reinstall lands the
-            # domain is re-approved before the intent is fired. It is BOUNDED
-            # (self-terminates after ~15 min) so it never lingers, and is NEVER
-            # pkill'd — `pkill -f` would match its own argv and SIGTERM the cleanup
-            # shell ("exit code null"). Must be one self-contained line so the `&`
-            # background survives this line's own sh -c.
-            ( i=0; while [ "$i" -lt 900 ]; do adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; i=$((i+1)); sleep 1; done ) &
-            # patrol MUST be the last command: android-emulator-runner runs each
-            # line in its own sh -c, so a separate `CODE=$?`/`exit $CODE` would not
-            # carry. Letting `patrol test` be last makes the step's exit code equal
-            # patrol's real result. Background helpers are orphaned and reaped by
-            # the emulator teardown.
+            # domain is re-approved before the intent is fired.
+            #
+            # It STOPS the instant patrol finishes, via the sentinel file written on
+            # the patrol line below — the emulator-runner action waits for backgrounded
+            # children, so a loop that kept spinning would hang the step for minutes
+            # after the tests already passed (observed). Each adb call is `timeout`-
+            # bounded so a call can never wedge, and the loop is iteration-capped as a
+            # final backstop. NOT pkill'd — `pkill -f` would match its own argv and
+            # SIGTERM the cleanup shell ("exit code null"). Must be ONE self-contained
+            # line so the `&` background survives this line's own sh -c.
+            rm -f /tmp/patrol_approve_done || true
+            ( i=0; while [ ! -f /tmp/patrol_approve_done ] && [ "$i" -lt 1200 ]; do timeout 10 adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; timeout 10 adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; i=$((i+1)); sleep 1; done ) &
             patrol build android --target integration_test/patrol
-            patrol test --target integration_test/patrol --verbose
+            # Run patrol, capture its exit, signal the loop to stop, then exit with
+            # patrol's real code — all on ONE line so the exit status carries
+            # (android-emulator-runner runs each line in its own sh -c, so a separate
+            # CODE=$?/exit would not). This makes the step's result equal patrol's.
+            patrol test --target integration_test/patrol --verbose; RC=$?; : > /tmp/patrol_approve_done; exit $RC
 
       - name: Upload patrol device logcat
         if: failure()
