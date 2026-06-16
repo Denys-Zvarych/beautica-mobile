@@ -220,6 +220,83 @@ void main() {
         expect(find.text(l10n.discreteTimesDuplicateMessage), findsNothing);
       },
     );
+
+    testWidgets(
+      'a second duplicate tap re-arms the auto-dismiss timer: the message stays '
+      'visible past the FIRST timer\'s deadline and only clears 2.5 s after the '
+      'LAST tap (no stale callback clears the newer message)',
+      (tester) async {
+        final List<TimeOfDay> times = <TimeOfDay>[];
+        await pumpEditor(tester, times);
+
+        await addTime(tester); // 09:00
+
+        // First duplicate attempt (seeds 10:00, scroll back 1 → 09:00).
+        await addTime(tester, hourSteps: -1);
+        final AppLocalizations l10n = l10nOf(tester);
+        expect(find.text(l10n.discreteTimesDuplicateMessage), findsOneWidget);
+
+        // Wait 1.5 s — past half the first timer but before it fires.
+        await tester.pump(const Duration(milliseconds: 1500));
+        expect(find.text(l10n.discreteTimesDuplicateMessage), findsOneWidget);
+
+        // Second duplicate attempt re-arms the timer. With a bare Future.delayed
+        // the FIRST (now stale) callback would still fire at the 2.5 s mark and
+        // clear THIS newer message; a cancelable Timer cancels it on re-arm.
+        await addTime(tester, hourSteps: -1);
+        expect(find.text(l10n.discreteTimesDuplicateMessage), findsOneWidget);
+
+        // 1.5 s after the second tap = 3.0 s after the first. A stale first-tap
+        // timer would have fired by now and wrongly cleared the message.
+        await tester.pump(const Duration(milliseconds: 1500));
+        expect(
+          find.text(l10n.discreteTimesDuplicateMessage),
+          findsOneWidget,
+          reason: 'the re-armed timer must keep the newer message alive',
+        );
+
+        // Drain the live (re-armed) timer so teardown sees zero pending timers.
+        await tester.pump(const Duration(milliseconds: 1100));
+        await tester.pumpAndSettle();
+        expect(find.text(l10n.discreteTimesDuplicateMessage), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'disposing the editor while the auto-dismiss timer is still armed cancels '
+      'it: no leaked Timer and no setState-after-dispose (dispose() must cancel)',
+      (tester) async {
+        final List<TimeOfDay> times = <TimeOfDay>[];
+        await pumpEditor(tester, times);
+
+        await addTime(tester); // 09:00
+
+        // Arm the timer via a duplicate attempt — message shown, 2.5 s timer live.
+        await addTime(tester, hourSteps: -1);
+        final AppLocalizations l10n = l10nOf(tester);
+        expect(find.text(l10n.discreteTimesDuplicateMessage), findsOneWidget);
+
+        // Tear the editor out of the tree WHILE the timer is still armed (only
+        // 0.5 s elapsed of the 2.5 s window) — mirrors the user navigating away
+        // / collapsing the day card / dismissing the sheet mid-warning.
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: SizedBox.shrink())),
+        );
+
+        // The editor is gone; the warning is gone.
+        expect(find.byType(DiscreteTimesEditor), findsNothing);
+        expect(find.text(l10n.discreteTimesDuplicateMessage), findsNothing);
+
+        // Advance well past the original 2.5 s deadline. If dispose() did NOT
+        // cancel the timer, the stale callback would fire `setState` on a
+        // defunct State here → FlutterError. With the cancel in place there is
+        // nothing to fire; the test also ends with zero pending timers (the
+        // flutter_test fake-async guard fails the test otherwise).
+        await tester.pump(const Duration(milliseconds: 3000));
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 
   // ── Remove ───────────────────────────────────────────────────────────────────

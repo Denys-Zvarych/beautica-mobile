@@ -26,6 +26,8 @@
 //     notifier gate; the editor surfaces this inline so the save gate is never
 //     silently dead).
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -138,6 +140,17 @@ class _DiscreteTimesEditorState extends State<DiscreteTimesEditor> {
   /// `null` when no duplicate attempt is in progress.
   String? _dupeMessage;
 
+  /// Cancelable auto-dismiss timer for [_dupeMessage]. Re-armed on each duplicate
+  /// attempt (canceling any in-flight dismiss) so rapid taps can't let a stale
+  /// callback clear a newer message; canceled in [dispose].
+  Timer? _dismissTimer;
+
+  @override
+  void dispose() {
+    _dismissTimer?.cancel();
+    super.dispose();
+  }
+
   // ── Add ──────────────────────────────────────────────────────────────────---
   Future<void> _addTime() async {
     // Seed the picker just after the last existing time (next full hour), or
@@ -164,8 +177,10 @@ class _DiscreteTimesEditorState extends State<DiscreteTimesEditor> {
     );
     if (isDupe) {
       setState(() => _dupeMessage = widget.strings.duplicateMessage);
-      // Auto-dismiss after 2.5 s.
-      Future<void>.delayed(const Duration(milliseconds: 2500), () {
+      // Auto-dismiss after 2.5 s. Cancel any in-flight dismiss first so a stale
+      // callback from an earlier tap can't clear this newer message.
+      _dismissTimer?.cancel();
+      _dismissTimer = Timer(const Duration(milliseconds: 2500), () {
         if (mounted) setState(() => _dupeMessage = null);
       });
       return;
