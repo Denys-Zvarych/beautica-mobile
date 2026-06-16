@@ -136,6 +136,17 @@ class DiscreteTimesEditor extends StatefulWidget {
 }
 
 class _DiscreteTimesEditorState extends State<DiscreteTimesEditor> {
+  /// Hoisted, build-invariant text styles — allocated once instead of on every
+  /// editor build (every chip add/remove). Mirrors [_TimeChip._chipStyle].
+  static final TextStyle _windowLabelStyle = VelvetText.label().copyWith(
+    fontSize: 12,
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w700,
+  );
+  static final TextStyle _addTimeStyle = VelvetText.link().copyWith(
+    fontSize: 13,
+  );
+
   /// Transient message shown when the picked time already exists in [times].
   /// `null` when no duplicate attempt is in progress.
   String? _dupeMessage;
@@ -238,14 +249,7 @@ class _DiscreteTimesEditorState extends State<DiscreteTimesEditor> {
                 color: BrandColors.accentDeep,
               ),
               const SizedBox(width: VelvetSpacing.xs + 2),
-              Text(
-                '${s.windowLabel}  $windowRange',
-                style: VelvetText.label().copyWith(
-                  fontSize: 12,
-                  color: BrandColors.accentDeep,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              Text('${s.windowLabel}  $windowRange', style: _windowLabelStyle),
             ],
           ),
           const SizedBox(height: VelvetSpacing.sm + 2),
@@ -298,10 +302,7 @@ class _DiscreteTimesEditorState extends State<DiscreteTimesEditor> {
                       color: BrandColors.accentDeep,
                     ),
                     const SizedBox(width: VelvetSpacing.sm),
-                    Text(
-                      s.addTimeLabel,
-                      style: VelvetText.link().copyWith(fontSize: 13),
-                    ),
+                    Text(s.addTimeLabel, style: _addTimeStyle),
                   ],
                 ),
               ),
