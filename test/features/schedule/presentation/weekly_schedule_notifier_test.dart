@@ -37,7 +37,11 @@ WeeklySchedule _explicitSchedule(List<TimeOfDay> mondayTimes) => WeeklySchedule(
       times: mondayTimes,
     ),
     for (var dow = 2; dow <= 7; dow++)
-      TemplateDay(dayOfWeek: dow, label: 'd$dow', intervals: const <WorkInterval>[]),
+      TemplateDay(
+        dayOfWeek: dow,
+        label: 'd$dow',
+        intervals: const <WorkInterval>[],
+      ),
   ],
 );
 
@@ -218,76 +222,80 @@ void main() {
   // ───────────────────────────────────────────────────────────────────────────
 
   group('save — EXPLICIT_TIMES validation', () {
-    test('accepts a working EXPLICIT_TIMES day and sends mode + times', () async {
-      when(
-        () => repo.listWeeklySchedules(),
-      ).thenAnswer((_) async => <WeeklySchedule>[]);
-      when(
-        () => repo.upsertWeeklySchedule(
-          any(),
-          scheduleId: any(named: 'scheduleId'),
-        ),
-      ).thenAnswer((_) async => _schedule(id: 's1'));
-
-      final container = makeContainer();
-      await container.read(weeklyScheduleProvider.future);
-
-      final schedule = _explicitSchedule(const <TimeOfDay>[
-        TimeOfDay(hour: 9, minute: 0),
-        TimeOfDay(hour: 13, minute: 0),
-      ]);
-      await container.read(weeklyScheduleProvider.notifier).save(schedule);
-
-      expect(container.read(weeklyScheduleProvider).hasError, isFalse);
-
-      // The persisted schedule reached the repo with the EXPLICIT_TIMES Monday
-      // intact (mode + the discrete times, no intervals).
-      final captured = verify(
-        () => repo.upsertWeeklySchedule(
-          captureAny(),
-          scheduleId: any(named: 'scheduleId'),
-        ),
-      ).captured.single as WeeklySchedule;
-      final mon = captured.days.firstWhere((d) => d.dayOfWeek == 1);
-      expect(mon.mode, WeekdayMode.explicitTimes);
-      expect(mon.times, <TimeOfDay>[
-        const TimeOfDay(hour: 9, minute: 0),
-        const TimeOfDay(hour: 13, minute: 0),
-      ]);
-      expect(mon.intervals, isEmpty);
-    });
-
     test(
-      'rejects a misaligned-time EXPLICIT_TIMES working day → '
-      'ValidationFailure, no network call',
+      'accepts a working EXPLICIT_TIMES day and sends mode + times',
       () async {
         when(
           () => repo.listWeeklySchedules(),
         ).thenAnswer((_) async => <WeeklySchedule>[]);
-
-        final container = makeContainer();
-        await container.read(weeklyScheduleProvider.future);
-
-        // A non-empty (so NOT a day-off) EXPLICIT_TIMES Monday whose single
-        // start time is not 15-min aligned — an invalid working day. (An EMPTY
-        // times list is treated as a DAY-OFF in EXPLICIT_TIMES mode and is
-        // intentionally valid, so the reject path is exercised via alignment.)
-        await container.read(weeklyScheduleProvider.notifier).save(
-          _explicitSchedule(const <TimeOfDay>[TimeOfDay(hour: 9, minute: 7)]),
-        );
-
-        final state = container.read(weeklyScheduleProvider);
-        expect(state.hasError, isTrue);
-        expect(state.error, isA<ValidationFailure>());
-        // Guard fired BEFORE any upsert — no network mutation.
-        verifyNever(
+        when(
           () => repo.upsertWeeklySchedule(
             any(),
             scheduleId: any(named: 'scheduleId'),
           ),
-        );
+        ).thenAnswer((_) async => _schedule(id: 's1'));
+
+        final container = makeContainer();
+        await container.read(weeklyScheduleProvider.future);
+
+        final schedule = _explicitSchedule(const <TimeOfDay>[
+          TimeOfDay(hour: 9, minute: 0),
+          TimeOfDay(hour: 13, minute: 0),
+        ]);
+        await container.read(weeklyScheduleProvider.notifier).save(schedule);
+
+        expect(container.read(weeklyScheduleProvider).hasError, isFalse);
+
+        // The persisted schedule reached the repo with the EXPLICIT_TIMES Monday
+        // intact (mode + the discrete times, no intervals).
+        final captured =
+            verify(
+                  () => repo.upsertWeeklySchedule(
+                    captureAny(),
+                    scheduleId: any(named: 'scheduleId'),
+                  ),
+                ).captured.single
+                as WeeklySchedule;
+        final mon = captured.days.firstWhere((d) => d.dayOfWeek == 1);
+        expect(mon.mode, WeekdayMode.explicitTimes);
+        expect(mon.times, <TimeOfDay>[
+          const TimeOfDay(hour: 9, minute: 0),
+          const TimeOfDay(hour: 13, minute: 0),
+        ]);
+        expect(mon.intervals, isEmpty);
       },
     );
+
+    test('rejects a misaligned-time EXPLICIT_TIMES working day → '
+        'ValidationFailure, no network call', () async {
+      when(
+        () => repo.listWeeklySchedules(),
+      ).thenAnswer((_) async => <WeeklySchedule>[]);
+
+      final container = makeContainer();
+      await container.read(weeklyScheduleProvider.future);
+
+      // A non-empty (so NOT a day-off) EXPLICIT_TIMES Monday whose single
+      // start time is not 15-min aligned — an invalid working day. (An EMPTY
+      // times list is treated as a DAY-OFF in EXPLICIT_TIMES mode and is
+      // intentionally valid, so the reject path is exercised via alignment.)
+      await container
+          .read(weeklyScheduleProvider.notifier)
+          .save(
+            _explicitSchedule(const <TimeOfDay>[TimeOfDay(hour: 9, minute: 7)]),
+          );
+
+      final state = container.read(weeklyScheduleProvider);
+      expect(state.hasError, isTrue);
+      expect(state.error, isA<ValidationFailure>());
+      // Guard fired BEFORE any upsert — no network mutation.
+      verifyNever(
+        () => repo.upsertWeeklySchedule(
+          any(),
+          scheduleId: any(named: 'scheduleId'),
+        ),
+      );
+    });
 
     test('INTERVAL save path is unchanged by the new guard', () async {
       var loadCount = 0;

@@ -42,6 +42,8 @@ import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/presentation/day_hours_sheet.dart';
 import 'package:beautica_mobile/features/schedule/presentation/overrides_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
+import 'package:beautica_mobile/features/schedule/presentation/widgets/discrete_times_editor.dart';
+import 'package:beautica_mobile/features/schedule/presentation/widgets/interval_editor.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -210,6 +212,54 @@ void main() {
       },
     );
 
+    // STRUCTURAL PIN (Phase 15.8 — golden-is-not-acceptance). Custom-hours mode
+    // now carries a work-mode sub-toggle (Інтервал / Окремі години) that swaps
+    // the editor body. The acceptance for this layout is the structural
+    // assertion below; the golden that follows is a SUPPLEMENTARY visual check
+    // re-blessed only after this structure was confirmed correct, so the
+    // self-referential re-bless can never silently mask a regression. Finders
+    // use the source Keys + widget TYPES (M2/M11), never localised copy.
+    testWidgets(
+      'custom-hours mode renders the work-mode sub-toggle; INTERVAL shows the '
+      'IntervalEditor and tapping «Окремі години» swaps to the DiscreteTimesEditor',
+      (tester) async {
+        final repo = _happyRepo();
+        await _pumpSheet(tester, repo: repo);
+
+        // The work-mode sub-toggle and both segment chips render in the default
+        // (working-hours) surface.
+        expect(
+          find.byKey(const Key('override-work-mode-toggle')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('override-work-mode-interval')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('override-work-mode-explicit')),
+          findsOneWidget,
+        );
+
+        // INTERVAL is the default mode → the IntervalEditor body is shown, the
+        // DiscreteTimesEditor body is absent.
+        expect(find.byType(IntervalEditor), findsOneWidget);
+        expect(find.byType(DiscreteTimesEditor), findsNothing);
+
+        // Tapping «Окремі години» swaps the body: IntervalEditor gone,
+        // DiscreteTimesEditor present (with its add-time affordance keyed
+        // `override-add-time`).
+        await tester.tap(find.byKey(const Key('override-work-mode-explicit')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(DiscreteTimesEditor), findsOneWidget);
+        expect(find.byType(IntervalEditor), findsNothing);
+        expect(find.byKey(const Key('override-add-time')), findsOneWidget);
+      },
+    );
+
+    // SUPPLEMENTARY golden (re-blessed for the Phase 15.8 work-mode-toggle
+    // layout AFTER the structural pin above confirmed the render is correct).
     testWidgets('custom-hours mode matches its golden', (tester) async {
       final repo = _happyRepo();
       await _pumpSheet(tester, repo: repo);
@@ -361,6 +411,13 @@ void main() {
 
         expect(find.byKey(const Key('override-delete')), findsOneWidget);
 
+        // Phase 15.8: the sheet body now carries the work-mode sub-toggle +
+        // discrete editor, so the content column is taller and the revert
+        // action can sit below the fold of the scroll-controlled sheet. Scroll
+        // it into view before tapping (mirrors the already-passing failure-path
+        // test at the bottom of this file).
+        await tester.ensureVisible(find.byKey(const Key('override-delete')));
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('override-delete')));
         await tester.pumpAndSettle();
 
@@ -471,6 +528,10 @@ void main() {
         repo: repo,
         hasExistingOverride: true,
         interact: (tester) async {
+          // Phase 15.8: scroll the revert action into view first — the taller
+          // work-mode-toggle body can push it below the scroll fold.
+          await tester.ensureVisible(find.byKey(const Key('override-delete')));
+          await tester.pumpAndSettle();
           await tester.tap(find.byKey(const Key('override-delete')));
           await tester.pumpAndSettle();
         },

@@ -408,82 +408,80 @@ void main() {
   // ───────────────────────────────────────────────────────────────────────────
 
   group('weekly EXPLICIT_TIMES day — round-trips sorted + deduped', () {
-    test(
-      'unsorted + duplicate + HH:mm:ss times → request EXPLICIT_TIMES, no '
-      'intervals → response → domain, sorted + deduped',
-      () {
-        // Domain working EXPLICIT_TIMES day: Monday with three discrete starts
-        // supplied UNSORTED, with a DUPLICATE (10:00 twice — one as HH:mm:ss),
-        // and an HH:mm:ss-form entry. The rest of the week is a day-off.
-        final domain = WeeklySchedule(
-          validFrom: DateTime(2026, 6, 1),
-          validTo: null,
-          days: <TemplateDay>[
+    test('unsorted + duplicate + HH:mm:ss times → request EXPLICIT_TIMES, no '
+        'intervals → response → domain, sorted + deduped', () {
+      // Domain working EXPLICIT_TIMES day: Monday with three discrete starts
+      // supplied UNSORTED, with a DUPLICATE (10:00 twice — one as HH:mm:ss),
+      // and an HH:mm:ss-form entry. The rest of the week is a day-off.
+      final domain = WeeklySchedule(
+        validFrom: DateTime(2026, 6, 1),
+        validTo: null,
+        days: <TemplateDay>[
+          TemplateDay(
+            dayOfWeek: 1,
+            label: 'd1',
+            mode: WeekdayMode.explicitTimes,
+            intervals: const <WorkInterval>[],
+            times: const <TimeOfDay>[
+              TimeOfDay(hour: 14, minute: 0),
+              TimeOfDay(hour: 10, minute: 0),
+              TimeOfDay(hour: 10, minute: 0), // duplicate (wall-clock)
+              TimeOfDay(hour: 9, minute: 30),
+            ],
+          ),
+          for (var dow = 2; dow <= 7; dow++)
             TemplateDay(
-              dayOfWeek: 1,
-              label: 'd1',
-              mode: WeekdayMode.explicitTimes,
+              dayOfWeek: dow,
+              label: 'd$dow',
               intervals: const <WorkInterval>[],
-              times: const <TimeOfDay>[
-                TimeOfDay(hour: 14, minute: 0),
-                TimeOfDay(hour: 10, minute: 0),
-                TimeOfDay(hour: 10, minute: 0), // duplicate (wall-clock)
-                TimeOfDay(hour: 9, minute: 30),
-              ],
             ),
-            for (var dow = 2; dow <= 7; dow++)
-              TemplateDay(
-                dayOfWeek: dow,
-                label: 'd$dow',
-                intervals: const <WorkInterval>[],
-              ),
-          ],
-        );
+        ],
+      );
 
-        final request = ScheduleMapper.weeklyScheduleToRequest(domain);
+      final request = ScheduleMapper.weeklyScheduleToRequest(domain);
 
-        // The EXPLICIT_TIMES day serialises as mode=EXPLICIT_TIMES + a sorted,
-        // de-duped HH:mm:00 times list — and carries NO intervals.
-        final monReq = request.days!.firstWhere((d) => d.dayOfWeek == 1);
-        expect(monReq.mode, WeeklyScheduleDayRequestModeEnum.EXPLICIT_TIMES);
-        expect(monReq.times!.toList(), <String>[
-          '09:30:00',
-          '10:00:00',
-          '14:00:00',
-        ]);
-        expect(monReq.intervals ?? const <WorkIntervalDto>[], isEmpty);
+      // The EXPLICIT_TIMES day serialises as mode=EXPLICIT_TIMES + a sorted,
+      // de-duped HH:mm:00 times list — and carries NO intervals.
+      final monReq = request.days!.firstWhere((d) => d.dayOfWeek == 1);
+      expect(monReq.mode, WeeklyScheduleDayRequestModeEnum.EXPLICIT_TIMES);
+      expect(monReq.times!.toList(), <String>[
+        '09:30:00',
+        '10:00:00',
+        '14:00:00',
+      ]);
+      expect(monReq.intervals ?? const <WorkIntervalDto>[], isEmpty);
 
-        // Rebuild a response that echoes the request shape, then read it back.
-        final response = WeeklyScheduleResponse(
-          (b) => b
-            ..validFrom = request.validFrom
-            ..days = ListBuilder<WeeklyScheduleDayResponse>(
-              request.days!.map(
-                (d) => WeeklyScheduleDayResponse(
-                  (db) => db
-                    ..dayOfWeek = d.dayOfWeek
-                    ..mode = d.mode == WeeklyScheduleDayRequestModeEnum.EXPLICIT_TIMES
-                        ? WeeklyScheduleDayResponseModeEnum.EXPLICIT_TIMES
-                        : WeeklyScheduleDayResponseModeEnum.INTERVAL
-                    ..times = d.times?.toBuilder()
-                    ..intervals = d.intervals?.toBuilder(),
-                ),
+      // Rebuild a response that echoes the request shape, then read it back.
+      final response = WeeklyScheduleResponse(
+        (b) => b
+          ..validFrom = request.validFrom
+          ..days = ListBuilder<WeeklyScheduleDayResponse>(
+            request.days!.map(
+              (d) => WeeklyScheduleDayResponse(
+                (db) => db
+                  ..dayOfWeek = d.dayOfWeek
+                  ..mode =
+                      d.mode == WeeklyScheduleDayRequestModeEnum.EXPLICIT_TIMES
+                      ? WeeklyScheduleDayResponseModeEnum.EXPLICIT_TIMES
+                      : WeeklyScheduleDayResponseModeEnum.INTERVAL
+                  ..times = d.times?.toBuilder()
+                  ..intervals = d.intervals?.toBuilder(),
               ),
             ),
-        );
+          ),
+      );
 
-        final back = ScheduleMapper.weeklyScheduleFromResponse(response);
-        final mon = back.days.firstWhere((d) => d.dayOfWeek == 1);
-        expect(mon.mode, WeekdayMode.explicitTimes);
-        expect(mon.intervals, isEmpty);
-        expect(mon.times, <TimeOfDay>[
-          const TimeOfDay(hour: 9, minute: 30),
-          const TimeOfDay(hour: 10, minute: 0),
-          const TimeOfDay(hour: 14, minute: 0),
-        ]);
-        expect(mon.isDayOff, isFalse);
-      },
-    );
+      final back = ScheduleMapper.weeklyScheduleFromResponse(response);
+      final mon = back.days.firstWhere((d) => d.dayOfWeek == 1);
+      expect(mon.mode, WeekdayMode.explicitTimes);
+      expect(mon.intervals, isEmpty);
+      expect(mon.times, <TimeOfDay>[
+        const TimeOfDay(hour: 9, minute: 30),
+        const TimeOfDay(hour: 10, minute: 0),
+        const TimeOfDay(hour: 14, minute: 0),
+      ]);
+      expect(mon.isDayOff, isFalse);
+    });
 
     test('INTERVAL day round-trips unchanged (regression)', () {
       // A plain INTERVAL working day must keep mode=INTERVAL, carry its
@@ -525,7 +523,8 @@ void main() {
               (d) => WeeklyScheduleDayResponse(
                 (db) => db
                   ..dayOfWeek = d.dayOfWeek
-                  ..mode = d.mode == WeeklyScheduleDayRequestModeEnum.EXPLICIT_TIMES
+                  ..mode =
+                      d.mode == WeeklyScheduleDayRequestModeEnum.EXPLICIT_TIMES
                       ? WeeklyScheduleDayResponseModeEnum.EXPLICIT_TIMES
                       : WeeklyScheduleDayResponseModeEnum.INTERVAL
                   ..times = d.times?.toBuilder()
@@ -546,59 +545,56 @@ void main() {
   });
 
   group('override EXPLICIT_TIMES — round-trips sorted + deduped', () {
-    test(
-      'explicitTimes override → request EXPLICIT_TIMES + sorted times, no '
-      'intervals → response → domain',
-      () {
-        final override = ScheduleOverride.explicitTimes(
-          start: DateTime(2026, 7, 5),
-          end: DateTime(2026, 7, 5),
-          times: const <TimeOfDay>[
-            TimeOfDay(hour: 16, minute: 0),
-            TimeOfDay(hour: 9, minute: 0),
-            TimeOfDay(hour: 9, minute: 0), // duplicate
-            TimeOfDay(hour: 12, minute: 30),
-          ],
-        );
-        // The ctor already sort+dedupes the domain side.
-        expect(override.mode, WeekdayMode.explicitTimes);
-        expect(override.intervals, isEmpty);
-        expect(override.times, <TimeOfDay>[
-          const TimeOfDay(hour: 9, minute: 0),
-          const TimeOfDay(hour: 12, minute: 30),
-          const TimeOfDay(hour: 16, minute: 0),
-        ]);
+    test('explicitTimes override → request EXPLICIT_TIMES + sorted times, no '
+        'intervals → response → domain', () {
+      final override = ScheduleOverride.explicitTimes(
+        start: DateTime(2026, 7, 5),
+        end: DateTime(2026, 7, 5),
+        times: const <TimeOfDay>[
+          TimeOfDay(hour: 16, minute: 0),
+          TimeOfDay(hour: 9, minute: 0),
+          TimeOfDay(hour: 9, minute: 0), // duplicate
+          TimeOfDay(hour: 12, minute: 30),
+        ],
+      );
+      // The ctor already sort+dedupes the domain side.
+      expect(override.mode, WeekdayMode.explicitTimes);
+      expect(override.intervals, isEmpty);
+      expect(override.times, <TimeOfDay>[
+        const TimeOfDay(hour: 9, minute: 0),
+        const TimeOfDay(hour: 12, minute: 30),
+        const TimeOfDay(hour: 16, minute: 0),
+      ]);
 
-        final req = ScheduleMapper.overrideToRequestForDate(
-          override,
-          DateTime(2026, 7, 5),
-        );
-        expect(req.kind, ScheduleOverrideRequestKindEnum.CUSTOM_HOURS);
-        expect(req.mode, ScheduleOverrideRequestModeEnum.EXPLICIT_TIMES);
-        expect(req.times!.toList(), <String>['09:00:00', '12:30:00', '16:00:00']);
-        expect(req.intervals ?? const <WorkIntervalDto>[], isEmpty);
+      final req = ScheduleMapper.overrideToRequestForDate(
+        override,
+        DateTime(2026, 7, 5),
+      );
+      expect(req.kind, ScheduleOverrideRequestKindEnum.CUSTOM_HOURS);
+      expect(req.mode, ScheduleOverrideRequestModeEnum.EXPLICIT_TIMES);
+      expect(req.times!.toList(), <String>['09:00:00', '12:30:00', '16:00:00']);
+      expect(req.intervals ?? const <WorkIntervalDto>[], isEmpty);
 
-        final response = ScheduleOverrideResponse(
-          (b) => b
-            ..date = req.date
-            ..kind = ScheduleOverrideResponseKindEnum.CUSTOM_HOURS
-            ..mode = ScheduleOverrideResponseModeEnum.EXPLICIT_TIMES
-            ..times = req.times?.toBuilder(),
-        );
+      final response = ScheduleOverrideResponse(
+        (b) => b
+          ..date = req.date
+          ..kind = ScheduleOverrideResponseKindEnum.CUSTOM_HOURS
+          ..mode = ScheduleOverrideResponseModeEnum.EXPLICIT_TIMES
+          ..times = req.times?.toBuilder(),
+      );
 
-        final back = ScheduleMapper.overrideFromResponse(response);
-        expect(back.kind, OverrideKind.custom);
-        expect(back.mode, WeekdayMode.explicitTimes);
-        expect(back.intervals, isEmpty);
-        expect(back.times, <TimeOfDay>[
-          const TimeOfDay(hour: 9, minute: 0),
-          const TimeOfDay(hour: 12, minute: 30),
-          const TimeOfDay(hour: 16, minute: 0),
-        ]);
-        expect(back.start, DateTime(2026, 7, 5));
-        expect(back.end, DateTime(2026, 7, 5));
-      },
-    );
+      final back = ScheduleMapper.overrideFromResponse(response);
+      expect(back.kind, OverrideKind.custom);
+      expect(back.mode, WeekdayMode.explicitTimes);
+      expect(back.intervals, isEmpty);
+      expect(back.times, <TimeOfDay>[
+        const TimeOfDay(hour: 9, minute: 0),
+        const TimeOfDay(hour: 12, minute: 30),
+        const TimeOfDay(hour: 16, minute: 0),
+      ]);
+      expect(back.start, DateTime(2026, 7, 5));
+      expect(back.end, DateTime(2026, 7, 5));
+    });
 
     test('DAY_OFF override regresses unchanged (no mode/times)', () {
       final override = ScheduleOverride.dayOff(
@@ -687,25 +683,22 @@ void main() {
       expect(eff.intervals, isEmpty);
     });
 
-    test(
-      'response WITHOUT times → empty times + isExplicitTimes==false',
-      () {
-        final dto = EffectiveDayResponse(
-          (b) => b
-            ..date = Date(2026, 6, 8)
-            ..source_ = EffectiveDayResponseSource_Enum.TEMPLATE
-            ..intervals = ListBuilder<WorkIntervalDto>(<WorkIntervalDto>[
-              _dto('09:00:00', '18:00:00'),
-            ]),
-        );
+    test('response WITHOUT times → empty times + isExplicitTimes==false', () {
+      final dto = EffectiveDayResponse(
+        (b) => b
+          ..date = Date(2026, 6, 8)
+          ..source_ = EffectiveDayResponseSource_Enum.TEMPLATE
+          ..intervals = ListBuilder<WorkIntervalDto>(<WorkIntervalDto>[
+            _dto('09:00:00', '18:00:00'),
+          ]),
+      );
 
-        final eff = ScheduleMapper.effectiveDayFromResponse(dto);
+      final eff = ScheduleMapper.effectiveDayFromResponse(dto);
 
-        expect(eff.isExplicitTimes, isFalse);
-        expect(eff.times, isEmpty);
-        expect(eff.intervals, hasLength(1));
-      },
-    );
+      expect(eff.isExplicitTimes, isFalse);
+      expect(eff.times, isEmpty);
+      expect(eff.intervals, hasLength(1));
+    });
   });
 
   group('discrete-times robustness — malformed wire degrades gracefully', () {
@@ -735,26 +728,23 @@ void main() {
       expect(eff.isExplicitTimes, isTrue);
     });
 
-    test(
-      'overrideFromResponse with malformed discrete times never throws',
-      () {
-        final dto = ScheduleOverrideResponse(
-          (b) => b
-            ..date = Date(2026, 6, 9)
-            ..kind = ScheduleOverrideResponseKindEnum.CUSTOM_HOURS
-            ..mode = ScheduleOverrideResponseModeEnum.EXPLICIT_TIMES
-            ..times = ListBuilder<String>(<String>['garbage', '08:30:00']),
-        );
+    test('overrideFromResponse with malformed discrete times never throws', () {
+      final dto = ScheduleOverrideResponse(
+        (b) => b
+          ..date = Date(2026, 6, 9)
+          ..kind = ScheduleOverrideResponseKindEnum.CUSTOM_HOURS
+          ..mode = ScheduleOverrideResponseModeEnum.EXPLICIT_TIMES
+          ..times = ListBuilder<String>(<String>['garbage', '08:30:00']),
+      );
 
-        late final ScheduleOverride back;
-        expect(
-          () => back = ScheduleMapper.overrideFromResponse(dto),
-          returnsNormally,
-        );
-        expect(back.mode, WeekdayMode.explicitTimes);
-        expect(back.times, contains(const TimeOfDay(hour: 8, minute: 30)));
-      },
-    );
+      late final ScheduleOverride back;
+      expect(
+        () => back = ScheduleMapper.overrideFromResponse(dto),
+        returnsNormally,
+      );
+      expect(back.mode, WeekdayMode.explicitTimes);
+      expect(back.times, contains(const TimeOfDay(hour: 8, minute: 30)));
+    });
   });
 
   group('Date ⇄ DateTime — leap day', () {

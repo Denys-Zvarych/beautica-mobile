@@ -34,6 +34,7 @@ import 'package:beautica_mobile/features/schedule/presentation/effective_schedul
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_template_editor_screen.dart';
+import 'package:beautica_mobile/features/schedule/presentation/widgets/discrete_times_editor.dart';
 import 'package:beautica_mobile/features/schedule/presentation/widgets/interval_editor.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -1269,6 +1270,127 @@ void main() {
           unsetText.style?.color,
           BrandColors.placeholder,
           reason: 'unset prompt uses the muted placeholder colour',
+        );
+      },
+    );
+  });
+
+  // ── Phase 15.8: per-day mode toggle swaps the editor body ──────────────────
+  //
+  // A working day card now carries an Інтервал / Окремі години sub-toggle
+  // (`weekly-mode-toggle-{dow}`) that swaps the body between the IntervalEditor
+  // and the DiscreteTimesEditor. The seeded Monday (`_template()` → day 1
+  // active, INTERVAL 09:00–18:00) is the subject. Finders key off the source
+  // Keys + widget TYPES (M2), never localised copy.
+  group('WeeklyTemplateEditorScreen — Phase 15.8 mode toggle', () {
+    testWidgets(
+      'a working day defaults to INTERVAL: the mode sub-toggle renders and the '
+      'IntervalEditor body is shown (DiscreteTimesEditor absent)',
+      (tester) async {
+        final ProviderContainer c = await _pumpLoaded(tester, _template());
+        addTearDown(c.dispose);
+
+        // The mode sub-toggle + both segment chips render for the active day.
+        expect(find.byKey(const Key('weekly-mode-toggle-1')), findsOneWidget);
+        expect(find.byKey(const Key('weekly-mode-interval-1')), findsOneWidget);
+        expect(find.byKey(const Key('weekly-mode-explicit-1')), findsOneWidget);
+
+        // Monday is seeded INTERVAL → its IntervalEditor body renders (the
+        // day-1 work-start well exists); no DiscreteTimesEditor for day 1.
+        expect(
+          find.byKey(const Key('weekly-day-1-work-start')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('weekly-day-1')),
+            matching: find.byType(DiscreteTimesEditor),
+          ),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'tapping «Окремі години» on a working day swaps its body to the '
+      'DiscreteTimesEditor (the IntervalEditor work wells are gone)',
+      (tester) async {
+        final ProviderContainer c = await _pumpLoaded(tester, _template());
+        addTearDown(c.dispose);
+
+        final Finder explicitChip = find.byKey(
+          const Key('weekly-mode-explicit-1'),
+        );
+        await tester.ensureVisible(explicitChip);
+        await tester.pumpAndSettle();
+        await tester.tap(explicitChip);
+        await tester.pumpAndSettle();
+
+        // The day-1 card now hosts a DiscreteTimesEditor with its add affordance
+        // (`weekly-day-1-add-time`), and the INTERVAL work wells are gone.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('weekly-day-1')),
+            matching: find.byType(DiscreteTimesEditor),
+          ),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('weekly-day-1-add-time')), findsOneWidget);
+        expect(find.byKey(const Key('weekly-day-1-work-start')), findsNothing);
+      },
+    );
+
+    // Golden for the _DayCard discrete state (+ structural assertion, per the
+    // golden-is-not-acceptance rule). The STRUCTURAL pin is the acceptance: the
+    // discrete day-1 card hosts a DiscreteTimesEditor with one chip + the window
+    // label after a time is added. The golden that follows is a SUPPLEMENTARY
+    // pixel snapshot, blessed only once the structure is confirmed correct so
+    // the self-referential re-bless can never silently mask a regression.
+    testWidgets(
+      'the _DayCard discrete state renders the chip + window label (structural) '
+      'and matches its golden (supplementary)',
+      (tester) async {
+        final ProviderContainer c = await _pumpLoaded(tester, _template());
+        addTearDown(c.dispose);
+
+        // Switch day-1 to EXPLICIT_TIMES and add the seeded 09:00 time so the
+        // card has a deterministic discrete render (chip + min–max label).
+        await tester.tap(find.byKey(const Key('weekly-mode-explicit-1')));
+        await tester.pumpAndSettle();
+        final Finder addTime = find.byKey(const Key('weekly-day-1-add-time'));
+        await tester.ensureVisible(addTime);
+        await tester.tap(addTime);
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('btn-velvet-time-picker-confirm')),
+        );
+        await tester.pumpAndSettle();
+
+        // STRUCTURAL acceptance: the discrete card shows the 09:00 chip and the
+        // localised window label (read from l10n — never a raw UA literal).
+        final Finder dayCard = find.byKey(const Key('weekly-day-1'));
+        expect(
+          find.descendant(
+            of: dayCard,
+            matching: find.byKey(const Key('weekly-day-1-chip-09:00')),
+          ),
+          findsOneWidget,
+        );
+        final AppLocalizations l10n = _l10n(tester);
+        expect(
+          find.descendant(
+            of: dayCard,
+            matching: find.text(
+              '${l10n.discreteTimesWindowLabel}  09:00 – 09:00',
+            ),
+          ),
+          findsOneWidget,
+        );
+
+        // SUPPLEMENTARY golden of just the day-1 card in its discrete state.
+        await expectLater(
+          dayCard,
+          matchesGoldenFile('goldens/weekly_day_card_discrete.png'),
         );
       },
     );

@@ -312,6 +312,18 @@ final class FakeBackend {
   int postScheduleCalls = 0;
   int putScheduleCalls = 0;
 
+  /// The `days` list from the most recent weekly-schedule POST/PUT body —
+  /// each entry is `{ dayOfWeek, mode?, intervals?, times? }`. Lets a test
+  /// assert the EXACT mode + discrete times the editor serialised (Phase 15.8).
+  List<dynamic>? lastWeeklyDays;
+
+  // ── Override telemetry (Phase 15.8) ───────────────────────────────────────
+  int putOverrideCalls = 0;
+
+  /// The most recent override PUT body — `{ date, kind, mode?, intervals?,
+  /// times? }`. Lets a test assert the override the editor serialised.
+  Map<String, dynamic>? lastOverrideBody;
+
   // ── Internal helpers ───────────────────────────────────────────────────────
 
   Map<String, dynamic> _masterDetailEnvelope() => _ok(<String, dynamic>{
@@ -574,6 +586,7 @@ final class FakeBackend {
         (server) => server.replyCallback(200, (req) {
           postScheduleCalls++;
           final body = _decodeBody(req.data);
+          lastWeeklyDays = body['days'] as List<dynamic>?;
           // Build a WeeklyScheduleResponse-shaped envelope from the request.
           // Use a deterministic counter ID — never wall-clock (MEDIUM-1 fix).
           final newEntry = <String, dynamic>{
@@ -612,6 +625,7 @@ final class FakeBackend {
         (server) => server.replyCallback(200, (req) {
           putScheduleCalls++;
           final body = _decodeBody(req.data);
+          lastWeeklyDays = body['days'] as List<dynamic>?;
           final updatedEntry = <String, dynamic>{
             'id': 'schedule-1',
             'validFrom': body['validFrom'] ?? '2026-06-14',
@@ -625,6 +639,35 @@ final class FakeBackend {
             _weeklySchedule[idx] = updatedEntry;
           }
           return _ok(updatedEntry);
+        }),
+        request: const Request(method: RequestMethods.put, data: Matchers.any),
+      );
+    }
+
+    // PUT /api/v1/masters/{masterId}/overrides/{date} (Phase 15.8 — upsert a
+    // per-date override). The date segment is a `YYYY-MM-DD` path param, so a
+    // RegExp route matches every date for both the /me alias and the real id.
+    // The reply echoes a ScheduleOverrideResponse-shaped envelope built from the
+    // request body so the mapper can deserialize it (kind/mode/intervals/times).
+    for (final masterId in <String>['me', 'user-master-1']) {
+      _adapter.onRoute(
+        RegExp(
+          '/api/v1/masters/$masterId/overrides/'
+          r'\d{4}-\d{2}-\d{2}$',
+        ),
+        (server) => server.replyCallback(200, (req) {
+          putOverrideCalls++;
+          final body = _decodeBody(req.data);
+          lastOverrideBody = body;
+          // Echo the request back as a response-shaped override so the read
+          // mapper round-trips it (date/kind/mode/intervals/times).
+          return _ok(<String, dynamic>{
+            'date': body['date'],
+            'kind': body['kind'] ?? 'CUSTOM_HOURS',
+            'mode': body['mode'],
+            'intervals': body['intervals'] ?? <dynamic>[],
+            'times': body['times'] ?? <dynamic>[],
+          });
         }),
         request: const Request(method: RequestMethods.put, data: Matchers.any),
       );

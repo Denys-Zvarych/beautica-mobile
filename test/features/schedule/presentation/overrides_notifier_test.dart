@@ -166,53 +166,55 @@ void main() {
   // ───────────────────────────────────────────────────────────────────────────
 
   group('putOverride — EXPLICIT_TIMES validation', () {
-    test('accepts a working EXPLICIT_TIMES override and sends mode + times', () async {
-      when(() => repo.putOverride(any())).thenAnswer(
-        (inv) async => inv.positionalArguments.first as ScheduleOverride,
-      );
-
-      final container = makeContainer();
-      await container.read(overridesProvider(range).future);
-
-      await container.read(overridesProvider(range).notifier).putOverride(
-        _explicit(DateTime(2026, 6, 20), const <TimeOfDay>[
-          TimeOfDay(hour: 9, minute: 0),
-          TimeOfDay(hour: 15, minute: 0),
-        ]),
-      );
-
-      expect(container.read(overridesProvider(range)).hasError, isFalse);
-      final sent = verify(
-        () => repo.putOverride(captureAny()),
-      ).captured.single as ScheduleOverride;
-      expect(sent.kind, OverrideKind.custom);
-      expect(sent.mode, WeekdayMode.explicitTimes);
-      expect(sent.times, <TimeOfDay>[
-        const TimeOfDay(hour: 9, minute: 0),
-        const TimeOfDay(hour: 15, minute: 0),
-      ]);
-      // The opposite-shape field is cleared — an EXPLICIT_TIMES override carries
-      // NO intervals (the explicitTimes ctor clears them).
-      expect(sent.intervals, isEmpty);
-    });
-
     test(
-      'rejects an empty-times EXPLICIT_TIMES override → ValidationFailure, '
-      'no PUT',
+      'accepts a working EXPLICIT_TIMES override and sends mode + times',
       () async {
+        when(() => repo.putOverride(any())).thenAnswer(
+          (inv) async => inv.positionalArguments.first as ScheduleOverride,
+        );
+
         final container = makeContainer();
         await container.read(overridesProvider(range).future);
 
         await container
             .read(overridesProvider(range).notifier)
-            .putOverride(_explicit(DateTime(2026, 6, 20), const <TimeOfDay>[]));
+            .putOverride(
+              _explicit(DateTime(2026, 6, 20), const <TimeOfDay>[
+                TimeOfDay(hour: 9, minute: 0),
+                TimeOfDay(hour: 15, minute: 0),
+              ]),
+            );
 
-        final state = container.read(overridesProvider(range));
-        expect(state.hasError, isTrue);
-        expect(state.error, isA<ValidationFailure>());
-        verifyNever(() => repo.putOverride(any()));
+        expect(container.read(overridesProvider(range)).hasError, isFalse);
+        final sent =
+            verify(() => repo.putOverride(captureAny())).captured.single
+                as ScheduleOverride;
+        expect(sent.kind, OverrideKind.custom);
+        expect(sent.mode, WeekdayMode.explicitTimes);
+        expect(sent.times, <TimeOfDay>[
+          const TimeOfDay(hour: 9, minute: 0),
+          const TimeOfDay(hour: 15, minute: 0),
+        ]);
+        // The opposite-shape field is cleared — an EXPLICIT_TIMES override carries
+        // NO intervals (the explicitTimes ctor clears them).
+        expect(sent.intervals, isEmpty);
       },
     );
+
+    test('rejects an empty-times EXPLICIT_TIMES override → ValidationFailure, '
+        'no PUT', () async {
+      final container = makeContainer();
+      await container.read(overridesProvider(range).future);
+
+      await container
+          .read(overridesProvider(range).notifier)
+          .putOverride(_explicit(DateTime(2026, 6, 20), const <TimeOfDay>[]));
+
+      final state = container.read(overridesProvider(range));
+      expect(state.hasError, isTrue);
+      expect(state.error, isA<ValidationFailure>());
+      verifyNever(() => repo.putOverride(any()));
+    });
 
     test('mode-flip: a CUSTOM interval override carries no times', () {
       // The interval ctor clears the discrete-times field — the two shapes
@@ -240,41 +242,49 @@ void main() {
   });
 
   group('putSpan — EXPLICIT_TIMES validation', () {
-    test('accepts an EXPLICIT_TIMES span and sends one EXPLICIT_TIMES PUT per date', () async {
-      when(() => repo.putOverride(any())).thenAnswer(
-        (inv) async => inv.positionalArguments.first as ScheduleOverride,
-      );
+    test(
+      'accepts an EXPLICIT_TIMES span and sends one EXPLICIT_TIMES PUT per date',
+      () async {
+        when(() => repo.putOverride(any())).thenAnswer(
+          (inv) async => inv.positionalArguments.first as ScheduleOverride,
+        );
 
-      final container = makeContainer();
-      await container.read(overridesProvider(range).future);
+        final container = makeContainer();
+        await container.read(overridesProvider(range).future);
 
-      // A 3-day EXPLICIT_TIMES span → 3 EXPLICIT_TIMES PUTs, one per date.
-      await container.read(overridesProvider(range).notifier).putSpan(
-        ScheduleOverride.explicitTimes(
-          start: DateTime(2026, 6, 10),
-          end: DateTime(2026, 6, 12),
-          times: const <TimeOfDay>[
-            TimeOfDay(hour: 11, minute: 0),
-            TimeOfDay(hour: 16, minute: 0),
-          ],
-        ),
-      );
+        // A 3-day EXPLICIT_TIMES span → 3 EXPLICIT_TIMES PUTs, one per date.
+        await container
+            .read(overridesProvider(range).notifier)
+            .putSpan(
+              ScheduleOverride.explicitTimes(
+                start: DateTime(2026, 6, 10),
+                end: DateTime(2026, 6, 12),
+                times: const <TimeOfDay>[
+                  TimeOfDay(hour: 11, minute: 0),
+                  TimeOfDay(hour: 16, minute: 0),
+                ],
+              ),
+            );
 
-      expect(container.read(overridesProvider(range)).hasError, isFalse);
-      final captured = verify(
-        () => repo.putOverride(captureAny()),
-      ).captured.cast<ScheduleOverride>();
-      expect(captured, hasLength(3));
-      expect(captured.every((o) => o.isSingleDay), isTrue);
-      expect(captured.every((o) => o.mode == WeekdayMode.explicitTimes), isTrue);
-      expect(captured.every((o) => o.intervals.isEmpty), isTrue);
-      expect(
-        captured.every(
-          (o) => o.times.contains(const TimeOfDay(hour: 11, minute: 0)),
-        ),
-        isTrue,
-      );
-    });
+        expect(container.read(overridesProvider(range)).hasError, isFalse);
+        final captured = verify(
+          () => repo.putOverride(captureAny()),
+        ).captured.cast<ScheduleOverride>();
+        expect(captured, hasLength(3));
+        expect(captured.every((o) => o.isSingleDay), isTrue);
+        expect(
+          captured.every((o) => o.mode == WeekdayMode.explicitTimes),
+          isTrue,
+        );
+        expect(captured.every((o) => o.intervals.isEmpty), isTrue);
+        expect(
+          captured.every(
+            (o) => o.times.contains(const TimeOfDay(hour: 11, minute: 0)),
+          ),
+          isTrue,
+        );
+      },
+    );
 
     test(
       'rejects an empty-times EXPLICIT_TIMES span → ValidationFailure before '
@@ -283,13 +293,15 @@ void main() {
         final container = makeContainer();
         await container.read(overridesProvider(range).future);
 
-        await container.read(overridesProvider(range).notifier).putSpan(
-          ScheduleOverride.explicitTimes(
-            start: DateTime(2026, 6, 10),
-            end: DateTime(2026, 6, 12),
-            times: const <TimeOfDay>[],
-          ),
-        );
+        await container
+            .read(overridesProvider(range).notifier)
+            .putSpan(
+              ScheduleOverride.explicitTimes(
+                start: DateTime(2026, 6, 10),
+                end: DateTime(2026, 6, 12),
+                times: const <TimeOfDay>[],
+              ),
+            );
 
         final state = container.read(overridesProvider(range));
         expect(state.hasError, isTrue);

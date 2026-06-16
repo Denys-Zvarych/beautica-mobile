@@ -242,6 +242,11 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
       initialIntervals: day.intervals,
       hasExistingOverride: hasOverride,
       initialDayOff: dayOff,
+      // Phase 15.8: seed the work-mode sub-toggle from the resolved effective day.
+      initialMode: day.isExplicitTimes
+          ? WeekdayMode.explicitTimes
+          : WeekdayMode.interval,
+      initialTimes: day.times,
     );
     // Plain dismiss (close / barrier / validation bail) → nothing changed.
     if (changed == null || !mounted) return;

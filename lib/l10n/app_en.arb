@@ -2395,5 +2395,47 @@
   "accountNotificationsSubtitle": "Push for new bookings and changes",
   "@accountNotificationsSubtitle": {
     "description": "Account page notifications toggle row subtitle."
+  },
+
+  "discreteTimesSegmentInterval": "Interval",
+  "@discreteTimesSegmentInterval": {
+    "description": "Label for the 'interval' segment of the weekday mode toggle (Phase 15.8)."
+  },
+  "discreteTimesSegmentExplicit": "Specific times",
+  "@discreteTimesSegmentExplicit": {
+    "description": "Label for the 'explicit times' segment of the weekday mode toggle (Phase 15.8)."
+  },
+  "discreteTimesModeSemantic": "Hours type",
+  "@discreteTimesModeSemantic": {
+    "description": "Accessibility group label for the interval / explicit-times mode toggle (Phase 15.8)."
+  },
+  "discreteTimesAddTime": "Add time",
+  "@discreteTimesAddTime": {
+    "description": "Action button label to add a discrete bookable start time (Phase 15.8)."
+  },
+  "discreteTimesPickerTitle": "Booking time",
+  "@discreteTimesPickerTitle": {
+    "description": "Title shown in the wheel time picker sheet when adding a discrete start time (Phase 15.8)."
+  },
+  "discreteTimesWindowLabel": "Window:",
+  "@discreteTimesWindowLabel": {
+    "description": "Prefix label before the derived min–max window range (Phase 15.8)."
+  },
+  "discreteTimesRemoveSemantic": "Remove time {time}",
+  "@discreteTimesRemoveSemantic": {
+    "description": "Accessibility label for the remove button on a discrete-time chip (Phase 15.8).",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "discreteTimesErrEmpty": "Add at least one time for a working day",
+  "@discreteTimesErrEmpty": {
+    "description": "Inline validation error when a working EXPLICIT_TIMES day has zero discrete times (Phase 15.8)."
+  },
+  "discreteTimesDuplicateMessage": "This time is already added",
+  "@discreteTimesDuplicateMessage": {
+    "description": "Transient info message shown when the picked time already exists in the discrete list (Phase 15.8)."
   }
 }

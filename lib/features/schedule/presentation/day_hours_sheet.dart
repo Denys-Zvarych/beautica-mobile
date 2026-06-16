@@ -57,6 +57,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import '../domain/schedule_model.dart';
 import 'overrides_notifier.dart';
 import 'schedule_range.dart';
+import 'widgets/discrete_times_editor.dart';
 import 'widgets/interval_editor.dart';
 
 /// The per-date override modal bottom sheet.
@@ -76,6 +77,8 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     required this.initialIntervals,
     required this.hasExistingOverride,
     required this.initialDayOff,
+    this.initialMode = WeekdayMode.interval,
+    this.initialTimes = const <TimeOfDay>[],
   });
 
   /// The single calendar date this override targets (date-only). `start == end`
@@ -107,6 +110,14 @@ class DayHoursSheet extends ConsumerStatefulWidget {
   /// toggle to «Вихідний». Otherwise the sheet opens in working-hours mode.
   final bool initialDayOff;
 
+  /// The mode of the existing custom-hours override, if any (Phase 15.8).
+  /// Defaults to [WeekdayMode.interval] so pre-15.8 callers are unaffected.
+  final WeekdayMode initialMode;
+
+  /// The discrete start times of an existing EXPLICIT_TIMES override (Phase 15.8).
+  /// Defaults to empty; only populated when [initialMode] is [WeekdayMode.explicitTimes].
+  final List<TimeOfDay> initialTimes;
+
   /// Presents the sheet. Resolves to the edited [date] on a successful save /
   /// clear (so the host can focus that day), or `null` on a plain dismiss.
   static Future<DateTime?> show(
@@ -118,6 +129,8 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     required List<WorkInterval> initialIntervals,
     required bool hasExistingOverride,
     required bool initialDayOff,
+    WeekdayMode initialMode = WeekdayMode.interval,
+    List<TimeOfDay> initialTimes = const <TimeOfDay>[],
   }) {
     return showModalBottomSheet<DateTime>(
       context: context,
@@ -132,6 +145,8 @@ class DayHoursSheet extends ConsumerStatefulWidget {
         initialIntervals: initialIntervals,
         hasExistingOverride: hasExistingOverride,
         initialDayOff: initialDayOff,
+        initialMode: initialMode,
+        initialTimes: initialTimes,
       ),
     );
   }
@@ -143,10 +158,18 @@ class DayHoursSheet extends ConsumerStatefulWidget {
 class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   static const _tag = 'feature.schedule.dayoverride';
 
-  /// The working window + breaks for the custom-hours mode (rebuilt from the
-  /// incoming intervals so edits never touch the calendar's source data).
+  /// The working window + breaks for the custom-hours INTERVAL mode (rebuilt
+  /// from the incoming intervals so edits never touch the calendar source data).
   late DayHours _day;
   late bool _dayOff;
+
+  /// Work mode: INTERVAL vs EXPLICIT_TIMES (Phase 15.8). Only relevant when
+  /// [_dayOff] is false.
+  late WeekdayMode _workMode;
+
+  /// Discrete start times for EXPLICIT_TIMES mode (Phase 15.8). Mutable in
+  /// place by [DiscreteTimesEditor].
+  late List<TimeOfDay> _times;
 
   bool _saving = false;
 
@@ -154,16 +177,27 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   void initState() {
     super.initState();
     _dayOff = widget.initialDayOff;
+    _workMode = widget.initialMode;
+    _times = List<TimeOfDay>.of(widget.initialTimes);
     _day = widget.initialIntervals.isEmpty
         ? DayHours.defaultDay()
         : DayHours.fromIntervals(widget.initialIntervals);
   }
 
-  /// Custom-hours mode is unsaveable while the window/breaks are invalid.
-  /// Day-off mode is always valid (a plain full day off — no inputs).
-  bool get _hasErrors => !_dayOff && !dayHoursValid(_day);
+  /// Custom-hours mode is unsaveable while the relevant editor has errors.
+  ///   • Day-off: always valid (no inputs).
+  ///   • INTERVAL: window/breaks must be valid.
+  ///   • EXPLICIT_TIMES: must have ≥1 15-min-aligned time.
+  bool get _hasErrors {
+    if (_dayOff) return false;
+    return _workMode == WeekdayMode.explicitTimes
+        ? !discreteTimesValid(_times)
+        : !dayHoursValid(_day);
+  }
 
   void _setDayOff(bool off) => setState(() => _dayOff = off);
+
+  void _setWorkMode(WeekdayMode next) => setState(() => _workMode = next);
 
   // ── Persistence (OQ-1: always allowed — no booking-conflict gate) ───────────
   Future<void> _save() async {
@@ -181,16 +215,26 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
       return;
     }
 
-    // Build a single-date override (start == end). CUSTOM_HOURS carries the
-    // collapsed working-interval list; DAY_OFF carries only its kind (the
-    // backend dropped reason/note from schedule overrides).
-    final ScheduleOverride override = _dayOff
-        ? ScheduleOverride.dayOff(start: widget.date, end: widget.date)
-        : ScheduleOverride.custom(
-            start: widget.date,
-            end: widget.date,
-            intervals: _day.toIntervals(),
-          );
+    // Build a single-date override (start == end).
+    //   • DAY_OFF: plain full day off — no intervals, no times.
+    //   • CUSTOM_HOURS INTERVAL: collapsed working-interval list.
+    //   • CUSTOM_HOURS EXPLICIT_TIMES: discrete start times (Phase 15.8).
+    final ScheduleOverride override;
+    if (_dayOff) {
+      override = ScheduleOverride.dayOff(start: widget.date, end: widget.date);
+    } else if (_workMode == WeekdayMode.explicitTimes) {
+      override = ScheduleOverride.explicitTimes(
+        start: widget.date,
+        end: widget.date,
+        times: _times,
+      );
+    } else {
+      override = ScheduleOverride.custom(
+        start: widget.date,
+        end: widget.date,
+        intervals: _day.toIntervals(),
+      );
+    }
 
     if (kDebugMode) {
       log(
@@ -330,13 +374,53 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
                 const SizedBox(height: VelvetSpacing.lg),
                 if (_dayOff)
                   _dayOffSection(l10n)
-                else
-                  IntervalEditor(
-                    day: _day,
-                    onChanged: () => setState(() {}),
-                    strings: _intervalStrings(l10n),
-                    fieldKeyPrefix: 'override',
+                else ...<Widget>[
+                  // ── Work-mode sub-toggle (Інтервал / Окремі години) ──────
+                  Semantics(
+                    label: l10n.discreteTimesModeSemantic,
+                    child: Row(
+                      key: const Key('override-work-mode-toggle'),
+                      children: <Widget>[
+                        Expanded(
+                          child: _modeChip(
+                            valueKey: const Key('override-work-mode-interval'),
+                            label: l10n.discreteTimesSegmentInterval,
+                            icon: Icons.schedule_rounded,
+                            selected: _workMode == WeekdayMode.interval,
+                            onTap: () => _setWorkMode(WeekdayMode.interval),
+                          ),
+                        ),
+                        const SizedBox(width: VelvetSpacing.sm + 2),
+                        Expanded(
+                          child: _modeChip(
+                            valueKey: const Key('override-work-mode-explicit'),
+                            label: l10n.discreteTimesSegmentExplicit,
+                            icon: Icons.more_time_rounded,
+                            selected: _workMode == WeekdayMode.explicitTimes,
+                            onTap: () =>
+                                _setWorkMode(WeekdayMode.explicitTimes),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
+                  const SizedBox(height: VelvetSpacing.lg),
+                  // ── Editor body — swaps on work-mode change ───────────────
+                  if (_workMode == WeekdayMode.interval)
+                    IntervalEditor(
+                      day: _day,
+                      onChanged: () => setState(() {}),
+                      strings: _intervalStrings(l10n),
+                      fieldKeyPrefix: 'override',
+                    )
+                  else
+                    DiscreteTimesEditor(
+                      times: _times,
+                      onChanged: () => setState(() {}),
+                      strings: _discreteStrings(l10n),
+                      fieldKeyPrefix: 'override',
+                    ),
+                ],
                 const SizedBox(height: VelvetSpacing.xl),
                 NeumorphicButton(
                   key: const Key('override-save'),
@@ -578,5 +662,19 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
         errBreakOutsideWindow: l10n.intervalEditorErrBreakInsideWindow,
         errBreaksOverlap: l10n.intervalEditorErrBreaksOverlap,
         errTimeNotAligned: l10n.scheduleErrTimeNotAligned,
+      );
+
+  /// All localised copy the [DiscreteTimesEditor] needs (Phase 15.8).
+  DiscreteTimesEditorStrings _discreteStrings(AppLocalizations l10n) =>
+      DiscreteTimesEditorStrings(
+        addTimeLabel: l10n.discreteTimesAddTime,
+        windowLabel: l10n.discreteTimesWindowLabel,
+        removeTimeSemantic: l10n.discreteTimesRemoveSemantic,
+        timePickerTitle: l10n.discreteTimesPickerTitle,
+        timePickerConfirm: l10n.timePickerConfirm,
+        timePickerHoursSemantic: l10n.timePickerHoursSemantic,
+        timePickerMinutesSemantic: l10n.timePickerMinutesSemantic,
+        errEmpty: l10n.discreteTimesErrEmpty,
+        duplicateMessage: l10n.discreteTimesDuplicateMessage,
       );
 }
