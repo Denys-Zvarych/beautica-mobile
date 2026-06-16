@@ -383,19 +383,19 @@ jobs:
             # so a one-shot pre-approval is gone by the time openUrl fires (deep-link
             # test runs 3rd). This loop re-asserts STATE_APPROVED every second for
             # both default and user scope, so whenever patrol's reinstall lands the
-            # domain is re-approved before the intent is fired. MUST be a single
-            # self-contained line so the `&` background survives this line's sh -c.
-            ( while true; do adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; sleep 1; done ) &
-            set +e
+            # domain is re-approved before the intent is fired. It is BOUNDED
+            # (self-terminates after ~15 min) so it never lingers, and is NEVER
+            # pkill'd — `pkill -f` would match its own argv and SIGTERM the cleanup
+            # shell ("exit code null"). Must be one self-contained line so the `&`
+            # background survives this line's own sh -c.
+            ( i=0; while [ "$i" -lt 900 ]; do adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; i=$((i+1)); sleep 1; done ) &
+            # patrol MUST be the last command: android-emulator-runner runs each
+            # line in its own sh -c, so a separate `CODE=$?`/`exit $CODE` would not
+            # carry. Letting `patrol test` be last makes the step's exit code equal
+            # patrol's real result. Background helpers are orphaned and reaped by
+            # the emulator teardown.
             patrol build android --target integration_test/patrol
             patrol test --target integration_test/patrol --verbose
-            CODE=$?
-            # Tear down the re-approval loop and logcat capture by pattern (the loop
-            # PID lives in a different sh -c, so a PID var would not carry here).
-            pkill -f 'pm set-app-links --package com.beautica.beautica_mobile' 2>/dev/null || true
-            pkill -f 'adb logcat -b all' 2>/dev/null || true
-            adb shell pm get-app-links --user 0 com.beautica.beautica_mobile || true
-            exit $CODE
 
       - name: Upload patrol device logcat
         if: failure()
