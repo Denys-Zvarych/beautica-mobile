@@ -201,13 +201,15 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
         }
       }
     } catch (e, st) {
-      log(
-        'Locality pre-population failed — cascade will be empty',
-        name: 'feature.master.edit.location',
-        level: 800,
-        error: e,
-        stackTrace: st,
-      );
+      if (kDebugMode) {
+        log(
+          'Locality pre-population failed — cascade will be empty',
+          name: 'feature.master.edit.location',
+          level: 800,
+          error: e,
+          stackTrace: st,
+        );
+      }
     }
 
     if (!mounted) return;
