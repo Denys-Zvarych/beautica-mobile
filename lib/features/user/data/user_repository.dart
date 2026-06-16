@@ -19,8 +19,8 @@
 //     Returns: ApiResponse<UserResponse> — the mobile layer does not need the
 //              body here, so the method resolves with void.
 //
-// The base URL already carries the `/api/v1` prefix (see AppConfig.baseUrl), so
-// the path below is the suffix only.
+// AppConfig.baseUrl does NOT carry the `/api/v1` prefix (see app_config.dart).
+// The path below must include the full `/api/v1/` segment explicitly.
 
 import 'dart:developer';
 
@@ -88,7 +88,7 @@ final class HttpUserRepository implements UserRepository {
     }
 
     try {
-      await _dio.patch<Map<String, dynamic>>('/users/me', data: body);
+      await _dio.patch<Map<String, dynamic>>('/api/v1/users/me', data: body);
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(

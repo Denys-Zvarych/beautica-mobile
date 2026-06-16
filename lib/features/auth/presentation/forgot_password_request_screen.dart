@@ -36,9 +36,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
@@ -77,16 +77,22 @@ class _ForgotPasswordRequestScreenState
   /// error occurs (NOT shown for the generic anti-enumeration success).
   String? _inlineError;
 
+  // Captured in initState so dispose() never touches `ref` — under Riverpod
+  // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
+  late final ScreenProtectionManager _screenProtection;
+
   @override
   void initState() {
     super.initState();
-    if (!kDebugMode) ScreenProtector.preventScreenshotOn();
+    // SEC MEDIUM: ref-counted screenshot guard (single app-wide owner;
+    // the manager is internally !kDebugMode-guarded).
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
   }
 
   @override
   void dispose() {
+    _screenProtection.release();
     _emailController.dispose();
-    if (!kDebugMode) ScreenProtector.preventScreenshotOff();
     super.dispose();
   }
 
@@ -125,7 +131,22 @@ class _ForgotPasswordRequestScreenState
     } catch (e) {
       if (!mounted) return;
       final l10n2 = AppLocalizations.of(context);
-      final message = e is Failure ? e.userMessage(context) : l10n2.errUnknown;
+      final String message;
+      if (e is ValidationFailure) {
+        // Prefer the per-field email error, then the top-level server message,
+        // over the generic errValidation copy (which userMessage returns).
+        final emailErr = e.fieldErrors['email'];
+        final serverMessage = e.serverMessage?.trim();
+        if (emailErr != null && emailErr.isNotEmpty) {
+          message = emailErr;
+        } else if (serverMessage != null && serverMessage.isNotEmpty) {
+          message = serverMessage;
+        } else {
+          message = l10n2.errValidation;
+        }
+      } else {
+        message = e is Failure ? e.userMessage(context) : l10n2.errUnknown;
+      }
       setState(() {
         _submitting = false;
         _inlineError = message;

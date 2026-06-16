@@ -28,9 +28,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
@@ -39,7 +39,9 @@ import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/validators/email_validator.dart';
 import '../../../shared/validators/password_validator.dart';
+import '../domain/user_role.dart';
 import 'auth_notifier.dart';
+import 'auth_selectors.dart';
 import 'widgets/auth_scaffold.dart';
 
 // ---------------------------------------------------------------------------
@@ -77,21 +79,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   // Lifecycle
   // ---------------------------------------------------------------------------
 
+  // Captured in initState so dispose() never touches `ref` — under Riverpod
+  // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
+  late final ScreenProtectionManager _screenProtection;
+
   @override
   void initState() {
     super.initState();
-    if (!kDebugMode) {
-      ScreenProtector.preventScreenshotOn();
-    }
+    // SEC MEDIUM: ref-counted screenshot guard (single app-wide owner;
+    // the manager is internally !kDebugMode-guarded).
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
   }
 
   @override
   void dispose() {
+    _screenProtection.release();
     _emailController.dispose();
     _passwordController.dispose();
-    if (!kDebugMode) {
-      ScreenProtector.preventScreenshotOff();
-    }
     super.dispose();
   }
 
@@ -139,7 +143,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         }
         // Signal the OS password manager to save the credential.
         TextInput.finishAutofillContext();
-        context.go(RouteNames.home);
+        final role = ref.read(currentUserProvider)?.role;
+        final destination = switch (role) {
+          UserRole.independentMaster => RouteNames.masterProfile,
+          _ => RouteNames.home,
+        };
+        context.go(destination);
       },
       loading: () {
         // Still loading — shouldn't happen right after await; guard only.
@@ -312,8 +321,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           const SizedBox(height: VelvetSpacing.lg),
 
           // ── Sign-up link row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          // Wrapped in Wrap so the two text spans reflow onto a second line at
+          // narrow viewports (320 dp) with large text scale (1.3×) instead of
+          // overflowing the Row. At normal sizes (360 dp / 1.0×) they always
+          // fit on one line and Wrap renders identically to a Row.
+          Wrap(
+            alignment: WrapAlignment.center,
             children: <Widget>[
               Text(l10n.loginNoAccount, style: VelvetText.body()),
               GestureDetector(

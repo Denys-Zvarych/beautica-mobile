@@ -1,27 +1,38 @@
-// Phase 2.3 — HttpAuthRepository unit tests.
+// Phase 3.2 — HttpAuthRepository unit tests (re-pointed to generated API classes).
 //
-// Uses `mocktail` to mock [Dio] at the call-site level. Each test verifies
-// one method + scenario from the contract table in the task spec.
+// After Phase 3.2, [HttpAuthRepository] takes [AuthControllerApi] and
+// [UserControllerApi] instead of raw [Dio]. Tests now mock the generated API
+// classes directly via mocktail instead of intercepting low-level Dio calls.
 //
 // Test structure:
 //   Group 1 — login
 //     1. success → returns (User, AuthTokens) with correct values
 //     2. 401 DioException (error = UnauthorizedFailure) → re-throws
-//     3. 400 DioException (error = ValidationFailure with fieldErrors) → re-throws
+//     2b. 401 emailNotVerified=true → NOT remapped
+//     3. 400 DioException (error = ValidationFailure) → re-throws
 //     4. raw DioException (error = null) → throws UnknownFailure
 //   Group 2 — registerIndependentMaster
-//     5. success (independentMaster) → hits /auth/register/independent-master
-//     11. success (salonOwner) → hits /auth/register/salon-owner
-//     12. success (client) → hits /auth/register/client
+//     5. success (verification-required envelope) → VerificationRequired
+//     5b. verification-required (no email) → UnknownFailure
 //   Group 3 — refresh
 //     6. success → returns AuthTokens with new token pair
+//     6b. failure → throws UnauthorizedFailure via Completer
 //   Group 4 — me
-//     7. success → returns User with correct role
+//     7. success → returns User with firstName + lastName
 //     8. 401 DioException → re-throws UnauthorizedFailure
+//     9. NetworkFailure → re-throws
+//     10. raw DioException (no Failure) → throws UnknownFailure
+//   Group 5 — UserRole.fromWire
+//   Group 6 — verifyEmail
+//   Group 7 — role routing (independent-master vs /auth/register)
+//   Group 8 — acceptInvite
+//   Group 9 — validateInvite
 
 import 'dart:async';
 
+import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/token_refresh_lock.dart';
 import 'package:beautica_mobile/features/auth/data/http_auth_repository.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/domain/register_result.dart';
@@ -30,13 +41,13 @@ import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import '../../../helpers/fakes/fake_secure_storage.dart';
-
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
-class MockDio extends Mock implements Dio {}
+class MockAuthApi extends Mock implements AuthControllerApi {}
+
+class MockUserApi extends Mock implements UserControllerApi {}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -64,67 +75,185 @@ DioException _rawDioException() => DioException(
   type: DioExceptionType.unknown,
 );
 
-/// Fixture backend envelope for a login / register response.
+/// Builds a mock [ApiResponseAuthResponse] envelope with sensible defaults.
 ///
-/// Shape mirrors the flat [AuthResponse] the backend serialises:
-///   { userId, email, role, accessToken, refreshToken, tokenType }
-/// There is no nested `user` object — the session data is at the top level
-/// of `data`.
-Map<String, dynamic> _loginEnvelope({
+/// Mirrors the flat AuthResponse the backend returns for login / refresh /
+/// verifyEmail / acceptInvite. userId (not id), no firstName/lastName.
+Response<ApiResponseAuthResponse> _authResponse({
   String userId = 'usr-1',
   String role = 'INDEPENDENT_MASTER',
-}) => {
-  'success': true,
-  'message': 'OK',
-  'data': {
-    'userId': userId,
-    'email': 'master@beautica.test',
-    'role': role,
-    'accessToken': 'access.jwt.token',
-    'refreshToken': 'refresh.jwt.token',
-    'tokenType': 'Bearer',
-  },
-};
+}) {
+  final dto = AuthResponse(
+    (b) => b
+      ..userId = userId
+      ..email = 'master@beautica.test'
+      ..role = AuthResponseRoleEnum.valueOf(role)
+      ..accessToken = 'access.jwt.token'
+      ..refreshToken = 'refresh.jwt.token'
+      ..tokenType = 'Bearer',
+  );
+  final envelope = ApiResponseAuthResponse(
+    (b) => b
+      ..success = true
+      ..data = dto.toBuilder(),
+  );
+  return Response(
+    data: envelope,
+    statusCode: 200,
+    requestOptions: _fakeOptions('/auth/login'),
+  );
+}
 
-/// Fixture backend envelope for a refresh response.
-Map<String, dynamic> _refreshEnvelope() => {
-  'success': true,
-  'message': 'OK',
-  'data': {
-    'accessToken': 'new.access.token',
-    'refreshToken': 'new.refresh.token',
-  },
-};
+/// Builds a mock [ApiResponseAuthResponse] with new token pair for refresh.
+Response<ApiResponseAuthResponse> _refreshResponse() {
+  final dto = AuthResponse(
+    (b) => b
+      ..userId = 'usr-1'
+      ..email = 'master@beautica.test'
+      ..role = AuthResponseRoleEnum.INDEPENDENT_MASTER
+      ..accessToken = 'new.access.token'
+      ..refreshToken = 'new.refresh.token'
+      ..tokenType = 'Bearer',
+  );
+  final envelope = ApiResponseAuthResponse(
+    (b) => b
+      ..success = true
+      ..data = dto.toBuilder(),
+  );
+  return Response(
+    data: envelope,
+    statusCode: 200,
+    requestOptions: _fakeOptions('/auth/refresh'),
+  );
+}
 
-/// Fixture backend envelope for a me response.
-Map<String, dynamic> _meEnvelope({String role = 'INDEPENDENT_MASTER'}) => {
-  'success': true,
-  'message': 'OK',
-  'data': {
-    'id': 'usr-1',
-    'email': 'master@beautica.test',
-    'role': role,
-    'firstName': 'Іванна',
-    'lastName': 'Коваль',
-  },
-};
+/// Builds a mock [ApiResponseUserProfileResponse] for GET /users/me.
+Response<ApiResponseUserProfileResponse> _meResponse({
+  String role = 'INDEPENDENT_MASTER',
+}) {
+  final dto = UserProfileResponse(
+    (b) => b
+      ..id = 'usr-1'
+      ..email = 'master@beautica.test'
+      ..role = role
+      ..firstName = 'Іванна'
+      ..lastName = 'Коваль',
+  );
+  final envelope = ApiResponseUserProfileResponse(
+    (b) => b
+      ..success = true
+      ..data = dto.toBuilder(),
+  );
+  return Response(
+    data: envelope,
+    statusCode: 200,
+    requestOptions: _fakeOptions('/users/me'),
+  );
+}
+
+/// Builds a verification-required registration response.
+Response<ApiResponseRegistrationResponse> _verificationRequiredResponse({
+  String email = 'master@beautica.test',
+}) {
+  final dto = RegistrationResponse(
+    (b) => b
+      ..email = email
+      ..message = 'Registration successful. Check your email for the code.',
+  );
+  final envelope = ApiResponseRegistrationResponse(
+    (b) => b
+      ..success = true
+      ..data = dto.toBuilder(),
+  );
+  return Response(
+    data: envelope,
+    statusCode: 200,
+    requestOptions: _fakeOptions('/auth/register'),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 void main() {
-  late MockDio mockDio;
+  late MockAuthApi mockAuthApi;
+  late MockUserApi mockUserApi;
   late HttpAuthRepository repository;
 
-  setUp(() {
-    mockDio = MockDio();
-    // Phase 2.8: HttpAuthRepository now requires SecureStorage for logout().
-    // FakeSecureStorage is used here — no platform channels needed.
-    repository = HttpAuthRepository(mockDio, FakeSecureStorage());
+  setUpAll(() {
+    // Register fallback values required by mocktail for built_value request
+    // types. Mocktail needs a concrete instance to use as a fallback whenever
+    // any(named: ...) is used with a non-primitive type.
+    registerFallbackValue(RequestOptions(path: '/fallback'));
+    registerFallbackValue(
+      LoginRequest(
+        (b) => b
+          ..email = 'a@a.com'
+          ..password = 'pw',
+      ),
+    );
+    registerFallbackValue(
+      RegisterIndependentMasterRequest(
+        (b) => b
+          ..email = 'a@a.com'
+          ..password = 'pw'
+          ..firstName = 'A'
+          ..lastName = 'B'
+          ..phoneNumber = '',
+      ),
+    );
+    registerFallbackValue(RefreshRequest((b) => b..refreshToken = 'token'));
+    registerFallbackValue(
+      VerifyEmailRequest(
+        (b) => b
+          ..email = 'a@a.com'
+          ..code = '000000',
+      ),
+    );
+    registerFallbackValue(
+      RegisterRequest(
+        (b) => b
+          ..email = 'a@a.com'
+          ..password = 'pw'
+          ..role = RegisterRequestRoleEnum.CLIENT
+          ..firstName = 'A'
+          ..lastName = 'B'
+          ..phoneNumber = '',
+      ),
+    );
+    registerFallbackValue(
+      ResendVerificationRequest((b) => b..email = 'a@a.com'),
+    );
+    registerFallbackValue(ForgotPasswordRequest((b) => b..email = 'a@a.com'));
+    registerFallbackValue(
+      ResetPasswordRequest(
+        (b) => b
+          ..token = 'tok'
+          ..newPassword = 'pw',
+      ),
+    );
+    registerFallbackValue(
+      InviteAcceptRequest(
+        (b) => b
+          ..token = 'tok'
+          ..password = 'pw'
+          ..firstName = 'A'
+          ..lastName = 'B'
+          ..phoneNumber = '',
+      ),
+    );
+  });
 
-    // Default fallback for Options — mocktail needs this registered.
-    registerFallbackValue(Options());
+  setUp(() {
+    mockAuthApi = MockAuthApi();
+    mockUserApi = MockUserApi();
+    // Fresh lock per test so state from one test cannot leak into the next.
+    repository = HttpAuthRepository(
+      mockAuthApi,
+      mockUserApi,
+      TokenRefreshLock(),
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -136,17 +265,8 @@ void main() {
       '1. success → returns (User, AuthTokens) with correct values',
       () async {
         when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/login',
-            data: any(named: 'data'),
-          ),
-        ).thenAnswer(
-          (_) async => Response(
-            requestOptions: _fakeOptions('/auth/login'),
-            statusCode: 200,
-            data: _loginEnvelope(),
-          ),
-        );
+          () => mockAuthApi.login(loginRequest: any(named: 'loginRequest')),
+        ).thenAnswer((_) async => _authResponse());
 
         final (user, tokens) = await repository.login(
           email: 'master@beautica.test',
@@ -167,17 +287,9 @@ void main() {
 
     test('2. 401 plain UnauthorizedFailure (emailNotVerified=false) → remapped '
         'to InvalidCredentialsFailure (wrong-password fix)', () async {
-      // The backend returns 401 for wrong credentials on /auth/login.
-      // ErrorMapperInterceptor maps the 401 to UnauthorizedFailure(emailNotVerified=false).
-      // HttpAuthRepository.login() must remap that to InvalidCredentialsFailure
-      // so the login screen shows "Incorrect email or password" instead of
-      // the session-expiry message.
       const failure = UnauthorizedFailure();
       when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/login',
-          data: any(named: 'data'),
-        ),
+        () => mockAuthApi.login(loginRequest: any(named: 'loginRequest')),
       ).thenThrow(_dioWithFailure(failure, statusCode: 401));
 
       await expectLater(
@@ -190,16 +302,9 @@ void main() {
       '2b. 401 UnauthorizedFailure(emailNotVerified=true) → NOT remapped; '
       'UnauthorizedFailure propagates unchanged for AuthBanner routing',
       () async {
-        // When the 401 carries EMAIL_NOT_VERIFIED, the login screen branches
-        // to show the inline AuthBanner (not a SnackBar). This requires the
-        // UnauthorizedFailure to reach the screen with emailNotVerified=true
-        // intact — it must NOT be remapped to InvalidCredentialsFailure.
         const failure = UnauthorizedFailure(emailNotVerified: true);
         when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/login',
-            data: any(named: 'data'),
-          ),
+          () => mockAuthApi.login(loginRequest: any(named: 'loginRequest')),
         ).thenThrow(_dioWithFailure(failure, statusCode: 401));
 
         await expectLater(
@@ -222,10 +327,7 @@ void main() {
           fieldErrors: {'email': 'must be a valid email'},
         );
         when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/login',
-            data: any(named: 'data'),
-          ),
+          () => mockAuthApi.login(loginRequest: any(named: 'loginRequest')),
         ).thenThrow(_dioWithFailure(failure, statusCode: 400));
 
         await expectLater(
@@ -245,10 +347,7 @@ void main() {
       '4. raw DioException (error = null) → throws UnknownFailure',
       () async {
         when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/login',
-            data: any(named: 'data'),
-          ),
+          () => mockAuthApi.login(loginRequest: any(named: 'loginRequest')),
         ).thenThrow(_rawDioException());
 
         await expectLater(
@@ -265,69 +364,15 @@ void main() {
 
   group('registerIndependentMaster', () {
     test(
-      '5. success (auto-login envelope) → returns AuthenticatedRegisterResult',
+      '5. success (verification-required envelope) → returns VerificationRequired',
       () async {
         when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register/independent-master',
-            data: any(named: 'data'),
+          () => mockAuthApi.registerIndependentMaster(
+            registerIndependentMasterRequest: any(
+              named: 'registerIndependentMasterRequest',
+            ),
           ),
-        ).thenAnswer(
-          (_) async => Response(
-            requestOptions: _fakeOptions('/auth/register/independent-master'),
-            statusCode: 201,
-            data: _loginEnvelope(),
-          ),
-        );
-
-        final result = await repository.registerIndependentMaster(
-          email: 'master@beautica.test',
-          password: 'P@ssw0rd!',
-          firstName: 'Іванна',
-          lastName: 'Коваль',
-        );
-
-        expect(result, isA<AuthenticatedRegisterResult>());
-        final auth = result as AuthenticatedRegisterResult;
-        expect(auth.user.role, UserRole.independentMaster);
-        expect(auth.tokens.accessToken, 'access.jwt.token');
-        expect(auth.tokens.refreshToken, 'refresh.jwt.token');
-      },
-    );
-
-    // -------------------------------------------------------------------------
-    // 5b — verification-required envelope (current backend default)
-    //
-    // Regression guard for the `_TypeError: type 'Null' is not a subtype of
-    // type 'Map<String, dynamic>'` crash: the backend returns
-    //   { "success": true, "data": { "message": "...", "email": "..." } }
-    // for newly-registered accounts that still need email verification. The
-    // repository must surface that as VerificationRequired, NOT call
-    // _parseUserAndTokens (which casts data['user'] and would crash on null).
-    // -------------------------------------------------------------------------
-    test(
-      '5b. success (verification-required envelope) → returns VerificationRequired',
-      () async {
-        when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register/independent-master',
-            data: any(named: 'data'),
-          ),
-        ).thenAnswer(
-          (_) async => Response(
-            requestOptions: _fakeOptions('/auth/register/independent-master'),
-            statusCode: 200,
-            data: {
-              'success': true,
-              'data': {
-                'message':
-                    'Registration successful. Check your email for the verification code.',
-                'email': 'master@beautica.test',
-              },
-              'message': null,
-            },
-          ),
-        );
+        ).thenAnswer((_) async => _verificationRequiredResponse());
 
         final result = await repository.registerIndependentMaster(
           email: 'master@beautica.test',
@@ -344,32 +389,30 @@ void main() {
       },
     );
 
-    // -------------------------------------------------------------------------
-    // 5c — malformed envelope (no user AND no email) → UnknownFailure
-    //
-    // The repository must not silently swallow a genuinely-broken response
-    // shape: throw UnknownFailure so the screen surfaces a snackbar instead
-    // of crashing with a generic cast error.
-    // -------------------------------------------------------------------------
     test(
-      '5c. malformed envelope (no user, no email) → throws UnknownFailure',
+      '5b. registration response missing email → throws UnknownFailure',
       () async {
-        when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register/independent-master',
-            data: any(named: 'data'),
-          ),
-        ).thenAnswer(
-          (_) async => Response(
-            requestOptions: _fakeOptions('/auth/register/independent-master'),
-            statusCode: 200,
-            data: {
-              'success': true,
-              'data': {'message': 'something happened'},
-              'message': null,
-            },
-          ),
+        // Build a RegistrationResponse with no email to simulate a broken shape.
+        final dto = RegistrationResponse(
+          (b) => b..message = 'something happened',
         );
+        final envelope = ApiResponseRegistrationResponse(
+          (b) => b
+            ..success = true
+            ..data = dto.toBuilder(),
+        );
+        final res = Response(
+          data: envelope,
+          statusCode: 200,
+          requestOptions: _fakeOptions('/auth/register/independent-master'),
+        );
+        when(
+          () => mockAuthApi.registerIndependentMaster(
+            registerIndependentMasterRequest: any(
+              named: 'registerIndependentMasterRequest',
+            ),
+          ),
+        ).thenAnswer((_) async => res);
 
         await expectLater(
           () => repository.registerIndependentMaster(
@@ -382,6 +425,59 @@ void main() {
         );
       },
     );
+
+    test(
+      '5c. ValidationFailure (duplicate email) → re-throws unchanged',
+      () async {
+        const failure = ValidationFailure(
+          fieldErrors: {'email': 'already exists'},
+        );
+        when(
+          () => mockAuthApi.registerIndependentMaster(
+            registerIndependentMasterRequest: any(
+              named: 'registerIndependentMasterRequest',
+            ),
+          ),
+        ).thenThrow(_dioWithFailure(failure));
+
+        await expectLater(
+          () => repository.registerIndependentMaster(
+            email: 'dup@beautica.test',
+            password: 'P@ssw0rd!',
+            firstName: 'Іванна',
+            lastName: 'Коваль',
+          ),
+          throwsA(
+            isA<ValidationFailure>().having(
+              (f) => f.fieldErrors,
+              'fieldErrors',
+              {'email': 'already exists'},
+            ),
+          ),
+        );
+      },
+    );
+
+    test('5d. EmailAlreadyRegisteredFailure propagates unchanged', () async {
+      const failure = EmailAlreadyRegisteredFailure();
+      when(
+        () => mockAuthApi.registerIndependentMaster(
+          registerIndependentMasterRequest: any(
+            named: 'registerIndependentMasterRequest',
+          ),
+        ),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 409));
+
+      await expectLater(
+        () => repository.registerIndependentMaster(
+          email: 'dup@beautica.test',
+          password: 'P@ssw0rd!',
+          firstName: 'Іванна',
+          lastName: 'Коваль',
+        ),
+        throwsA(isA<EmailAlreadyRegisteredFailure>()),
+      );
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -390,21 +486,12 @@ void main() {
 
   group('refresh', () {
     test('6. success → returns AuthTokens with new token pair', () async {
-      // HIGH-1 fix: refresh() now passes options: Options(headers: {'X-No-Retry': 'true'})
-      // so the mock must also match the `options` named arg.
       when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/refresh',
-          data: any(named: 'data'),
-          options: any(named: 'options'),
+        () => mockAuthApi.refresh(
+          refreshRequest: any(named: 'refreshRequest'),
+          headers: any(named: 'headers'),
         ),
-      ).thenAnswer(
-        (_) async => Response(
-          requestOptions: _fakeOptions('/auth/refresh'),
-          statusCode: 200,
-          data: _refreshEnvelope(),
-        ),
-      );
+      ).thenAnswer((_) async => _refreshResponse());
 
       final tokens = await repository.refresh('old.refresh.token');
 
@@ -412,6 +499,36 @@ void main() {
       expect(tokens.refreshToken, 'new.refresh.token');
       expect(tokens, isA<AuthTokens>());
     });
+
+    test(
+      '6b. 401 on /auth/refresh → throws UnauthorizedFailure via Completer error branch',
+      () async {
+        const failure = UnauthorizedFailure();
+        when(
+          () => mockAuthApi.refresh(
+            refreshRequest: any(named: 'refreshRequest'),
+            headers: any(named: 'headers'),
+          ),
+        ).thenThrow(_dioWithFailure(failure, statusCode: 401));
+
+        // HttpAuthRepository.refresh() uses an internal Completer to coalesce
+        // concurrent calls. When a single call fails, completeError() is called
+        // on the Completer whose .future has no listener (no concurrent caller),
+        // creating an unhandled async error. runZonedGuarded absorbs that
+        // secondary error while still asserting the primary throw.
+        Object? caught;
+        final completerErrors = <Object>[];
+        await runZonedGuarded(() async {
+          try {
+            await repository.refresh('old-token');
+          } on Failure catch (e) {
+            caught = e;
+          }
+        }, (err, _) => completerErrors.add(err));
+
+        expect(caught, isA<UnauthorizedFailure>());
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -419,107 +536,35 @@ void main() {
   // -------------------------------------------------------------------------
 
   group('me', () {
-    test('7. success → returns User with correct role', () async {
+    test('7. success → returns User with firstName + lastName', () async {
       when(
-        () => mockDio.get<Map<String, dynamic>>(
-          '/users/me',
-          options: any(named: 'options'),
-        ),
-      ).thenAnswer(
-        (_) async => Response(
-          requestOptions: _fakeOptions('/users/me'),
-          statusCode: 200,
-          data: _meEnvelope(),
-        ),
-      );
+        () => mockUserApi.getMe(headers: any(named: 'headers')),
+      ).thenAnswer((_) async => _meResponse());
 
       final user = await repository.me();
 
       expect(user.id, 'usr-1');
       expect(user.role, UserRole.independentMaster);
       expect(user.email, 'master@beautica.test');
-      // firstName and lastName are ONLY available from /users/me (absent from
-      // AuthResponse). If User.fromJson stops parsing these fields the done
-      // screen greeting falls back to "друже" — this assertion catches that.
+      // firstName and lastName are ONLY available from /users/me — absent from
+      // the flat AuthResponse. If the mapper stops parsing these the done screen
+      // greeting falls back to "друже".
       expect(
         user.firstName,
         equals('Іванна'),
-        reason:
-            'me() must parse firstName from the /users/me envelope; '
-            'it is absent from the flat AuthResponse',
+        reason: 'me() must parse firstName from UserProfileResponse',
       );
       expect(
         user.lastName,
         equals('Коваль'),
-        reason: 'me() must parse lastName from the /users/me envelope',
-      );
-
-      // Verify the correct path was called exactly once — guards against future
-      // typos in the URL literal (regression for the /user/me → /users/me fix).
-      verify(
-        () => mockDio.get<Map<String, dynamic>>(
-          '/users/me',
-          options: any(named: 'options'),
-        ),
-      ).called(1);
-    });
-
-    // -----------------------------------------------------------------------
-    // me() — X-No-Retry header verification
-    //
-    // me() carries X-No-Retry: true unconditionally so RefreshInterceptor
-    // cannot intercept a 401 on /users/me and issue a redundant refresh.
-    // any(named: 'options') in the when/verify stubs above accepts ANY
-    // Options object — including Options() with no headers. This test
-    // captures the actual Options passed and asserts the header is present
-    // with the correct value.
-    // -----------------------------------------------------------------------
-    test('7b. me() passes X-No-Retry: true in the Options headers', () async {
-      Options? capturedOptions;
-
-      when(
-        () => mockDio.get<Map<String, dynamic>>(
-          '/users/me',
-          options: any(named: 'options'),
-        ),
-      ).thenAnswer((invocation) async {
-        capturedOptions =
-            invocation.namedArguments[const Symbol('options')] as Options?;
-        return Response(
-          requestOptions: _fakeOptions('/users/me'),
-          statusCode: 200,
-          data: _meEnvelope(),
-        );
-      });
-
-      await repository.me();
-
-      expect(
-        capturedOptions,
-        isNotNull,
-        reason: 'me() must pass an Options object — not null',
-      );
-      expect(
-        capturedOptions!.headers,
-        isNotNull,
-        reason: 'Options.headers must not be null',
-      );
-      expect(
-        capturedOptions!.headers!['X-No-Retry'],
-        equals('true'),
-        reason:
-            'me() must set X-No-Retry: true so RefreshInterceptor '
-            'cannot intercept a 401 on /users/me and issue a second refresh',
+        reason: 'me() must parse lastName from UserProfileResponse',
       );
     });
 
     test('8. 401 DioException → re-throws UnauthorizedFailure', () async {
       const failure = UnauthorizedFailure();
       when(
-        () => mockDio.get<Map<String, dynamic>>(
-          '/users/me',
-          options: any(named: 'options'),
-        ),
+        () => mockUserApi.getMe(headers: any(named: 'headers')),
       ).thenThrow(_dioWithFailure(failure, statusCode: 401));
 
       await expectLater(
@@ -528,19 +573,10 @@ void main() {
       );
     });
 
-    // -------------------------------------------------------------------------
-    // M3 / MEDIUM: me() is called on every cold start via restoreSession().
-    // NetworkFailure (no connectivity) and UnknownFailure (raw Dio error) are
-    // real production scenarios — untested before this fix.
-    // -------------------------------------------------------------------------
-
-    test('9. network error on /users/me → re-throws NetworkFailure', () async {
+    test('9. NetworkFailure on /users/me → re-throws NetworkFailure', () async {
       const failure = NetworkFailure();
       when(
-        () => mockDio.get<Map<String, dynamic>>(
-          '/users/me',
-          options: any(named: 'options'),
-        ),
+        () => mockUserApi.getMe(headers: any(named: 'headers')),
       ).thenThrow(_dioWithFailure(failure, statusCode: 503));
 
       await expectLater(() => repository.me(), throwsA(isA<NetworkFailure>()));
@@ -550,10 +586,7 @@ void main() {
       '10. raw DioException on /users/me (no attached Failure) → throws UnknownFailure',
       () async {
         when(
-          () => mockDio.get<Map<String, dynamic>>(
-            '/users/me',
-            options: any(named: 'options'),
-          ),
+          () => mockUserApi.getMe(headers: any(named: 'headers')),
         ).thenThrow(_rawDioException());
 
         await expectLater(
@@ -598,157 +631,56 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // Group 6 — refresh failure (Completer error branch)
+  // Group 6 — verifyEmail
   // -------------------------------------------------------------------------
 
-  group('refresh — failure path', () {
-    test(
-      '9. 401 on /auth/refresh → throws UnauthorizedFailure via Completer error branch',
-      () async {
-        const failure = UnauthorizedFailure();
-        // HIGH-1 fix: refresh() passes options: Options(headers: {'X-No-Retry': 'true'}).
-        when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/refresh',
-            data: any(named: 'data'),
-            options: any(named: 'options'),
-          ),
-        ).thenThrow(_dioWithFailure(failure, statusCode: 401));
-
-        // HttpAuthRepository.refresh() uses an internal Completer to coalesce
-        // concurrent calls. When a single call fails, completeError() is called
-        // on the Completer whose .future has no listener (no concurrent caller),
-        // creating an unhandled async error. We use runZonedGuarded to absorb
-        // that secondary error while still asserting the primary throw.
-        Object? caught;
-        final completerErrors = <Object>[];
-        await runZonedGuarded(() async {
-          try {
-            await repository.refresh('old-token');
-          } on Failure catch (e) {
-            caught = e;
-          }
-        }, (err, _) => completerErrors.add(err));
-
-        expect(caught, isA<UnauthorizedFailure>());
-      },
-    );
-  });
-
-  // -------------------------------------------------------------------------
-  // Group 7 — registerIndependentMaster failure path
-  // -------------------------------------------------------------------------
-
-  group('registerIndependentMaster — failure path', () {
-    test(
-      '10. ValidationFailure (duplicate email) → re-throws ValidationFailure with fieldErrors',
-      () async {
-        const failure = ValidationFailure(
-          fieldErrors: {'email': 'already exists'},
-        );
-        when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register/independent-master',
-            data: any(named: 'data'),
-          ),
-        ).thenThrow(_dioWithFailure(failure));
-
-        await expectLater(
-          () => repository.registerIndependentMaster(
-            email: 'dup@beautica.test',
-            password: 'P@ssw0rd!',
-            firstName: 'Іванна',
-            lastName: 'Коваль',
-          ),
-          throwsA(
-            isA<ValidationFailure>().having(
-              (f) => f.fieldErrors,
-              'fieldErrors',
-              {'email': 'already exists'},
-            ),
-          ),
-        );
-      },
-    );
-
-    // -------------------------------------------------------------------------
-    // 10b. EmailAlreadyRegisteredFailure end-to-end: backend dev mode
-    // (disclose-duplicate-registration=true) returns 409 +
-    // data.code == EMAIL_ALREADY_REGISTERED. The repository must surface the
-    // typed failure unchanged so the screen can branch on it.
-    //
-    // Mutation: if registerIndependentMaster catches DioException and re-wraps
-    // it as UnknownFailure instead of preserving the typed Failure, this test
-    // fails.
-    // -------------------------------------------------------------------------
-    test('10b. register() returns EmailAlreadyRegisteredFailure when backend '
-        'responds 409 with data.code == EMAIL_ALREADY_REGISTERED', () async {
-      const failure = EmailAlreadyRegisteredFailure();
+  group('verifyEmail', () {
+    test('success → returns (User, AuthTokens)', () async {
       when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/register/independent-master',
-          data: any(named: 'data'),
+        () => mockAuthApi.verifyEmail(
+          verifyEmailRequest: any(named: 'verifyEmailRequest'),
         ),
-      ).thenThrow(_dioWithFailure(failure, statusCode: 409));
+      ).thenAnswer((_) async => _authResponse());
 
-      await expectLater(
-        () => repository.registerIndependentMaster(
-          email: 'dup@beautica.test',
-          password: 'P@ssw0rd!',
-          firstName: 'Іванна',
-          lastName: 'Коваль',
-        ),
-        throwsA(isA<EmailAlreadyRegisteredFailure>()),
+      final (user, tokens) = await repository.verifyEmail(
+        email: 'master@beautica.test',
+        otp: '123456',
       );
+
+      expect(user.id, 'usr-1');
+      expect(tokens.accessToken, 'access.jwt.token');
     });
 
-    test('10c. register() (SALON_OWNER → /auth/register) propagates '
-        'EmailAlreadyRegisteredFailure unchanged', () async {
-      const failure = EmailAlreadyRegisteredFailure();
+    test('DioException → re-throws mapped Failure', () async {
+      const failure = ValidationFailure(fieldErrors: {});
       when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/register',
-          data: any(named: 'data'),
+        () => mockAuthApi.verifyEmail(
+          verifyEmailRequest: any(named: 'verifyEmailRequest'),
         ),
-      ).thenThrow(_dioWithFailure(failure, statusCode: 409));
+      ).thenThrow(_dioWithFailure(failure));
 
       await expectLater(
-        () => repository.registerIndependentMaster(
-          email: 'dup@beautica.test',
-          password: 'P@ssw0rd!',
-          firstName: 'Марія',
-          lastName: 'Ковальчук',
-          role: UserRole.salonOwner,
-          businessName: 'Краса Студія',
-        ),
-        throwsA(isA<EmailAlreadyRegisteredFailure>()),
+        () => repository.verifyEmail(email: 'x@x.com', otp: '000000'),
+        throwsA(isA<ValidationFailure>()),
       );
     });
   });
 
   // -------------------------------------------------------------------------
-  // Group 8 — unified /auth/register routing for salonOwner + client roles
-  //
-  // Backend contract (Phase 2.x):
-  //   CLIENT + SALON_OWNER → POST /auth/register  (role discriminator in body)
-  //   INDEPENDENT_MASTER   → POST /auth/register/independent-master  (no role)
+  // Group 7 — role-based endpoint routing
   // -------------------------------------------------------------------------
 
-  group('registerIndependentMaster — role-based endpoint routing', () {
+  group('registerIndependentMaster — role routing', () {
     test(
-      '11. role=salonOwner → POST to /auth/register with role=SALON_OWNER in body',
+      'salonOwner → calls authApi.register (not registerIndependentMaster)',
       () async {
         when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register',
-            data: any(named: 'data'),
+          () => mockAuthApi.register(
+            registerRequest: any(named: 'registerRequest'),
           ),
         ).thenAnswer(
-          (_) async => Response(
-            requestOptions: _fakeOptions('/auth/register'),
-            statusCode: 201,
-            data: _loginEnvelope(role: 'SALON_OWNER'),
-          ),
+          (_) async =>
+              _verificationRequiredResponse(email: 'owner@beautica.test'),
         );
 
         final result = await repository.registerIndependentMaster(
@@ -760,37 +692,32 @@ void main() {
           businessName: 'Краса Студія',
         );
 
-        expect(result, isA<AuthenticatedRegisterResult>());
-        final auth = result as AuthenticatedRegisterResult;
-        expect(auth.user.role, UserRole.salonOwner);
-        expect(auth.tokens.accessToken, 'access.jwt.token');
-
-        // Verify the exact unified endpoint was hit — if the routing were wrong
-        // and /auth/register/independent-master were used instead, mocktail would
-        // throw MissingStubError on the unstubbed path, failing the test.
+        expect(result, isA<VerificationRequired>());
         verify(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register',
-            data: any(named: 'data'),
+          () => mockAuthApi.register(
+            registerRequest: any(named: 'registerRequest'),
           ),
         ).called(1);
+        verifyNever(
+          () => mockAuthApi.registerIndependentMaster(
+            registerIndependentMasterRequest: any(
+              named: 'registerIndependentMasterRequest',
+            ),
+          ),
+        );
       },
     );
 
     test(
-      '12. role=client → POST to /auth/register with role=CLIENT in body',
+      'client → calls authApi.register (not registerIndependentMaster)',
       () async {
         when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register',
-            data: any(named: 'data'),
+          () => mockAuthApi.register(
+            registerRequest: any(named: 'registerRequest'),
           ),
         ).thenAnswer(
-          (_) async => Response(
-            requestOptions: _fakeOptions('/auth/register'),
-            statusCode: 201,
-            data: _loginEnvelope(role: 'CLIENT'),
-          ),
+          (_) async =>
+              _verificationRequiredResponse(email: 'client@beautica.test'),
         );
 
         final result = await repository.registerIndependentMaster(
@@ -801,781 +728,404 @@ void main() {
           role: UserRole.client,
         );
 
-        expect(result, isA<AuthenticatedRegisterResult>());
-        final auth = result as AuthenticatedRegisterResult;
-        expect(auth.user.role, UserRole.client);
-        expect(auth.tokens.refreshToken, 'refresh.jwt.token');
-
+        expect(result, isA<VerificationRequired>());
         verify(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register',
-            data: any(named: 'data'),
+          () => mockAuthApi.register(
+            registerRequest: any(named: 'registerRequest'),
           ),
         ).called(1);
       },
     );
-  });
-
-  // -------------------------------------------------------------------------
-  // Group 9 — businessName body contract
-  //
-  // The backend enforces that businessName is REQUIRED for SALON_OWNER and
-  // must be absent for INDEPENDENT_MASTER (which uses a separate path).
-  // These tests capture the exact request body by intercepting the Dio call
-  // so that a refactor silently dropping businessName from the body is caught.
-  // -------------------------------------------------------------------------
-
-  group('registerIndependentMaster — businessName body contract', () {
-    test(
-      '13. salonOwner with businessName → body includes businessName trimmed',
-      () async {
-        Map<String, dynamic>? capturedBody;
-
-        when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register',
-            data: any(named: 'data'),
-          ),
-        ).thenAnswer((invocation) async {
-          capturedBody =
-              invocation.namedArguments[const Symbol('data')]
-                  as Map<String, dynamic>;
-          return Response(
-            requestOptions: _fakeOptions('/auth/register'),
-            statusCode: 201,
-            data: _loginEnvelope(role: 'SALON_OWNER'),
-          );
-        });
-
-        await repository.registerIndependentMaster(
-          email: 'owner@beautica.test',
-          password: 'P@ssw0rd!',
-          firstName: 'Марія',
-          lastName: 'Ковальчук',
-          role: UserRole.salonOwner,
-          businessName: '  Краса Студія  ', // whitespace — must be trimmed
-        );
-
-        expect(capturedBody, isNotNull);
-        expect(capturedBody!['businessName'], equals('Краса Студія'));
-        expect(capturedBody!['role'], equals('SALON_OWNER'));
-        // independentMaster path must NOT be used
-        verifyNever(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register/independent-master',
-            data: any(named: 'data'),
-          ),
-        );
-      },
-    );
 
     test(
-      '14. salonOwner with null businessName → body does NOT include businessName key',
+      'EmailAlreadyRegisteredFailure propagates from /auth/register path',
       () async {
-        Map<String, dynamic>? capturedBody;
-
+        const failure = EmailAlreadyRegisteredFailure();
         when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register',
-            data: any(named: 'data'),
+          () => mockAuthApi.register(
+            registerRequest: any(named: 'registerRequest'),
           ),
-        ).thenAnswer((invocation) async {
-          capturedBody =
-              invocation.namedArguments[const Symbol('data')]
-                  as Map<String, dynamic>;
-          return Response(
-            requestOptions: _fakeOptions('/auth/register'),
-            statusCode: 201,
-            data: _loginEnvelope(role: 'SALON_OWNER'),
-          );
-        });
-
-        await repository.registerIndependentMaster(
-          email: 'owner@beautica.test',
-          password: 'P@ssw0rd!',
-          firstName: 'Марія',
-          lastName: 'Ковальчук',
-          role: UserRole.salonOwner,
-          // businessName intentionally omitted — backend returns 400 for this,
-          // but this test verifies the client contract: key is absent, not null.
-        );
-
-        expect(capturedBody, isNotNull);
-        expect(capturedBody!.containsKey('businessName'), isFalse);
-      },
-    );
-
-    test(
-      '15. salonOwner with blank businessName → body does NOT include businessName key',
-      () async {
-        Map<String, dynamic>? capturedBody;
-
-        when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register',
-            data: any(named: 'data'),
-          ),
-        ).thenAnswer((invocation) async {
-          capturedBody =
-              invocation.namedArguments[const Symbol('data')]
-                  as Map<String, dynamic>;
-          return Response(
-            requestOptions: _fakeOptions('/auth/register'),
-            statusCode: 201,
-            data: _loginEnvelope(role: 'SALON_OWNER'),
-          );
-        });
-
-        await repository.registerIndependentMaster(
-          email: 'owner@beautica.test',
-          password: 'P@ssw0rd!',
-          firstName: 'Марія',
-          lastName: 'Ковальчук',
-          role: UserRole.salonOwner,
-          businessName: '   ', // all whitespace — must be treated as absent
-        );
-
-        expect(capturedBody, isNotNull);
-        expect(capturedBody!.containsKey('businessName'), isFalse);
-      },
-    );
-
-    test(
-      '16. independentMaster → POST to /auth/register/independent-master; body has no role or businessName keys',
-      () async {
-        Map<String, dynamic>? capturedBody;
-
-        when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register/independent-master',
-            data: any(named: 'data'),
-          ),
-        ).thenAnswer((invocation) async {
-          capturedBody =
-              invocation.namedArguments[const Symbol('data')]
-                  as Map<String, dynamic>;
-          return Response(
-            requestOptions: _fakeOptions('/auth/register/independent-master'),
-            statusCode: 201,
-            data: _loginEnvelope(),
-          );
-        });
-
-        await repository.registerIndependentMaster(
-          email: 'master@beautica.test',
-          password: 'P@ssw0rd!',
-          firstName: 'Іванна',
-          lastName: 'Коваль',
-          // role defaults to independentMaster; businessName omitted
-        );
-
-        expect(capturedBody, isNotNull);
-        // Backend derives the role from the path — do NOT send a role field.
-        expect(capturedBody!.containsKey('role'), isFalse);
-        expect(capturedBody!.containsKey('businessName'), isFalse);
-        // Required fields must be present.
-        expect(capturedBody!['email'], equals('master@beautica.test'));
-        expect(capturedBody!['firstName'], equals('Іванна'));
-        expect(capturedBody!['lastName'], equals('Коваль'));
-      },
-    );
-
-    test(
-      '17. salonOwner ValidationFailure (blank businessName on server) → re-throws ValidationFailure',
-      () async {
-        const failure = ValidationFailure(
-          fieldErrors: {'businessName': 'must not be blank'},
-        );
-        when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/register',
-            data: any(named: 'data'),
-          ),
-        ).thenThrow(_dioWithFailure(failure));
+        ).thenThrow(_dioWithFailure(failure, statusCode: 409));
 
         await expectLater(
           () => repository.registerIndependentMaster(
-            email: 'owner@beautica.test',
+            email: 'dup@beautica.test',
             password: 'P@ssw0rd!',
             firstName: 'Марія',
             lastName: 'Ковальчук',
             role: UserRole.salonOwner,
+            businessName: 'Краса Студія',
           ),
-          throwsA(
-            isA<ValidationFailure>().having(
-              (f) => f.fieldErrors,
-              'fieldErrors',
-              {'businessName': 'must not be blank'},
-            ),
-          ),
+          throwsA(isA<EmailAlreadyRegisteredFailure>()),
         );
       },
     );
   });
 
   // -------------------------------------------------------------------------
-  // Group 10 — registerIndependentMaster — phone body contract
-  //
-  // The backend enforces that phoneNumber is trimmed before sending and must be
-  // absent from the body when the caller passes null (rather than sent as null
-  // or an empty string, which could cause a backend schema error).
-  //
-  // These tests capture the exact request body so that a refactor that
-  // accidentally includes/excludes phoneNumber is caught immediately.
+  // Group 8 — acceptInvite
   // -------------------------------------------------------------------------
 
-  group('registerIndependentMaster — phone body contract', () {
-    test('IM with phone: body includes phoneNumber trimmed', () async {
-      Map<String, dynamic>? capturedBody;
-
+  group('acceptInvite', () {
+    test('success → returns (User, AuthTokens)', () async {
       when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/register/independent-master',
-          data: any(named: 'data'),
+        () => mockAuthApi.acceptInvite(
+          inviteAcceptRequest: any(named: 'inviteAcceptRequest'),
         ),
-      ).thenAnswer((invocation) async {
-        capturedBody =
-            invocation.namedArguments[const Symbol('data')]
-                as Map<String, dynamic>;
-        return Response(
-          requestOptions: _fakeOptions('/auth/register/independent-master'),
-          statusCode: 201,
-          data: _loginEnvelope(),
-        );
-      });
+      ).thenAnswer((_) async => _authResponse());
 
-      await repository.registerIndependentMaster(
-        email: 'master@beautica.test',
+      final (user, tokens) = await repository.acceptInvite(
+        token: 'invite-token-123',
         password: 'P@ssw0rd!',
         firstName: 'Іванна',
         lastName: 'Коваль',
-        // Leading and trailing whitespace must be stripped before sending.
-        phone: '  +380 67 123 45 67  ',
+        phoneNumber: '+380501234567',
       );
 
-      expect(capturedBody, isNotNull);
-      expect(
-        capturedBody!['phoneNumber'],
-        equals('+380 67 123 45 67'),
-        reason:
-            'phone is trimmed before inclusion; whitespace must be '
-            'stripped from the request body',
-      );
-      // role and businessName must be absent — IM path derives role from URL.
-      expect(capturedBody!.containsKey('role'), isFalse);
-      expect(capturedBody!.containsKey('businessName'), isFalse);
-    });
-
-    test('IM with null phone: body excludes phoneNumber key', () async {
-      Map<String, dynamic>? capturedBody;
-
-      when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/register/independent-master',
-          data: any(named: 'data'),
-        ),
-      ).thenAnswer((invocation) async {
-        capturedBody =
-            invocation.namedArguments[const Symbol('data')]
-                as Map<String, dynamic>;
-        return Response(
-          requestOptions: _fakeOptions('/auth/register/independent-master'),
-          statusCode: 201,
-          data: _loginEnvelope(),
-        );
-      });
-
-      await repository.registerIndependentMaster(
-        email: 'master@beautica.test',
-        password: 'P@ssw0rd!',
-        firstName: 'Іванна',
-        lastName: 'Коваль',
-        // phone is intentionally omitted (defaults to null).
-      );
-
-      expect(capturedBody, isNotNull);
-      // A null phone must not appear in the body at all — sending
-      // "phoneNumber": null would fail backend schema validation.
-      expect(
-        capturedBody!.containsKey('phoneNumber'),
-        isFalse,
-        reason:
-            'null phone must not insert a phoneNumber key into the '
-            'request body',
-      );
-    });
-
-    test('salonOwner with phone: body includes phoneNumber', () async {
-      Map<String, dynamic>? capturedBody;
-
-      when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/register',
-          data: any(named: 'data'),
-        ),
-      ).thenAnswer((invocation) async {
-        capturedBody =
-            invocation.namedArguments[const Symbol('data')]
-                as Map<String, dynamic>;
-        return Response(
-          requestOptions: _fakeOptions('/auth/register'),
-          statusCode: 201,
-          data: _loginEnvelope(role: 'SALON_OWNER'),
-        );
-      });
-
-      await repository.registerIndependentMaster(
-        email: 'owner@beautica.test',
-        password: 'P@ssw0rd!',
-        firstName: 'Марія',
-        lastName: 'Ковальчук',
-        role: UserRole.salonOwner,
-        businessName: 'Краса',
-        phone: '+380 50 123 45 67',
-      );
-
-      expect(capturedBody, isNotNull);
-      expect(
-        capturedBody!['phoneNumber'],
-        equals('+380 50 123 45 67'),
-        reason:
-            'salonOwner phone must be included as phoneNumber in the '
-            'body, matching the backend contract',
-      );
-      expect(capturedBody!['role'], equals('SALON_OWNER'));
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Group 11 — verifyEmail (backend Phase 1.5)
-  //
-  // Contract:
-  //   Request:  POST /auth/verify-email  {email, code: <otp>}
-  //   Success:  ApiResponse<AuthResponse> — full session envelope.
-  //   400:      ApiResponse<{code: "INVALID_CODE" | "CODE_EXPIRED" |
-  //             "ALREADY_VERIFIED"}> → VerificationFailure via interceptor.
-  // -------------------------------------------------------------------------
-
-  group('verifyEmail', () {
-    test('success → returns (User, AuthTokens) parsed from envelope', () async {
-      Map<String, dynamic>? capturedBody;
-
-      when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/verify-email',
-          data: any(named: 'data'),
-        ),
-      ).thenAnswer((invocation) async {
-        capturedBody =
-            invocation.namedArguments[const Symbol('data')]
-                as Map<String, dynamic>;
-        return Response(
-          requestOptions: _fakeOptions('/auth/verify-email'),
-          statusCode: 200,
-          data: _loginEnvelope(),
-        );
-      });
-
-      final (user, tokens) = await repository.verifyEmail(
-        email: 'master@beautica.test',
-        otp: '654321',
-      );
-
-      // Request body uses the wire field `code` (not `otp`).
-      expect(capturedBody, isNotNull);
-      expect(capturedBody!['email'], equals('master@beautica.test'));
-      expect(
-        capturedBody!['code'],
-        equals('654321'),
-        reason:
-            'Backend Phase 1.5 wire field is `code`, not `otp` — '
-            'mobile param name is `otp` for HTML-mockup parity only',
-      );
-
-      // Response is parsed via the same helper as /auth/login.
       expect(user.id, 'usr-1');
-      expect(user.email, 'master@beautica.test');
-      expect(user.role, UserRole.independentMaster);
       expect(tokens.accessToken, 'access.jwt.token');
-      expect(tokens.refreshToken, 'refresh.jwt.token');
     });
 
-    test(
-      'INVALID_CODE → throws VerificationFailure(invalidCode) via interceptor',
-      () async {
-        const failure = VerificationFailure(
-          code: VerificationErrorCode.invalidCode,
-        );
-        when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/verify-email',
-            data: any(named: 'data'),
-          ),
-        ).thenThrow(_dioWithFailure(failure, statusCode: 400));
-
-        await expectLater(
-          () => repository.verifyEmail(email: 'x@x.com', otp: '000000'),
-          throwsA(
-            isA<VerificationFailure>().having(
-              (f) => f.code,
-              'code',
-              VerificationErrorCode.invalidCode,
-            ),
-          ),
-        );
-      },
-    );
-
-    test(
-      'CODE_EXPIRED → throws VerificationFailure(codeExpired) via interceptor',
-      () async {
-        const failure = VerificationFailure(
-          code: VerificationErrorCode.codeExpired,
-        );
-        when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/verify-email',
-            data: any(named: 'data'),
-          ),
-        ).thenThrow(_dioWithFailure(failure, statusCode: 400));
-
-        await expectLater(
-          () => repository.verifyEmail(email: 'x@x.com', otp: '111111'),
-          throwsA(
-            isA<VerificationFailure>().having(
-              (f) => f.code,
-              'code',
-              VerificationErrorCode.codeExpired,
-            ),
-          ),
-        );
-      },
-    );
-
-    test(
-      'ALREADY_VERIFIED → throws VerificationFailure(alreadyVerified) via interceptor',
-      () async {
-        const failure = VerificationFailure(
-          code: VerificationErrorCode.alreadyVerified,
-        );
-        when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/verify-email',
-            data: any(named: 'data'),
-          ),
-        ).thenThrow(_dioWithFailure(failure, statusCode: 400));
-
-        await expectLater(
-          () => repository.verifyEmail(email: 'x@x.com', otp: '222222'),
-          throwsA(
-            isA<VerificationFailure>().having(
-              (f) => f.code,
-              'code',
-              VerificationErrorCode.alreadyVerified,
-            ),
-          ),
-        );
-      },
-    );
-
-    test('raw DioException → throws UnknownFailure', () async {
+    test('DioException → re-throws mapped Failure', () async {
+      const failure = ValidationFailure(fieldErrors: {'token': 'invalid'});
       when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/verify-email',
-          data: any(named: 'data'),
+        () => mockAuthApi.acceptInvite(
+          inviteAcceptRequest: any(named: 'inviteAcceptRequest'),
         ),
-      ).thenThrow(_rawDioException());
+      ).thenThrow(_dioWithFailure(failure));
 
       await expectLater(
-        () => repository.verifyEmail(email: 'x@x.com', otp: '333333'),
-        throwsA(isA<UnknownFailure>()),
+        () => repository.acceptInvite(
+          token: 'bad-token',
+          password: 'pw',
+          firstName: 'A',
+          lastName: 'B',
+        ),
+        throwsA(isA<ValidationFailure>()),
       );
     });
   });
 
   // -------------------------------------------------------------------------
-  // Group 12 — resendVerificationCode (backend Phase 1.6)
-  //
-  // Contract:
-  //   Request:  POST /auth/resend-verification  {email}
-  //   Success:  ApiResponse<RegistrationResponse> — repository returns void.
-  //   429:      {success:false, message:"...", data:{retryAfterSeconds:N}}
-  //             → ResendThrottledFailure via interceptor.
+  // Group 9 — validateInvite
   // -------------------------------------------------------------------------
 
-  group('resendVerificationCode', () {
-    test('success → request body carries {email}, completes void', () async {
-      Map<String, dynamic>? capturedBody;
+  group('validateInvite', () {
+    test('success → returns InviteDetails with typed role', () async {
+      final dto = InvitePreviewResponse(
+        (b) => b
+          ..invitedEmail = 'admin@salon.test'
+          ..role = InvitePreviewResponseRoleEnum.SALON_ADMIN
+          ..expiresAt = DateTime.utc(2030),
+      );
+      final envelope = ApiResponseInvitePreviewResponse(
+        (b) => b
+          ..success = true
+          ..data = dto.toBuilder(),
+      );
+      final res = Response(
+        data: envelope,
+        statusCode: 200,
+        requestOptions: _fakeOptions('/auth/invite/validate'),
+      );
 
       when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/resend-verification',
-          data: any(named: 'data'),
-        ),
-      ).thenAnswer((invocation) async {
-        capturedBody =
-            invocation.namedArguments[const Symbol('data')]
-                as Map<String, dynamic>;
-        return Response(
-          requestOptions: _fakeOptions('/auth/resend-verification'),
-          statusCode: 200,
-          data: {
-            'success': true,
-            'data': {
-              'message': 'Verification code resent.',
-              'email': 'master@beautica.test',
-            },
-            'message': null,
-          },
-        );
-      });
+        () => mockAuthApi.validateInvite(token: any(named: 'token')),
+      ).thenAnswer((_) async => res);
 
-      await repository.resendVerificationCode(email: 'master@beautica.test');
+      final details = await repository.validateInvite(token: 'valid-token');
 
-      expect(capturedBody, isNotNull);
-      expect(capturedBody!['email'], equals('master@beautica.test'));
-      // Only the email is sent — nothing else.
-      expect(capturedBody!.length, equals(1));
+      expect(details.email, 'admin@salon.test');
+      expect(details.role, UserRole.salonAdmin);
+      expect(details.expiresAt, DateTime.utc(2030));
     });
 
-    test(
-      '429 ResendThrottledFailure → throws ResendThrottledFailure with retryAfterSeconds',
-      () async {
-        const failure = ResendThrottledFailure(retryAfterSeconds: 42);
-        when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/resend-verification',
-            data: any(named: 'data'),
-          ),
-        ).thenThrow(_dioWithFailure(failure, statusCode: 429));
-
-        await expectLater(
-          () =>
-              repository.resendVerificationCode(email: 'master@beautica.test'),
-          throwsA(
-            isA<ResendThrottledFailure>().having(
-              (f) => f.retryAfterSeconds,
-              'retryAfterSeconds',
-              42,
-            ),
-          ),
-        );
-      },
-    );
-
-    test('raw DioException → throws UnknownFailure', () async {
+    test('404 → remapped to ValidationFailure', () async {
+      const failure = NotFoundFailure(cause: 'invite not found');
       when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/resend-verification',
-          data: any(named: 'data'),
-        ),
-      ).thenThrow(_rawDioException());
+        () => mockAuthApi.validateInvite(token: any(named: 'token')),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 404));
 
       await expectLater(
-        () => repository.resendVerificationCode(email: 'x@x.com'),
-        throwsA(isA<UnknownFailure>()),
+        () => repository.validateInvite(token: 'dead-token'),
+        throwsA(isA<ValidationFailure>()),
       );
     });
   });
 
   // -------------------------------------------------------------------------
-  // Group 13 — requestPasswordReset (backend Phase 11.2)
+  // Group 10 — confirmPasswordReset (backend Phase 11.3) — HIGHEST PRIORITY
   //
-  // Contract:
-  //   Request:  POST /auth/forgot-password  {email}
-  //   Success:  ALWAYS generic 200 (anti-enumeration) → repository returns void.
-  //   Genuine transport/server errors still propagate as typed Failures.
-  // -------------------------------------------------------------------------
-
-  group('requestPasswordReset', () {
-    test('success → request body carries {email}, completes void', () async {
-      Map<String, dynamic>? capturedBody;
-
-      when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/forgot-password',
-          data: any(named: 'data'),
-        ),
-      ).thenAnswer((invocation) async {
-        capturedBody =
-            invocation.namedArguments[const Symbol('data')]
-                as Map<String, dynamic>;
-        return Response(
-          requestOptions: _fakeOptions('/auth/forgot-password'),
-          statusCode: 200,
-          data: {
-            'success': true,
-            'data': null,
-            'message': 'If an account exists for that email, a reset link…',
-          },
-        );
-      });
-
-      await repository.requestPasswordReset('master@beautica.test');
-
-      expect(capturedBody, isNotNull);
-      expect(capturedBody!['email'], equals('master@beautica.test'));
-      // Only the email is sent — nothing else.
-      expect(capturedBody!.length, equals(1));
-    });
-
-    test('network error → throws NetworkFailure', () async {
-      const failure = NetworkFailure();
-      when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/forgot-password',
-          data: any(named: 'data'),
-        ),
-      ).thenThrow(_dioWithFailure(failure, statusCode: 503));
-
-      await expectLater(
-        () => repository.requestPasswordReset('x@x.com'),
-        throwsA(isA<NetworkFailure>()),
-      );
-    });
-
-    test('raw DioException → throws UnknownFailure', () async {
-      when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/forgot-password',
-          data: any(named: 'data'),
-        ),
-      ).thenThrow(_rawDioException());
-
-      await expectLater(
-        () => repository.requestPasswordReset('x@x.com'),
-        throwsA(isA<UnknownFailure>()),
-      );
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Group 14 — confirmPasswordReset (backend Phase 11.3)
-  //
-  // Contract:
-  //   Request:  POST /auth/reset-password  {token, newPassword}
-  //   Success:  generic 200, NO session → repository returns void.
-  //   400:      generic envelope for invalid/used/expired token → the
-  //             interceptor surfaces a ValidationFailure (no field errors),
-  //             which the repository re-maps to ResetTokenInvalidFailure.
+  // The domain-significant behaviour here is the remap of a generic 400
+  // (surfaced as ValidationFailure by ErrorMapperInterceptor) into the
+  // dedicated [ResetTokenInvalidFailure] the forgot-password recovery screen
+  // renders as its "link invalid or expired" state. If that remap is deleted
+  // or made conditional, the screen silently shows the wrong (or no) error
+  // state and account recovery breaks — these tests pin it.
   // -------------------------------------------------------------------------
 
   group('confirmPasswordReset', () {
+    test('success (200) → completes without throwing; no auto-login', () async {
+      final res = Response<ApiResponseVoid>(
+        data: ApiResponseVoid((b) => b..success = true),
+        statusCode: 200,
+        requestOptions: _fakeOptions('/auth/reset-password'),
+      );
+      when(
+        () => mockAuthApi.resetPassword(
+          resetPasswordRequest: any(named: 'resetPasswordRequest'),
+        ),
+      ).thenAnswer((_) async => res);
+
+      await expectLater(
+        repository.confirmPasswordReset(
+          token: 'valid-reset-token',
+          newPassword: 'N3wP@ssw0rd!',
+        ),
+        completes,
+      );
+    });
+
     test(
-      'success → body carries {token, newPassword}, completes void',
+      'ValidationFailure (400) → remapped to ResetTokenInvalidFailure',
       () async {
-        Map<String, dynamic>? capturedBody;
-
-        when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/reset-password',
-            data: any(named: 'data'),
-          ),
-        ).thenAnswer((invocation) async {
-          capturedBody =
-              invocation.namedArguments[const Symbol('data')]
-                  as Map<String, dynamic>;
-          return Response(
-            requestOptions: _fakeOptions('/auth/reset-password'),
-            statusCode: 200,
-            data: {
-              'success': true,
-              'data': null,
-              'message': 'Password has been reset. Please sign in.',
-            },
-          );
-        });
-
-        await repository.confirmPasswordReset(
-          token: 'raw-reset-token',
-          newPassword: 'NewSecret123',
+        const failure = ValidationFailure(
+          fieldErrors: {},
+          cause: 'invalid or expired token',
         );
-
-        expect(capturedBody, isNotNull);
-        expect(capturedBody!['token'], equals('raw-reset-token'));
-        expect(capturedBody!['newPassword'], equals('NewSecret123'));
-        expect(capturedBody!.length, equals(2));
-      },
-    );
-
-    test(
-      'generic 400 (ValidationFailure from interceptor) → throws ResetTokenInvalidFailure',
-      () async {
-        // The backend returns a generic 400 with no `errors` map for an
-        // invalid/used/expired token; ErrorMapperInterceptor maps that to a
-        // ValidationFailure with empty fieldErrors.
-        const failure = ValidationFailure(fieldErrors: {});
         when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/reset-password',
-            data: any(named: 'data'),
+          () => mockAuthApi.resetPassword(
+            resetPasswordRequest: any(named: 'resetPasswordRequest'),
           ),
         ).thenThrow(_dioWithFailure(failure, statusCode: 400));
 
         await expectLater(
           () => repository.confirmPasswordReset(
-            token: 'expired-token',
-            newPassword: 'NewSecret123',
+            token: 'used-or-expired-token',
+            newPassword: 'N3wP@ssw0rd!',
           ),
           throwsA(isA<ResetTokenInvalidFailure>()),
         );
       },
     );
 
-    test('network error → throws NetworkFailure (not re-mapped)', () async {
+    test('non-ValidationFailure (e.g. NetworkFailure) → propagates unchanged, '
+        'NOT remapped to ResetTokenInvalidFailure', () async {
       const failure = NetworkFailure();
       when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/reset-password',
-          data: any(named: 'data'),
+        () => mockAuthApi.resetPassword(
+          resetPasswordRequest: any(named: 'resetPasswordRequest'),
         ),
       ).thenThrow(_dioWithFailure(failure, statusCode: 503));
 
       await expectLater(
-        () => repository.confirmPasswordReset(
-          token: 't',
-          newPassword: 'NewSecret123',
-        ),
+        () => repository.confirmPasswordReset(token: 'tok', newPassword: 'pw'),
         throwsA(isA<NetworkFailure>()),
       );
     });
 
     test(
-      '5xx → throws ServerFailure (not re-mapped to token-invalid)',
+      'raw DioException (no mapped Failure) → throws UnknownFailure',
       () async {
-        const failure = ServerFailure(statusCode: 500);
         when(
-          () => mockDio.post<Map<String, dynamic>>(
-            '/auth/reset-password',
-            data: any(named: 'data'),
+          () => mockAuthApi.resetPassword(
+            resetPasswordRequest: any(named: 'resetPasswordRequest'),
           ),
-        ).thenThrow(_dioWithFailure(failure, statusCode: 500));
+        ).thenThrow(_rawDioException());
 
         await expectLater(
-          () => repository.confirmPasswordReset(
-            token: 't',
-            newPassword: 'NewSecret123',
-          ),
-          throwsA(isA<ServerFailure>()),
+          () =>
+              repository.confirmPasswordReset(token: 'tok', newPassword: 'pw'),
+          throwsA(isA<UnknownFailure>()),
         );
       },
     );
+  });
 
-    test('raw DioException → throws UnknownFailure', () async {
+  // -------------------------------------------------------------------------
+  // Group 11 — requestPasswordReset (backend Phase 11.2)
+  //
+  // Contract pinned against the ACTUAL implementation: the anti-enumeration
+  // "always 200" guarantee is enforced BACKEND-side. The repository does NOT
+  // swallow errors — it forwards a successful call as a completed Future, and
+  // re-throws a mapped [Failure] on a DioException. These tests pin that real
+  // behaviour (no silent swallow at the repo layer).
+  // -------------------------------------------------------------------------
+
+  group('requestPasswordReset', () {
+    test('success (200) → completes without throwing', () async {
+      final res = Response<ApiResponseVoid>(
+        data: ApiResponseVoid((b) => b..success = true),
+        statusCode: 200,
+        requestOptions: _fakeOptions('/auth/forgot-password'),
+      );
       when(
-        () => mockDio.post<Map<String, dynamic>>(
-          '/auth/reset-password',
-          data: any(named: 'data'),
+        () => mockAuthApi.forgotPassword(
+          forgotPasswordRequest: any(named: 'forgotPasswordRequest'),
         ),
-      ).thenThrow(_rawDioException());
+      ).thenAnswer((_) async => res);
 
       await expectLater(
-        () => repository.confirmPasswordReset(
-          token: 't',
-          newPassword: 'NewSecret123',
-        ),
-        throwsA(isA<UnknownFailure>()),
+        repository.requestPasswordReset('known@beautica.test'),
+        completes,
       );
     });
+
+    test('DioException → re-throws mapped Failure (repo does NOT swallow; '
+        'anti-enumeration is enforced backend-side, not here)', () async {
+      const failure = NetworkFailure();
+      when(
+        () => mockAuthApi.forgotPassword(
+          forgotPasswordRequest: any(named: 'forgotPasswordRequest'),
+        ),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 503));
+
+      await expectLater(
+        () => repository.requestPasswordReset('x@beautica.test'),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test(
+      'raw DioException (no mapped Failure) → throws UnknownFailure',
+      () async {
+        when(
+          () => mockAuthApi.forgotPassword(
+            forgotPasswordRequest: any(named: 'forgotPasswordRequest'),
+          ),
+        ).thenThrow(_rawDioException());
+
+        await expectLater(
+          () => repository.requestPasswordReset('x@beautica.test'),
+          throwsA(isA<UnknownFailure>()),
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 12 — resendVerificationCode (backend Phase 1.6)
+  //
+  // Returns void; the mobile layer needs no field from the body. Happy path
+  // completes; a DioException surfaces as the mapped Failure.
+  // -------------------------------------------------------------------------
+
+  group('resendVerificationCode', () {
+    test('success (200) → completes without throwing', () async {
+      final res = Response<ApiResponseRegistrationResponse>(
+        data: ApiResponseRegistrationResponse((b) => b..success = true),
+        statusCode: 200,
+        requestOptions: _fakeOptions('/auth/resend-verification'),
+      );
+      when(
+        () => mockAuthApi.resendVerification(
+          resendVerificationRequest: any(named: 'resendVerificationRequest'),
+        ),
+      ).thenAnswer((_) async => res);
+
+      await expectLater(
+        repository.resendVerificationCode(email: 'master@beautica.test'),
+        completes,
+      );
+    });
+
+    test('DioException → re-throws mapped Failure', () async {
+      const failure = ValidationFailure(fieldErrors: {'email': 'unknown'});
+      when(
+        () => mockAuthApi.resendVerification(
+          resendVerificationRequest: any(named: 'resendVerificationRequest'),
+        ),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 400));
+
+      await expectLater(
+        () => repository.resendVerificationCode(email: 'x@beautica.test'),
+        throwsA(isA<ValidationFailure>()),
+      );
+    });
+
+    test(
+      'raw DioException (no mapped Failure) → throws UnknownFailure',
+      () async {
+        when(
+          () => mockAuthApi.resendVerification(
+            resendVerificationRequest: any(named: 'resendVerificationRequest'),
+          ),
+        ).thenThrow(_rawDioException());
+
+        await expectLater(
+          () => repository.resendVerificationCode(email: 'x@beautica.test'),
+          throwsA(isA<UnknownFailure>()),
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Group 13 — logout (best-effort server call)
+  //
+  // Pinned against the ACTUAL implementation: HttpAuthRepository.logout() makes
+  // a best-effort POST /auth/logout and SWALLOWS any DioException so the caller
+  // can unconditionally wipe local storage afterwards. NOTE: this repository
+  // layer does NOT touch flutter_secure_storage itself — token clearing is the
+  // caller's (notifier's) responsibility (see source comment, line ~275). So
+  // the storage-clear assertion belongs in a notifier-level test, tracked as a
+  // backlog gap below. Here we pin: (a) network failure does not propagate,
+  // (b) the server call IS still attempted exactly once.
+  // -------------------------------------------------------------------------
+
+  group('logout', () {
+    test(
+      'network failure on POST /auth/logout → does NOT propagate (swallowed)',
+      () async {
+        when(() => mockAuthApi.logout()).thenThrow(
+          DioException(
+            requestOptions: _fakeOptions('/auth/logout'),
+            type: DioExceptionType.connectionError,
+          ),
+        );
+
+        await expectLater(repository.logout(), completes);
+      },
+    );
+
+    test('4xx DioException on logout → swallowed (still completes)', () async {
+      const failure = UnauthorizedFailure();
+      when(
+        () => mockAuthApi.logout(),
+      ).thenThrow(_dioWithFailure(failure, statusCode: 401));
+
+      await expectLater(repository.logout(), completes);
+    });
+
+    test('success → server logout invoked exactly once', () async {
+      final res = Response<void>(
+        statusCode: 200,
+        requestOptions: _fakeOptions('/auth/logout'),
+      );
+      when(() => mockAuthApi.logout()).thenAnswer((_) async => res);
+
+      await repository.logout();
+
+      verify(() => mockAuthApi.logout()).called(1);
+    });
+
+    test(
+      'server logout still attempted even though the call will fail (best-effort)',
+      () async {
+        when(() => mockAuthApi.logout()).thenThrow(
+          DioException(
+            requestOptions: _fakeOptions('/auth/logout'),
+            type: DioExceptionType.connectionError,
+          ),
+        );
+
+        await repository.logout();
+
+        // The server call is made unconditionally; swallowing the error must
+        // not skip the network attempt (otherwise sessions never get
+        // server-side invalidated when the network later recovers).
+        verify(() => mockAuthApi.logout()).called(1);
+      },
+    );
   });
 }

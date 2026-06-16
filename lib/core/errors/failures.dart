@@ -102,7 +102,11 @@ final class InvalidCredentialsFailure extends Failure {
 /// server-supplied message. Screens that show per-field inline errors
 /// should switch on this subtype and read [fieldErrors].
 final class ValidationFailure extends Failure {
-  const ValidationFailure({required this.fieldErrors, super.cause});
+  const ValidationFailure({
+    required this.fieldErrors,
+    this.serverMessage,
+    super.cause,
+  });
 
   /// Server-supplied field error messages keyed by field name / JSON path.
   ///
@@ -110,6 +114,16 @@ final class ValidationFailure extends Failure {
   /// sanitizing or truncating them — server strings are untrusted input.
   /// Use [userMessage] for a safe localized summary.
   final Map<String, String> fieldErrors;
+
+  /// Top-level server `message` from the 400/422 envelope, if any.
+  ///
+  /// Captured so the UI can show a generic SnackBar even when [fieldErrors]
+  /// is empty (no field could be highlighted inline). This is the durable
+  /// guard against a backend contract that returns a 400 with no usable
+  /// field map — without it the Save button could die silently with no
+  /// feedback. Truncated/sanitized by [ErrorMapperInterceptor]; may be `null`
+  /// or blank, in which case callers fall back to a localized string.
+  final String? serverMessage;
 
   @override
   String userMessage(BuildContext ctx) =>
@@ -209,16 +223,28 @@ final class VerificationFailure extends Failure {
 ///
 /// [retryAfterSeconds] is the server-supplied number of seconds the client
 /// must wait before retrying. May be 0 if the body is malformed.
+///
+/// `null` means the server value exceeded [kMaxUxCooldownSeconds] (10 min).
+/// The UI must show a static "try later" message instead of a countdown when
+/// this field is null.
 final class ResendThrottledFailure extends Failure {
   const ResendThrottledFailure({required this.retryAfterSeconds, super.cause});
 
-  /// Seconds until the next resend is allowed. Always ≥ 0.
-  final int retryAfterSeconds;
+  /// Seconds until the next resend is allowed, or `null` when the server
+  /// value exceeded the UX ceiling (10 min / 600 s).
+  ///
+  /// When `null`, show a static message instead of a countdown timer.
+  /// When 0, no cooldown should be started — allow immediate retry.
+  final int? retryAfterSeconds;
 
   @override
-  String userMessage(BuildContext ctx) => AppLocalizations.of(
-    ctx,
-  ).verificationErrResendThrottled(retryAfterSeconds);
+  String userMessage(BuildContext ctx) {
+    final seconds = retryAfterSeconds;
+    if (seconds == null) {
+      return AppLocalizations.of(ctx).cooldownTryLater;
+    }
+    return AppLocalizations.of(ctx).verificationErrResendThrottled(seconds);
+  }
 }
 
 /// Emitted when `POST /auth/register` (or its role-specific variant) returns
@@ -250,6 +276,26 @@ final class EmailAlreadyRegisteredFailure extends Failure {
       AppLocalizations.of(ctx).errEmailAlreadyRegistered;
 }
 
+/// Emitted when a provider role ([UserRole.independentMaster] or
+/// [UserRole.salonOwner]) reaches the post-OTP profile save step without a
+/// `cityId` in the registration draft.
+///
+/// This means the Step 3 address wizard data was lost (e.g. the draft was
+/// cleared by a navigation edge case) after the user already filled it. The
+/// account has been verified, but the PATCH /independent-masters/me (or
+/// POST /salons) cannot run without a city. Surface this failure to the user
+/// so they can go back and re-enter their address rather than silently
+/// producing a verified account with no location in the DB.
+///
+/// Not thrown for [UserRole.client] — clients are allowed to skip Step 3.
+final class ProviderMissingCityFailure extends Failure {
+  const ProviderMissingCityFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).verificationErrProviderMissingCity;
+}
+
 /// Emitted when `POST /auth/reset-password` returns the backend's generic
 /// 400 for an invalid, used, or expired reset token (backend Phase 11.3).
 ///
@@ -268,4 +314,47 @@ final class ResetTokenInvalidFailure extends Failure {
   @override
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).resetErrTokenInvalid;
+}
+
+/// Emitted when `POST /api/v1/service-categories/requests` returns **409**
+/// because the requested category already exists or is already pending review.
+///
+/// Surfaced to the suggestion dialog so it can show a friendly "this category
+/// already exists" message instead of a generic server error.
+final class CategoryAlreadyExistsFailure extends Failure {
+  const CategoryAlreadyExistsFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).categoryRequestErrExists;
+}
+
+/// Emitted when `POST /api/v1/service-categories/requests` returns **429**
+/// because the per-IP category-request rate limit (5/hr) is exhausted.
+///
+/// Surfaced to the suggestion dialog so it can show a "too many requests, try
+/// later" message instead of a generic server error.
+final class CategoryRequestThrottledFailure extends Failure {
+  const CategoryRequestThrottledFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).categoryRequestErrThrottled;
+}
+
+/// Emitted when `POST /api/v1/independent-masters/me/services/bulk` returns
+/// **409 Conflict** because the master already has at least one active service.
+///
+/// The bulk endpoint is the first-time-setup guard: it only succeeds while the
+/// master's catalogue is empty. A 409 means another path (e.g. the single-create
+/// form, or a concurrent device) already populated the catalogue, so the
+/// one-pass setup screen is no longer the right surface. The screen surfaces
+/// this with a friendly "you already have services" message and routes the user
+/// to the regular services list (which now has content) instead of retrying.
+final class MasterAlreadyHasServicesFailure extends Failure {
+  const MasterAlreadyHasServicesFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).serviceSetupErrAlreadyHasServices;
 }

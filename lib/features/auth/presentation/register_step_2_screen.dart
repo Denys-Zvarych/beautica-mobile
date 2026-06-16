@@ -36,7 +36,9 @@ import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/formatters/ua_phone_input_formatter.dart';
+import '../../../shared/validators/name_validator.dart';
 import '../../../shared/validators/phone_validator.dart';
+import '../../../shared/validators/salon_name_validator.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
 import 'register_flow_shell.dart';
@@ -72,6 +74,18 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
   /// The inline required-error is only surfaced after the first touch.
   bool _phoneTouched = false;
 
+  /// True once the user has interacted with the first-name field at least once.
+  /// The inline required-error is only surfaced after the first touch.
+  bool _firstNameTouched = false;
+
+  /// True once the user has interacted with the last-name field at least once.
+  /// The inline required-error is only surfaced after the first touch.
+  bool _lastNameTouched = false;
+
+  /// True once the user has interacted with the salon-name field at least once.
+  /// The inline error is only surfaced after the first touch.
+  bool _salonNameTouched = false;
+
   /// Set by [_onSubmit] when [validatePhone] rejects the entered value.
   /// Cleared on every [onChanged] so stale format errors disappear while
   /// the user is actively editing.
@@ -93,6 +107,32 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
     if (!_phoneTouched) return null;
     final l10n = AppLocalizations.of(context);
     return _phoneValue.trim().isEmpty ? l10n.registerPhoneRequired : null;
+  }
+
+  /// Inline first-name error — required + max-length (100) guard via
+  /// [validateName]. Only surfaced after the first touch.
+  String? get _firstNameError {
+    if (!_firstNameTouched) return null;
+    final l10n = AppLocalizations.of(context);
+    return validateName(_firstNameController.text, l10n);
+  }
+
+  /// Inline last-name error — required + max-length (100) guard via
+  /// [validateName]. Only surfaced after the first touch.
+  String? get _lastNameError {
+    if (!_lastNameTouched) return null;
+    final l10n = AppLocalizations.of(context);
+    return validateName(_lastNameController.text, l10n);
+  }
+
+  /// Inline salon-name error (SALON_OWNER only) — non-blank + max-length (255)
+  /// + control-char-free guard via [validateSalonName]. Only surfaced after the
+  /// first touch.
+  String? get _salonNameError {
+    if (!_salonNameTouched) return null;
+    if (!_isOwner) return null;
+    final l10n = AppLocalizations.of(context);
+    return validateSalonName(_salonNameController.text, l10n);
   }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
@@ -123,6 +163,33 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
   // ── Submit ─────────────────────────────────────────────────────────────────
 
   void _onSubmit() {
+    final l10n = AppLocalizations.of(context);
+
+    // Name fields are required for all roles (non-blank + max-length 100) —
+    // surface inline errors and block.
+    final String? firstNameErr = validateName(_firstNameController.text, l10n);
+    final String? lastNameErr = validateName(_lastNameController.text, l10n);
+    if (firstNameErr != null || lastNameErr != null) {
+      setState(() {
+        _firstNameTouched = true;
+        _lastNameTouched = true;
+      });
+      return;
+    }
+
+    // Salon name (SALON_OWNER only) — non-blank + max-length 255 +
+    // control-char-free. Block submit and surface the inline error.
+    if (_isOwner) {
+      final String? salonErr = validateSalonName(
+        _salonNameController.text,
+        l10n,
+      );
+      if (salonErr != null) {
+        setState(() => _salonNameTouched = true);
+        return;
+      }
+    }
+
     // Phone is required for all roles — surface the inline error and block.
     if (_phoneController.text.trim().isEmpty) {
       setState(() => _phoneTouched = true);
@@ -130,7 +197,6 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
     }
 
     // Format validation — rejects structurally invalid Ukrainian numbers.
-    final l10n = AppLocalizations.of(context);
     final String? phoneErr = validatePhone(_phoneController.text.trim(), l10n);
     if (phoneErr != null) {
       setState(() {
@@ -217,6 +283,9 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
                   maxLength: 100,
                   prefixIcon: const Icon(Icons.person_outline_rounded),
                   autofillHints: const <String>[AutofillHints.givenName],
+                  errorText: _firstNameError,
+                  onChanged: (String v) =>
+                      setState(() => _firstNameTouched = true),
                 ),
               ),
               const SizedBox(width: VelvetSpacing.md),
@@ -231,6 +300,9 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
                   maxLength: 100,
                   prefixIcon: const Icon(Icons.person_outline_rounded),
                   autofillHints: const <String>[AutofillHints.familyName],
+                  errorText: _lastNameError,
+                  onChanged: (String v) =>
+                      setState(() => _lastNameTouched = true),
                 ),
               ),
             ],
@@ -274,6 +346,8 @@ class _RegisterStep2ScreenState extends ConsumerState<RegisterStep2Screen> {
               maxLength: 255,
               prefixIcon: const Icon(Icons.storefront_outlined),
               helperText: l10n.step2SalonNameHelper,
+              errorText: _salonNameError,
+              onChanged: (String v) => setState(() => _salonNameTouched = true),
             ),
           ],
 

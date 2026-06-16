@@ -6,6 +6,7 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'core/config/app_config.dart';
 import 'core/network/dio_provider.dart';
 import 'core/theme/app_theme.dart';
 import 'l10n/app_localizations.dart';
@@ -47,6 +48,14 @@ Future<void> main() async {
   // Phase 2.15: capture the binding so it can be passed to FlutterNativeSplash.
   final binding = WidgetsFlutterBinding.ensureInitialized();
 
+  // MS-SECURE-URL: throws StateError in release/profile mode if
+  // BEAUTICA_BASE_URL is not HTTPS (or a loopback/private-LAN address).
+  // Called here — before runApp — so a misconfigured prod deploy fails fast
+  // at process startup rather than on the first lazy provider read.
+  // The dioProvider also calls this guard, but that fires lazily; this call
+  // ensures the guard runs unconditionally on every startup path.
+  AppConfig.assertSecureUrl();
+
   // Splash timing is recorded in SplashScreen.initState — see
   // lib/features/auth/presentation/splash_screen.dart. The gate must measure
   // from the moment Flutter's surface becomes visible, not from Dart VM entry,
@@ -83,10 +92,14 @@ Future<void> main() async {
   GoogleFonts.comfortaa(
     fontWeight: FontWeight.w700,
   ); // wordmark / heading / cta
+  GoogleFonts.nunito(fontWeight: FontWeight.w400); // nunitoTextTheme default
   GoogleFonts.nunito(fontWeight: FontWeight.w600); // body / input
   GoogleFonts.nunito(
     fontWeight: FontWeight.w700,
   ); // bodyStrong / label / link / feedback
+  GoogleFonts.nunito(
+    fontWeight: FontWeight.w800,
+  ); // pill / field accent / form caption
   await GoogleFonts.pendingFonts();
 
   // MEDIUM-3 (mobile-security 2026-05-27): pre-load ISRG Root X1 cert for

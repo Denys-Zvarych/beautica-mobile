@@ -2,24 +2,10 @@
 -keep class com.it_nomads.fluttersecurestorage.** { *; }
 -keepclassmembers class com.it_nomads.fluttersecurestorage.** { *; }
 
-# firebase_messaging — FCM listener and service classes
--keep class com.google.firebase.messaging.** { *; }
--keepclassmembers class com.google.firebase.messaging.** { *; }
--keep class io.flutter.plugins.firebase.messaging.** { *; }
-
-# Kotlin metadata (required for kotlinx-coroutines used by firebase)
+# Kotlin metadata — keep generic signatures / annotations for the reflection-
+# based native plugins above.
 -keepattributes *Annotation*, Signature, Exception
 -dontwarn kotlin.**
-
-# json_serializable / freezed — preserve fromJson factory and toJson methods
-# (Dart AOT strips unreferenced methods; these are called via dart:convert, not reflection)
--keepclassmembers class ** {
-    @com.google.gson.annotations.SerializedName <fields>;
-}
--keepclassmembers class * {
-    *** fromJson(com.google.gson.JsonElement);
-    com.google.gson.JsonElement toJson();
-}
 
 # flutter_native_splash — MethodChannel handler reached via Flutter native bridge (Phase 2.15)
 -keep class net.jonhanson.flutter_native_splash.** { *; }

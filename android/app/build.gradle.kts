@@ -18,6 +18,17 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Phase 17.5 — patrol's androidx.test orchestrator + JUnit runner pull
+        // in Java 8+ APIs that must be desugared for minSdk 26. Required by
+        // patrol's native test setup; harmless for the app's own code.
+        isCoreLibraryDesugaringEnabled = true
+    }
+
+    // AGP 8+ requires explicit opt-in to emit BuildConfig.java.
+    // Required so MainActivity.kt can read BuildConfig.DEBUG to gate FLAG_SECURE
+    // in debug builds while keeping screenshot protection in release/profile builds.
+    buildFeatures {
+        buildConfig = true
     }
 
     defaultConfig {
@@ -26,6 +37,33 @@ android {
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // Phase 17.5 — patrol native E2E test runner. PatrolJUnitRunner replaces
+        // the default AndroidJUnitRunner so `patrol test` can discover and drive
+        // the Dart patrolTest(...) cases through native instrumentation. This
+        // affects ONLY the androidTest variant — the app's production/debug APK
+        // and the headless `flutter test integration_test/` path are untouched.
+        // clearPackageData wipes app data between native test cases for isolation.
+        //
+        // The AndroidX Test Orchestrator (testOptions below) is REQUIRED here:
+        // patrol's PatrolAppService is single-test-per-process, and the
+        // orchestrator is what runs each patrol test in a FRESH process. Without
+        // it only the first patrol test passes; the second fails with HTTP 500
+        // (`_testExecutionCompleted.isCompleted == false`). NOTE: the orchestrator
+        // names a per-test output file after the test description, so patrol test
+        // descriptions must NOT contain '/' — a path separator there crashes the
+        // orchestrator (`File ...txt contains a path separator`). De-slash any
+        // route names in the test NAME (assertions on real routes are fine).
+        testInstrumentationRunner = "pl.leancode.patrol.PatrolJUnitRunner"
+        testInstrumentationRunnerArguments["clearPackageData"] = "true"
+    }
+
+    // Phase 17.5 — run each patrol native test in an isolated process via the
+    // AndroidX Test Orchestrator. REQUIRED by patrol: PatrolAppService is
+    // single-test-per-process, so the orchestrator's fresh process per test is
+    // what lets MORE THAN ONE patrol test run. Pairs with clearPackageData above.
+    testOptions {
+        execution = "ANDROIDX_TEST_ORCHESTRATOR"
     }
 
     // MEDIUM-1 (mobile-security 2026-05-24): production keystore sourced from
@@ -66,8 +104,8 @@ android {
             val releaseConfig = signingConfigs.findByName("release")
             signingConfig = releaseConfig ?: signingConfigs.getByName("debug")
             // R8 shrinking and obfuscation enabled for release builds.
-            // ProGuard rules in proguard-rules.pro protect flutter_secure_storage
-            // and firebase_messaging reflection paths (Phase 2.1).
+            // ProGuard rules in proguard-rules.pro protect the reflection-based
+            // native plugins (flutter_secure_storage, screen_protector, etc.).
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -86,4 +124,19 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+// Phase 17.5 — patrol native test dependencies.
+//   * coreLibraryDesugaring backs `isCoreLibraryDesugaringEnabled = true` above
+//     so the test orchestrator's Java 8+ APIs work on minSdk 26.
+//   * androidTestUtil orchestrator powers ANDROIDX_TEST_ORCHESTRATOR execution,
+//     which is REQUIRED because patrol's PatrolAppService is one-test-per-process
+//     — the orchestrator runs each patrol test in a fresh process so more than
+//     one patrol test can run. (Reminder: keep '/' out of patrol test
+//     descriptions; the orchestrator names a per-test output file after the
+//     description and a path separator there crashes it.)
+// Both are androidTest-only — they add nothing to the shipped app APK.
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    androidTestUtil("androidx.test:orchestrator:1.5.1")
 }

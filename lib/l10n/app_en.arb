@@ -82,13 +82,13 @@
   "@loginCreateAccount": {
     "description": "Link label to navigate to the register screen (login-page.html .register-row a)."
   },
-  "loginEmailPlaceholder": "anya@example.com",
+  "loginEmailPlaceholder": "Enter email",
   "@loginEmailPlaceholder": {
     "description": "In-field placeholder for the email input on the login screen (login-page.html input placeholder)."
   },
-  "loginEmailHint": "you@example.com",
+  "loginEmailHint": "Enter email",
   "@loginEmailHint": {
-    "description": "hintText for the email field on the login screen — a generic English placeholder email address."
+    "description": "hintText for the email field on the login screen — descriptive prompt text."
   },
   "loginPasswordPlaceholder": "Your password",
   "@loginPasswordPlaceholder": {
@@ -165,6 +165,18 @@
   "errNameTooLong": "Max 100 characters",
   "@errNameTooLong": {
     "description": "Validation error when a name field exceeds 100 characters."
+  },
+  "errNameHasDigit": "Name must not contain a number",
+  "@errNameHasDigit": {
+    "description": "Validation error when a name field contains a digit. Mirrors backend @NoDigits."
+  },
+  "errFirstNameHasDigit": "First name must not contain a number",
+  "@errFirstNameHasDigit": {
+    "description": "Validation error when the first-name field contains a digit. Mirrors backend @NoDigits."
+  },
+  "errLastNameHasDigit": "Last name must not contain a number",
+  "@errLastNameHasDigit": {
+    "description": "Validation error when the last-name field contains a digit. Mirrors backend @NoDigits."
   },
   "roleClient": "Client",
   "@roleClient": {
@@ -418,21 +430,21 @@
   "@registerDetailsHeadlineAccent": {
     "description": "Italic Cormorant Garamond accent line under the registration details headline (sign-up-page.html .headline em)."
   },
-  "registerFirstNamePlaceholder": "Anya",
+  "registerFirstNamePlaceholder": "Enter first name",
   "@registerFirstNamePlaceholder": {
     "description": "In-field placeholder for the first name input (sign-up-page.html input placeholder)."
   },
-  "registerLastNamePlaceholder": "Koval",
+  "registerLastNamePlaceholder": "Enter last name",
   "@registerLastNamePlaceholder": {
     "description": "In-field placeholder for the last name input (sign-up-page.html input placeholder)."
   },
-  "registerEmailPlaceholder": "anya@example.com",
+  "registerEmailPlaceholder": "Enter email",
   "@registerEmailPlaceholder": {
     "description": "In-field placeholder for the email input on the registration details screen (sign-up-page.html input placeholder)."
   },
-  "registerEmailHint": "you@beautica.ua",
+  "registerEmailHint": "Enter email",
   "@registerEmailHint": {
-    "description": "hintText for the email field on the Step 1 registration screen — an English-locale placeholder email address."
+    "description": "hintText for the email field on the Step 1 registration screen — descriptive prompt text."
   },
   "registerPhonePlaceholder": "+380 __ ___ ____",
   "@registerPhonePlaceholder": {
@@ -624,6 +636,10 @@
   "@registerDoneDesc": {
     "description": "Body description below the headline on the registration-done screen (done-page.html .celebrate-desc)."
   },
+  "registerDoneDescMaster": "You can now accept clients, manage your schedule and grow your business.",
+  "@registerDoneDescMaster": {
+    "description": "Description body copy on the done screen for INDEPENDENT_MASTER and SALON_MASTER roles — replaces the client-focused registerDoneDesc."
+  },
   "registerDoneChipRoleClient": "Client",
   "@registerDoneChipRoleClient": {
     "description": "Role summary chip text on the registration-done screen when the user registered as a CLIENT (done-page.html .chip — first chip in the .chips-row)."
@@ -685,11 +701,11 @@
   "@step2FieldSalonLabel": {
     "description": "Uppercase field label above the salon-name input on the Step 2 Profile screen. Only shown for SALON_OWNER role."
   },
-  "step2FieldNamePlaceholder": "Anya",
+  "step2FieldNamePlaceholder": "Enter first name",
   "@step2FieldNamePlaceholder": {
     "description": "In-field placeholder for the first-name input on the Step 2 Profile screen."
   },
-  "step2FieldSurnamePlaceholder": "Koval",
+  "step2FieldSurnamePlaceholder": "Enter last name",
   "@step2FieldSurnamePlaceholder": {
     "description": "In-field placeholder for the last-name input on the Step 2 Profile screen."
   },
@@ -713,9 +729,13 @@
   "@errSalonNameRequired": {
     "description": "Validation error when the salon-name field is empty or too short. Used only for the SALON_OWNER role variant."
   },
-  "errSalonNameTooLong": "Salon name must not exceed 100 characters",
+  "errSalonNameTooLong": "Salon name must not exceed 255 characters",
   "@errSalonNameTooLong": {
-    "description": "Validation error when the salon-name field exceeds 100 characters."
+    "description": "Validation error when the salon-name field exceeds 255 characters."
+  },
+  "errSalonNameInvalid": "Salon name contains invalid characters",
+  "@errSalonNameInvalid": {
+    "description": "Validation error when the salon-name field contains ASCII control characters."
   },
   "localityOblastLabel": "Region",
   "@localityOblastLabel": {
@@ -870,21 +890,21 @@
   "@errStreetRequired": {
     "description": "Validation error when the street field is empty or shorter than 2 characters (MASTER/OWNER only)."
   },
-  "errStreetTooLong": "Street name cannot exceed 120 characters",
+  "errStreetTooLong": "Street name cannot exceed 255 characters",
   "@errStreetTooLong": {
-    "description": "Validation error when the street field exceeds 120 characters. Mirrors the backend address column length constraint."
+    "description": "Validation error when the street field exceeds 255 characters. Mirrors the backend address column length constraint."
   },
   "errBuildingRequired": "Enter a building number",
   "@errBuildingRequired": {
     "description": "Validation error when the building-number field is empty (MASTER/OWNER only)."
   },
-  "errBuildingTooLong": "Building number cannot exceed 20 characters",
+  "errBuildingTooLong": "Building number cannot exceed 50 characters",
   "@errBuildingTooLong": {
-    "description": "Validation error when the building-number field exceeds 20 characters. Mirrors the backend address column length constraint."
+    "description": "Validation error when the building-number field exceeds 50 characters. Mirrors the backend address column length constraint."
   },
-  "errLocationNoteTooLong": "Note cannot exceed 250 characters",
+  "errLocationNoteTooLong": "Note cannot exceed 1000 characters",
   "@errLocationNoteTooLong": {
-    "description": "Validation error when the location-note textarea exceeds 250 characters."
+    "description": "Validation error when the location-note textarea exceeds 1000 characters."
   },
 
   "forgotPasswordHeadline": "Password recovery",
@@ -903,7 +923,7 @@
   "@forgotPasswordEmailLabel": {
     "description": "Uppercase label above the email field on the forgot-password request screen."
   },
-  "forgotPasswordEmailPlaceholder": "anya@example.com",
+  "forgotPasswordEmailPlaceholder": "Enter email",
   "@forgotPasswordEmailPlaceholder": {
     "description": "Placeholder for the email field on the forgot-password request screen."
   },
@@ -1102,5 +1122,1278 @@
   "registerStep3ShellHeadlineOwner": "Salon address",
   "@registerStep3ShellHeadlineOwner": {
     "description": "Wizard shell headline for SALON_OWNER role on /register/step-3 (design: VelvetTouchDesign/address_screen.dart _headline OWNER)."
+  },
+
+  "masterProfileTitle": "My Profile",
+  "@masterProfileTitle": {
+    "description": "Title shown in the ProfileScaffold top bar on the master profile screen."
+  },
+
+  "masterBioLabel": "About",
+  "@masterBioLabel": {
+    "description": "Section label above the bio inset card on the master profile screen."
+  },
+
+  "masterRatingLabel": "Rating",
+  "@masterRatingLabel": {
+    "description": "Caption under the rating stat tile on the master profile screen."
+  },
+
+  "masterServicesLabel": "Services",
+  "@masterServicesLabel": {
+    "description": "Caption under the services stat tile and section header on the master profile screen."
+  },
+
+  "masterPortfolioLabel": "Portfolio",
+  "@masterPortfolioLabel": {
+    "description": "Section label above the portfolio horizontal row on the master profile screen."
+  },
+
+  "masterStatsBookingsLabel": "Bookings\nthis month",
+  "@masterStatsBookingsLabel": {
+    "description": "Two-line caption under the bookings-this-month stat tile on the master profile screen."
+  },
+
+  "masterStatsReviewsLabel": "Reviews",
+  "@masterStatsReviewsLabel": {
+    "description": "Caption under the reviews stat tile on the master profile screen."
+  },
+
+  "masterEditButton": "Edit profile",
+  "@masterEditButton": {
+    "description": "Semantic label for the edit IconButton in the master profile top bar."
+  },
+
+  "masterRoleIndependent": "Independent master",
+  "@masterRoleIndependent": {
+    "description": "Role chip label for INDEPENDENT_MASTER type on the master profile screen."
+  },
+
+  "masterRoleSalonMaster": "Salon master",
+  "@masterRoleSalonMaster": {
+    "description": "Role chip label for SALON_MASTER type on the master profile screen."
+  },
+
+  "masterRoleSalonOwner": "Salon owner",
+  "@masterRoleSalonOwner": {
+    "description": "Role chip label for SALON_OWNER type on the master profile screen."
+  },
+
+  "masterContactsLabel": "Contacts",
+  "@masterContactsLabel": {
+    "description": "Section label above the contacts rows (phone + Instagram) on the master profile screen."
+  },
+
+  "verificationErrProviderMissingCity": "No city selected. Please go back to step 3 and enter your address.",
+  "@verificationErrProviderMissingCity": {
+    "description": "Inline error on the verification screen when a provider role (INDEPENDENT_MASTER or SALON_OWNER) reaches the post-OTP save step with no cityId in the draft — the user must go back to Step 3 and pick a city."
+  },
+
+  "masterEditTitle": "Edit profile",
+  "@masterEditTitle": {
+    "description": "Title shown in the top bar of the master edit screen (Phase 4.3)."
+  },
+  "masterSaveButton": "Save",
+  "@masterSaveButton": {
+    "description": "Label for the save CTA button on the master edit screen (Phase 4.3)."
+  },
+  "masterCancelButton": "Cancel",
+  "@masterCancelButton": {
+    "description": "Semantic label for the cancel icon button in the top bar of the master edit screen (Phase 4.3)."
+  },
+  "bioLabel": "Bio",
+  "@bioLabel": {
+    "description": "Field label above the bio textarea on the master edit screen (Phase 4.3)."
+  },
+  "phoneLabel": "Phone",
+  "@phoneLabel": {
+    "description": "Field label above the phone input on the master edit screen (Phase 4.3)."
+  },
+  "instagramLabel": "Instagram",
+  "@instagramLabel": {
+    "description": "Field label above the Instagram handle input on the master edit screen (Phase 4.3)."
+  },
+  "savedSnackbar": "Changes saved",
+  "@savedSnackbar": {
+    "description": "SnackBar message shown after a successful profile save on the master edit screen (Phase 4.3)."
+  },
+  "editValidationSummary": "Check the highlighted fields",
+  "@editValidationSummary": {
+    "description": "SnackBar shown on the master edit screen when Save is pressed but local validation fails; the inline errors are higher up the scroll view so this summary tells the user why nothing happened."
+  },
+  "errPhoneInvalidEdit": "Invalid phone format",
+  "@errPhoneInvalidEdit": {
+    "description": "Validation error shown under the phone field on the master edit screen when the value does not match the accepted phone pattern (Phase 4.3)."
+  },
+  "errPhoneTooLongEdit": "Phone number is too long (max 20 characters)",
+  "@errPhoneTooLongEdit": {
+    "description": "Validation error shown under the phone field on the master edit screen when the raw value exceeds 20 characters (Phase 4.3)."
+  },
+  "phonePrivacyNote": "Clients will not see your number — it is used only for internal contact",
+  "@phonePrivacyNote": {
+    "description": "Privacy helper note rendered below the phone field (lock icon + text) on the master edit screen (Phase 4.3)."
+  },
+  "changePhotoCaption": "Change photo",
+  "@changePhotoCaption": {
+    "description": "Muted caption below the avatar editor ring on the master edit screen (Phase 4.3)."
+  },
+  "updateDataSubheading": "Update the details clients see",
+  "@updateDataSubheading": {
+    "description": "Quiet sub-heading above the form fields on the master edit screen (Phase 4.3)."
+  },
+  "snackbarAvatarSoon": "Coming soon…",
+  "@snackbarAvatarSoon": {
+    "description": "SnackBar message shown when the user taps the avatar edit badge — photo upload is deferred to Phase 9.4 (Phase 4.3)."
+  },
+  "errBioTooLong": "Bio is too long (max 2000 characters)",
+  "@errBioTooLong": {
+    "description": "Validation error shown under the bio field when the character count exceeds 2000 (Phase 4.3)."
+  },
+  "masterEditInstagramError": "Invalid format. Enter a @handle or an instagram.com link.",
+  "@masterEditInstagramError": {
+    "description": "Validation error shown when the instagram field value is neither a valid handle nor a valid instagram.com URL."
+  },
+  "masterEditBioHint": "Tell us about your experience and specialisation",
+  "@masterEditBioHint": {
+    "description": "Hint text inside the bio textarea on the master edit screen (Phase 4.3)."
+  },
+  "masterEditInstagramHint": "username",
+  "@masterEditInstagramHint": {
+    "description": "Hint text inside the Instagram handle field on the master edit screen (Phase 4.3)."
+  },
+
+  "servicesTitle": "My Services",
+  "@servicesTitle": {
+    "description": "Title for services list screen (Phase 5.2)."
+  },
+  "servicesAdd": "Add service",
+  "@servicesAdd": {
+    "description": "FAB and empty state CTA label (Phase 5.2)."
+  },
+  "servicesEmpty": "No services yet",
+  "@servicesEmpty": {
+    "description": "Empty state heading (Phase 5.2)."
+  },
+  "servicesEmptyBody": "Add your first service so clients can book with you",
+  "@servicesEmptyBody": {
+    "description": "Empty state body text (Phase 5.2)."
+  },
+
+  "masterAllServices": "All services",
+  "@masterAllServices": {
+    "description": "Link label in the master profile services section header that navigates to the full services list screen."
+  },
+
+  "servicesCreateTitle": "New Service",
+  "@servicesCreateTitle": {
+    "description": "Title shown in the top bar of the service create screen (Phase 5.3)."
+  },
+  "serviceNameLabel": "Name",
+  "@serviceNameLabel": {
+    "description": "Field label above the service name input on the service create/edit form (Phase 5.3)."
+  },
+  "serviceNameHint": "e.g. Gel-polish manicure",
+  "@serviceNameHint": {
+    "description": "Hint text inside the service name input field on the service create form (Phase 5.3)."
+  },
+  "serviceNameOptionalLabel": "Name (optional)",
+  "@serviceNameOptionalLabel": {
+    "description": "Field label above the now-optional service custom-name input on the service create/edit form (Item 4). The name defaults to the selected service-type name when left blank."
+  },
+  "serviceDurationLabel": "Duration",
+  "@serviceDurationLabel": {
+    "description": "Field label above the duration input on the service create/edit form (Phase 5.3)."
+  },
+  "servicePriceLabel": "Price",
+  "@servicePriceLabel": {
+    "description": "Field label above the price input on the service create/edit form (Phase 5.3)."
+  },
+  "serviceFormSubheading": "Describe the service you offer to clients",
+  "@serviceFormSubheading": {
+    "description": "Quiet sub-heading above the fields on the service create form (Phase 5.3)."
+  },
+  "errRequired": "This field is required",
+  "@errRequired": {
+    "description": "Generic required-field validation error used across multiple form fields."
+  },
+  "errDurationPositive": "Duration must be greater than 0",
+  "@errDurationPositive": {
+    "description": "Validation error when the duration field value is zero, negative, or not a valid integer (Phase 5.3)."
+  },
+  "errDurationMax": "Duration cannot exceed 480 min (8 h)",
+  "@errDurationMax": {
+    "description": "Validation error when the duration field exceeds 480 minutes (8 hours), mirroring the backend baseDurationMinutes cap (hardened 2026-06-03)."
+  },
+  "errBufferRange": "Buffer must be between 0 and 120 min",
+  "@errBufferRange": {
+    "description": "Validation error when the after-appointment buffer is negative, non-integer, or exceeds 120 minutes (hardened 2026-06-03)."
+  },
+  "errPriceDecimals": "Invalid amount: at most 2 decimal places",
+  "@errPriceDecimals": {
+    "description": "Validation error when a price field is non-numeric or has more than 2 decimal places (hardened 2026-06-03)."
+  },
+  "errPriceMax": "Price cannot exceed 99,999,999.99 UAH",
+  "@errPriceMax": {
+    "description": "Validation error when a price field exceeds the backend maximum of 99999999.99 (hardened 2026-06-03)."
+  },
+  "errPriceNonNegative": "Price cannot be negative",
+  "@errPriceNonNegative": {
+    "description": "Validation error when the price field value is negative (Phase 5.3)."
+  },
+  "errPricePositive": "Price must be greater than 0",
+  "@errPricePositive": {
+    "description": "Validation error when a fixed price or range minimum is zero or negative (Phase 5.6 flexible pricing)."
+  },
+  "errPriceMaxGtMin": "Maximum must be greater than minimum",
+  "@errPriceMaxGtMin": {
+    "description": "Cross-field validation error when range max is not strictly greater than range min (Phase 5.6 flexible pricing)."
+  },
+  "errPriceMinRequired": "Enter minimum price",
+  "@errPriceMinRequired": {
+    "description": "Validation error when the range min field is empty (Phase 5.6 flexible pricing)."
+  },
+  "errPriceMaxRequired": "Enter maximum price",
+  "@errPriceMaxRequired": {
+    "description": "Validation error when the range max field is empty (Phase 5.6 flexible pricing)."
+  },
+  "pricingModeFixed": "Fixed",
+  "@pricingModeFixed": {
+    "description": "Label for the fixed-price segment of the pricing mode toggle (Phase 5.6 flexible pricing)."
+  },
+  "pricingModeRange": "Range",
+  "@pricingModeRange": {
+    "description": "Label for the range-price segment of the pricing mode toggle (Phase 5.6 flexible pricing)."
+  },
+  "pricingAmountLabel": "Amount",
+  "@pricingAmountLabel": {
+    "description": "Field label for the fixed price amount field (Phase 5.6 flexible pricing)."
+  },
+  "pricingFromLabel": "From",
+  "@pricingFromLabel": {
+    "description": "Field label for the range minimum price field (Phase 5.6 flexible pricing)."
+  },
+  "pricingToLabel": "To",
+  "@pricingToLabel": {
+    "description": "Field label for the range maximum price field (Phase 5.6 flexible pricing)."
+  },
+  "pricingRangeHint": "Maximum must be greater than minimum",
+  "@pricingRangeHint": {
+    "description": "Static hint displayed below the range price pair when there is no validation error (Phase 5.6 flexible pricing)."
+  },
+  "pricingSectionLabel": "PRICE",
+  "@pricingSectionLabel": {
+    "description": "Uppercase section label above the entire pricing control (Phase 5.6 flexible pricing)."
+  },
+
+  "servicesEditTitle": "Edit Service",
+  "@servicesEditTitle": {
+    "description": "Title shown in the top bar of the service edit screen (Phase 5.4)."
+  },
+  "serviceEditSubheading": "Update the details of the service you offer",
+  "@serviceEditSubheading": {
+    "description": "Quiet sub-heading above the form fields on the service edit screen (Phase 5.4)."
+  },
+  "servicesSaveChanges": "Save changes",
+  "@servicesSaveChanges": {
+    "description": "CTA button label on the service edit screen (Phase 5.4)."
+  },
+  "servicePhotoAdd": "Add photo",
+  "@servicePhotoAdd": {
+    "description": "Label in the empty-state of the service photo slot (Phase 5.4)."
+  },
+  "servicePhotoChange": "Change photo",
+  "@servicePhotoChange": {
+    "description": "Overlay chip label in the filled-state of the service photo slot (Phase 5.4)."
+  },
+  "servicePhotoAddSemantics": "Add service photo",
+  "@servicePhotoAddSemantics": {
+    "description": "Screen-reader label for the photo slot in the empty state (Phase 5.4)."
+  },
+  "servicePhotoChangeSemantics": "Change service photo",
+  "@servicePhotoChangeSemantics": {
+    "description": "Screen-reader label for the photo slot in the filled state (Phase 5.4)."
+  },
+  "serviceUnsavedChanges": "Unsaved changes",
+  "@serviceUnsavedChanges": {
+    "description": "Dirty-state badge shown beneath the sub-heading when the form diverges from the loaded service values (Phase 5.4)."
+  },
+
+  "serviceCategoryLabel": "Category",
+  "@serviceCategoryLabel": {
+    "description": "Section label above the category chip selector row on the service create/edit form."
+  },
+  "serviceCategoryRequired": "Select a category",
+  "@serviceCategoryRequired": {
+    "description": "Validation error shown on the service form when no category chip is selected (category is required by the backend)."
+  },
+  "serviceCategoryLoadError": "Couldn’t load categories",
+  "@serviceCategoryLoadError": {
+    "description": "Compact error text shown on the category picker row when the approved-category list fails to load. Accompanied by a retry button."
+  },
+  "serviceCategoryRetry": "Retry",
+  "@serviceCategoryRetry": {
+    "description": "Retry affordance label on the category picker row when category loading failed."
+  },
+  "serviceCategorySuggest": "Suggest a category",
+  "@serviceCategorySuggest": {
+    "description": "Label for the trailing chip/button on the category picker that opens the 'suggest a category' dialog."
+  },
+  "serviceTypeLabel": "Service type",
+  "@serviceTypeLabel": {
+    "description": "Section label above the second-level service-type chip selector row on the service create/edit form (shown only once a category is selected)."
+  },
+  "serviceTypeEmpty": "No service types for this category",
+  "@serviceTypeEmpty": {
+    "description": "Calm passive hint shown on the service-type chip row when the selected category has no service types to choose from. Not an error."
+  },
+  "serviceSelectSearchHint": "Search…",
+  "@serviceSelectSearchHint": {
+    "description": "Placeholder text in the search field at the top of the searchable single-select dropdown menu (category / service-type)."
+  },
+  "serviceSelectSearchEmpty": "Nothing found",
+  "@serviceSelectSearchEmpty": {
+    "description": "Calm empty-state text shown inside the searchable dropdown menu when the typed query matches no option."
+  },
+  "serviceSelectRetry": "Try again",
+  "@serviceSelectRetry": {
+    "description": "Retry button label shown inside the searchable dropdown menu when its option list failed to load."
+  },
+  "serviceCategoryPlaceholder": "Choose from the list",
+  "@serviceCategoryPlaceholder": {
+    "description": "Placeholder shown in the closed category dropdown field before a category is selected."
+  },
+  "serviceCategoryMenuTitle": "Category",
+  "@serviceCategoryMenuTitle": {
+    "description": "Header title of the category dropdown bottom-sheet menu."
+  },
+  "serviceTypePlaceholder": "Choose a service type",
+  "@serviceTypePlaceholder": {
+    "description": "Placeholder shown in the closed service-type dropdown field before a type is selected (while options are available)."
+  },
+  "serviceTypeMenuTitle": "Service type",
+  "@serviceTypeMenuTitle": {
+    "description": "Header title of the service-type dropdown bottom-sheet menu."
+  },
+  "serviceTypeLoadError": "Could not load service types",
+  "@serviceTypeLoadError": {
+    "description": "Error text shown inside the service-type dropdown (menu and closed field) when the service-type list fails to load or times out. Accompanied by a retry affordance."
+  },
+  "serviceTypeLoading": "Loading…",
+  "@serviceTypeLoading": {
+    "description": "Text shown in the closed service-type dropdown field while its option list is still loading."
+  },
+  "serviceCategoryUncategorized": "Uncategorized",
+  "@serviceCategoryUncategorized": {
+    "description": "Header label for the services-list expandable section that groups services with no category set."
+  },
+  "servicesCategorySectionSemantics": "Category {category}, {count} services",
+  "@servicesCategorySectionSemantics": {
+    "description": "Accessibility label for a collapsible category section header on the services list, announcing the category name and how many services it contains.",
+    "placeholders": {
+      "category": { "type": "String" },
+      "count": { "type": "int" }
+    }
+  },
+  "categoryRequestTitle": "Suggest a category",
+  "@categoryRequestTitle": {
+    "description": "Title of the suggest-a-category dialog."
+  },
+  "categoryRequestSubtitle": "An admin will review your request. The new category appears in the list once approved.",
+  "@categoryRequestSubtitle": {
+    "description": "Quiet subline in the suggest-a-category dialog explaining that approval happens out-of-band."
+  },
+  "categoryRequestNameLabel": "Category name",
+  "@categoryRequestNameLabel": {
+    "description": "Field label above the Ukrainian display-name input in the suggest-a-category dialog."
+  },
+  "categoryRequestNameHint": "e.g. Eyelash extensions",
+  "@categoryRequestNameHint": {
+    "description": "Hint text inside the Ukrainian display-name input in the suggest-a-category dialog."
+  },
+  "categoryRequestInitialServiceLabel": "Initial service (optional)",
+  "@categoryRequestInitialServiceLabel": {
+    "description": "Field label above the optional initial service-name input in the suggest-a-category dialog (forwarded as initialServiceName)."
+  },
+  "categoryRequestInitialServiceHint": "e.g. Eyelash lamination",
+  "@categoryRequestInitialServiceHint": {
+    "description": "Placeholder hint for the optional initial service-name field in the suggest-a-category dialog."
+  },
+  "categoryRequestCodeLabel": "Code",
+  "@categoryRequestCodeLabel": {
+    "description": "Field label above the auto-derived uppercase latin slug input in the suggest-a-category dialog."
+  },
+  "categoryRequestCodeHelper": "The code is generated automatically from the name. You can edit it.",
+  "@categoryRequestCodeHelper": {
+    "description": "Helper caption under the code/slug field explaining it is auto-generated from the name and editable."
+  },
+  "categoryRequestNameError": "Enter a category name",
+  "@categoryRequestNameError": {
+    "description": "Validation error shown when the display-name field is empty in the suggest-a-category dialog."
+  },
+  "categoryRequestNameTooLong": "The name cannot exceed 100 characters",
+  "@categoryRequestNameTooLong": {
+    "description": "Validation error shown when the display-name field exceeds kCategoryDisplayNameMaxLength (100) in the suggest-a-category dialog."
+  },
+  "categoryRequestCodeError": "The code must contain only uppercase latin letters, digits and underscores, and start with a letter",
+  "@categoryRequestCodeError": {
+    "description": "Validation error shown when the slug field does not match ^[A-Z][A-Z0-9_]*$ in the suggest-a-category dialog."
+  },
+  "categoryRequestSubmit": "Send",
+  "@categoryRequestSubmit": {
+    "description": "Primary submit button label in the suggest-a-category dialog."
+  },
+  "categoryRequestCancel": "Cancel",
+  "@categoryRequestCancel": {
+    "description": "Cancel affordance label in the suggest-a-category dialog."
+  },
+  "categoryRequestSuccess": "Request sent for review",
+  "@categoryRequestSuccess": {
+    "description": "SnackBar message shown after a category request is successfully submitted."
+  },
+  "categoryRequestErrExists": "This category already exists",
+  "@categoryRequestErrExists": {
+    "description": "Error message for a 409 response when the requested category already exists or is pending."
+  },
+  "categoryRequestErrThrottled": "Too many requests, try again later",
+  "@categoryRequestErrThrottled": {
+    "description": "Error message for a 429 response when the category-request rate limit (5/hr) is exhausted."
+  },
+
+  "serviceTypeSuggestChip": "Can't find it? Suggest a service",
+  "@serviceTypeSuggestChip": {
+    "description": "Menu-footer affordance in the service-type picker that opens the suggest-a-service-type dialog when the type list lacks the desired service (Phase 16.6)."
+  },
+  "serviceTypeSuggestTitle": "Suggest a service",
+  "@serviceTypeSuggestTitle": {
+    "description": "Title of the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestSubtitle": "Describe the service — we'll add it after review.",
+  "@serviceTypeSuggestSubtitle": {
+    "description": "Subtitle in the suggest-a-service-type dialog setting the out-of-band admin-review expectation (Phase 16.6)."
+  },
+  "serviceTypeSuggestNameLabel": "Service name",
+  "@serviceTypeSuggestNameLabel": {
+    "description": "Field label above the required service-type name input in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestNameHint": "e.g. Lash lamination",
+  "@serviceTypeSuggestNameHint": {
+    "description": "Placeholder hint for the service-type name field in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestNameError": "Enter a service name",
+  "@serviceTypeSuggestNameError": {
+    "description": "Validation error shown when the name field is empty in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestSubmit": "Submit",
+  "@serviceTypeSuggestSubmit": {
+    "description": "Primary submit button label in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestCancel": "Cancel",
+  "@serviceTypeSuggestCancel": {
+    "description": "Cancel affordance label in the suggest-a-service-type dialog (Phase 16.6)."
+  },
+  "serviceTypeSuggestSuccess": "Suggestion sent for review",
+  "@serviceTypeSuggestSuccess": {
+    "description": "SnackBar message shown after a service-type suggestion is successfully submitted (Phase 16.6)."
+  },
+
+  "deleteServiceTitle": "Delete service?",
+  "@deleteServiceTitle": {
+    "description": "Title of the delete-service confirmation dialog (can-delete variant) and tooltip for the delete icon button in the service edit screen top bar (Phase 5.5)."
+  },
+  "deleteServiceBody": "The service will be deactivated. Past bookings are preserved.",
+  "@deleteServiceBody": {
+    "description": "Body text of the delete-service confirmation dialog (can-delete variant) explaining that past bookings are preserved (Phase 5.5)."
+  },
+  "deleteServiceBlockedTitle": "Cannot delete",
+  "@deleteServiceBlockedTitle": {
+    "description": "Title of the delete-service confirmation dialog (blocked variant) shown when the service has future bookings (Phase 5.5)."
+  },
+  "deleteServiceBlockedBody": "{count, plural, one{{count} future booking exists. Cancel it first.} other{{count} future bookings exist. Cancel them first.}}",
+  "@deleteServiceBlockedBody": {
+    "description": "Body text of the delete-service blocked dialog. Informs the master how many future bookings exist and asks them to cancel those bookings first (Phase 5.5).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "actionCancel": "Cancel",
+  "@actionCancel": {
+    "description": "Generic cancel action label used in confirmation dialogs (Phase 5.5)."
+  },
+  "actionDelete": "Delete",
+  "@actionDelete": {
+    "description": "Generic destructive delete action label used in confirmation dialogs (Phase 5.5)."
+  },
+
+  "cooldownTryLater": "Please try again later",
+  "@cooldownTryLater": {
+    "description": "Static message shown instead of a countdown when the server-supplied Retry-After value exceeds the UX ceiling (kMaxUxCooldownSeconds = 600 s). Prevents multi-year timers from rogue or misconfigured backends."
+  },
+
+  "passwordRuleMetSemantics": "met",
+  "@passwordRuleMetSemantics": {
+    "description": "Accessibility suffix appended to a password rule label when the rule is satisfied. Read by screen readers as part of the full Semantics.label: '<rule label>: met'."
+  },
+  "passwordRuleUnmetSemantics": "not met",
+  "@passwordRuleUnmetSemantics": {
+    "description": "Accessibility suffix appended to a password rule label when the rule is not yet satisfied. Read by screen readers as part of the full Semantics.label: '<rule label>: not met'."
+  },
+
+  "serviceCreatedSuccess": "Service added successfully",
+  "@serviceCreatedSuccess": {
+    "description": "SnackBar message shown after a service is successfully created (Phase 5.3)."
+  },
+  "serviceUpdatedSuccess": "Service updated successfully",
+  "@serviceUpdatedSuccess": {
+    "description": "SnackBar message shown after a service is successfully updated (Phase 5.4)."
+  },
+
+  "masterEditLocationSection": "Location",
+  "@masterEditLocationSection": {
+    "description": "Section label above the location fields on the master edit screen."
+  },
+  "streetLabel": "Street",
+  "@streetLabel": {
+    "description": "Field label above the street input on the master edit screen."
+  },
+  "buildingNoLabel": "Building",
+  "@buildingNoLabel": {
+    "description": "Field label above the building-number input on the master edit screen."
+  },
+  "locationNoteLabel": "Address notes",
+  "@locationNoteLabel": {
+    "description": "Field label above the location-note input on the master edit screen."
+  },
+
+  "masterProfileCategoriesLabel": "Service categories",
+  "@masterProfileCategoriesLabel": {
+    "description": "Section label above the category cards on the master profile screen."
+  },
+
+  "masterProfileCategorySemantics": "Category {category}, {count} services. Go to list",
+  "@masterProfileCategorySemantics": {
+    "description": "Accessibility label for a profile category card: announces the category name, how many services it contains, and the navigation action.",
+    "placeholders": {
+      "category": { "type": "String" },
+      "count": { "type": "int" }
+    }
+  },
+
+  "masterAllPhotos": "All photos",
+  "@masterAllPhotos": {
+    "description": "Link label in the master profile portfolio section header that navigates to the full portfolio gallery."
+  },
+
+  "masterPhoneSemantics": "Phone",
+  "@masterPhoneSemantics": {
+    "description": "Accessibility semantic label for the phone ContactTile on the master profile screen."
+  },
+
+  "masterInstagramLabel": "Instagram",
+  "@masterInstagramLabel": {
+    "description": "Label and semantic label for the Instagram ContactTile on the master profile screen."
+  },
+
+  "masterInstagramOpenError": "Couldn’t open Instagram",
+  "@masterInstagramOpenError": {
+    "description": "SnackBar shown when the master's Instagram link cannot be opened (no validated URL, or no app/browser can handle it)."
+  },
+
+  "masterPortfolioTileSemantics": "Portfolio photo {index}",
+  "@masterPortfolioTileSemantics": {
+    "description": "Accessibility semantic label for each portfolio placeholder tile on the master profile screen.",
+    "placeholders": {
+      "index": {
+        "type": "int",
+        "example": "1"
+      }
+    }
+  },
+
+  "validationFieldErrorLine": "{field}: {message}",
+  "@validationFieldErrorLine": {
+    "description": "One line of a server-side field-validation banner: a localized field name followed by the server-supplied message.",
+    "placeholders": {
+      "field": {
+        "type": "String",
+        "example": "Salon name"
+      },
+      "message": {
+        "type": "String",
+        "example": "must not exceed 255 characters"
+      }
+    }
+  },
+  "fieldNameFirstName": "First name",
+  "@fieldNameFirstName": {
+    "description": "Field name used in server-error validation banners for the first-name field."
+  },
+  "fieldNameLastName": "Last name",
+  "@fieldNameLastName": {
+    "description": "Field name used in server-error validation banners for the last-name field."
+  },
+  "fieldNamePhone": "Phone number",
+  "@fieldNamePhone": {
+    "description": "Field name used in server-error validation banners for the phone field."
+  },
+  "fieldNameSalonName": "Salon name",
+  "@fieldNameSalonName": {
+    "description": "Field name used in server-error validation banners for the salon-name field."
+  },
+  "fieldNameStreet": "Street",
+  "@fieldNameStreet": {
+    "description": "Field name used in server-error validation banners for the street field."
+  },
+  "fieldNameBuildingNo": "Building",
+  "@fieldNameBuildingNo": {
+    "description": "Field name used in server-error validation banners for the building-number field."
+  },
+  "fieldNameLocationNote": "Note",
+  "@fieldNameLocationNote": {
+    "description": "Field name used in server-error validation banners for the location-note field."
+  },
+  "fieldNameCity": "City",
+  "@fieldNameCity": {
+    "description": "Field name used in server-error validation banners for the city field."
+  },
+  "fieldNameEmail": "Email",
+  "@fieldNameEmail": {
+    "description": "Field name used in server-error validation banners for the email field."
+  },
+
+  "workingHoursTitle": "Working Hours",
+  "@workingHoursTitle": {
+    "description": "Title of the working hours editor screen (Phase 6.2)."
+  },
+  "workingHoursSubtext": "Set your weekly schedule. Clients will only be able to book on open days and hours.",
+  "@workingHoursSubtext": {
+    "description": "Sub-text below the working hours screen headline (Phase 6.2)."
+  },
+  "workingHoursClosedLabel": "Day off",
+  "@workingHoursClosedLabel": {
+    "description": "Status label shown in the day toggle row when the day is closed/inactive (Phase 6.2)."
+  },
+  "workingHoursOpenCount": "{count, plural, =0{No working days} =1{1 working day} other{{count} working days}}",
+  "@workingHoursOpenCount": {
+    "description": "Summary chip showing how many days per week the master works (Phase 6.2).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "errEndAfterStart": "End time must be later than start",
+  "@errEndAfterStart": {
+    "description": "Inline per-row validation error on the working hours screen when end time ≤ start time (Phase 6.2)."
+  },
+  "weekdayMon": "Monday",
+  "@weekdayMon": {
+    "description": "Full English name for Monday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayTue": "Tuesday",
+  "@weekdayTue": {
+    "description": "Full English name for Tuesday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayWed": "Wednesday",
+  "@weekdayWed": {
+    "description": "Full English name for Wednesday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayThu": "Thursday",
+  "@weekdayThu": {
+    "description": "Full English name for Thursday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdayFri": "Friday",
+  "@weekdayFri": {
+    "description": "Full English name for Friday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdaySat": "Saturday",
+  "@weekdaySat": {
+    "description": "Full English name for Saturday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+  "weekdaySun": "Sunday",
+  "@weekdaySun": {
+    "description": "Full English name for Sunday, used as the day label in the working hours editor (Phase 6.2)."
+  },
+
+  "workingHoursActiveLabel": "Open",
+  "@workingHoursActiveLabel": {
+    "description": "Status label shown in the day toggle row when the day is open/active (Phase 6.2). Opposite of workingHoursClosedLabel."
+  },
+  "workingHoursStartSemanticLabel": "Start",
+  "@workingHoursStartSemanticLabel": {
+    "description": "Accessibility semantic label prefix for the start-time well in a working-hours day row (Phase 6.2). The formatted time is appended by the widget."
+  },
+  "workingHoursEndSemanticLabel": "End",
+  "@workingHoursEndSemanticLabel": {
+    "description": "Accessibility semantic label prefix for the end-time well in a working-hours day row (Phase 6.2). The formatted time is appended by the widget."
+  },
+  "workingHoursDayToggleSemantic": "{day} — working day",
+  "@workingHoursDayToggleSemantic": {
+    "description": "Accessibility semantic label for the open/closed toggle in a working-hours day row. {day} is the localised day name (e.g. 'Monday') (Phase 6.2).",
+    "placeholders": {
+      "day": {
+        "type": "String",
+        "example": "Monday"
+      }
+    }
+  },
+
+  "scheduleTitle": "Work schedule",
+  "@scheduleTitle": {
+    "description": "App-bar title of the Master Schedule screen (Phase 15.2)."
+  },
+  "scheduleCalendarSection": "Calendar",
+  "@scheduleCalendarSection": {
+    "description": "Section header above the calendar card on the Master Schedule screen (Phase 15.2)."
+  },
+  "scheduleWeeklyCardTitle": "Working days and hours",
+  "@scheduleWeeklyCardTitle": {
+    "description": "Title of the weekly-template summary card on the Master Schedule screen (Phase 15.2)."
+  },
+  "scheduleWeeklyCardEditSemantic": "Working days and hours. Tap to edit",
+  "@scheduleWeeklyCardEditSemantic": {
+    "description": "Accessibility semantic label for the tappable weekly-template card (editable viewers) on the Master Schedule screen (Phase 15.2)."
+  },
+  "scheduleTodayAction": "Today",
+  "@scheduleTodayAction": {
+    "description": "Label of the 'jump to today' button in the month navigator (Phase 15.2)."
+  },
+  "schedulePrevMonth": "Previous month",
+  "@schedulePrevMonth": {
+    "description": "Accessibility label for the previous-month arrow in the month navigator (Phase 15.2)."
+  },
+  "scheduleNextMonth": "Next month",
+  "@scheduleNextMonth": {
+    "description": "Accessibility label for the next-month arrow in the month navigator (Phase 15.2)."
+  },
+  "schedulePrevWeek": "Previous week",
+  "@schedulePrevWeek": {
+    "description": "Accessibility label for the previous-week chevron on the week strip (Phase 15.2)."
+  },
+  "scheduleNextWeek": "Next week",
+  "@scheduleNextWeek": {
+    "description": "Accessibility label for the next-week chevron on the week strip (Phase 15.2)."
+  },
+  "scheduleStripDay": "{weekday} {day}",
+  "@scheduleStripDay": {
+    "description": "Accessibility label for a present/future day cell in the week strip (Phase 15.2). {weekday} is the short weekday; {day} is the day-of-month number.",
+    "placeholders": {
+      "weekday": { "type": "String", "example": "Mon" },
+      "day": { "type": "int", "example": "13" }
+    }
+  },
+  "scheduleStripDayPast": "{weekday} {day}, past day",
+  "@scheduleStripDayPast": {
+    "description": "Accessibility label for a past day cell in the week strip (Phase 15.2). Same placeholders as scheduleStripDay; suffixed to mark it read-only.",
+    "placeholders": {
+      "weekday": { "type": "String", "example": "Mon" },
+      "day": { "type": "int", "example": "13" }
+    }
+  },
+  "scheduleEditDaySemantic": "Edit day hours",
+  "@scheduleEditDaySemantic": {
+    "description": "Accessibility label for the day edit pencil in the selected-day panel (Phase 15.2)."
+  },
+  "schedulePastDaySemantic": "Past day — view only",
+  "@schedulePastDaySemantic": {
+    "description": "Accessibility label for the read-only badge shown on past days in the selected-day panel (Phase 15.2)."
+  },
+  "scheduleViewOnly": "View only",
+  "@scheduleViewOnly": {
+    "description": "Read-only badge label replacing the edit pencil for past days (Phase 15.2)."
+  },
+  "scheduleDaySummaryWorking": "Working day: {intervals}",
+  "@scheduleDaySummaryWorking": {
+    "description": "Selected-day summary line for a working day (Phase 15.2). {intervals} is the formatted interval list (e.g. '09:00–18:00').",
+    "placeholders": {
+      "intervals": { "type": "String", "example": "09:00–18:00" }
+    }
+  },
+  "scheduleDaySummaryUnset": "No schedule set",
+  "@scheduleDaySummaryUnset": {
+    "description": "Selected-day summary line when the day resolves to NO_SCHEDULE (Phase 15.2)."
+  },
+  "scheduleSlotWorking": "Working hours",
+  "@scheduleSlotWorking": {
+    "description": "Legend + slot label for an available (working) 30-min slot — green (Phase 15.2)."
+  },
+  "scheduleSlotTimeOff": "Time off",
+  "@scheduleSlotTimeOff": {
+    "description": "Legend + slot label for a time-off slot (deliberate rest / day-off override) — pink (Phase 15.2)."
+  },
+  "scheduleSlotOff": "Non-working hours",
+  "@scheduleSlotOff": {
+    "description": "Legend + slot label for a non-working slot (outside intervals / no schedule) — grey (Phase 15.2)."
+  },
+  "scheduleErrTimeNotAligned": "Time must be a multiple of 15 minutes",
+  "@scheduleErrTimeNotAligned": {
+    "description": "Validation error shown when a working-window or break edge is not a multiple of 15 minutes."
+  },
+  "scheduleNoScheduleDay": "No schedule set for this day",
+  "@scheduleNoScheduleDay": {
+    "description": "NO_SCHEDULE banner primary line when a single viewed day has no published hours (Phase 15.2, OQ-3)."
+  },
+  "scheduleNoSchedulePeriod": "No schedule set for this period",
+  "@scheduleNoSchedulePeriod": {
+    "description": "NO_SCHEDULE banner primary line when the whole visible week/period has no published hours (Phase 15.2, OQ-3)."
+  },
+  "scheduleNoScheduleHelper": "Add working hours so clients can book.",
+  "@scheduleNoScheduleHelper": {
+    "description": "NO_SCHEDULE banner secondary helper line (Phase 15.2, OQ-3)."
+  },
+  "scheduleAddHoursCta": "Add working hours",
+  "@scheduleAddHoursCta": {
+    "description": "NO_SCHEDULE banner CTA — opens the weekly-template editor (Phase 15.2, OQ-3). Hidden for read-only viewers."
+  },
+  "scheduleWeeklyEditorTitle": "Working days and hours",
+  "@scheduleWeeklyEditorTitle": {
+    "description": "Title of the weekly-template editor stub screen (Phase 15.2; real editor lands in 15.3)."
+  },
+  "scheduleOverrideEditorTitle": "Day hours",
+  "@scheduleOverrideEditorTitle": {
+    "description": "Title of the per-date override editor stub screen (Phase 15.2; real editor lands in 15.4)."
+  },
+  "schedulePropagateTitle": "Copy schedule",
+  "@schedulePropagateTitle": {
+    "description": "Title of the copy/propagate stub screen (Phase 15.2; real surface lands in 15.5)."
+  },
+  "scheduleEditorComingSoon": "This editor is coming soon.",
+  "@scheduleEditorComingSoon": {
+    "description": "Body text shared by the schedule editor stub screens (Phase 15.2)."
+  },
+  "timePickerStartTitle": "Working day start",
+  "@timePickerStartTitle": {
+    "description": "Title of the VelvetTouch wheel time picker when choosing a working-day start time (replaces the Material clock dial)."
+  },
+  "timePickerEndTitle": "Working day end",
+  "@timePickerEndTitle": {
+    "description": "Title of the VelvetTouch wheel time picker when choosing a working-day end time (replaces the Material clock dial)."
+  },
+  "timePickerConfirm": "Done",
+  "@timePickerConfirm": {
+    "description": "Confirm CTA inside the VelvetTouch wheel time picker bottom sheet."
+  },
+  "timePickerHoursSemantic": "Hours",
+  "@timePickerHoursSemantic": {
+    "description": "Accessibility label for the hours scroll wheel in the VelvetTouch time picker."
+  },
+  "timePickerMinutesSemantic": "Minutes",
+  "@timePickerMinutesSemantic": {
+    "description": "Accessibility label for the minutes scroll wheel in the VelvetTouch time picker (15-minute steps)."
+  },
+  "weeklyEditorOpenCount": "Working days per week: {count}",
+  "@weeklyEditorOpenCount": {
+    "description": "Static summary chip on the weekly-template editor (Phase 15.5): how many ISO weekdays are open.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "weeklyEditorActiveWindowOpenEnded": "Schedule active from {from}",
+  "@weeklyEditorActiveWindowOpenEnded": {
+    "description": "Active-window card on the weekly-template editor when the template has no end date (open-ended). {from} is a DD.MM date.",
+    "placeholders": {
+      "from": { "type": "String" }
+    }
+  },
+  "weeklyEditorActiveWindowRange": "Schedule active: {from} – {to}",
+  "@weeklyEditorActiveWindowRange": {
+    "description": "Active-window card on the weekly-template editor when the template has a start and end date. {from} and {to} are DD.MM dates.",
+    "placeholders": {
+      "from": { "type": "String" },
+      "to": { "type": "String" }
+    }
+  },
+  "weeklyEditorActiveWindowHint": "Your weekly schedule applies during this period. Individual days can be changed later.",
+  "@weeklyEditorActiveWindowHint": {
+    "description": "Helper line under the active-window card on the weekly-template editor (Phase 15.5)."
+  },
+  "weeklyEditorActiveWindowUnset": "Choose the date the schedule starts",
+  "@weeklyEditorActiveWindowUnset": {
+    "description": "Placeholder prompt on the active-window card when no validity window has ever been chosen (first-time / NO_SCHEDULE). Reads as a call-to-action to tap and pick a start date, not as a filled value."
+  },
+  "weeklyEditorDayOffRest": "Day off",
+  "@weeklyEditorDayOffRest": {
+    "description": "Rest-state body text shown inside a collapsed (day-off) weekday card in the weekly-template editor (Phase 15.5)."
+  },
+  "weeklyEditorNoChangesHint": "No changes to save",
+  "@weeklyEditorNoChangesHint": {
+    "description": "Hint shown above the Save button on the weekly-template editor when the draft matches the saved schedule (a clean no-op), explaining why Save is disabled. Covers the all-days-off, no-existing-template case so a day-off selection never looks broken."
+  },
+  "weeklyEditorDayToggleSemantic": "{day} — working day",
+  "@weeklyEditorDayToggleSemantic": {
+    "description": "Accessibility label for the per-weekday open/closed toggle in the weekly-template editor (Phase 15.5).",
+    "placeholders": {
+      "day": { "type": "String" }
+    }
+  },
+  "weeklyEditorErrorsBanner": "Fix the hours highlighted in red",
+  "@weeklyEditorErrorsBanner": {
+    "description": "Snackbar shown when the user tries to save the weekly template with invalid hours (Phase 15.5)."
+  },
+  "intervalEditorWorkHours": "Working hours",
+  "@intervalEditorWorkHours": {
+    "description": "Label above the working-window start/end time wells in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreaks": "Breaks",
+  "@intervalEditorBreaks": {
+    "description": "Label above the break rows in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorAddBreak": "Add break",
+  "@intervalEditorAddBreak": {
+    "description": "Action to add a break range to the working window in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorWorkStartTitle": "Working day start",
+  "@intervalEditorWorkStartTitle": {
+    "description": "Time-picker title / semantic label for the working-window start in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorWorkEndTitle": "Working day end",
+  "@intervalEditorWorkEndTitle": {
+    "description": "Time-picker title / semantic label for the working-window end in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreakStartTitle": "Break start",
+  "@intervalEditorBreakStartTitle": {
+    "description": "Time-picker title for a break start in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreakEndTitle": "Break end",
+  "@intervalEditorBreakEndTitle": {
+    "description": "Time-picker title for a break end in the interval editor (Phase 15.5)."
+  },
+  "intervalEditorBreakStartSemantic": "Break {index} start",
+  "@intervalEditorBreakStartSemantic": {
+    "description": "Accessibility label for a break start time well in the interval editor (Phase 15.5). {index} is the 1-based break number.",
+    "placeholders": {
+      "index": { "type": "int" }
+    }
+  },
+  "intervalEditorBreakEndSemantic": "Break {index} end",
+  "@intervalEditorBreakEndSemantic": {
+    "description": "Accessibility label for a break end time well in the interval editor (Phase 15.5). {index} is the 1-based break number.",
+    "placeholders": {
+      "index": { "type": "int" }
+    }
+  },
+  "intervalEditorRemoveBreak": "Remove break {index}",
+  "@intervalEditorRemoveBreak": {
+    "description": "Accessibility label for the remove-break button in the interval editor (Phase 15.5). {index} is the 1-based break number.",
+    "placeholders": {
+      "index": { "type": "int" }
+    }
+  },
+  "intervalEditorErrEndAfterStart": "Working day end must be after start",
+  "@intervalEditorErrEndAfterStart": {
+    "description": "Inline validation: working-window end must be after start (Phase 15.5)."
+  },
+  "intervalEditorErrBreakEndAfterStart": "Break end must be after start",
+  "@intervalEditorErrBreakEndAfterStart": {
+    "description": "Inline validation: break end must be after break start (Phase 15.5)."
+  },
+  "intervalEditorErrBreakInsideWindow": "Break must be within working hours",
+  "@intervalEditorErrBreakInsideWindow": {
+    "description": "Inline validation: a break must sit inside the working window (Phase 15.5)."
+  },
+  "intervalEditorErrBreaksOverlap": "Breaks cannot overlap",
+  "@intervalEditorErrBreaksOverlap": {
+    "description": "Inline validation: two breaks may not overlap (Phase 15.5)."
+  },
+  "scheduleOverrideSheetSubtitle": "Override the schedule for this day",
+  "@scheduleOverrideSheetSubtitle": {
+    "description": "Subtitle under the date heading in the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideCloseSemantic": "Close",
+  "@scheduleOverrideCloseSemantic": {
+    "description": "Accessibility label for the close button in the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideModeToggleSemantic": "Override mode",
+  "@scheduleOverrideModeToggleSemantic": {
+    "description": "Accessibility group label for the working-hours / day-off mode toggle in the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideModeWorking": "Working hours",
+  "@scheduleOverrideModeWorking": {
+    "description": "Mode-toggle option: edit custom working hours for the date (Phase 15.4)."
+  },
+  "scheduleOverrideModeDayOff": "Day off",
+  "@scheduleOverrideModeDayOff": {
+    "description": "Mode-toggle option: mark the whole date as a day off (Phase 15.4)."
+  },
+  "scheduleOverrideDayOffRest": "No bookings on a day off",
+  "@scheduleOverrideDayOffRest": {
+    "description": "Explanatory line shown in day-off mode of the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleDayOffEmptyState": "This day is a day off",
+  "@scheduleDayOffEmptyState": {
+    "description": "Friendly empty-state message shown on the selected-day detail panel in place of the hour grid when the day is a settled day off (no working hours)."
+  },
+  "scheduleOverrideSave": "Save",
+  "@scheduleOverrideSave": {
+    "description": "Primary save action in the per-date override sheet (Phase 15.4)."
+  },
+  "scheduleOverrideDelete": "Return to schedule",
+  "@scheduleOverrideDelete": {
+    "description": "Action to clear an existing per-date override and revert the date to the recurring weekly template (Phase 15.4)."
+  },
+  "scheduleOverrideClearedSnack": "Override removed",
+  "@scheduleOverrideClearedSnack": {
+    "description": "Confirmation snackbar after clearing a per-date override (Phase 15.4)."
+  },
+  "scheduleOverrideErrorsBanner": "Fix the hours highlighted in red",
+  "@scheduleOverrideErrorsBanner": {
+    "description": "Snackbar shown when trying to save custom hours with validation errors in the per-date override sheet (Phase 15.4)."
+  },
+  "applyScheduleTitle": "Schedule validity period",
+  "@applyScheduleTitle": {
+    "description": "Title of the apply-schedule sheet where the master sets the weekly template's validity window (Phase 15.5)."
+  },
+  "applyScheduleBody": "Your weekly schedule will apply during this period. Individual days can be changed later.",
+  "@applyScheduleBody": {
+    "description": "Explanatory body under the apply-schedule sheet title (Phase 15.5)."
+  },
+  "applyScheduleQuickPick": "Quick pick",
+  "@applyScheduleQuickPick": {
+    "description": "Section label above the quick-pick preset chips in the apply-schedule sheet (Phase 15.5)."
+  },
+  "applySchedulePresetThisMonth": "Rest of this month",
+  "@applySchedulePresetThisMonth": {
+    "description": "Preset chip: apply the schedule for the rest of the current month (Phase 15.5)."
+  },
+  "applySchedulePresetNextThreeMonths": "Next 3 months",
+  "@applySchedulePresetNextThreeMonths": {
+    "description": "Preset chip: apply the schedule for the next three months (Phase 15.5)."
+  },
+  "applySchedulePresetWholeYear": "Whole year",
+  "@applySchedulePresetWholeYear": {
+    "description": "Preset chip: apply the schedule through Dec 31 of the current year (Phase 15.5)."
+  },
+  "applySchedulePeriodLabel": "Period",
+  "@applySchedulePeriodLabel": {
+    "description": "Label above the manual date-range well in the apply-schedule sheet (Phase 15.5)."
+  },
+  "applyScheduleRangePlaceholder": "Select a date range",
+  "@applyScheduleRangePlaceholder": {
+    "description": "Placeholder in the apply-schedule date well before a range is chosen (Phase 15.5)."
+  },
+  "applyScheduleDayCount": "Validity period: {count, plural, one{{count} day} other{{count} days}}",
+  "@applyScheduleDayCount": {
+    "description": "Live inclusive day-count readout for the chosen validity window in the apply-schedule sheet (Phase 15.5).",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "applyScheduleCta": "Apply",
+  "@applyScheduleCta": {
+    "description": "Primary CTA that persists the chosen validity window in the apply-schedule sheet (Phase 15.5)."
+  },
+  "applyScheduleOverlapError": "This period overlaps an existing schedule. Choose a different period.",
+  "@applyScheduleOverlapError": {
+    "description": "Inline error shown when the backend rejects a validity window because it overlaps an existing one (Phase 15.4/15.5)."
+  },
+  "rangePickerTitle": "Select a period",
+  "@rangePickerTitle": {
+    "description": "Title of the VelvetTouch scrolling-months range picker (Phase 15.5)."
+  },
+  "rangePickerEmptyHint": "Select a period",
+  "@rangePickerEmptyHint": {
+    "description": "Summary-chip hint in the range picker before any day is tapped (Phase 15.5)."
+  },
+  "weekdayShortMon": "Mon",
+  "@weekdayShortMon": {
+    "description": "Two-letter Monday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortTue": "Tue",
+  "@weekdayShortTue": {
+    "description": "Two-letter Tuesday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortWed": "Wed",
+  "@weekdayShortWed": {
+    "description": "Two-letter Wednesday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortThu": "Thu",
+  "@weekdayShortThu": {
+    "description": "Two-letter Thursday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortFri": "Fri",
+  "@weekdayShortFri": {
+    "description": "Two-letter Friday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortSat": "Sat",
+  "@weekdayShortSat": {
+    "description": "Two-letter Saturday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "weekdayShortSun": "Sun",
+  "@weekdayShortSun": {
+    "description": "Two-letter Sunday label for the range-picker weekday header (Phase 15.5)."
+  },
+  "serviceSetupTitle": "Service setup",
+  "@serviceSetupTitle": {
+    "description": "App-bar title of the first-time service-setup screen."
+  },
+  "serviceSetupClose": "Close",
+  "@serviceSetupClose": {
+    "description": "Semantic label for the close button on the service-setup screen."
+  },
+  "serviceSetupMissingNoteLead": "Can't find the service you need? ",
+  "@serviceSetupMissingNoteLead": {
+    "description": "Bold lead-in of the helper note at the top of the service-setup screen."
+  },
+  "serviceSetupMissingNoteBody": "No problem — add what you offer now, and request the rest later on the ",
+  "@serviceSetupMissingNoteBody": {
+    "description": "Body of the helper note explaining missing service-types can be requested later."
+  },
+  "serviceSetupMissingNoteServicesWord": "Services",
+  "@serviceSetupMissingNoteServicesWord": {
+    "description": "The emphasised Services page name inside the helper note."
+  },
+  "serviceSetupSectionCategories": "CHOOSE CATEGORIES",
+  "@serviceSetupSectionCategories": {
+    "description": "Section label above the category chip selector on the service-setup screen."
+  },
+  "serviceSetupEmptyHint": "Choose a category above to begin",
+  "@serviceSetupEmptyHint": {
+    "description": "Passive hint shown below the chips when no category is selected yet."
+  },
+  "serviceSetupGroupCount": "{included} of {total}",
+  "@serviceSetupGroupCount": {
+    "description": "Included-of-total count shown in an expanded category group header (e.g. '3 of 6').",
+    "placeholders": {
+      "included": { "type": "int" },
+      "total": { "type": "int" }
+    }
+  },
+  "serviceSetupRowExcluded": "Not offered",
+  "@serviceSetupRowExcluded": {
+    "description": "Sub-label shown on a service-type row card when its include toggle is OFF."
+  },
+  "serviceSetupRowMissingPrice": "Enter duration and price",
+  "@serviceSetupRowMissingPrice": {
+    "description": "Validation flag on an included row that is missing its duration and/or price."
+  },
+  "serviceSetupRowMissingDuration": "Enter the duration",
+  "@serviceSetupRowMissingDuration": {
+    "description": "Validation flag on an included row that has a valid price but is missing its duration."
+  },
+  "serviceSetupRowMissingPriceOnly": "Enter the price",
+  "@serviceSetupRowMissingPriceOnly": {
+    "description": "Validation flag on an included row that has a valid duration but is missing its (fixed) price."
+  },
+  "serviceSetupRowFixRange": "Fix the price range",
+  "@serviceSetupRowFixRange": {
+    "description": "Validation flag on an included range-priced row whose duration is set but whose price range is missing or invalid (max must exceed min); the precise range message is shown inline beneath the price fields."
+  },
+  "serviceSetupDurationRequired": "Enter the duration in minutes",
+  "@serviceSetupDurationRequired": {
+    "description": "Inline per-field hint shown under the duration input when an included row's duration is empty or invalid on save."
+  },
+  "serviceSetupPriceRequired": "Enter the price",
+  "@serviceSetupPriceRequired": {
+    "description": "Inline per-field hint shown under the fixed-price input when an included row's price is empty or invalid on save."
+  },
+  "serviceSetupDurationLabel": "Duration",
+  "@serviceSetupDurationLabel": {
+    "description": "Label for the per-row duration (minutes) field on the service-setup screen."
+  },
+  "serviceSetupDurationSuffix": "min",
+  "@serviceSetupDurationSuffix": {
+    "description": "Minutes suffix for the duration field."
+  },
+  "serviceSetupPriceLabel": "Price",
+  "@serviceSetupPriceLabel": {
+    "description": "Label for the fixed-mode price field on a service-setup row."
+  },
+  "serviceSetupCtaEmpty": "Choose services",
+  "@serviceSetupCtaEmpty": {
+    "description": "Disabled footer CTA label shown while no service-type is included."
+  },
+  "serviceSetupCtaCreate": "{count, plural, =0{Choose services} one{Create {count} service} other{Create {count} services}}",
+  "@serviceSetupCtaCreate": {
+    "description": "Footer CTA label counting the services the save would create.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "serviceSetupSuccess": "Services created",
+  "@serviceSetupSuccess": {
+    "description": "Snackbar shown after the first-time bulk service setup succeeds."
+  },
+  "serviceSetupErrAlreadyHasServices": "You already have services",
+  "@serviceSetupErrAlreadyHasServices": {
+    "description": "Error shown when the bulk-setup endpoint returns 409 because the master already has services."
+  },
+  "settingsHubMenuButton": "Settings",
+  "@settingsHubMenuButton": {
+    "description": "Semantic label for the menu icon on the master profile screen that opens the settings hub."
+  },
+  "settingsHubClose": "Close",
+  "@settingsHubClose": {
+    "description": "Semantic label for the close glyph on the settings hub top bar."
+  },
+  "settingsHubSubheading": "Manage your profile data and account",
+  "@settingsHubSubheading": {
+    "description": "Subheading under the settings hub title."
+  },
+  "settingsHubPersonal": "Personal info",
+  "@settingsHubPersonal": {
+    "description": "Settings hub row label that opens the personal-info edit page."
+  },
+  "settingsHubContacts": "Contacts",
+  "@settingsHubContacts": {
+    "description": "Settings hub row label that opens the contacts edit page."
+  },
+  "settingsHubLocation": "Location",
+  "@settingsHubLocation": {
+    "description": "Settings hub row label that opens the location edit page."
+  },
+  "settingsHubAccount": "Account",
+  "@settingsHubAccount": {
+    "description": "Settings hub row label that opens the account page."
+  },
+  "personalInfoTitle": "Personal info",
+  "@personalInfoTitle": {
+    "description": "Top-bar title of the personal-info edit page."
+  },
+  "contactsTitle": "Contacts",
+  "@contactsTitle": {
+    "description": "Top-bar title of the contacts edit page."
+  },
+  "contactsSubheading": "How clients can reach you",
+  "@contactsSubheading": {
+    "description": "Subheading on the contacts edit page."
+  },
+  "locationTitle": "Location",
+  "@locationTitle": {
+    "description": "Top-bar title of the location edit page."
+  },
+  "locationSubheading": "Where clients can find you",
+  "@locationSubheading": {
+    "description": "Subheading on the location edit page."
+  },
+  "accountTitle": "Account",
+  "@accountTitle": {
+    "description": "Top-bar title of the account page."
+  },
+  "accountSubheading": "App settings",
+  "@accountSubheading": {
+    "description": "Subheading on the account page."
+  },
+  "accountLanguageLabel": "Language",
+  "@accountLanguageLabel": {
+    "description": "Account page language row label."
+  },
+  "accountLanguageValue": "Ukrainian",
+  "@accountLanguageValue": {
+    "description": "Account page language row current value (the active app language)."
+  },
+  "accountLanguageSoon": "Language selection will open here",
+  "@accountLanguageSoon": {
+    "description": "Placeholder snackbar shown when tapping the not-yet-functional language row."
+  },
+  "accountNotificationsLabel": "Notifications",
+  "@accountNotificationsLabel": {
+    "description": "Account page notifications toggle row label."
+  },
+  "accountNotificationsSubtitle": "Push for new bookings and changes",
+  "@accountNotificationsSubtitle": {
+    "description": "Account page notifications toggle row subtitle."
   }
 }

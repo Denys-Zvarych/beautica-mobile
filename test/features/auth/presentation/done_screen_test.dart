@@ -22,8 +22,11 @@
 //   9.  No authenticated user: DoneScreen renders fallback greeting + client role
 //       label without crashing.
 //   10. independentMaster role chip shows l10n.roleIndependentMaster.
-//   11. done_chip_role and done_chip_email are siblings in the same Row;
-//       done_chip_ready is in a separate Center below.
+//   11. All three chips (done_chip_role, done_chip_email, done_chip_ready) are
+//       on separate centered lines — each chip has a Center ancestor and no
+//       two chips share a Row ancestor.
+//   12. _SummaryChip overflow — Flexible wrapper regression guard: no overflow
+//       in a 200 dp wide viewport and Flexible is present.
 // Note: Test 6 (done_setup_later secondary CTA) was removed — widget no longer exists.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -84,6 +87,30 @@ GoRouter _makeRouter() => GoRouter(
       path: RouteNames.home,
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text('home-route'))),
+    ),
+  ],
+);
+
+/// Builds a router that additionally includes a /master/profile placeholder.
+///
+/// Required by Test D — independentMaster CTA navigates to masterProfile.
+GoRouter _makeRouterWithMaster() => GoRouter(
+  initialLocation: RouteNames.done,
+  redirect: (context, state) => null,
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.done,
+      builder: (context, state) => const DoneScreen(),
+    ),
+    GoRoute(
+      path: RouteNames.home,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('home-route'))),
+    ),
+    GoRoute(
+      path: RouteNames.masterProfile,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('master-profile-route'))),
     ),
   ],
 );
@@ -685,14 +712,15 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 11 — Structural assertion: 2-row chip layout
+    // Test 11 — Structural assertion: 3-line centered chip layout
     //
-    // done_chip_role and done_chip_email must be siblings inside the same Row
-    // (first layout row). done_chip_ready must NOT be in that Row; it must
-    // instead have a Center ancestor (second layout row).
+    // All three chips (done_chip_role, done_chip_email, done_chip_ready) must
+    // each be on their own separate centered line — i.e. every chip must have
+    // a Center ancestor and no chip may share a Row ancestor with another chip.
     // -----------------------------------------------------------------------
-    testWidgets('11. chip_role and chip_email are siblings in the same Row; '
-        'chip_ready is rendered in a separate Center below', (tester) async {
+    testWidgets('11. all three chips are on separate centered lines', (
+      tester,
+    ) async {
       final router = _makeRouter();
       addTearDown(router.dispose);
 
@@ -712,56 +740,35 @@ void main() {
         find.byKey(const ValueKey<String>('done_chip_ready')),
       );
 
-      // Find the nearest Row ancestor of done_chip_role.
-      Element? roleRowAncestor;
+      // Each chip must have a Center ancestor.
+      bool roleHasCenter = false;
       roleElement.visitAncestorElements((el) {
-        if (el.widget is Row) {
-          roleRowAncestor = el;
+        if (el.widget is Center) {
+          roleHasCenter = true;
           return false;
         }
         return true;
       });
       expect(
-        roleRowAncestor,
-        isNotNull,
-        reason: 'done_chip_role must be inside a Row',
-      );
-
-      // done_chip_email must share that same Row ancestor.
-      bool emailSharesRow = false;
-      emailElement.visitAncestorElements((el) {
-        if (el == roleRowAncestor) {
-          emailSharesRow = true;
-          return false;
-        }
-        return true;
-      });
-      expect(
-        emailSharesRow,
+        roleHasCenter,
         isTrue,
-        reason:
-            'done_chip_email must be a sibling of done_chip_role in '
-            'the same Row (2-row chip layout Row 1)',
+        reason: 'done_chip_role must be wrapped in Center (line 1)',
       );
 
-      // done_chip_ready must NOT share that Row ancestor.
-      bool readySharesRow = false;
-      readyElement.visitAncestorElements((el) {
-        if (el == roleRowAncestor) {
-          readySharesRow = true;
+      bool emailHasCenter = false;
+      emailElement.visitAncestorElements((el) {
+        if (el.widget is Center) {
+          emailHasCenter = true;
           return false;
         }
         return true;
       });
       expect(
-        readySharesRow,
-        isFalse,
-        reason:
-            'done_chip_ready must be in a separate layout row '
-            '(Center below the role+email Row)',
+        emailHasCenter,
+        isTrue,
+        reason: 'done_chip_email must be wrapped in Center (line 2)',
       );
 
-      // done_chip_ready must have a Center ancestor.
       bool readyHasCenter = false;
       readyElement.visitAncestorElements((el) {
         if (el.widget is Center) {
@@ -773,8 +780,269 @@ void main() {
       expect(
         readyHasCenter,
         isTrue,
-        reason: 'done_chip_ready must be wrapped in Center (Row 2)',
+        reason: 'done_chip_ready must be wrapped in Center (line 3)',
+      );
+
+      // No two chips may share a Row ancestor — collect each chip's nearest
+      // Row ancestor (null if none exists) and verify they are all distinct.
+      Element? nearestRow(Element start) {
+        Element? found;
+        start.visitAncestorElements((el) {
+          if (el.widget is Row) {
+            found = el;
+            return false;
+          }
+          return true;
+        });
+        return found;
+      }
+
+      final roleRow = nearestRow(roleElement);
+      final emailRow = nearestRow(emailElement);
+      final readyRow = nearestRow(readyElement);
+
+      // If a chip has no Row ancestor at all the constraint is satisfied for
+      // that chip; we only need to verify that no two chips share the same Row.
+      if (roleRow != null) {
+        expect(
+          emailRow,
+          isNot(equals(roleRow)),
+          reason:
+              'done_chip_email must not share a Row ancestor with done_chip_role',
+        );
+        expect(
+          readyRow,
+          isNot(equals(roleRow)),
+          reason:
+              'done_chip_ready must not share a Row ancestor with done_chip_role',
+        );
+      }
+      if (emailRow != null) {
+        expect(
+          readyRow,
+          isNot(equals(emailRow)),
+          reason:
+              'done_chip_ready must not share a Row ancestor with done_chip_email',
+        );
+      }
+    });
+
+    // -----------------------------------------------------------------------
+    // Test A — shows registerDoneDescMaster when role is independentMaster
+    // -----------------------------------------------------------------------
+    testWidgets('A. shows registerDoneDescMaster description when role is '
+        'independentMaster', (tester) async {
+      // _userWithoutName has role == UserRole.independentMaster.
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await _pumpDoneScreen(
+        tester,
+        authenticatedUser: _userWithoutName,
+        router: router,
+      );
+
+      final l10n = _l10n(tester);
+
+      final descWidget = tester.widget<Text>(
+        find.byKey(const Key('done-desc')),
+      );
+      expect(
+        descWidget.data,
+        equals(l10n.registerDoneDescMaster),
+        reason:
+            'For UserRole.independentMaster the description must use '
+            'registerDoneDescMaster',
+      );
+      expect(
+        descWidget.data,
+        isNot(equals(l10n.registerDoneDesc)),
+        reason:
+            'The client description (registerDoneDesc) must NOT appear '
+            'for an independentMaster user',
       );
     });
+
+    // -----------------------------------------------------------------------
+    // Test B — shows registerDoneDescMaster when role is salonMaster
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'B. shows registerDoneDescMaster description when role is salonMaster',
+      (tester) async {
+        const userSalonMaster = User(
+          id: 'u6',
+          email: 'master@salon.test',
+          role: UserRole.salonMaster,
+          firstName: 'Марина',
+          lastName: 'Петренко',
+        );
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: userSalonMaster,
+          router: router,
+        );
+
+        final l10n = _l10n(tester);
+
+        final descWidget = tester.widget<Text>(
+          find.byKey(const Key('done-desc')),
+        );
+        expect(
+          descWidget.data,
+          equals(l10n.registerDoneDescMaster),
+          reason:
+              'For UserRole.salonMaster the description must use '
+              'registerDoneDescMaster (same branch as independentMaster)',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test C — shows registerDoneDesc for client role
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'C. shows registerDoneDesc (client description) when role is client',
+      (tester) async {
+        // _userWithName has role == UserRole.client.
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _userWithName,
+          router: router,
+        );
+
+        final l10n = _l10n(tester);
+
+        final descWidget = tester.widget<Text>(
+          find.byKey(const Key('done-desc')),
+        );
+        expect(
+          descWidget.data,
+          equals(l10n.registerDoneDesc),
+          reason:
+              'For UserRole.client the description must use registerDoneDesc',
+        );
+        expect(
+          descWidget.data,
+          isNot(equals(l10n.registerDoneDescMaster)),
+          reason:
+              'The master description (registerDoneDescMaster) must NOT '
+              'appear for a client user',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test D — independentMaster CTA navigates to masterProfile
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'D. tapping done_to_app navigates to masterProfile when role is '
+      'independentMaster',
+      (tester) async {
+        // _userWithoutName has role == UserRole.independentMaster.
+        final router = _makeRouterWithMaster();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _userWithoutName,
+          router: router,
+        );
+
+        // masterProfile placeholder must not be visible yet.
+        expect(find.text('master-profile-route'), findsNothing);
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('done_to_app')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey<String>('done_to_app')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('master-profile-route'),
+          findsOneWidget,
+          reason:
+              'done_to_app must call context.go(RouteNames.masterProfile) '
+              'when the authenticated user has role independentMaster',
+        );
+        // Home placeholder must not be shown — wrong destination.
+        expect(
+          find.text('home-route'),
+          findsNothing,
+          reason:
+              'independentMaster CTA must route to masterProfile, not /home',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 12 — _SummaryChip overflow regression guard [HIGH]
+    //
+    // Regression: without the Flexible wrapper the chip's Text overflows its
+    // Row when the label is long and the viewport is narrow. This test pumps
+    // the done screen inside a 200 dp wide SizedBox so the two side-by-side
+    // chips cannot display "Пошта підтверджена" without truncation. The test
+    // asserts:
+    //   a. No overflow exception is thrown (tester.takeException() is null).
+    //   b. At least one Flexible widget exists in the tree that is a descendant
+    //      of done_chip_email — proving the Flexible wrapper is present.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '12. _SummaryChip overflow — Flexible wrapper regression guard: '
+      'no overflow in a 200 dp wide viewport and Flexible is present',
+      (tester) async {
+        // Constrain the viewport to 200 logical pixels — narrow enough that
+        // "Пошта підтверджена" would overflow without the Flexible wrapper.
+        tester.view.physicalSize = const Size(200 * 3, 800 * 3);
+        tester.view.devicePixelRatio = 3.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpDoneScreen(
+          tester,
+          authenticatedUser: _userWithName,
+          router: router,
+        );
+
+        // a. No overflow exception must be thrown.
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              '_SummaryChip must not throw a layout overflow exception '
+              'in a narrow (200 dp) viewport — Flexible must prevent it',
+        );
+
+        // b. At least one Flexible must be a descendant of done_chip_email,
+        //    confirming the Flexible wrapper is present in the chip tree.
+        final emailChipFinder = find.byKey(
+          const ValueKey<String>('done_chip_email'),
+        );
+        expect(
+          emailChipFinder,
+          findsOneWidget,
+          reason: 'done_chip_email chip must be rendered',
+        );
+        expect(
+          find.descendant(of: emailChipFinder, matching: find.byType(Flexible)),
+          findsAtLeastNWidgets(1),
+          reason:
+              '_SummaryChip.build() must wrap the label Text in a Flexible '
+              'widget to prevent overflow — regression guard for the fix in '
+              'lib/features/auth/presentation/done_screen.dart',
+        );
+      },
+    );
   });
 }

@@ -8,12 +8,11 @@
 // headline + login link, and does NOT show the two-dot step progress (the dots
 // only appear once the user is inside the wizard).
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:screen_protector/screen_protector.dart';
 
+import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
@@ -40,12 +39,16 @@ class RoleSelectionScreen extends ConsumerStatefulWidget {
 class _RoleSelectionScreenState extends ConsumerState<RoleSelectionScreen> {
   UserRole? _selectedRole;
 
+  // Captured in initState so dispose() never touches `ref` — under Riverpod
+  // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
+  late final ScreenProtectionManager _screenProtection;
+
   @override
   void initState() {
     super.initState();
-    if (!kDebugMode) {
-      ScreenProtector.preventScreenshotOn();
-    }
+    // SEC MEDIUM: ref-counted screenshot guard (single app-wide owner;
+    // the manager is internally !kDebugMode-guarded).
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
     // Preselect the role from the draft when the user returns here via the
     // Step 1 "← Назад" link (the draft survives a single-step back). On a
     // fresh entry the draft is null, so _selectedRole stays null and Continue
@@ -55,9 +58,7 @@ class _RoleSelectionScreenState extends ConsumerState<RoleSelectionScreen> {
 
   @override
   void dispose() {
-    if (!kDebugMode) {
-      ScreenProtector.preventScreenshotOff();
-    }
+    _screenProtection.release();
     super.dispose();
   }
 

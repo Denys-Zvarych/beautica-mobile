@@ -1,0 +1,33 @@
+# beautica_api.model.MasterDetailResponse
+
+## Load the model package
+```dart
+import 'package:beautica_api/api.dart';
+```
+
+## Properties
+Name | Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+**masterId** | **String** |  | [optional] 
+**firstName** | **String** |  | [optional] 
+**lastName** | **String** |  | [optional] 
+**phoneNumber** | **String** |  | [optional] 
+**city** | **String** |  | [optional] 
+**street** | **String** |  | [optional] 
+**buildingNo** | **String** |  | [optional] 
+**locationNote** | **String** |  | [optional] 
+**bio** | **String** |  | [optional] 
+**instagram** | **String** |  | [optional] 
+**avatarUrl** | **String** |  | [optional] 
+**avgRating** | **num** |  | [optional] 
+**reviewCount** | **int** |  | [optional] 
+**masterType** | **String** |  | [optional] 
+**salon** | [**PublicSalonResponse**](PublicSalonResponse.md) |  | [optional] 
+**workingHours** | [**BuiltList&lt;WorkingHoursResponse&gt;**](WorkingHoursResponse.md) |  | [optional] 
+**cityId** | **String** |  | [optional] 
+**oblastId** | **String** |  | [optional] 
+**districtId** | **String** |  | [optional] 
+
+[[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
+
+

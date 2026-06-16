@@ -345,5 +345,86 @@ void main() {
       );
       expect(find.byKey(const ValueKey<String>('forgot_email')), findsNothing);
     });
+
+    // ── 8. ValidationFailure with an email field error → inline email error ──
+    //
+    // The screen now prefers fieldErrors['email'] over the generic errValidation
+    // copy, then serverMessage. Guards the inline-mapping extension.
+    testWidgets(
+      '8. ValidationFailure keyed by email → that message shown inline, no '
+      'confirmation, repo email error preferred over generic copy',
+      (WidgetTester tester) async {
+        const emailMsg = 'Невірна адреса електронної пошти';
+        final FakeAuthRepository repo = FakeAuthRepository()
+          ..requestPasswordResetResult = const ValidationFailure(
+            fieldErrors: <String, String>{'email': emailMsg},
+          );
+        await _pump(tester, repo);
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('forgot_email')),
+          'anya@example.com',
+        );
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('forgot_submit')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
+        await tester.pumpAndSettle();
+
+        expect(repo.requestPasswordResetCalls.length, 1);
+        // The email field error wins over the generic errValidation copy.
+        expect(find.text(emailMsg), findsOneWidget);
+        expect(find.text(l10n.errValidation), findsNothing);
+        // Stayed on the request form (no confirmation).
+        expect(
+          find.byKey(const ValueKey<String>('forgot_email')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('forgot_preview_reset')),
+          findsNothing,
+        );
+      },
+    );
+
+    // ── 9. ValidationFailure, empty fieldErrors + serverMessage → fallback ───
+    testWidgets(
+      '9. ValidationFailure with empty fieldErrors falls back to serverMessage '
+      'inline (not the generic errValidation copy)',
+      (WidgetTester tester) async {
+        const serverMsg = 'Сервіс тимчасово недоступний';
+        final FakeAuthRepository repo = FakeAuthRepository()
+          ..requestPasswordResetResult = const ValidationFailure(
+            fieldErrors: <String, String>{},
+            serverMessage: serverMsg,
+          );
+        await _pump(tester, repo);
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('forgot_email')),
+          'anya@example.com',
+        );
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('forgot_submit')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
+        await tester.pumpAndSettle();
+
+        expect(find.text(serverMsg), findsOneWidget);
+        expect(find.text(l10n.errValidation), findsNothing);
+        expect(
+          find.byKey(const ValueKey<String>('forgot_preview_reset')),
+          findsNothing,
+        );
+      },
+    );
   });
 }

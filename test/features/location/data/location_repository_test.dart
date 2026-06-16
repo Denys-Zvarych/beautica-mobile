@@ -45,9 +45,9 @@ void main() {
   group('fetchOblasts', () {
     test('maps the envelope data list to List<Oblast>', () async {
       when(
-        () => dio.get<Map<String, dynamic>>('/locations/oblasts'),
+        () => dio.get<Map<String, dynamic>>('/api/v1/locations/oblasts'),
       ).thenAnswer(
-        (_) async => _envelope('/locations/oblasts', [
+        (_) async => _envelope('/api/v1/locations/oblasts', [
           {
             'id': 'oblast-uuid-1',
             'katotthCode': 'UA46',
@@ -79,10 +79,10 @@ void main() {
         const oblastId = 'oblast-uuid-1';
         when(
           () => dio.get<Map<String, dynamic>>(
-            '/locations/oblasts/$oblastId/cities',
+            '/api/v1/locations/oblasts/$oblastId/cities',
           ),
         ).thenAnswer(
-          (_) async => _envelope('/locations/oblasts/$oblastId/cities', [
+          (_) async => _envelope('/api/v1/locations/oblasts/$oblastId/cities', [
             {
               'id': 'city-uuid-1',
               'oblastId': oblastId,
@@ -119,10 +119,10 @@ void main() {
       const cityId = 'city-uuid-1';
       when(
         () => dio.get<Map<String, dynamic>>(
-          '/locations/cities/$cityId/districts',
+          '/api/v1/locations/cities/$cityId/districts',
         ),
       ).thenAnswer(
-        (_) async => _envelope('/locations/cities/$cityId/districts', [
+        (_) async => _envelope('/api/v1/locations/cities/$cityId/districts', [
           {
             'id': 'district-uuid-1',
             'cityId': cityId,
@@ -146,13 +146,13 @@ void main() {
       'bad-response DioException → ServerFailure with status code',
       () async {
         when(
-          () => dio.get<Map<String, dynamic>>('/locations/oblasts'),
+          () => dio.get<Map<String, dynamic>>('/api/v1/locations/oblasts'),
         ).thenThrow(
           DioException(
-            requestOptions: RequestOptions(path: '/locations/oblasts'),
+            requestOptions: RequestOptions(path: '/api/v1/locations/oblasts'),
             type: DioExceptionType.badResponse,
             response: Response<dynamic>(
-              requestOptions: RequestOptions(path: '/locations/oblasts'),
+              requestOptions: RequestOptions(path: '/api/v1/locations/oblasts'),
               statusCode: 500,
             ),
           ),
@@ -168,9 +168,11 @@ void main() {
     );
 
     test('connectionError DioException → NetworkFailure', () async {
-      when(() => dio.get<Map<String, dynamic>>('/locations/oblasts')).thenThrow(
+      when(
+        () => dio.get<Map<String, dynamic>>('/api/v1/locations/oblasts'),
+      ).thenThrow(
         DioException(
-          requestOptions: RequestOptions(path: '/locations/oblasts'),
+          requestOptions: RequestOptions(path: '/api/v1/locations/oblasts'),
           type: DioExceptionType.connectionError,
         ),
       );
@@ -183,9 +185,11 @@ void main() {
 
     test('pre-mapped Failure on e.error is re-thrown unchanged', () async {
       const mapped = NotFoundFailure();
-      when(() => dio.get<Map<String, dynamic>>('/locations/oblasts')).thenThrow(
+      when(
+        () => dio.get<Map<String, dynamic>>('/api/v1/locations/oblasts'),
+      ).thenThrow(
         DioException(
-          requestOptions: RequestOptions(path: '/locations/oblasts'),
+          requestOptions: RequestOptions(path: '/api/v1/locations/oblasts'),
           type: DioExceptionType.badResponse,
           error: mapped,
         ),
@@ -196,10 +200,10 @@ void main() {
 
     test('malformed envelope (no data list) → UnknownFailure', () async {
       when(
-        () => dio.get<Map<String, dynamic>>('/locations/oblasts'),
+        () => dio.get<Map<String, dynamic>>('/api/v1/locations/oblasts'),
       ).thenAnswer(
         (_) async => Response<Map<String, dynamic>>(
-          requestOptions: RequestOptions(path: '/locations/oblasts'),
+          requestOptions: RequestOptions(path: '/api/v1/locations/oblasts'),
           statusCode: 200,
           data: const {'success': true, 'data': null, 'message': 'ok'},
         ),

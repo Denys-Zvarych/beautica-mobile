@@ -6,7 +6,7 @@
 #     validation — used after Phase 1 introduces `@riverpod` notifiers).
 #   - Stricter defaults: const constructors, no `print()`, no unused imports.
 #
-# Generated code (`lib/api/**`, `*.g.dart`, `*.freezed.dart`) is excluded
+# Generated code (`api/**`, `*.g.dart`, `*.freezed.dart`) is excluded
 # from analysis — they live under `pubspec.yaml`'s codegen umbrella and are
 # regenerated, never hand-edited.
 #
@@ -27,7 +27,7 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   exclude:
-    - "lib/api/**"
+    - "api/**"
     - "**/*.g.dart"
     - "**/*.freezed.dart"
     - "build/**"

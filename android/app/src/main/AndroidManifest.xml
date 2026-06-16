@@ -25,6 +25,17 @@
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme"/>
+            <!--
+                Phase 17.5 — REQUIRED for App Link / deep-link routing into go_router.
+                Without this, an approved https ACTION_VIEW intent reaching MainActivity
+                is NOT forwarded to Flutter's RouteInformationProvider, so go_router never
+                navigates to /reset-password. Flutter's automatic deep-linking hands the
+                launch/onNewIntent intent URL to the framework, which go_router
+                (MaterialApp.router) consumes via the default RouteInformationProvider.
+            -->
+            <meta-data
+                android:name="flutter_deeplinking_enabled"
+                android:value="true"/>
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
@@ -109,6 +120,20 @@
                 android:name="android.intent.action.PROCESS_TEXT"/>
             <data
                 android:mimeType="text/plain"/>
+        </intent>
+        <!--
+            Android 11+ (API 30) package visibility for url_launcher. Without this
+            declaration, launchUrl() of an https ACTION_VIEW intent (the Instagram
+            profile link on the master profile screen) silently fails because the
+            calling package cannot "see" any browser/Instagram activity that can
+            handle https. Scheme-only data filter — no host — so any validated
+            https URL can resolve to the user's default handler.
+        -->
+        <intent>
+            <action
+                android:name="android.intent.action.VIEW"/>
+            <data
+                android:scheme="https"/>
         </intent>
     </queries>
 </manifest>

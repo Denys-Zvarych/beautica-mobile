@@ -14,8 +14,8 @@
 //     Returns: ApiResponse<SalonResponse> — the mobile layer does not need the
 //              body here, so the method resolves with void.
 //
-// The base URL already carries the `/api/v1` prefix (see AppConfig.baseUrl), so
-// the path below is the suffix only.
+// AppConfig.baseUrl does NOT carry the `/api/v1` prefix (see app_config.dart).
+// The path below must include the full `/api/v1/` segment explicitly.
 
 import 'dart:developer';
 
@@ -115,7 +115,10 @@ final class HttpSalonRepository implements SalonRepository {
   @override
   Future<void> create({required SalonCreateDto dto}) async {
     try {
-      await _dio.post<Map<String, dynamic>>('/salons', data: dto.toJson());
+      await _dio.post<Map<String, dynamic>>(
+        '/api/v1/salons',
+        data: dto.toJson(),
+      );
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(

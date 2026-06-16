@@ -55,11 +55,14 @@ import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/user/data/user_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/validators/server_field_error_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+
+import 'package:beautica_mobile/features/master/data/master_repository.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
@@ -77,6 +80,13 @@ class _MockUserRepository extends Mock implements UserRepository {}
 // ---------------------------------------------------------------------------
 
 class _MockSalonRepository extends Mock implements SalonRepository {}
+
+// ---------------------------------------------------------------------------
+// Mock MasterRepository for the INDEPENDENT_MASTER missing-city regression
+// guard (Test 18 — Fix 3 / ProviderMissingCityFailure).
+// ---------------------------------------------------------------------------
+
+class _MockMasterRepository extends Mock implements MasterRepository {}
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -1263,6 +1273,95 @@ void main() {
       },
     );
     // -----------------------------------------------------------------------
+    // Test 8b — NetworkFailure thrown by verifyEmail resets spinner.
+    //           Regression guard for the bug where the catch block inside
+    //           AuthNotifier.verifyEmail() did NOT set state = AsyncError,
+    //           causing the spinner to stay forever after any exception.
+    //
+    //           After the fix (state = AsyncError(e, st) before rethrow):
+    //             - authProvider.isLoading becomes false → button.loading = false.
+    //             - The VerificationScreen catch block sets _inlineError →
+    //               AuthBanner appears.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '8b. NetworkFailure from verifyEmail: spinner stops and AuthBanner appears '
+      '(state = AsyncError fix regression guard)',
+      (tester) async {
+        final repo = FakeAuthRepository()
+          ..verifyEmailResult = const NetworkFailure();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+
+        // Fill all 6 digits so the submit button is active.
+        await _fillOtp(tester, '123456');
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+
+        // Confirm the button is enabled before tapping.
+        final btnBefore = tester.widget<NeumorphicButton>(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        expect(
+          btnBefore.onPressed,
+          isNotNull,
+          reason: 'Button must be enabled before submit (sanity check)',
+        );
+
+        // Tap submit — triggers AuthNotifier.verifyEmail() which throws
+        // NetworkFailure → state = AsyncError(e, st) → rethrow.
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        // Three pumps mirror the existing pattern for async resolution:
+        //   pump 1: starts async (state = AsyncLoading emitted)
+        //   pump 2: completes microtasks (catch fires, state = AsyncError)
+        //   pump 3 (+50ms): animations / setState in VerificationScreen
+        await tester.pump(); // begin async
+        await tester.pump(); // microtasks (catch → state = AsyncError, rethrow)
+        await tester.pump(const Duration(milliseconds: 50)); // animations
+
+        // After the fix: authProvider is in AsyncError → isLoading = false
+        // → NeumorphicButton.loading must be false (spinner stopped).
+        final btnAfter = tester.widget<NeumorphicButton>(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        expect(
+          btnAfter.loading,
+          isFalse,
+          reason:
+              'NeumorphicButton.loading must be false after NetworkFailure — '
+              'authProvider must be in AsyncError, not AsyncLoading. '
+              'Without the fix (state = AsyncError before rethrow), this '
+              'stays true and the spinner never stops.',
+        );
+
+        // The VerificationScreen catch re-enables the button (onPressed non-null)
+        // because the OTP is still filled.
+        expect(
+          btnAfter.onPressed,
+          isNotNull,
+          reason:
+              'Button must be re-enabled after a failed verify so the user '
+              'can retry (onPressed must be non-null with 6 digits still filled)',
+        );
+
+        // An AuthBanner must appear — the VerificationScreen catch sets
+        // _inlineError which renders the banner.
+        expect(
+          find.byType(AuthBanner),
+          findsOneWidget,
+          reason:
+              'An AuthBanner must appear after a failed verify so the user '
+              'sees the error message.',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // Test 11 — Countdown text is rendered mid-cooldown.
     //           After a successful resend, the resend row displays the
     //           verificationResendTimer(N) l10n string while the cooldown
@@ -1829,6 +1928,901 @@ void main() {
         );
       },
     );
+    // -----------------------------------------------------------------------
+    // Test 18 — INDEPENDENT_MASTER with null cityId: verify submit shows
+    //           ProviderMissingCityFailure inline error (Fix 3 regression guard).
+    //
+    // When a INDEPENDENT_MASTER draft loses cityId (e.g. navigation edge case
+    // clears Step 3 after Step 3 was already completed), _saveProviderProfile
+    // must throw ProviderMissingCityFailure instead of silently calling PATCH
+    // /independent-masters/me without a city, which would produce a verified
+    // account with no location in the database.
+    //
+    // This test also implicitly guards that resetCooldown() is called after a
+    // post-OTP profile save failure (_emailVerified = true path in _submit).
+    // See Test 19 for the explicit resetCooldown isolation.
+    // -----------------------------------------------------------------------
+    testWidgets('18. INDEPENDENT_MASTER with null cityId: verify success then '
+        '_saveProviderProfile throws ProviderMissingCityFailure and shows error banner', (
+      tester,
+    ) async {
+      final repo = FakeAuthRepository();
+      final masterRepo = _MockMasterRepository();
+      // updateLocality must NOT be called — the guard throws before reaching it.
+
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      final storage = FakeSecureStorage();
+      final container = ProviderContainer(
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          masterRepositoryProvider.overrideWith((_) => masterRepo),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Seed an INDEPENDENT_MASTER draft WITHOUT a Step 3 cityId.
+      // The draft has Step 1 + Step 2 only — Step 3 was never completed,
+      // so cityId is null and isCityMissing is true.
+      final notifier = container.read(registerDraftProvider.notifier)
+        ..start(UserRole.independentMaster);
+      notifier.updateStep1(
+        email: _testEmail,
+        password: 'Password1!',
+        confirmPassword: 'Password1!',
+      );
+      notifier.updateStep2(
+        firstName: 'Іванна',
+        lastName: 'Ковальчук',
+        phone: '+380501112233',
+      );
+      // No updateStep3 — cityId stays null.
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // No error banner before submit.
+      expect(find.byType(AuthBanner), findsNothing);
+
+      await _fillOtp(tester, '654321');
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('verify_submit')),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+      // Cannot pumpAndSettle: the resend timer may fire setState every second
+      // after resetCooldown() is invoked by the Fix 2B path in _submit.
+      await tester.pump(); // begin async
+      await tester.pump(); // microtasks (verifyEmail success)
+      await tester.pump(); // microtasks (_saveProviderProfile throw)
+      await tester.pump(const Duration(milliseconds: 50)); // animations
+
+      // Must remain on the verification screen — NOT navigate to /done.
+      expect(
+        find.text('home'),
+        findsNothing,
+        reason:
+            'INDEPENDENT_MASTER with null cityId must NOT navigate to /done '
+            '— _saveProviderProfile threw ProviderMissingCityFailure.',
+      );
+
+      // An error banner must appear.
+      expect(
+        find.byType(AuthBanner),
+        findsOneWidget,
+        reason:
+            'An AuthBanner must appear after ProviderMissingCityFailure '
+            '(Fix 3 — provider roles must not silently create accounts without city).',
+      );
+
+      // The banner message must be the verificationErrProviderMissingCity copy.
+      final l10n = AppLocalizations.of(tester.element(find.byType(AuthBanner)));
+      expect(
+        tester
+            .widgetList<Text>(find.byType(Text))
+            .any((t) => t.data == l10n.verificationErrProviderMissingCity),
+        isTrue,
+        reason:
+            'Expected verificationErrProviderMissingCity banner copy after '
+            'ProviderMissingCityFailure. '
+            'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
+      );
+
+      // MasterRepository.updateLocality must NOT have been called — the guard
+      // threw before reaching the PATCH call.
+      verifyNever(
+        () => masterRepo.updateLocality(
+          cityId: any(named: 'cityId'),
+          districtId: any(named: 'districtId'),
+          street: any(named: 'street'),
+          buildingNo: any(named: 'buildingNo'),
+          locationNote: any(named: 'locationNote'),
+        ),
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 20 — INDEPENDENT_MASTER happy path: verifyEmail succeeds and
+    //           updateLocality succeeds — no UnauthorizedFailure, no 401.
+    //
+    // Regression guard for the "Сесія завершилась" bug (2026-05-30):
+    //
+    // Before the fix, AuthNotifier.verifyEmail() cleared coldStartAccessToken
+    // in a `finally` block BEFORE setting state = AsyncData(Authenticated).
+    // This created a one-microtask window where:
+    //   - authProvider.value was still AsyncLoading (not yet Authenticated)
+    //   - coldStartAccessToken was null (already wiped by finally)
+    //
+    // AuthInterceptor checks `notifier.coldStartAccessToken` when
+    // `authProvider.value` is not Authenticated. During that window it found
+    // null → injected no Bearer token → PATCH /independent-masters/me
+    // returned 401 → RefreshInterceptor triggered logout → screen showed
+    // "Сесія завершилась".
+    //
+    // The fix: state = AsyncData(Authenticated) BEFORE coldStartAccessToken = null.
+    // Once state is Authenticated, AuthInterceptor reads the token from the
+    // settled session; the sentinel is no longer needed.
+    //
+    // This test asserts the observable outcome: updateLocality is called
+    // (implying no 401 blocked it) AND the screen navigates to /home
+    // (implying no logout was triggered).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '20. INDEPENDENT_MASTER happy path: updateLocality succeeds after '
+      'verifyEmail — no UnauthorizedFailure, navigates to home '
+      '(regression guard for auth session race fix 2026-05-30)',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final masterRepo = _MockMasterRepository();
+
+        // updateLocality must succeed without throwing — no 401.
+        when(
+          () => masterRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenAnswer((_) async {});
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            masterRepositoryProvider.overrideWith((_) => masterRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Seed an INDEPENDENT_MASTER draft with a full Step 3 locality so
+        // _saveProviderProfile does not throw ProviderMissingCityFailure.
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.independentMaster);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Іванна',
+          lastName: 'Ковальчук',
+          phone: '+380501112233',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Центральна',
+          buildingNo: '5Б',
+          locationNote: 'кв. 12',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // No error banner before submit.
+        expect(find.byType(AuthBanner), findsNothing);
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pumpAndSettle();
+
+        // Must navigate to /home — updateLocality succeeded, no logout fired.
+        expect(
+          find.text('home'),
+          findsOneWidget,
+          reason:
+              'INDEPENDENT_MASTER with full locality must navigate to /done → '
+              '/home after a successful verifyEmail + updateLocality. '
+              'If this fails, the auth session race (coldStartAccessToken wiped '
+              'before state = AsyncData(Authenticated)) is back.',
+        );
+
+        // No error banner — the race did not produce a 401.
+        expect(
+          find.byType(AuthBanner),
+          findsNothing,
+          reason:
+              'No error banner must appear after a successful registration flow. '
+              'An AuthBanner here means the 401 race is back.',
+        );
+
+        // updateLocality must have been called exactly once with the draft values.
+        verify(
+          () => masterRepo.updateLocality(
+            cityId: 'city-1',
+            districtId: 'district-1',
+            street: 'вул. Центральна',
+            buildingNo: '5Б',
+            locationNote: 'кв. 12',
+          ),
+        ).called(1);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 19 — resetCooldown() re-enables the resend link immediately.
+    //
+    // Fix 2B: when _saveProviderProfile fails after the OTP has been accepted
+    // (_emailVerified becomes true before the throw), the parent calls
+    // _resendRowKey.currentState?.resetCooldown(). This must cancel the
+    // running 30-second countdown and set _cooldown to 0 so the user can
+    // request a new OTP right away — they cannot retry with the same code
+    // because it was consumed by the successful verifyEmail call.
+    //
+    // Setup: use a FakeAuthRepository that accepts the OTP (verifyEmail
+    // returns success) plus a _MockMasterRepository whose updateLocality
+    // throws a NetworkFailure. The submit path therefore:
+    //   1. verifyEmail succeeds → _emailVerified = true
+    //   2. _saveProviderProfile → updateLocality throws NetworkFailure
+    //   3. catch: _emailVerified is true → resetCooldown() called
+    //   4. resend GestureDetector.onTap must be non-null immediately
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '19. resetCooldown() after post-OTP profile save failure: resend link '
+      're-enabled immediately (Fix 2B regression guard)',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final masterRepo = _MockMasterRepository();
+        // updateLocality throws a NetworkFailure to simulate a transient save
+        // failure after a successful OTP verification.
+        when(
+          () => masterRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenThrow(const NetworkFailure());
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            masterRepositoryProvider.overrideWith((_) => masterRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Seed an INDEPENDENT_MASTER draft WITH a full Step 3 locality so the
+        // guard does NOT throw — the failure must come from updateLocality.
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.independentMaster);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Іванна',
+          lastName: 'Ковальчук',
+          phone: '+380501112233',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Центральна',
+          buildingNo: '5Б',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '123456');
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        // Do NOT pumpAndSettle — the resend timer may be active at this point.
+        await tester.pump(); // begin async
+        await tester.pump(); // verifyEmail microtasks
+        await tester.pump(); // _saveProviderProfile / updateLocality throw
+        await tester.pump(
+          const Duration(milliseconds: 50),
+        ); // animations + setState
+
+        // Must remain on the verification screen — the save failed.
+        expect(
+          find.text('home'),
+          findsNothing,
+          reason:
+              'The screen must NOT navigate to /done when _saveProviderProfile '
+              'throws — the user stays to retry.',
+        );
+
+        // An error banner must appear (NetworkFailure message).
+        expect(
+          find.byType(AuthBanner),
+          findsOneWidget,
+          reason:
+              'An AuthBanner must appear after a post-OTP profile save failure.',
+        );
+
+        // The resend GestureDetector must be enabled immediately
+        // (_cooldown == 0 after resetCooldown() was called via Fix 2B).
+        // The initial 30 s mount cooldown was running, but resetCooldown()
+        // cancels it so the user can request a fresh OTP right away.
+        final gesture = tester.widget<GestureDetector>(
+          find.byKey(const ValueKey<String>('verify_resend')),
+        );
+        expect(
+          gesture.onTap,
+          isNotNull,
+          reason:
+              'verify_resend GestureDetector.onTap must be non-null after '
+              'resetCooldown() is called by Fix 2B — the OTP was consumed by '
+              'the successful verifyEmail call, so the user must be able to '
+              'request a new code immediately without waiting 30 seconds.',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 20b — post-OTP save returns a multi-field ValidationFailure: the
+    //            AuthBanner names the failed register step 2/3 fields inline,
+    //            NOT the generic errValidation banner. (M3 / M11 inline-mapping
+    //            gap — the offending fields live on a previous step.)
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '20b. post-OTP save ValidationFailure with a field map → banner names '
+      'the failed fields (street/buildingNo) inline, not generic',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final masterRepo = _MockMasterRepository();
+        const fieldErrors = <String, String>{
+          'street': 'Вулиця обовʼязкова',
+          'buildingNo': 'Будинок занадто довгий',
+        };
+        when(
+          () => masterRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenThrow(const ValidationFailure(fieldErrors: fieldErrors));
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            masterRepositoryProvider.overrideWith((_) => masterRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.independentMaster);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Іванна',
+          lastName: 'Ковальчук',
+          phone: '+380501112233',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Центральна',
+          buildingNo: '5Б',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Resolve l10n + build the expected banner BEFORE submit consumes the
+        // widget tree.
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(VerificationScreen)),
+        );
+        final expectedBanner = buildFieldErrorBanner(fieldErrors, l10n)!;
+
+        await _fillOtp(tester, '123456');
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pump(); // begin async
+        await tester.pump(); // verifyEmail microtasks
+        await tester.pump(); // updateLocality throws
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // Stays on the verification screen — the save failed.
+        expect(find.text('home'), findsNothing);
+
+        // The AuthBanner carries the field-named multi-line banner, NOT the
+        // generic errValidation string.
+        expect(find.byType(AuthBanner), findsOneWidget);
+        expect(find.text(expectedBanner), findsOneWidget);
+        expect(find.text(l10n.errValidation), findsNothing);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 20c — post-OTP save returns a ValidationFailure with an EMPTY field
+    //            map but a serverMessage: the banner falls back to the server
+    //            message (not the generic errValidation copy).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '20c. post-OTP save ValidationFailure with empty fieldErrors falls back '
+      'to serverMessage in the banner',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final masterRepo = _MockMasterRepository();
+        const serverMsg = 'Адресу не вдалося зберегти';
+        when(
+          () => masterRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenThrow(
+          const ValidationFailure(
+            fieldErrors: <String, String>{},
+            serverMessage: serverMsg,
+          ),
+        );
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            masterRepositoryProvider.overrideWith((_) => masterRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.independentMaster);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Іванна',
+          lastName: 'Ковальчук',
+          phone: '+380501112233',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Центральна',
+          buildingNo: '5Б',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(VerificationScreen)),
+        );
+
+        await _fillOtp(tester, '123456');
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+
+        expect(find.text('home'), findsNothing);
+        expect(find.byType(AuthBanner), findsOneWidget);
+        // serverMessage wins over the generic errValidation fallback.
+        expect(find.text(serverMsg), findsOneWidget);
+        expect(find.text(l10n.errValidation), findsNothing);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 21 — Defect 8 retry: second submit does NOT re-call verifyEmail
+    //           when the OTP was already accepted (_emailVerifiedProvider =
+    //           true) but _saveProviderProfile threw on the first attempt.
+    //
+    // Setup:
+    //   - FakeAuthRepository: verifyEmail succeeds on every call.
+    //   - _MockMasterRepository: updateLocality throws ServerFailure on the
+    //     first call, then succeeds on the second (call-count driven by a
+    //     local variable closed over by the mock answer).
+    //   - Draft: INDEPENDENT_MASTER with full Step 3 locality (so the
+    //     ProviderMissingCityFailure guard does not trigger).
+    //
+    // Flow:
+    //   1st submit: verifyEmail succeeds → _emailVerifiedProvider = true →
+    //               updateLocality throws → error banner shown, stays on screen.
+    //   2nd submit: _emailVerifiedProvider is still true → verifyEmail skipped →
+    //               updateLocality called again (second call) → succeeds →
+    //               navigates to /done → /home.
+    //
+    // Asserts:
+    //   - verifyEmailCalls.length == 1 (called only on the first submit).
+    //   - updateLocality called twice total (once failing, once succeeding).
+    //   - After the first submit: AuthBanner visible, still on screen.
+    //   - After the second submit: /home visible.
+    //
+    // Regression guard for the Defect 8 retry branch introduced in Phase 2.x.
+    // The backlog row "LOW — VerificationScreen _saveProviderProfile retry
+    // branch untested" is resolved by this test.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '21. retry: second submit does not re-call verifyEmail when OTP already '
+      'accepted (_emailVerifiedProvider = true) but _saveProviderProfile threw',
+      (tester) async {
+        final repo = FakeAuthRepository(); // verifyEmail succeeds by default
+
+        // Track the call count manually so the mock answer can alternate.
+        int updateLocalityCalls = 0;
+        final masterRepo = _MockMasterRepository();
+        when(
+          () => masterRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenAnswer((_) async {
+          updateLocalityCalls++;
+          if (updateLocalityCalls == 1) {
+            // First call — simulate a transient server error.
+            throw const ServerFailure(statusCode: 500);
+          }
+          // Second call — succeeds (returns normally).
+        });
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            masterRepositoryProvider.overrideWith((_) => masterRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Seed an INDEPENDENT_MASTER draft with a full Step 3 locality so
+        // _saveProviderProfile reaches the updateLocality call (does not
+        // throw ProviderMissingCityFailure).
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.independentMaster);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Іванна',
+          lastName: 'Ковальчук',
+          phone: '+380501112233',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Центральна',
+          buildingNo: '5Б',
+          locationNote: 'кв. 12',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // No error banner before any submit.
+        expect(find.byType(AuthBanner), findsNothing);
+
+        // ── First submit ────────────────────────────────────────────────────
+        // Fill the OTP and tap submit.
+        await _fillOtp(tester, '654321');
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        // Cannot pumpAndSettle — the resend timer fires every second after
+        // resetCooldown() is invoked by the Fix 2B path.
+        await tester.pump(); // begin async
+        await tester
+            .pump(); // verifyEmail microtasks → _emailVerifiedProvider = true
+        await tester.pump(); // _saveProviderProfile → updateLocality throw
+        await tester.pump(
+          const Duration(milliseconds: 50),
+        ); // setState / animations
+
+        // Must remain on the verification screen — the save failed.
+        expect(
+          find.text('home'),
+          findsNothing,
+          reason:
+              'Screen must NOT navigate to /done after the first submit when '
+              '_saveProviderProfile throws — the user stays to retry.',
+        );
+
+        // An error banner must be shown (ServerFailure message).
+        expect(
+          find.byType(AuthBanner),
+          findsOneWidget,
+          reason:
+              'An AuthBanner must appear after the first _saveProviderProfile '
+              'failure (ServerFailure from updateLocality).',
+        );
+
+        // Exactly one verifyEmail call — it was consumed by the first submit.
+        expect(
+          repo.verifyEmailCalls,
+          hasLength(1),
+          reason:
+              'verifyEmail must have been called exactly once after the first '
+              'submit (OTP was accepted and _emailVerifiedProvider set to true).',
+        );
+
+        // updateLocality was called once (the failing call).
+        expect(
+          updateLocalityCalls,
+          equals(1),
+          reason:
+              'updateLocality must have been called once after the first submit '
+              '(the call that threw ServerFailure).',
+        );
+
+        // ── Second submit ───────────────────────────────────────────────────
+        // The OTP field still shows the same digits (they were not cleared
+        // by the profile-save failure — only cleared on a successful resend).
+        // The submit button must still be enabled (6 digits present).
+        final btnBeforeRetry = tester.widget<NeumorphicButton>(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        expect(
+          btnBeforeRetry.onPressed,
+          isNotNull,
+          reason:
+              'Submit button must be re-enabled after a failed profile save '
+              '(6 digits are still in the OTP field).',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pump(); // begin async
+        await tester.pump(); // _saveProviderProfile → updateLocality succeeds
+        await tester.pump(); // context.go(RouteNames.done) → redirect → /home
+        await tester.pumpAndSettle(); // router navigation settles
+
+        // Must navigate to /home — the second updateLocality call succeeded.
+        expect(
+          find.text('home'),
+          findsOneWidget,
+          reason:
+              'After the second submit, _saveProviderProfile must succeed and '
+              'the screen must navigate to /done → /home.',
+        );
+
+        // verifyEmail must still have been called only once — the second submit
+        // skipped it because _emailVerifiedProvider was already true.
+        expect(
+          repo.verifyEmailCalls,
+          hasLength(1),
+          reason:
+              'verifyEmail must NOT be called on the second submit — '
+              '_emailVerifiedProvider was already true (OTP consumed on first '
+              'submit). Calling it again would replay an already-consumed OTP '
+              'and produce an INVALID_CODE or ALREADY_VERIFIED error.',
+        );
+
+        // updateLocality must have been called exactly twice in total.
+        expect(
+          updateLocalityCalls,
+          equals(2),
+          reason:
+              'updateLocality must have been called twice: once on the first '
+              'submit (ServerFailure) and once on the second submit (success).',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 19 — Silent-submit guard for a NON-VerificationFailure.
+    //
+    //   Regression net (Step 2.7) for the invalid-OTP "no error shown" fix.
+    //   A non-VerificationFailure from verifyEmail (here ServerFailure(500) —
+    //   the realistic shape when the typed-code mapping is missed and the
+    //   request drifts to a 5xx, or a plain backend 500) must STILL render a
+    //   non-empty inline error banner. The submit must NEVER complete silently.
+    //
+    //   This asserts the end-to-end contract that the _setInlineError catch-all
+    //   guarantees: every failed verify yields a visible, non-empty banner.
+    // -----------------------------------------------------------------------
+    testWidgets('19. non-VerificationFailure (ServerFailure 500) on verify shows a '
+        'non-empty error banner — never a silent submit', (tester) async {
+      final repo = FakeAuthRepository()
+        ..verifyEmailResult = const ServerFailure(statusCode: 500);
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+
+      await _pumpVerification(tester, repo: repo, router: router);
+
+      await _fillOtp(tester, '424242');
+      await tester.pump();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('verify_submit')),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+      await tester.pump(); // begin async
+      await tester.pump(); // microtasks (catch → _setInlineError)
+      await tester.pump(const Duration(milliseconds: 50)); // animations
+
+      // Must remain on the verification screen — no silent navigation.
+      expect(
+        find.byKey(const ValueKey<String>('verify_submit')),
+        findsOneWidget,
+        reason: 'A failed verify must keep the user on the screen.',
+      );
+      expect(
+        find.text('home'),
+        findsNothing,
+        reason:
+            'A failed verify must NOT silently navigate away (no silent '
+            'submit).',
+      );
+
+      // The error banner must appear ...
+      final bannerFinder = find.byType(AuthBanner);
+      expect(
+        bannerFinder,
+        findsOneWidget,
+        reason:
+            'A non-VerificationFailure must still surface an AuthBanner — the '
+            'silent-submit bug showed NO banner at all.',
+      );
+
+      // ... with non-empty text. The message must be the resolved ServerFailure
+      // copy (errServer); if a future regression blanks the message, the
+      // _setInlineError catch-all falls back to errUnknown — either way the
+      // banner text is guaranteed non-empty (never a silent/blank submit).
+      final l10n = AppLocalizations.of(tester.element(bannerFinder));
+      final bannerMessages = tester
+          .widgetList<Text>(
+            find.descendant(of: bannerFinder, matching: find.byType(Text)),
+          )
+          .map((t) => t.data)
+          .whereType<String>()
+          .where((s) => s.trim().isNotEmpty)
+          .toList();
+      expect(
+        bannerMessages,
+        isNotEmpty,
+        reason:
+            'The AuthBanner must render non-empty text after a '
+            'non-VerificationFailure — a blank banner is a silent submit.',
+      );
+      expect(
+        bannerMessages,
+        anyElement(anyOf(equals(l10n.errServer), equals(l10n.errUnknown))),
+        reason:
+            'The banner must show the resolved ServerFailure copy (errServer) '
+            'or the catch-all fallback (errUnknown) — never an empty string.',
+      );
+    });
   });
 }
 

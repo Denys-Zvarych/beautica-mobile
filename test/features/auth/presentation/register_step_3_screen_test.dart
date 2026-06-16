@@ -17,22 +17,26 @@
 // - Layout: SubStepIndicator and its NeumorphicCard wrapper removed; SizedBox(sm) spacer added between sub-text and LocalityCascade.
 //
 // Covered scenarios:
-//   1.  CLIENT renders 3 picker rows + split CTA, NO street/building/note.
-//   1b. CLIENT "Пропустити" link renders with maxLines == 1.
-//   2.  MASTER renders 3 picker rows + street/building/note + single CTA.
-//   3.  OWNER renders 3 picker rows + street/building/note + single CTA.
-//   4.  CLIENT "Пропустити" → register → /verification (no provider save).
-//   5.  MASTER full submit → register, stash locality in draft → /verification.
-//   6.  OWNER full submit → register, stash salon locality → /verification.
-//   7.  City-without-districts → District disabled; submit OK; draft districtId null.
-//   8.  City-with-districts, district unpicked → submit blocked; "Оберіть район"
-//       under the DISTRICT row.
-//   9.  (Defect 2) CLIENT Save error → Skip proves _submitting resets.
-//   10. Register failure → snackbar, no profile-save, no navigate.
-//   11. Successful register clears draft password before /verification.
-//   12. auth_scaffold_back navigates to /register/step-2 without firing register POST.
-//   13. Already-registered guard: draft.password empty → skip register() → /verification.
-//   14. initState prefetch: oblastListProvider is read on first frame.
+//   1.   CLIENT renders 3 picker rows + split CTA, NO street/building/note.
+//   1b.  CLIENT "Пропустити" link renders with maxLines == 1.
+//   2.   MASTER renders 3 picker rows + street/building/note + single CTA.
+//   3.   OWNER renders 3 picker rows + street/building/note + single CTA.
+//   4.   CLIENT "Пропустити" → register → /verification (no provider save).
+//   5.   MASTER full submit → register, stash locality in draft → /verification.
+//   6.   OWNER full submit → register, stash salon locality → /verification.
+//   7.   City-without-districts → District disabled; submit OK; draft districtId null.
+//   8.   City-with-districts, district unpicked → submit blocked; "Оберіть район"
+//        under the DISTRICT row.
+//   9.   (Defect 2) CLIENT Save error → Skip proves _submitting resets.
+//   10.  Register failure → snackbar, no profile-save, no navigate.
+//   11.  Successful register clears draft password before /verification.
+//   12.  auth_scaffold_back navigates to /register/step-2 without firing register POST.
+//   13.  Already-registered guard: draft.password empty → skip register() → /verification.
+//   14.  initState prefetch: oblastListProvider is read on first frame.
+//   15.  MASTER submit with empty street → street inline errorText.
+//   (A). EmailAlreadyRegisteredFailure (409) renders inline banner + Sign In CTA.
+//   (B). verificationCardDesc resolves to the honest "Ми надіслали" copy in uk.
+//   (C). location_on_outlined icon tile renders at top of Step 3.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -50,6 +54,7 @@ import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/validators/server_field_error_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -114,6 +119,20 @@ class _SpyLocationRepository extends _FakeLocationRepository {
   }
 }
 
+/// Simulates a location repository whose fetchOblasts() throws NetworkFailure.
+/// Used to verify the Step 3 prefetch error path — the screen must not crash
+/// when the oblast warm-up fails (error state rendered instead of picker data).
+class _FailingLocationRepository implements LocationRepository {
+  @override
+  Future<List<Oblast>> fetchOblasts() async => throw const NetworkFailure();
+
+  @override
+  Future<List<City>> fetchCities(String oblastId) async => const [];
+
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async => const [];
+}
+
 class _MockAuthRepository extends Mock implements AuthRepository {}
 
 class _MockMasterRepository extends Mock implements MasterRepository {}
@@ -156,12 +175,15 @@ ProviderContainer _container({
   required AuthRepository authRepo,
   MasterRepository? masterRepo,
   SalonRepository? salonRepo,
+  LocationRepository? locationRepo,
 }) {
   final container = ProviderContainer(
     overrides: [
       authRepositoryProvider.overrideWith((_) => authRepo),
       secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-      locationRepositoryProvider.overrideWith((_) => _FakeLocationRepository()),
+      locationRepositoryProvider.overrideWith(
+        (_) => locationRepo ?? _FakeLocationRepository(),
+      ),
       if (masterRepo != null)
         masterRepositoryProvider.overrideWith((_) => masterRepo),
       if (salonRepo != null)
@@ -799,6 +821,141 @@ void main() {
     },
   );
 
+  // ── 10b. Register ValidationFailure with field map → field-named banner ───
+  //
+  // The offending fields (firstName/phone) live on Step 2, so a generic banner
+  // gives the user no clue what to fix. The screen maps fieldErrors through
+  // buildFieldErrorBanner: each line is "<localized field name>: <server msg>".
+  testWidgets(
+    '10b. register ValidationFailure with field map → snackbar names the '
+    'failed fields inline (not the generic banner)',
+    (tester) async {
+      final authRepo = _MockAuthRepository();
+      final masterRepo = _MockMasterRepository();
+      when(
+        () => authRepo.registerIndependentMaster(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          role: any(named: 'role'),
+          businessName: any(named: 'businessName'),
+          address: any(named: 'address'),
+          phone: any(named: 'phone'),
+        ),
+      ).thenThrow(
+        const ValidationFailure(
+          fieldErrors: <String, String>{
+            'firstName': 'Занадто коротке',
+            'phone': 'Невірний формат',
+          },
+        ),
+      );
+
+      final container = _container(
+        role: UserRole.independentMaster,
+        authRepo: authRepo,
+        masterRepo: masterRepo,
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_app(_makeRouter(), container));
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+
+      await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
+      await _pick(tester, const Key('locality_row_city'), 'Львів');
+      await _pick(tester, const Key('locality_row_district'), 'Галицький');
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('address_street')),
+        'вул. Тестова',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('address_building')),
+        '12',
+      );
+      await tester.pumpAndSettle();
+
+      await _tap(tester, const ValueKey<String>('address_submit'));
+
+      // The snackbar carries the field-named banner lines, NOT the generic
+      // errValidation copy.
+      expect(find.byKey(const Key('step3-snackbar')), findsOneWidget);
+      final expected = buildFieldErrorBanner(const <String, String>{
+        'firstName': 'Занадто коротке',
+        'phone': 'Невірний формат',
+      }, l10n)!;
+      expect(find.text(expected), findsOneWidget);
+      expect(find.text(l10n.errValidation), findsNothing);
+      // No navigation.
+      expect(find.textContaining('verification:'), findsNothing);
+    },
+  );
+
+  // ── 10c. Register ValidationFailure, EMPTY map + serverMessage → fallback ──
+  //
+  // When the backend returns a 400 with no usable field map, the banner builder
+  // returns null and the screen falls back to the top-level serverMessage (then
+  // the generic string). Guards the "dead Save with no feedback" regression.
+  testWidgets(
+    '10c. register ValidationFailure with empty fieldErrors falls back to '
+    'serverMessage in the snackbar',
+    (tester) async {
+      final authRepo = _MockAuthRepository();
+      final masterRepo = _MockMasterRepository();
+      const serverMsg = 'Реєстрація тимчасово недоступна';
+      when(
+        () => authRepo.registerIndependentMaster(
+          email: any(named: 'email'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          role: any(named: 'role'),
+          businessName: any(named: 'businessName'),
+          address: any(named: 'address'),
+          phone: any(named: 'phone'),
+        ),
+      ).thenThrow(
+        const ValidationFailure(
+          fieldErrors: <String, String>{},
+          serverMessage: serverMsg,
+        ),
+      );
+
+      final container = _container(
+        role: UserRole.independentMaster,
+        authRepo: authRepo,
+        masterRepo: masterRepo,
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_app(_makeRouter(), container));
+      await tester.pumpAndSettle();
+
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+
+      await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
+      await _pick(tester, const Key('locality_row_city'), 'Львів');
+      await _pick(tester, const Key('locality_row_district'), 'Галицький');
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('address_street')),
+        'вул. Тестова',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('address_building')),
+        '12',
+      );
+      await tester.pumpAndSettle();
+
+      await _tap(tester, const ValueKey<String>('address_submit'));
+
+      expect(find.byKey(const Key('step3-snackbar')), findsOneWidget);
+      // Server message wins over the generic errValidation fallback.
+      expect(find.text(serverMsg), findsOneWidget);
+      expect(find.text(l10n.errValidation), findsNothing);
+      expect(find.textContaining('verification:'), findsNothing);
+    },
+  );
+
   // ── 11. Credentials cleared after successful register (MEDIUM-1 guard) ────
   testWidgets(
     '11. successful register clears draft password before /verification',
@@ -1331,6 +1488,68 @@ void main() {
       reason:
           'RegisterStep3Screen must render Icons.location_on_outlined '
           '(72×72 neumorphic icon tile) at the top of the screen.',
+    );
+  });
+
+  // ── fetchOblasts() throws during initState prefetch ───────────────────────
+  //
+  // Backlog: LOW — No test covers fetchOblasts() throwing during Step 3
+  // initState prefetch (mobile-qa, 2026-05-24).
+  //
+  // When the oblast warm-up Future rejects (e.g. NetworkFailure on cold load
+  // before any picker tap), the screen must not crash. The LocalityTapRow
+  // stays in its initial (empty / error) state — the widget tree stays mounted.
+  //
+  // Mutation guard: if the prefetch addPostFrameCallback is ever wrapped with
+  // a bare `await` without error handling, this test will throw an uncaught
+  // exception during pumpAndSettle, failing the test as intended.
+  //
+  // Pump sequence note: Riverpod schedules a 200 ms retry timer after a
+  // keepAlive provider throws. pumpAndSettle() alone does not advance fake
+  // time past that timer — the timer stays pending at teardown and causes a
+  // test failure. Pumping Duration(milliseconds: 250) advances fake time past
+  // the retry tick, the timer fires harmlessly (retries → same error), and
+  // pumpAndSettle then drains any resulting microtasks so the tree is clean.
+  testWidgets('fetchOblasts throws NetworkFailure — screen does not crash; '
+      'RegisterStep3Screen remains mounted (oblast prefetch error path)', (
+    tester,
+  ) async {
+    final container = _container(
+      role: UserRole.client,
+      authRepo: _MockAuthRepository(),
+      locationRepo: _FailingLocationRepository(),
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(_app(_makeRouter(), container));
+    // Flush the addPostFrameCallback queue so the prefetch read fires.
+    await tester.pump();
+    // Let the rejected Future propagate.
+    await tester.pumpAndSettle();
+    // Advance past Riverpod's 200 ms keepAlive-provider retry timer so it
+    // fires (another failed attempt) and is removed before teardown.
+    await tester.pump(const Duration(milliseconds: 250));
+    // Drain microtasks from the retry attempt.
+    await tester.pumpAndSettle();
+
+    // The screen widget must still be in the tree — no crash, no blank screen.
+    expect(
+      find.byType(RegisterStep3Screen),
+      findsOneWidget,
+      reason:
+          'fetchOblasts() NetworkFailure during initState prefetch must not '
+          'unmount the screen. The widget tree must remain intact so the user '
+          'can still interact with the form.',
+    );
+
+    // The oblast tap row must be present — it renders in its empty/error state
+    // when the prefetch fails before any user interaction.
+    expect(
+      find.byKey(const Key('locality_row_oblast')),
+      findsOneWidget,
+      reason:
+          'The oblast LocalityTapRow must remain in the tree after a '
+          'fetchOblasts() failure so the user can retry by tapping it.',
     );
   });
 }

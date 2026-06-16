@@ -115,6 +115,13 @@ Dio dio(Ref ref) {
     BaseOptions(
       baseUrl: AppConfig.baseUrl,
       connectTimeout: const Duration(seconds: 15),
+      // sendTimeout guards the request-write phase (a stalled upload / slow
+      // request body). Without it a hung send never fires a DioException and a
+      // dependent provider (e.g. serviceTypesProvider) would spin forever — the
+      // root cause of the "Тип послуги loads forever" report. A send timeout
+      // maps through ServiceRepository._mapDioException → NetworkFailure → the
+      // dropdown's retryable error state.
+      sendTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 30),
       headers: const {
         'Accept': 'application/json',

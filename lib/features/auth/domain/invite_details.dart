@@ -29,9 +29,14 @@ class InviteDetails {
   /// Absolute UTC instant at which the invite token expires.
   final DateTime expiresAt;
 
-  /// Remaining hours until expiry. Returns 0 once the invite has expired.
-  int get expiresInHours {
-    final remaining = expiresAt.difference(DateTime.now());
+  /// Remaining hours until expiry, measured from [now]. Returns 0 once the
+  /// invite has expired.
+  ///
+  /// [now] is injected (rather than read from [DateTime.now] internally) so the
+  /// domain layer stays pure and deterministic — the presentation layer passes
+  /// `ref.watch(clockProvider)()`.
+  int expiresInHoursFrom(DateTime now) {
+    final remaining = expiresAt.difference(now);
     return remaining.isNegative ? 0 : remaining.inHours;
   }
 }

@@ -110,6 +110,25 @@ void main() {
       final msg = await _resolveMessage(tester, const UnknownFailure());
       expect(msg, equals(l10n.errUnknown));
     });
+
+    testWidgets(
+      'EmailAlreadyRegisteredFailure.userMessage returns errEmailAlreadyRegistered',
+      (tester) async {
+        final l10n = await _pumpAndGetL10n(tester);
+        final msg = await _resolveMessage(
+          tester,
+          const EmailAlreadyRegisteredFailure(),
+        );
+        expect(
+          msg,
+          equals(l10n.errEmailAlreadyRegistered),
+          reason:
+              'EmailAlreadyRegisteredFailure.userMessage must return the '
+              'errEmailAlreadyRegistered l10n key so the UI shows the correct '
+              '"email already registered" message.',
+        );
+      },
+    );
   });
 
   group('ValidationFailure — fieldErrors storage', () {
@@ -129,6 +148,37 @@ void main() {
     test('fieldErrors is empty when no field errors supplied', () {
       const failure = ValidationFailure(fieldErrors: {});
       expect(failure.fieldErrors, isEmpty);
+    });
+  });
+
+  group('ProviderMissingCityFailure.userMessage', () {
+    testWidgets('returns verificationErrProviderMissingCity l10n string', (
+      tester,
+    ) async {
+      final l10n = await _pumpAndGetL10n(tester);
+      final msg = await _resolveMessage(
+        tester,
+        const ProviderMissingCityFailure(),
+      );
+      expect(
+        msg,
+        equals(l10n.verificationErrProviderMissingCity),
+        reason:
+            'ProviderMissingCityFailure.userMessage must return the '
+            'verificationErrProviderMissingCity l10n key so the UI shows the '
+            '"go back to step 3" recovery message.',
+      );
+    });
+
+    test('cause is nullable and defaults to null', () {
+      const failure = ProviderMissingCityFailure();
+      expect(failure.cause, isNull);
+    });
+
+    test('cause is preserved when supplied', () {
+      final underlying = Exception('draft cleared');
+      final failure = ProviderMissingCityFailure(cause: underlying);
+      expect(failure.cause, same(underlying));
     });
   });
 

@@ -53,6 +53,20 @@ const _fakeUser = User(
   lastName: 'User',
 );
 
+/// A CLIENT-role user for testing that non-INDEPENDENT_MASTER roles still
+/// land on [RouteNames.home] (the "coming soon" shell).
+const _clientUser = User(
+  id: 'u2',
+  email: 'client@example.com',
+  role: UserRole.client,
+  firstName: 'Client',
+  lastName: 'User',
+);
+
+const _clientSession = AsyncData<AuthSession>(
+  AuthSession.authenticated(user: _clientUser, accessToken: 'token'),
+);
+
 const _authenticatedSession = AsyncData<AuthSession>(
   AuthSession.authenticated(user: _fakeUser, accessToken: 'token'),
 );
@@ -89,23 +103,42 @@ void main() {
       );
     });
 
-    test('authenticated user at /login is redirected to /', () {
+    // Phase 4.2 — INDEPENDENT_MASTER lands on /master/profile, not /.
+    test('INDEPENDENT_MASTER at /login is redirected to /master/profile', () {
       expect(
         authRedirectForLocation(_authenticatedSession, RouteNames.login),
-        equals(RouteNames.home),
+        equals(RouteNames.masterProfile),
       );
     });
 
-    test('authenticated user at /register is redirected to /', () {
-      expect(
-        authRedirectForLocation(_authenticatedSession, RouteNames.register),
-        equals(RouteNames.home),
-      );
-    });
+    test(
+      'INDEPENDENT_MASTER at /register is redirected to /master/profile',
+      () {
+        expect(
+          authRedirectForLocation(_authenticatedSession, RouteNames.register),
+          equals(RouteNames.masterProfile),
+        );
+      },
+    );
 
-    test('authenticated user at /splash is redirected to /', () {
+    test('INDEPENDENT_MASTER at /splash is redirected to /master/profile', () {
       expect(
         authRedirectForLocation(_authenticatedSession, RouteNames.splash),
+        equals(RouteNames.masterProfile),
+      );
+    });
+
+    // Non-INDEPENDENT_MASTER (CLIENT) roles still land on /.
+    test('CLIENT role at /login is redirected to /', () {
+      expect(
+        authRedirectForLocation(_clientSession, RouteNames.login),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('CLIENT role at /splash is redirected to /', () {
+      expect(
+        authRedirectForLocation(_clientSession, RouteNames.splash),
         equals(RouteNames.home),
       );
     });
@@ -264,25 +297,31 @@ void main() {
     // query param; matchedLocation strips the query string, so the guard sees
     // the bare RouteNames.resetPassword path here.
 
-    test('authenticated user at /forgot-password is redirected to /', () {
-      expect(
-        authRedirectForLocation(
-          _authenticatedSession,
-          RouteNames.forgotPassword,
-        ),
-        equals(RouteNames.home),
-      );
-    });
+    test(
+      'INDEPENDENT_MASTER at /forgot-password is redirected to /master/profile',
+      () {
+        expect(
+          authRedirectForLocation(
+            _authenticatedSession,
+            RouteNames.forgotPassword,
+          ),
+          equals(RouteNames.masterProfile),
+        );
+      },
+    );
 
-    test('authenticated user at /reset-password is redirected to /', () {
-      expect(
-        authRedirectForLocation(
-          _authenticatedSession,
-          RouteNames.resetPassword,
-        ),
-        equals(RouteNames.home),
-      );
-    });
+    test(
+      'INDEPENDENT_MASTER at /reset-password is redirected to /master/profile',
+      () {
+        expect(
+          authRedirectForLocation(
+            _authenticatedSession,
+            RouteNames.resetPassword,
+          ),
+          equals(RouteNames.masterProfile),
+        );
+      },
+    );
 
     test('anonymous user at /forgot-password stays (null)', () {
       expect(
@@ -308,12 +347,18 @@ void main() {
     // anonymous user arriving via the emailed deep link must stay on the
     // screen; an already-authenticated user must be bounced to /.
 
-    test('authenticated user at /invite/accept is redirected to /', () {
-      expect(
-        authRedirectForLocation(_authenticatedSession, RouteNames.acceptInvite),
-        equals(RouteNames.home),
-      );
-    });
+    test(
+      'INDEPENDENT_MASTER at /invite/accept is redirected to /master/profile',
+      () {
+        expect(
+          authRedirectForLocation(
+            _authenticatedSession,
+            RouteNames.acceptInvite,
+          ),
+          equals(RouteNames.masterProfile),
+        );
+      },
+    );
 
     test('anonymous user at /invite/accept stays (null)', () {
       expect(
@@ -329,6 +374,106 @@ void main() {
       expect(
         authRedirectForLocation(_loadingSession, RouteNames.acceptInvite),
         isNull,
+      );
+    });
+
+    // Phase 5.2 — /services/* role gate (SEC MEDIUM-2).
+    // INDEPENDENT_MASTER may access /services; all other roles are redirected
+    // to / (the "coming soon" home shell).
+
+    test('INDEPENDENT_MASTER at /services stays (null)', () {
+      expect(
+        authRedirectForLocation(_authenticatedSession, RouteNames.services),
+        isNull,
+      );
+    });
+
+    test('INDEPENDENT_MASTER at /services/create stays (null)', () {
+      expect(
+        authRedirectForLocation(
+          _authenticatedSession,
+          RouteNames.serviceCreate,
+        ),
+        isNull,
+      );
+    });
+
+    test('CLIENT role at /services is redirected to /', () {
+      expect(
+        authRedirectForLocation(_clientSession, RouteNames.services),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('CLIENT role at /services/create is redirected to /', () {
+      expect(
+        authRedirectForLocation(_clientSession, RouteNames.serviceCreate),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('CLIENT role at /services/:id/edit is redirected to /', () {
+      expect(
+        authRedirectForLocation(
+          _clientSession,
+          RouteNames.serviceEdit('svc-001'),
+        ),
+        equals(RouteNames.home),
+      );
+    });
+
+    // Phase 6.2 — /master/working-hours role gate (SEC regression).
+    //
+    // The /master/* prefix guard in auth_redirect.dart redirects any
+    // authenticated role that is NOT INDEPENDENT_MASTER to RouteNames.home.
+    // These three tests pin that guard for the working-hours route specifically
+    // so a refactor that widens /master/* access is caught immediately.
+
+    test('INDEPENDENT_MASTER at /master/working-hours is allowed (null)', () {
+      expect(
+        authRedirectForLocation(_authenticatedSession, RouteNames.workingHours),
+        isNull,
+      );
+    });
+
+    test('SALON_MASTER at /master/working-hours is redirected to /', () {
+      const salonMasterUser = User(
+        id: 'u-sm',
+        email: 'salonmaster@example.com',
+        role: UserRole.salonMaster,
+        firstName: 'Salon',
+        lastName: 'Master',
+      );
+      const salonMasterSession = AsyncData<AuthSession>(
+        AuthSession.authenticated(user: salonMasterUser, accessToken: 'token'),
+      );
+      expect(
+        authRedirectForLocation(salonMasterSession, RouteNames.workingHours),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('SALON_OWNER at /master/working-hours is redirected to /', () {
+      const salonOwnerUser = User(
+        id: 'u-so',
+        email: 'owner@example.com',
+        role: UserRole.salonOwner,
+        firstName: 'Salon',
+        lastName: 'Owner',
+      );
+      const salonOwnerSession = AsyncData<AuthSession>(
+        AuthSession.authenticated(user: salonOwnerUser, accessToken: 'token'),
+      );
+      expect(
+        authRedirectForLocation(salonOwnerSession, RouteNames.workingHours),
+        equals(RouteNames.home),
+      );
+    });
+
+    test('CLIENT at /master/working-hours is redirected to /', () {
+      expect(
+        authRedirectForLocation(_clientSession, RouteNames.workingHours),
+        equals(RouteNames.home),
       );
     });
   });
@@ -408,6 +553,11 @@ void main() {
             path: RouteNames.resetPassword,
             builder: (c, s) => const _Probe('reset-password'),
           ),
+          // Phase 4.2 — INDEPENDENT_MASTER lands here instead of /.
+          GoRoute(
+            path: RouteNames.masterProfile,
+            builder: (c, s) => const _Probe('master-profile'),
+          ),
         ],
       );
       addTearDown(router.dispose);
@@ -436,38 +586,47 @@ void main() {
       expect(find.text('login'), findsNothing);
     });
 
-    testWidgets('authenticated @ /login → redirected to /', (tester) async {
+    // Phase 4.2 — INDEPENDENT_MASTER lands on /master/profile, not /.
+    testWidgets('INDEPENDENT_MASTER @ /login → redirected to /master/profile', (
+      tester,
+    ) async {
       await pumpRouterWith(tester, _authenticatedSession, RouteNames.login);
-      expect(find.text('home'), findsOneWidget);
+      expect(find.text('master-profile'), findsOneWidget);
+      expect(find.text('home'), findsNothing);
     });
 
     // Phase 2.13 — forgot-password flow guard wiring through real GoRouterState.
 
-    testWidgets('authenticated @ /forgot-password → redirected to /', (
-      tester,
-    ) async {
-      await pumpRouterWith(
-        tester,
-        _authenticatedSession,
-        RouteNames.forgotPassword,
-      );
-      expect(find.text('home'), findsOneWidget);
-      expect(find.text('forgot-password'), findsNothing);
-    });
+    // Phase 4.2 — INDEPENDENT_MASTER lands on /master/profile.
+    testWidgets(
+      'INDEPENDENT_MASTER @ /forgot-password → redirected to /master/profile',
+      (tester) async {
+        await pumpRouterWith(
+          tester,
+          _authenticatedSession,
+          RouteNames.forgotPassword,
+        );
+        expect(find.text('master-profile'), findsOneWidget);
+        expect(find.text('forgot-password'), findsNothing);
+        expect(find.text('home'), findsNothing);
+      },
+    );
 
-    testWidgets('authenticated @ /reset-password → redirected to /', (
-      tester,
-    ) async {
-      // The router strips the `?token=...` query string before matchedLocation,
-      // so navigating with a token still resolves to RouteNames.resetPassword.
-      await pumpRouterWith(
-        tester,
-        _authenticatedSession,
-        '${RouteNames.resetPassword}?token=x',
-      );
-      expect(find.text('home'), findsOneWidget);
-      expect(find.text('reset-password'), findsNothing);
-    });
+    testWidgets(
+      'INDEPENDENT_MASTER @ /reset-password → redirected to /master/profile',
+      (tester) async {
+        // The router strips the `?token=...` query string before matchedLocation,
+        // so navigating with a token still resolves to RouteNames.resetPassword.
+        await pumpRouterWith(
+          tester,
+          _authenticatedSession,
+          '${RouteNames.resetPassword}?token=x',
+        );
+        expect(find.text('master-profile'), findsOneWidget);
+        expect(find.text('reset-password'), findsNothing);
+        expect(find.text('home'), findsNothing);
+      },
+    );
 
     testWidgets('anonymous @ /forgot-password stays on the route', (
       tester,
@@ -493,8 +652,9 @@ void main() {
       expect(find.text('login'), findsNothing);
     });
 
+    // Phase 4.2 — INDEPENDENT_MASTER settles to /master/profile, not /.
     testWidgets(
-      'cold-start: loading at /home parks on /splash, then authenticated → /home (no /login flash)',
+      'cold-start: loading at /home parks on /splash, then INDEPENDENT_MASTER → /master/profile (no /login flash)',
       (tester) async {
         var session = _loadingSession as AsyncValue<AuthSession>;
         late void Function() triggerRefresh;
@@ -517,6 +677,10 @@ void main() {
               path: RouteNames.home,
               builder: (_, _) => const _Probe('home'),
             ),
+            GoRoute(
+              path: RouteNames.masterProfile,
+              builder: (_, _) => const _Probe('master-profile'),
+            ),
           ],
         );
         addTearDown(router.dispose);
@@ -535,15 +699,16 @@ void main() {
           reason: 'authenticated user must never see /login on cold start',
         );
 
-        // Simulate session settling to authenticated.
+        // Simulate session settling to authenticated (INDEPENDENT_MASTER).
         session = _authenticatedSession;
         triggerRefresh();
         await tester.pumpAndSettle();
 
         expect(
-          find.text('home'),
+          find.text('master-profile'),
           findsOneWidget,
-          reason: 'authenticated session must forward to /home after settle',
+          reason:
+              'INDEPENDENT_MASTER must forward to /master/profile after settle',
         );
         expect(
           find.text('login'),

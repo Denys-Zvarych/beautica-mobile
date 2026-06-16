@@ -3,8 +3,20 @@ name: PR Validation
 on:
   pull_request:
     branches: [main, dev]
+    # `labeled` lets the opt-in `run-patrol` label trigger the heavy patrol job
+    # on a PR before this workflow (with workflow_dispatch) reaches the default branch.
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main, dev]
+  # Phase 17.5 — nightly trigger for the heavy patrol native-E2E job (see the
+  # `patrol` job below). The fast `validate` + `integration` jobs run on every
+  # push/PR as before; the patrol job is gated to schedule / manual dispatch /
+  # an opt-in PR label so its slow native compile + emulator run never blocks
+  # the per-PR critical path.
+  schedule:
+    # 03:30 UTC nightly (off-peak; after typical EU working hours).
+    - cron: '30 3 * * *'
+  workflow_dispatch: {}
 
 jobs:
   validate:
@@ -36,9 +48,26 @@ jobs:
       - name: Codegen (build_runner)
         run: dart run build_runner build --delete-conflicting-outputs
 
-      # Phase 3.1 wires the OpenAPI client generation gate:
-      #   - name: Verify OpenAPI client is up to date
-      #     run: ./scripts/regenerate_api.sh --check
+      # Phase 3.1 — OpenAPI client drift gate.
+      # Regenerates the Dart client from the COMMITTED spec snapshot
+      # (tool/openapi/api-spec.json) into a temp dir, then diffs against the
+      # committed api/.  Fails if they diverge — no live backend needed.
+      # Tool setup: openapi_generator_cli is activated on the first run and
+      # its JAR is cached in .dart_tool/openapi_generator_cache/.
+      - name: Install openapi-generator-cli
+        # Pinned to 6.1.0 (wraps JAR 7.9.0) — must match scripts/regenerate_api.sh.
+        # Update both locations together to avoid spec-drift between local and CI.
+        run: dart pub global activate openapi_generator_cli 6.1.0
+
+      - name: Verify OpenAPI client is up to date
+        # Contract-drift gate (Fix 3, 2026-06-02): regenerates the Dart client
+        # from the committed spec and fails on any diff vs api/. The companion
+        # static guard test/core/config/app_config_path_test.dart (run by the
+        # Test step below) pins the other half of the contract — that
+        # AppConfig.baseUrl never carries an /api/v1 prefix and the generated
+        # client paths resolve to a SINGLE /api/v1/ segment (no double-prefix).
+        # Run locally with:  ./scripts/regenerate_api.sh --check
+        run: ./scripts/regenerate_api.sh --check
 
       - name: Format check
         run: dart format --output=none --set-exit-if-changed lib/ test/
@@ -86,7 +115,30 @@ jobs:
           fi
 
       - name: Test
-        run: flutter test --coverage --reporter=expanded
+        run: flutter test --coverage --reporter=expanded --exclude-tags golden
+
+      # Phase 17.4 — Golden regression suite.
+      # Runs the alchemist CI goldens (obscureText=true, renderShadows=false)
+      # against the committed masters in test/golden/goldens/.
+      # On failure, golden-diff PNGs are collected from the framework's default
+      # failures/ subdirectory (alchemist writes isolatedDiff, maskedDiff,
+      # masterImage, testImage to <test-file-dir>/failures/) and uploaded so
+      # reviewers can inspect regressions without pulling the branch locally.
+      - name: Golden regression tests
+        run: flutter test test/golden/ --reporter=expanded
+
+      - name: Upload golden failure diffs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: golden-failure-diffs-${{ github.event.pull_request.number || github.run_number }}
+          # All golden tests live directly under test/golden/, so alchemist only
+          # ever writes test/golden/failures/. The recursive **/failures/ glob
+          # matched nothing and was removed (PERF INFO).
+          path: |
+            test/golden/failures/
+          if-no-files-found: ignore
+          retention-days: 14
 
       # Decode the release keystore from the base64 secret.
       # Skipped silently on forks / branches where the secret is absent.
@@ -104,14 +156,19 @@ jobs:
 
       - name: Build APK (debug)
         env:
-          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app/api/v1
+          # NO /api/v1 suffix — the generated OpenAPI client and raw Dio calls
+          # already prepend /api/v1/. A suffix here double-prefixes every URL
+          # (.../api/v1/api/v1/...) → 404. Contract pinned by
+          # test/core/config/app_config_path_test.dart.
+          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app
         run: |
           flutter build apk --debug \
             --dart-define=BEAUTICA_BASE_URL="$BEAUTICA_BASE_URL"
 
       - name: Build APK (release)
         env:
-          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app/api/v1
+          # NO /api/v1 suffix — see the debug build note above. Double-prefix → 404.
+          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app
           BEAUTICA_KEYSTORE_PATH: ${{ github.workspace }}/beautica-release.jks
           BEAUTICA_KEYSTORE_PASSWORD: ${{ secrets.BEAUTICA_KEYSTORE_PASSWORD }}
           BEAUTICA_KEY_ALIAS: ${{ secrets.BEAUTICA_KEY_ALIAS }}
@@ -142,3 +199,216 @@ jobs:
         with:
           file: coverage/lcov.info
           fail_ci_if_error: false
+
+  # ---------------------------------------------------------------------------
+  # End-to-end integration tests (Fix 4, 2026-06-02).
+  #
+  # integration_test/ drives the REAL app widget tree (real screens + real
+  # notifiers + real repository + real generated client + real serialization)
+  # with ONLY the Dio transport socket faked by http_mock_adapter — no live
+  # backend. IntegrationTestWidgetsFlutterBinding requires a device, so this job
+  # boots a headless Android emulator (KVM-accelerated on the runner) and runs:
+  #   flutter test integration_test/
+  #
+  # Run locally against a connected emulator (see scripts/connect_adb.sh) with:
+  #   flutter test integration_test/edit_profile_flow_test.dart
+  # ---------------------------------------------------------------------------
+  integration:
+    name: Integration tests (emulator)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
+        with:
+          flutter-version: '3.41.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Codegen (build_runner)
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      # KVM is required for hardware-accelerated emulator boot on the runner.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run integration tests on emulator
+        uses: reactivecircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d  # v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          # Run ALL 5 E2E flows via a single aggregating entrypoint to recover
+          # emulator boot cost (L87). integration_test/all_tests.dart imports
+          # each flow's main() and runs them in ONE `flutter test` process / one
+          # isolate. Each testWidgets still pumps a fresh app via
+          # AppHarness.boot() and resets global state via tearDownHarness BETWEEN
+          # flows — so the app re-launches per-testWidgets (the supported model),
+          # not per-process. This avoids cold-booting the app 5× (the old
+          # per-file loop) while keeping every flow's fresh-launch semantics.
+          #
+          # NOTE: directory-mode batching (`flutter test integration_test/`) does
+          # NOT work — it launches the app once and cannot relaunch between files
+          # ("Unable to start the app on the device" after the first flow). A
+          # single AGGREGATING FILE does work: one isolate, harness re-launches
+          # per testWidgets. That is the distinction this entrypoint relies on.
+          #
+          # No `|| exit 1` fail-fast wrapper (L88): the single run continues past
+          # a failing testWidgets and reports EVERY failure across all 5 flows at
+          # the end. `flutter test`'s own non-zero exit on any failure is the gate.
+          script: |
+            flutter test integration_test/all_tests.dart
+
+  # ---------------------------------------------------------------------------
+  # Patrol native E2E (Phase 17.5).
+  #
+  # Covers OS-level surfaces integration_test cannot reach (deep-link intents,
+  # permission dialogs, notifications, WebViews) via patrol's `$.native.*`.
+  # Tests live under integration_test/patrol/ and run through native
+  # instrumentation (PatrolJUnitRunner) driven by the patrol_cli global tool —
+  # NOT `flutter test`. The headless `integration` job above is unaffected: the
+  # all_tests.dart aggregator does not import anything under patrol/.
+  #
+  # WHY THIS JOB IS GATED (not per-PR):
+  #   The native compile builds the androidTest variant + AndroidX Test
+  #   Orchestrator and boots a full emulator — materially slower than the fast
+  #   jobs. The patrol flow set is small and changes rarely, so per-PR runtime
+  #   cost is not justified. This job therefore runs only on:
+  #     • the nightly `schedule` trigger,
+  #     • manual `workflow_dispatch`,
+  #     • PRs explicitly labelled `run-patrol`.
+  #   It is a SEPARATE job, so it never blocks or merges into the fast
+  #   `validate` / `integration` jobs.
+  patrol:
+    name: Patrol native E2E (emulator) (API ${{ matrix.api-level }})
+    runs-on: ubuntu-latest
+    # Matrix axis: API 34 only. API 29 was dropped — its x86_64 system image
+    # crashes with a native jemalloc SIGSEGV during native-thread creation
+    # (art::Thread::CreateNativeThread → je_malloc) before any patrol test runs.
+    # The same APK runs clean on API 34, so the crash is the emulator image, not
+    # app code. The deep-link test asserts App Links routing, and the strict
+    # path that can actually break is Android 12+ (API 31+) — already covered by
+    # API 34. (minSdk is 26; re-add API 29 pinned to a known-good image on a
+    # continue-on-error leg if pre-12 coverage is later needed.)
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [34]
+    # Skip on ordinary push/PR; opt in via schedule, manual dispatch, or label.
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'run-patrol'))
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
+        with:
+          flutter-version: '3.41.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Codegen (build_runner)
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      # patrol_cli is a GLOBAL tool — intentionally not a repo dependency.
+      # Pin the major to match the patrol package (^4.x) so the CLI protocol
+      # matches the on-device test bundle.
+      - name: Install patrol_cli
+        run: |
+          dart pub global activate patrol_cli
+          echo "$HOME/.pub-cache/bin" >> "$GITHUB_PATH"
+
+      - name: patrol doctor
+        run: patrol doctor
+
+      # KVM is required for hardware-accelerated emulator boot on the runner.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run patrol native tests on emulator
+        uses: reactivecircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d  # v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: pixel_6
+          # Scope to integration_test/patrol so patrol only bundles the
+          # patrolTest flows. With test_directory: integration_test in
+          # pubspec.yaml, a bare `patrol test` would also discover the 5
+          # non-patrol flow files + all_tests.dart (testWidgets, not
+          # patrolTest) — those stay on the fast headless `integration` job.
+          # The FCM cases are skip-marked at the Dart level (Firebase deferred)
+          # so they report as skipped, not failed.
+          script: |
+            # Capture full device logcat in the background so a crash stack
+            # (Process crashed → FATAL EXCEPTION) survives — patrol/gradle only
+            # surface "Process crashed", not the device-side stack. Backgrounded
+            # on its own line so it survives this line's sh -c exit.
+            adb logcat -c || true; adb logcat -b all -v time > "$GITHUB_WORKSPACE/patrol-logcat.txt" 2>&1 &
+            # Keep the ADB-install verifier out of the way during patrol's reinstall.
+            adb shell settings put global verifier_verify_adb_installs 0 || true
+            # BACKGROUND RE-APPROVAL LOOP (load-bearing fix). patrol test rebuilds +
+            # reinstalls the app right before running, which WIPES App Link approval,
+            # so a one-shot pre-approval is gone by the time openUrl fires (deep-link
+            # test runs 3rd). This loop re-asserts STATE_APPROVED every second for
+            # both default and user scope, so whenever patrol's reinstall lands the
+            # domain is re-approved before the intent is fired.
+            #
+            # It STOPS the instant patrol finishes, via the sentinel file written on
+            # the patrol line below — the emulator-runner action waits for backgrounded
+            # children, so a loop that kept spinning would hang the step for minutes
+            # after the tests already passed (observed). Each adb call is `timeout`-
+            # bounded so a call can never wedge, and the loop is iteration-capped as a
+            # final backstop. NOT pkill'd — `pkill -f` would match its own argv and
+            # SIGTERM the cleanup shell ("exit code null"). Must be ONE self-contained
+            # line so the `&` background survives this line's own sh -c.
+            rm -f /tmp/patrol_approve_done || true
+            ( i=0; while [ ! -f /tmp/patrol_approve_done ] && [ "$i" -lt 1200 ]; do timeout 10 adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; timeout 10 adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app >/dev/null 2>&1 || true; i=$((i+1)); sleep 1; done ) &
+            patrol build android --target integration_test/patrol
+            # Run patrol, capture its exit, signal the loop to stop, then exit with
+            # patrol's real code — all on ONE line so the exit status carries
+            # (android-emulator-runner runs each line in its own sh -c, so a separate
+            # CODE=$?/exit would not). This makes the step's result equal patrol's.
+            patrol test --target integration_test/patrol --verbose; RC=$?; : > /tmp/patrol_approve_done; exit $RC
+
+      - name: Upload patrol device logcat
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          # Per-API suffix keeps the artifact name unique across the parallel
+          # matrix jobs — actions/upload-artifact requires unique names.
+          name: patrol-logcat-${{ github.run_number }}-api${{ matrix.api-level }}
+          path: patrol-logcat.txt
+          if-no-files-found: ignore
+          retention-days: 7

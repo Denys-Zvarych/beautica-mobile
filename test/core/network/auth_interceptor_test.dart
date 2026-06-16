@@ -16,6 +16,7 @@ import 'package:beautica_mobile/core/network/auth_interceptor.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
@@ -61,12 +62,30 @@ const _fakeUser = User(
 
 const _fakeAccessToken = 'test-access-jwt';
 
+/// Rotated token pair returned by the cold-start refresh in
+/// [_makeColdStartContainer]. Its [AuthTokens.accessToken] is what the real
+/// notifier stores in `_lastKnownAccessToken` and what the interceptor must
+/// recover during the delete-flow mid-rebuild race (B1).
+const _rotatedTokens = AuthTokens(
+  accessToken: 'rotated-access-jwt',
+  refreshToken: 'rotated-refresh-jwt',
+);
+
 // ---------------------------------------------------------------------------
 // Helper — builds RequestOptions for a given path.
 // ---------------------------------------------------------------------------
 
 RequestOptions _opts(String path) => RequestOptions(
   path: path,
+  baseUrl: 'https://api.beautica.test',
+  headers: <String, dynamic>{},
+);
+
+/// Builds DELETE [RequestOptions] for [path] — mirrors the real delete call
+/// (`ServiceRepository.deactivate` → DELETE /api/v1/services/{serviceDefId}).
+RequestOptions _serviceDeleteOpts(String path) => RequestOptions(
+  path: path,
+  method: 'DELETE',
   baseUrl: 'https://api.beautica.test',
   headers: <String, dynamic>{},
 );
@@ -104,6 +123,37 @@ ProviderContainer _makeContainer(AsyncValue<AuthSession> authState) {
   );
   addTearDown(container.dispose);
   return container;
+}
+
+/// Creates a [ProviderContainer] backed by the REAL [AuthNotifier] driven
+/// through its cold-start restore flow ([FakeAuthRepository] returns
+/// [rotatedTokens] from refresh + [_fakeUser] from me).
+///
+/// Unlike [_makeContainer]'s [_FixedAuthNotifier] stub, this exercises the real
+/// notifier so its private `_lastKnownAccessToken` session-lifetime fallback is
+/// genuinely populated — the exact field [AuthInterceptor]'s else-branch reads
+/// during the delete-flow mid-rebuild race (auth_notifier Test 2b).
+Future<({ProviderContainer container, AuthNotifier notifier})>
+_makeColdStartContainer() async {
+  final storage = FakeSecureStorage();
+  await storage.writeRefreshToken('stored-refresh');
+  final repo = FakeAuthRepository()
+    ..refreshResult = _rotatedTokens
+    ..meResult = _fakeUser;
+
+  final container = ProviderContainer(
+    overrides: [
+      authRepositoryProvider.overrideWith((_) => repo),
+      secureStorageProvider.overrideWith((_) => storage),
+    ],
+  );
+  addTearDown(container.dispose);
+
+  // Drive the cold-start restore to completion so the settled Authenticated
+  // session populates `_lastKnownAccessToken`.
+  await container.read(authProvider.future);
+  final notifier = container.read(authProvider.notifier);
+  return (container: container, notifier: notifier);
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +222,7 @@ void main() {
     // Test 3 — Auth path with Authenticated state → no Authorization header
     // -----------------------------------------------------------------------
     test(
-      'auth path (/auth/login) with authenticated state → no Authorization header',
+      'auth path (/api/v1/auth/login) with authenticated state → no Authorization header',
       () async {
         const authState = AsyncData<AuthSession>(
           AuthSession.authenticated(
@@ -187,8 +237,10 @@ void main() {
         final ref = container.read(_refCaptureProvider);
         final interceptor = AuthInterceptor(ref);
         final handler = MockRequestHandler();
-        // /auth/login is in kAuthPaths → interceptor must skip token injection.
-        final opts = _opts('/auth/login');
+        // /api/v1/auth/login is in kAuthPaths → interceptor must skip token
+        // injection. The full /api/v1/ prefix is required since AppConfig.baseUrl
+        // no longer carries the /api/v1 segment (see auth_paths.dart).
+        final opts = _opts('/api/v1/auth/login');
 
         interceptor.onRequest(opts, handler);
 
@@ -288,5 +340,74 @@ void main() {
       );
       verify(() => handler.next(opts)).called(1);
     });
+
+    // -----------------------------------------------------------------------
+    // Test 6 — mid-rebuild AsyncLoading race on a DELETE → Bearer header from
+    //          _lastKnownAccessToken (delete-service false-401 regression)
+    //
+    // HIGH regression guard (closes the original false-401 delete bug):
+    //
+    // The delete flow invalidates masterProfileProvider, which
+    // serviceRepositoryProvider watches; while that rebuild runs, a watcher of
+    // authProvider is momentarily in AsyncLoading with the cold-start sentinel
+    // already cleared (`coldStartAccessToken == null`) — exactly the state
+    // proven by auth_notifier Test 2b. AuthInterceptor's else-branch MUST fall
+    // back to `lastKnownAccessToken` (→ `_lastKnownAccessToken`) so the
+    // in-flight DELETE /api/v1/services/{serviceDefId} still carries the Bearer
+    // token rather than being sent tokenless (which the backend correctly
+    // answers with a false 401, "Сесія завершилась").
+    //
+    // The path/method below mirror production exactly:
+    //   ServiceRepository.deactivate → DELETE /api/v1/services/{serviceDefId}
+    //   (service_repository.dart deactivateServiceDefinition).
+    // -----------------------------------------------------------------------
+    test(
+      'mid-rebuild AsyncLoading race → DELETE /api/v1/services/{id} carries '
+      'Bearer header from _lastKnownAccessToken (delete false-401 regression)',
+      () async {
+        final (:container, :notifier) = await _makeColdStartContainer();
+
+        // Settled Authenticated → `_lastKnownAccessToken` now holds the rotated
+        // access token. Push the notifier into the mid-rebuild race state:
+        // AsyncLoading, with coldStartAccessToken already null (its settled
+        // value) — so the only recoverable token is `_lastKnownAccessToken`.
+        expect(
+          notifier.coldStartAccessToken,
+          isNull,
+          reason:
+              'cold-start sentinel is cleared once build() settles — the race '
+              'must be recovered via _lastKnownAccessToken, not the sentinel',
+        );
+        // ignore: invalid_use_of_protected_member
+        notifier.state = const AsyncLoading<AuthSession>();
+
+        final ref = container.read(_refCaptureProvider);
+        final interceptor = AuthInterceptor(ref);
+        final handler = MockRequestHandler();
+
+        // DELETE on the real deactivate path — keyed on the service-definition
+        // id. `_makeServiceDeleteOpts` produces a DELETE RequestOptions so the
+        // exact seam (else-branch on a DELETE) is exercised.
+        final opts = _serviceDeleteOpts('/api/v1/services/def-123');
+
+        interceptor.onRequest(opts, handler);
+
+        expect(
+          opts.method,
+          equals('DELETE'),
+          reason:
+              'the regression is specific to the DELETE delete-service call',
+        );
+        expect(
+          opts.headers['Authorization'],
+          equals('Bearer ${_rotatedTokens.accessToken}'),
+          reason:
+              'during the delete-flow mid-rebuild AsyncLoading window, the '
+              'interceptor must recover the last-known access token so the '
+              'DELETE is not sent tokenless and rejected with a false 401',
+        );
+        verify(() => handler.next(opts)).called(1);
+      },
+    );
   });
 }

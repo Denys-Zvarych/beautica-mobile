@@ -53,6 +53,7 @@
 //   9. _splashTimer fires GoRouter.of(context).refresh() after _minSplashMs
 //      when the widget is still mounted — single source of router-kick.
 
+import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/presentation/splash_screen.dart';
@@ -67,6 +68,11 @@ import 'package:lottie/lottie.dart';
 Widget _buildApp() => const MaterialApp(home: SplashScreen());
 
 void main() {
+  // SplashScreen.initState calls AppStartTime.record(), which sets the global
+  // start instant. Reset it after each test so the gate cannot leak into other
+  // suites under randomized ordering (the splash redirect gate reads it).
+  tearDown(AppStartTime.resetForTest);
+
   group('SplashScreen', () {
     // -------------------------------------------------------------------------
     // Test 1 — smoke test: widget renders without error

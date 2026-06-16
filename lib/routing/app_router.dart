@@ -37,7 +37,20 @@ import '../features/auth/presentation/register_step_3_screen.dart';
 import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
+import '../features/master/presentation/contacts_edit_screen.dart';
+import '../features/master/presentation/location_edit_screen.dart';
+import '../features/master/presentation/master_profile_screen.dart';
+import '../features/master/presentation/personal_info_edit_screen.dart';
+import '../features/master/presentation/settings_hub_screen.dart';
+import '../features/services/presentation/service_create_screen.dart';
+import '../features/services/presentation/service_edit_screen.dart';
+import '../features/services/presentation/service_setup_screen.dart';
+import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/schedule/presentation/master_schedule_screen.dart';
+import '../features/schedule/presentation/schedule_editor_stubs.dart';
+import '../features/schedule/presentation/weekly_template_editor_screen.dart';
+import '../features/services/domain/category_slug.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
 import 'route_names.dart';
@@ -102,8 +115,8 @@ GoRouter appRouter(Ref ref) {
             _instantPage(state, const RoleSelectionScreen()),
       ),
       // Phase 2.13 — forgot-password flow. Both routes render outside the
-      // RegisterFlowShell and apply their own ScreenProtector lifecycle
-      // (email + reset token are PII).
+      // RegisterFlowShell and acquire the app-wide screenshot guard via the
+      // ref-counted ScreenProtectionManager (email + reset token are PII).
       GoRoute(
         path: RouteNames.forgotPassword,
         pageBuilder: (context, state) =>
@@ -150,13 +163,14 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         // Phase 2.19 MEDIUM-2 (screenshot/FLAG_SECURE PII coverage):
         // /verification renders OUTSIDE the RegisterFlowShell, so it is NOT
-        // covered by the shell's ScreenProtector lifecycle. It instead applies
-        // its own ScreenProtector.preventScreenshotOn/Off() in
-        // VerificationScreen.initState/dispose (both !kDebugMode-guarded). The
-        // three wizard steps (role-selection self-protects; /register,
-        // /register/step-2, /register/step-3 are inside the shell) are covered
-        // by RegisterFlowShell. Net effect: every PII-collecting auth route has
-        // screenshot suppression — no gap, no double-application.
+        // covered by the shell's screenshot guard. It instead acquires the
+        // app-wide ScreenProtectionManager in VerificationScreen.initState and
+        // releases it in dispose (the manager is internally !kDebugMode-guarded
+        // and ref-counts a single native toggle). The three wizard steps
+        // (role-selection self-acquires; /register, /register/step-2,
+        // /register/step-3 are inside the shell) are covered by
+        // RegisterFlowShell. Net effect: every PII-collecting auth route holds
+        // the shared guard — no gap, no desync.
         path: RouteNames.verification,
         pageBuilder: (context, state) {
           final email = (state.extra as String?) ?? '';
@@ -180,6 +194,135 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.settings,
         builder: (context, state) => const SettingsScreen(),
+      ),
+      // Phase 4.2 — Master profile (read-only).
+      GoRoute(
+        path: RouteNames.masterProfile,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const MasterProfileScreen()),
+      ),
+      // Master profile settings hub + per-section edit pages. These replace the
+      // retired monolithic /master/edit form. All auth-guarded (Phase 2.9
+      // redirect guard covers non-login routes when session is null). MaterialPage
+      // (builder:) so the theme's CupertinoPageTransitionsBuilder installs the
+      // left-edge swipe-back gesture on each push.
+      GoRoute(
+        path: RouteNames.masterMenu,
+        builder: (context, state) => const SettingsHubScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.masterEditPersonal,
+        builder: (context, state) => const PersonalInfoEditScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.masterEditContacts,
+        builder: (context, state) => const ContactsEditScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.masterEditLocation,
+        builder: (context, state) => const LocationEditScreen(),
+      ),
+      // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
+      // Phase 6.x — `expandCategory` query param: when present, the matching
+      // category section is pre-expanded and all others start collapsed. Passed
+      // from profile category cards via context.push('/services?expandCategory=SLUG').
+      // Uses MaterialPage (builder:) so the theme's CupertinoPageTransitionsBuilder
+      // installs the left-edge swipe-back gesture on push entries.
+      GoRoute(
+        path: RouteNames.services,
+        builder: (context, state) {
+          final raw = state.uri.queryParameters['expandCategory']
+              ?.trim()
+              .toUpperCase();
+          final expandCategory = (raw != null && isValidCategorySlug(raw))
+              ? raw
+              : null;
+          return ServicesListScreen(initialExpandCategory: expandCategory);
+        },
+      ),
+      // Phase 5.3 — Service create form (INDEPENDENT_MASTER).
+      // Uses MaterialPage so swipe-back works on the push stack.
+      GoRoute(
+        path: RouteNames.serviceCreate,
+        builder: (context, state) => const ServiceCreateScreen(),
+      ),
+      // First-time service setup (INDEPENDENT_MASTER) — the one-pass empty-state
+      // menu builder reached from the services-list empty state.
+      // Uses MaterialPage so swipe-back works on the push stack.
+      GoRoute(
+        path: RouteNames.serviceSetup,
+        builder: (context, state) => const ServiceSetupScreen(),
+      ),
+      // Phase 5.4 — Service edit form (INDEPENDENT_MASTER).
+      // Parameterised route — extracts `id` from the path. An empty id
+      // redirects to /services defensively; this keeps the guard resilient to
+      // programmatic pushes with a missing segment.
+      // Uses MaterialPage so swipe-back works on the push stack.
+      GoRoute(
+        path: '/services/:id/edit',
+        redirect: (context, state) {
+          final id = state.pathParameters['id'] ?? '';
+          if (id.isEmpty) return RouteNames.services;
+          return null;
+        },
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return ServiceEditScreen(id: id);
+        },
+      ),
+      // Phase 6.2 — the legacy `/master/working-hours` editor route
+      // (WorkingHoursScreen) was retired: it wrote the deprecated `working_hours`
+      // table (no longer bookable) and nothing in the app navigates to it. The
+      // Календар tile lands on [masterSchedule] and the weekly-template edit path
+      // is [scheduleWeeklyEditor] (WeeklyTemplateEditorScreen). The route was
+      // orphaned but still deep-link-reachable, so it is removed here to drop a
+      // dead surface. The WorkingHoursScreen widget itself is kept (its existing
+      // widget tests pump it directly); the [RouteNames.workingHours] constant is
+      // also retained because the SEC role-gate regression tests in
+      // auth_redirect_test.dart use it as a representative `/master/*` location.
+      // Phase 15.2 — Master schedule («Графік роботи»), the Календар tile's
+      // destination. Auth-guarded by the global redirect.
+      GoRoute(
+        path: RouteNames.masterSchedule,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const MasterScheduleScreen()),
+      ),
+      // Phase 15.5 — the REAL weekly-template editor («Робочі дні та години»),
+      // graduating the Phase 15.2 [WeeklyTemplateEditorStubScreen] at the same
+      // path. It saves via [WeeklyScheduleNotifier] → POST/PUT/DELETE
+      // /masters/{id}/weekly-schedules — the Phase 15.5 data path the calendar's
+      // effective-schedule read actually resolves against — and invalidates
+      // [effectiveScheduleProvider] on success so the calendar repaints. This
+      // replaces the dead-end route to the deprecated /master/working-hours
+      // editor (which wrote the legacy `working_hours` table, no longer bookable).
+      // Uses MaterialPage so the left-edge swipe-back gesture works when pushed
+      // from MasterScheduleScreen.
+      GoRoute(
+        path: RouteNames.scheduleWeeklyEditor,
+        builder: (context, state) => const WeeklyTemplateEditorScreen(),
+      ),
+      // Phase 15.4 — the per-date override surface graduated to the modal
+      // [DayHoursSheet] (opened by the day pencil on `master_schedule_screen`),
+      // so this route is no longer a UI destination. It is kept registered
+      // (dead but auth-guarded) ONLY because the Phase 15.2 schedule-screen
+      // widget test still references `PerDateOverrideStubScreen` at this path;
+      // mobile-qa retires both when it authors the 15.4 sheet tests.
+      GoRoute(
+        path: RouteNames.scheduleDayOverride,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const PerDateOverrideStubScreen()),
+      ),
+      // Phase 15.5 — the copy/propagate range surface graduated to the modal
+      // [ApplyScheduleSheet] («Період дії графіка»), opened from the weekly
+      // editor's tappable active-window card. So this route is no longer a
+      // standalone destination: it now lands on the weekly editor (which hosts
+      // the apply sheet) instead of the retired `SchedulePropagateStubScreen`,
+      // mirroring how the 15.4 override route folded into the day sheet. Kept
+      // registered (auth-guarded) for any external/deep-link entry.
+      GoRoute(
+        path: RouteNames.schedulePropagate,
+        pageBuilder: (context, state) =>
+            _instantPage(state, const WeeklyTemplateEditorScreen()),
       ),
     ],
   );

@@ -176,4 +176,173 @@ abstract final class VelvetText {
   /// RegisterStep1Screen. Replaces `link().copyWith(fontSize: 13)` call sites
   /// that were allocating a new TextStyle on every parent rebuild (Batch-2 A5).
   static final TextStyle linkSmall = _linkStyle.copyWith(fontSize: 13);
+
+  // ---------------------------------------------------------------------------
+  // Phase 4.2 fix (PERF MEDIUM-1) — pre-cached feedback variants for the
+  // master profile city label and role chip, replacing per-frame
+  // `feedback(color).copyWith(fontSize: 12)` allocations.
+  // ---------------------------------------------------------------------------
+
+  /// Feedback label for the city / location text — Nunito 13/700, muted, 12 sp.
+  static final TextStyle feedbackMutedSm = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 12,
+  );
+
+  /// Location note sub-row — Nunito 13/700, muted, 11 sp.
+  /// Used for the optional [Master.locationNote] indented row on the identity
+  /// card. Pre-cached here so the profile screen never calls `.copyWith()` per
+  /// build frame (PERF MEDIUM pattern).
+  static final TextStyle feedbackMutedNote = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 11,
+  );
+
+  /// Feedback label for the role chip / accent small text — Nunito 13/700,
+  /// accentDeep, 12 sp.
+  static final TextStyle feedbackAccentSm = _feedbackBase.copyWith(
+    color: BrandColors.accentDeep,
+    fontSize: 12,
+  );
+
+  /// Role chip label at 11 sp — used by RoleChip to fit 'Незалежний майстер'
+  /// without truncation on typical phone widths.
+  static final TextStyle feedbackAccentXs = _feedbackBase.copyWith(
+    color: BrandColors.accentDeep,
+    fontSize: 11,
+  );
+
+  /// Address / location text at 11 sp — used by master profile identity card
+  /// to fit longer address strings without truncation.
+  static final TextStyle feedbackMutedXs = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 11,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Phase 4.x consolidated MEDIUM fixes — pre-composed statics replacing
+  // `feedback(color).copyWith(fontSize: N)` double-allocation call sites.
+  // Each field is computed once at class-load time (zero per-frame cost).
+  // ---------------------------------------------------------------------------
+
+  /// Nav-tab label — Nunito 13/700, dynamic color applied via a single copyWith.
+  /// Base for `_VelvetNavTile`: callers do `navTabLabel.copyWith(color: color)`.
+  static final TextStyle navTabLabel = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 10,
+  );
+
+  /// ContactTile platform label (e.g. "Instagram") — Nunito 13/700,
+  /// textSecondary, 11 sp.
+  static final TextStyle contactPlatformLabel = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 11,
+  );
+
+  /// ServiceTile duration label — Nunito 13/700, muted, 12 sp.
+  static final TextStyle serviceDurationLabel = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 12,
+  );
+
+  /// ServiceTile price label — Nunito 13/700, accentDeep, 13 sp.
+  static final TextStyle servicePriceLabel = _feedbackBase.copyWith(
+    color: BrandColors.accentDeep,
+    fontSize: 13,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Phase 4.2 — Master Profile styles.
+  //
+  // Transcribed verbatim from the approved preview app at
+  // `docs/signup-designs/MasterProfileScreen/lib/theme/velvet_tokens.dart`
+  // (VelvetText.displayName / sectionLabel / statValue / statCaption).
+  // Color references changed from VelvetColors.* to BrandColors.*.
+  // ---------------------------------------------------------------------------
+
+  static final TextStyle _displayNameStyle = GoogleFonts.comfortaa(
+    fontSize: 22,
+    fontWeight: FontWeight.w700,
+    height: 1.2,
+    color: BrandColors.text,
+  );
+
+  static final TextStyle _sectionLabelStyle = GoogleFonts.comfortaa(
+    fontSize: 13,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.4,
+    color: BrandColors.textSecondary,
+  );
+
+  static final TextStyle _statValueStyle = GoogleFonts.comfortaa(
+    fontSize: 20,
+    fontWeight: FontWeight.w700,
+    color: BrandColors.text,
+  );
+
+  static final TextStyle _statCaptionStyle = GoogleFonts.nunito(
+    fontSize: 11,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 0.3,
+    color: BrandColors.textSecondary,
+  );
+
+  /// Display name on the master profile — Comfortaa 22/700, espresso.
+  static TextStyle displayName() => _displayNameStyle;
+
+  /// Section label ("Про себе", "Послуги") — Comfortaa 13/600, secondary.
+  static TextStyle sectionLabel() => _sectionLabelStyle;
+
+  /// Big numeric value in a stat tile — Comfortaa 20/700, espresso.
+  static TextStyle statValue() => _statValueStyle;
+
+  /// Small caption under a stat tile — Nunito 11/700, secondary.
+  static TextStyle statCaption() => _statCaptionStyle;
+
+  // ---------------------------------------------------------------------------
+  // Phase 5.2 — Service list screen styles.
+  //
+  // Transcribed from the approved preview app at
+  // `docs/signup-designs/ServiceListScreen/lib/theme/velvet_tokens.dart`
+  // (VelvetText.cardTitle / VelvetText.pill additive section). Color references
+  // changed from VelvetColors.* to BrandColors.*. Cached as static finals so
+  // build() never allocates a new TextStyle per frame.
+  // ---------------------------------------------------------------------------
+
+  static final TextStyle _cardTitleStyle = GoogleFonts.comfortaa(
+    fontSize: 17,
+    fontWeight: FontWeight.w700,
+    height: 1.2,
+    color: BrandColors.text,
+  );
+
+  static final TextStyle _pillStyle = GoogleFonts.nunito(
+    fontSize: 13,
+    fontWeight: FontWeight.w800,
+    letterSpacing: 0.2,
+    color: BrandColors.accentDeep,
+  );
+
+  /// Service name on a card — Comfortaa 17/700, espresso. A touch heavier than
+  /// [subheading] so the service title is the clear anchor of each row.
+  static TextStyle cardTitle() => _cardTitleStyle;
+
+  // ---------------------------------------------------------------------------
+  // Schedule month-navigator title — a slightly smaller subheading used by the
+  // two-row month/year stack in master_schedule_screen. Same Comfortaa family,
+  // weight, and color as [subheading] (so it still reads as the header) but at
+  // 14 sp instead of 17 sp, giving a tasteful one-step reduction that keeps the
+  // fixed two-row stack compact. Cached once at class-load time.
+  // ---------------------------------------------------------------------------
+
+  /// Month-navigator header title — Comfortaa 14/600, espresso (a touch smaller
+  /// than [subheading]). Used for both the month and year rows.
+  static final TextStyle monthNavTitle = _subheadingStyle.copyWith(
+    fontSize: 14,
+    height: 1.1,
+  );
+
+  /// Pill content (duration / price chips) — Nunito 13/800, accentDeep with
+  /// mild tracking so the short strings sit evenly inside the inset chip.
+  static TextStyle pill() => _pillStyle;
 }

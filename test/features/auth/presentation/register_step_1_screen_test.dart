@@ -855,6 +855,40 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
+    // 18. BackdropFilter ceiling — VelvetTouch design has zero blur layers
+    //
+    // Guards against a regression to the glassmorphism design (which used up
+    // to four BackdropFilter layers). Any commit that reintroduces a
+    // BackdropFilter on this screen will fail this test and force an explicit
+    // render-budget decision.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '18. BackdropFilter count ceiling — zero layers on RegisterStep1Screen '
+      '(VelvetTouch: no glassmorphism)',
+      (tester) async {
+        final container = _makeContainer();
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(BackdropFilter).evaluate().length,
+          lessThanOrEqualTo(0),
+          reason:
+              'Guards against render-budget BackdropFilter accumulation. '
+              'RegisterStep1Screen uses the VelvetTouch neumorphic design — '
+              'no BackdropFilter layers are expected. Reintroducing any blur '
+              'layer requires an explicit render-budget decision.',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // 15. Terms Text.rich — all four l10n segments present (Phase 2.16)
     // -----------------------------------------------------------------------
     testWidgets(

@@ -10,16 +10,23 @@
 //     NOT the Ubuntu VM.  Use the Ubuntu VM's host-only adapter IP instead
 //     (typically `192.168.56.101` or whatever `ip addr` shows on the VM).
 //
-// The default baseUrl is `http://localhost:8080/api/v1` — the backend process
+// The default baseUrl is `http://localhost:8080` — the backend process
 // reachable from the Ubuntu VM itself (where `flutter run` executes).  This
 // keeps Dio constructible without crashing in widget tests and lets `flutter run`
 // work on the VM directly.
 //
+// IMPORTANT: The baseUrl must NOT include the `/api/v1` path prefix. The
+// generated API client (beautica_api package) already includes `/api/v1/` in
+// every endpoint path. Raw Dio calls in feature repositories also explicitly
+// include the `/api/v1/` prefix. A baseUrl that ends with `/api/v1` would
+// cause double-prefix URLs (e.g. `http://host:8080/api/v1/api/v1/users/me`)
+// which Spring Security blocks with 401 Unauthorized for unrecognised paths.
+//
 // For emulator builds, always pass the VM's host-only adapter IP:
-//   flutter run --dart-define=BEAUTICA_BASE_URL=http://192.168.56.101:8080/api/v1
+//   flutter run --dart-define=BEAUTICA_BASE_URL=http://192.168.56.101:8080
 //
 // Usage in CI / deploy script:
-//   flutter build apk --dart-define=BEAUTICA_BASE_URL=https://api.beautica.com/api/v1
+//   flutter build apk --dart-define=BEAUTICA_BASE_URL=https://api.beautica.com
 
 import 'dart:developer';
 
@@ -36,15 +43,61 @@ abstract final class AppConfig {
   /// Fallback for `flutter run` on the Ubuntu dev machine.  `localhost:8080`
   /// is the Spring Boot process running directly on the VM where the Dart
   /// toolchain executes.  For emulator builds, always pass:
-  ///   `--dart-define=BEAUTICA_BASE_URL=http://<ubuntu-vm-ip>:8080/api/v1`
-  /// e.g. `--dart-define=BEAUTICA_BASE_URL=http://192.168.56.101:8080/api/v1`
+  ///   `--dart-define=BEAUTICA_BASE_URL=http://<ubuntu-vm-ip>:8080`
+  /// e.g. `--dart-define=BEAUTICA_BASE_URL=http://192.168.56.101:8080`
+  ///
+  /// Do NOT append `/api/v1` to this value — the generated API client and all
+  /// raw Dio calls already include the full `/api/v1/` path prefix.
   ///
   /// In release/profile builds [assertSecureUrl] throws if the URL is not
   /// HTTPS, so the fallback is never reachable in production.
-  static const String baseUrl = String.fromEnvironment(
+  ///
+  /// The raw compile-time value (before normalization). Read directly via
+  /// `String.fromEnvironment` so it stays a compile-time constant; the
+  /// public [baseUrl] is derived from it through [normalizeBaseUrl].
+  static const String _rawBaseUrl = String.fromEnvironment(
     'BEAUTICA_BASE_URL',
-    defaultValue: 'http://localhost:8080/api/v1',
+    defaultValue: 'http://localhost:8080',
   );
+
+  /// Normalized base URL actually used by Dio.
+  ///
+  /// Computed once from [_rawBaseUrl] via [normalizeBaseUrl]. This is a
+  /// `static final` (not `const`) because the normalization runs at first
+  /// access — the trade-off is intentional: it's the only safe place to kill
+  /// the "double `/api/v1` prefix" bug class regardless of what the build
+  /// pipeline or a careless `--dart-define` injects.
+  static final String baseUrl = normalizeBaseUrl(_rawBaseUrl);
+
+  /// Defensive guard against the double-`/api/v1`-prefix bug class.
+  ///
+  /// WHY: the generated `beautica_api` client AND every raw Dio repository call
+  /// already prepend the full `/api/v1/` segment to each endpoint path. If a
+  /// `--dart-define=BEAUTICA_BASE_URL=...` value ends with `/api/v1` (or
+  /// `/api/v1/`), the assembled URL becomes `.../api/v1/api/v1/...`, which
+  /// Spring Security rejects with 401/404 — every authenticated call (incl.
+  /// profile Save) then fails *silently*. This normalizer strips that
+  /// accidental suffix (and any trailing slash) so the invariant holds no
+  /// matter what the environment injects.
+  ///
+  /// Stripping is applied once: a single trailing `/api/v1` segment
+  /// (case-insensitive, with or without a trailing slash) and any remaining
+  /// trailing slash are removed. A clean `http://localhost:8080` is returned
+  /// unchanged.
+  ///
+  /// Exposed for testing — `String.fromEnvironment` is compile-time-only and
+  /// cannot be varied under `flutter test`, so the logic is verified directly.
+  @visibleForTesting
+  static String normalizeBaseUrl(String raw) {
+    var value = raw.trim();
+    // Drop any trailing slashes first so the suffix match below is reliable.
+    value = value.replaceAll(RegExp(r'/+$'), '');
+    // Strip a single accidental trailing `/api/v1` (case-insensitive).
+    value = value.replaceFirst(RegExp(r'/api/v1$', caseSensitive: false), '');
+    // Re-trim in case stripping the segment exposed a trailing slash.
+    value = value.replaceAll(RegExp(r'/+$'), '');
+    return value;
+  }
 
   /// Validates [baseUrl] at startup.
   ///
@@ -88,7 +141,7 @@ abstract final class AppConfig {
     if (baseUrl.isEmpty) {
       log(
         'BEAUTICA_BASE_URL is not set.\n'
-        'Pass --dart-define=BEAUTICA_BASE_URL=http://<ubuntu-vm-ip>:8080/api/v1\n'
+        'Pass --dart-define=BEAUTICA_BASE_URL=http://<ubuntu-vm-ip>:8080\n'
         'to `flutter run`. The Ubuntu VM IP is typically 192.168.56.101 — '
         'check with `ip addr show` on the VM side.',
         name: 'core.config',

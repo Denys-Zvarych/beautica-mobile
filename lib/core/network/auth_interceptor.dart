@@ -35,9 +35,18 @@ final class AuthInterceptor extends Interceptor {
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    if (kAuthPaths.contains(options.path)) {
-      // Auth endpoints (login, refresh, register, …) must never carry a
-      // Bearer token — skip injection entirely.
+    final path = options.path;
+
+    // Exact-match skip-list — auth endpoints (login, refresh, register, …).
+    if (kAuthPaths.contains(path)) {
+      handler.next(options);
+      return;
+    }
+
+    // Prefix-match skip-list — public endpoints with dynamic path segments
+    // (e.g. /api/v1/locations/oblasts/{uuid}/cities). Bearer token must not
+    // be attached to these even when the user is authenticated.
+    if (kPublicPathPrefixes.any(path.startsWith)) {
       handler.next(options);
       return;
     }
@@ -49,13 +58,24 @@ final class AuthInterceptor extends Interceptor {
     if (session is Authenticated) {
       accessToken = session.accessToken;
     } else {
-      // HIGH-1 (mobile-security 2026-05-24): during cold-start, authProvider
-      // is still in AsyncLoading while build() awaits repo.me(). The notifier
-      // stores the freshly-rotated access token in [coldStartAccessToken] so
-      // we can inject the Bearer header on /users/me without a mid-build
-      // state mutation (which would cause provider.future to resolve with a
-      // sentinel user rather than the real user).
-      accessToken = _ref.read(authProvider.notifier).coldStartAccessToken;
+      // The provider is not currently resolvable to an Authenticated AsyncData
+      // state. This happens in two situations:
+      //   1. Cold-start (HIGH-1, mobile-security 2026-05-24): authProvider is
+      //      still in AsyncLoading while build() awaits repo.me(). The notifier
+      //      stores the freshly-rotated access token so we can inject the Bearer
+      //      header on /users/me without a mid-build state mutation.
+      //   2. Mid-rebuild race (delete-service false 401): the delete flow
+      //      invalidates masterProfileProvider, which serviceRepositoryProvider
+      //      watches; while that rebuild runs, a watcher of authProvider can be
+      //      momentarily unresolved. Sending the in-flight DELETE tokenless
+      //      yields a false 401 ("Сесія завершилась").
+      //
+      // [lastKnownAccessToken] resolves both: it returns the cold-start sentinel
+      // when present, else the last-known token of the current authenticated
+      // session. It is null only when there is genuinely no session (cold start
+      // with no stored token, or after logout) — in which case we send the
+      // request tokenless and let the backend / RefreshInterceptor decide.
+      accessToken = _ref.read(authProvider.notifier).lastKnownAccessToken;
     }
 
     if (accessToken != null) {

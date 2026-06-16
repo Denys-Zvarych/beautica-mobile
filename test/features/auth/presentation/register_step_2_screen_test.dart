@@ -14,14 +14,18 @@
 //   - No BackdropFilter, no glassmorphism in the widget tree.
 //   - AuthScaffold owns the Scaffold — router must NOT add a second Scaffold.
 //
-// Covered scenarios (7 tests):
+// Covered scenarios:
 //   1. CLIENT: firstName, lastName, phone fields present; salon_name absent.
 //   2. SALON_OWNER: all four fields present.
 //   3. Phone required validation fires after _phoneTouched (inline error).
-//   4. Pre-fill from draft in initState.
-//   5. Navigates to registerStep3 on valid submit (phone non-empty).
-//   6. updateStep2 called with correct args on submit.
-//   7. No BackdropFilter in the widget tree.
+//   4. Name required validation — first/last name are REQUIRED for all roles;
+//      the blank-name gate runs before the phone checks and blocks navigation
+//      (errNameRequired surfaced). Phone-validation tests fill valid names so
+//      they isolate the phone behaviour they assert.
+//   5. Pre-fill from draft in initState.
+//   6. Navigates to registerStep3 on valid submit (names + phone non-empty).
+//   7. updateStep2 called with correct args on submit.
+//   8. No BackdropFilter in the widget tree.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_step_2_screen.dart';
@@ -219,6 +223,17 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        // Names are required and gate submit before the phone check — fill
+        // valid names so this test isolates the empty-phone behaviour.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Аня',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Коваль',
+        );
+
         // Tap submit without entering a phone number.
         await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
         await tester.pumpAndSettle();
@@ -263,6 +278,282 @@ void main() {
         // _phoneTouched=true, _phoneValue='' → _phoneError is non-null.
         final l10n = AppLocalizations.of(tester.element(phoneFinder));
         expect(find.text(l10n.registerPhoneRequired), findsOneWidget);
+      },
+    );
+  });
+
+  // ── Name required validation (regression) ────────────────────────────────
+  //
+  // First and last name are now REQUIRED for all roles. The blank-name gate in
+  // _onSubmit() runs BEFORE the phone checks: if either name is blank after
+  // trim, both touched flags are set and submit returns WITHOUT navigating.
+  // These tests pin that behaviour (the bug fixed was empty names advancing to
+  // Step 3).
+  group('Name required validation', () {
+    testWidgets(
+      'empty first name (valid last name + phone) blocks submit and shows '
+      'errNameRequired',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        // First name left blank; last name + phone valid.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Коваль',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380671234567',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        // Navigation blocked.
+        expect(find.text('step-3'), findsNothing);
+
+        // errNameRequired surfaced (under the empty first-name field).
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('step2_first_name')),
+          ),
+        );
+        expect(find.text(l10n.errNameRequired), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'empty last name (valid first name + phone) blocks submit and shows '
+      'errNameRequired',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        // Last name left blank; first name + phone valid.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Аня',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380671234567',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        // Navigation blocked.
+        expect(find.text('step-3'), findsNothing);
+
+        // errNameRequired surfaced (under the empty last-name field).
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('step2_last_name'))),
+        );
+        expect(find.text(l10n.errNameRequired), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'both names empty (valid phone) blocks submit and shows errNameRequired '
+      'under both fields',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        // Both names blank; phone valid.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380671234567',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        // Navigation blocked.
+        expect(find.text('step-3'), findsNothing);
+
+        // errNameRequired surfaced under BOTH name fields.
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('step2_first_name')),
+          ),
+        );
+        expect(find.text(l10n.errNameRequired), findsNWidgets(2));
+      },
+    );
+
+    testWidgets('valid first + last name + valid phone navigates to step-3', (
+      tester,
+    ) async {
+      final container = _containerWithRole(UserRole.client);
+      addTearDown(container.dispose);
+      final router = _makeRouter();
+
+      await tester.pumpWidget(_buildApp(router: router, container: container));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step2_first_name')),
+        'Аня',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step2_last_name')),
+        'Коваль',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('step2_phone')),
+        '+380671234567',
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('step-3'), findsOneWidget);
+    });
+  });
+
+  // ── Name no-digit validation (Step 2.7 Rule 3 regression) ────────────────
+  //
+  // validateName now rejects any Unicode decimal digit (mirrors backend
+  // @NoDigits). The digit guard is layered AFTER required/too-long, so a name
+  // that contains a digit surfaces errNameHasDigit and blocks navigation to
+  // Step 3. A name made only of letters / hyphen / apostrophe / space passes.
+  group('Name no-digit validation', () {
+    testWidgets(
+      'first name with a digit (valid last name + phone) blocks submit and '
+      'shows errNameHasDigit',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'John2',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Коваль',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380671234567',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        // Navigation blocked.
+        expect(find.text('step-3'), findsNothing);
+
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('step2_first_name')),
+          ),
+        );
+        expect(find.text(l10n.errNameHasDigit), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'last name with a digit (valid first name + phone) blocks submit and '
+      'shows errNameHasDigit',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Аня',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Kov4l',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380671234567',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('step-3'), findsNothing);
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('step2_last_name'))),
+        );
+        expect(find.text(l10n.errNameHasDigit), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'hyphen / apostrophe / space names (valid phone) navigate to step-3 '
+      '(no digit error)',
+      (tester) async {
+        final container = _containerWithRole(UserRole.client);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('step2_first_name')),
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Anne-Marie',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          "O'Brien",
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380671234567',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.errNameHasDigit), findsNothing);
+        expect(find.text('step-3'), findsOneWidget);
       },
     );
   });
@@ -490,6 +781,146 @@ void main() {
     });
   });
 
+  // ── Salon-name inline validation (SALON_OWNER) ───────────────────────────
+  //
+  // Step 2 now runs validateSalonName for the owner before navigating:
+  // non-blank + ≤255 + control-char-free. These are pure client-side checks
+  // (no server call on Step 2), so the assertion is that the inline error
+  // surfaces on the salon-name field and navigation is blocked.
+  group('Salon-name validation (SALON_OWNER)', () {
+    testWidgets(
+      'blank salon name (valid names + phone) blocks submit and shows '
+      'errSalonNameRequired inline',
+      (tester) async {
+        final container = _containerWithRole(UserRole.salonOwner);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Марія',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Лазаренко',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380501112233',
+        );
+        // Salon name left blank.
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        // Navigation blocked.
+        expect(find.text('step-3'), findsNothing);
+
+        // errSalonNameRequired surfaced inline (resolved via l10n key).
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('step2_salon_name')),
+          ),
+        );
+        expect(find.text(l10n.errSalonNameRequired), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'salon name with an embedded control char blocks submit and shows '
+      'errSalonNameInvalid inline',
+      (tester) async {
+        final container = _containerWithRole(UserRole.salonOwner);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Марія',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Лазаренко',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380501112233',
+        );
+        // Embedded NUL control byte — rejected by the control-char guard.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_salon_name')),
+          'Salon${String.fromCharCode(0x00)}X',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('step-3'), findsNothing);
+
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('step2_salon_name')),
+          ),
+        );
+        expect(find.text(l10n.errSalonNameInvalid), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'valid salon name + names + phone navigates to step-3 (no inline error)',
+      (tester) async {
+        final container = _containerWithRole(UserRole.salonOwner);
+        addTearDown(container.dispose);
+        final router = _makeRouter();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, container: container),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(
+            find.byKey(const ValueKey<String>('step2_salon_name')),
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Марія',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Лазаренко',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_phone')),
+          '+380501112233',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_salon_name')),
+          'Салон Краси',
+        );
+
+        await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));
+        await tester.pumpAndSettle();
+
+        expect(find.text(l10n.errSalonNameRequired), findsNothing);
+        expect(find.text(l10n.errSalonNameInvalid), findsNothing);
+        expect(find.text('step-3'), findsOneWidget);
+      },
+    );
+  });
+
   // ── Test 7 — No BackdropFilter in tree ───────────────────────────────────
   group('VelvetTouch design constraints', () {
     testWidgets('no BackdropFilter widget exists in the tree', (tester) async {
@@ -595,6 +1026,17 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        // Names are required and gate submit before the phone check — fill
+        // valid names so this test isolates the phone-format behaviour.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Аня',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Коваль',
+        );
+
         // Enter a partial UA number (only 2 subscriber digits after the local
         // prefix) — formatter produces '+380 67'. This passes the empty guard
         // but has only 2 subscriber digits, which validatePhone rejects.
@@ -632,6 +1074,17 @@ void main() {
           _buildApp(router: router, container: container),
         );
         await tester.pumpAndSettle();
+
+        // Names are required and gate submit before the phone check — fill
+        // valid names so this test isolates the phone-required behaviour.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Аня',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Коваль',
+        );
 
         // "+" has no digits → formatter returns empty string.
         await tester.enterText(
@@ -671,6 +1124,17 @@ void main() {
           tester.element(find.byKey(const ValueKey<String>('step2_phone'))),
         );
 
+        // Names are required and gate submit before the phone check — fill
+        // valid names so a valid phone can navigate to step-3.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Аня',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Коваль',
+        );
+
         await tester.enterText(
           find.byKey(const ValueKey<String>('step2_phone')),
           '+380501234567',
@@ -701,6 +1165,17 @@ void main() {
         await tester.pumpAndSettle();
 
         final phoneFinder = find.byKey(const ValueKey<String>('step2_phone'));
+
+        // Names are required and gate submit before the phone check — fill
+        // valid names so the format error path is reached.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_first_name')),
+          'Аня',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('step2_last_name')),
+          'Коваль',
+        );
 
         // 1. Trigger a format error: submit with '067' (partial — 2 subscriber
         //    digits after the local-prefix strip → '+380 67' → not 9 digits).

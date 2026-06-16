@@ -25,9 +25,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:screen_protector/screen_protector.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
@@ -35,6 +35,7 @@ import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/util/mask_email.dart';
+import '../../../shared/validators/server_field_error_banner.dart';
 import '../../master/data/master_repository.dart';
 import '../../salon/data/salon_repository.dart';
 import '../../user/data/user_repository.dart';
@@ -49,6 +50,35 @@ import 'widgets/auth_scaffold.dart';
 
 const _kResendCooldownSeconds = 30;
 const _kOtpLength = 6;
+
+// ---------------------------------------------------------------------------
+// Provider — survives widget reconstruction within the same ProviderScope so
+// that a hot-reload or OS-triggered State recreation cannot reset a completed
+// OTP verification step and replay a consumed code.
+//
+// autoDispose: true — resets when the user navigates away from the
+// verification flow entirely (ProviderScope removes the listener).
+// ---------------------------------------------------------------------------
+
+/// Notifier that holds the "OTP accepted" flag for the verification flow.
+///
+/// Stored outside [_VerificationScreenState] so that widget reconstruction
+/// (hot-reload, OS activity recreation) cannot reset the flag and cause
+/// [_submit] to re-call `verifyEmail` with an already-consumed OTP code.
+///
+/// `autoDispose` via the provider declaration ensures the flag resets when
+/// the user leaves the verification flow entirely (no active listeners).
+final class _EmailVerifiedNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void markVerified() => state = true;
+}
+
+final _emailVerifiedProvider =
+    NotifierProvider.autoDispose<_EmailVerifiedNotifier, bool>(
+      _EmailVerifiedNotifier.new,
+    );
 
 // ---------------------------------------------------------------------------
 // Screen
@@ -78,8 +108,13 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   String get _otp => _codeController.text;
   bool get _isOtpComplete => _otp.length == 6;
 
-  // ── Cooldown timer — owned by _ResendRow, not this state ─────────────────
-  // (removed: _cooldown, _timer)
+  // ── Cooldown timer — owned by _ResendRow; parent holds a key to reset it ──
+  //
+  // Fix 2B: when _saveProviderProfile() fails after the OTP is already consumed
+  // the user must be able to request a new code immediately (their OTP is gone).
+  // Calling _resendRowKey.currentState?.resetCooldown() from _submit's catch
+  // drives the countdown back to 0 without any cross-widget setState coupling.
+  final GlobalKey<_ResendRowState> _resendRowKey = GlobalKey<_ResendRowState>();
 
   // ── Error / flow state ───────────────────────────────────────────────────
 
@@ -96,28 +131,25 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   /// Callback for the action button inside the inline error banner.
   VoidCallback? _inlineErrorAction;
 
-  /// True once OTP verification has succeeded and a session token exists.
-  ///
-  /// Defect 8 — the provider profile/salon save (auth-required) runs HERE,
-  /// after verification, not on Step 3 (where there is no token yet). If that
-  /// save throws, the account is already verified, so a re-tap must NOT
-  /// re-run verifyEmail (the code is consumed) — it should retry only the
-  /// save. This flag drives that branch in [_submit].
-  bool _emailVerified = false;
-
   // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+  // Captured in initState so dispose() never touches `ref` — under Riverpod
+  // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
+  late final ScreenProtectionManager _screenProtection;
 
   @override
   void initState() {
     super.initState();
-    if (!kDebugMode) ScreenProtector.preventScreenshotOn();
+    // SEC MEDIUM: ref-counted screenshot guard (single app-wide owner;
+    // the manager is internally !kDebugMode-guarded).
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
   }
 
   @override
   void dispose() {
+    _screenProtection.release();
     _codeController.dispose();
     _codeFocus.dispose();
-    if (!kDebugMode) ScreenProtector.preventScreenshotOff();
     super.dispose();
   }
 
@@ -131,12 +163,15 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       // Skip re-verification when the code was already accepted but the
       // post-verification provider save failed (Defect 8 retry path): the OTP
       // is consumed, so only retry the save.
-      if (!_emailVerified) {
+      //
+      // _emailVerifiedProvider survives widget reconstruction (hot-reload / OS
+      // activity recreation) so this guard is reliable across State rebuilds.
+      if (!ref.read(_emailVerifiedProvider)) {
         await ref
             .read(authProvider.notifier)
             .verifyEmail(email: widget.email, otp: _otp);
         if (!mounted) return;
-        _emailVerified = true;
+        ref.read(_emailVerifiedProvider.notifier).markVerified();
       }
 
       // Defect 8 — a session token now exists, so persist the provider's
@@ -157,6 +192,14 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       context.go(RouteNames.done);
     } catch (e) {
       if (!mounted) return;
+      // Fix 2B: if the post-OTP profile save failed (_emailVerifiedProvider is
+      // true, meaning the OTP was consumed but the PATCH /independent-masters/me
+      // call threw), the user needs to request a new code before they can
+      // retry — reset the resend cooldown immediately so they are not blocked
+      // by the 30-second window.
+      if (ref.read(_emailVerifiedProvider)) {
+        _resendRowKey.currentState?.resetCooldown();
+      }
       _setInlineError(e, l10n);
     }
   }
@@ -176,11 +219,35 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   /// a real inline message (Defect 8 — never silent).
   Future<void> _saveProviderProfile(AppLocalizations l10n) async {
     final draft = ref.read(registerDraftProvider);
-    // No draft (e.g. deep-link straight to /verification) or no city selected →
-    // nothing to persist. The guard also covers users who skipped Step 3.
+    // No draft → deep-link edge case (e.g. user tapped the email link on a
+    // different device). Nothing to persist; the backend already has whatever
+    // was submitted at registration time.
     if (draft == null) return;
+
     final cityId = draft.cityId;
-    if (cityId == null || cityId.isEmpty) return;
+    final bool isCityMissing = cityId == null || cityId.isEmpty;
+
+    if (isCityMissing) {
+      // Fix 3: provider roles (INDEPENDENT_MASTER, SALON_OWNER) require a city
+      // because the Step 3 address wizard is mandatory for them and the PATCH /
+      // POST call cannot succeed without it. If cityId is null here the draft
+      // state was lost — surface a typed failure so the user can go back to
+      // Step 3 and re-enter, instead of silently creating a verified account
+      // with no location in the database.
+      //
+      // CLIENT is intentionally excluded: clients may skip Step 3, so a null
+      // cityId for a CLIENT is a valid "skipped" state, not an error.
+      switch (draft.role) {
+        case UserRole.independentMaster:
+        case UserRole.salonOwner:
+          throw const ProviderMissingCityFailure();
+        case UserRole.client:
+        case UserRole.salonAdmin:
+        case UserRole.salonMaster:
+          // Clients may skip; invite-flow roles never run Step 3.
+          return;
+      }
+    }
 
     final districtId = draft.districtId;
 
@@ -301,12 +368,35 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           : l10n.verificationErrInvalidCodeWithLoginHint;
       actionLabel = l10n.verificationGoToLogin;
       action = () => context.go(RouteNames.login);
+    } else if (error is ValidationFailure) {
+      // Post-OTP provider save (salon create / locality update) rejected one or
+      // more register step 2/3 fields. Surface the failed field name(s) + their
+      // messages instead of collapsing to the generic banner. The offending
+      // fields live on a previous step, so the user must go back and fix them.
+      final banner = buildFieldErrorBanner(error.fieldErrors, l10n);
+      if (banner != null) {
+        message = banner;
+      } else {
+        final serverMessage = error.serverMessage?.trim();
+        message = (serverMessage != null && serverMessage.isNotEmpty)
+            ? serverMessage
+            : l10n.errValidation;
+      }
     } else if (error is UnimplementedError) {
       message = l10n.verificationServiceUnavailable;
     } else if (error is Failure) {
       message = error.userMessage(context);
     } else {
       message = l10n.verificationServiceUnavailable;
+    }
+
+    // Defensive catch-all (mirrors master_edit_screen.dart empty-message guard):
+    // a non-VerificationFailure that drifts at runtime (interceptor path miss,
+    // 500, network) — or a Failure whose userMessage somehow resolves to a
+    // blank/whitespace string — must NEVER produce a silent submit. Fall back
+    // to a guaranteed non-empty generic banner so the user always sees an error.
+    if (message.trim().isEmpty) {
+      message = l10n.errUnknown;
     }
 
     setState(() {
@@ -322,6 +412,12 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final isLoading = ref.watch(authProvider.select((s) => s.isLoading));
+    // Keep _emailVerifiedProvider alive for the widget's entire lifetime.
+    // Without this watch the autoDispose provider resets to false between the
+    // two submit taps (Defect 8 retry path), causing verifyEmail to be called
+    // again on re-submit even though the OTP was already consumed.
+    // The value itself is not needed in build() — only the subscription matters.
+    ref.watch(_emailVerifiedProvider);
     final maskedEmail = maskEmail(widget.email);
 
     // Fix A (MEDIUM-1): ValueListenableBuilder scopes OTP-cell AND submit-button
@@ -397,6 +493,7 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
           const SizedBox(height: VelvetSpacing.xl),
           // ── Resend row — owns its own cooldown timer (Fix B / MEDIUM-2) ────
           _ResendRow(
+            key: _resendRowKey,
             onResend: _resend,
             initialCooldown: _kResendCooldownSeconds,
           ),
@@ -488,9 +585,13 @@ class _OtpField extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 for (int i = 0; i < length; i++) ...<Widget>[
-                  _OtpCell(
-                    digit: i < controller.text.length ? controller.text[i] : '',
-                    active: i == controller.text.length && focusNode.hasFocus,
+                  Flexible(
+                    child: _OtpCell(
+                      digit: i < controller.text.length
+                          ? controller.text[i]
+                          : '',
+                      active: i == controller.text.length && focusNode.hasFocus,
+                    ),
                   ),
                   if (i != length - 1)
                     const SizedBox(width: VelvetSpacing.sm + 2),
@@ -522,7 +623,7 @@ class _OtpCell extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       height: 50,
-      width: 41,
+      constraints: const BoxConstraints(maxWidth: 41),
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: BrandColors.base,
@@ -547,7 +648,11 @@ class _OtpCell extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ResendRow extends StatefulWidget {
-  const _ResendRow({required this.onResend, this.initialCooldown = 0});
+  const _ResendRow({
+    super.key,
+    required this.onResend,
+    this.initialCooldown = 0,
+  });
 
   /// Called when the user taps the resend link. Returns cooldown seconds to
   /// display (30 for success, server value for throttle, null for generic
@@ -603,7 +708,23 @@ class _ResendRowState extends State<_ResendRow> {
     });
   }
 
+  /// Immediately cancels the running cooldown and resets the counter to zero.
+  ///
+  /// Called by the parent [_VerificationScreenState] via [GlobalKey] when the
+  /// post-OTP profile save fails (Fix 2B): the OTP is consumed and the user
+  /// must be able to request a new code without waiting out the 30-second window.
+  void resetCooldown() {
+    _timer?.cancel();
+    if (!mounted) return;
+    setState(() => _cooldown = 0);
+  }
+
   Future<void> _handleTap() async {
+    // Fire-and-forget haptic so the tap always gives tactile feedback.
+    // unawaited() because we don't gate any logic on completion and awaiting
+    // a platform channel in widget tests blocks the async chain permanently.
+    unawaited(HapticFeedback.lightImpact());
+
     if (_cooldown > 0) return;
     // Optimistic update — start the countdown immediately so the button
     // disables and the user gets instant visual feedback rather than seeing
@@ -612,7 +733,10 @@ class _ResendRowState extends State<_ResendRow> {
     final int? serverSeconds = await widget.onResend();
     if (!mounted) return;
     if (serverSeconds == null) {
-      // Generic error — cancel the cooldown and let the user retry immediately.
+      // null = generic error OR server cooldown exceeded the UX ceiling (10 min).
+      // Either way: cancel the optimistic countdown and let the user retry
+      // immediately. The inline error banner already carries the appropriate
+      // static message ("Спробуйте пізніше" for ceiling-exceeded cases).
       _timer?.cancel();
       setState(() => _cooldown = 0);
     } else if (serverSeconds != _kResendCooldownSeconds) {

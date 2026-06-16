@@ -1,0 +1,144 @@
+// GENERATED CODE - DO NOT MODIFY BY HAND
+
+part of 'salon_search_result.dart';
+
+// **************************************************************************
+// BuiltValueGenerator
+// **************************************************************************
+
+class _$SalonSearchResult extends SalonSearchResult {
+  @override
+  final String? salonId;
+  @override
+  final String? name;
+  @override
+  final String? cityLabel;
+  @override
+  final String? districtLabel;
+  @override
+  final String? avatarUrl;
+
+  factory _$SalonSearchResult(
+          [void Function(SalonSearchResultBuilder)? updates]) =>
+      (SalonSearchResultBuilder()..update(updates))._build();
+
+  _$SalonSearchResult._(
+      {this.salonId,
+      this.name,
+      this.cityLabel,
+      this.districtLabel,
+      this.avatarUrl})
+      : super._();
+  @override
+  SalonSearchResult rebuild(void Function(SalonSearchResultBuilder) updates) =>
+      (toBuilder()..update(updates)).build();
+
+  @override
+  SalonSearchResultBuilder toBuilder() =>
+      SalonSearchResultBuilder()..replace(this);
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(other, this)) return true;
+    return other is SalonSearchResult &&
+        salonId == other.salonId &&
+        name == other.name &&
+        cityLabel == other.cityLabel &&
+        districtLabel == other.districtLabel &&
+        avatarUrl == other.avatarUrl;
+  }
+
+  @override
+  int get hashCode {
+    var _$hash = 0;
+    _$hash = $jc(_$hash, salonId.hashCode);
+    _$hash = $jc(_$hash, name.hashCode);
+    _$hash = $jc(_$hash, cityLabel.hashCode);
+    _$hash = $jc(_$hash, districtLabel.hashCode);
+    _$hash = $jc(_$hash, avatarUrl.hashCode);
+    _$hash = $jf(_$hash);
+    return _$hash;
+  }
+
+  @override
+  String toString() {
+    return (newBuiltValueToStringHelper(r'SalonSearchResult')
+          ..add('salonId', salonId)
+          ..add('name', name)
+          ..add('cityLabel', cityLabel)
+          ..add('districtLabel', districtLabel)
+          ..add('avatarUrl', avatarUrl))
+        .toString();
+  }
+}
+
+class SalonSearchResultBuilder
+    implements Builder<SalonSearchResult, SalonSearchResultBuilder> {
+  _$SalonSearchResult? _$v;
+
+  String? _salonId;
+  String? get salonId => _$this._salonId;
+  set salonId(String? salonId) => _$this._salonId = salonId;
+
+  String? _name;
+  String? get name => _$this._name;
+  set name(String? name) => _$this._name = name;
+
+  String? _cityLabel;
+  String? get cityLabel => _$this._cityLabel;
+  set cityLabel(String? cityLabel) => _$this._cityLabel = cityLabel;
+
+  String? _districtLabel;
+  String? get districtLabel => _$this._districtLabel;
+  set districtLabel(String? districtLabel) =>
+      _$this._districtLabel = districtLabel;
+
+  String? _avatarUrl;
+  String? get avatarUrl => _$this._avatarUrl;
+  set avatarUrl(String? avatarUrl) => _$this._avatarUrl = avatarUrl;
+
+  SalonSearchResultBuilder() {
+    SalonSearchResult._defaults(this);
+  }
+
+  SalonSearchResultBuilder get _$this {
+    final $v = _$v;
+    if ($v != null) {
+      _salonId = $v.salonId;
+      _name = $v.name;
+      _cityLabel = $v.cityLabel;
+      _districtLabel = $v.districtLabel;
+      _avatarUrl = $v.avatarUrl;
+      _$v = null;
+    }
+    return this;
+  }
+
+  @override
+  void replace(SalonSearchResult other) {
+    _$v = other as _$SalonSearchResult;
+  }
+
+  @override
+  void update(void Function(SalonSearchResultBuilder)? updates) {
+    if (updates != null) updates(this);
+  }
+
+  @override
+  SalonSearchResult build() => _build();
+
+  _$SalonSearchResult _build() {
+    final _$result = _$v ??
+        _$SalonSearchResult._(
+          salonId: salonId,
+          name: name,
+          cityLabel: cityLabel,
+          districtLabel: districtLabel,
+          avatarUrl: avatarUrl,
+        );
+    replace(_$result);
+    return _$result;
+  }
+}
+
+// ignore_for_file: deprecated_member_use_from_same_package,type=lint
