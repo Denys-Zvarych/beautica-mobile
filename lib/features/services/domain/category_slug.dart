@@ -1,10 +1,10 @@
 // Service-category request feature — category code (slug) derivation + validation.
 //
-// The "suggest a category" dialog asks the master for a Ukrainian display name
-// and an uppercase latin "code" slug. The backend enforces
-// `^[A-Z][A-Z0-9_]*$` (≤50 chars). To keep the UX simple we auto-derive a
-// candidate slug from whatever the user types (Ukrainian OR latin), letting
-// them override it.
+// The "suggest a category" dialog asks the master only for a Ukrainian display
+// name. The uppercase latin wire slug is an internal value the user never sees:
+// it is auto-derived from the display name at submit time. The backend enforces
+// `^[A-Z][A-Z0-9_]*$` (≤50 chars), so the derived slug is validated before
+// submitting.
 //
 // Pure Dart — no Flutter imports — so it is trivially unit-testable.
 

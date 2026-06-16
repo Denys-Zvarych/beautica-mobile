@@ -71,4 +71,64 @@ void main() {
       expect(isValidCategorySlug('A' * 51), isFalse);
     });
   });
+
+  group('humanizeCategorySlug', () {
+    test('turns an underscore wire slug into a Title Case label', () {
+      expect(humanizeCategorySlug('NAIL_ART'), 'Nail Art');
+      expect(humanizeCategorySlug('BROWS'), 'Brows');
+    });
+
+    test(
+      'lower-cases the tail of each word, capitalising only the first char',
+      () {
+        // "NAILART" is a single word: first char upper, rest lower → "Nailart".
+        expect(humanizeCategorySlug('NAILART'), 'Nailart');
+        expect(humanizeCategorySlug('NAIL_ART_DESIGN'), 'Nail Art Design');
+      },
+    );
+
+    test('treats underscores and whitespace as one separator', () {
+      expect(humanizeCategorySlug('NAIL   ART'), 'Nail Art');
+      expect(humanizeCategorySlug('NAIL__ART'), 'Nail Art');
+      expect(humanizeCategorySlug('NAIL _ ART'), 'Nail Art');
+    });
+
+    test('trims surrounding whitespace before humanising', () {
+      expect(humanizeCategorySlug('  BROWS  '), 'Brows');
+    });
+
+    test('returns the (trimmed) empty string for empty or blank input', () {
+      expect(humanizeCategorySlug(''), '');
+      expect(humanizeCategorySlug('   '), '');
+    });
+  });
+
+  group('categorySlugMatches', () {
+    test('matches identical slugs', () {
+      expect(categorySlugMatches('BROWS', 'BROWS'), isTrue);
+    });
+
+    test('ignores case differences', () {
+      expect(categorySlugMatches('brows', 'BROWS'), isTrue);
+      expect(categorySlugMatches('Nail_Art', 'NAIL_ART'), isTrue);
+    });
+
+    test('ignores surrounding whitespace on both sides', () {
+      expect(categorySlugMatches('  BROWS ', 'BROWS'), isTrue);
+      expect(categorySlugMatches('brows', '  BROWS  '), isTrue);
+    });
+
+    test('does not match genuinely different slugs', () {
+      expect(categorySlugMatches('BROWS', 'NAILS'), isFalse);
+    });
+
+    test('does not normalise internal whitespace or underscores', () {
+      // Only outer whitespace + case are normalised — internals are compared raw.
+      expect(categorySlugMatches('NAIL ART', 'NAIL_ART'), isFalse);
+    });
+
+    test('returns false when the persisted slug is null', () {
+      expect(categorySlugMatches(null, 'BROWS'), isFalse);
+    });
+  });
 }
