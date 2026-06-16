@@ -107,28 +107,6 @@ enum WeekdayMode {
   explicitTimes,
 }
 
-/// Parses a wire `HH:mm[:ss]` time string into a [TimeOfDay], dropping seconds.
-///
-/// Shared with [ScheduleMapper.parseTime] semantics so discrete `times` strings
-/// and interval `startTime`/`endTime` strings are read identically. Falls back
-/// to midnight on a malformed / null string so one broken entry can never crash
-/// a whole schedule load.
-TimeOfDay parseWireTime(String? wire) {
-  if (wire == null || wire.isEmpty) {
-    return const TimeOfDay(hour: 0, minute: 0);
-  }
-  final parts = wire.split(':');
-  final hour = int.tryParse(parts.isNotEmpty ? parts[0] : '') ?? 0;
-  final minute = int.tryParse(parts.length > 1 ? parts[1] : '') ?? 0;
-  return TimeOfDay(hour: hour.clamp(0, 23), minute: minute.clamp(0, 59));
-}
-
-/// Formats a [TimeOfDay] as the wire `HH:mm:00` string (seconds always zero),
-/// matching the interval `startTime`/`endTime` wire shape.
-String formatWireTime(TimeOfDay t) =>
-    '${t.hour.toString().padLeft(2, '0')}:'
-    '${t.minute.toString().padLeft(2, '0')}:00';
-
 int _timeMinutes(TimeOfDay t) => t.hour * 60 + t.minute;
 
 /// Returns [times] start-sorted and de-duplicated (by wall-clock minute).
