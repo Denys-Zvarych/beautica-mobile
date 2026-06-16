@@ -2022,6 +2022,10 @@
   "@weeklyEditorNoChangesHint": {
     "description": "Hint shown above the Save button on the weekly-template editor when the draft matches the saved schedule (a clean no-op), explaining why Save is disabled. Covers the all-days-off, no-existing-template case so a day-off selection never looks broken."
   },
+  "weeklyEditorWindowUnsetHint": "Спочатку оберіть період «Графік діє з…»",
+  "@weeklyEditorWindowUnsetHint": {
+    "description": "Hint shown above the Save button on the weekly-template editor for a first-time create when the validity window («Графік діє з…») has not yet been explicitly chosen. Explains why Save is disabled and invites the user to tap the active-window card to pick the effective-from period before the first schedule can be saved."
+  },
   "weeklyEditorDayToggleSemantic": "{day} — робочий день",
   "@weeklyEditorDayToggleSemantic": {
     "description": "Accessibility label for the per-weekday open/closed toggle in the weekly-template editor (Phase 15.5).",
@@ -2395,5 +2399,60 @@
   "accountNotificationsSubtitle": "Push про нові записи та зміни",
   "@accountNotificationsSubtitle": {
     "description": "Account page notifications toggle row subtitle."
+  },
+
+  "discreteTimesSegmentInterval": "Інтервал",
+  "@discreteTimesSegmentInterval": {
+    "description": "Label for the 'interval' segment of the weekday mode toggle in the weekly editor and day-override sheet (Phase 15.8)."
+  },
+  "discreteTimesSegmentExplicit": "Окремі години",
+  "@discreteTimesSegmentExplicit": {
+    "description": "Label for the 'explicit times' segment of the weekday mode toggle in the weekly editor and day-override sheet (Phase 15.8)."
+  },
+  "discreteTimesModeSemantic": "Тип годин",
+  "@discreteTimesModeSemantic": {
+    "description": "Accessibility group label for the interval / explicit-times mode toggle in the weekly editor day card (Phase 15.8)."
+  },
+  "discreteTimesAddTime": "Додати час",
+  "@discreteTimesAddTime": {
+    "description": "Action button label that opens the wheel time picker to add a discrete bookable start time (Phase 15.8)."
+  },
+  "discreteTimesPickerTitle": "Час запису",
+  "@discreteTimesPickerTitle": {
+    "description": "Title shown at the top of the wheel time picker sheet when adding a discrete start time (Phase 15.8)."
+  },
+  "discreteTimesWindowLabel": "Вікно:",
+  "@discreteTimesWindowLabel": {
+    "description": "Prefix label shown before the derived min–max window range when at least one discrete time is present (Phase 15.8). Example: 'Вікно:  09:00 – 15:00'."
+  },
+  "discreteTimesRemoveSemantic": "Видалити час {time}",
+  "@discreteTimesRemoveSemantic": {
+    "description": "Accessibility label for the remove (✕) button on a discrete-time chip. {time} is the formatted 'HH:MM' time being removed (Phase 15.8).",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "discreteTimesErrEmpty": "Додайте хоча б один час для робочого дня",
+  "@discreteTimesErrEmpty": {
+    "description": "Inline validation error shown when a working EXPLICIT_TIMES day has zero discrete times — blocks the Save action (Phase 15.8)."
+  },
+  "discreteTimesDuplicateMessage": "Цей час вже додано",
+  "@discreteTimesDuplicateMessage": {
+    "description": "Transient inline info message shown for ~2.5 s when the user picks a time that already exists in the discrete list. Nothing is mutated (Phase 15.8)."
+  },
+  "scheduleDiscreteTimesTitle": "Час прийому",
+  "@scheduleDiscreteTimesTitle": {
+    "description": "Heading shown above the read-only discrete start-time chips for an EXPLICIT_TIMES day on the master calendar (Phase 15.9)."
+  },
+  "scheduleDiscreteTimesSemantic": "Час прийому: {times}",
+  "@scheduleDiscreteTimesSemantic": {
+    "description": "Accessibility label collapsing the read-only discrete start-time chips into one announcement for an EXPLICIT_TIMES day (Phase 15.9). {times} is the comma-separated list of HH:MM times.",
+    "placeholders": {
+      "times": {
+        "type": "String"
+      }
+    }
   }
 }

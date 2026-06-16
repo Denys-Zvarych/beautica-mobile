@@ -305,5 +305,3 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
-test/bulk_create_services_request_test.dart
-test/bulk_service_item_request_test.dart

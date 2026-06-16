@@ -44,6 +44,7 @@ import 'schedule_range.dart';
 import 'weekly_schedule_notifier.dart';
 import 'widgets/day_schedule.dart';
 import 'widgets/schedule_widgets.dart';
+import 'widgets/slot_colors.dart';
 
 /// The calendar-first Master Schedule screen.
 class MasterScheduleScreen extends ConsumerStatefulWidget {
@@ -108,6 +109,14 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
 
   bool _sameDate(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
+
+  /// Whether a resolved [EffectiveDay] is a WORKING day for the week-strip dot /
+  /// template-pill verdict. Phase 15.9: an EXPLICIT_TIMES day carries discrete
+  /// `times` but NO `intervals`, so the legacy `intervals.isNotEmpty` test alone
+  /// would render it (incorrectly) as closed. A day works iff it has continuous
+  /// intervals OR ≥1 discrete time.
+  static bool _isWorkingDay(EffectiveDay day) =>
+      day.intervals.isNotEmpty || day.isExplicitTimes;
 
   // ── Range that backs the visible month UNION the displayed week ────────────
   // The week strip can straddle a month boundary (e.g. Mon 29 Jun → Sun 5 Jul):
@@ -242,6 +251,11 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
       initialIntervals: day.intervals,
       hasExistingOverride: hasOverride,
       initialDayOff: dayOff,
+      // Phase 15.8: seed the work-mode sub-toggle from the resolved effective day.
+      initialMode: day.isExplicitTimes
+          ? WeekdayMode.explicitTimes
+          : WeekdayMode.interval,
+      initialTimes: day.times,
     );
     // Plain dismiss (close / barrier / validation bail) → nothing changed.
     if (changed == null || !mounted) return;
@@ -631,7 +645,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     final active = List<bool>.filled(7, false);
     for (int i = 0; i < 7; i++) {
       final DateTime d = _weekStart.add(Duration(days: i));
-      if (index.lookup(d).intervals.isNotEmpty) {
+      if (_isWorkingDay(index.lookup(d))) {
         active[d.weekday - 1] = true;
       }
     }
@@ -691,12 +705,15 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
               }
               final EffectiveDay day = index.lookup(selected);
               // Single source of truth for the day-off verdict: a settled day
-              // off has no working intervals AND is not the unset/uncovered
-              // NO_SCHEDULE state. [_SelectedDayView] receives this and the
-              // legend below is hidden for it (the day-off empty state already
-              // communicates "no hours"; the swatch legend is redundant noise).
+              // off has no working intervals, is NOT an EXPLICIT_TIMES day
+              // (Phase 15.9 — those carry discrete times but no intervals, yet
+              // are working days), AND is not the unset/uncovered NO_SCHEDULE
+              // state. [_SelectedDayView] receives this and the legend below is
+              // hidden for it (the day-off empty state already communicates "no
+              // hours"; the swatch legend is redundant noise).
               final bool dayOff =
                   day.intervals.isEmpty &&
+                  !day.isExplicitTimes &&
                   day.source != EffectiveSource.noSchedule;
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -827,11 +844,10 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                         // Working flag is selection-independent — computed once
                         // per cell here (same rule as `_templatePattern` / the
                         // top card) and captured; it does not re-run on a day
-                        // tap, preserving the HIGH-1 per-cell repaint scope.
-                        final bool working = index
-                            .lookup(d)
-                            .intervals
-                            .isNotEmpty;
+                        // tap, preserving the HIGH-1 per-cell repaint scope. An
+                        // EXPLICIT_TIMES day (Phase 15.9) carries no intervals
+                        // but is a working day — count it via [_isWorkingDay].
+                        final bool working = _isWorkingDay(index.lookup(d));
                         return ValueListenableBuilder<DateTime>(
                           valueListenable: _selected,
                           builder:
@@ -1202,7 +1218,13 @@ class _SelectedDayView extends StatelessWidget {
         // Settled day off → friendly empty state instead of the hour grid.
         else if (dayOff)
           const _DayOffEmptyState()
-        // Working day → the 42-cell hour grid (unchanged).
+        // Phase 15.9 — EXPLICIT_TIMES working day → render the discrete start
+        // times as read-only chips (no continuous-availability grid; the day is
+        // a discrete set of bookable starts, not a span). The derived window is
+        // already shown as the secondary summary in [_dayPanel] above.
+        else if (day.isExplicitTimes)
+          _DiscreteTimesView(times: day.times)
+        // Working INTERVAL day → the 42-cell hour grid (unchanged).
         else
           RepaintBoundary(child: _timeGrid(l10n)),
       ],
@@ -1211,9 +1233,15 @@ class _SelectedDayView extends StatelessWidget {
 
   // ── Selected-day panel ───────────────────────────────────────────────────--
   Widget _dayPanel(AppLocalizations l10n) {
+    // Phase 15.9: an EXPLICIT_TIMES day has no intervals — derive its secondary
+    // window summary from the discrete `times` min–max (matching the editor's
+    // derived window-label formatting) so the day panel still shows a span.
     final String summary = switch (day.source) {
       EffectiveSource.overrideDayOff => l10n.workingHoursClosedLabel,
       EffectiveSource.noSchedule => l10n.scheduleDaySummaryUnset,
+      _ when day.isExplicitTimes => l10n.scheduleDaySummaryWorking(
+        '${formatTime(day.times.first)}–${formatTime(day.times.last)}',
+      ),
       _ =>
         day.intervals.isEmpty
             ? l10n.workingHoursClosedLabel
@@ -1348,5 +1376,100 @@ class _SelectedDayView extends StatelessWidget {
       );
     }
     return Column(children: rows);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// _DiscreteTimesView (Phase 15.9; restyled in the discrete-times-client track) —
+// read-only render of an EXPLICIT_TIMES day's discrete start times. To stay
+// visually consistent with the INTERVAL day's hour grid, each discrete start is
+// rendered with the SAME [SlotChip] used by [_SelectedDayView._timeGrid]: a
+// discrete start IS a bookable working start, so it maps to a synthetic
+// [SlotState.available] cell and reads as a green "working" chip identical to
+// the grid's. A section heading sits above a [Wrap] of chips so the row reflows
+// at narrow widths / large text scale and never overflows (Phase 17.2 guard).
+// Each chip is given a fixed slot width so it reads as a tile (matching the
+// grid chips' spacious column fill) rather than shrink-wrapping its label. The
+// whole block is collapsed into a single semantic announcement of the times so
+// the chips are conveyed without relying on layout.
+//
+// Read-only: the [SlotChip]s pass `onTap: null` exactly like the interval grid
+// render, so there is no tap / edit affordance.
+//
+// The derived min–max window is intentionally NOT repeated here — it is already
+// the secondary summary in [_SelectedDayView._dayPanel] above (window label as
+// secondary context, per the phase doc).
+// ─────────────────────────────────────────────────────────────────────────────
+class _DiscreteTimesView extends StatelessWidget {
+  const _DiscreteTimesView({required this.times});
+
+  /// The resolved discrete start times — sorted + de-duped by the mapper.
+  /// Non-empty by construction (this widget renders only for an EXPLICIT_TIMES
+  /// working day; an empty list is a day-off and routes to [_DayOffEmptyState]).
+  final List<TimeOfDay> times;
+
+  /// `HH:MM` zero-padded — matches the editor chip / window-label formatting and
+  /// the per-chip render key.
+  static String _fmt(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:'
+      '${t.minute.toString().padLeft(2, '0')}';
+
+  // Perf #56: hoist the per-build TextStyle so it is allocated once for the
+  // whole class, not per chip / per day-cell rebuild.
+  static final TextStyle _headingStyle = VelvetText.label().copyWith(
+    fontSize: 12,
+    color: BrandColors.textSecondary,
+  );
+
+  // Fixed slot width so each [SlotChip] reads as a tile (matching the interval
+  // grid chips, which fill their `Expanded` column) instead of shrink-wrapping
+  // its `HH:MM` label. Sized to fit the label with the same breathing room as a
+  // grid column; the [Wrap] reflows these tiles at narrow widths / large text.
+  static const double _chipWidth = 92;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final String joined = times.map(_fmt).join(', ');
+    return Padding(
+      key: const Key('schedule-discrete-times'),
+      padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xs),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(l10n.scheduleDiscreteTimesTitle, style: _headingStyle),
+          const SizedBox(height: VelvetSpacing.sm + 2),
+          // MergeSemantics collapses the chips into one TalkBack announcement;
+          // the inner Semantics carries the full time list as the label.
+          MergeSemantics(
+            child: Semantics(
+              label: l10n.scheduleDiscreteTimesSemantic(joined),
+              child: Wrap(
+                spacing: VelvetSpacing.sm,
+                runSpacing: VelvetSpacing.sm,
+                children: <Widget>[
+                  for (final TimeOfDay t in times)
+                    SizedBox(
+                      key: Key('schedule-discrete-chip-${_fmt(t)}'),
+                      width: _chipWidth,
+                      // Same chip as the interval grid: a working start →
+                      // SlotState.available (green). `onTap: null` keeps it
+                      // read-only, mirroring the grid render.
+                      child: SlotChip(
+                        cell: SlotCell(time: t, state: SlotState.available),
+                        stateLabel: slotCellLabel(
+                          l10n,
+                          SlotCell(time: t, state: SlotState.available),
+                        ),
+                        onTap: null,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

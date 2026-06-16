@@ -16,7 +16,9 @@ part 'schedule_override_request.g.dart';
 /// Properties:
 /// * [date]
 /// * [kind]
+/// * [mode]
 /// * [intervals]
+/// * [times]
 /// * [kindConsistent]
 @BuiltValue()
 abstract class ScheduleOverrideRequest
@@ -28,8 +30,15 @@ abstract class ScheduleOverrideRequest
   ScheduleOverrideRequestKindEnum get kind;
   // enum kindEnum {  DAY_OFF,  CUSTOM_HOURS,  };
 
+  @BuiltValueField(wireName: r'mode')
+  ScheduleOverrideRequestModeEnum? get mode;
+  // enum modeEnum {  INTERVAL,  EXPLICIT_TIMES,  };
+
   @BuiltValueField(wireName: r'intervals')
   BuiltList<WorkIntervalDto>? get intervals;
+
+  @BuiltValueField(wireName: r'times')
+  BuiltList<String>? get times;
 
   @BuiltValueField(wireName: r'kindConsistent')
   bool? get kindConsistent;
@@ -74,11 +83,25 @@ class _$ScheduleOverrideRequestSerializer
       object.kind,
       specifiedType: const FullType(ScheduleOverrideRequestKindEnum),
     );
+    if (object.mode != null) {
+      yield r'mode';
+      yield serializers.serialize(
+        object.mode,
+        specifiedType: const FullType(ScheduleOverrideRequestModeEnum),
+      );
+    }
     if (object.intervals != null) {
       yield r'intervals';
       yield serializers.serialize(
         object.intervals,
         specifiedType: const FullType(BuiltList, [FullType(WorkIntervalDto)]),
+      );
+    }
+    if (object.times != null) {
+      yield r'times';
+      yield serializers.serialize(
+        object.times,
+        specifiedType: const FullType(BuiltList, [FullType(String)]),
       );
     }
     if (object.kindConsistent != null) {
@@ -127,6 +150,13 @@ class _$ScheduleOverrideRequestSerializer
           ) as ScheduleOverrideRequestKindEnum;
           result.kind = valueDes;
           break;
+        case r'mode':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(ScheduleOverrideRequestModeEnum),
+          ) as ScheduleOverrideRequestModeEnum;
+          result.mode = valueDes;
+          break;
         case r'intervals':
           final valueDes = serializers.deserialize(
             value,
@@ -134,6 +164,13 @@ class _$ScheduleOverrideRequestSerializer
                 const FullType(BuiltList, [FullType(WorkIntervalDto)]),
           ) as BuiltList<WorkIntervalDto>;
           result.intervals.replace(valueDes);
+          break;
+        case r'times':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.times.replace(valueDes);
           break;
         case r'kindConsistent':
           final valueDes = serializers.deserialize(
@@ -188,4 +225,23 @@ class ScheduleOverrideRequestKindEnum extends EnumClass {
       _$scheduleOverrideRequestKindEnumValues;
   static ScheduleOverrideRequestKindEnum valueOf(String name) =>
       _$scheduleOverrideRequestKindEnumValueOf(name);
+}
+
+class ScheduleOverrideRequestModeEnum extends EnumClass {
+  @BuiltValueEnumConst(wireName: r'INTERVAL')
+  static const ScheduleOverrideRequestModeEnum INTERVAL =
+      _$scheduleOverrideRequestModeEnum_INTERVAL;
+  @BuiltValueEnumConst(wireName: r'EXPLICIT_TIMES')
+  static const ScheduleOverrideRequestModeEnum EXPLICIT_TIMES =
+      _$scheduleOverrideRequestModeEnum_EXPLICIT_TIMES;
+
+  static Serializer<ScheduleOverrideRequestModeEnum> get serializer =>
+      _$scheduleOverrideRequestModeEnumSerializer;
+
+  const ScheduleOverrideRequestModeEnum._(String name) : super(name);
+
+  static BuiltSet<ScheduleOverrideRequestModeEnum> get values =>
+      _$scheduleOverrideRequestModeEnumValues;
+  static ScheduleOverrideRequestModeEnum valueOf(String name) =>
+      _$scheduleOverrideRequestModeEnumValueOf(name);
 }

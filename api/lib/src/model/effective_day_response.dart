@@ -17,6 +17,7 @@ part 'effective_day_response.g.dart';
 /// * [date]
 /// * [source_]
 /// * [intervals]
+/// * [times]
 @BuiltValue()
 abstract class EffectiveDayResponse
     implements Built<EffectiveDayResponse, EffectiveDayResponseBuilder> {
@@ -29,6 +30,9 @@ abstract class EffectiveDayResponse
 
   @BuiltValueField(wireName: r'intervals')
   BuiltList<WorkIntervalDto>? get intervals;
+
+  @BuiltValueField(wireName: r'times')
+  BuiltList<String>? get times;
 
   EffectiveDayResponse._();
 
@@ -80,6 +84,13 @@ class _$EffectiveDayResponseSerializer
         specifiedType: const FullType(BuiltList, [FullType(WorkIntervalDto)]),
       );
     }
+    if (object.times != null) {
+      yield r'times';
+      yield serializers.serialize(
+        object.times,
+        specifiedType: const FullType(BuiltList, [FullType(String)]),
+      );
+    }
   }
 
   @override
@@ -126,6 +137,13 @@ class _$EffectiveDayResponseSerializer
                 const FullType(BuiltList, [FullType(WorkIntervalDto)]),
           ) as BuiltList<WorkIntervalDto>;
           result.intervals.replace(valueDes);
+          break;
+        case r'times':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.times.replace(valueDes);
           break;
         default:
           unhandled.add(key);

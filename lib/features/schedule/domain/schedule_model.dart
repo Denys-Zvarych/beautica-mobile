@@ -80,6 +80,74 @@ String formatTime(TimeOfDay t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Phase 15.7 — discrete working-times mode.
+//
+// A working day (weekly template row OR per-date custom override) can be
+// expressed in one of two mutually-exclusive shapes:
+//   • INTERVAL        — continuous working window(s) (the existing model:
+//                       `List<WorkInterval>`, optionally with breaks carved out).
+//   • EXPLICIT_TIMES  — a discrete set of start times (`List<TimeOfDay>`), no
+//                       intervals and no breaks. Each entry is a bookable slot
+//                       start; the display window is derived min–max (Phase 15.9).
+//
+// This local enum mirrors the generated per-schema `...ModeEnum` values 1:1 but
+// is deliberately INDEPENDENT of them — the generated DTO enums never cross the
+// mapper boundary into the domain (same rule as [EffectiveSource]). The mapper
+// (`schedule_mapper.dart`) owns the translation.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// How a working day's hours are expressed. Mirrors the generated
+/// `WeeklyScheduleDay*ModeEnum` / `ScheduleOverride*ModeEnum` wire values
+/// (INTERVAL / EXPLICIT_TIMES) without leaking the generated enum into domain.
+enum WeekdayMode {
+  /// Continuous working window(s) — the canonical [WorkInterval] list.
+  interval,
+
+  /// A discrete set of start times — no intervals, no breaks.
+  explicitTimes,
+}
+
+/// Parses a wire `HH:mm[:ss]` time string into a [TimeOfDay], dropping seconds.
+///
+/// Shared with [ScheduleMapper.parseTime] semantics so discrete `times` strings
+/// and interval `startTime`/`endTime` strings are read identically. Falls back
+/// to midnight on a malformed / null string so one broken entry can never crash
+/// a whole schedule load.
+TimeOfDay parseWireTime(String? wire) {
+  if (wire == null || wire.isEmpty) {
+    return const TimeOfDay(hour: 0, minute: 0);
+  }
+  final parts = wire.split(':');
+  final hour = int.tryParse(parts.isNotEmpty ? parts[0] : '') ?? 0;
+  final minute = int.tryParse(parts.length > 1 ? parts[1] : '') ?? 0;
+  return TimeOfDay(hour: hour.clamp(0, 23), minute: minute.clamp(0, 59));
+}
+
+/// Formats a [TimeOfDay] as the wire `HH:mm:00` string (seconds always zero),
+/// matching the interval `startTime`/`endTime` wire shape.
+String formatWireTime(TimeOfDay t) =>
+    '${t.hour.toString().padLeft(2, '0')}:'
+    '${t.minute.toString().padLeft(2, '0')}:00';
+
+int _timeMinutes(TimeOfDay t) => t.hour * 60 + t.minute;
+
+/// Returns [times] start-sorted and de-duplicated (by wall-clock minute).
+///
+/// Used on the read path (defensive: the wire list may arrive unsorted / with
+/// dupes) and on the editor path (keep the discrete list canonical for compare
+/// + display). Pure — never mutates the input.
+List<TimeOfDay> sortDedupeTimes(Iterable<TimeOfDay> times) {
+  final seen = <int>{};
+  final result = <TimeOfDay>[];
+  final sorted = List<TimeOfDay>.of(times)
+    ..sort((a, b) => _timeMinutes(a).compareTo(_timeMinutes(b)));
+  for (final t in sorted) {
+    if (seen.add(_timeMinutes(t))) result.add(t);
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Working intervals — the heart of the model.
 //
 // A working day is a *list* of intervals. The GAP between two consecutive
@@ -386,6 +454,43 @@ DayHoursError? validateDayHours(DayHours day) {
 
 bool dayHoursValid(DayHours day) => validateDayHours(day) == null;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 15.7 — EXPLICIT_TIMES (discrete) validation.
+//
+// A working EXPLICIT_TIMES day/override is valid when it has ≥1 start time and
+// no NaN edges — there are no intervals and no breaks to validate. An empty
+// discrete list is a day-off in EXPLICIT_TIMES mode (the caller gates on
+// "working vs off" separately, exactly like an empty interval list). 15-minute
+// alignment is enforced so a loaded/legacy entry must be re-aligned before save,
+// mirroring the INTERVAL window/break alignment guard.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The validation problems a discrete (EXPLICIT_TIMES) working day can carry.
+enum DiscreteTimesErrorKind {
+  /// A working EXPLICIT_TIMES day has zero start times.
+  empty,
+
+  /// A start time is not a multiple of 15 minutes.
+  notAligned,
+}
+
+/// Validates a non-empty list of discrete start times for ONE working
+/// EXPLICIT_TIMES day/override. Returns the first problem found, or `null` if
+/// the list is sound (≥1 time, every edge 15-min aligned). Dupes are tolerated
+/// here (the mapper / [sortDedupeTimes] collapse them); only emptiness and
+/// alignment are hard errors.
+DiscreteTimesErrorKind? validateDiscreteTimes(List<TimeOfDay> times) {
+  if (times.isEmpty) return DiscreteTimesErrorKind.empty;
+  for (final t in times) {
+    if (_timeMinutes(t) % 15 != 0) return DiscreteTimesErrorKind.notAligned;
+  }
+  return null;
+}
+
+/// A working EXPLICIT_TIMES day/override is valid iff it has ≥1 aligned time.
+bool discreteTimesValid(List<TimeOfDay> times) =>
+    validateDiscreteTimes(times) == null;
+
 /// A compact one-line summary of a day's intervals, lunch gap shown as " · ":
 /// e.g. "09:00–13:00 · 14:00–18:00". Empty list → "Вихідний".
 String summariseIntervals(List<WorkInterval> intervals) {
@@ -430,17 +535,50 @@ class TemplateDay {
     required this.dayOfWeek,
     required this.label,
     required this.intervals,
+    this.mode = WeekdayMode.interval,
+    this.times = const <TimeOfDay>[],
   });
 
   final int dayOfWeek; // 1=Mon … 7=Sun (ISO)
   final String label; // Ukrainian day name
+
+  /// Continuous working interval(s). Populated for [WeekdayMode.interval];
+  /// empty for [WeekdayMode.explicitTimes] (the [times] list is authoritative
+  /// there) and for a day-off.
   List<WorkInterval> intervals;
 
-  bool get isDayOff => intervals.isEmpty;
-  bool get hasError => intervals.isNotEmpty && !intervalsValid(intervals);
+  /// How this day's hours are expressed (Phase 15.7). Defaults to
+  /// [WeekdayMode.interval] so every pre-15.7 caller keeps its meaning.
+  WeekdayMode mode;
+
+  /// Discrete start times. Authoritative for [WeekdayMode.explicitTimes];
+  /// empty for [WeekdayMode.interval]. The opposite-shape field must stay
+  /// cleared (see [setMode]).
+  List<TimeOfDay> times;
+
+  /// A day-off is empty in whichever shape the [mode] selects.
+  bool get isDayOff =>
+      mode == WeekdayMode.explicitTimes ? times.isEmpty : intervals.isEmpty;
+
+  bool get hasError => mode == WeekdayMode.explicitTimes
+      ? false
+      : intervals.isNotEmpty && !intervalsValid(intervals);
 
   List<WorkInterval> cloneIntervals() =>
       intervals.map((WorkInterval w) => w.clone()).toList();
+
+  /// Flips this day to [next], clearing the now-inapplicable shape so the two
+  /// representations never coexist. INTERVAL → drop [times]; EXPLICIT_TIMES →
+  /// drop [intervals]. No-op when already in [next].
+  void setMode(WeekdayMode next) {
+    if (mode == next) return;
+    mode = next;
+    if (next == WeekdayMode.explicitTimes) {
+      intervals = <WorkInterval>[];
+    } else {
+      times = const <TimeOfDay>[];
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -464,20 +602,42 @@ enum OverrideKind { dayOff, custom }
 class ScheduleOverride {
   ScheduleOverride.dayOff({required this.start, required this.end})
     : kind = OverrideKind.dayOff,
-      intervals = const <WorkInterval>[];
+      mode = WeekdayMode.interval,
+      intervals = const <WorkInterval>[],
+      times = const <TimeOfDay>[];
 
   ScheduleOverride.custom({
     required this.start,
     required this.end,
     required this.intervals,
-  }) : kind = OverrideKind.custom;
+  }) : kind = OverrideKind.custom,
+       mode = WeekdayMode.interval,
+       times = const <TimeOfDay>[];
+
+  /// A CUSTOM_HOURS override expressed as discrete start times (Phase 15.7).
+  /// Carries no intervals — the [times] list is authoritative.
+  ScheduleOverride.explicitTimes({
+    required this.start,
+    required this.end,
+    required List<TimeOfDay> times,
+  }) : kind = OverrideKind.custom,
+       mode = WeekdayMode.explicitTimes,
+       intervals = const <WorkInterval>[],
+       times = sortDedupeTimes(times);
 
   final OverrideKind kind;
   final DateTime start;
   final DateTime end;
 
-  /// Custom-hours only.
+  /// How a CUSTOM_HOURS override is expressed. Always [WeekdayMode.interval]
+  /// for a day-off (it carries neither intervals nor times).
+  final WeekdayMode mode;
+
+  /// Custom-hours INTERVAL shape only.
   final List<WorkInterval> intervals;
+
+  /// Custom-hours EXPLICIT_TIMES shape only — discrete start times.
+  final List<TimeOfDay> times;
 
   bool get isSingleDay =>
       start.year == end.year &&
@@ -489,8 +649,18 @@ class ScheduleOverride {
 
   DateTime get sortKey => start;
 
-  /// Stable-ish key for list widgets / Dismissible.
-  String get key => kind == OverrideKind.dayOff
-      ? '${start.toIso8601String()}_${kind.name}'
-      : '${start.toIso8601String()}_${kind.name}_${summariseIntervals(intervals)}';
+  /// Stable-ish key for list widgets / Dismissible. An EXPLICIT_TIMES override
+  /// keys off its discrete times (not [intervals], which are empty there) so it
+  /// never collides with an interval custom override on the same date.
+  String get key {
+    if (kind == OverrideKind.dayOff) {
+      return '${start.toIso8601String()}_${kind.name}';
+    }
+    if (mode == WeekdayMode.explicitTimes) {
+      final summary = times.map(formatTime).join(',');
+      return '${start.toIso8601String()}_${kind.name}_times_$summary';
+    }
+    return '${start.toIso8601String()}_${kind.name}_'
+        '${summariseIntervals(intervals)}';
+  }
 }

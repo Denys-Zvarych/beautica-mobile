@@ -2022,6 +2022,10 @@
   "@weeklyEditorNoChangesHint": {
     "description": "Hint shown above the Save button on the weekly-template editor when the draft matches the saved schedule (a clean no-op), explaining why Save is disabled. Covers the all-days-off, no-existing-template case so a day-off selection never looks broken."
   },
+  "weeklyEditorWindowUnsetHint": "First choose the «Schedule starts…» period",
+  "@weeklyEditorWindowUnsetHint": {
+    "description": "Hint shown above the Save button on the weekly-template editor for a first-time create when the validity window («Schedule starts…») has not yet been explicitly chosen. Explains why Save is disabled and invites the user to tap the active-window card to pick the effective-from period before the first schedule can be saved."
+  },
   "weeklyEditorDayToggleSemantic": "{day} — working day",
   "@weeklyEditorDayToggleSemantic": {
     "description": "Accessibility label for the per-weekday open/closed toggle in the weekly-template editor (Phase 15.5).",
@@ -2395,5 +2399,60 @@
   "accountNotificationsSubtitle": "Push for new bookings and changes",
   "@accountNotificationsSubtitle": {
     "description": "Account page notifications toggle row subtitle."
+  },
+
+  "discreteTimesSegmentInterval": "Interval",
+  "@discreteTimesSegmentInterval": {
+    "description": "Label for the 'interval' segment of the weekday mode toggle (Phase 15.8)."
+  },
+  "discreteTimesSegmentExplicit": "Specific times",
+  "@discreteTimesSegmentExplicit": {
+    "description": "Label for the 'explicit times' segment of the weekday mode toggle (Phase 15.8)."
+  },
+  "discreteTimesModeSemantic": "Hours type",
+  "@discreteTimesModeSemantic": {
+    "description": "Accessibility group label for the interval / explicit-times mode toggle (Phase 15.8)."
+  },
+  "discreteTimesAddTime": "Add time",
+  "@discreteTimesAddTime": {
+    "description": "Action button label to add a discrete bookable start time (Phase 15.8)."
+  },
+  "discreteTimesPickerTitle": "Booking time",
+  "@discreteTimesPickerTitle": {
+    "description": "Title shown in the wheel time picker sheet when adding a discrete start time (Phase 15.8)."
+  },
+  "discreteTimesWindowLabel": "Window:",
+  "@discreteTimesWindowLabel": {
+    "description": "Prefix label before the derived min–max window range (Phase 15.8)."
+  },
+  "discreteTimesRemoveSemantic": "Remove time {time}",
+  "@discreteTimesRemoveSemantic": {
+    "description": "Accessibility label for the remove button on a discrete-time chip (Phase 15.8).",
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "discreteTimesErrEmpty": "Add at least one time for a working day",
+  "@discreteTimesErrEmpty": {
+    "description": "Inline validation error when a working EXPLICIT_TIMES day has zero discrete times (Phase 15.8)."
+  },
+  "discreteTimesDuplicateMessage": "This time is already added",
+  "@discreteTimesDuplicateMessage": {
+    "description": "Transient info message shown when the picked time already exists in the discrete list (Phase 15.8)."
+  },
+  "scheduleDiscreteTimesTitle": "Appointment times",
+  "@scheduleDiscreteTimesTitle": {
+    "description": "Heading shown above the read-only discrete start-time chips for an EXPLICIT_TIMES day on the master calendar (Phase 15.9)."
+  },
+  "scheduleDiscreteTimesSemantic": "Appointment times: {times}",
+  "@scheduleDiscreteTimesSemantic": {
+    "description": "Accessibility label collapsing the read-only discrete start-time chips into one announcement for an EXPLICIT_TIMES day (Phase 15.9). {times} is the comma-separated list of HH:MM times.",
+    "placeholders": {
+      "times": {
+        "type": "String"
+      }
+    }
   }
 }

@@ -20,6 +20,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
 import '../data/schedule_repository_provider.dart';
+import '../domain/schedule_model.dart';
 import '../domain/weekly_schedule.dart';
 import 'effective_schedule_notifier.dart';
 
@@ -55,6 +56,12 @@ class WeeklyScheduleNotifier extends _$WeeklyScheduleNotifier {
     }
     state = const AsyncLoading<List<WeeklySchedule>>();
     final result = await AsyncValue.guard(() async {
+      // Phase 15.7 — reject an EXPLICIT_TIMES *working* day that carries zero
+      // (or misaligned) discrete times BEFORE the network call, so the typed
+      // ValidationFailure path is identical whether the client or the backend
+      // catches it. INTERVAL days are NOT newly gated here (their validation
+      // stays in the editor / DayHours model, unchanged).
+      _assertExplicitTimesDaysValid(schedule);
       final repo = ref.read(scheduleRepositoryProvider);
       await repo.upsertWeeklySchedule(schedule, scheduleId: scheduleId);
       // Re-read the authoritative list so the cache reflects exactly what the
@@ -84,6 +91,18 @@ class WeeklyScheduleNotifier extends _$WeeklyScheduleNotifier {
     state = result;
     if (result.hasValue) {
       ref.invalidate(effectiveScheduleProvider);
+    }
+  }
+
+  /// Throws [ValidationFailure] if any EXPLICIT_TIMES day that is NOT a day-off
+  /// has an empty / misaligned discrete-times list. A day-off (empty times)
+  /// passes — "off" is valid in either mode. INTERVAL days are ignored here.
+  void _assertExplicitTimesDaysValid(WeeklySchedule schedule) {
+    for (final d in schedule.days) {
+      if (d.mode != WeekdayMode.explicitTimes || d.isDayOff) continue;
+      if (!discreteTimesValid(d.times)) {
+        throw const ValidationFailure(fieldErrors: <String, String>{});
+      }
     }
   }
 }
