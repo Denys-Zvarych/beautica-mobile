@@ -611,6 +611,95 @@ void main() {
     },
   );
 
+  // ── 9b. Dialog in-flight submitting state (never-completing request) ─────────
+
+  testWidgets(
+    '9b. while requestCategory is in flight the submit CTA shows its spinner, '
+    'the inputs are disabled, and the dialog stays open',
+    (tester) async {
+      // Hold the request open on a Completer that never resolves during the
+      // assertions → the dialog sits in its _submitting state so we can observe
+      // the in-flight loading affordance in isolation.
+      final completer = Completer<void>();
+      when(
+        () => repo.requestCategory(
+          name: any(named: 'name'),
+          displayName: any(named: 'displayName'),
+        ),
+      ).thenAnswer((_) => completer.future);
+
+      await _pumpForm(tester, repo, onSubmit: (_) {});
+      await openCategoryMenu(tester);
+      await tester.ensureVisible(
+        find.byKey(const Key('chip-category-suggest')),
+      );
+      await tester.tap(find.byKey(const Key('chip-category-suggest')));
+      await tester.pumpAndSettle();
+
+      // Valid name so submit passes validation and reaches the repository.
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-category-request-name')),
+          matching: find.byType(TextField),
+        ),
+        'Манікюр',
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-submit-suggest-category')));
+      // Single pump advances into the in-flight state WITHOUT settling — the
+      // request future never resolves, so pumpAndSettle would hang.
+      await tester.pump();
+
+      // (a) The submit CTA renders its in-flight spinner.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('btn-submit-suggest-category')),
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsOneWidget,
+        reason:
+            'the submit button shows a spinner while the request is in '
+            'flight',
+      );
+
+      // (b) The label/icon layer is swapped out for the spinner — the send icon
+      // is gone, proving the CTA is in its loading (not idle, tappable) state.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('btn-submit-suggest-category')),
+          matching: find.byIcon(Icons.send_rounded),
+        ),
+        findsNothing,
+        reason: 'the idle label/icon is replaced by the in-flight spinner',
+      );
+
+      // (c) The name field is disabled while submitting (no double-edit).
+      final TextField nameField = tester.widget<TextField>(
+        find.descendant(
+          of: find.byKey(const Key('field-category-request-name')),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(
+        nameField.enabled,
+        isFalse,
+        reason: 'inputs lock while the request is in flight',
+      );
+
+      // (d) The dialog stays open (it did not pop while awaiting the request).
+      expect(
+        find.byKey(const Key('field-category-request-name')),
+        findsOneWidget,
+      );
+
+      // Resolve the request so the dialog pops and no pending timer leaks into
+      // teardown.
+      completer.complete();
+      await tester.pumpAndSettle();
+    },
+  );
+
   // ── 10. displayName length validation (> 100 chars) ─────────────────────────
 
   testWidgets(
