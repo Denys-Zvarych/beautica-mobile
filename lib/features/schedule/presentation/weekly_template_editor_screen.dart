@@ -417,9 +417,13 @@ class _WeeklyTemplateEditorScreenState
     _onDayMutated();
   }
 
-  /// Called by `_DayCard` when discrete times are mutated. The card has already
-  /// mutated [TemplateDay.times] in place; this just recomputes the Save gate.
-  void _onTimesChanged(int index) {
+  /// Called by `_DayCard` when discrete times are mutated. The card mutates its
+  /// own private `_times` copy (not the host's `TemplateDay`), so write the
+  /// edited list back into the authoritative [TemplateDay.times] before
+  /// recomputing the Save gate — otherwise the EXPLICIT_TIMES dirty check reads
+  /// stale (empty) times and the Save button never enables.
+  void _onTimesChanged(int index, List<TimeOfDay> times) {
+    _templateDays?[index]?.times = List<TimeOfDay>.of(times);
     _onDayMutated();
   }
 
@@ -778,8 +782,10 @@ class _LoadedBody extends StatelessWidget {
   /// Called when the day's mode toggle is flipped.
   final void Function(int index, WeekdayMode next) onModeChanged;
 
-  /// Called after discrete times are mutated by the `_DayCard`.
-  final void Function(int index) onTimesChanged;
+  /// Called after discrete times are mutated by the `_DayCard`. Threads the
+  /// card's current times list up so the host can write it back into the
+  /// authoritative [TemplateDay.times] before recomputing the Save gate.
+  final void Function(int index, List<TimeOfDay> times) onTimesChanged;
 
   final Future<void> Function() onSave;
 
@@ -877,7 +883,8 @@ class _LoadedBody extends StatelessWidget {
                   onToggle: (bool open) => onToggle(i, open),
                   onMutated: onMutated,
                   onModeChanged: (WeekdayMode next) => onModeChanged(i, next),
-                  onTimesChanged: () => onTimesChanged(i),
+                  onTimesChanged: (List<TimeOfDay> times) =>
+                      onTimesChanged(i, times),
                 ),
                 if (i != _kDaysInWeek - 1)
                   const SizedBox(height: VelvetSpacing.md),
@@ -1070,8 +1077,9 @@ class _DayCard extends StatefulWidget {
   /// Called when the mode toggle is flipped — notifies the host + Save gate.
   final void Function(WeekdayMode next) onModeChanged;
 
-  /// Called after discrete times are mutated — notifies the host + Save gate.
-  final VoidCallback onTimesChanged;
+  /// Called after discrete times are mutated — passes the card's current times
+  /// list up so the host can write it back, then notifies the Save gate.
+  final void Function(List<TimeOfDay> times) onTimesChanged;
 
   @override
   State<_DayCard> createState() => _DayCardState();
@@ -1128,9 +1136,10 @@ class _DayCardState extends State<_DayCard> {
 
   void _handleTimesChanged() {
     // DiscreteTimesEditor mutated `_times` in place; rebuild this card only,
-    // then notify the host to recompute the Save gate.
+    // then thread the current times up so the host writes them back into its
+    // authoritative TemplateDay before recomputing the Save gate.
     setState(() {});
-    widget.onTimesChanged();
+    widget.onTimesChanged(_times);
   }
 
   // ── Mode toggle chip (mirrors _modeChip in DayHoursSheet) ─────────────────

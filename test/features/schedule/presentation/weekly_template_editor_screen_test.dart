@@ -1395,11 +1395,221 @@ void main() {
       },
     );
   });
+
+  // ── Phase 15.8 regression: adding discrete times ENABLES Save ──────────────
+  //
+  // BUG (DEBUG 3.5): on an EXPLICIT_TIMES («Окремі години») working day, adding
+  // discrete times via the add-time picker did NOT enable the Save button —
+  // INTERVAL mode worked, EXPLICIT_TIMES did not.
+  //
+  // ROOT CAUSE: `_DayCard` held a private `List<TimeOfDay>` copy of the discrete
+  // times and `_onTimesChanged` never wrote the edited list back into the host
+  // `_templateDays[i].times`. So the host's authoritative `TemplateDay.times`
+  // stayed empty → `_hasErrors` saw `discreteTimesValid([]) == false` → the Save
+  // gate stuck at `hasErrors` → `onPressed == null` (silently-dead Save). The
+  // INTERVAL path shares its `DayHours` by reference, so it never lost the edit.
+  //
+  // FIX: `_onTimesChanged(index, times)` writes the card's edited list into
+  // `_templateDays[index].times` BEFORE recomputing the gate; `_buildSchedule`
+  // then reads the synced times.
+  //
+  // These tests drive the bug purely through observable UI/state:
+  //   1. PRIMARY — switch a working day to EXPLICIT_TIMES (Save disabled: an
+  //      empty explicit day is an error), add two valid times, assert Save
+  //      ENABLES and the no-changes hint is absent. FAILS on pre-fix code
+  //      (host times stay empty → hasErrors → Save stays disabled).
+  //   2. PERSISTED PROOF — Save and capture the recorded schedule; day-1 must
+  //      serialise as EXPLICIT_TIMES carrying the added times, proving the host
+  //      `TemplateDay.times` (not just the card) was updated.
+  //   3. NO-REGRESSION MIRROR — the INTERVAL path (the one that always worked)
+  //      still enables Save on a real edit.
+  group('WeeklyTemplateEditorScreen — Phase 15.8 add-discrete-times Save-gate '
+      'regression', () {
+    testWidgets(
+      'PRIMARY: switching to EXPLICIT_TIMES then adding two discrete times '
+      'ENABLES Save and clears the no-changes/error gate (the silently-dead '
+      'Save bug)',
+      (tester) async {
+        // Seeded Monday is ACTIVE in INTERVAL mode (09:00–18:00).
+        final ProviderContainer c = await _pumpLoaded(tester, _template());
+        addTearDown(c.dispose);
+
+        // Switch day-1 to «Окремі години». An EXPLICIT_TIMES day with zero
+        // times is an ERROR (discreteTimesValid([]) == false) → the gate is
+        // `hasErrors` → Save is disabled. This is the precondition the bug
+        // never escaped: adding times must clear the error AND keep the draft
+        // dirty so Save enables.
+        final Finder explicitChip = find.byKey(
+          const Key('weekly-mode-explicit-1'),
+        );
+        await tester.ensureVisible(explicitChip);
+        await tester.pumpAndSettle();
+        await tester.tap(explicitChip);
+        await tester.pumpAndSettle();
+
+        // Precondition: empty explicit day → Save disabled (error gate).
+        expect(
+          _saveButton(tester).onPressed,
+          isNull,
+          reason:
+              'a working EXPLICIT_TIMES day with no times is invalid → Save '
+              'must be disabled until ≥1 valid time is added',
+        );
+
+        // Add two valid, 15-min-aligned times: the picker seeds 09:00 on an
+        // empty list, then the next full hour (10:00) — both deterministic
+        // with NO wheel scrolling (M6: no brittle wheel drive needed here).
+        await _addWeeklyDiscreteTime(tester); // → 09:00
+        await _addWeeklyDiscreteTime(tester); // → 10:00
+
+        // The chips rendered (the card's view updated).
+        expect(
+          find.byKey(const Key('weekly-day-1-chip-09:00')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('weekly-day-1-chip-10:00')),
+          findsOneWidget,
+        );
+
+        // THE REGRESSION ASSERTION: adding times wrote back into the host's
+        // TemplateDay.times → error cleared + draft still dirty → Save ENABLES.
+        // On the pre-fix code the host times stayed empty → hasErrors → this
+        // is `null` and the test fails.
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason:
+              'adding discrete times to an EXPLICIT_TIMES day must enable '
+              'Save — the host TemplateDay.times was synced from the card',
+        );
+        expect(
+          find.byKey(const Key('weekly-no-changes-hint')),
+          findsNothing,
+          reason: 'a savable draft must not show the no-changes hint',
+        );
+      },
+    );
+
+    testWidgets(
+      'PERSISTED PROOF: saving an EXPLICIT_TIMES day persists day-1 as '
+      'EXPLICIT_TIMES carrying the added times (host TemplateDay.times was '
+      'updated, not just the card)',
+      (tester) async {
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          _template(id: 'sched-1'),
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        // Switch day-1 to EXPLICIT_TIMES and add 09:00 + 10:00.
+        final Finder explicitChip = find.byKey(
+          const Key('weekly-mode-explicit-1'),
+        );
+        await tester.ensureVisible(explicitChip);
+        await tester.pumpAndSettle();
+        await tester.tap(explicitChip);
+        await tester.pumpAndSettle();
+
+        await _addWeeklyDiscreteTime(tester); // → 09:00
+        await _addWeeklyDiscreteTime(tester); // → 10:00
+
+        // Save is enabled → tap it.
+        expect(_saveButton(tester).onPressed, isNotNull);
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        // The editor issued an UPDATE; the recorded shape proves the host
+        // TemplateDay.times — not the card's private copy — carried the edit.
+        expect(weekly.saveCalled, isTrue);
+        expect(weekly.savedScheduleId, 'sched-1');
+
+        final TemplateDay day1 = weekly.savedSchedule!.days[0];
+        expect(
+          day1.mode,
+          WeekdayMode.explicitTimes,
+          reason: 'day-1 must persist as EXPLICIT_TIMES',
+        );
+        expect(
+          day1.intervals,
+          isEmpty,
+          reason: 'an EXPLICIT_TIMES day carries no intervals',
+        );
+        final List<String> times = day1.times
+            .map(
+              (TimeOfDay t) =>
+                  '${t.hour.toString().padLeft(2, '0')}:'
+                  '${t.minute.toString().padLeft(2, '0')}',
+            )
+            .toList();
+        expect(
+          times,
+          <String>['09:00', '10:00'],
+          reason:
+              'the saved day must carry the two times added in the card — '
+              'proving _onTimesChanged wrote them back into the host',
+        );
+      },
+    );
+
+    testWidgets(
+      'NO-REGRESSION MIRROR: an INTERVAL-mode edit (the path that always '
+      'worked) still enables Save',
+      (tester) async {
+        // Fresh all-off create. Toggle Monday ON — the stash restores the
+        // default 09:00–18:00 INTERVAL shape, which differs from the empty
+        // baseline → dirty → Save enables. Guards the working path so the
+        // EXPLICIT_TIMES fix didn't break INTERVAL.
+        final _RecordingWeekly weekly = _RecordingWeekly(
+          const <WeeklySchedule>[],
+        );
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        expect(_saveButton(tester).onPressed, isNull);
+
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+
+        // Day-1 defaults to INTERVAL — its work wells render, no discrete editor.
+        expect(
+          find.byKey(const Key('weekly-day-1-work-start')),
+          findsOneWidget,
+        );
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason: 'an INTERVAL-mode edit must still enable Save',
+        );
+        expect(find.byKey(const Key('weekly-no-changes-hint')), findsNothing);
+      },
+    );
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────────
 // Override helpers.
 // ───────────────────────────────────────────────────────────────────────────
+
+/// Opens the weekly day-1 discrete add-time picker and confirms the seeded
+/// value (no wheel scrolling). The picker seeds 09:00 on an empty list, then
+/// the next full hour after the last time — so successive calls add
+/// 09:00, 10:00, … deterministically (M6: no brittle wheel drive).
+Future<void> _addWeeklyDiscreteTime(WidgetTester tester) async {
+  final Finder add = find.byKey(const Key('weekly-day-1-add-time'));
+  await tester.ensureVisible(add);
+  await tester.pumpAndSettle();
+  await tester.tap(add);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('btn-velvet-time-picker-confirm')));
+  await tester.pumpAndSettle();
+}
 
 /// Editor overrides bound to a recording weekly notifier + a counting effective
 /// notifier (so the invalidation path is observable).
