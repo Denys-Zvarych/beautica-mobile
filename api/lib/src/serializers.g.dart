@@ -132,8 +132,10 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SalonSearchResult.serializer)
       ..add(ScheduleOverrideRequest.serializer)
       ..add(ScheduleOverrideRequestKindEnum.serializer)
+      ..add(ScheduleOverrideRequestModeEnum.serializer)
       ..add(ScheduleOverrideResponse.serializer)
       ..add(ScheduleOverrideResponseKindEnum.serializer)
+      ..add(ScheduleOverrideResponseModeEnum.serializer)
       ..add(ServiceDefinitionResponse.serializer)
       ..add(ServiceDefinitionResponsePriceTypeEnum.serializer)
       ..add(SortObject.serializer)
@@ -150,7 +152,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(UserProfileResponse.serializer)
       ..add(VerifyEmailRequest.serializer)
       ..add(WeeklyScheduleDayRequest.serializer)
+      ..add(WeeklyScheduleDayRequestModeEnum.serializer)
       ..add(WeeklyScheduleDayResponse.serializer)
+      ..add(WeeklyScheduleDayResponseModeEnum.serializer)
       ..add(WeeklyScheduleRequest.serializer)
       ..add(WeeklyScheduleResponse.serializer)
       ..add(WorkIntervalDto.serializer)
@@ -301,17 +305,32 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(BuiltList, const [const FullType(WorkIntervalDto)]),
           () => ListBuilder<WorkIntervalDto>())
       ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(WorkIntervalDto)]),
-          () => ListBuilder<WorkIntervalDto>())
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(WorkIntervalDto)]),
           () => ListBuilder<WorkIntervalDto>())
       ..addBuilderFactory(
-          const FullType(BuiltList, const [const FullType(WorkIntervalDto)]),
-          () => ListBuilder<WorkIntervalDto>())
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(WorkIntervalDto)]),
           () => ListBuilder<WorkIntervalDto>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(WorkIntervalDto)]),
+          () => ListBuilder<WorkIntervalDto>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(WorkIntervalDto)]),
+          () => ListBuilder<WorkIntervalDto>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),

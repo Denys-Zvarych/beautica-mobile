@@ -14,7 +14,9 @@ part 'weekly_schedule_day_response.g.dart';
 ///
 /// Properties:
 /// * [dayOfWeek]
+/// * [mode]
 /// * [intervals]
+/// * [times]
 @BuiltValue()
 abstract class WeeklyScheduleDayResponse
     implements
@@ -22,8 +24,15 @@ abstract class WeeklyScheduleDayResponse
   @BuiltValueField(wireName: r'dayOfWeek')
   int? get dayOfWeek;
 
+  @BuiltValueField(wireName: r'mode')
+  WeeklyScheduleDayResponseModeEnum? get mode;
+  // enum modeEnum {  INTERVAL,  EXPLICIT_TIMES,  };
+
   @BuiltValueField(wireName: r'intervals')
   BuiltList<WorkIntervalDto>? get intervals;
+
+  @BuiltValueField(wireName: r'times')
+  BuiltList<String>? get times;
 
   WeeklyScheduleDayResponse._();
 
@@ -62,11 +71,25 @@ class _$WeeklyScheduleDayResponseSerializer
         specifiedType: const FullType(int),
       );
     }
+    if (object.mode != null) {
+      yield r'mode';
+      yield serializers.serialize(
+        object.mode,
+        specifiedType: const FullType(WeeklyScheduleDayResponseModeEnum),
+      );
+    }
     if (object.intervals != null) {
       yield r'intervals';
       yield serializers.serialize(
         object.intervals,
         specifiedType: const FullType(BuiltList, [FullType(WorkIntervalDto)]),
+      );
+    }
+    if (object.times != null) {
+      yield r'times';
+      yield serializers.serialize(
+        object.times,
+        specifiedType: const FullType(BuiltList, [FullType(String)]),
       );
     }
   }
@@ -101,6 +124,13 @@ class _$WeeklyScheduleDayResponseSerializer
           ) as int;
           result.dayOfWeek = valueDes;
           break;
+        case r'mode':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(WeeklyScheduleDayResponseModeEnum),
+          ) as WeeklyScheduleDayResponseModeEnum;
+          result.mode = valueDes;
+          break;
         case r'intervals':
           final valueDes = serializers.deserialize(
             value,
@@ -108,6 +138,13 @@ class _$WeeklyScheduleDayResponseSerializer
                 const FullType(BuiltList, [FullType(WorkIntervalDto)]),
           ) as BuiltList<WorkIntervalDto>;
           result.intervals.replace(valueDes);
+          break;
+        case r'times':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.times.replace(valueDes);
           break;
         default:
           unhandled.add(key);
@@ -136,4 +173,23 @@ class _$WeeklyScheduleDayResponseSerializer
     );
     return result.build();
   }
+}
+
+class WeeklyScheduleDayResponseModeEnum extends EnumClass {
+  @BuiltValueEnumConst(wireName: r'INTERVAL')
+  static const WeeklyScheduleDayResponseModeEnum INTERVAL =
+      _$weeklyScheduleDayResponseModeEnum_INTERVAL;
+  @BuiltValueEnumConst(wireName: r'EXPLICIT_TIMES')
+  static const WeeklyScheduleDayResponseModeEnum EXPLICIT_TIMES =
+      _$weeklyScheduleDayResponseModeEnum_EXPLICIT_TIMES;
+
+  static Serializer<WeeklyScheduleDayResponseModeEnum> get serializer =>
+      _$weeklyScheduleDayResponseModeEnumSerializer;
+
+  const WeeklyScheduleDayResponseModeEnum._(String name) : super(name);
+
+  static BuiltSet<WeeklyScheduleDayResponseModeEnum> get values =>
+      _$weeklyScheduleDayResponseModeEnumValues;
+  static WeeklyScheduleDayResponseModeEnum valueOf(String name) =>
+      _$weeklyScheduleDayResponseModeEnumValueOf(name);
 }
