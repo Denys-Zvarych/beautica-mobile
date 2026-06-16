@@ -887,6 +887,43 @@ void main() {
     });
 
     test(
+      'forwards token + newPassword to ResetPasswordRequest (arg-match)',
+      () async {
+        // M4 strict arg-match: the happy-path tests above use any(named: ...),
+        // so they would pass even if the wrong token / password reached the
+        // wire. Capture the actual request and pin both fields — a regression
+        // that swaps the args (or drops one) silently breaks account recovery.
+        final res = Response<ApiResponseVoid>(
+          data: ApiResponseVoid((b) => b..success = true),
+          statusCode: 200,
+          requestOptions: _fakeOptions('/auth/reset-password'),
+        );
+        when(
+          () => mockAuthApi.resetPassword(
+            resetPasswordRequest: any(named: 'resetPasswordRequest'),
+          ),
+        ).thenAnswer((_) async => res);
+
+        await repository.confirmPasswordReset(
+          token: 'reset-token-xyz',
+          newPassword: 'N3wP@ssw0rd!',
+        );
+
+        final captured =
+            verify(
+                  () => mockAuthApi.resetPassword(
+                    resetPasswordRequest: captureAny(
+                      named: 'resetPasswordRequest',
+                    ),
+                  ),
+                ).captured.single
+                as ResetPasswordRequest;
+        expect(captured.token, 'reset-token-xyz');
+        expect(captured.newPassword, 'N3wP@ssw0rd!');
+      },
+    );
+
+    test(
       'ValidationFailure (400) → remapped to ResetTokenInvalidFailure',
       () async {
         const failure = ValidationFailure(
@@ -970,6 +1007,39 @@ void main() {
         completes,
       );
     });
+
+    test(
+      'forwards the supplied email to ForgotPasswordRequest (arg-match)',
+      () async {
+        // The finding calls for asserting the email is forwarded correctly. The
+        // happy-path test above only asserts completion with any(named: ...) —
+        // it would pass even if the email were dropped or mangled. Capture the
+        // request and pin the exact wire value.
+        final res = Response<ApiResponseVoid>(
+          data: ApiResponseVoid((b) => b..success = true),
+          statusCode: 200,
+          requestOptions: _fakeOptions('/auth/forgot-password'),
+        );
+        when(
+          () => mockAuthApi.forgotPassword(
+            forgotPasswordRequest: any(named: 'forgotPasswordRequest'),
+          ),
+        ).thenAnswer((_) async => res);
+
+        await repository.requestPasswordReset('known@beautica.test');
+
+        final captured =
+            verify(
+                  () => mockAuthApi.forgotPassword(
+                    forgotPasswordRequest: captureAny(
+                      named: 'forgotPasswordRequest',
+                    ),
+                  ),
+                ).captured.single
+                as ForgotPasswordRequest;
+        expect(captured.email, 'known@beautica.test');
+      },
+    );
 
     test('DioException → re-throws mapped Failure (repo does NOT swallow; '
         'anti-enumeration is enforced backend-side, not here)', () async {
