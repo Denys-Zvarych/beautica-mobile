@@ -297,12 +297,18 @@ jobs:
   patrol:
     name: Patrol native E2E (emulator) (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
-    # Matrix axis: run the patrol flows on API 34 (modern) + API 29 (older) in
-    # parallel. fail-fast: false so one API level failing never cancels the other.
+    # Matrix axis: API 34 only. API 29 was dropped — its x86_64 system image
+    # crashes with a native jemalloc SIGSEGV during native-thread creation
+    # (art::Thread::CreateNativeThread → je_malloc) before any patrol test runs.
+    # The same APK runs clean on API 34, so the crash is the emulator image, not
+    # app code. The deep-link test asserts App Links routing, and the strict
+    # path that can actually break is Android 12+ (API 31+) — already covered by
+    # API 34. (minSdk is 26; re-add API 29 pinned to a known-good image on a
+    # continue-on-error leg if pre-12 coverage is later needed.)
     strategy:
       fail-fast: false
       matrix:
-        api-level: [34, 29]
+        api-level: [34]
     # Skip on ordinary push/PR; opt in via schedule, manual dispatch, or label.
     if: >-
       github.event_name == 'schedule' ||
@@ -372,6 +378,27 @@ jobs:
             adb logcat -b all -v time > "$GITHUB_WORKSPACE/patrol-logcat.txt" 2>&1 &
             LOGCAT_PID=$!
             set +e
+            # App Links autoVerify cannot pass on a CI emulator: the App Link
+            # host serves no /.well-known/assetlinks.json (see AndroidManifest.xml)
+            # and the APK is debug-signed, so on Android 12+ the https ACTION_VIEW
+            # intent is routed to a browser instead of MainActivity and the
+            # deep-link test never reaches go_router. (The host is matched as a
+            # STRING only — no network call is made to it, so this is unaffected
+            # by the backend being offline/local-only.)
+            #
+            # Force-approve the domain so the intent resolves to the app. pm
+            # set-app-links needs the package INSTALLED, but `patrol test` only
+            # installs at run time with no hook before the test fires. So: build,
+            # install the app APK once, record the user selection, then run.
+            # `patrol test`'s reinstall is a same-signature update, which
+            # preserves the domain-verification user selection.
+            APP_ID=com.beautica.beautica_mobile
+            APP_LINK_HOST=beautica-backend-production.up.railway.app
+            patrol build android --target integration_test/patrol
+            APP_APK="$(find build/app/outputs -name 'app-debug.apk' | head -1)"
+            adb install -r -t "$APP_APK"
+            adb shell pm set-app-links-user-selection --user 0 --package "$APP_ID" true "$APP_LINK_HOST" || true
+            adb shell pm get-app-links "$APP_ID" || true
             patrol test --target integration_test/patrol --verbose
             CODE=$?
             kill "$LOGCAT_PID" 2>/dev/null || true
