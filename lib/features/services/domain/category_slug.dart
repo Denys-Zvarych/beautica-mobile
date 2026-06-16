@@ -20,6 +20,18 @@ const int kCategorySlugMaxLength = 50;
 /// (`CreateCategoryRequestRequest.displayName` `@Size(max = 100)`).
 const int kCategoryDisplayNameMaxLength = 100;
 
+/// Stray leading/trailing underscores left by edge separators.
+/// Hoisted to file scope so it compiles once instead of per `deriveCategorySlug`
+/// call (which runs per keystroke in the suggest-category dialog).
+final RegExp _edgeUnderscoresRe = RegExp(r'^_+|_+$');
+
+/// True when the slug starts with a digit (needs a `C_` prefix to satisfy the
+/// "must start with a letter" rule). Hoisted — compiled once.
+final RegExp _leadingDigitRe = RegExp(r'^[0-9]');
+
+/// Trailing underscores left after length truncation. Hoisted — compiled once.
+final RegExp _trailingUnderscoresRe = RegExp(r'_+$');
+
 /// Cyrillic → latin transliteration table (Ukrainian-leaning).
 ///
 /// Lower-case keys only; callers upper-case the input first so a single map
@@ -118,18 +130,18 @@ String deriveCategorySlug(String input) {
 
   var slug = buffer.toString();
   // Strip any stray leading/trailing underscores produced by edge separators.
-  slug = slug.replaceAll(RegExp(r'^_+|_+$'), '');
+  slug = slug.replaceAll(_edgeUnderscoresRe, '');
   if (slug.isEmpty) return '';
 
   // Must start with a letter; prefix when the first char is a digit.
-  if (RegExp(r'^[0-9]').hasMatch(slug)) {
+  if (_leadingDigitRe.hasMatch(slug)) {
     slug = 'C_$slug';
   }
 
   if (slug.length > kCategorySlugMaxLength) {
     slug = slug.substring(0, kCategorySlugMaxLength);
     // Truncation may leave a trailing underscore — trim it.
-    slug = slug.replaceAll(RegExp(r'_+$'), '');
+    slug = slug.replaceAll(_trailingUnderscoresRe, '');
   }
   return slug;
 }
