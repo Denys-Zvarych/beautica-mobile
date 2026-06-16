@@ -392,13 +392,15 @@ jobs:
             # install the app APK once, record the user selection, then run.
             # `patrol test`'s reinstall is a same-signature update, which
             # preserves the domain-verification user selection.
-            APP_ID=com.beautica.beautica_mobile
-            APP_LINK_HOST=beautica-backend-production.up.railway.app
+            #
+            # NOTE: android-emulator-runner runs EACH script line in its own
+            # `sh -c`, so shell variables do NOT persist across lines. Every
+            # command below must be self-contained on a single line — in
+            # particular the APK lookup is inlined into `adb install`.
             patrol build android --target integration_test/patrol
-            APP_APK="$(find build/app/outputs -name 'app-debug.apk' | head -1)"
-            adb install -r -t "$APP_APK"
-            adb shell pm set-app-links-user-selection --user 0 --package "$APP_ID" true "$APP_LINK_HOST" || true
-            adb shell pm get-app-links "$APP_ID" || true
+            adb install -r -t "$(find build/app/outputs -name 'app-debug.apk' | head -1)"
+            adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app || true
+            adb shell pm get-app-links com.beautica.beautica_mobile || true
             patrol test --target integration_test/patrol --verbose
             CODE=$?
             kill "$LOGCAT_PID" 2>/dev/null || true
