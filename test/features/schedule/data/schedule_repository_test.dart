@@ -300,6 +300,152 @@ void main() {
     });
   });
 
+  group('clearOverride — happy path', () {
+    test(
+      'DELETEs the override on the given date and completes (void)',
+      () async {
+        when(
+          () => masterApi.clearOverride(
+            masterId: any(named: 'masterId'),
+            date: any(named: 'date'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<ApiResponseVoid>(
+            data: ApiResponseVoid((b) => b..success = true),
+            requestOptions: RequestOptions(
+              path: '/api/v1/masters/$_masterId/overrides',
+            ),
+            statusCode: 200,
+          ),
+        );
+
+        await expectLater(
+          repository.clearOverride(DateTime(2026, 6, 10)),
+          completes,
+        );
+
+        // The DateTime's year/month/day must reach the API as the wire Date,
+        // addressed to this master.
+        verify(
+          () => masterApi.clearOverride(
+            masterId: _masterId,
+            date: Date(2026, 6, 10),
+          ),
+        ).called(1);
+      },
+    );
+
+    test('connectionError → NetworkFailure', () async {
+      when(
+        () => masterApi.clearOverride(
+          masterId: any(named: 'masterId'),
+          date: any(named: 'date'),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(
+            path: '/api/v1/masters/$_masterId/overrides',
+          ),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+
+      await expectLater(
+        repository.clearOverride(DateTime(2026, 6, 10)),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test('empty masterId → UnauthorizedFailure, no API call', () async {
+      final unauthRepo = HttpScheduleRepository(
+        masterApi: masterApi,
+        masterId: '',
+      );
+
+      await expectLater(
+        unauthRepo.clearOverride(DateTime(2026, 6, 10)),
+        throwsA(isA<UnauthorizedFailure>()),
+      );
+
+      verifyNever(
+        () => masterApi.clearOverride(
+          masterId: any(named: 'masterId'),
+          date: any(named: 'date'),
+        ),
+      );
+    });
+  });
+
+  group('deleteWeeklySchedule — happy path', () {
+    test(
+      'DELETEs the template by id for this master and completes (void)',
+      () async {
+        when(
+          () => masterApi.deleteWeeklySchedule(
+            masterId: any(named: 'masterId'),
+            scheduleId: any(named: 'scheduleId'),
+          ),
+        ).thenAnswer(
+          (_) async => Response<ApiResponseVoid>(
+            data: ApiResponseVoid((b) => b..success = true),
+            requestOptions: RequestOptions(path: _weeklyPath),
+            statusCode: 200,
+          ),
+        );
+
+        await expectLater(
+          repository.deleteWeeklySchedule('sched-42'),
+          completes,
+        );
+
+        verify(
+          () => masterApi.deleteWeeklySchedule(
+            masterId: _masterId,
+            scheduleId: 'sched-42',
+          ),
+        ).called(1);
+      },
+    );
+
+    test('connectionError → NetworkFailure', () async {
+      when(
+        () => masterApi.deleteWeeklySchedule(
+          masterId: any(named: 'masterId'),
+          scheduleId: any(named: 'scheduleId'),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: _weeklyPath),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+
+      await expectLater(
+        repository.deleteWeeklySchedule('sched-42'),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test('empty masterId → UnauthorizedFailure, no API call', () async {
+      final unauthRepo = HttpScheduleRepository(
+        masterApi: masterApi,
+        masterId: '',
+      );
+
+      await expectLater(
+        unauthRepo.deleteWeeklySchedule('sched-42'),
+        throwsA(isA<UnauthorizedFailure>()),
+      );
+
+      verifyNever(
+        () => masterApi.deleteWeeklySchedule(
+          masterId: any(named: 'masterId'),
+          scheduleId: any(named: 'scheduleId'),
+        ),
+      );
+    });
+  });
+
   // ── Regression: list path must yield self-identifying templates ───────────
   //
   // The dropped-id bug lived on THIS path. `listWeeklySchedules` maps each row
