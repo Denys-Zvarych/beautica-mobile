@@ -505,6 +505,87 @@ void main() {
     );
 
     // -----------------------------------------------------------------------
+    // Test 5c — Logout invalidates serviceRepositoryProvider (keepAlive: true)
+    //
+    // serviceRepositoryProvider is keepAlive and caches an HttpServiceRepository
+    // built around the previous user's Master-row UUID. logout() calls
+    // ref.invalidate(serviceRepositoryProvider) (auth_notifier.dart:702) so the
+    // next login rebuilds the repository with the new account's id — without
+    // this, a stale repository (and thus another user's service data) could
+    // leak across a logout / account switch.
+    //
+    // This test asserts that behaviour DIRECTLY: it reads the repository
+    // instance before logout, performs the logout, reads it again, and proves a
+    // NEW instance was produced (identical(before, after) is false).
+    //
+    // The provider is overridden with a per-build factory (overrideWith, NOT
+    // overrideWithValue) so that (a) each rebuild yields a distinct instance we
+    // can compare by identity, and (b) the transitive dependency on authProvider
+    // (serviceRepositoryProvider → masterProfileProvider → authProvider) is
+    // broken — otherwise Riverpod's debug circular-dependency assertion fires
+    // when logout() invalidates the provider from inside authProvider's notifier.
+    // -----------------------------------------------------------------------
+    test(
+      'logout → serviceRepositoryProvider (keepAlive) is invalidated, producing '
+      'a fresh repository instance so stale service data cannot survive logout',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => testTokens);
+        when(() => repo.me()).thenAnswer((_) async => testUser);
+        when(() => repo.logout()).thenAnswer((_) async {});
+
+        // Per-build factory: every (re)build of serviceRepositoryProvider yields
+        // a BRAND-NEW mock instance. Comparing by identity therefore proves the
+        // provider was actually invalidated and re-created on logout. Using
+        // overrideWith (factory) instead of overrideWithValue (single instance)
+        // also breaks the transitive chain to authProvider so logout()'s
+        // ref.invalidate(serviceRepositoryProvider) does not trip the debug
+        // circular-dependency assertion.
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            serviceRepositoryProvider.overrideWith(
+              (ref) => _MockServiceRepository(),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Authenticate, then keep the keepAlive repository alive with a listener
+        // so the instance read before logout is the same one the container is
+        // caching (mirrors the production graph where a live screen holds it).
+        await container.read(authProvider.future);
+        final sub = container.listen(
+          serviceRepositoryProvider,
+          (_, _) {},
+          fireImmediately: true,
+        );
+        addTearDown(sub.close);
+
+        final repoBefore = container.read(serviceRepositoryProvider);
+
+        await container.read(authProvider.notifier).logout();
+
+        final repoAfter = container.read(serviceRepositoryProvider);
+
+        expect(
+          identical(repoBefore, repoAfter),
+          isFalse,
+          reason:
+              'logout() must invalidate serviceRepositoryProvider so the next '
+              'read produces a fresh repository — a re-used instance would carry '
+              "the previous account's master id and leak its service data.",
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // Test 6 — register success
     // -----------------------------------------------------------------------
     test(
