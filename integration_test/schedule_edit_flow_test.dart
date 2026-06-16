@@ -265,6 +265,32 @@ void main() {
         '13:00',
         '15:00',
       ], reason: 'the three discrete times must be sent sorted');
+
+      // ── Phase 15.8 contract-conformance regression (Rule 3b wire assertion) ─
+      //
+      // The bug: a fresh-profile save that left a day off WHILE its row was in
+      // EXPLICIT_TIMES mode serialised that off day as `mode=EXPLICIT_TIMES,
+      // times:[]` → backend 400 (MethodArgumentNotValidException on
+      // `days[i].modeConsistent`). The whole-payload invariant the backend
+      // enforces: EXPLICIT_TIMES ⇒ times non-empty. Here day-1 is a real
+      // discrete day (times above) and days 3–7 are seeded OFF — so the saved
+      // `days` body MUST contain NO EXPLICIT_TIMES day with an empty times list.
+      // If the mapper regressed, an off day would ride as EXPLICIT_TIMES-empty
+      // and this assertion (not just the backend) would catch it locally.
+      for (final dynamic d in days) {
+        final Map<String, dynamic> day = d as Map<String, dynamic>;
+        if (day['mode'] == 'EXPLICIT_TIMES') {
+          final List<dynamic> t = (day['times'] as List<dynamic>?) ?? const [];
+          expect(
+            t,
+            isNotEmpty,
+            reason:
+                'day ${day['dayOfWeek']} serialised as EXPLICIT_TIMES with an '
+                'empty times list — this is the exact wire shape that 400s on '
+                'the backend modeConsistent contract (Phase 15.8 regression)',
+          );
+        }
+      }
     },
     timeout: const Timeout(Duration(seconds: 40)),
   );

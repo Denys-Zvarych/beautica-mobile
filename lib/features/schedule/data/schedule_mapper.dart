@@ -182,10 +182,16 @@ abstract final class ScheduleMapper {
 
   // ── WeeklySchedule → WeeklyScheduleRequest ───────────────────────────────────
 
-  /// Builds the request payload for create / update. Sends one day per weekday;
-  /// an empty-intervals [TemplateDay] is a day-off, serialised as an empty
-  /// `intervals` list (NOT omitted — the backend treats an explicit empty list
-  /// as "this weekday is off"). `validFrom` / `validTo` are date-only.
+  /// Builds the request payload for create / update. Sends one day per weekday.
+  ///
+  /// Contract (Phase 15.8, backend `WeeklyScheduleDayRequest.isModeConsistent`):
+  ///   • EXPLICIT_TIMES days MUST carry ≥1 discrete time and no intervals.
+  ///   • A day-off is the canonical INTERVAL day with an empty `intervals` list
+  ///     (NOT omitted — the backend treats an explicit empty list as "off").
+  /// An `explicitTimes` [TemplateDay] with zero times is therefore NOT a valid
+  /// EXPLICIT_TIMES day (it would 400 on `days[i].modeConsistent`); it is an
+  /// empty discrete day == day-off, so we serialise it as INTERVAL-empty.
+  /// `validFrom` / `validTo` are date-only.
   static WeeklyScheduleRequest weeklyScheduleToRequest(
     WeeklySchedule schedule,
   ) {
@@ -199,15 +205,15 @@ abstract final class ScheduleMapper {
           schedule.days.map(
             (d) => WeeklyScheduleDayRequest((db) {
               db.dayOfWeek = d.dayOfWeek;
-              if (d.mode == WeekdayMode.explicitTimes) {
-                // EXPLICIT_TIMES: send the discrete times, no intervals. An
-                // empty list means "this weekday is off" (same convention as
-                // an empty interval list).
+              if (d.mode == WeekdayMode.explicitTimes && d.times.isNotEmpty) {
+                // EXPLICIT_TIMES: a real discrete working day — send the (≥1)
+                // discrete times, no intervals.
                 db
                   ..mode = WeeklyScheduleDayRequestModeEnum.EXPLICIT_TIMES
                   ..times = _timesToWire(d.times).toBuilder();
               } else {
-                // INTERVAL (default): send intervals. An empty list = day-off.
+                // INTERVAL (default) — also the day-off / empty-discrete-day
+                // encoding: send intervals (an empty list == this weekday off).
                 db
                   ..mode = WeeklyScheduleDayRequestModeEnum.INTERVAL
                   ..intervals = _intervalsToDtos(d.intervals).toBuilder();
@@ -250,7 +256,20 @@ abstract final class ScheduleMapper {
     ScheduleOverride override,
     DateTime date,
   ) {
-    final isDayOff = override.kind == OverrideKind.dayOff;
+    // Contract (Phase 15.9, backend `ScheduleOverrideRequest.isKindConsistent`):
+    //   • DAY_OFF carries neither intervals nor times.
+    //   • CUSTOM_HOURS carries EITHER a non-empty intervals list (INTERVAL) OR a
+    //     non-empty times list (EXPLICIT_TIMES), never both, never empty.
+    // A CUSTOM_HOURS override that resolves to zero working slots (empty times
+    // in EXPLICIT_TIMES mode, or empty intervals in INTERVAL mode) is NOT a
+    // valid CUSTOM_HOURS payload — it would 400 on `kindConsistent`. Such an
+    // override means "no hours that date", which is the DAY_OFF encoding, so we
+    // collapse it to DAY_OFF.
+    final isExplicit = override.mode == WeekdayMode.explicitTimes;
+    final hasWork = isExplicit
+        ? override.times.isNotEmpty
+        : override.intervals.isNotEmpty;
+    final isDayOff = override.kind == OverrideKind.dayOff || !hasWork;
     return ScheduleOverrideRequest((b) {
       b
         ..date = dateToWire(date)
@@ -261,7 +280,7 @@ abstract final class ScheduleMapper {
       // backend dropped those fields). CUSTOM_HOURS carries either the discrete
       // times (EXPLICIT_TIMES) or the intervals (INTERVAL), never both.
       if (isDayOff) return;
-      if (override.mode == WeekdayMode.explicitTimes) {
+      if (isExplicit) {
         b
           ..mode = ScheduleOverrideRequestModeEnum.EXPLICIT_TIMES
           ..times = _timesToWire(override.times).toBuilder();

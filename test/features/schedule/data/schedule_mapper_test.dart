@@ -544,6 +544,286 @@ void main() {
     });
   });
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // Phase 15.8 REGRESSION — empty-discrete day == day-off (the contract-
+  // conformance bug). A `TemplateDay` left in `explicitTimes` mode but carrying
+  // ZERO discrete times is NOT a valid EXPLICIT_TIMES day: the backend
+  // `WeeklyScheduleDayRequest.isModeConsistent` rejects an EXPLICIT_TIMES day
+  // with an empty `times` list (400 on `days[i].modeConsistent`). It means "this
+  // weekday off", which is the canonical INTERVAL-empty day-off encoding.
+  //
+  // BUG: a fresh master profile saving a weekly schedule that left a day off
+  // WHILE that day's row was in `explicitTimes` mode previously serialised as
+  // `mode=EXPLICIT_TIMES, times:[]` → backend 400
+  // (`MethodArgumentNotValidException` on `days[0].modeConsistent`).
+  //
+  // FIX (schedule_mapper.weeklyScheduleToRequest): the guard is
+  // `if (d.mode == explicitTimes && d.times.isNotEmpty)` — an empty-times
+  // explicit day falls through to the INTERVAL-empty (day-off) branch. These
+  // tests pin the EXACT wire shape that previously 400'd.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  group('weeklyScheduleToRequest — empty-discrete day == day-off (15.8 '
+      'modeConsistent regression)', () {
+    test('an explicitTimes day with EMPTY times serialises as INTERVAL + empty '
+        'intervals + NO times (the exact shape that 400d before the fix)', () {
+      // Monday is explicitTimes but the master added no slots (left it off while
+      // in discrete mode). The other six days are plain INTERVAL day-offs.
+      final domain = WeeklySchedule(
+        validFrom: DateTime(2026, 6, 1),
+        validTo: null,
+        days: <TemplateDay>[
+          TemplateDay(
+            dayOfWeek: 1,
+            label: 'd1',
+            mode: WeekdayMode.explicitTimes,
+            intervals: const <WorkInterval>[],
+            times: const <TimeOfDay>[], // EMPTY discrete list == day-off
+          ),
+          for (var dow = 2; dow <= 7; dow++)
+            TemplateDay(
+              dayOfWeek: dow,
+              label: 'd$dow',
+              intervals: const <WorkInterval>[],
+            ),
+        ],
+      );
+
+      final request = ScheduleMapper.weeklyScheduleToRequest(domain);
+
+      final monReq = request.days!.firstWhere((d) => d.dayOfWeek == 1);
+      // The day-off MUST be INTERVAL (the canonical empty-intervals day-off),
+      // NEVER EXPLICIT_TIMES with an empty times list.
+      expect(
+        monReq.mode,
+        WeeklyScheduleDayRequestModeEnum.INTERVAL,
+        reason:
+            'an empty-times explicitTimes day is a day-off — it must serialise '
+            'as INTERVAL, not EXPLICIT_TIMES (which would 400 on modeConsistent)',
+      );
+      expect(monReq.intervals ?? const <WorkIntervalDto>[], isEmpty);
+      // No discrete times ride on a day-off.
+      expect(monReq.times ?? const <String>[], isEmpty);
+    });
+
+    test('NO day in the request carries EXPLICIT_TIMES with an empty times list '
+        '(whole-payload modeConsistent invariant)', () {
+      // A realistic fresh-profile mix: one real discrete working day (Mon), one
+      // empty-discrete day left off in explicit mode (Tue), and five plain
+      // INTERVAL day-offs. The backend contract: EXPLICIT_TIMES ⇒ times
+      // non-empty. The whole payload must satisfy it.
+      final domain = WeeklySchedule(
+        validFrom: DateTime(2026, 6, 1),
+        validTo: null,
+        days: <TemplateDay>[
+          TemplateDay(
+            dayOfWeek: 1,
+            label: 'd1',
+            mode: WeekdayMode.explicitTimes,
+            intervals: const <WorkInterval>[],
+            times: const <TimeOfDay>[
+              TimeOfDay(hour: 9, minute: 0),
+              TimeOfDay(hour: 13, minute: 0),
+            ],
+          ),
+          TemplateDay(
+            dayOfWeek: 2,
+            label: 'd2',
+            mode: WeekdayMode.explicitTimes,
+            intervals: const <WorkInterval>[],
+            times: const <TimeOfDay>[], // empty discrete == day-off
+          ),
+          for (var dow = 3; dow <= 7; dow++)
+            TemplateDay(
+              dayOfWeek: dow,
+              label: 'd$dow',
+              intervals: const <WorkInterval>[],
+            ),
+        ],
+      );
+
+      final request = ScheduleMapper.weeklyScheduleToRequest(domain);
+
+      for (final day in request.days!) {
+        if (day.mode == WeeklyScheduleDayRequestModeEnum.EXPLICIT_TIMES) {
+          expect(
+            day.times ?? const <String>[],
+            isNotEmpty,
+            reason:
+                'EXPLICIT_TIMES day ${day.dayOfWeek} must carry ≥1 time — an '
+                'empty-times EXPLICIT_TIMES day 400s on backend modeConsistent',
+          );
+        }
+      }
+
+      // And specifically: the real working day stays EXPLICIT_TIMES with its
+      // times; the empty-discrete day collapses to INTERVAL.
+      final mon = request.days!.firstWhere((d) => d.dayOfWeek == 1);
+      expect(mon.mode, WeeklyScheduleDayRequestModeEnum.EXPLICIT_TIMES);
+      expect(mon.times!.toList(), <String>['09:00:00', '13:00:00']);
+      final tue = request.days!.firstWhere((d) => d.dayOfWeek == 2);
+      expect(tue.mode, WeeklyScheduleDayRequestModeEnum.INTERVAL);
+      expect(tue.intervals ?? const <WorkIntervalDto>[], isEmpty);
+      expect(tue.times ?? const <String>[], isEmpty);
+    });
+
+    test('a discrete day WITH times still serialises as EXPLICIT_TIMES + those '
+        'times, no intervals (no regression)', () {
+      final domain = WeeklySchedule(
+        validFrom: DateTime(2026, 6, 1),
+        validTo: null,
+        days: <TemplateDay>[
+          TemplateDay(
+            dayOfWeek: 1,
+            label: 'd1',
+            mode: WeekdayMode.explicitTimes,
+            intervals: const <WorkInterval>[],
+            times: const <TimeOfDay>[
+              TimeOfDay(hour: 9, minute: 0),
+              TimeOfDay(hour: 13, minute: 0),
+            ],
+          ),
+          for (var dow = 2; dow <= 7; dow++)
+            TemplateDay(
+              dayOfWeek: dow,
+              label: 'd$dow',
+              intervals: const <WorkInterval>[],
+            ),
+        ],
+      );
+
+      final monReq = ScheduleMapper.weeklyScheduleToRequest(
+        domain,
+      ).days!.firstWhere((d) => d.dayOfWeek == 1);
+
+      expect(monReq.mode, WeeklyScheduleDayRequestModeEnum.EXPLICIT_TIMES);
+      expect(monReq.times!.toList(), <String>['09:00:00', '13:00:00']);
+      expect(monReq.intervals ?? const <WorkIntervalDto>[], isEmpty);
+    });
+
+    test('an INTERVAL working day still serialises as INTERVAL + its intervals '
+        '(no regression)', () {
+      final domain = WeeklySchedule(
+        validFrom: DateTime(2026, 6, 1),
+        validTo: null,
+        days: <TemplateDay>[
+          TemplateDay(
+            dayOfWeek: 1,
+            label: 'd1',
+            intervals: <WorkInterval>[
+              WorkInterval(
+                start: const TimeOfDay(hour: 9, minute: 0),
+                end: const TimeOfDay(hour: 18, minute: 0),
+              ),
+            ],
+          ),
+          for (var dow = 2; dow <= 7; dow++)
+            TemplateDay(
+              dayOfWeek: dow,
+              label: 'd$dow',
+              intervals: const <WorkInterval>[],
+            ),
+        ],
+      );
+
+      final monReq = ScheduleMapper.weeklyScheduleToRequest(
+        domain,
+      ).days!.firstWhere((d) => d.dayOfWeek == 1);
+
+      expect(monReq.mode, WeeklyScheduleDayRequestModeEnum.INTERVAL);
+      expect(monReq.intervals, hasLength(1));
+      expect(monReq.intervals!.single.startTime, '09:00:00');
+      expect(monReq.intervals!.single.endTime, '18:00:00');
+      expect(monReq.times ?? const <String>[], isEmpty);
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Phase 15.9 REGRESSION — a no-work CUSTOM_HOURS override collapses to
+  // DAY_OFF. A CUSTOM_HOURS override that resolves to zero working slots (empty
+  // times in EXPLICIT_TIMES mode, or empty intervals in INTERVAL mode) is NOT a
+  // valid CUSTOM_HOURS payload — the backend `kindConsistent` check would 400.
+  // It means "no hours that date", which is DAY_OFF (carries neither intervals
+  // nor times). See overrideToRequestForDate.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  group('overrideToRequestForDate — no-work CUSTOM_HOURS collapses to DAY_OFF '
+      '(15.9 kindConsistent regression)', () {
+    test('a CUSTOM_HOURS override in explicit mode with EMPTY times serialises '
+        'as DAY_OFF (no intervals, no times)', () {
+      // ScheduleOverride.explicitTimes with an empty times list: mode=explicit,
+      // kind=custom, but no working slots → resolves to a day-off.
+      final override = ScheduleOverride.explicitTimes(
+        start: DateTime(2026, 7, 3),
+        end: DateTime(2026, 7, 3),
+        times: const <TimeOfDay>[], // empty discrete → no work
+      );
+      // Sanity: this IS a custom-kind, explicit-mode override with no slots.
+      expect(override.kind, OverrideKind.custom);
+      expect(override.mode, WeekdayMode.explicitTimes);
+      expect(override.times, isEmpty);
+
+      final req = ScheduleMapper.overrideToRequestForDate(
+        override,
+        DateTime(2026, 7, 3),
+      );
+
+      expect(
+        req.kind,
+        ScheduleOverrideRequestKindEnum.DAY_OFF,
+        reason:
+            'a CUSTOM_HOURS override with zero working slots is a day-off — '
+            'serialising it as empty CUSTOM_HOURS would 400 on kindConsistent',
+      );
+      expect(req.times ?? const <String>[], isEmpty);
+      expect(req.intervals ?? const <WorkIntervalDto>[], isEmpty);
+      expect(req.date, Date(2026, 7, 3));
+    });
+
+    test('a CUSTOM_HOURS override in interval mode with EMPTY intervals '
+        'serialises as DAY_OFF (no intervals, no times)', () {
+      final override = ScheduleOverride.custom(
+        start: DateTime(2026, 7, 4),
+        end: DateTime(2026, 7, 4),
+        intervals: const <WorkInterval>[], // empty intervals → no work
+      );
+      expect(override.kind, OverrideKind.custom);
+      expect(override.mode, WeekdayMode.interval);
+      expect(override.intervals, isEmpty);
+
+      final req = ScheduleMapper.overrideToRequestForDate(
+        override,
+        DateTime(2026, 7, 4),
+      );
+
+      expect(req.kind, ScheduleOverrideRequestKindEnum.DAY_OFF);
+      expect(req.intervals ?? const <WorkIntervalDto>[], isEmpty);
+      expect(req.times ?? const <String>[], isEmpty);
+    });
+
+    test('a real discrete override (WITH times) still serialises as '
+        'CUSTOM_HOURS + EXPLICIT_TIMES + its times (no regression)', () {
+      final override = ScheduleOverride.explicitTimes(
+        start: DateTime(2026, 7, 5),
+        end: DateTime(2026, 7, 5),
+        times: const <TimeOfDay>[
+          TimeOfDay(hour: 9, minute: 0),
+          TimeOfDay(hour: 11, minute: 0),
+        ],
+      );
+
+      final req = ScheduleMapper.overrideToRequestForDate(
+        override,
+        DateTime(2026, 7, 5),
+      );
+
+      expect(req.kind, ScheduleOverrideRequestKindEnum.CUSTOM_HOURS);
+      expect(req.mode, ScheduleOverrideRequestModeEnum.EXPLICIT_TIMES);
+      expect(req.times!.toList(), <String>['09:00:00', '11:00:00']);
+      expect(req.intervals ?? const <WorkIntervalDto>[], isEmpty);
+    });
+  });
+
   group('override EXPLICIT_TIMES — round-trips sorted + deduped', () {
     test('explicitTimes override → request EXPLICIT_TIMES + sorted times, no '
         'intervals → response → domain', () {
