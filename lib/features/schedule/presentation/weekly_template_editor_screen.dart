@@ -155,6 +155,14 @@ class _WeeklyTemplateEditorScreenState
   /// Persisted baseline mode per weekday (indexed Mon..Sun).
   List<WeekdayMode>? _baselineModes;
 
+  /// FIRST-CREATE validity-window draft (`_serverTemplate == null` only). Holds
+  /// the window the master chose in the «Період дії графіка» sheet BEFORE the
+  /// editor's Save is pressed — the single commit point on first create. `null`
+  /// means "not chosen yet" → the create persists open-ended (`validFrom =
+  /// today`, `validTo = null`). Never read for an existing template, whose
+  /// window comes from `_serverTemplate`.
+  DateTimeRange? _draftWindow;
+
   bool _saving = false;
 
   /// Drives the Save button's enabled state AND the inline disabled-reason hint
@@ -351,14 +359,13 @@ class _WeeklyTemplateEditorScreenState
     if (_saving) return _SaveGate.saving;
     if (_hasErrors) return _SaveGate.hasErrors;
     if (!_isDirty) return _SaveGate.noChanges;
-    // FIRST-CREATE window gate: the master has built working days (dirty), but
-    // no validity window has been explicitly chosen yet (`_serverTemplate ==
-    // null` — no template has ever been persisted). Block Save until the
-    // effective-from period is picked via the «Період дія графіка» sheet, so we
-    // never persist a fabricated `validFrom = today`. Once the sheet applies, it
-    // persists the schedule and the editor re-seeds with a non-null
-    // `_serverTemplate`, so this gate clears and Save enables for the next edit.
-    if (_serverTemplate == null) return _SaveGate.windowUnset;
+    // FIRST-CREATE: a dirty draft with ≥1 valid working day is saveable even
+    // before the validity window is chosen — the editor's Save is the single
+    // commit point. The «Період дії графіка» sheet now only STAGES the window
+    // into `_draftWindow` (it no longer eagerly persists), so there is nothing
+    // to gate on: an unchosen window defaults to open-ended (`validFrom =
+    // today`, `validTo = null`) at build time. `_SaveGate.windowUnset` is
+    // retained for the informational hint only and is never returned here.
     return _SaveGate.saveable;
   }
 
@@ -461,18 +468,11 @@ class _WeeklyTemplateEditorScreenState
     final WeeklySchedule? existing = _serverTemplate;
     final bool allOff = days.every((DayHours? d) => d == null);
 
-    // Defensive: a first-time create (no persisted template) MUST go through the
-    // «Період дії графіка» sheet to choose its validity window — never persist a
-    // fabricated `validFrom = today`. The Save gate already disables Save in this
-    // state (`_SaveGate.windowUnset`); this guard mirrors the sheet's
-    // `if (range == null) return;` so the create branch can never reach
-    // `_buildSchedule`'s `_today` fallback. (Mirrors apply_schedule_sheet.dart.)
-    if (existing == null && !allOff) {
-      if (kDebugMode) {
-        log('save: blocked — window not chosen for first create', name: _tag);
-      }
-      return;
-    }
+    // First create is committed HERE (the single commit point): the validity
+    // window comes from `_draftWindow` if the master chose one in the «Період
+    // дії графіка» sheet, otherwise it defaults to open-ended (`validFrom =
+    // today`, `validTo = null`) in `_buildSchedule`. No eager persist happens
+    // in the sheet anymore, so there is nothing to block here.
 
     setState(() => _saving = true);
     _saveGateNotifier.value = _saveGate;
@@ -568,13 +568,14 @@ class _WeeklyTemplateEditorScreenState
   /// [_templateDays]; EXPLICIT_TIMES days carry [TemplateDay.times]; INTERVAL
   /// days carry the collapsed [DayHours.toIntervals()] list.
   ///
-  /// `validFrom` is taken from [existing] whenever a template has been
-  /// persisted. The `?? _today` fallback is reached ONLY when building the base
-  /// for [_openApplyWindowSheet] on a fresh create — there `today` is a harmless
-  /// placeholder the «Період дія графіка» sheet immediately overwrites with the
-  /// master's explicitly-picked range. The [_save] create path can never reach
-  /// this fallback: it is gated by `_SaveGate.windowUnset` and the defensive
-  /// early-return in [_save].
+  /// Window sourcing:
+  ///   • EXISTING template — `validFrom`/`validTo` come from [existing],
+  ///     preserving the persisted window verbatim.
+  ///   • FIRST CREATE (`existing == null`) — the window comes from
+  ///     [_draftWindow] when the master picked one in the «Період дії графіка»
+  ///     sheet; otherwise it defaults to open-ended (`validFrom = today`,
+  ///     `validTo = null`), which the backend accepts (see
+  ///     `WeeklyScheduleNotifier.save`).
   WeeklySchedule _buildSchedule(
     List<DayHours?> days,
     WeeklySchedule? existing,
@@ -615,8 +616,10 @@ class _WeeklyTemplateEditorScreenState
     ];
     return WeeklySchedule(
       id: existing?.id,
-      validFrom: existing?.validFrom ?? _today,
-      validTo: existing?.validTo,
+      // First create draws from the staged draft window; an unchosen window is
+      // open-ended (validFrom = today, validTo = null).
+      validFrom: existing?.validFrom ?? _draftWindow?.start ?? _today,
+      validTo: existing != null ? existing.validTo : _draftWindow?.end,
       days: templateDays,
     );
   }
@@ -674,7 +677,8 @@ class _WeeklyTemplateEditorScreenState
                     saveGateListenable: _saveGateNotifier,
                     saving: _saving,
                     activeWindow: _activeWindowLabel(l10n),
-                    isWindowSet: _serverTemplate != null,
+                    isWindowSet:
+                        _serverTemplate != null || _draftWindow != null,
                     l10n: l10n,
                     onToggle: _toggleDay,
                     onMutated: _onDayMutated,
@@ -707,14 +711,36 @@ class _WeeklyTemplateEditorScreenState
     final List<DayHours?>? days = _days;
     if (days == null) return;
     final WeeklySchedule base = _buildSchedule(days, _serverTemplate);
-    final bool? applied = await showApplyScheduleSheet(
+    final Object? result = await showApplyScheduleSheet(
       context,
       baseSchedule: base,
       today: _today,
     );
-    if (!mounted || applied != true) return;
-    // Re-seed from the now-saved server list so the card + dirty-diff track the
-    // persisted window/template. Clear the local seed first so `_seed` re-runs.
+    if (!mounted) return;
+
+    // FIRST CREATE: the sheet returns the chosen window as a draft — it did NOT
+    // persist. Stage it locally and recompute the Save gate / card label; the
+    // editor's Save remains the single commit point. Do NOT re-seed from the
+    // server (there is nothing saved to re-seed from).
+    if (_serverTemplate == null) {
+      if (result is! DateTimeRange) return; // dismissed without choosing
+      setState(() => _draftWindow = result);
+      _onDayMutated();
+      if (kDebugMode) {
+        log(
+          'apply-window: first-create draft staged '
+          '${result.start} → ${result.end}',
+          name: _tag,
+        );
+      }
+      return;
+    }
+
+    // EXISTING template: the sheet persisted the new window itself (returns
+    // `true`). Re-seed from the now-saved server list so the card + dirty-diff
+    // track the persisted window/template. Clear the local seed so `_seed`
+    // re-runs.
+    if (result != true) return;
     setState(() {
       _days = null;
       _templateDays = null;
@@ -730,13 +756,21 @@ class _WeeklyTemplateEditorScreenState
 
   /// The informational active-window line for the card.
   ///
-  /// When no window has ever been persisted (`_serverTemplate == null` —
-  /// first-time / NO_SCHEDULE), returns the placeholder prompt instead of
-  /// fabricating a date from `_today`, so the card reads as «not chosen yet».
+  /// EXISTING template: reflects the persisted `validFrom`/`validTo`.
+  /// FIRST CREATE (`_serverTemplate == null`): reflects the staged
+  /// [_draftWindow] (chosen-but-unsaved) when set; otherwise the placeholder
+  /// prompt, so the card reads as «not chosen yet» until the master picks one.
   String _activeWindowLabel(AppLocalizations l10n) {
     final WeeklySchedule? t = _serverTemplate;
     if (t == null) {
-      return l10n.weeklyEditorActiveWindowUnset;
+      final DateTimeRange? draft = _draftWindow;
+      if (draft == null) {
+        return l10n.weeklyEditorActiveWindowUnset;
+      }
+      return l10n.weeklyEditorActiveWindowRange(
+        _ddmm(draft.start),
+        _ddmm(draft.end),
+      );
     }
     final DateTime from = t.validFrom;
     final DateTime? to = t.validTo;

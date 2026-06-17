@@ -380,12 +380,10 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
     final selectedCity = _selectedCity;
     if (selectedCity == null) {
       // Nothing to persist (no city chosen, no address entered). Treat as a
-      // no-op save and pop — mirrors the monolithic form's touched guard.
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(RouteNames.masterProfile);
-      }
+      // no-op save and land on the profile page (the edit nav stack is
+      // Profile → Settings hub → edit, so an explicit go avoids popping back
+      // to the hub instead of the profile).
+      context.go(RouteNames.masterProfile);
       return;
     }
 
@@ -412,11 +410,7 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
           content: Text(AppLocalizations.of(context).savedSnackbar),
         ),
       );
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(RouteNames.masterProfile);
-      }
+      context.go(RouteNames.masterProfile);
     } on ValidationFailure catch (f) {
       if (!mounted) return;
       setState(() {

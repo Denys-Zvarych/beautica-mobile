@@ -50,8 +50,10 @@ import 'package:integration_test/integration_test.dart';
 
 import 'auth_login_flow_test.dart' as auth_login;
 import 'edit_profile_flow_test.dart' as edit_profile;
+import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
 import 'register_flow_test.dart' as register;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
+import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
 
@@ -68,8 +70,10 @@ void main() {
   // re-launch model that directory-mode batching cannot provide.
   group('auth_login_flow', auth_login.main);
   group('edit_profile_flow', edit_profile.main);
+  group('edit_profile_redirect_flow', edit_profile_redirect.main);
   group('register_flow', register.main);
   group('schedule_edit_flow', schedule_edit.main);
+  group('schedule_first_create_flow', schedule_first_create.main);
   group('service_crud_flow', service_crud.main);
   group('service_edit_category_type', service_edit_category_type.main);
 }

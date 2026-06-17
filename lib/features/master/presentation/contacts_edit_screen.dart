@@ -263,11 +263,7 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
           content: Text(AppLocalizations.of(context).savedSnackbar),
         ),
       );
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(RouteNames.masterProfile);
-      }
+      context.go(RouteNames.masterProfile);
     } on ValidationFailure catch (f) {
       if (!mounted) return;
       setState(() {

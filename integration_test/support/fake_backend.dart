@@ -390,6 +390,14 @@ final class FakeBackend {
     },
   ];
 
+  /// Clears the seeded weekly schedule so `GET …/weekly-schedules` returns an
+  /// empty list — the NO_SCHEDULE / FIRST-CREATE state. Drives the Bug 2
+  /// first-create flow (back-without-save must not persist; Save creates exactly
+  /// one template). Call BEFORE the editor loads. The POST/PUT counters
+  /// (`postScheduleCalls` / `putScheduleCalls`) keep recording, so a test can
+  /// assert ZERO upserts on a back-without-save and exactly ONE on a Save.
+  void seedNoWeeklySchedule() => _weeklySchedule = <Map<String, dynamic>>[];
+
   // ── Call-count telemetry (for assertions in tests) ────────────────────────
 
   int loginCalls = 0;

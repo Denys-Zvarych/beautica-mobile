@@ -118,6 +118,10 @@ void main() {
       );
 
       // Edit firstName ONLY and Save.
+      // Focus the field first — enterText does not replace existing text
+      // unless the field is tapped/focused beforehand.
+      await tester.tap(firstNameField);
+      await tester.pumpAndSettle();
       await tester.enterText(firstNameField, 'Оксана');
       await tester.pump();
       await tester.tap(find.byKey(const Key('btn-save-personal')));
