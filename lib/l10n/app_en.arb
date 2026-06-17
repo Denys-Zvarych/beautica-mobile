@@ -1478,6 +1478,10 @@
   "@serviceTypeLoadError": {
     "description": "Error text shown inside the service-type dropdown (menu and closed field) when the service-type list fails to load or times out. Accompanied by a retry affordance."
   },
+  "serviceTypeCategoryMismatch": "The selected type doesn't belong to this category. Please pick a type again.",
+  "@serviceTypeCategoryMismatch": {
+    "description": "Inline error under the service-type field when the backend rejects a save (HTTP 400) because a category change orphaned the previously-selected service type. Prompts the master to re-pick a type that belongs to the new category."
+  },
   "serviceTypeLoading": "Loading…",
   "@serviceTypeLoading": {
     "description": "Text shown in the closed service-type dropdown field while its option list is still loading."

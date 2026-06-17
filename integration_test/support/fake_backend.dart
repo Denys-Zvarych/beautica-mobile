@@ -248,7 +248,103 @@ final class FakeBackend {
         'photoUrl': null,
       },
     },
+    // Type-bearing service in NAILS (category A) with a serviceType belonging to
+    // NAILS. Drives the Phase 16.5 edit-flow category-switch regression test: a
+    // valid category↔serviceType pair on load. Its PATCH succeeds (200) so the
+    // positive flow can submit after re-picking a type for the new category.
+    <String, dynamic>{
+      'id': 'assign-typed',
+      'masterId': 'user-master-1',
+      'isActive': true,
+      'priceType': 'FIXED',
+      'priceMin': 500,
+      'priceMax': null,
+      'priceDisplay': '500 грн',
+      'effectiveDurationMinutes': 60,
+      'serviceTypeId': 'type-nails-classic',
+      'serviceTypeNameUk': 'Класичний манікюр',
+      'serviceDefinition': <String, dynamic>{
+        'id': 'svc-typed',
+        'name': 'Класичний манікюр',
+        'description': null,
+        'category': 'NAILS',
+        'baseDurationMinutes': 60,
+        'bufferMinutesAfter': 0,
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 500,
+        'priceMax': null,
+        'priceDisplay': '500 грн',
+        'photoUrl': null,
+        'serviceTypeId': 'type-nails-classic',
+        'serviceTypeNameUk': 'Класичний манікюр',
+      },
+    },
+    // Negative-path service: same valid NAILS + serviceType pair on load, but its
+    // PATCH ALWAYS returns the backend's fieldless 400 mismatch envelope
+    // ({success:false, message:"service type does not belong to the selected
+    // category"} — NO `errors` map). Drives the regression assert that the form
+    // maps that 400 to the localized inline `serviceTypeCategoryMismatch` error
+    // (Phase 16.5 fix #3) rather than a raw English snackbar.
+    <String, dynamic>{
+      'id': 'assign-mismatch',
+      'masterId': 'user-master-1',
+      'isActive': true,
+      'priceType': 'FIXED',
+      'priceMin': 500,
+      'priceMax': null,
+      'priceDisplay': '500 грн',
+      'effectiveDurationMinutes': 60,
+      'serviceTypeId': 'type-nails-classic',
+      'serviceTypeNameUk': 'Класичний манікюр',
+      'serviceDefinition': <String, dynamic>{
+        'id': 'svc-mismatch',
+        'name': 'Класичний манікюр',
+        'description': null,
+        'category': 'NAILS',
+        'baseDurationMinutes': 60,
+        'bufferMinutesAfter': 0,
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 500,
+        'priceMax': null,
+        'priceDisplay': '500 грн',
+        'photoUrl': null,
+        'serviceTypeId': 'type-nails-classic',
+        'serviceTypeNameUk': 'Класичний манікюр',
+      },
+    },
   ];
+
+  /// Service types per platform-category slug (Phase 16.5 picker source). The
+  /// `GET /service-types?categoryName=` route returns the slice for the queried
+  /// category — so a category switch genuinely repopulates the list and a type
+  /// from category A is never offered under category B. Shape matches
+  /// PlatformServiceTypeResponse { id, slug, nameUk, categoryName }.
+  static List<Map<String, dynamic>> _serviceTypesFor(String category) {
+    switch (category) {
+      case 'NAILS':
+        return <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'type-nails-classic',
+            'slug': 'CLASSIC_MANICURE',
+            'nameUk': 'Класичний манікюр',
+            'categoryName': 'NAILS',
+          },
+        ];
+      case 'BROWS':
+        return <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'type-brows-correction',
+            'slug': 'BROW_CORRECTION',
+            'nameUk': 'Корекція брів',
+            'categoryName': 'BROWS',
+          },
+        ];
+      default:
+        return const <Map<String, dynamic>>[];
+    }
+  }
 
   int _nextServiceSeq = 3;
 
@@ -308,6 +404,16 @@ final class FakeBackend {
   Map<String, dynamic>? lastCreatedService;
   int patchServiceCalls = 0;
   Map<String, dynamic>? lastPatchedService;
+
+  /// Body of the most recent PATCH against the type-bearing service
+  /// (`svc-typed`) — lets the edit-flow regression test assert the EXACT
+  /// `serviceTypeId` / `categoryName` the form submitted after a category switch.
+  Map<String, dynamic>? lastTypedPatchBody;
+
+  /// Count of `GET /service-types` calls + the last `categoryName` queried.
+  /// Proves the picker re-queried the new category after a switch (Phase 16.5).
+  int getServiceTypesCalls = 0;
+  String? lastServiceTypesCategory;
   int getScheduleCalls = 0;
   int postScheduleCalls = 0;
   int putScheduleCalls = 0;
@@ -529,12 +635,17 @@ final class FakeBackend {
               as String? ??
           '';
       if (defId.isEmpty) continue;
+      // NB: the Phase 16.5 regression services (svc-typed / svc-mismatch) are
+      // PATCHed at the REAL `/api/v1/services/{serviceDefId}` path, wired
+      // separately below — this generic loop uses the (different) legacy path and
+      // is left untouched for the pre-existing svc-1 / svc-2 fixtures.
       _adapter.onRoute(
         '/api/v1/independent-masters/me/services/$defId',
         (server) => server.replyCallback(200, (req) {
           patchServiceCalls++;
           final body = _decodeBody(req.data);
           lastPatchedService = body;
+          if (defId == 'svc-typed') lastTypedPatchBody = body;
           // Mutate the service-definition name/price in-memory.
           final idx = _services.indexWhere(
             (s) =>
@@ -556,6 +667,42 @@ final class FakeBackend {
         ),
       );
     }
+
+    // PATCH /api/v1/services/{serviceDefId} — the REAL update endpoint
+    // (updateServiceDefinition keys on the service-definition id at this path,
+    // NOT the /independent-masters/me/services/:id path the generic loop above
+    // uses). Wired here for the Phase 16.5 edit-flow regression services so a
+    // real save actually fires:
+    //   • svc-typed    → 200 (positive flow: re-picked type persists)
+    //   • svc-mismatch → fieldless 400 mismatch envelope (negative flow)
+    _adapter.onRoute(
+      '/api/v1/services/svc-typed',
+      (server) => server.replyCallback(200, (req) {
+        patchServiceCalls++;
+        final body = _decodeBody(req.data);
+        lastPatchedService = body;
+        lastTypedPatchBody = body;
+        final idx = _services.indexWhere(
+          (s) =>
+              (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+              'svc-typed',
+        );
+        return _ok(_services[idx >= 0 ? idx : 0]);
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+    _adapter.onRoute(
+      '/api/v1/services/svc-mismatch',
+      (server) => server.replyCallback(400, (req) {
+        patchServiceCalls++;
+        return <String, dynamic>{
+          'success': false,
+          'message': 'service type does not belong to the selected category',
+          // NB: intentionally NO `errors` field — the bug class this guards.
+        };
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
 
     // GET /api/v1/masters/{masterId}/weekly-schedules
     // The ScheduleRepository uses the real masterId (from MasterDetailResponse),
@@ -708,17 +855,37 @@ final class FakeBackend {
       );
     }
 
-    // GET /api/v1/service-categories/approved — one seeded category so the
-    // service-create form can select it (category is required by the form).
-    // Shape: list of ApprovedCategoryResponse { name, displayName }.
+    // GET /api/v1/service-categories/approved — seeded categories so the
+    // service form can select / switch between them (category is required by the
+    // form). NAILS + BROWS are both seeded so the edit-flow category-switch test
+    // (Phase 16.5 regression) can change category A → B. Shape: list of
+    // ApprovedCategoryResponse { name, displayName }.
     _adapter.onRoute(
       '/api/v1/service-categories/approved',
       (server) => server.reply(
         200,
         _okList(<Map<String, dynamic>>[
           <String, dynamic>{'name': 'NAILS', 'displayName': 'Нігті'},
+          <String, dynamic>{'name': 'BROWS', 'displayName': 'Брови'},
         ]),
       ),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/service-types?categoryName=X — second-level picker source
+    // (Phase 16.5 regression). Keyed on the `categoryName` query param so a
+    // category switch genuinely re-queries and the option list repopulates for
+    // the new category. Shape: list of PlatformServiceTypeResponse
+    // { id, slug, nameUk, categoryName }. Unknown categories → empty list.
+    _adapter.onRoute(
+      '/api/v1/service-types',
+      (server) => server.replyCallback(200, (req) {
+        getServiceTypesCalls++;
+        final String category =
+            (req.queryParameters['categoryName'] as String?) ?? '';
+        lastServiceTypesCategory = category;
+        return _okList(_serviceTypesFor(category));
+      }),
       request: const Request(method: RequestMethods.get),
     );
 

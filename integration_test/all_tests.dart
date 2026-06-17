@@ -53,6 +53,7 @@ import 'edit_profile_flow_test.dart' as edit_profile;
 import 'register_flow_test.dart' as register;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'service_crud_flow_test.dart' as service_crud;
+import 'service_edit_category_type_test.dart' as service_edit_category_type;
 
 void main() {
   // Initialise the integration binding ONCE for the whole aggregated run.
@@ -70,4 +71,5 @@ void main() {
   group('register_flow', register.main);
   group('schedule_edit_flow', schedule_edit.main);
   group('service_crud_flow', service_crud.main);
+  group('service_edit_category_type', service_edit_category_type.main);
 }
