@@ -437,6 +437,10 @@ final class FakeBackend {
   String? lastWeeklyValidFrom;
   String? lastWeeklyValidTo;
 
+  // ── Support-contact telemetry ─────────────────────────────────────────────
+  /// Number of `POST /api/v1/support/contact` calls the fake accepted (202).
+  int supportContactCalls = 0;
+
   // ── Override telemetry (Phase 15.8) ───────────────────────────────────────
   int putOverrideCalls = 0;
 
@@ -528,6 +532,18 @@ final class FakeBackend {
       '/api/v1/auth/logout',
       (server) => server.reply(200, _okVoid),
       request: const Request(method: RequestMethods.post),
+    );
+
+    // POST /api/v1/support/contact — multipart contact submission. The body is
+    // FormData (a `request` JSON part + 0..5 `attachments` file parts), so we
+    // do not decode it; the endpoint's contract is a 202 Accepted on success.
+    _adapter.onRoute(
+      '/api/v1/support/contact',
+      (server) => server.replyCallback(202, (_) {
+        supportContactCalls++;
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
     // GET /api/v1/users/me

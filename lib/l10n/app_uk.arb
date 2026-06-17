@@ -2462,5 +2462,173 @@
         "type": "String"
       }
     }
+  },
+  "settingsHubHelp": "Допомога / Напишіть нам",
+  "@settingsHubHelp": {
+    "description": "Label for the Help / Contact-us row in the master settings hub; navigates to the support-contact screen."
+  },
+  "contactSupportTitle": "Напишіть нам",
+  "@contactSupportTitle": {
+    "description": "App-bar title of the support / contact-us screen."
+  },
+  "contactSupportBack": "Назад",
+  "@contactSupportBack": {
+    "description": "Accessibility label for the back button on the support-contact screen."
+  },
+  "contactSupportIntroTitle": "Чим можемо допомогти?",
+  "@contactSupportIntroTitle": {
+    "description": "Heading of the intro card on the support-contact screen."
+  },
+  "contactSupportIntroBody": "Опишіть питання або запит — наша команда відповість на вашу електронну пошту.",
+  "@contactSupportIntroBody": {
+    "description": "Body text of the intro card on the support-contact screen."
+  },
+  "contactSupportSubjectLabel": "Тема (необов’язково)",
+  "@contactSupportSubjectLabel": {
+    "description": "Label for the optional subject field on the support-contact screen."
+  },
+  "contactSupportSubjectHint": "Коротко про що звернення",
+  "@contactSupportSubjectHint": {
+    "description": "Placeholder hint for the optional subject field on the support-contact screen."
+  },
+  "contactSupportMessageLabel": "Повідомлення",
+  "@contactSupportMessageLabel": {
+    "description": "Label for the required message field on the support-contact screen."
+  },
+  "contactSupportMessageHint": "Опишіть проблему або запит якомога детальніше — що ви робили, що очікували й що сталося.",
+  "@contactSupportMessageHint": {
+    "description": "Placeholder hint for the required message field on the support-contact screen."
+  },
+  "contactSupportMessageHelper": "Від {min} символів",
+  "@contactSupportMessageHelper": {
+    "description": "Helper text under the message field stating the minimum character count.",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "contactSupportAttachmentsLabel": "Вкладення",
+  "@contactSupportAttachmentsLabel": {
+    "description": "Label above the attachment tray on the support-contact screen."
+  },
+  "contactSupportAttachmentsHint": "До {max} файлів · JPEG, PNG, WEBP або PDF · разом до 5 МБ",
+  "@contactSupportAttachmentsHint": {
+    "description": "Caption under the attachment tray describing the file count, allowed types, and total size limit.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "contactSupportAddAttachment": "Додати файл",
+  "@contactSupportAddAttachment": {
+    "description": "Title of the add-attachment tile and its accessibility label."
+  },
+  "contactSupportAddAttachmentSubtitle": "Фото проблеми або документ",
+  "@contactSupportAddAttachmentSubtitle": {
+    "description": "Subtitle of the add-attachment tile when more files can be added."
+  },
+  "contactSupportAttachmentsLimitReached": "Досягнуто ліміт у 5 файлів",
+  "@contactSupportAttachmentsLimitReached": {
+    "description": "Subtitle of the add-attachment tile when the 5-file limit has been reached (tile disabled)."
+  },
+  "contactSupportRemoveAttachment": "Видалити {name}",
+  "@contactSupportRemoveAttachment": {
+    "description": "Accessibility label for the remove control on an attachment chip.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "скрін.png"
+      }
+    }
+  },
+  "contactSupportKindImage": "Зображення",
+  "@contactSupportKindImage": {
+    "description": "Type label shown on an image attachment chip."
+  },
+  "contactSupportKindPdf": "PDF",
+  "@contactSupportKindPdf": {
+    "description": "Type label shown on a PDF attachment chip."
+  },
+  "contactSupportSizeMeterUsed": "{used} / 5 МБ використано",
+  "@contactSupportSizeMeterUsed": {
+    "description": "Caption under the attachment size meter showing used vs total budget.",
+    "placeholders": {
+      "used": {
+        "type": "String",
+        "example": "1.3 МБ"
+      }
+    }
+  },
+  "contactSupportSizeMeterOver": "Перевищено ліміт 5 МБ — приберіть один файл",
+  "@contactSupportSizeMeterOver": {
+    "description": "Caption under the attachment size meter when the 5 MB total budget is exceeded."
+  },
+  "contactSupportSend": "Надіслати",
+  "@contactSupportSend": {
+    "description": "Primary CTA label on the support-contact screen."
+  },
+  "contactSupportDone": "Готово",
+  "@contactSupportDone": {
+    "description": "CTA label on the support-contact success card that dismisses the screen."
+  },
+  "contactSupportSuccessTitle": "Дякуємо!",
+  "@contactSupportSuccessTitle": {
+    "description": "Headline of the support-contact success card."
+  },
+  "contactSupportSuccessBody": "Ми отримали ваше звернення й відповімо на",
+  "@contactSupportSuccessBody": {
+    "description": "Body of the success card, preceding the user's email address."
+  },
+  "contactSupportSuccessBodyNoEmail": "Ми отримали ваше звернення й невдовзі відповімо вам.",
+  "@contactSupportSuccessBodyNoEmail": {
+    "description": "Body of the success card when no reply email is available to display."
+  },
+  "contactSupportErrMessageEmpty": "Опишіть, будь ласка, ваше питання",
+  "@contactSupportErrMessageEmpty": {
+    "description": "Inline error under the message field when it is empty on submit."
+  },
+  "contactSupportErrMessageTooShort": "Замало символів — мінімум {min}",
+  "@contactSupportErrMessageTooShort": {
+    "description": "Inline error under the message field when it is below the minimum length.",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "contactSupportErrTooManyFiles": "Можна додати щонайбільше {max} файлів",
+  "@contactSupportErrTooManyFiles": {
+    "description": "Error shown when the user tries to add more than the maximum number of attachments.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "contactSupportErrFileTooBig": "Файл завеликий — максимум 5 МБ на файл",
+  "@contactSupportErrFileTooBig": {
+    "description": "Error shown when a single picked attachment exceeds the 5 MB per-file limit."
+  },
+  "contactSupportErrTotalTooBig": "Вкладення завеликі — разом до 5 МБ",
+  "@contactSupportErrTotalTooBig": {
+    "description": "Error shown when the combined attachment size exceeds the 5 MB total limit (also mapped from a 413 response)."
+  },
+  "contactSupportErrWrongType": "Непідтримуваний тип файлу — лише JPEG, PNG, WEBP або PDF",
+  "@contactSupportErrWrongType": {
+    "description": "Error shown when a picked file is not an allowed type."
+  },
+  "contactSupportErrPickFailed": "Не вдалося обрати файл. Спробуйте ще раз.",
+  "@contactSupportErrPickFailed": {
+    "description": "Error shown when the file picker fails or returns no data."
+  },
+  "contactSupportErrUnavailable": "Підтримка тимчасово недоступна. Спробуйте, будь ласка, пізніше.",
+  "@contactSupportErrUnavailable": {
+    "description": "Error shown when the backend support channel is not configured (503)."
   }
 }

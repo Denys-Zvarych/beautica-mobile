@@ -46,6 +46,12 @@ abstract final class RouteNames {
   static const String home = '/';
   static const String settings = '/settings';
 
+  /// Support / contact-us screen («Напишіть нам»). Pushed from the master
+  /// settings hub's "Допомога / Напишіть нам" row. Authenticated users submit a
+  /// free-text message (+ optional subject + attachments) to
+  /// `POST /api/v1/support/contact`.
+  static const String contactSupport = '/support/contact';
+
   // Phase 4.2 — Master profile (read-only).
   static const String masterProfile = '/master/profile';
 

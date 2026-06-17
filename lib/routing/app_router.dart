@@ -47,6 +47,7 @@ import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/service_setup_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/support/presentation/contact_support_screen.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
 import '../features/schedule/presentation/schedule_editor_stubs.dart';
 import '../features/schedule/presentation/weekly_template_editor_screen.dart';
@@ -194,6 +195,12 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.settings,
         builder: (context, state) => const SettingsScreen(),
+      ),
+      // Support / contact-us («Напишіть нам»). Pushed from the settings hub's
+      // "Допомога" row. MaterialPage (builder:) so the swipe-back gesture works.
+      GoRoute(
+        path: RouteNames.contactSupport,
+        builder: (context, state) => const ContactSupportScreen(),
       ),
       // Phase 4.2 — Master profile (read-only).
       GoRoute(

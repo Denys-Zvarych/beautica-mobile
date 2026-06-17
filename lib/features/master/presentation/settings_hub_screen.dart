@@ -52,8 +52,9 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
   late final CurvedAnimation _anim2; // contacts
   late final CurvedAnimation _anim3; // location
   late final CurvedAnimation _anim4; // account
-  late final CurvedAnimation _anim5; // hairline
-  late final CurvedAnimation _anim6; // logout
+  late final CurvedAnimation _anim5; // help / contact-us
+  late final CurvedAnimation _anim6; // hairline
+  late final CurvedAnimation _anim7; // logout
 
   static final Tween<Offset> _slideTween = Tween<Offset>(
     begin: const Offset(0, 0.035),
@@ -72,8 +73,9 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
     _anim2 = _curve(0.14, 0.58);
     _anim3 = _curve(0.22, 0.66);
     _anim4 = _curve(0.30, 0.74);
-    _anim5 = _curve(0.40, 0.82);
-    _anim6 = _curve(0.46, 0.90);
+    _anim5 = _curve(0.36, 0.78); // help / contact-us
+    _anim6 = _curve(0.44, 0.84); // hairline
+    _anim7 = _curve(0.50, 0.92); // logout
     _controller.forward();
   }
 
@@ -91,6 +93,7 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
     _anim4.dispose();
     _anim5.dispose();
     _anim6.dispose();
+    _anim7.dispose();
     _controller.dispose();
     _loggingOut.dispose();
     super.dispose();
@@ -171,10 +174,24 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
               onTap: () => context.push(RouteNames.settings),
             ),
           ),
+          const SizedBox(height: VelvetSpacing.md),
+
+          // Help / contact-us — the last navigational row. It reads naturally
+          // at the bottom of the nav group and stays clear of the destructive
+          // logout below the rule.
+          _reveal(
+            _anim5,
+            SettingsRow(
+              key: const Key('row-help'),
+              icon: Icons.help_outline_rounded,
+              label: l10n.settingsHubHelp,
+              onTap: () => context.push(RouteNames.contactSupport),
+            ),
+          ),
 
           // Separation before the terminal action.
           _reveal(
-            _anim5,
+            _anim6,
             Padding(
               padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
               child: Divider(
@@ -186,7 +203,7 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
 
           // Terminal / destructive action — set apart.
           _reveal(
-            _anim6,
+            _anim7,
             SettingsRow(
               key: const Key('row-logout'),
               icon: Icons.logout_rounded,
