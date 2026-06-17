@@ -29,7 +29,11 @@ void main() {
       final out = CurrencyUah.format(1800);
       // Index 0 ₴, 1 ASCII space, 2 '1', 3 separator, 4 '8'...
       expect(out.codeUnitAt(1), 0x20, reason: 'space after ₴ is ASCII');
-      expect(out.codeUnitAt(3), 0x00A0, reason: 'thousands separator is U+00A0');
+      expect(
+        out.codeUnitAt(3),
+        0x00A0,
+        reason: 'thousands separator is U+00A0',
+      );
     });
 
     test('groups every three digits for large values', () {
