@@ -12,9 +12,13 @@
 //       never confirmed; and the master returned to a calendar that had silently
 //       become "active".
 //
-//   (A) SAVE CREATES EXACTLY ONE TEMPLATE — pressing the editor Save persists
-//       exactly one weekly schedule (POST, open-ended) and the Master-Schedule
-//       calendar then renders the active template (no longer the empty state).
+//   (A) SAVE CREATES EXACTLY ONE TEMPLATE — the validity window is REQUIRED on
+//       first create. After PICKING a window, pressing the editor Save persists
+//       exactly one weekly schedule (POST, carrying the picked validFrom/validTo)
+//       and the Master-Schedule calendar then renders the active template (no
+//       longer the empty state). Pressing Save WITHOUT a window surfaces the
+//       inline `error-validity-window` error, persists NOTHING, and the calendar
+//       stays empty.
 //
 // We drive the REAL app (real editor, real notifier, real ScheduleRepository)
 // against the Phase 17.3 FakeBackend whose `postScheduleCalls` / `putScheduleCalls`
@@ -191,16 +195,48 @@ void main() {
     timeout: const Timeout(Duration(seconds: 40)),
   );
 
-  // ── Test 2 — SAVE creates exactly ONE template; calendar goes ACTIVE ───────
+  /// Opens the Apply-window sheet via the active-window card, picks the
+  /// `preset-this-month` preset, and applies — STAGING a validity window on the
+  /// first-create draft (no persist). The card may have scrolled out of view
+  /// after enabling a day, so it is scrolled back in first.
+  Future<void> pickValidityWindow(WidgetTester tester) async {
+    final Finder windowCard = find.byKey(
+      const Key('weekly-active-window-card'),
+    );
+    await tester.scrollUntilVisible(
+      windowCard,
+      -120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(windowCard);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('preset-this-month')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('btn-apply-schedule')));
+    await tester.pumpAndSettle();
+  }
 
-  testWidgets('first-create: enable a day then PRESS Save → exactly ONE '
-      'upsertWeeklySchedule (POST) AND the calendar renders the template', (
+  // ── Test 2 — SAVE (after picking a window) creates ONE template; ACTIVE ────
+
+  testWidgets('first-create: enable a day, PICK a validity window, then PRESS '
+      'Save → exactly ONE upsertWeeklySchedule (POST) carrying the picked '
+      'validFrom/validTo AND the calendar renders the template', (
     tester,
   ) async {
     final fb = FakeBackend();
     final GoRouter router = await bootIntoEditor(tester, fb);
 
     await enableMonday(tester);
+
+    // The validity window is now REQUIRED on first create — pick it BEFORE
+    // pressing Save (staging only, no persist).
+    await pickValidityWindow(tester);
+    expect(
+      fb.postScheduleCalls + fb.putScheduleCalls,
+      0,
+      reason: 'staging the validity window must not persist (Save commits)',
+    );
 
     // Press the editor Save — the single commit point.
     final Finder saveBtn = find.byKey(const Key('btn-save-weekly-template'));
@@ -224,8 +260,19 @@ void main() {
       0,
       reason: 'first-create must not use the update (PUT) path',
     );
-    // It persisted open-ended (no Apply-window picked).
+    // It persisted the PICKED window (validFrom/validTo both set from the
+    // preset) — not a fabricated open-ended default.
     expect(fb.lastWeeklyDays, isNotNull);
+    expect(
+      fb.lastWeeklyValidFrom,
+      isNotNull,
+      reason: 'the create must carry the picked validFrom',
+    );
+    expect(
+      fb.lastWeeklyValidTo,
+      isNotNull,
+      reason: 'the picked this-month preset is a closed range (validTo set)',
+    );
 
     // The editor popped back to the schedule screen, which now renders the
     // ACTIVE calendar (the template card is present, not the empty body).
@@ -235,6 +282,73 @@ void main() {
       find.byKey(const Key('schedule-weekly-card')),
       findsOneWidget,
       reason: 'after a successful create the active calendar must render',
+    );
+  }, timeout: const Timeout(Duration(seconds: 40)));
+
+  // ── Test 3 — SAVE WITHOUT a window → inline error, ZERO persist, EMPTY ─────
+
+  testWidgets('first-create: enable a day then PRESS Save WITHOUT picking a '
+      'validity window → ZERO upsertWeeklySchedule calls, the inline '
+      'required-window error is shown, and the calendar stays empty', (
+    tester,
+  ) async {
+    final fb = FakeBackend();
+    final GoRouter router = await bootIntoEditor(tester, fb);
+
+    await enableMonday(tester);
+
+    // Press Save with NO validity window chosen — the submit-time guard fires.
+    final Finder saveBtn = find.byKey(const Key('btn-save-weekly-template'));
+    expect(saveBtn, findsOneWidget);
+    await tester.ensureVisible(saveBtn);
+    await tester.pumpAndSettle();
+    await tester.tap(saveBtn);
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    // (i) NOTHING persisted — the guard blocked the create.
+    expect(
+      fb.postScheduleCalls,
+      0,
+      reason: 'Save with no validity window must issue NO create (POST)',
+    );
+    expect(
+      fb.putScheduleCalls,
+      0,
+      reason: 'Save with no validity window must issue NO update (PUT)',
+    );
+
+    // (ii) The editor stayed put and shows the inline required-window error.
+    // The error renders under the period card near the top of the ListView;
+    // enabling a day can scroll it out of the (lazy) viewport, so scroll the
+    // period card back into view before asserting the error built.
+    expectLocation(router, RouteNames.scheduleWeeklyEditor);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('weekly-active-window-card')),
+      -120,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('error-validity-window')),
+      findsOneWidget,
+      reason: 'the inline required-window error must be visible',
+    );
+
+    // (iii) Going back leaves the schedule screen empty — nothing materialised.
+    await tapTopBarBack(tester);
+    expectLocation(router, RouteNames.masterSchedule);
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+    expect(
+      find.byType(NoScheduleBanner),
+      findsWidgets,
+      reason: 'with nothing persisted the empty NO_SCHEDULE body must render',
+    );
+    expect(
+      find.byKey(const Key('schedule-weekly-card')),
+      findsNothing,
+      reason: 'the active-calendar template card must NOT render',
     );
   }, timeout: const Timeout(Duration(seconds: 40)));
 }

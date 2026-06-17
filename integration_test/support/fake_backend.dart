@@ -431,6 +431,12 @@ final class FakeBackend {
   /// assert the EXACT mode + discrete times the editor serialised (Phase 15.8).
   List<dynamic>? lastWeeklyDays;
 
+  /// The `validFrom` / `validTo` strings from the most recent weekly-schedule
+  /// POST/PUT body. Lets a first-create test assert the editor persisted the
+  /// PICKED validity window (not a fabricated open-ended default).
+  String? lastWeeklyValidFrom;
+  String? lastWeeklyValidTo;
+
   // ── Override telemetry (Phase 15.8) ───────────────────────────────────────
   int putOverrideCalls = 0;
 
@@ -742,6 +748,8 @@ final class FakeBackend {
           postScheduleCalls++;
           final body = _decodeBody(req.data);
           lastWeeklyDays = body['days'] as List<dynamic>?;
+          lastWeeklyValidFrom = body['validFrom'] as String?;
+          lastWeeklyValidTo = body['validTo'] as String?;
           // Build a WeeklyScheduleResponse-shaped envelope from the request.
           // Use a deterministic counter ID — never wall-clock (MEDIUM-1 fix).
           final newEntry = <String, dynamic>{

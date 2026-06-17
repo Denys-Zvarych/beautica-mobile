@@ -2030,6 +2030,10 @@
   "@weeklyEditorWindowUnsetHint": {
     "description": "Hint shown above the Save button on the weekly-template editor for a first-time create when the validity window («Schedule starts…») has not yet been explicitly chosen. Explains why Save is disabled and invites the user to tap the active-window card to pick the effective-from period before the first schedule can be saved."
   },
+  "scheduleValidityRangeRequired": "Select the schedule validity period",
+  "@scheduleValidityRangeRequired": {
+    "description": "Submit-time inline error under the active-window card on the weekly-template editor when the user presses Save on a first-time create without choosing the (required) validity period. Save stays enabled; this error is the signal of the failed attempt."
+  },
   "weeklyEditorDayToggleSemantic": "{day} — working day",
   "@weeklyEditorDayToggleSemantic": {
     "description": "Accessibility label for the per-weekday open/closed toggle in the weekly-template editor (Phase 15.5).",

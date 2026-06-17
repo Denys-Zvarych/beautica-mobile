@@ -441,19 +441,18 @@ void main() {
     );
 
     testWidgets(
-      'fresh create → toggle one day ON with valid hours: the day-shape edit '
-      'is immediately savable — the editor Save ENABLES with no Apply-window '
-      'interaction, and pressing it persists the create (null id, open-ended) '
-      'carrying Monday open',
+      'fresh create → toggle one day ON with valid hours but NO validity '
+      'window: the editor Save ENABLES (submit-time gate, not button-disable) '
+      'but pressing it shows the inline required-window error and persists '
+      'NOTHING — no navigation',
       (tester) async {
-        // NEW MODEL (Bug 2 fix): a FIRST-CREATE with ≥1 valid working day is
-        // saveable directly from the editor Save — the windowUnset gate is gone.
-        // The «Період дії графіка» sheet no longer eagerly persists; the
-        // editor's Save is the SINGLE commit point and an unchosen window
-        // defaults to open-ended (validFrom = today, validTo = null). This is
-        // the exact behaviour that the OLD windowUnset gate broke (Save stuck
-        // disabled on first create) — reverting the fix re-disables Save here
-        // and the first `isNotNull` assertion fails.
+        // NEW MODEL (required-window fix): a FIRST-CREATE with ≥1 valid working
+        // day enables Save (the validity range is NOT in the enable gate), but
+        // the range is REQUIRED to actually persist. Pressing Save with no
+        // range chosen surfaces the inline `error-validity-window` under the
+        // period card and bails — no save/delete, no pop. Reverting the guard
+        // makes the press persist an open-ended create and navigate away, so
+        // the zero-persist + inline-error assertions below fail.
         final _RecordingWeekly weekly = _RecordingWeekly(
           const <WeeklySchedule>[],
         );
@@ -473,14 +472,15 @@ void main() {
         await tester.tap(find.byKey(const Key('weekly-toggle-1')));
         await tester.pumpAndSettle();
 
-        // NEW: Save is ENABLED immediately. No window pick needed; the
-        // windowUnset hint is never shown.
+        // Save is ENABLED immediately (the validity range is not in the enable
+        // gate — it is enforced at submit time). No window pick needed for the
+        // button to enable; the windowUnset hint is never shown.
         expect(
           _saveButton(tester).onPressed,
           isNotNull,
           reason:
-              'a first-create with one valid working day is saveable directly '
-              '— the windowUnset gate was removed (Bug 2 fix)',
+              'a first-create with one valid working day enables Save — the '
+              'validity range is enforced at submit, not by disabling Save',
         );
         expect(
           find.byKey(const Key('weekly-no-changes-hint')),
@@ -494,43 +494,39 @@ void main() {
               'the window-unset hint is retired — a dirty first-create no '
               'longer routes through the Apply-window sheet to enable Save',
         );
+        // No inline error yet — Save has not been pressed.
+        expect(find.byKey(const Key('error-validity-window')), findsNothing);
 
-        // Press the editor Save (the single commit point) — no Apply-window
-        // interaction at all.
+        // Press the editor Save with NO validity window chosen.
         await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
         await tester.pumpAndSettle();
 
-        // The CREATE (null id) carrying Monday open was issued by the editor
-        // Save itself, with an OPEN-ENDED window (validTo == null) defaulted
-        // because the master never opened the Apply-window sheet.
-        expect(weekly.saveCalled, isTrue);
+        // SUBMIT-TIME GUARD: the inline required-window error is now shown, and
+        // NOTHING was persisted — no create, no delete, no navigation.
+        expect(
+          find.byKey(const Key('error-validity-window')),
+          findsOneWidget,
+          reason:
+              'pressing Save on a first-create with no validity window must '
+              'surface the inline required-window error',
+        );
+        expect(
+          weekly.saveCalled,
+          isFalse,
+          reason: 'the required-window guard must block the create (no POST)',
+        );
         expect(weekly.deleteCalled, isFalse);
         expect(
-          weekly.savedScheduleId,
-          isNull,
-          reason: 'a fresh create must POST with no schedule id',
+          find.byType(WeeklyTemplateEditorScreen),
+          findsOneWidget,
+          reason: 'the guard keeps the editor on screen (no navigation)',
         );
+        expect(find.byKey(const Key('schedule-stub')), findsNothing);
+        // Save stays ENABLED — the gate is submit-time, not button-disable.
         expect(
-          weekly.savedSchedule!.id,
-          isNull,
-          reason: 'a not-yet-persisted draft has no id',
-        );
-        expect(
-          weekly.savedSchedule!.validTo,
-          isNull,
-          reason:
-              'an unchosen first-create window defaults to open-ended '
-              '(validTo == null)',
-        );
-        expect(
-          weekly.savedSchedule!.validFrom,
-          _clock,
-          reason: 'an unchosen first-create window anchors validFrom on today',
-        );
-        expect(
-          weekly.savedSchedule!.days[0].intervals,
-          isNotEmpty,
-          reason: 'Monday is open in the created shape',
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason: 'Save remains enabled after the blocked submit attempt',
         );
       },
     );
@@ -654,20 +650,24 @@ void main() {
     );
   });
 
-  // ── First-create single commit point (Bug 2 fix) ─────────────────────────
+  // ── First-create single commit point + REQUIRED validity window ──────────
   //
-  // BUG 2 FIX: on a FIRST-CREATE (`_serverTemplate == null`) the editor's Save
-  // is the SINGLE commit point. The old `_SaveGate.windowUnset` gate that held
-  // Save disabled until the «Період дії графіка» window was explicitly picked
-  // is GONE: a dirty first-create with ≥1 valid working day enables Save
-  // immediately. The Apply-window sheet no longer eagerly persists on a
-  // first-create — it only STAGES the chosen window into `_draftWindow` and
-  // returns a `DateTimeRange`; `_buildSchedule` defaults an unchosen window to
-  // open-ended (`validFrom = today`, `validTo = null`).
+  // On a FIRST-CREATE (`_serverTemplate == null`) the editor's Save is the
+  // SINGLE commit point, and the validity window is now REQUIRED to persist it.
+  // Two-layer contract:
+  //   • ENABLE GATE — a dirty first-create with ≥1 valid working day ENABLES
+  //     Save immediately (the validity range is NOT in the enable gate; the old
+  //     `_SaveGate.windowUnset` gate is gone).
+  //   • SUBMIT GATE — pressing Save with no window chosen (`_draftWindow ==
+  //     null`) surfaces the inline `error-validity-window` error and persists
+  //     NOTHING. Choosing a window (via the «Період дії графіка» sheet, which
+  //     STAGES the range into `_draftWindow` and returns a `DateTimeRange`)
+  //     clears the error; the subsequent Save persists ONE schedule with
+  //     `validFrom = _draftWindow.start`, `validTo = _draftWindow.end`.
   //
   // These tests drive the behaviour purely through observable UI/state (the
-  // Save button's enabled flag, the recorded save) and resolve any localised
-  // copy through AppLocalizations (M2 / M11).
+  // Save button's enabled flag, the inline error key, the recorded save) and
+  // resolve any localised copy through AppLocalizations (M2 / M11).
   group('WeeklyTemplateEditorScreen — first-create single commit point', () {
     testWidgets(
       'a dirty first-create (a day toggled ON with valid hours) enables Save '
@@ -706,9 +706,66 @@ void main() {
       },
     );
 
-    testWidgets('first-create Save with no window chosen persists open-ended '
-        '(validFrom = today, validTo = null) — the editor Save is the single '
-        'commit point, no Apply-window interaction', (tester) async {
+    testWidgets(
+      'the validity range is NOT in the Save ENABLE gate: with one valid '
+      'working day and NO range, Save is ENABLED — but pressing it surfaces '
+      'the inline required-window error (submit-time gate, not button-disable)',
+      (tester) async {
+        // This pins the SEPARATION of the two gates: button-enablement is
+        // unchanged (≥1 valid working day enables Save regardless of the range),
+        // while the range requirement is enforced ONLY when Save is pressed.
+        // If the range were (wrongly) folded back into the enable gate, the
+        // first `isNotNull` assertion fails; if the submit guard were reverted,
+        // the inline-error assertion fails (the press would persist instead).
+        final _RecordingWeekly weekly = _RecordingWeekly(
+          const <WeeklySchedule>[],
+        );
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        // Toggle Monday ON — one valid working day, no range chosen.
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+
+        // ENABLE GATE: Save is enabled with no range — the range is not part of
+        // button enablement.
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason:
+              'Save enablement is unchanged — one valid working day enables it '
+              'with no validity range selected',
+        );
+        // No inline error before the press.
+        expect(find.byKey(const Key('error-validity-window')), findsNothing);
+
+        // SUBMIT GATE: pressing Save with no range shows the inline error.
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('error-validity-window')),
+          findsOneWidget,
+          reason: 'the range requirement is enforced at submit time',
+        );
+        expect(
+          weekly.saveCalled,
+          isFalse,
+          reason: 'the submit guard blocks persistence with no range',
+        );
+        // Save is still enabled after the blocked attempt.
+        expect(_saveButton(tester).onPressed, isNotNull);
+      },
+    );
+
+    testWidgets('first-create Save AFTER picking a validity window persists '
+        'the chosen range (validFrom = pick.start, validTo = pick.end) with no '
+        'inline error — the editor Save is the single commit point', (
+      tester,
+    ) async {
       final _RecordingWeekly weekly = _RecordingWeekly(
         const <WeeklySchedule>[],
       );
@@ -722,30 +779,39 @@ void main() {
       await tester.pumpAndSettle();
       expect(_saveButton(tester).onPressed, isNotNull);
 
-      // Press the editor Save directly — never touch the Apply-window sheet.
+      // The validity window is now REQUIRED on first create: pick a custom
+      // window 15.06 → 20.06 via the active-window card BEFORE pressing Save.
+      // Staging clears any inline error and supplies validFrom/validTo.
+      await _pickCustomWindowViaCard(tester, startDay: 15, endDay: 20);
+
+      // Press the editor Save — the single commit point.
       await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
       await tester.pumpAndSettle();
 
-      // The create persisted from the editor Save, open-ended because the
-      // master never chose a window. The fixed clock (09.06) proves validFrom
-      // anchors on today, validTo is null.
+      // The create persisted from the editor Save, carrying the PICKED window.
+      // No inline required-window error is shown (a window WAS chosen).
       expect(weekly.saveCalled, isTrue);
       expect(weekly.savedScheduleId, isNull);
       expect(weekly.savedSchedule!.id, isNull);
       expect(
         weekly.savedSchedule!.validFrom,
-        _clock,
-        reason: 'an unchosen first-create window anchors validFrom on today',
+        DateTime(2026, 6, 15),
+        reason: 'validFrom must equal the picked start',
       );
       expect(
         weekly.savedSchedule!.validTo,
-        isNull,
-        reason: 'an unchosen first-create window is open-ended',
+        DateTime(2026, 6, 20),
+        reason: 'validTo must equal the picked end',
       );
       expect(
         weekly.savedSchedule!.days[0].intervals,
         isNotEmpty,
         reason: 'the open Monday is carried into the persisted create',
+      );
+      expect(
+        find.byKey(const Key('error-validity-window')),
+        findsNothing,
+        reason: 'a chosen window clears the required-window inline error',
       );
     });
 

@@ -163,6 +163,14 @@ class _WeeklyTemplateEditorScreenState
   /// window comes from `_serverTemplate`.
   DateTimeRange? _draftWindow;
 
+  /// FIRST-CREATE submit-time error: set when Save is pressed on an otherwise
+  /// saveable first-create draft but no validity window has been chosen
+  /// ([_draftWindow] is null). Surfaced as an inline error under the active-
+  /// window card (matching the form's other field errors) — Save stays enabled
+  /// so the validation is enforced at submit, not by disabling the button.
+  /// Cleared the moment a window is picked.
+  bool _windowRequiredError = false;
+
   bool _saving = false;
 
   /// Drives the Save button's enabled state AND the inline disabled-reason hint
@@ -468,11 +476,18 @@ class _WeeklyTemplateEditorScreenState
     final WeeklySchedule? existing = _serverTemplate;
     final bool allOff = days.every((DayHours? d) => d == null);
 
-    // First create is committed HERE (the single commit point): the validity
-    // window comes from `_draftWindow` if the master chose one in the «Період
-    // дії графіка» sheet, otherwise it defaults to open-ended (`validFrom =
-    // today`, `validTo = null`) in `_buildSchedule`. No eager persist happens
-    // in the sheet anymore, so there is nothing to block here.
+    // FIRST-CREATE submit-time validation: the validity window is now REQUIRED
+    // to create the first schedule. Enforced HERE (with an inline error under
+    // the active-window card), NOT by disabling Save — the button enables on
+    // ≥1 valid working day. When there is something to persist (`!allOff`) but
+    // no window was chosen (`_draftWindow == null`), surface the inline error
+    // and bail: do NOT persist, do NOT navigate, stay on the editor. The
+    // all-off branch never reaches here as saveable (it's a clean no-op), so it
+    // is excluded so an all-off draft never trips the window-required error.
+    if (existing == null && !allOff && _draftWindow == null) {
+      setState(() => _windowRequiredError = true);
+      return;
+    }
 
     setState(() => _saving = true);
     _saveGateNotifier.value = _saveGate;
@@ -571,11 +586,12 @@ class _WeeklyTemplateEditorScreenState
   /// Window sourcing:
   ///   • EXISTING template — `validFrom`/`validTo` come from [existing],
   ///     preserving the persisted window verbatim.
-  ///   • FIRST CREATE (`existing == null`) — the window comes from
-  ///     [_draftWindow] when the master picked one in the «Період дії графіка»
-  ///     sheet; otherwise it defaults to open-ended (`validFrom = today`,
-  ///     `validTo = null`), which the backend accepts (see
-  ///     `WeeklyScheduleNotifier.save`).
+  ///   • FIRST CREATE (`existing == null`) — the window is REQUIRED and comes
+  ///     from [_draftWindow] (`validFrom = start`, `validTo = end`). The
+  ///     submit-time guard in [_save] guarantees `_draftWindow != null` before
+  ///     this runs on the persist path, so the `_today` / `null` fallbacks here
+  ///     only ever apply to the throwaway `base` schedule built for the
+  ///     «Період дії графіка» sheet (where no window is chosen yet).
   WeeklySchedule _buildSchedule(
     List<DayHours?> days,
     WeeklySchedule? existing,
@@ -616,8 +632,9 @@ class _WeeklyTemplateEditorScreenState
     ];
     return WeeklySchedule(
       id: existing?.id,
-      // First create draws from the staged draft window; an unchosen window is
-      // open-ended (validFrom = today, validTo = null).
+      // First create draws `validFrom`/`validTo` from the REQUIRED draft window
+      // (the [_save] guard guarantees it is set on the persist path). The
+      // `_today` / `null` fallbacks only cover the throwaway sheet-base build.
       validFrom: existing?.validFrom ?? _draftWindow?.start ?? _today,
       validTo: existing != null ? existing.validTo : _draftWindow?.end,
       days: templateDays,
@@ -679,6 +696,7 @@ class _WeeklyTemplateEditorScreenState
                     activeWindow: _activeWindowLabel(l10n),
                     isWindowSet:
                         _serverTemplate != null || _draftWindow != null,
+                    windowRequiredError: _windowRequiredError,
                     l10n: l10n,
                     onToggle: _toggleDay,
                     onMutated: _onDayMutated,
@@ -724,7 +742,11 @@ class _WeeklyTemplateEditorScreenState
     // server (there is nothing saved to re-seed from).
     if (_serverTemplate == null) {
       if (result is! DateTimeRange) return; // dismissed without choosing
-      setState(() => _draftWindow = result);
+      setState(() {
+        _draftWindow = result;
+        // A window is now chosen — clear the submit-time required error.
+        _windowRequiredError = false;
+      });
       _onDayMutated();
       if (kDebugMode) {
         log(
@@ -796,6 +818,7 @@ class _LoadedBody extends StatelessWidget {
     required this.saving,
     required this.activeWindow,
     required this.isWindowSet,
+    required this.windowRequiredError,
     required this.l10n,
     required this.onToggle,
     required this.onMutated,
@@ -836,6 +859,13 @@ class _LoadedBody extends StatelessWidget {
   /// is the unset placeholder prompt and the card renders it as a placeholder
   /// (muted weight/color) rather than a committed value.
   final bool isWindowSet;
+
+  /// FIRST-CREATE submit-time error: when `true`, an inline error is rendered
+  /// under the active-window card prompting the user to choose the (now
+  /// required) validity period. Set when Save is pressed on an otherwise-
+  /// saveable first-create draft with no window chosen; Save itself stays
+  /// enabled (validation is enforced at submit, not by disabling the button).
+  final bool windowRequiredError;
   final AppLocalizations l10n;
 
   /// Applies a day toggle in the host and returns the record of new slot values
@@ -929,6 +959,36 @@ class _LoadedBody extends StatelessWidget {
               _summaryChip(),
               const SizedBox(height: VelvetSpacing.sm + 2),
               _activeWindowCard(),
+              // Submit-time inline error when the (now required) validity window
+              // was not chosen — mirrors the form's other field errors
+              // (error-tinted feedback text). Save stays enabled; this is the
+              // only signal of the failed first-create attempt.
+              if (windowRequiredError) ...<Widget>[
+                const SizedBox(height: VelvetSpacing.sm),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: VelvetSpacing.sm,
+                  ),
+                  child: Row(
+                    key: const Key('error-validity-window'),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const Icon(
+                        Icons.error_outline_rounded,
+                        size: 16,
+                        color: BrandColors.error,
+                      ),
+                      const SizedBox(width: VelvetSpacing.xs),
+                      Expanded(
+                        child: Text(
+                          l10n.scheduleValidityRangeRequired,
+                          style: VelvetText.feedback(BrandColors.error),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: VelvetSpacing.lg),
               for (int i = 0; i < _kDaysInWeek; i++) ...<Widget>[
                 _DayCard(
