@@ -50,7 +50,10 @@ Future<void> runLogoutFlow(
         TextButton(
           key: const Key('btn-logout-confirm'),
           onPressed: () => ctx.pop(true),
-          child: Text(l10n.logout, style: VelvetText.link()),
+          child: Text(
+            l10n.logout,
+            style: VelvetText.link().copyWith(color: BrandColors.error),
+          ),
         ),
       ],
     ),
