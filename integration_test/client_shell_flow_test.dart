@@ -269,4 +269,55 @@ void main() {
     );
     expect(fb.loginCalls, equals(0));
   }, timeout: const Timeout(Duration(seconds: 30)));
+
+  // ── Test 6 — the OTHER fixed dispatch site: done-screen → /home → bar ────
+  //
+  // f929caf fixed TWO dispatch sites that hardcoded RouteNames.home for a
+  // CLIENT: the auth_redirect role-gate bounce (Test 3 above) AND the
+  // registration DoneScreen's "to app" CTA (done_to_app → roleHomePath). Test 3
+  // covers the bounce; this covers the done-screen CTA end-to-end through the
+  // REAL DoneScreen + the real router redirect. A CLIENT tapping "to the app"
+  // must land on /home (ClientShell) WITH the 5-tab bar — pre-fix it landed on
+  // "/" (the no-bar "Скоро…" placeholder).
+  //
+  // /done is a post-register route the redirect deliberately does NOT bounce an
+  // authenticated user off (auth_redirect excludes /verification + /done), so we
+  // can drive an already-authenticated CLIENT session there via the real router
+  // and tap the real CTA — the dispatch path under test is the screen's
+  // onPressed (roleHomePath), exactly the f929caf fix.
+  testWidgets('registration done-screen CTA sends a CLIENT to /home with the '
+      'bottom bar (the second fixed dispatch site)', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    expectLocation(router, RouteNames.clientHome);
+
+    // Drive the real DoneScreen (the post-registration celebration surface).
+    // The authenticated CLIENT is NOT bounced off /done.
+    router.go(RouteNames.done);
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    expectLocation(router, RouteNames.done);
+
+    // Tap the real "to the app" CTA — its onPressed resolves the destination
+    // through roleHomePath(role), the single source of truth f929caf restored.
+    await tester.tap(find.byKey(const ValueKey<String>('done_to_app')));
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    // Must land on /home (the client shell), NOT "/" (the no-bar placeholder).
+    expectLocation(router, RouteNames.clientHome);
+    expect(
+      find.byType(ClientShell),
+      findsOneWidget,
+      reason: 'the done CTA must deliver a CLIENT to the client shell',
+    );
+    expect(
+      find.byType(ClientBottomNav),
+      findsOneWidget,
+      reason:
+          'a CLIENT finishing registration must land on /home WITH the 5-tab '
+          'bar — the done-screen hardcoding RouteNames.home ("/", no bar) was '
+          'the second half of the f929caf dispatch bug',
+    );
+  }, timeout: const Timeout(Duration(seconds: 45)));
 }
