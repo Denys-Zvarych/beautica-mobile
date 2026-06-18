@@ -47,6 +47,12 @@ const List<String> kPublicPathPrefixes = [
   //   GET /api/v1/locations/oblasts/{oblastId}/cities
   //   GET /api/v1/locations/cities/{cityId}/districts
   '/api/v1/locations/',
+  // Phase 13.2 / security fix 2026-06-18 — discovery search endpoints are
+  // public reads. No Bearer token should be attached even when a logged-in
+  // user triggers a search or pagination (needless token egress on every call).
+  //   GET /api/v1/search/masters
+  //   GET /api/v1/search/salons
+  '/api/v1/search/',
 ];
 
 /// Paths whose request bodies must be redacted in debug logs — used by

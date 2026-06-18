@@ -409,5 +409,93 @@ void main() {
         verify(() => handler.next(opts)).called(1);
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Test 7 — public discovery search endpoints → NO Authorization header
+    //
+    // SECURITY HIGH regression guard (mobile-security 2026-06-18, Phase 13.2):
+    //
+    // The discovery search repository (HttpSearchRepository) calls the public
+    // endpoints
+    //   GET /api/v1/search/masters
+    //   GET /api/v1/search/salons
+    // over the authenticated Dio. Because `/api/v1/search/` was MISSING from
+    // kPublicPathPrefixes, an authenticated user's Bearer JWT was attached to
+    // these public reads — leaking the token to an endpoint that does not need
+    // it (same class of bug as the /api/v1/locations/ fix on 2026-05-31).
+    //
+    // The fix adds '/api/v1/search/' to kPublicPathPrefixes so AuthInterceptor's
+    // prefix-skip branch (auth_interceptor.dart:49-52) short-circuits before the
+    // token-injection block. This test pumps both search paths through the
+    // interceptor while genuinely AUTHENTICATED and asserts NO Authorization
+    // header — and contrasts a normal authenticated endpoint that DOES still
+    // receive the token, proving the skip is scoped to the search prefix only.
+    //
+    // PRE-FIX expectation: FAILS — both search requests carry
+    //   Authorization: Bearer test-access-jwt.
+    // POST-FIX expectation: PASSES.
+    // -----------------------------------------------------------------------
+    test(
+      'public search endpoints (/api/v1/search/masters & /salons) carry NO '
+      'Authorization header even when authenticated (HIGH token-leak fix)',
+      () async {
+        const authState = AsyncData<AuthSession>(
+          AuthSession.authenticated(
+            user: _fakeUser,
+            accessToken: _fakeAccessToken,
+          ),
+        );
+
+        final container = _makeContainer(authState);
+        await container.read(authProvider.future);
+
+        final ref = container.read(_refCaptureProvider);
+        final interceptor = AuthInterceptor(ref);
+
+        // GET /api/v1/search/masters — public discovery read.
+        final mastersHandler = MockRequestHandler();
+        final mastersOpts = _opts('/api/v1/search/masters');
+        interceptor.onRequest(mastersOpts, mastersHandler);
+
+        expect(
+          mastersOpts.headers.containsKey('Authorization'),
+          isFalse,
+          reason:
+              '/api/v1/search/masters is a public discovery endpoint — the '
+              'authenticated Bearer JWT must NOT be attached (add '
+              "'/api/v1/search/' to kPublicPathPrefixes).",
+        );
+        verify(() => mastersHandler.next(mastersOpts)).called(1);
+
+        // GET /api/v1/search/salons — public discovery read.
+        final salonsHandler = MockRequestHandler();
+        final salonsOpts = _opts('/api/v1/search/salons');
+        interceptor.onRequest(salonsOpts, salonsHandler);
+
+        expect(
+          salonsOpts.headers.containsKey('Authorization'),
+          isFalse,
+          reason:
+              '/api/v1/search/salons is a public discovery endpoint — the '
+              'authenticated Bearer JWT must NOT be attached.',
+        );
+        verify(() => salonsHandler.next(salonsOpts)).called(1);
+
+        // Contrast: a normal authenticated endpoint STILL receives the token, so
+        // the search-prefix skip has not over-broadened token suppression.
+        final authedHandler = MockRequestHandler();
+        final authedOpts = _opts('/master/profile');
+        interceptor.onRequest(authedOpts, authedHandler);
+
+        expect(
+          authedOpts.headers['Authorization'],
+          equals('Bearer $_fakeAccessToken'),
+          reason:
+              'a normal authenticated endpoint must continue to receive the '
+              'Bearer token — the public-prefix skip must be scoped to search.',
+        );
+        verify(() => authedHandler.next(authedOpts)).called(1);
+      },
+    );
   });
 }

@@ -100,4 +100,54 @@ void main() {
       }
     });
   });
+
+  group('kPublicPathPrefixes', () {
+    test('includes the public location reference-data prefix', () {
+      expect(
+        kPublicPathPrefixes,
+        contains('/api/v1/locations/'),
+        reason:
+            'Location reference-data reads are public — AuthInterceptor must '
+            'skip Bearer token injection on /api/v1/locations/*.',
+      );
+    });
+
+    test(
+      'includes the public discovery search prefix (Phase 13.2 HIGH token-leak fix)',
+      () {
+        expect(
+          kPublicPathPrefixes,
+          contains('/api/v1/search/'),
+          reason:
+              'The discovery search endpoints (/api/v1/search/masters, '
+              '/api/v1/search/salons) are PUBLIC reads called over the '
+              'authenticated Dio. Without this prefix AuthInterceptor attaches '
+              "an authenticated user's Bearer JWT to a public endpoint — a "
+              'token-leak (mobile-security HIGH, mirrors the /api/v1/locations/ '
+              'fix). This entry makes AuthInterceptor short-circuit before token '
+              'injection for any /api/v1/search/* path.',
+        );
+      },
+    );
+
+    test('every prefix starts with /api/v1/ and ends with / (prefix-match '
+        'convention)', () {
+      for (final prefix in kPublicPathPrefixes) {
+        expect(
+          prefix,
+          startsWith('/api/v1/'),
+          reason:
+              '$prefix must start with "/api/v1/" — RequestOptions.path carries '
+              'the full prefix when interceptors run.',
+        );
+        expect(
+          prefix,
+          endsWith('/'),
+          reason:
+              '$prefix should end with "/" so startsWith does not accidentally '
+              'match a sibling path (e.g. /api/v1/searchable).',
+        );
+      }
+    });
+  });
 }
