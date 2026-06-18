@@ -85,8 +85,28 @@ class ScreenProtectionManager {
 
   void _disable() {
     if (kDebugMode) return;
-    ScreenProtector.preventScreenshotOff();
-    ScreenProtector.protectDataLeakageWithBlurOff();
+    // Self-guard each native call: the `screen_protector` platform channels can
+    // throw (PlatformException / MissingPluginException) on real devices, and a
+    // failure in the first teardown must not abort the second — nor escape into
+    // a logout-time reset() caller and surface a false logout failure.
+    try {
+      ScreenProtector.preventScreenshotOff();
+    } catch (e) {
+      log(
+        'preventScreenshotOff failed (tolerated): ${e.runtimeType}',
+        name: 'core.security.screen_protection',
+        level: 900,
+      );
+    }
+    try {
+      ScreenProtector.protectDataLeakageWithBlurOff();
+    } catch (e) {
+      log(
+        'protectDataLeakageWithBlurOff failed (tolerated): ${e.runtimeType}',
+        name: 'core.security.screen_protection',
+        level: 900,
+      );
+    }
     log(
       'screenshot protection disabled',
       name: 'core.security.screen_protection',

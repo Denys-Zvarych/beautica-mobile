@@ -710,7 +710,25 @@ class AuthNotifier extends _$AuthNotifier {
     // screen that was never disposed (e.g. logout triggered from a dialog above
     // a live acquirer) cannot leave native protection latched across the auth
     // boundary. Resets the ref count to zero and tears down native protection.
-    ref.read(screenProtectionProvider).reset();
+    //
+    // M5 hardening (release-mode logout bug): this teardown is NON-essential —
+    // the session is already wiped above. In release builds the underlying
+    // `screen_protector` platform channels can throw (PlatformException /
+    // MissingPluginException). An unguarded throw here would escape PAST the
+    // state transition below, leaving the UI showing logoutFailed even though
+    // the user is already logged out on relaunch. Treat it best-effort exactly
+    // like the server-revocation call above: swallow any error, never abort.
+    try {
+      ref.read(screenProtectionProvider).reset();
+    } catch (e) {
+      if (kDebugMode) {
+        log(
+          'Logout screen-protection reset threw (tolerated): ${e.runtimeType}',
+          name: 'auth',
+          level: 900,
+        );
+      }
+    }
     if (kDebugMode) {
       log('Logout: session cleared', name: 'auth', level: 800);
     }

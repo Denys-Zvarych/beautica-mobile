@@ -239,6 +239,13 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        // Scroll the logout row into view before tapping — on the default
+        // 800x600 test surface the terminal row sits below the fold, so a raw
+        // tap lands off-screen and the dialog never opens (flake repair; mirrors
+        // settings_hub_screen_test.dart).
+        await tester.ensureVisible(find.byKey(const Key('row-logout')));
+        await tester.pumpAndSettle();
+
         // Tap the logout row — this opens the confirmation dialog.
         await tester.tap(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle(); // dialog animates in
@@ -582,6 +589,10 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        // Scroll the logout row into view first (flake repair — see Test 4).
+        await tester.ensureVisible(find.byKey(const Key('row-logout')));
+        await tester.pumpAndSettle();
+
         // Tap the logout row — opens the confirmation dialog.
         await tester.tap(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle(); // dialog animates in
@@ -649,6 +660,10 @@ void main() {
             ),
           ),
         );
+        await tester.pumpAndSettle();
+
+        // Scroll the logout row into view first (flake repair — see Test 4).
+        await tester.ensureVisible(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle();
 
         // Open the confirmation dialog.
