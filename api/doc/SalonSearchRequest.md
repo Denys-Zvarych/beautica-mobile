@@ -9,6 +9,7 @@ import 'package:beautica_api/api.dart';
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **location** | [**LocationFilter**](LocationFilter.md) |  | [optional] 
+**category** | **String** |  | [optional] 
 **page** | **int** |  | [optional] 
 **size** | **int** |  | [optional] 
 

@@ -10,6 +10,8 @@ class _$SalonSearchRequest extends SalonSearchRequest {
   @override
   final LocationFilter? location;
   @override
+  final String? category;
+  @override
   final int? page;
   @override
   final int? size;
@@ -18,7 +20,8 @@ class _$SalonSearchRequest extends SalonSearchRequest {
           [void Function(SalonSearchRequestBuilder)? updates]) =>
       (SalonSearchRequestBuilder()..update(updates))._build();
 
-  _$SalonSearchRequest._({this.location, this.page, this.size}) : super._();
+  _$SalonSearchRequest._({this.location, this.category, this.page, this.size})
+      : super._();
   @override
   SalonSearchRequest rebuild(
           void Function(SalonSearchRequestBuilder) updates) =>
@@ -33,6 +36,7 @@ class _$SalonSearchRequest extends SalonSearchRequest {
     if (identical(other, this)) return true;
     return other is SalonSearchRequest &&
         location == other.location &&
+        category == other.category &&
         page == other.page &&
         size == other.size;
   }
@@ -41,6 +45,7 @@ class _$SalonSearchRequest extends SalonSearchRequest {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, location.hashCode);
+    _$hash = $jc(_$hash, category.hashCode);
     _$hash = $jc(_$hash, page.hashCode);
     _$hash = $jc(_$hash, size.hashCode);
     _$hash = $jf(_$hash);
@@ -51,6 +56,7 @@ class _$SalonSearchRequest extends SalonSearchRequest {
   String toString() {
     return (newBuiltValueToStringHelper(r'SalonSearchRequest')
           ..add('location', location)
+          ..add('category', category)
           ..add('page', page)
           ..add('size', size))
         .toString();
@@ -65,6 +71,10 @@ class SalonSearchRequestBuilder
   LocationFilterBuilder get location =>
       _$this._location ??= LocationFilterBuilder();
   set location(LocationFilterBuilder? location) => _$this._location = location;
+
+  String? _category;
+  String? get category => _$this._category;
+  set category(String? category) => _$this._category = category;
 
   int? _page;
   int? get page => _$this._page;
@@ -82,6 +92,7 @@ class SalonSearchRequestBuilder
     final $v = _$v;
     if ($v != null) {
       _location = $v.location?.toBuilder();
+      _category = $v.category;
       _page = $v.page;
       _size = $v.size;
       _$v = null;
@@ -108,6 +119,7 @@ class SalonSearchRequestBuilder
       _$result = _$v ??
           _$SalonSearchRequest._(
             location: _location?.build(),
+            category: category,
             page: page,
             size: size,
           );

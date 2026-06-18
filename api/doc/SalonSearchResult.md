@@ -13,6 +13,8 @@ Name | Type | Description | Notes
 **cityLabel** | **String** |  | [optional] 
 **districtLabel** | **String** |  | [optional] 
 **avatarUrl** | **String** |  | [optional] 
+**priceMin** | **num** |  | [optional] 
+**priceMax** | **num** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

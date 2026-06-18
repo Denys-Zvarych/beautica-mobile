@@ -14,12 +14,16 @@ import 'package:built_value/iso_8601_date_time_serializer.dart';
 import 'package:beautica_api/src/date_serializer.dart';
 import 'package:beautica_api/src/model/date.dart';
 
+import 'package:beautica_api/src/model/add_favorite_request.dart';
 import 'package:beautica_api/src/model/api_response_auth_response.dart';
 import 'package:beautica_api/src/model/api_response_available_slots_response.dart';
 import 'package:beautica_api/src/model/api_response_avatar_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_response.dart';
 import 'package:beautica_api/src/model/api_response_category_request_response.dart';
+import 'package:beautica_api/src/model/api_response_contact_support_response.dart';
+import 'package:beautica_api/src/model/api_response_favorite_response.dart';
+import 'package:beautica_api/src/model/api_response_guest_token_response.dart';
 import 'package:beautica_api/src/model/api_response_invite_preview_response.dart';
 import 'package:beautica_api/src/model/api_response_invite_response.dart';
 import 'package:beautica_api/src/model/api_response_list_approved_category_response.dart';
@@ -40,11 +44,17 @@ import 'package:beautica_api/src/model/api_response_master_public_profile_respon
 import 'package:beautica_api/src/model/api_response_master_service_response.dart';
 import 'package:beautica_api/src/model/api_response_media_file_response.dart';
 import 'package:beautica_api/src/model/api_response_page_media_file_response.dart';
+import 'package:beautica_api/src/model/api_response_page_response_booking_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_booking_response.dart';
+import 'package:beautica_api/src/model/api_response_page_response_favorite_master_response.dart';
+import 'package:beautica_api/src/model/api_response_page_response_favorite_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_master_search_result.dart';
 import 'package:beautica_api/src/model/api_response_page_response_master_summary_response.dart';
+import 'package:beautica_api/src/model/api_response_page_response_my_review_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_review_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_salon_search_result.dart';
+import 'package:beautica_api/src/model/api_response_page_response_timeline_item_response.dart';
+import 'package:beautica_api/src/model/api_response_passport_response.dart';
 import 'package:beautica_api/src/model/api_response_platform_category_response.dart';
 import 'package:beautica_api/src/model/api_response_public_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_registration_response.dart';
@@ -64,13 +74,18 @@ import 'package:beautica_api/src/model/available_slots_response.dart';
 import 'package:beautica_api/src/model/avatar_response.dart';
 import 'package:beautica_api/src/model/booking_detail_response.dart';
 import 'package:beautica_api/src/model/booking_response.dart';
+import 'package:beautica_api/src/model/booking_slug_info_response.dart';
+import 'package:beautica_api/src/model/budget_band.dart';
 import 'package:beautica_api/src/model/bulk_create_services_request.dart';
 import 'package:beautica_api/src/model/bulk_service_item_request.dart';
 import 'package:beautica_api/src/model/cancel_booking_request.dart';
+import 'package:beautica_api/src/model/cancel_token_info_response.dart';
 import 'package:beautica_api/src/model/catalog_category_response.dart';
 import 'package:beautica_api/src/model/category_request_response.dart';
 import 'package:beautica_api/src/model/city_district_response.dart';
 import 'package:beautica_api/src/model/city_response.dart';
+import 'package:beautica_api/src/model/contact_support_request.dart';
+import 'package:beautica_api/src/model/contact_support_response.dart';
 import 'package:beautica_api/src/model/create_booking_request.dart';
 import 'package:beautica_api/src/model/create_category_request_request.dart';
 import 'package:beautica_api/src/model/create_platform_category_request.dart';
@@ -78,7 +93,13 @@ import 'package:beautica_api/src/model/create_review_request.dart';
 import 'package:beautica_api/src/model/create_salon_request.dart';
 import 'package:beautica_api/src/model/create_service_definition_request.dart';
 import 'package:beautica_api/src/model/effective_day_response.dart';
+import 'package:beautica_api/src/model/favorite_master_response.dart';
+import 'package:beautica_api/src/model/favorite_response.dart';
+import 'package:beautica_api/src/model/favorite_salon_response.dart';
 import 'package:beautica_api/src/model/forgot_password_request.dart';
+import 'package:beautica_api/src/model/guest_booking_request.dart';
+import 'package:beautica_api/src/model/guest_booking_response.dart';
+import 'package:beautica_api/src/model/guest_token_response.dart';
 import 'package:beautica_api/src/model/independent_master_update_request.dart';
 import 'package:beautica_api/src/model/invite_accept_request.dart';
 import 'package:beautica_api/src/model/invite_preview_response.dart';
@@ -94,15 +115,24 @@ import 'package:beautica_api/src/model/master_search_result.dart';
 import 'package:beautica_api/src/model/master_service_response.dart';
 import 'package:beautica_api/src/model/master_summary_response.dart';
 import 'package:beautica_api/src/model/media_file_response.dart';
+import 'package:beautica_api/src/model/my_review_response.dart';
 import 'package:beautica_api/src/model/oblast_response.dart';
 import 'package:beautica_api/src/model/page_media_file_response.dart';
+import 'package:beautica_api/src/model/page_response_booking_detail_response.dart';
 import 'package:beautica_api/src/model/page_response_booking_response.dart';
+import 'package:beautica_api/src/model/page_response_favorite_master_response.dart';
+import 'package:beautica_api/src/model/page_response_favorite_salon_response.dart';
 import 'package:beautica_api/src/model/page_response_master_search_result.dart';
 import 'package:beautica_api/src/model/page_response_master_summary_response.dart';
+import 'package:beautica_api/src/model/page_response_my_review_response.dart';
 import 'package:beautica_api/src/model/page_response_review_response.dart';
 import 'package:beautica_api/src/model/page_response_salon_search_result.dart';
+import 'package:beautica_api/src/model/page_response_timeline_item_response.dart';
 import 'package:beautica_api/src/model/pageable.dart';
 import 'package:beautica_api/src/model/pageable_object.dart';
+import 'package:beautica_api/src/model/passport_response.dart';
+import 'package:beautica_api/src/model/phone_otp_send_request.dart';
+import 'package:beautica_api/src/model/phone_otp_verify_request.dart';
 import 'package:beautica_api/src/model/platform_category_response.dart';
 import 'package:beautica_api/src/model/platform_category_usage_response.dart';
 import 'package:beautica_api/src/model/platform_service_type_response.dart';
@@ -112,6 +142,7 @@ import 'package:beautica_api/src/model/register_device_token_request.dart';
 import 'package:beautica_api/src/model/register_independent_master_request.dart';
 import 'package:beautica_api/src/model/register_request.dart';
 import 'package:beautica_api/src/model/registration_response.dart';
+import 'package:beautica_api/src/model/reschedule_booking_request.dart';
 import 'package:beautica_api/src/model/resend_verification_request.dart';
 import 'package:beautica_api/src/model/reset_password_request.dart';
 import 'package:beautica_api/src/model/revenue_by_date_dto.dart';
@@ -125,9 +156,11 @@ import 'package:beautica_api/src/model/salon_search_result.dart';
 import 'package:beautica_api/src/model/schedule_override_request.dart';
 import 'package:beautica_api/src/model/schedule_override_response.dart';
 import 'package:beautica_api/src/model/service_definition_response.dart';
+import 'package:beautica_api/src/model/service_summary_dto.dart';
 import 'package:beautica_api/src/model/sort_object.dart';
 import 'package:beautica_api/src/model/status_update_request.dart';
 import 'package:beautica_api/src/model/suggest_service_type_request.dart';
+import 'package:beautica_api/src/model/timeline_item_response.dart';
 import 'package:beautica_api/src/model/unregister_device_token_request.dart';
 import 'package:beautica_api/src/model/update_profile_request.dart';
 import 'package:beautica_api/src/model/update_salon_request.dart';
@@ -147,12 +180,16 @@ import 'package:beautica_api/src/model/working_hours_response.dart';
 part 'serializers.g.dart';
 
 @SerializersFor([
+  AddFavoriteRequest,
   ApiResponseAuthResponse,
   ApiResponseAvailableSlotsResponse,
   ApiResponseAvatarResponse,
   ApiResponseBookingDetailResponse,
   ApiResponseBookingResponse,
   ApiResponseCategoryRequestResponse,
+  ApiResponseContactSupportResponse,
+  ApiResponseFavoriteResponse,
+  ApiResponseGuestTokenResponse,
   ApiResponseInvitePreviewResponse,
   ApiResponseInviteResponse,
   ApiResponseListApprovedCategoryResponse,
@@ -173,11 +210,17 @@ part 'serializers.g.dart';
   ApiResponseMasterServiceResponse,
   ApiResponseMediaFileResponse,
   ApiResponsePageMediaFileResponse,
+  ApiResponsePageResponseBookingDetailResponse,
   ApiResponsePageResponseBookingResponse,
+  ApiResponsePageResponseFavoriteMasterResponse,
+  ApiResponsePageResponseFavoriteSalonResponse,
   ApiResponsePageResponseMasterSearchResult,
   ApiResponsePageResponseMasterSummaryResponse,
+  ApiResponsePageResponseMyReviewResponse,
   ApiResponsePageResponseReviewResponse,
   ApiResponsePageResponseSalonSearchResult,
+  ApiResponsePageResponseTimelineItemResponse,
+  ApiResponsePassportResponse,
   ApiResponsePlatformCategoryResponse,
   ApiResponsePublicSalonResponse,
   ApiResponseRegistrationResponse,
@@ -197,13 +240,18 @@ part 'serializers.g.dart';
   AvatarResponse,
   BookingDetailResponse,
   BookingResponse,
+  BookingSlugInfoResponse,
+  BudgetBand,
   BulkCreateServicesRequest,
   BulkServiceItemRequest,
   CancelBookingRequest,
+  CancelTokenInfoResponse,
   CatalogCategoryResponse,
   CategoryRequestResponse,
   CityDistrictResponse,
   CityResponse,
+  ContactSupportRequest,
+  ContactSupportResponse,
   CreateBookingRequest,
   CreateCategoryRequestRequest,
   CreatePlatformCategoryRequest,
@@ -211,7 +259,13 @@ part 'serializers.g.dart';
   CreateSalonRequest,
   CreateServiceDefinitionRequest,
   EffectiveDayResponse,
+  FavoriteMasterResponse,
+  FavoriteResponse,
+  FavoriteSalonResponse,
   ForgotPasswordRequest,
+  GuestBookingRequest,
+  GuestBookingResponse,
+  GuestTokenResponse,
   IndependentMasterUpdateRequest,
   InviteAcceptRequest,
   InvitePreviewResponse,
@@ -227,15 +281,24 @@ part 'serializers.g.dart';
   MasterServiceResponse,
   MasterSummaryResponse,
   MediaFileResponse,
+  MyReviewResponse,
   OblastResponse,
   PageMediaFileResponse,
+  PageResponseBookingDetailResponse,
   PageResponseBookingResponse,
+  PageResponseFavoriteMasterResponse,
+  PageResponseFavoriteSalonResponse,
   PageResponseMasterSearchResult,
   PageResponseMasterSummaryResponse,
+  PageResponseMyReviewResponse,
   PageResponseReviewResponse,
   PageResponseSalonSearchResult,
+  PageResponseTimelineItemResponse,
   Pageable,
   PageableObject,
+  PassportResponse,
+  PhoneOtpSendRequest,
+  PhoneOtpVerifyRequest,
   PlatformCategoryResponse,
   PlatformCategoryUsageResponse,
   PlatformServiceTypeResponse,
@@ -245,6 +308,7 @@ part 'serializers.g.dart';
   RegisterIndependentMasterRequest,
   RegisterRequest,
   RegistrationResponse,
+  RescheduleBookingRequest,
   ResendVerificationRequest,
   ResetPasswordRequest,
   RevenueByDateDto,
@@ -258,9 +322,11 @@ part 'serializers.g.dart';
   ScheduleOverrideRequest,
   ScheduleOverrideResponse,
   ServiceDefinitionResponse,
+  ServiceSummaryDto,
   SortObject,
   StatusUpdateRequest,
   SuggestServiceTypeRequest,
+  TimelineItemResponse,
   UnregisterDeviceTokenRequest,
   UpdateProfileRequest,
   UpdateSalonRequest,
@@ -278,6 +344,10 @@ part 'serializers.g.dart';
   WorkingHoursResponse,
 ])
 Serializers serializers = (_$serializers.toBuilder()
+      ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(AvailableSlotResponse)]),
+        () => ListBuilder<AvailableSlotResponse>(),
+      )
       ..addBuilderFactory(
         const FullType(BuiltList, [FullType(WorkingHoursRequest)]),
         () => ListBuilder<WorkingHoursRequest>(),

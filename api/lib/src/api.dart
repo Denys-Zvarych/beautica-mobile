@@ -12,19 +12,24 @@ import 'package:beautica_api/src/auth/oauth.dart';
 import 'package:beautica_api/src/api/auth_controller_api.dart';
 import 'package:beautica_api/src/api/booking_controller_api.dart';
 import 'package:beautica_api/src/api/category_request_controller_api.dart';
+import 'package:beautica_api/src/api/client_controller_api.dart';
 import 'package:beautica_api/src/api/dashboard_controller_api.dart';
 import 'package:beautica_api/src/api/device_controller_api.dart';
+import 'package:beautica_api/src/api/favorite_controller_api.dart';
 import 'package:beautica_api/src/api/independent_master_controller_api.dart';
 import 'package:beautica_api/src/api/internal_category_controller_api.dart';
 import 'package:beautica_api/src/api/location_controller_api.dart';
 import 'package:beautica_api/src/api/master_controller_api.dart';
 import 'package:beautica_api/src/api/media_controller_api.dart';
+import 'package:beautica_api/src/api/phone_otp_controller_api.dart';
+import 'package:beautica_api/src/api/public_booking_controller_api.dart';
 import 'package:beautica_api/src/api/review_controller_api.dart';
 import 'package:beautica_api/src/api/salon_controller_api.dart';
 import 'package:beautica_api/src/api/salon_master_controller_api.dart';
 import 'package:beautica_api/src/api/search_controller_api.dart';
 import 'package:beautica_api/src/api/service_catalog_controller_api.dart';
 import 'package:beautica_api/src/api/service_controller_api.dart';
+import 'package:beautica_api/src/api/support_controller_api.dart';
 import 'package:beautica_api/src/api/user_controller_api.dart';
 
 @Deprecated(
@@ -113,6 +118,12 @@ class BeauticaApi {
     return CategoryRequestControllerApi(dio, serializers);
   }
 
+  /// Get ClientControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  ClientControllerApi getClientControllerApi() {
+    return ClientControllerApi(dio, serializers);
+  }
+
   /// Get DashboardControllerApi instance, base route and serializer can be overridden by a given but be careful,
   /// by doing that all interceptors will not be executed
   DashboardControllerApi getDashboardControllerApi() {
@@ -123,6 +134,12 @@ class BeauticaApi {
   /// by doing that all interceptors will not be executed
   DeviceControllerApi getDeviceControllerApi() {
     return DeviceControllerApi(dio, serializers);
+  }
+
+  /// Get FavoriteControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  FavoriteControllerApi getFavoriteControllerApi() {
+    return FavoriteControllerApi(dio, serializers);
   }
 
   /// Get IndependentMasterControllerApi instance, base route and serializer can be overridden by a given but be careful,
@@ -153,6 +170,18 @@ class BeauticaApi {
   /// by doing that all interceptors will not be executed
   MediaControllerApi getMediaControllerApi() {
     return MediaControllerApi(dio, serializers);
+  }
+
+  /// Get PhoneOtpControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  PhoneOtpControllerApi getPhoneOtpControllerApi() {
+    return PhoneOtpControllerApi(dio, serializers);
+  }
+
+  /// Get PublicBookingControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  PublicBookingControllerApi getPublicBookingControllerApi() {
+    return PublicBookingControllerApi(dio, serializers);
   }
 
   /// Get ReviewControllerApi instance, base route and serializer can be overridden by a given but be careful,
@@ -189,6 +218,12 @@ class BeauticaApi {
   /// by doing that all interceptors will not be executed
   ServiceControllerApi getServiceControllerApi() {
     return ServiceControllerApi(dio, serializers);
+  }
+
+  /// Get SupportControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  SupportControllerApi getSupportControllerApi() {
+    return SupportControllerApi(dio, serializers);
   }
 
   /// Get UserControllerApi instance, base route and serializer can be overridden by a given but be careful,

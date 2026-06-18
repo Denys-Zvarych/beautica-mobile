@@ -17,6 +17,10 @@ class _$SalonSearchResult extends SalonSearchResult {
   final String? districtLabel;
   @override
   final String? avatarUrl;
+  @override
+  final num? priceMin;
+  @override
+  final num? priceMax;
 
   factory _$SalonSearchResult(
           [void Function(SalonSearchResultBuilder)? updates]) =>
@@ -27,7 +31,9 @@ class _$SalonSearchResult extends SalonSearchResult {
       this.name,
       this.cityLabel,
       this.districtLabel,
-      this.avatarUrl})
+      this.avatarUrl,
+      this.priceMin,
+      this.priceMax})
       : super._();
   @override
   SalonSearchResult rebuild(void Function(SalonSearchResultBuilder) updates) =>
@@ -45,7 +51,9 @@ class _$SalonSearchResult extends SalonSearchResult {
         name == other.name &&
         cityLabel == other.cityLabel &&
         districtLabel == other.districtLabel &&
-        avatarUrl == other.avatarUrl;
+        avatarUrl == other.avatarUrl &&
+        priceMin == other.priceMin &&
+        priceMax == other.priceMax;
   }
 
   @override
@@ -56,6 +64,8 @@ class _$SalonSearchResult extends SalonSearchResult {
     _$hash = $jc(_$hash, cityLabel.hashCode);
     _$hash = $jc(_$hash, districtLabel.hashCode);
     _$hash = $jc(_$hash, avatarUrl.hashCode);
+    _$hash = $jc(_$hash, priceMin.hashCode);
+    _$hash = $jc(_$hash, priceMax.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -67,7 +77,9 @@ class _$SalonSearchResult extends SalonSearchResult {
           ..add('name', name)
           ..add('cityLabel', cityLabel)
           ..add('districtLabel', districtLabel)
-          ..add('avatarUrl', avatarUrl))
+          ..add('avatarUrl', avatarUrl)
+          ..add('priceMin', priceMin)
+          ..add('priceMax', priceMax))
         .toString();
   }
 }
@@ -97,6 +109,14 @@ class SalonSearchResultBuilder
   String? get avatarUrl => _$this._avatarUrl;
   set avatarUrl(String? avatarUrl) => _$this._avatarUrl = avatarUrl;
 
+  num? _priceMin;
+  num? get priceMin => _$this._priceMin;
+  set priceMin(num? priceMin) => _$this._priceMin = priceMin;
+
+  num? _priceMax;
+  num? get priceMax => _$this._priceMax;
+  set priceMax(num? priceMax) => _$this._priceMax = priceMax;
+
   SalonSearchResultBuilder() {
     SalonSearchResult._defaults(this);
   }
@@ -109,6 +129,8 @@ class SalonSearchResultBuilder
       _cityLabel = $v.cityLabel;
       _districtLabel = $v.districtLabel;
       _avatarUrl = $v.avatarUrl;
+      _priceMin = $v.priceMin;
+      _priceMax = $v.priceMax;
       _$v = null;
     }
     return this;
@@ -135,6 +157,8 @@ class SalonSearchResultBuilder
           cityLabel: cityLabel,
           districtLabel: districtLabel,
           avatarUrl: avatarUrl,
+          priceMin: priceMin,
+          priceMax: priceMax,
         );
     replace(_$result);
     return _$result;

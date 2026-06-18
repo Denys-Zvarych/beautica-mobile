@@ -56,9 +56,56 @@ final BuiltSet<BookingDetailResponseStatusEnum>
   _$bookingDetailResponseStatusEnum_CANCELLED,
 ]);
 
+const BookingDetailResponseMasterTypeEnum
+    _$bookingDetailResponseMasterTypeEnum_CLIENT =
+    const BookingDetailResponseMasterTypeEnum._('CLIENT');
+const BookingDetailResponseMasterTypeEnum
+    _$bookingDetailResponseMasterTypeEnum_SALON_OWNER =
+    const BookingDetailResponseMasterTypeEnum._('SALON_OWNER');
+const BookingDetailResponseMasterTypeEnum
+    _$bookingDetailResponseMasterTypeEnum_SALON_ADMIN =
+    const BookingDetailResponseMasterTypeEnum._('SALON_ADMIN');
+const BookingDetailResponseMasterTypeEnum
+    _$bookingDetailResponseMasterTypeEnum_SALON_MASTER =
+    const BookingDetailResponseMasterTypeEnum._('SALON_MASTER');
+const BookingDetailResponseMasterTypeEnum
+    _$bookingDetailResponseMasterTypeEnum_INDEPENDENT_MASTER =
+    const BookingDetailResponseMasterTypeEnum._('INDEPENDENT_MASTER');
+
+BookingDetailResponseMasterTypeEnum
+    _$bookingDetailResponseMasterTypeEnumValueOf(String name) {
+  switch (name) {
+    case 'CLIENT':
+      return _$bookingDetailResponseMasterTypeEnum_CLIENT;
+    case 'SALON_OWNER':
+      return _$bookingDetailResponseMasterTypeEnum_SALON_OWNER;
+    case 'SALON_ADMIN':
+      return _$bookingDetailResponseMasterTypeEnum_SALON_ADMIN;
+    case 'SALON_MASTER':
+      return _$bookingDetailResponseMasterTypeEnum_SALON_MASTER;
+    case 'INDEPENDENT_MASTER':
+      return _$bookingDetailResponseMasterTypeEnum_INDEPENDENT_MASTER;
+    default:
+      throw ArgumentError(name);
+  }
+}
+
+final BuiltSet<BookingDetailResponseMasterTypeEnum>
+    _$bookingDetailResponseMasterTypeEnumValues = BuiltSet<
+        BookingDetailResponseMasterTypeEnum>(const <BookingDetailResponseMasterTypeEnum>[
+  _$bookingDetailResponseMasterTypeEnum_CLIENT,
+  _$bookingDetailResponseMasterTypeEnum_SALON_OWNER,
+  _$bookingDetailResponseMasterTypeEnum_SALON_ADMIN,
+  _$bookingDetailResponseMasterTypeEnum_SALON_MASTER,
+  _$bookingDetailResponseMasterTypeEnum_INDEPENDENT_MASTER,
+]);
+
 Serializer<BookingDetailResponseStatusEnum>
     _$bookingDetailResponseStatusEnumSerializer =
     _$BookingDetailResponseStatusEnumSerializer();
+Serializer<BookingDetailResponseMasterTypeEnum>
+    _$bookingDetailResponseMasterTypeEnumSerializer =
+    _$BookingDetailResponseMasterTypeEnumSerializer();
 
 class _$BookingDetailResponseStatusEnumSerializer
     implements PrimitiveSerializer<BookingDetailResponseStatusEnum> {
@@ -98,6 +145,44 @@ class _$BookingDetailResponseStatusEnumSerializer
           _fromWire[serialized] ?? (serialized is String ? serialized : ''));
 }
 
+class _$BookingDetailResponseMasterTypeEnumSerializer
+    implements PrimitiveSerializer<BookingDetailResponseMasterTypeEnum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'CLIENT': 'CLIENT',
+    'SALON_OWNER': 'SALON_OWNER',
+    'SALON_ADMIN': 'SALON_ADMIN',
+    'SALON_MASTER': 'SALON_MASTER',
+    'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'CLIENT': 'CLIENT',
+    'SALON_OWNER': 'SALON_OWNER',
+    'SALON_ADMIN': 'SALON_ADMIN',
+    'SALON_MASTER': 'SALON_MASTER',
+    'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[
+    BookingDetailResponseMasterTypeEnum
+  ];
+  @override
+  final String wireName = 'BookingDetailResponseMasterTypeEnum';
+
+  @override
+  Object serialize(
+          Serializers serializers, BookingDetailResponseMasterTypeEnum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  BookingDetailResponseMasterTypeEnum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      BookingDetailResponseMasterTypeEnum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$BookingDetailResponse extends BookingDetailResponse {
   @override
   final String? id;
@@ -133,6 +218,24 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final String? clientComment;
   @override
   final String? providerComment;
+  @override
+  final String? masterAvatarUrl;
+  @override
+  final BookingDetailResponseMasterTypeEnum? masterType;
+  @override
+  final String? salonName;
+  @override
+  final String? cityLabel;
+  @override
+  final String? districtLabel;
+  @override
+  final String? street;
+  @override
+  final String? buildingNo;
+  @override
+  final String? categoryName;
+  @override
+  final bool? canReview;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -155,7 +258,16 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.masterFirstName,
       this.masterLastName,
       this.clientComment,
-      this.providerComment})
+      this.providerComment,
+      this.masterAvatarUrl,
+      this.masterType,
+      this.salonName,
+      this.cityLabel,
+      this.districtLabel,
+      this.street,
+      this.buildingNo,
+      this.categoryName,
+      this.canReview})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -186,7 +298,16 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         masterFirstName == other.masterFirstName &&
         masterLastName == other.masterLastName &&
         clientComment == other.clientComment &&
-        providerComment == other.providerComment;
+        providerComment == other.providerComment &&
+        masterAvatarUrl == other.masterAvatarUrl &&
+        masterType == other.masterType &&
+        salonName == other.salonName &&
+        cityLabel == other.cityLabel &&
+        districtLabel == other.districtLabel &&
+        street == other.street &&
+        buildingNo == other.buildingNo &&
+        categoryName == other.categoryName &&
+        canReview == other.canReview;
   }
 
   @override
@@ -209,6 +330,15 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, masterLastName.hashCode);
     _$hash = $jc(_$hash, clientComment.hashCode);
     _$hash = $jc(_$hash, providerComment.hashCode);
+    _$hash = $jc(_$hash, masterAvatarUrl.hashCode);
+    _$hash = $jc(_$hash, masterType.hashCode);
+    _$hash = $jc(_$hash, salonName.hashCode);
+    _$hash = $jc(_$hash, cityLabel.hashCode);
+    _$hash = $jc(_$hash, districtLabel.hashCode);
+    _$hash = $jc(_$hash, street.hashCode);
+    _$hash = $jc(_$hash, buildingNo.hashCode);
+    _$hash = $jc(_$hash, categoryName.hashCode);
+    _$hash = $jc(_$hash, canReview.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -232,7 +362,16 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('masterFirstName', masterFirstName)
           ..add('masterLastName', masterLastName)
           ..add('clientComment', clientComment)
-          ..add('providerComment', providerComment))
+          ..add('providerComment', providerComment)
+          ..add('masterAvatarUrl', masterAvatarUrl)
+          ..add('masterType', masterType)
+          ..add('salonName', salonName)
+          ..add('cityLabel', cityLabel)
+          ..add('districtLabel', districtLabel)
+          ..add('street', street)
+          ..add('buildingNo', buildingNo)
+          ..add('categoryName', categoryName)
+          ..add('canReview', canReview))
         .toString();
   }
 }
@@ -319,6 +458,45 @@ class BookingDetailResponseBuilder
   set providerComment(String? providerComment) =>
       _$this._providerComment = providerComment;
 
+  String? _masterAvatarUrl;
+  String? get masterAvatarUrl => _$this._masterAvatarUrl;
+  set masterAvatarUrl(String? masterAvatarUrl) =>
+      _$this._masterAvatarUrl = masterAvatarUrl;
+
+  BookingDetailResponseMasterTypeEnum? _masterType;
+  BookingDetailResponseMasterTypeEnum? get masterType => _$this._masterType;
+  set masterType(BookingDetailResponseMasterTypeEnum? masterType) =>
+      _$this._masterType = masterType;
+
+  String? _salonName;
+  String? get salonName => _$this._salonName;
+  set salonName(String? salonName) => _$this._salonName = salonName;
+
+  String? _cityLabel;
+  String? get cityLabel => _$this._cityLabel;
+  set cityLabel(String? cityLabel) => _$this._cityLabel = cityLabel;
+
+  String? _districtLabel;
+  String? get districtLabel => _$this._districtLabel;
+  set districtLabel(String? districtLabel) =>
+      _$this._districtLabel = districtLabel;
+
+  String? _street;
+  String? get street => _$this._street;
+  set street(String? street) => _$this._street = street;
+
+  String? _buildingNo;
+  String? get buildingNo => _$this._buildingNo;
+  set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
+
+  String? _categoryName;
+  String? get categoryName => _$this._categoryName;
+  set categoryName(String? categoryName) => _$this._categoryName = categoryName;
+
+  bool? _canReview;
+  bool? get canReview => _$this._canReview;
+  set canReview(bool? canReview) => _$this._canReview = canReview;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -343,6 +521,15 @@ class BookingDetailResponseBuilder
       _masterLastName = $v.masterLastName;
       _clientComment = $v.clientComment;
       _providerComment = $v.providerComment;
+      _masterAvatarUrl = $v.masterAvatarUrl;
+      _masterType = $v.masterType;
+      _salonName = $v.salonName;
+      _cityLabel = $v.cityLabel;
+      _districtLabel = $v.districtLabel;
+      _street = $v.street;
+      _buildingNo = $v.buildingNo;
+      _categoryName = $v.categoryName;
+      _canReview = $v.canReview;
       _$v = null;
     }
     return this;
@@ -381,6 +568,15 @@ class BookingDetailResponseBuilder
           masterLastName: masterLastName,
           clientComment: clientComment,
           providerComment: providerComment,
+          masterAvatarUrl: masterAvatarUrl,
+          masterType: masterType,
+          salonName: salonName,
+          cityLabel: cityLabel,
+          districtLabel: districtLabel,
+          street: street,
+          buildingNo: buildingNo,
+          categoryName: categoryName,
+          canReview: canReview,
         );
     replace(_$result);
     return _$result;

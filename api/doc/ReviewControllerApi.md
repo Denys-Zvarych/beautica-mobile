@@ -10,6 +10,7 @@ All URIs are relative to *http://localhost:8080*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**createReview**](ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
+[**getMyReviews**](ReviewControllerApi.md#getmyreviews) | **GET** /api/v1/reviews/me | 
 [**getReview**](ReviewControllerApi.md#getreview) | **GET** /api/v1/reviews/{reviewId} | 
 [**getReviewsByMaster**](ReviewControllerApi.md#getreviewsbymaster) | **GET** /api/v1/masters/{masterId}/reviews | 
 
@@ -51,6 +52,47 @@ No authorization required
 ### HTTP request headers
 
  - **Content-Type**: application/json
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getMyReviews**
+> ApiResponsePageResponseMyReviewResponse getMyReviews(pageable)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getReviewControllerApi();
+final Pageable pageable = ; // Pageable | 
+
+try {
+    final response = api.getMyReviews(pageable);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling ReviewControllerApi->getMyReviews: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **pageable** | [**Pageable**](.md)|  | 
+
+### Return type
+
+[**ApiResponsePageResponseMyReviewResponse**](ApiResponsePageResponseMyReviewResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
  - **Accept**: */*
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)

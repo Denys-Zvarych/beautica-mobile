@@ -16,6 +16,8 @@ part 'salon_search_result.g.dart';
 /// * [cityLabel]
 /// * [districtLabel]
 /// * [avatarUrl]
+/// * [priceMin]
+/// * [priceMax]
 @BuiltValue()
 abstract class SalonSearchResult
     implements Built<SalonSearchResult, SalonSearchResultBuilder> {
@@ -33,6 +35,12 @@ abstract class SalonSearchResult
 
   @BuiltValueField(wireName: r'avatarUrl')
   String? get avatarUrl;
+
+  @BuiltValueField(wireName: r'priceMin')
+  num? get priceMin;
+
+  @BuiltValueField(wireName: r'priceMax')
+  num? get priceMax;
 
   SalonSearchResult._();
 
@@ -95,6 +103,20 @@ class _$SalonSearchResultSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.priceMin != null) {
+      yield r'priceMin';
+      yield serializers.serialize(
+        object.priceMin,
+        specifiedType: const FullType(num),
+      );
+    }
+    if (object.priceMax != null) {
+      yield r'priceMax';
+      yield serializers.serialize(
+        object.priceMax,
+        specifiedType: const FullType(num),
+      );
+    }
   }
 
   @override
@@ -154,6 +176,20 @@ class _$SalonSearchResultSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.avatarUrl = valueDes;
+          break;
+        case r'priceMin':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.priceMin = valueDes;
+          break;
+        case r'priceMax':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.priceMax = valueDes;
           break;
         default:
           unhandled.add(key);

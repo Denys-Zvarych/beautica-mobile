@@ -29,6 +29,15 @@ part 'booking_detail_response.g.dart';
 /// * [masterLastName]
 /// * [clientComment]
 /// * [providerComment]
+/// * [masterAvatarUrl]
+/// * [masterType]
+/// * [salonName]
+/// * [cityLabel]
+/// * [districtLabel]
+/// * [street]
+/// * [buildingNo]
+/// * [categoryName]
+/// * [canReview]
 @BuiltValue()
 abstract class BookingDetailResponse
     implements Built<BookingDetailResponse, BookingDetailResponseBuilder> {
@@ -83,6 +92,34 @@ abstract class BookingDetailResponse
 
   @BuiltValueField(wireName: r'providerComment')
   String? get providerComment;
+
+  @BuiltValueField(wireName: r'masterAvatarUrl')
+  String? get masterAvatarUrl;
+
+  @BuiltValueField(wireName: r'masterType')
+  BookingDetailResponseMasterTypeEnum? get masterType;
+  // enum masterTypeEnum {  CLIENT,  SALON_OWNER,  SALON_ADMIN,  SALON_MASTER,  INDEPENDENT_MASTER,  };
+
+  @BuiltValueField(wireName: r'salonName')
+  String? get salonName;
+
+  @BuiltValueField(wireName: r'cityLabel')
+  String? get cityLabel;
+
+  @BuiltValueField(wireName: r'districtLabel')
+  String? get districtLabel;
+
+  @BuiltValueField(wireName: r'street')
+  String? get street;
+
+  @BuiltValueField(wireName: r'buildingNo')
+  String? get buildingNo;
+
+  @BuiltValueField(wireName: r'categoryName')
+  String? get categoryName;
+
+  @BuiltValueField(wireName: r'canReview')
+  bool? get canReview;
 
   BookingDetailResponse._();
 
@@ -232,6 +269,69 @@ class _$BookingDetailResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.masterAvatarUrl != null) {
+      yield r'masterAvatarUrl';
+      yield serializers.serialize(
+        object.masterAvatarUrl,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.masterType != null) {
+      yield r'masterType';
+      yield serializers.serialize(
+        object.masterType,
+        specifiedType: const FullType(BookingDetailResponseMasterTypeEnum),
+      );
+    }
+    if (object.salonName != null) {
+      yield r'salonName';
+      yield serializers.serialize(
+        object.salonName,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.cityLabel != null) {
+      yield r'cityLabel';
+      yield serializers.serialize(
+        object.cityLabel,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.districtLabel != null) {
+      yield r'districtLabel';
+      yield serializers.serialize(
+        object.districtLabel,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.street != null) {
+      yield r'street';
+      yield serializers.serialize(
+        object.street,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.buildingNo != null) {
+      yield r'buildingNo';
+      yield serializers.serialize(
+        object.buildingNo,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.categoryName != null) {
+      yield r'categoryName';
+      yield serializers.serialize(
+        object.categoryName,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.canReview != null) {
+      yield r'canReview';
+      yield serializers.serialize(
+        object.canReview,
+        specifiedType: const FullType(bool),
+      );
+    }
   }
 
   @override
@@ -376,6 +476,69 @@ class _$BookingDetailResponseSerializer
           ) as String;
           result.providerComment = valueDes;
           break;
+        case r'masterAvatarUrl':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.masterAvatarUrl = valueDes;
+          break;
+        case r'masterType':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BookingDetailResponseMasterTypeEnum),
+          ) as BookingDetailResponseMasterTypeEnum;
+          result.masterType = valueDes;
+          break;
+        case r'salonName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.salonName = valueDes;
+          break;
+        case r'cityLabel':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.cityLabel = valueDes;
+          break;
+        case r'districtLabel':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.districtLabel = valueDes;
+          break;
+        case r'street':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.street = valueDes;
+          break;
+        case r'buildingNo':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.buildingNo = valueDes;
+          break;
+        case r'categoryName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.categoryName = valueDes;
+          break;
+        case r'canReview':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.canReview = valueDes;
+          break;
         default:
           unhandled.add(key);
           unhandled.add(value);
@@ -434,4 +597,32 @@ class BookingDetailResponseStatusEnum extends EnumClass {
       _$bookingDetailResponseStatusEnumValues;
   static BookingDetailResponseStatusEnum valueOf(String name) =>
       _$bookingDetailResponseStatusEnumValueOf(name);
+}
+
+class BookingDetailResponseMasterTypeEnum extends EnumClass {
+  @BuiltValueEnumConst(wireName: r'CLIENT')
+  static const BookingDetailResponseMasterTypeEnum CLIENT =
+      _$bookingDetailResponseMasterTypeEnum_CLIENT;
+  @BuiltValueEnumConst(wireName: r'SALON_OWNER')
+  static const BookingDetailResponseMasterTypeEnum SALON_OWNER =
+      _$bookingDetailResponseMasterTypeEnum_SALON_OWNER;
+  @BuiltValueEnumConst(wireName: r'SALON_ADMIN')
+  static const BookingDetailResponseMasterTypeEnum SALON_ADMIN =
+      _$bookingDetailResponseMasterTypeEnum_SALON_ADMIN;
+  @BuiltValueEnumConst(wireName: r'SALON_MASTER')
+  static const BookingDetailResponseMasterTypeEnum SALON_MASTER =
+      _$bookingDetailResponseMasterTypeEnum_SALON_MASTER;
+  @BuiltValueEnumConst(wireName: r'INDEPENDENT_MASTER')
+  static const BookingDetailResponseMasterTypeEnum INDEPENDENT_MASTER =
+      _$bookingDetailResponseMasterTypeEnum_INDEPENDENT_MASTER;
+
+  static Serializer<BookingDetailResponseMasterTypeEnum> get serializer =>
+      _$bookingDetailResponseMasterTypeEnumSerializer;
+
+  const BookingDetailResponseMasterTypeEnum._(String name) : super(name);
+
+  static BuiltSet<BookingDetailResponseMasterTypeEnum> get values =>
+      _$bookingDetailResponseMasterTypeEnumValues;
+  static BookingDetailResponseMasterTypeEnum valueOf(String name) =>
+      _$bookingDetailResponseMasterTypeEnumValueOf(name);
 }

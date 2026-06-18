@@ -13,6 +13,7 @@ part 'salon_search_request.g.dart';
 ///
 /// Properties:
 /// * [location]
+/// * [category]
 /// * [page]
 /// * [size]
 @BuiltValue()
@@ -20,6 +21,9 @@ abstract class SalonSearchRequest
     implements Built<SalonSearchRequest, SalonSearchRequestBuilder> {
   @BuiltValueField(wireName: r'location')
   LocationFilter? get location;
+
+  @BuiltValueField(wireName: r'category')
+  String? get category;
 
   @BuiltValueField(wireName: r'page')
   int? get page;
@@ -58,6 +62,13 @@ class _$SalonSearchRequestSerializer
       yield serializers.serialize(
         object.location,
         specifiedType: const FullType(LocationFilter),
+      );
+    }
+    if (object.category != null) {
+      yield r'category';
+      yield serializers.serialize(
+        object.category,
+        specifiedType: const FullType(String),
       );
     }
     if (object.page != null) {
@@ -105,6 +116,13 @@ class _$SalonSearchRequestSerializer
             specifiedType: const FullType(LocationFilter),
           ) as LocationFilter;
           result.location.replace(valueDes);
+          break;
+        case r'category':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.category = valueDes;
           break;
         case r'page':
           final valueDes = serializers.deserialize(
