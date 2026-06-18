@@ -198,6 +198,17 @@ void main() {
       findsOneWidget,
       reason: 'a CLIENT bounced off /master/* must be back on the client shell',
     );
+    // The bottom bar is the visible proof of the fix: pre-fix the bounce
+    // target was '/' (RouteNames.home — the no-bottom-bar "Скоро…"
+    // placeholder), so ClientBottomNav was absent. Landing on /home
+    // (RouteNames.clientHome) must mount the 5-tab bar.
+    expect(
+      find.byType(ClientBottomNav),
+      findsOneWidget,
+      reason:
+          'a CLIENT bounced off /master/profile must land on /home WITH the '
+          '5-tab bottom nav — the no-bar / placeholder was the routing bug',
+    );
     expect(
       find.byKey(const Key('master-profile-name')),
       findsNothing,

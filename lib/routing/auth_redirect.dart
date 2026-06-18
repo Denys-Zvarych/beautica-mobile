@@ -192,7 +192,7 @@ String? authRedirectForLocation(
   if (isAuthenticated && location.startsWith('/services')) {
     final Authenticated auth = session.value! as Authenticated;
     if (auth.user.role != UserRole.independentMaster) {
-      return RouteNames.home;
+      return roleHomePath(auth.user.role);
     }
   }
 
@@ -206,7 +206,7 @@ String? authRedirectForLocation(
   if (isAuthenticated && location.startsWith('/master/')) {
     final Authenticated auth = session.value! as Authenticated;
     if (auth.user.role != UserRole.independentMaster) {
-      return RouteNames.home;
+      return roleHomePath(auth.user.role);
     }
   }
 
@@ -227,7 +227,7 @@ String? authRedirectForLocation(
   if (isAuthenticated && location.startsWith('/schedule')) {
     final Authenticated auth = session.value! as Authenticated;
     if (auth.user.role != UserRole.independentMaster) {
-      return RouteNames.home;
+      return roleHomePath(auth.user.role);
     }
   }
 
@@ -255,9 +255,7 @@ String? authRedirectForLocation(
     if (isAtClientBranch) {
       final Authenticated auth = session.value! as Authenticated;
       if (auth.user.role != UserRole.client) {
-        return auth.user.role == UserRole.independentMaster
-            ? RouteNames.masterProfile
-            : RouteNames.home;
+        return roleHomePath(auth.user.role);
       }
     }
   }

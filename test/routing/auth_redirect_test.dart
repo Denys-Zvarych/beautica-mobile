@@ -379,8 +379,11 @@ void main() {
     });
 
     // Phase 5.2 — /services/* role gate (SEC MEDIUM-2).
-    // INDEPENDENT_MASTER may access /services; all other roles are redirected
-    // to / (the "coming soon" home shell).
+    // INDEPENDENT_MASTER may access /services. Phase 13.1: every other role is
+    // bounced through the shared [roleHomePath] helper, so a CLIENT lands on
+    // /home (the 5-tab client shell) — NOT / (the no-bottom-bar "coming soon"
+    // shell). The pre-Phase-13.1 expectation of / was the routing bug this
+    // regression block now pins shut.
 
     test('INDEPENDENT_MASTER at /services stays (null)', () {
       expect(
@@ -399,27 +402,27 @@ void main() {
       );
     });
 
-    test('CLIENT role at /services is redirected to /', () {
+    test('CLIENT role at /services is redirected to /home', () {
       expect(
         authRedirectForLocation(_clientSession, RouteNames.services),
-        equals(RouteNames.home),
+        equals(RouteNames.clientHome),
       );
     });
 
-    test('CLIENT role at /services/create is redirected to /', () {
+    test('CLIENT role at /services/create is redirected to /home', () {
       expect(
         authRedirectForLocation(_clientSession, RouteNames.serviceCreate),
-        equals(RouteNames.home),
+        equals(RouteNames.clientHome),
       );
     });
 
-    test('CLIENT role at /services/:id/edit is redirected to /', () {
+    test('CLIENT role at /services/:id/edit is redirected to /home', () {
       expect(
         authRedirectForLocation(
           _clientSession,
           RouteNames.serviceEdit('svc-001'),
         ),
-        equals(RouteNames.home),
+        equals(RouteNames.clientHome),
       );
     });
 
@@ -471,10 +474,12 @@ void main() {
       );
     });
 
-    test('CLIENT at /master/working-hours is redirected to /', () {
+    test('CLIENT at /master/working-hours is redirected to /home', () {
+      // Phase 13.1: the /master/* gate routes a CLIENT through roleHomePath →
+      // /home (client shell), not / — the cross-shell bounce-target bug.
       expect(
         authRedirectForLocation(_clientSession, RouteNames.workingHours),
-        equals(RouteNames.home),
+        equals(RouteNames.clientHome),
       );
     });
 
@@ -551,10 +556,14 @@ void main() {
           );
         });
 
-        test('CLIENT at $route is redirected to /', () {
+        // Phase 13.1: a CLIENT bounced off any /schedule edit surface lands on
+        // /home (the client shell), not / — routed through roleHomePath. This
+        // is the cross-shell bounce-target regression; the salon roles below
+        // have no client shell and still resolve to /.
+        test('CLIENT at $route is redirected to /home', () {
           expect(
             authRedirectForLocation(_clientSession, route),
-            equals(RouteNames.home),
+            equals(RouteNames.clientHome),
           );
         });
 
@@ -640,6 +649,63 @@ void main() {
           );
         });
       }
+    });
+
+    // -----------------------------------------------------------------------
+    // CLIENT cross-shell bounce contract (regression — Step 2.7 Rule 3).
+    //
+    // THE BUG: two sites hardcoded RouteNames.home ('/') as the bounce target
+    // for an authenticated user kicked off a foreign-shell route, instead of
+    // dispatching through the shared roleHomePath() helper. For a CLIENT that
+    // sent them to '/' — the no-bottom-bar "Скоро…" placeholder — instead of
+    // '/home' (RouteNames.clientHome), the real 5-tab ClientShell. The fix
+    // routed BOTH bounce sites (auth_redirect.dart + done_screen.dart) through
+    // roleHomePath.
+    //
+    // These cases pin the invariant directly: for a CLIENT, EVERY cross-shell
+    // bounce must resolve to clientHome ('/home'), never home ('/'). The
+    // /master/profile case is the exact repro the integration tier exercises
+    // (client_shell_flow_test.dart Test 3). The matrix above covers the gates
+    // individually; this block states the contract as one explicit assertion so
+    // a regression that reintroduces a hardcoded '/' is caught by name.
+    group('CLIENT cross-shell bounce always lands on clientHome (regression)', () {
+      // The repro case: a CLIENT deep-linking into the MASTER profile must be
+      // bounced to /home (the client shell), NEVER to / (the placeholder).
+      test('CLIENT at /master/profile → /home (clientHome), not / (home)', () {
+        final target = authRedirectForLocation(
+          _clientSession,
+          RouteNames.masterProfile,
+        );
+        expect(
+          target,
+          equals(RouteNames.clientHome),
+          reason:
+              'the master-profile bounce is the integration repro — a CLIENT '
+              'must land on the 5-tab client shell, not the no-bar placeholder',
+        );
+        expect(
+          target,
+          isNot(equals(RouteNames.home)),
+          reason: 'hardcoded RouteNames.home here is the exact bug under guard',
+        );
+      });
+
+      test('CLIENT at /services → /home (clientHome), not / (home)', () {
+        expect(
+          authRedirectForLocation(_clientSession, RouteNames.services),
+          allOf(equals(RouteNames.clientHome), isNot(equals(RouteNames.home))),
+        );
+      });
+
+      test('CLIENT at /schedule/weekly → /home (clientHome), not / (home)', () {
+        expect(
+          authRedirectForLocation(
+            _clientSession,
+            RouteNames.scheduleWeeklyEditor,
+          ),
+          allOf(equals(RouteNames.clientHome), isNot(equals(RouteNames.home))),
+        );
+      });
     });
   });
 

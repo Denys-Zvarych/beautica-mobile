@@ -1,18 +1,25 @@
-// Regression tests for role-aware CTA routing in DoneScreen.
+// Regression tests for role-aware CTA routing in DoneScreen (Site A of the
+// CLIENT-routing bug — Step 2.7 Rule 3).
 //
-// Phase 4.2 fix: the primary CTA (`done_to_app`) now reads the authenticated
-// user's role from [currentUserProvider] and routes:
+// THE BUG: the primary CTA (`done_to_app`) hardcoded RouteNames.home ('/') for
+// every non-master role, so a CLIENT finishing registration landed on the
+// no-bottom-bar "Скоро…" placeholder at '/' instead of the real 5-tab
+// ClientShell at '/home' (RouteNames.clientHome). The fix routes the CTA
+// through the shared roleHomePath() helper:
 //   - INDEPENDENT_MASTER → [RouteNames.masterProfile]
-//   - all other roles    → [RouteNames.home]
+//   - CLIENT             → [RouteNames.clientHome] ('/home', the client shell)
+//   - all other roles    → [RouteNames.home] ('/', the "coming soon" shell)
 //
 // Covered cases:
 //   R1. INDEPENDENT_MASTER → /master/profile (regression guard)
-//   R2. CLIENT             → / (home) — original behaviour preserved
-//   R3. SALON_OWNER        → / (home) — wildcard branch covers all non-master roles
+//   R2. CLIENT             → /home (clientHome) — the bug this file now pins
+//   R3. SALON_OWNER        → / (home) — wildcard branch covers non-master/
+//                            non-client roles; guard against over-correction
 //
 // Infrastructure: UncontrolledProviderScope + ProviderContainer mirrors the
-// pattern in done_screen_test.dart. A dedicated GoRouter stub is used here
-// that registers both /home and /master/profile so navigation can actually land.
+// pattern in done_screen_test.dart. A dedicated GoRouter stub registers /home,
+// /master/profile AND /home (clientHome) so each role's CTA target can land and
+// be asserted by a distinct sentinel marker.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -71,6 +78,7 @@ const _testTokens = AuthTokens(
 // ---------------------------------------------------------------------------
 
 const _homeMarker = 'stub-home-route';
+const _clientHomeMarker = 'stub-client-home-route';
 const _masterProfileMarker = 'stub-master-profile-route';
 
 GoRouter _makeFullRouter() => GoRouter(
@@ -85,6 +93,13 @@ GoRouter _makeFullRouter() => GoRouter(
       path: RouteNames.home,
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text(_homeMarker))),
+    ),
+    // Phase 13.1 — the CLIENT shell landing. A distinct marker from /home so a
+    // CLIENT landing on '/' (the bug) vs '/home' (the fix) is unambiguous.
+    GoRoute(
+      path: RouteNames.clientHome,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text(_clientHomeMarker))),
     ),
     GoRoute(
       path: RouteNames.masterProfile,
@@ -196,13 +211,18 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // R2 — CLIENT routes to /home (original behaviour must be preserved)
+    // R2 — CLIENT routes to /home (clientHome), the 5-tab client shell.
     //
-    // Ensures the wildcard branch of the switch expression still works for the
-    // most common self-registration role.
+    // THE REGRESSION (Site A): before the fix the CTA hardcoded
+    // RouteNames.home ('/'), dropping a freshly-registered CLIENT on the
+    // no-bottom-bar "Скоро…" placeholder instead of the real ClientShell at
+    // '/home'. After the fix the CTA dispatches through roleHomePath(client) →
+    // RouteNames.clientHome. This test reproduces the bug: it asserts the CTA
+    // lands on the clientHome stub and explicitly NOT on the '/' home stub.
     // -----------------------------------------------------------------------
     testWidgets(
-      'R2. CLIENT: tapping done_to_app navigates to RouteNames.home (/)',
+      'R2. CLIENT: tapping done_to_app navigates to RouteNames.clientHome '
+      '(/home), NOT RouteNames.home (/)',
       (tester) async {
         final router = _makeFullRouter();
         addTearDown(router.dispose);
@@ -213,6 +233,7 @@ void main() {
           router: router,
         );
 
+        expect(find.text(_clientHomeMarker), findsNothing);
         expect(find.text(_homeMarker), findsNothing);
         expect(find.text(_masterProfileMarker), findsNothing);
 
@@ -225,12 +246,18 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(
-          find.text(_homeMarker),
+          find.text(_clientHomeMarker),
           findsOneWidget,
           reason:
-              'CLIENT must be routed to RouteNames.home after tapping the '
-              'primary CTA — this is the original pre-fix behaviour that must '
-              'continue to work',
+              'CLIENT must be routed to RouteNames.clientHome (/home — the '
+              '5-tab client shell) after tapping the primary CTA',
+        );
+        expect(
+          find.text(_homeMarker),
+          findsNothing,
+          reason:
+              'CLIENT must NOT land on RouteNames.home (/) — that no-bottom-bar '
+              '"Скоро…" placeholder is exactly the routing bug under guard',
         );
         expect(
           find.text(_masterProfileMarker),

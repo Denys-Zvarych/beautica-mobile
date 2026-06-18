@@ -24,6 +24,7 @@ import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../routing/role_home.dart';
 import '../../../routing/route_names.dart';
 import '../domain/user.dart';
 import '../domain/user_role.dart';
@@ -89,10 +90,9 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
         label: l10n.registerDoneCtaPrimary,
         onPressed: () {
           final role = ref.read(currentUserProvider)?.role;
-          final destination = switch (role) {
-            UserRole.independentMaster => RouteNames.masterProfile,
-            _ => RouteNames.home,
-          };
+          final destination = role == null
+              ? RouteNames.home
+              : roleHomePath(role);
           context.go(destination);
         },
       ),
