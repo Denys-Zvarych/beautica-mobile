@@ -36,7 +36,6 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
-import '../../../core/security/screen_protection.dart';
 import '../../../core/time/clock_provider.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../../../shared/util/mask_email.dart';
@@ -46,9 +45,6 @@ import '../domain/register_result.dart';
 import '../domain/user.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
-import '../../master/presentation/master_profile_notifier.dart';
-import '../../services/data/service_repository.dart';
-import '../../services/presentation/services_list_notifier.dart';
 
 part 'auth_notifier.g.dart';
 
@@ -692,43 +688,20 @@ class AuthNotifier extends _$AuthNotifier {
     // explicit logout. The draft survives across nav (keepAlive) so without
     // this it would persist until the process is killed.
     ref.read(registerDraftProvider.notifier).reset();
-    // Fix 6 (SEC MEDIUM-1): invalidate the cached master profile so that stale
-    // AsyncData<Master> (holding name/city/bio PII) does not linger in the
-    // Riverpod container after logout. Mirrors the registerDraftProvider.reset()
-    // pattern above.
-    ref.invalidate(masterProfileProvider);
-    // serviceRepositoryProvider is keepAlive and holds the master-row UUID;
-    // invalidate it so the next login gets a fresh repository with the correct ID.
-    ref.invalidate(serviceRepositoryProvider);
-    // keepAlive service list holds the previous user's data — clear on logout.
-    ref.invalidate(servicesListProvider);
     // Wipe the interceptor's session-lifetime token fallback so no request can
     // carry a stale Bearer token after an explicit logout.
     _lastKnownAccessToken = null;
     coldStartAccessToken = null;
-    // SEC (LOW hygiene): force-clear the app-wide screenshot guard so a PII
-    // screen that was never disposed (e.g. logout triggered from a dialog above
-    // a live acquirer) cannot leave native protection latched across the auth
-    // boundary. Resets the ref count to zero and tears down native protection.
-    //
-    // M5 hardening (release-mode logout bug): this teardown is NON-essential —
-    // the session is already wiped above. In release builds the underlying
-    // `screen_protector` platform channels can throw (PlatformException /
-    // MissingPluginException). An unguarded throw here would escape PAST the
-    // state transition below, leaving the UI showing logoutFailed even though
-    // the user is already logged out on relaunch. Treat it best-effort exactly
-    // like the server-revocation call above: swallow any error, never abort.
-    try {
-      ref.read(screenProtectionProvider).reset();
-    } catch (e) {
-      if (kDebugMode) {
-        log(
-          'Logout screen-protection reset threw (tolerated): ${e.runtimeType}',
-          name: 'auth',
-          level: 900,
-        );
-      }
-    }
+    // NOTE — do NOT `ref.invalidate(...)` the master profile / service repository
+    // / services list here. Each of those providers transitively
+    // `ref.watch(authProvider)` (masterProfileProvider directly; serviceRepository
+    // and servicesList through it), so invalidating them from INSIDE this notifier
+    // records a back-edge that closes a dependency cycle — Riverpod's
+    // CircularDependencyError assert (debug/test only) then throws and escapes the
+    // state transition below, surfacing a false "logout failed". The cascade
+    // already handles teardown: when state flips to Unauthenticated below, those
+    // watchers rebuild and clear their stale PII automatically. The manual
+    // invalidation was both redundant and the cause of the cycle.
     if (kDebugMode) {
       log('Logout: session cleared', name: 'auth', level: 800);
     }

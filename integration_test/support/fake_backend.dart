@@ -401,6 +401,7 @@ final class FakeBackend {
   // ── Call-count telemetry (for assertions in tests) ────────────────────────
 
   int loginCalls = 0;
+  int logoutCalls = 0; // POST /api/v1/auth/logout counter
   int registerCalls = 0;
   int verifyEmailCalls = 0;
   int getMeCalls = 0; // GET /api/v1/users/me counter
@@ -530,7 +531,10 @@ final class FakeBackend {
     // POST /api/v1/auth/logout
     _adapter.onRoute(
       '/api/v1/auth/logout',
-      (server) => server.reply(200, _okVoid),
+      (server) => server.replyCallback(200, (_) {
+        logoutCalls++;
+        return _okVoid;
+      }),
       request: const Request(method: RequestMethods.post),
     );
 

@@ -52,6 +52,7 @@ import 'auth_login_flow_test.dart' as auth_login;
 import 'client_shell_flow_test.dart' as client_shell;
 import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
+import 'logout_flow_test.dart' as logout;
 import 'register_flow_test.dart' as register;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'schedule_first_create_flow_test.dart' as schedule_first_create;
@@ -74,6 +75,7 @@ void main() {
   group('client_shell_flow', client_shell.main);
   group('edit_profile_flow', edit_profile.main);
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
+  group('logout_flow', logout.main);
   group('register_flow', register.main);
   group('schedule_edit_flow', schedule_edit.main);
   group('schedule_first_create_flow', schedule_first_create.main);
