@@ -91,6 +91,7 @@ void main() {
         fb,
         extraOverrides: [
           authProvider.overrideWith(_StubAuthNotifier.new),
+          // cycle-stub-ok: this flow tests the edit-profile path, not the logout cascade — it never invokes a cyclic teardown entrypoint. The auth-cascade cycle is regression-guarded by logout_flow_test.dart, which keeps the REAL graph. (auth is also stubbed here, so no auth→services cycle exists to hide anyway.)
           servicesListProvider.overrideWith(_StubServicesList.new),
         ],
       );

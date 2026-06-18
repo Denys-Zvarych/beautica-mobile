@@ -53,7 +53,10 @@ void main() {
       final GoRouter router = await AppHarness.boot(
         tester,
         fb,
-        extraOverrides: [servicesListProvider.overrideWith(_StubServicesList.new)],
+        extraOverrides: [
+          // cycle-stub-ok: the support-contact flow never invokes a cyclic teardown entrypoint (no logout / auth-cascade), so stubbing the top-of-chain servicesListProvider cannot hide the cycle. logout_flow_test.dart guards that path on the REAL graph.
+          servicesListProvider.overrideWith(_StubServicesList.new),
+        ],
       );
 
       // Authenticate as the independent master, then open the settings hub.

@@ -72,6 +72,7 @@ class WeeklyScheduleNotifier extends _$WeeklyScheduleNotifier {
     if (result.hasValue) {
       // The template changed — every resolved effective-schedule window is now
       // stale. Invalidate the whole family so the calendar re-fetches.
+      // cycle-safe: effectiveScheduleProvider watches overridesProvider + scheduleRepositoryProvider, NOT weeklyScheduleProvider — no back-edge into this notifier, no cycle.
       ref.invalidate(effectiveScheduleProvider);
     }
   }
@@ -90,6 +91,7 @@ class WeeklyScheduleNotifier extends _$WeeklyScheduleNotifier {
     });
     state = result;
     if (result.hasValue) {
+      // cycle-safe: effectiveScheduleProvider watches overridesProvider + scheduleRepositoryProvider, NOT weeklyScheduleProvider — no back-edge into this notifier, no cycle.
       ref.invalidate(effectiveScheduleProvider);
     }
   }

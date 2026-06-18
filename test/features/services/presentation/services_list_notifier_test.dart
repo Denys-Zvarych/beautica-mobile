@@ -48,6 +48,7 @@ const _stubServiceList = <MasterService>[_stubService];
 
 ProviderContainer _makeContainer(_MockServiceRepository repo) {
   final container = ProviderContainer(
+    // cycle-stub-ok: servicesListProvider is the unit under test and watches serviceRepositoryProvider as its DIRECT leaf data dep — stubbing the repo here is overriding the leaf, not breaking a cycle. No auth/logout cascade is exercised.
     overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
   );
   addTearDown(container.dispose);
