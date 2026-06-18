@@ -46,6 +46,21 @@ abstract final class RouteNames {
   static const String home = '/';
   static const String settings = '/settings';
 
+  // Phase 13.1 — CLIENT 5-tab shell branches. The CLIENT post-login landing
+  // is [clientHome] (Головна, branch index 0). Each path is the location of one
+  // StatefulShellRoute branch; the elevated center «Пошук» disc routes to
+  // [clientSearch] (branch index 2). The 5th tab «BEAUTY PASSPORT» (an
+  // untranslated brand constant) lands on [clientPassport].
+  //
+  // The MASTER shell keeps its own existing routes (/master/*, /services,
+  // /schedule) — the two shells never share branches; role gating in
+  // [authRedirect] keeps CLIENT and INDEPENDENT_MASTER mutually fenced off.
+  static const String clientHome = '/home';
+  static const String clientFavorites = '/favorites';
+  static const String clientSearch = '/search';
+  static const String clientBookings = '/bookings';
+  static const String clientPassport = '/passport';
+
   /// Support / contact-us screen («Напишіть нам»). Pushed from the master
   /// settings hub's "Допомога / Напишіть нам" row. Authenticated users submit a
   /// free-text message (+ optional subject + attachments) to

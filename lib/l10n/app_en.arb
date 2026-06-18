@@ -4,6 +4,62 @@
   "@appTitle": {
     "description": "Application name shown in the OS task switcher and on the splash screen."
   },
+  "clientNavHome": "Home",
+  "@clientNavHome": {
+    "description": "Client bottom-nav tab label for the home/landing tab (index 0)."
+  },
+  "clientNavFavorites": "Favorites",
+  "@clientNavFavorites": {
+    "description": "Client bottom-nav tab label for the saved masters/salons tab (index 1)."
+  },
+  "clientNavSearch": "Search",
+  "@clientNavSearch": {
+    "description": "Client bottom-nav accessibility label for the elevated center search disc (index 2). The disc is icon-only — this string is used only for the Semantics label, not a visible caption."
+  },
+  "clientNavBookings": "Bookings",
+  "@clientNavBookings": {
+    "description": "Client bottom-nav tab label for the user's bookings tab (index 3)."
+  },
+  "clientComingSoon": "Coming soon…",
+  "@clientComingSoon": {
+    "description": "Placeholder chip label on client shell branch screens whose real content lands in a later phase."
+  },
+  "clientPlaceholderHomeTitle": "Home",
+  "@clientPlaceholderHomeTitle": {
+    "description": "Title on the placeholder Home client branch screen (real screen lands in Phase 13.7)."
+  },
+  "clientPlaceholderHomeBlurb": "Your client home — curated masters and salons nearby.",
+  "@clientPlaceholderHomeBlurb": {
+    "description": "Supporting blurb on the placeholder Home client branch screen."
+  },
+  "clientPlaceholderFavoritesTitle": "Favorites",
+  "@clientPlaceholderFavoritesTitle": {
+    "description": "Title on the placeholder Favorites client branch screen (real screen lands in Phase 13.11)."
+  },
+  "clientPlaceholderFavoritesBlurb": "Saved masters and salons you keep coming back to.",
+  "@clientPlaceholderFavoritesBlurb": {
+    "description": "Supporting blurb on the placeholder Favorites client branch screen."
+  },
+  "clientPlaceholderSearchTitle": "Search",
+  "@clientPlaceholderSearchTitle": {
+    "description": "Title on the placeholder Search client branch screen (real screen lands in Phase 13.3)."
+  },
+  "clientPlaceholderSearchBlurb": "Find a service, master or salon by city and category.",
+  "@clientPlaceholderSearchBlurb": {
+    "description": "Supporting blurb on the placeholder Search client branch screen."
+  },
+  "clientPlaceholderBookingsTitle": "Bookings",
+  "@clientPlaceholderBookingsTitle": {
+    "description": "Title on the placeholder Bookings client branch screen (real screen lands in Phase 14.3)."
+  },
+  "clientPlaceholderBookingsBlurb": "Your upcoming and past service bookings.",
+  "@clientPlaceholderBookingsBlurb": {
+    "description": "Supporting blurb on the placeholder Bookings client branch screen."
+  },
+  "clientPlaceholderPassportBlurb": "Your beauty profile: procedure history, preferences and reviews.",
+  "@clientPlaceholderPassportBlurb": {
+    "description": "Supporting blurb on the placeholder BEAUTY PASSPORT client branch screen (real screen lands in Phase 13.8). The 'BEAUTY PASSPORT' title itself is an untranslated brand constant and is NOT an l10n key."
+  },
   "loadingLabel": "Loading…",
   "@loadingLabel": {
     "description": "Generic 'Loading…' label shown next to a CircularProgressIndicator while async data resolves."

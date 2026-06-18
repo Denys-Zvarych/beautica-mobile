@@ -49,6 +49,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'auth_login_flow_test.dart' as auth_login;
+import 'client_shell_flow_test.dart' as client_shell;
 import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
 import 'register_flow_test.dart' as register;
@@ -70,6 +71,7 @@ void main() {
   // and resets global state via AppHarness.tearDownHarness — the per-test
   // re-launch model that directory-mode batching cannot provide.
   group('auth_login_flow', auth_login.main);
+  group('client_shell_flow', client_shell.main);
   group('edit_profile_flow', edit_profile.main);
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
   group('register_flow', register.main);

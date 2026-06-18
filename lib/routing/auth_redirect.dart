@@ -31,6 +31,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/app_start_time.dart';
+import 'role_home.dart';
 import 'route_names.dart';
 
 /// Guaranteed minimum time the animated splash wordmark is visible.
@@ -168,15 +169,18 @@ String? authRedirectForLocation(
   // finish verification, instead of being yanked away before they can enter the
   // OTP.
   //
-  // Role dispatch (Phase 4.2):
+  // Role dispatch (Phase 4.2 + Phase 13.1):
   //   INDEPENDENT_MASTER → /master/profile (the Phase 4 master home screen)
+  //   CLIENT             → /home (the Phase 13.1 5-tab client shell landing)
   //   all other roles    → / (home shell, shows a "coming soon" screen)
+  //
+  // This is the single source of truth for post-login landing — both this gate
+  // and the post-login `context.go` in login_screen.dart resolve the landing
+  // path through the shared [roleHomePath] helper, so the dispatch can never
+  // drift between the two sites.
   if (isAuthenticated && (isAtUnauthOnlyRoute || isAtSplash)) {
     final auth = session.value as Authenticated;
-    return switch (auth.user.role) {
-      UserRole.independentMaster => RouteNames.masterProfile,
-      _ => RouteNames.home,
-    };
+    return roleHomePath(auth.user.role);
   }
 
   // Role gate: /services/* is only accessible to INDEPENDENT_MASTER.
@@ -224,6 +228,37 @@ String? authRedirectForLocation(
     final Authenticated auth = session.value! as Authenticated;
     if (auth.user.role != UserRole.independentMaster) {
       return RouteNames.home;
+    }
+  }
+
+  // Role gate (Phase 13.1): the CLIENT 5-tab shell branches are CLIENT-only.
+  //
+  // The inverse of the /master/*, /services, /schedule gates above: any non-
+  // CLIENT authenticated role (INDEPENDENT_MASTER, salon roles) that lands on a
+  // client branch is bounced to its own landing — INDEPENDENT_MASTER back to
+  // its profile, everyone else to the "coming soon" home shell. This keeps the
+  // CLIENT and MASTER shells mutually fenced off: a MASTER can never reach
+  // /home, /favorites, /search, /bookings or /passport, and the gates above
+  // already keep a CLIENT out of every /master/*, /services and /schedule
+  // surface. Exact-segment matching avoids snagging unrelated future paths.
+  if (isAuthenticated) {
+    const clientBranchPrefixes = <String>[
+      RouteNames.clientHome,
+      RouteNames.clientFavorites,
+      RouteNames.clientSearch,
+      RouteNames.clientBookings,
+      RouteNames.clientPassport,
+    ];
+    final isAtClientBranch = clientBranchPrefixes.any(
+      (p) => location == p || location.startsWith('$p/'),
+    );
+    if (isAtClientBranch) {
+      final Authenticated auth = session.value! as Authenticated;
+      if (auth.user.role != UserRole.client) {
+        return auth.user.role == UserRole.independentMaster
+            ? RouteNames.masterProfile
+            : RouteNames.home;
+      }
     }
   }
 

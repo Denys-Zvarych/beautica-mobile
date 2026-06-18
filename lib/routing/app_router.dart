@@ -47,6 +47,8 @@ import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/service_setup_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/shell/presentation/branch_placeholders.dart';
+import '../features/shell/presentation/client_shell.dart';
 import '../features/support/presentation/contact_support_screen.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
 import '../features/schedule/presentation/schedule_editor_stubs.dart';
@@ -191,6 +193,78 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.home,
         pageBuilder: (context, state) =>
             _instantPage(state, const _Placeholder('home')),
+      ),
+      // Phase 13.1 — CLIENT 5-tab StatefulShellRoute. Each branch is an
+      // independent navigator with its own stack, so hopping tabs via
+      // `goBranch` (in [ClientShell._onTap]) never grows the parent nav stack
+      // — the fix for the prior `context.push`-retains-shell growth note. The
+      // five branches, in index order:
+      //   0 — Головна  /home     (CLIENT post-login landing)
+      //   1 — Улюблені /favorites
+      //   2 — Пошук    /search   (the elevated center disc)
+      //   3 — Записи   /bookings
+      //   4 — BEAUTY PASSPORT /passport
+      // CLIENT-only gating lives in [authRedirect] (the `/home`,`/favorites`,
+      // `/search`,`/bookings`,`/passport` prefixes redirect any non-CLIENT
+      // role to the home shell), mirroring the `/master/*` and `/services`
+      // gates that fence INDEPENDENT_MASTER in. The MASTER shell keeps its own
+      // standalone routes + 4-tile VelvetBottomNavBar (unchanged).
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) =>
+            ClientShell(navigationShell: navigationShell),
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: RouteNames.clientHome,
+                pageBuilder: (context, state) =>
+                    _instantPage(state, const ClientHomePlaceholderScreen()),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: RouteNames.clientFavorites,
+                pageBuilder: (context, state) => _instantPage(
+                  state,
+                  const ClientFavoritesPlaceholderScreen(),
+                ),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: RouteNames.clientSearch,
+                pageBuilder: (context, state) =>
+                    _instantPage(state, const ClientSearchPlaceholderScreen()),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: RouteNames.clientBookings,
+                pageBuilder: (context, state) => _instantPage(
+                  state,
+                  const ClientBookingsPlaceholderScreen(),
+                ),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: RouteNames.clientPassport,
+                pageBuilder: (context, state) => _instantPage(
+                  state,
+                  const ClientPassportPlaceholderScreen(),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
       GoRoute(
         path: RouteNames.settings,

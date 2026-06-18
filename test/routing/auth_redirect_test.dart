@@ -53,8 +53,9 @@ const _fakeUser = User(
   lastName: 'User',
 );
 
-/// A CLIENT-role user for testing that non-INDEPENDENT_MASTER roles still
-/// land on [RouteNames.home] (the "coming soon" shell).
+/// A CLIENT-role user. Phase 13.1: CLIENT now lands on the 5-tab client shell
+/// at [RouteNames.clientHome]; the master gates still bounce CLIENT off every
+/// /master/*, /services and /schedule surface to [RouteNames.home].
 const _clientUser = User(
   id: 'u2',
   email: 'client@example.com',
@@ -128,18 +129,18 @@ void main() {
       );
     });
 
-    // Non-INDEPENDENT_MASTER (CLIENT) roles still land on /.
-    test('CLIENT role at /login is redirected to /', () {
+    // Phase 13.1 — CLIENT now lands on the 5-tab client shell at /home (was /).
+    test('CLIENT role at /login is redirected to /home', () {
       expect(
         authRedirectForLocation(_clientSession, RouteNames.login),
-        equals(RouteNames.home),
+        equals(RouteNames.clientHome),
       );
     });
 
-    test('CLIENT role at /splash is redirected to /', () {
+    test('CLIENT role at /splash is redirected to /home', () {
       expect(
         authRedirectForLocation(_clientSession, RouteNames.splash),
-        equals(RouteNames.home),
+        equals(RouteNames.clientHome),
       );
     });
 
@@ -584,6 +585,54 @@ void main() {
         // Auth gate precedence: an unauthenticated session is forwarded to
         // /login BEFORE the role gate is even reached — deep-linking to a
         // /schedule route while signed out must never expose the screen.
+        test('unauthenticated at $route is redirected to /login', () {
+          expect(
+            authRedirectForLocation(_unauthenticatedSession, route),
+            equals(RouteNames.login),
+          );
+        });
+      }
+    });
+
+    // Phase 13.1 — CLIENT 5-tab shell role gate. The inverse of the master
+    // gates: CLIENT reaches the five branches; every other role is bounced to
+    // its own landing (INDEPENDENT_MASTER → /master/profile, salon roles → /).
+    group('CLIENT shell role gate (Phase 13.1)', () {
+      const clientRoutes = <String>[
+        RouteNames.clientHome,
+        RouteNames.clientFavorites,
+        RouteNames.clientSearch,
+        RouteNames.clientBookings,
+        RouteNames.clientPassport,
+      ];
+
+      for (final route in clientRoutes) {
+        test('CLIENT at $route is allowed (null)', () {
+          expect(
+            authRedirectForLocation(_clientSession, route),
+            isNull,
+            reason: 'the CLIENT role must reach its own shell branch $route',
+          );
+        });
+
+        test(
+          'INDEPENDENT_MASTER at $route is redirected to /master/profile',
+          () {
+            expect(
+              authRedirectForLocation(_authenticatedSession, route),
+              equals(RouteNames.masterProfile),
+              reason: 'a master must NOT land on the client shell',
+            );
+          },
+        );
+
+        test('SALON_OWNER at $route is redirected to /', () {
+          expect(
+            authRedirectForLocation(salonOwnerSession, route),
+            equals(RouteNames.home),
+          );
+        });
+
         test('unauthenticated at $route is redirected to /login', () {
           expect(
             authRedirectForLocation(_unauthenticatedSession, route),
