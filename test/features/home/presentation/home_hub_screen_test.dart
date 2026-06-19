@@ -14,10 +14,15 @@
 //  11. MyRatingStatCard stat tile shows "Мий рейтинг" label and "—" empty value.
 //   QA addition:
 //  12. MyRatingStatCard onTap fires and navigates to RouteNames.myRating.
+//  SVG-migration additions (Phase 13.7 icon update):
+//  13. _BellButton renders notificationOutline SVG via AppIcon (not Material glyph).
+//  14. PassportPreviewCard stat pill renders passportFilled SVG via AppIcon.
 //
 // NOTE: ScreenProtectionManager is a keepAlive singleton — tests override it
 // with a no-op so the native plugin is never called during tests.
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
@@ -569,6 +574,96 @@ void main() {
       await tester.pump();
       expect(find.text('Порожньо'), findsOneWidget);
     });
+  });
+
+  // ── SVG-migration guard: bell button + passport stat pill ────────────────────
+  //
+  // These tests lock in the icon sources for the two widgets updated in the
+  // Phase 13.7 SVG migration:
+  //   • _BellButton (home hub top bar) — was Icons.notifications_none_rounded,
+  //     now AppIcon(BeauticaAssetIcons.notificationOutline, …)
+  //   • PassportPreviewCard icon circle — was Icons.badge_outlined,
+  //     now AppIcon(BeauticaAssetIcons.passportFilled, …)
+
+  group('SVG icon migration guard — bell button and passport stat pill', () {
+    testWidgets(
+      '_BellButton renders notificationOutline SVG, not Material glyph',
+      (tester) async {
+        await tester.pumpApp(
+          const HomeHubScreen(),
+          overrides: _overrides(profile: const AsyncData(_sampleProfile)),
+        );
+        await tester.pump();
+
+        // The legacy Material glyph must be gone.
+        expect(
+          find.byIcon(Icons.notifications_none_rounded),
+          findsNothing,
+          reason:
+              'Icons.notifications_none_rounded must be absent — the bell '
+              'button has migrated to AppIcon(notificationOutline).',
+        );
+
+        // AppIcon with the notification asset must be present inside the bell
+        // button's subtree.
+        final Finder bellButton = find.byKey(const Key('home_hub_bell_button'));
+        expect(bellButton, findsOneWidget);
+
+        final List<AppIcon> appIconsInBell = tester
+            .widgetList<AppIcon>(
+              find.descendant(of: bellButton, matching: find.byType(AppIcon)),
+            )
+            .toList();
+        expect(
+          appIconsInBell.any(
+            (w) => w.asset == BeauticaAssetIcons.notificationOutline,
+          ),
+          isTrue,
+          reason:
+              '_BellButton must render AppIcon(notificationOutline) inside its '
+              'subtree (home_hub_bell_button key).',
+        );
+      },
+    );
+
+    testWidgets(
+      'PassportPreviewCard stat pill renders passportFilled SVG, not badge glyph',
+      (tester) async {
+        await tester.pumpApp(const PassportPreviewCard(onTap: _noop));
+        await tester.pump();
+
+        // The legacy Material badge_outlined glyph must be gone.
+        expect(
+          find.byIcon(Icons.badge_outlined),
+          findsNothing,
+          reason:
+              'Icons.badge_outlined must be absent — the passport stat pill has '
+              'migrated to AppIcon(passportFilled).',
+        );
+
+        // AppIcon with the passportFilled asset must be present.
+        final List<AppIcon> appIcons = tester
+            .widgetList<AppIcon>(find.byType(AppIcon))
+            .toList();
+        expect(
+          appIcons.any((w) => w.asset == BeauticaAssetIcons.passportFilled),
+          isTrue,
+          reason:
+              'PassportPreviewCard must render AppIcon(passportFilled) in the '
+              'icon circle to match the nav BEAUTY PASSPORT tab glyph.',
+        );
+        // Tint must be accentDeep so the pill stays on-brand.
+        expect(
+          appIcons
+              .where((w) => w.asset == BeauticaAssetIcons.passportFilled)
+              .every((w) => w.color == const Color(0xFF6A4A28)),
+          isTrue,
+          reason:
+              'PassportPreviewCard AppIcon must be tinted accentDeep '
+              '(0xFF6A4A28) to match the icon-circle palette.',
+        );
+      },
+    );
   });
 }
 

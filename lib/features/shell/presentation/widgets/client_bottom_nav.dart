@@ -11,11 +11,11 @@
 // `VelvetBottomNavBar` (profile_avatar.dart ~L459), which has no center-disc
 // support.
 //
-// Icon source model (gradual migration):
-//   A tab can carry either an `IconData` pair (Material) OR an SVG asset path
-//   pair (`svgIcon` / `svgActiveIcon`). When SVG paths are set, `_ClientNavTile`
-//   renders `AppIcon(...)` instead of `Icon(...)`. All other tabs still use
-//   Material `IconData`; only the home tab (index 0) uses SVG.
+// Icon source model (Phase 13.7 — all five tabs now SVG):
+//   All flanking tabs (0,1,3,4) and the center disc (2) use SVG asset paths
+//   from [BeauticaAssetIcons] rendered via [AppIcon]. The [ClientNavItem]
+//   IconData fields are retained for backwards-compatibility but are unused
+//   in the current implementation (all items supply svgIcon/svgActiveIcon).
 
 import 'package:flutter/material.dart';
 
@@ -137,18 +137,18 @@ class ClientBottomNav extends StatelessWidget {
       label: homeLabel,
     );
     final ClientNavItem favItem = ClientNavItem(
-      icon: Icons.favorite_outline_rounded,
-      activeIcon: Icons.favorite_rounded,
+      svgIcon: BeauticaAssetIcons.heartOutline,
+      svgActiveIcon: BeauticaAssetIcons.heartFilled,
       label: favoritesLabel,
     );
     final ClientNavItem bookItem = ClientNavItem(
-      icon: Icons.event_note_outlined,
-      activeIcon: Icons.event_note_rounded,
+      svgIcon: BeauticaAssetIcons.noteOutline,
+      svgActiveIcon: BeauticaAssetIcons.noteFilled,
       label: bookingsLabel,
     );
     const ClientNavItem passItem = ClientNavItem(
-      icon: Icons.badge_outlined,
-      activeIcon: Icons.badge_rounded,
+      svgIcon: BeauticaAssetIcons.passportOutline,
+      svgActiveIcon: BeauticaAssetIcons.passportFilled,
       label: kBeautyPassportLabel,
     );
 
@@ -278,6 +278,18 @@ class _ClientNavTileState extends State<_ClientNavTile> {
     colors: <Color>[BrandColors.accentDeep, BrandColors.accent],
   );
 
+  // Hoisted indicator pill decorations — BoxDecoration is not const because
+  // LinearGradient (though const here) is embedded in a non-const class
+  // hierarchy, so static final is the next-best: allocated once at class-load,
+  // never re-created per build or per tap.
+  static final BoxDecoration _pillActiveDecoration = BoxDecoration(
+    gradient: _pillGradient,
+    borderRadius: BorderRadius.circular(2),
+  );
+  static const BoxDecoration _pillInactiveDecoration = BoxDecoration(
+    borderRadius: BorderRadius.all(Radius.circular(2)),
+  );
+
   @override
   Widget build(BuildContext context) {
     final Color color = widget.active
@@ -308,10 +320,9 @@ class _ClientNavTileState extends State<_ClientNavTile> {
                 width: widget.active ? 24 : 0,
                 height: 3,
                 margin: const EdgeInsets.only(bottom: VelvetSpacing.xs),
-                decoration: BoxDecoration(
-                  gradient: widget.active ? _pillGradient : null,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+                decoration: widget.active
+                    ? _pillActiveDecoration
+                    : _pillInactiveDecoration,
               ),
               if (widget.item.isSvg)
                 AppIcon(
@@ -412,6 +423,31 @@ class _CenterSearchButtonState extends State<_CenterSearchButton> {
     stops: const <double>[0.0, 0.5, 1.0],
   );
 
+  // Hoisted disc decorations — avoids allocating a new BoxDecoration on every
+  // AnimatedContainer build tick (fires at 60 fps during the press animation).
+  // Two variants cover the two states: elevated (shadow visible) vs depressed
+  // (no shadow). AnimatedContainer interpolates between them.
+  static const BoxDecoration _discElevatedDecoration = BoxDecoration(
+    shape: BoxShape.circle,
+    gradient: _faceGradient,
+    boxShadow: _discShadow,
+  );
+  static const BoxDecoration _discDepressedDecoration = BoxDecoration(
+    shape: BoxShape.circle,
+    gradient: _faceGradient,
+  );
+
+  // Hoisted bevel DecoratedBox — shared across all builds so the sheen layer
+  // is never re-created per frame.
+  static final Widget _bevelSheen = IgnorePointer(
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: _bevelGradient,
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final bool depressed = _pressed || widget.active;
@@ -434,33 +470,21 @@ class _CenterSearchButtonState extends State<_CenterSearchButton> {
           curve: Curves.easeOut,
           height: widget.size,
           width: widget.size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: _faceGradient,
-            boxShadow: depressed ? null : _discShadow,
-          ),
+          decoration: depressed
+              ? _discDepressedDecoration
+              : _discElevatedDecoration,
           child: Stack(
             children: <Widget>[
               const Center(
-                child: Icon(
-                  Icons.search_rounded,
-                  color: BrandColors.white,
+                child: AppIcon(
+                  BeauticaAssetIcons.searchFilled,
                   size: 22,
+                  color: BrandColors.white,
                 ),
               ),
               // Inner bevel sheen so the disc reads as a physical pillow —
               // hidden while depressed to sell the pressed-in feel.
-              if (!depressed)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: _bevelGradient,
-                      ),
-                    ),
-                  ),
-                ),
+              if (!depressed) Positioned.fill(child: _bevelSheen),
             ],
           ),
         ),

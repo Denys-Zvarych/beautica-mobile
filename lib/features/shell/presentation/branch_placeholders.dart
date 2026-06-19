@@ -232,7 +232,11 @@ class ClientFavoritesPlaceholderScreen extends StatelessWidget {
       key: const Key('client-branch-favorites'),
       title: l10n.clientPlaceholderFavoritesTitle,
       blurb: l10n.clientPlaceholderFavoritesBlurb,
-      icon: Icons.favorite_rounded,
+      iconWidget: const AppIcon(
+        BeauticaAssetIcons.heartFilled,
+        size: 40,
+        color: BrandColors.accentDeep,
+      ),
     );
   }
 }
@@ -250,7 +254,11 @@ class ClientSearchPlaceholderScreen extends StatelessWidget {
       key: const Key('client-branch-search'),
       title: l10n.clientPlaceholderSearchTitle,
       blurb: l10n.clientPlaceholderSearchBlurb,
-      icon: Icons.search_rounded,
+      iconWidget: const AppIcon(
+        BeauticaAssetIcons.searchFilled,
+        size: 40,
+        color: BrandColors.accentDeep,
+      ),
     );
   }
 }
@@ -268,7 +276,11 @@ class ClientBookingsPlaceholderScreen extends StatelessWidget {
       key: const Key('client-branch-bookings'),
       title: l10n.clientPlaceholderBookingsTitle,
       blurb: l10n.clientPlaceholderBookingsBlurb,
-      icon: Icons.event_note_rounded,
+      iconWidget: const AppIcon(
+        BeauticaAssetIcons.noteFilled,
+        size: 40,
+        color: BrandColors.accentDeep,
+      ),
     );
   }
 }
@@ -287,7 +299,11 @@ class ClientPassportPlaceholderScreen extends StatelessWidget {
       key: const Key('client-branch-passport'),
       title: kBeautyPassportLabel,
       blurb: l10n.clientPlaceholderPassportBlurb,
-      icon: Icons.badge_rounded,
+      iconWidget: const AppIcon(
+        BeauticaAssetIcons.passportFilled,
+        size: 40,
+        color: BrandColors.accentDeep,
+      ),
     );
   }
 }

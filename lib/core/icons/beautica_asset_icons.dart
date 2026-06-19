@@ -46,6 +46,111 @@ abstract final class BeauticaAssetIcons {
   static const String homeFilled = '$_base/home_filled.svg';
 
   // ---------------------------------------------------------------------------
+  // Navigation — search tab (center elevated disc)
+  // ---------------------------------------------------------------------------
+
+  /// Outline magnifier glyph.
+  ///
+  /// Source: https://www.flaticon.com/free-icon-font/search_3917132
+  /// Author: Flaticon UICONS (free icon font).
+  /// Licence: Flaticon Free (attribution required before release — add credit
+  /// to the app's "Licences / Ліцензії" screen as a release-gate item).
+  /// RELEASE-GATE: re-download under 1-month Premium before any store build,
+  /// keep certificate. SHA-256 of the downloaded file:
+  ///   6224533932f02f36c6a203e312826c2ff19f81961bf04beea7c40fb74ff4f824
+  ///
+  /// Decision: the center search disc uses [searchFilled] (heavier glyph reads
+  /// better on the gradient disc surface). [searchOutline] is kept for registry
+  /// completeness and future use (e.g. a search field leading icon).
+  static const String searchOutline = '$_base/search_outline.svg';
+
+  /// Solid magnifier glyph — used on the elevated center search disc.
+  ///
+  /// Derived in-repo from [searchOutline]; same 24×24 viewBox + proportions.
+  /// See `assets/icons/search_filled.svg`.
+  static const String searchFilled = '$_base/search_filled.svg';
+
+  // ---------------------------------------------------------------------------
+  // Navigation — favorites tab (index 1)
+  // ---------------------------------------------------------------------------
+
+  /// Outline heart glyph for the inactive favorites tab state.
+  ///
+  /// Source: https://www.flaticon.com/free-icon-font/heart_3916579
+  /// Author: Flaticon UICONS (free icon font).
+  /// Licence: Flaticon Free (attribution required; same release-gate as above).
+  /// SHA-256: f3ebdd1b2d600d442dc69295a3e44253577013a088ba75ee5f58212282e82574
+  static const String heartOutline = '$_base/heart_outline.svg';
+
+  /// Filled heart glyph for the active favorites tab state.
+  ///
+  /// Derived in-repo from [heartOutline]; outer silhouette filled solid,
+  /// no inner detail. Same 24×24 viewBox. See `assets/icons/heart_filled.svg`.
+  static const String heartFilled = '$_base/heart_filled.svg';
+
+  // ---------------------------------------------------------------------------
+  // Navigation — bookings / записи tab (index 3)
+  // ---------------------------------------------------------------------------
+
+  /// Outline notepad glyph for the inactive bookings tab state.
+  ///
+  /// Source: https://www.flaticon.com/free-icon-font/memo-pad_9585401
+  /// Author: Flaticon UICONS (free icon font).
+  /// Licence: Flaticon Free (attribution required; same release-gate as above).
+  /// SHA-256: 2ef24c44194cb521d3f2c99f2de2d4a19226e2edc4f70bbcc79044f19079872c
+  static const String noteOutline = '$_base/note_outline.svg';
+
+  /// Filled notepad glyph for the active bookings tab state.
+  ///
+  /// Derived in-repo from [noteOutline]; outer rounded-rectangle filled solid
+  /// with inner text-line strips punched via fill-rule evenodd. Same 24×24
+  /// viewBox. See `assets/icons/note_filled.svg`.
+  static const String noteFilled = '$_base/note_filled.svg';
+
+  // ---------------------------------------------------------------------------
+  // Navigation — BEAUTY PASSPORT tab (index 4) + passport stat pill
+  // ---------------------------------------------------------------------------
+
+  /// Outline badge/id-card glyph for the inactive passport tab state.
+  ///
+  /// Source: https://www.flaticon.com/free-icon-font/id-badge_3914510
+  /// Author: Flaticon UICONS (free icon font).
+  /// Licence: Flaticon Free (attribution required; same release-gate as above).
+  /// SHA-256: 0e1bd5ed12c3169dc05bc5a6dbfcd6299db0b74a49950358a4def679b59fb165
+  static const String passportOutline = '$_base/passport_outline.svg';
+
+  /// Filled badge/id-card glyph for the active passport tab state and the
+  /// BEAUTY PASSPORT stat pill in the home hub.
+  ///
+  /// Derived in-repo from [passportOutline]; outer badge body filled solid with
+  /// photo-box and text-line cutouts punched via fill-rule evenodd. Same 24×24
+  /// viewBox. See `assets/icons/passport_filled.svg`.
+  static const String passportFilled = '$_base/passport_filled.svg';
+
+  // ---------------------------------------------------------------------------
+  // Top-bar — notification bell
+  // ---------------------------------------------------------------------------
+
+  /// Outline bell-with-dot glyph for the notification bell in the home hub
+  /// top bar.
+  ///
+  /// Source: https://www.flaticon.com/free-icon-font/bell-notification-social-media_16309977
+  /// Author: Flaticon UICONS (free icon font).
+  /// Licence: Flaticon Free (attribution required; same release-gate as above).
+  /// SHA-256: 99d1688d3ba2123ef9320e51b2e67cd44c18cd82aa0962cc6f86a935aa8ffdab
+  ///
+  /// Decision: the Flaticon source glyph is already a solid/filled-style shape
+  /// (filled bell body + filled notification dot) so [notificationOutline] and
+  /// [notificationFilled] are visually identical. Both constants are kept for
+  /// registry symmetry and future swapping without a call-site change.
+  static const String notificationOutline = '$_base/notification_outline.svg';
+
+  /// Filled bell glyph — visually identical to [notificationOutline] because
+  /// the Flaticon source is already a solid-style glyph. Kept for registry
+  /// symmetry. See `assets/icons/notification_filled.svg`.
+  static const String notificationFilled = '$_base/notification_filled.svg';
+
+  // ---------------------------------------------------------------------------
   // Add new icons below, grouped by feature / category.
   // Convention: feature_glyph, e.g. booking_calendar, review_star.
   // ---------------------------------------------------------------------------

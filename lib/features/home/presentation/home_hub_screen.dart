@@ -28,6 +28,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/icons/app_icon.dart';
+import '../../../core/icons/beautica_asset_icons.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/beautica_icons.dart';
 import '../../../core/theme/brand_colors.dart';
@@ -444,8 +446,8 @@ class _BellButton extends StatelessWidget {
           child: Stack(
             clipBehavior: Clip.none,
             children: <Widget>[
-              const Icon(
-                Icons.notifications_none_rounded,
+              const AppIcon(
+                BeauticaAssetIcons.notificationOutline,
                 size: 24,
                 color: BrandColors.textSecondary,
               ),

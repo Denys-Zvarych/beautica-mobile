@@ -53,6 +53,53 @@ void main() {
     test('homeFilled resolves to the registered asset path', () {
       expect(BeauticaAssetIcons.homeFilled, 'assets/icons/home_filled.svg');
     });
+
+    // New icons added in Phase 13.7 SVG migration.
+    test('searchOutline resolves to the registered asset path', () {
+      expect(
+        BeauticaAssetIcons.searchOutline,
+        'assets/icons/search_outline.svg',
+      );
+    });
+    test('searchFilled resolves to the registered asset path', () {
+      expect(BeauticaAssetIcons.searchFilled, 'assets/icons/search_filled.svg');
+    });
+    test('heartOutline resolves to the registered asset path', () {
+      expect(BeauticaAssetIcons.heartOutline, 'assets/icons/heart_outline.svg');
+    });
+    test('heartFilled resolves to the registered asset path', () {
+      expect(BeauticaAssetIcons.heartFilled, 'assets/icons/heart_filled.svg');
+    });
+    test('noteOutline resolves to the registered asset path', () {
+      expect(BeauticaAssetIcons.noteOutline, 'assets/icons/note_outline.svg');
+    });
+    test('noteFilled resolves to the registered asset path', () {
+      expect(BeauticaAssetIcons.noteFilled, 'assets/icons/note_filled.svg');
+    });
+    test('passportOutline resolves to the registered asset path', () {
+      expect(
+        BeauticaAssetIcons.passportOutline,
+        'assets/icons/passport_outline.svg',
+      );
+    });
+    test('passportFilled resolves to the registered asset path', () {
+      expect(
+        BeauticaAssetIcons.passportFilled,
+        'assets/icons/passport_filled.svg',
+      );
+    });
+    test('notificationOutline resolves to the registered asset path', () {
+      expect(
+        BeauticaAssetIcons.notificationOutline,
+        'assets/icons/notification_outline.svg',
+      );
+    });
+    test('notificationFilled resolves to the registered asset path', () {
+      expect(
+        BeauticaAssetIcons.notificationFilled,
+        'assets/icons/notification_filled.svg',
+      );
+    });
   });
 
   // ─── AppIcon widget tests ─────────────────────────────────────────────────

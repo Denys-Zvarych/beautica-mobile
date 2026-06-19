@@ -15,6 +15,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/icons/app_icon.dart';
+import '../../../../core/icons/beautica_asset_icons.dart';
 import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
@@ -66,10 +68,12 @@ class PassportPreviewCard extends StatelessWidget {
             height: 32,
             width: 32,
             decoration: _iconCircleDecoration,
-            child: const Icon(
-              Icons.badge_outlined,
-              size: 17,
-              color: BrandColors.accentDeep,
+            child: const Center(
+              child: AppIcon(
+                BeauticaAssetIcons.passportFilled,
+                size: 17,
+                color: BrandColors.accentDeep,
+              ),
             ),
           ),
           const SizedBox(width: VelvetSpacing.sm),
