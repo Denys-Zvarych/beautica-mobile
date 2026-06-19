@@ -94,22 +94,12 @@ class HomeProfileCard extends StatelessWidget {
                 _MetaLine(
                   icon: Icons.location_on_rounded,
                   text: profile.city,
-                  trailing: const Icon(
-                    Icons.expand_more_rounded,
-                    size: 18,
-                    color: BrandColors.accent,
-                  ),
                   onTap: onLocation,
                 )
               else
                 _MetaLine(
                   icon: Icons.location_on_rounded,
                   text: l10n.homeHubLocationPlaceholder,
-                  trailing: const Icon(
-                    Icons.expand_more_rounded,
-                    size: 18,
-                    color: BrandColors.accent,
-                  ),
                   onTap: onLocation,
                 ),
               const SizedBox(height: VelvetSpacing.sm),
@@ -130,16 +120,10 @@ class HomeProfileCard extends StatelessWidget {
 }
 
 class _MetaLine extends StatelessWidget {
-  const _MetaLine({
-    required this.icon,
-    required this.text,
-    this.trailing,
-    this.onTap,
-  });
+  const _MetaLine({required this.icon, required this.text, this.onTap});
 
   final IconData icon;
   final String text;
-  final Widget? trailing;
   final VoidCallback? onTap;
 
   static final TextStyle _style = VelvetText.body().copyWith(
@@ -157,7 +141,6 @@ class _MetaLine extends StatelessWidget {
         Flexible(
           child: Text(text, style: _style, overflow: TextOverflow.ellipsis),
         ),
-        ?trailing,
       ],
     );
     if (onTap == null) return row;
