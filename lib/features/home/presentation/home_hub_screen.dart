@@ -406,10 +406,14 @@ class _TopBar extends StatelessWidget {
           style: VelvetText.wordmark(),
         ),
         const Spacer(),
-        _BellButton(
+        BellButton(
           key: const Key('home_hub_bell_button'),
           onTap: onBell,
           semanticLabel: l10n.homeHubNotificationsLabel,
+          // TODO(14.9): pass `unreadCount > 0` from the notifications provider
+          // once the notification center ships. The bell asset is dotless, so
+          // this flag is the sole unread indicator — false ⇒ no dot.
+          hasUnread: false,
         ),
         const SizedBox(width: VelvetSpacing.sm + 4),
         NeumorphicIconButton(
@@ -423,15 +427,38 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-class _BellButton extends StatelessWidget {
-  const _BellButton({
+/// Top-bar notification bell.
+///
+/// Renders [BeauticaAssetIcons.notificationPlain] (a dotless bell) and draws a
+/// single app-controlled overlay dot ([unreadDotKey]) only when [hasUnread] is
+/// `true`. Public + `@visibleForTesting` so the unread-gating regression test
+/// can pump it with `hasUnread: true` (the production call site is currently
+/// pinned to `false` until the Phase 14.9 notification provider ships).
+@visibleForTesting
+class BellButton extends StatelessWidget {
+  const BellButton({
     super.key,
     required this.onTap,
     required this.semanticLabel,
+    this.hasUnread = false,
   });
+
+  /// Key on the unread overlay dot — present iff [hasUnread] is `true`.
+  static const Key unreadDotKey = Key('home_hub_bell_unread_dot');
 
   final VoidCallback onTap;
   final String semanticLabel;
+
+  /// Whether the app-controlled overlay dot should be shown.
+  ///
+  /// The bell uses [BeauticaAssetIcons.notificationPlain] (no baked-in dot), so
+  /// this single dynamic dot is the sole unread indicator: it renders only when
+  /// there are unread notifications and disappears when there are none.
+  ///
+  // TODO(14.9): bind from the unread-notifications provider once the
+  // notification center ships (watch the unread count/flag and pass `> 0`).
+  // Until then it defaults to `false` so no dot is shown.
+  final bool hasUnread;
 
   @override
   Widget build(BuildContext context) {
@@ -447,25 +474,27 @@ class _BellButton extends StatelessWidget {
             clipBehavior: Clip.none,
             children: <Widget>[
               const AppIcon(
-                BeauticaAssetIcons.notificationOutline,
+                BeauticaAssetIcons.notificationPlain,
                 size: 24,
                 color: BrandColors.textSecondary,
               ),
-              Positioned(
-                right: 0,
-                top: 1,
-                child: Container(
-                  height: 8,
-                  width: 8,
-                  decoration: const BoxDecoration(
-                    color: BrandColors.accentDeep,
-                    shape: BoxShape.circle,
-                    border: Border.fromBorderSide(
-                      BorderSide(color: BrandColors.base, width: 1.5),
+              if (hasUnread)
+                Positioned(
+                  right: 0,
+                  top: 1,
+                  child: Container(
+                    key: unreadDotKey,
+                    height: 8,
+                    width: 8,
+                    decoration: const BoxDecoration(
+                      color: BrandColors.accentDeep,
+                      shape: BoxShape.circle,
+                      border: Border.fromBorderSide(
+                        BorderSide(color: BrandColors.base, width: 1.5),
+                      ),
                     ),
                   ),
                 ),
-              ),
             ],
           ),
         ),

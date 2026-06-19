@@ -131,8 +131,18 @@ abstract final class BeauticaAssetIcons {
   // Top-bar — notification bell
   // ---------------------------------------------------------------------------
 
-  /// Outline bell-with-dot glyph for the notification bell in the home hub
-  /// top bar.
+  /// Plain bell glyph with **no baked-in notification dot** — used for the
+  /// notification bell in the home hub top bar.
+  ///
+  /// Hand-authored in-repo; same 24×24 viewBox and filled-style weight as
+  /// [notificationOutline] / [notificationFilled] but without the corner dot.
+  /// The home-hub top bar draws its own app-controlled overlay dot (visible
+  /// only when there are unread notifications), so the asset must stay dotless
+  /// to avoid a permanent second dot. See `assets/icons/notification_plain.svg`.
+  static const String notificationPlain = '$_base/notification_plain.svg';
+
+  /// Outline bell-with-dot glyph (the Flaticon source has a notification dot
+  /// **baked into the artwork**).
   ///
   /// Source: https://www.flaticon.com/free-icon-font/bell-notification-social-media_16309977
   /// Author: Flaticon UICONS (free icon font).
@@ -141,13 +151,16 @@ abstract final class BeauticaAssetIcons {
   ///
   /// Decision: the Flaticon source glyph is already a solid/filled-style shape
   /// (filled bell body + filled notification dot) so [notificationOutline] and
-  /// [notificationFilled] are visually identical. Both constants are kept for
-  /// registry symmetry and future swapping without a call-site change.
+  /// [notificationFilled] are visually identical. **Do not** use either for the
+  /// top-bar bell — their baked-in dot collides with the app-controlled overlay
+  /// dot (the double-dot bug). Use [notificationPlain] there instead. Both
+  /// constants are kept for registry symmetry / future use where a fixed dot is
+  /// actually desired.
   static const String notificationOutline = '$_base/notification_outline.svg';
 
   /// Filled bell glyph — visually identical to [notificationOutline] because
-  /// the Flaticon source is already a solid-style glyph. Kept for registry
-  /// symmetry. See `assets/icons/notification_filled.svg`.
+  /// the Flaticon source is already a solid-style glyph (including the baked-in
+  /// dot). Kept for registry symmetry. See `assets/icons/notification_filled.svg`.
   static const String notificationFilled = '$_base/notification_filled.svg';
 
   // ---------------------------------------------------------------------------
