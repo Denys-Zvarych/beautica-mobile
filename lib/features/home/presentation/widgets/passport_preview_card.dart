@@ -87,7 +87,7 @@ class PassportPreviewCard extends StatelessWidget {
                   // ignore: avoid_hardcoded_strings — locked brand literal
                   'BEAUTY PASSPORT',
                   maxLines: 2,
-                  overflow: TextOverflow.visible,
+                  overflow: TextOverflow.ellipsis,
                   softWrap: true,
                   style: _titleStyle,
                 ),

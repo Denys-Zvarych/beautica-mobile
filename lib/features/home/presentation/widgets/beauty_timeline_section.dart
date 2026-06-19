@@ -34,6 +34,16 @@ class BeautyTimelineSection extends StatelessWidget {
   static const double _railHeight = 108;
   static const double _medallion = 64;
 
+  // Extra height to absorb scaled text below the fixed medallion. The two text
+  // lines (~23dp at scale 1.0) gain ~30% at the clamped 1.3 cap; this adds that
+  // delta (and a small cushion) so the rail tolerates large accessibility fonts
+  // without redesigning the fixed-height layout.
+  static double _scaledTextHeadroom(BuildContext context) {
+    final double scale = MediaQuery.textScalerOf(context).scale(1.0);
+    const double textLinesBase = 23; // category (12) + date (11)
+    return ((scale - 1.0).clamp(0.0, 0.3)) * textLinesBase + 4;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -69,7 +79,11 @@ class BeautyTimelineSection extends StatelessWidget {
         else
           SizedBox(
             key: const Key('timeline_rail'),
-            height: _railHeight,
+            // Overflow-hardening: the medallion is fixed (64dp) but the two
+            // text lines below it grow with the (clamped) text scale. Add the
+            // scaled text headroom on top of the fixed base so the inner
+            // Column never overflows at textScale up to 1.3.
+            height: _railHeight + _scaledTextHeadroom(context),
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: EdgeInsets.zero,
@@ -113,6 +127,7 @@ class _TimelineNode extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Container(
           height: 64,
@@ -138,7 +153,12 @@ class _TimelineNode extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: _categoryStyle,
         ),
-        Text(entry.dateLabel, style: _dateStyle),
+        Text(
+          entry.dateLabel,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: _dateStyle,
+        ),
       ],
     );
   }

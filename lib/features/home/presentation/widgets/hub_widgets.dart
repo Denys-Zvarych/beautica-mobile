@@ -395,7 +395,17 @@ class _HubFilledButtonState extends State<HubFilledButton> {
               color: BrandColors.accent,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Text(widget.label, style: _style),
+            // Overflow-hardening: scale the label down instead of clipping when
+            // the button is squeezed (narrow widths + large font scale).
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                widget.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _style,
+              ),
+            ),
           ),
         ),
       ),
@@ -462,7 +472,17 @@ class _HubOutlineButtonState extends State<HubOutlineButton> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: fg.withValues(alpha: 0.45), width: 1.2),
             ),
-            child: Text(widget.label, style: style),
+            // Overflow-hardening: scale the label down instead of clipping when
+            // the button is squeezed (narrow widths + large font scale).
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                widget.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: style,
+              ),
+            ),
           ),
         ),
       ),

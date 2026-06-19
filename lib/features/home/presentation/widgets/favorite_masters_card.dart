@@ -37,6 +37,16 @@ class FavoriteMastersCard extends ConsumerWidget {
 
   static const double _railHeight = 140;
 
+  // Overflow-hardening: the avatar is fixed (76dp) but the three lines below it
+  // (name, last service, rating) grow with the (clamped) text scale. Add the
+  // scaled text headroom on top of the fixed base so the inner Column never
+  // overflows at textScale up to 1.3, without redesigning the rail.
+  static double _scaledTextHeadroom(BuildContext context) {
+    final double scale = MediaQuery.textScalerOf(context).scale(1.0);
+    const double textLinesBase = 36; // name (12) + service (10.5) + rating (13)
+    return ((scale - 1.0).clamp(0.0, 0.3)) * textLinesBase + 4;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
@@ -69,7 +79,7 @@ class FavoriteMastersCard extends ConsumerWidget {
         else
           SizedBox(
             key: const Key('favorite_masters_rail'),
-            height: _railHeight,
+            height: _railHeight + _scaledTextHeadroom(context),
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               padding: EdgeInsets.zero,

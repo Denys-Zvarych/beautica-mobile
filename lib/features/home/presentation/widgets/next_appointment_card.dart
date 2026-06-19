@@ -110,46 +110,69 @@ class NextAppointmentCard extends StatelessWidget {
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 // Right: action stack.
-                SizedBox(
-                  width: 96,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: <Widget>[
-                      HubFilledButton(
-                        key: const Key('next_appt_reschedule_button'),
-                        label: l10n.homeHubRescheduleAppointment,
-                        onTap: onReschedule,
-                      ),
-                      const SizedBox(height: VelvetSpacing.sm),
-                      HubOutlineButton(
-                        key: const Key('next_appt_cancel_button'),
-                        label: l10n.homeHubCancelAppointment,
-                        danger: true,
-                        onTap: onCancel,
-                      ),
-                      const SizedBox(height: VelvetSpacing.sm),
-                      Row(
-                        children: <Widget>[
-                          HubSquareIconButton(
-                            key: const Key('next_appt_google_cal_button'),
-                            semanticLabel: l10n.homeHubAddToGoogleCalendar,
-                            onTap: onAddToGoogleCalendar,
-                            builder: (_) => const GoogleCalendarGlyph(),
-                          ),
-                          const SizedBox(width: VelvetSpacing.sm),
-                          HubSquareIconButton(
-                            key: const Key('next_appt_apple_cal_button'),
-                            semanticLabel: l10n.homeHubAddToAppleCalendar,
-                            onTap: onAddToAppleCalendar,
-                            builder: (_) => const Icon(
-                              Icons.apple,
-                              size: 22,
-                              color: BrandColors.text,
+                // Overflow-hardening: 96dp is the natural width, but on sub-360dp
+                // devices photo (96) + details + this column overflows the Row.
+                // Flexible + a 96dp max lets the column shrink instead of
+                // overflowing; the button labels FittedBox-scale within it.
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 96),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: <Widget>[
+                        HubFilledButton(
+                          key: const Key('next_appt_reschedule_button'),
+                          label: l10n.homeHubRescheduleAppointment,
+                          onTap: onReschedule,
+                        ),
+                        const SizedBox(height: VelvetSpacing.sm),
+                        HubOutlineButton(
+                          key: const Key('next_appt_cancel_button'),
+                          label: l10n.homeHubCancelAppointment,
+                          danger: true,
+                          onTap: onCancel,
+                        ),
+                        const SizedBox(height: VelvetSpacing.sm),
+                        // Overflow-hardening: the two fixed-size calendar
+                        // buttons + gap exceed the action column's width on
+                        // sub-360dp devices at large text scale (the column is
+                        // squeezed to ~61dp, the Row's natural width is ~84dp).
+                        // Each button is Flexible so the Row shrinks the buttons
+                        // to fit instead of overflowing; FittedBox keeps the
+                        // glyphs visible within the smaller box.
+                        Row(
+                          children: <Widget>[
+                            Flexible(
+                              child: HubSquareIconButton(
+                                key: const Key('next_appt_google_cal_button'),
+                                semanticLabel: l10n.homeHubAddToGoogleCalendar,
+                                onTap: onAddToGoogleCalendar,
+                                builder: (_) => const FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: GoogleCalendarGlyph(),
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                            const SizedBox(width: VelvetSpacing.sm),
+                            Flexible(
+                              child: HubSquareIconButton(
+                                key: const Key('next_appt_apple_cal_button'),
+                                semanticLabel: l10n.homeHubAddToAppleCalendar,
+                                onTap: onAddToAppleCalendar,
+                                builder: (_) => const FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Icon(
+                                    Icons.apple,
+                                    size: 22,
+                                    color: BrandColors.text,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],

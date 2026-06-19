@@ -149,6 +149,21 @@ class BeauticaApp extends ConsumerWidget {
       supportedLocales: AppLocalizations.supportedLocales,
       // Forced UA until LocaleNotifier ships (post-MVP).
       locale: const Locale('uk', 'UA'),
+      // Overflow-hardening: clamp the OS accessibility font scale app-wide.
+      // Unbounded system font scaling (up to 2.0+ on some devices) overflows
+      // the fixed-height home rails and other dense layouts. Bounding it at
+      // 1.3 keeps accessibility headroom while staying within the design's
+      // tolerance. Applied at the MaterialApp.router builder so it wraps every
+      // route. No existing builder was present, so this introduces one.
+      builder: (BuildContext context, Widget? child) {
+        final MediaQueryData mq = MediaQuery.of(context);
+        return MediaQuery(
+          data: mq.copyWith(
+            textScaler: mq.textScaler.clamp(maxScaleFactor: 1.3),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       // Phase 1.4 — go_router, managed by Riverpod, replaces the home: param.
       routerConfig: router,
     );
