@@ -107,8 +107,8 @@ class ClientBottomNav extends StatelessWidget {
   /// item. The cluster is centered (not edge-to-edge), so these drive how
   /// close the buttons sit; the same gap brackets the center reservation to
   /// keep the disc equidistant from its neighbors.
-  static const double _tileWidth = 60;
-  static const double _itemGap = 10;
+  static const double _tileWidth = 52;
+  static const double _itemGap = 4;
   static const BorderRadius _barRadius = BorderRadius.all(Radius.circular(28));
 
   static const List<BoxShadow> _barShadow = <BoxShadow>[
@@ -189,11 +189,11 @@ class ClientBottomNav extends StatelessWidget {
                       // so the floating disc stays centered over its notch and
                       // visually equidistant from its two neighbors.
                       //
-                      // The cluster's natural width is fixed (332px). On wide
+                      // The cluster's natural width is fixed (280px). On wide
                       // phones (≥390dp the bar offers ≥358px after the 32px
                       // outer padding) the cluster renders at natural size and
                       // looks identical. On narrow phones (360/320dp) the bar is
-                      // given a TIGHT width below 332px, which would overflow the
+                      // given a TIGHT width below 280px, which would overflow the
                       // Row to the right; FittedBox.scaleDown shrinks the whole
                       // cluster just enough to fit, leaving wider screens
                       // untouched. Because the cluster is symmetric and FittedBox
