@@ -24,7 +24,11 @@
 //   2. Hub → Contacts edit (row-contacts) → change phone → Save
 //      (btn-save-contacts) → the PATCH hits the fake `/users/me`, the body
 //      carries the new phone and NEVER an `instagram` key, and the value
-//      round-trips (the next GET /users/me reflects it).
+//      round-trips (the next GET /users/me reflects it). The save then lands
+//      back on the home hub and the profile card shows the NEW phone WITHOUT a
+//      restart (refreshUser() re-fetched /users/me) — the stale-home-card
+//      regression guard (a profile edit used to surface on the card only after
+//      a cold start).
 //   3. Hub → Location edit (row-location) → Save with NO city selected
 //      (btn-save-location) → the save SUCCEEDS (no "city required" block — a
 //      null city is valid for a CLIENT), the PATCH location slice carries a
@@ -54,6 +58,7 @@
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/home/presentation/client_settings_hub_screen.dart';
+import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -182,6 +187,32 @@ void main() {
         fb.clientPhone,
         '+380 67 111 22 33',
         reason: 'the fake /users/me state must reflect the persisted phone',
+      );
+
+      // ── REGRESSION (stale home card) ─────────────────────────────────────
+      // The home-hub profile card derives from the auth session User. The save
+      // path calls AuthNotifier.refreshUser() (→ GET /users/me) BEFORE
+      // invalidating the profile providers, so the freshly-persisted phone must
+      // surface on the home card WITHOUT restarting the app. Before the fix this
+      // showed the STALE phone until a cold start.
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      expect(
+        find.byType(HomeHubScreen),
+        findsOneWidget,
+        reason: 'save must land back on the home hub',
+      );
+      expect(
+        find.textContaining('67 111 22 33'),
+        findsOneWidget,
+        reason:
+            'the home-hub profile card must show the NEW phone in-session '
+            '(refreshUser re-fetched /users/me) — a stale phone here is the '
+            'regression this flow guards',
+      );
+      expect(
+        find.textContaining('50 000 00 00'),
+        findsNothing,
+        reason: 'the stale pre-edit phone must no longer appear on the card',
       );
     },
     timeout: const Timeout(Duration(seconds: 60)),

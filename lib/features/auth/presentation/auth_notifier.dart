@@ -650,6 +650,63 @@ class AuthNotifier extends _$AuthNotifier {
     }
   }
 
+  /// Re-fetches the user profile from `GET /users/me` and re-settles the
+  /// [Authenticated] session with the fresh [User], preserving the current
+  /// access token.
+  ///
+  /// Called by the client profile-edit save flows after a successful
+  /// `PATCH /users/me` so that every consumer deriving from [authProvider]
+  /// (e.g. the home-hub profile card via `clientProfile`, and the edit-seed
+  /// providers) re-derives from the updated session User instead of the stale
+  /// snapshot captured at the last [repo.me] call. Without this, the saved
+  /// name / city / phone would only appear after an app restart (cold start).
+  ///
+  /// Only acts when the settled state is [Authenticated] — there is nothing to
+  /// refresh while loading / unauthenticated.
+  ///
+  /// The access token is taken from the settled session and re-applied to the
+  /// new [Authenticated] state, with [_lastKnownAccessToken] kept in lock-step
+  /// exactly as [setAccessToken] does, so the interceptor's session-lifetime
+  /// fallback never replays a stale token.
+  ///
+  /// A transient [repo.me] failure is tolerated: it is logged (kDebugMode) and
+  /// the prior [Authenticated] session is left intact — a refresh hiccup must
+  /// never tear down a valid session.
+  Future<void> refreshUser() async {
+    final s = state.value;
+    if (s is! Authenticated) return;
+    // Preserve the current settled session's access token across the refresh.
+    final accessToken = s.accessToken;
+    try {
+      final freshUser = await ref.read(authRepositoryProvider).me();
+      // Keep the interceptor's session-lifetime fallback in lock-step with the
+      // preserved token (mirrors setAccessToken) so a mid-rebuild window never
+      // replays a stale one.
+      _lastKnownAccessToken = accessToken;
+      state = AsyncData(
+        AuthSession.authenticated(user: freshUser, accessToken: accessToken),
+      );
+      if (kDebugMode) {
+        log(
+          'refreshUser: session user refreshed for ${freshUser.id}',
+          name: 'auth',
+          level: 800,
+        );
+      }
+    } catch (e) {
+      // Tolerated — leave the prior Authenticated session in place so a
+      // transient /users/me failure does not blow away a valid session.
+      if (kDebugMode) {
+        log(
+          'refreshUser failed (tolerated, session preserved): '
+          '${e is Failure ? e.runtimeType.toString() : 'non-Failure error'}',
+          name: 'auth',
+          level: 900,
+        );
+      }
+    }
+  }
+
   /// Clears the session and wipes all tokens from secure storage.
   ///
   /// Makes a best-effort server-side revocation call via the repository before

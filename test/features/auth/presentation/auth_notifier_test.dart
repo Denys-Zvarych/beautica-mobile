@@ -1005,6 +1005,106 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
+    // Test 13b — refreshUser re-settles Authenticated with the fresh user,
+    //            preserving the current access token.
+    // -----------------------------------------------------------------------
+    test(
+      'refreshUser refreshes session user and preserves access token',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+
+        const updatedUser = User(
+          id: 'u1',
+          email: 'test@example.com',
+          role: UserRole.independentMaster,
+          firstName: 'Updated',
+          lastName: 'Name',
+        );
+
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => rotatedTokens);
+        // First me() (cold-start build) → original user; subsequent me()
+        // (refreshUser) → updated user.
+        var meCalls = 0;
+        when(() => repo.me()).thenAnswer((_) async {
+          meCalls++;
+          return meCalls == 1 ? testUser : updatedUser;
+        });
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+        // Cold start settled with the original user + rotatedTokens.accessToken.
+        expect(
+          (container.read(authProvider).value as Authenticated).user,
+          equals(testUser),
+        );
+
+        await container.read(authProvider.notifier).refreshUser();
+
+        final session = container.read(authProvider).value;
+        expect(session, isA<Authenticated>());
+        // Fresh user surfaced…
+        expect((session as Authenticated).user, equals(updatedUser));
+        // …and the access token from the settled session is preserved.
+        expect(session.accessToken, equals(rotatedTokens.accessToken));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 13c — refreshUser is a no-op when Unauthenticated.
+    // -----------------------------------------------------------------------
+    test('refreshUser is a no-op when Unauthenticated', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage(); // no token → Unauthenticated.
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container.read(authProvider.notifier).refreshUser();
+
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+      );
+      // me() must never be called when there is no session to refresh.
+      verifyNever(() => repo.me());
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 13d — refreshUser tolerates a me() failure: the prior Authenticated
+    //            session (user + access token) is left intact.
+    // -----------------------------------------------------------------------
+    test('refreshUser preserves session when me() fails', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => rotatedTokens);
+      var meCalls = 0;
+      when(() => repo.me()).thenAnswer((_) async {
+        meCalls++;
+        if (meCalls == 1) return testUser; // cold-start build succeeds.
+        throw const NetworkFailure(); // refreshUser fetch fails.
+      });
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      // Must not throw and must not blow away the session.
+      await container.read(authProvider.notifier).refreshUser();
+
+      final session = container.read(authProvider).value;
+      expect(session, isA<Authenticated>());
+      expect((session as Authenticated).user, equals(testUser));
+      expect(session.accessToken, equals(rotatedTokens.accessToken));
+    });
+
+    // -----------------------------------------------------------------------
     // Test 14 — register passes businessName through to the repository
     // -----------------------------------------------------------------------
     test(

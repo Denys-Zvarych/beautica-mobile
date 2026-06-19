@@ -39,6 +39,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/data/client_profile_repository.dart';
@@ -378,6 +379,11 @@ class _ClientLocationEditScreenState
             ),
           );
 
+      if (!mounted) return;
+      // Re-fetch the session User so clientProfile (derived from authProvider)
+      // re-derives the fresh city; then invalidate the edit-seed + profile
+      // providers so they re-read from the now-current session.
+      await ref.read(authProvider.notifier).refreshUser();
       if (!mounted) return;
       ref.invalidate(clientEditProfileProvider);
       ref.invalidate(clientProfileProvider);
