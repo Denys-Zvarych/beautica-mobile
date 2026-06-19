@@ -48,6 +48,7 @@ import 'package:beautica_mobile/shared/utils/phone_uri.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
+import 'package:beautica_mobile/core/theme/beautica_icons.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
 import 'master_profile_notifier.dart';
@@ -201,7 +202,7 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
       title: l10n.masterProfileTitle,
       trailing: NeumorphicIconButton(
         key: const Key('btn-menu-master'),
-        icon: Icons.tune_rounded,
+        icon: BeauticaIcons.menuBurger,
         semanticLabel: l10n.settingsHubMenuButton,
         onTap: () => context.push(RouteNames.masterMenu),
       ),

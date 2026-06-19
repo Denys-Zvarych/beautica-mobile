@@ -7,7 +7,7 @@
 //   4. Next appointment empty state is shown when no appointment.
 //   5. Favourite masters empty state is shown when no masters.
 //   6. BEAUTY TIMELINE empty state is shown when no entries.
-//   7. QuickLinksCard renders 4 tiles.
+//   7. QuickLinksCard renders 3 tiles (reviews tile removed — reviews reached via stat pill).
 //   8. PassportPreviewCard renders the untranslated "BEAUTY PASSPORT" literal.
 //   9. BEAUTY TIMELINE section renders the untranslated "BEAUTY TIMELINE" literal.
 //  10. HomeHubScreen renders a key widget without error (smoke test).
@@ -25,9 +25,11 @@ import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.d
 import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/quick_links_card.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../helpers/pump_app.dart';
 
@@ -158,13 +160,70 @@ void main() {
       expect(find.byKey(const Key('home_hub_bell_button')), findsOneWidget);
     });
 
-    testWidgets('renders burger menu button', (tester) async {
+    testWidgets('renders burger menu button with Key btn-menu-client', (
+      tester,
+    ) async {
       await tester.pumpApp(
         const HomeHubScreen(),
         overrides: _overrides(profile: const AsyncData(_sampleProfile)),
       );
       await tester.pump();
-      expect(find.byKey(const Key('home_hub_menu_button')), findsOneWidget);
+      expect(find.byKey(const Key('btn-menu-client')), findsOneWidget);
+    });
+
+    testWidgets('burger menu button uses tune_rounded icon', (tester) async {
+      await tester.pumpApp(
+        const HomeHubScreen(),
+        overrides: _overrides(profile: const AsyncData(_sampleProfile)),
+      );
+      await tester.pump();
+      // The NeumorphicIconButton is present; verify its icon data.
+      expect(
+        find.byIcon(Icons.tune_rounded),
+        findsOneWidget,
+        reason:
+            'top-bar burger must use Icons.tune_rounded (matches master profile)',
+      );
+    });
+
+    testWidgets('tapping burger pushes /settings route', (tester) async {
+      // Use a spy router so context.push(RouteNames.settings) fires correctly.
+      // pumpApp uses plain MaterialApp which lacks a GoRouter delegate; the
+      // burger calls context.push() which requires GoRouter in the widget tree.
+      String? navigatedLocation;
+      final router = GoRouter(
+        initialLocation: RouteNames.clientHome,
+        routes: [
+          GoRoute(
+            path: RouteNames.clientHome,
+            builder: (context, state) => const HomeHubScreen(),
+          ),
+          GoRoute(
+            path: RouteNames.settings,
+            builder: (context, state) {
+              navigatedLocation = RouteNames.settings;
+              return const Scaffold(body: SizedBox.shrink());
+            },
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _overrides(profile: const AsyncData(_sampleProfile)),
+      );
+      // Pump until the initial route renders.
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('btn-menu-client')));
+      await tester.pumpAndSettle();
+
+      expect(
+        navigatedLocation,
+        equals(RouteNames.settings),
+        reason: 'burger onTap must push RouteNames.settings (/settings)',
+      );
     });
   });
 
@@ -368,14 +427,27 @@ void main() {
   });
 
   group('QuickLinksCard', () {
-    testWidgets('renders 4 quick-link tiles', (tester) async {
+    testWidgets('renders exactly 3 quick-link tiles', (tester) async {
       await tester.pumpApp(const QuickLinksCard());
       await tester.pump();
-      // Each tile has a unique key
+      // Each of the 3 approved tiles has a unique key.
       expect(find.byKey(const Key('quick_link_search')), findsOneWidget);
       expect(find.byKey(const Key('quick_link_favorites')), findsOneWidget);
       expect(find.byKey(const Key('quick_link_bookings')), findsOneWidget);
-      expect(find.byKey(const Key('quick_link_reviews')), findsOneWidget);
+    });
+
+    testWidgets('reviews tile is absent from quick-links card', (tester) async {
+      // The "Мої відгуки" tile was removed — reviews are reached from the
+      // ReviewsStatCard stat pill instead (separate widget, stays in the screen).
+      await tester.pumpApp(const QuickLinksCard());
+      await tester.pump();
+      expect(
+        find.byKey(const Key('quick_link_reviews')),
+        findsNothing,
+        reason:
+            'quick_link_reviews tile must be absent — the stat pill navigates '
+            'to /reviews/me instead',
+      );
     });
   });
 

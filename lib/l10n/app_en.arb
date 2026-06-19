@@ -2736,10 +2736,6 @@
   "@homeHubQuickBookings": {
     "description": "Quick-link tile label for my bookings."
   },
-  "homeHubQuickReviews": "My\nreviews",
-  "@homeHubQuickReviews": {
-    "description": "Quick-link tile label for my reviews."
-  },
   "homeHubNextAppointmentTitle": "Next appointment",
   "@homeHubNextAppointmentTitle": {
     "description": "Section title for the next upcoming appointment card."

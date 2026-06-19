@@ -20,9 +20,12 @@ import 'package:go_router/go_router.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
+import '../../../features/auth/domain/auth_session.dart';
+import '../../../features/auth/presentation/auth_notifier.dart';
 import '../../../features/master/presentation/widgets/section_scaffold.dart';
 import '../../../features/master/presentation/widgets/settings_row.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../routing/role_home.dart';
 import '../../../routing/route_names.dart';
 
 /// Account settings page — VelvetTouch neumorphic design.
@@ -113,7 +116,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         if (context.canPop()) {
           context.pop();
         } else {
-          context.go(RouteNames.masterMenu);
+          // /settings is reachable by any authenticated role (CLIENT via the
+          // Home Hub burger; INDEPENDENT_MASTER via the master menu). Resolve
+          // the fallback destination from the authenticated session so that a
+          // CLIENT with an empty navigator stack returns to /home rather than
+          // being sent to /master/menu (a master-only surface that the router
+          // gate would immediately redirect away from anyway, causing a flash).
+          final session = ref.read(authProvider);
+          final fallback = session.value is Authenticated
+              ? roleHomePath((session.value! as Authenticated).user.role)
+              : RouteNames.login;
+          context.go(fallback);
         }
       },
       body: Column(

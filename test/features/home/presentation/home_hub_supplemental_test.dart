@@ -323,7 +323,7 @@ void main() {
     );
   });
 
-  // ── 3. Quick-links tile presence and hitability ──────────────────────────
+  // ── 3. Quick-links tile presence and hitability (3 tiles) ───────────────
 
   group('QuickLinksCard — tile hitability', () {
     // Widget-tier assertion: verify each tile key exists, has a positive paint
@@ -336,36 +336,51 @@ void main() {
     // context.push is called from inside a StatefulWidget built by a GoRoute
     // builder, which is a known Flutter test limitation.
 
-    testWidgets('all 4 tiles render and are hittable (no throw on tap)', (
-      tester,
-    ) async {
-      // QuickLinksCard has no Riverpod deps — pump it directly.
-      await tester.pumpApp(const QuickLinksCard());
-      await tester.pump();
+    testWidgets(
+      'all 3 approved tiles render and are hittable (no throw on tap)',
+      (tester) async {
+        // QuickLinksCard has no Riverpod deps — pump it directly.
+        await tester.pumpApp(const QuickLinksCard());
+        await tester.pump();
 
-      for (final String key in <String>[
-        'quick_link_search',
-        'quick_link_favorites',
-        'quick_link_bookings',
-        'quick_link_reviews',
-      ]) {
-        final Finder tile = find.byKey(Key(key));
-        expect(tile, findsOneWidget, reason: '$key must be findable by key');
+        for (final String key in <String>[
+          'quick_link_search',
+          'quick_link_favorites',
+          'quick_link_bookings',
+        ]) {
+          final Finder tile = find.byKey(Key(key));
+          expect(tile, findsOneWidget, reason: '$key must be findable by key');
 
-        // The GestureDetector must have a positive paint area.
-        final RenderBox box = tester.renderObject<RenderBox>(tile);
+          // The GestureDetector must have a positive paint area.
+          final RenderBox box = tester.renderObject<RenderBox>(tile);
+          expect(
+            box.size.width,
+            greaterThan(0),
+            reason: '$key must have positive width',
+          );
+          expect(
+            box.size.height,
+            greaterThan(0),
+            reason: '$key must have positive height',
+          );
+        }
+      },
+    );
+
+    testWidgets(
+      'quick_link_reviews tile is absent (removed in post-13.7 cleanup)',
+      (tester) async {
+        await tester.pumpApp(const QuickLinksCard());
+        await tester.pump();
         expect(
-          box.size.width,
-          greaterThan(0),
-          reason: '$key must have positive width',
+          find.byKey(const Key('quick_link_reviews')),
+          findsNothing,
+          reason:
+              'quick_link_reviews was removed — navigation to /reviews/me is '
+              'via the ReviewsStatCard stat pill, not the quick-links row',
         );
-        expect(
-          box.size.height,
-          greaterThan(0),
-          reason: '$key must have positive height',
-        );
-      }
-    });
+      },
+    );
   });
 
   // ── 4. ScreenProtector acquire/release on mount/dispose ──────────────────

@@ -29,9 +29,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/security/screen_protection.dart';
+import '../../../core/theme/beautica_icons.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
+import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../application/home_hub_notifier.dart';
@@ -110,11 +112,11 @@ class _HomeHubScreenState extends ConsumerState<HomeHubScreen> {
   }
 
   void _onBurgerTap() {
-    // Phase 14.10 (client settings) not yet shipped — placeholder.
-    // TODO(14.10): route to RouteNames.clientSettings when that screen ships.
-    if (kDebugMode) {
-      log('burger menu tapped — placeholder', name: 'feature.home', level: 700);
-    }
+    // Opens the shared SettingsScreen (/settings) which is accessible to any
+    // authenticated role (not role-gated in auth_redirect.dart).
+    // TODO(14.10): point at a dedicated CLIENT settings/menu hub when that
+    // screen ships in Phase 14.10 (RouteNames.clientSettings).
+    context.push(RouteNames.settings);
   }
 
   @override
@@ -412,42 +414,13 @@ class _TopBar extends StatelessWidget {
           semanticLabel: l10n.homeHubNotificationsLabel,
         ),
         const SizedBox(width: VelvetSpacing.sm + 4),
-        _PlainIconButton(
-          key: const Key('home_hub_menu_button'),
-          icon: Icons.menu_rounded,
-          semanticLabel: l10n.homeHubMenuLabel,
+        NeumorphicIconButton(
+          key: const Key('btn-menu-client'),
+          icon: BeauticaIcons.menuBurger,
+          semanticLabel: l10n.settingsHubMenuButton,
           onTap: onBurger,
         ),
       ],
-    );
-  }
-}
-
-class _PlainIconButton extends StatelessWidget {
-  const _PlainIconButton({
-    super.key,
-    required this.icon,
-    required this.semanticLabel,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String semanticLabel;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Padding(
-          padding: const EdgeInsets.all(4),
-          child: Icon(icon, size: 24, color: BrandColors.textSecondary),
-        ),
-      ),
     );
   }
 }

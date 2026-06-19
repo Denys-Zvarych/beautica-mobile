@@ -1,9 +1,11 @@
 // Phase 13.7 — Quick-links card (Step 4).
 //
-// A flat card containing 3 quick-links (matching the preview which shows 3 —
-// search / favorites / bookings). The phase spec mentions a 4th "feedbacks"
-// link; however the preview only renders 3. We add feedbacks as the 4th tile.
-// Routes: /search, /favorites, /bookings, /reviews/me.
+// A flat card containing 3 quick-links matching the approved design preview:
+// search / favorites / bookings.
+// Routes: /search, /favorites, /bookings.
+//
+// The "Мої відгуки" tile was removed in post-13.7 cleanup — the reviews stat
+// pill (ReviewsStatCard) navigates to /reviews/me instead.
 //
 // Uses IntrinsicHeight + CrossAxisAlignment.stretch (same fix as stat pills)
 // to keep hairline dividers full-height without an infinite-cross-axis.
@@ -18,7 +20,7 @@ import '../../../../l10n/app_localizations.dart';
 import '../../../../routing/route_names.dart';
 import '../widgets/hub_widgets.dart';
 
-/// Quick-links row: 4 equally-weighted tiles in a flat card.
+/// Quick-links row: 3 equally-weighted tiles in a flat card.
 class QuickLinksCard extends StatelessWidget {
   const QuickLinksCard({super.key});
 
@@ -43,13 +45,6 @@ class QuickLinksCard extends StatelessWidget {
         icon: Icons.event_note_outlined,
         label: l10n.homeHubQuickBookings,
         route: RouteNames.clientBookings,
-      ),
-      _QuickLinkDef(
-        key: const Key('quick_link_reviews'),
-        icon: Icons.rate_review_outlined,
-        label: l10n.homeHubQuickReviews,
-        // /reviews/me route — registered in Phase 13.7 Step 8
-        route: RouteNames.myReviews,
       ),
     ];
 
