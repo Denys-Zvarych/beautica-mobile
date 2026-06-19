@@ -188,19 +188,36 @@ class ClientBottomNav extends StatelessWidget {
                       // same gap sits on both sides of the center reservation,
                       // so the floating disc stays centered over its notch and
                       // visually equidistant from its two neighbors.
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: <Widget>[
-                          _tile(homeItem, 0),
-                          const SizedBox(width: _itemGap),
-                          _tile(favItem, 1),
-                          const SizedBox(width: _itemGap),
-                          // Center gap reserved for the floating disc.
-                          const SizedBox(width: _centerSize + _itemGap),
-                          _tile(bookItem, 3),
-                          const SizedBox(width: _itemGap),
-                          _tile(passItem, 4),
-                        ],
+                      //
+                      // The cluster's natural width is fixed (332px). On wide
+                      // phones (≥390dp the bar offers ≥358px after the 32px
+                      // outer padding) the cluster renders at natural size and
+                      // looks identical. On narrow phones (360/320dp) the bar is
+                      // given a TIGHT width below 332px, which would overflow the
+                      // Row to the right; FittedBox.scaleDown shrinks the whole
+                      // cluster just enough to fit, leaving wider screens
+                      // untouched. Because the cluster is symmetric and FittedBox
+                      // scales about its center, the center reservation stays
+                      // horizontally centered — so the floating disc (centered
+                      // independently by the outer Stack) keeps aligning over the
+                      // notch at every width.
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.center,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: <Widget>[
+                            _tile(homeItem, 0),
+                            const SizedBox(width: _itemGap),
+                            _tile(favItem, 1),
+                            const SizedBox(width: _itemGap),
+                            // Center gap reserved for the floating disc.
+                            const SizedBox(width: _centerSize + _itemGap),
+                            _tile(bookItem, 3),
+                            const SizedBox(width: _itemGap),
+                            _tile(passItem, 4),
+                          ],
+                        ),
                       ),
                     ),
                   ),
