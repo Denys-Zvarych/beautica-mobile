@@ -193,6 +193,23 @@ final class FakeBackend {
   String? masterPhone = '+380501234567';
   String? masterInstagram = '@olena_nails';
 
+  // ── Mutable CLIENT profile state (PATCH /users/me round-trip) ──────────────
+  //
+  // The CLIENT `GET /users/me` echoes these mutable fields so a save made by the
+  // Contacts / Location edit screens round-trips on the next read (the edit
+  // screens invalidate clientEditProfileProvider → re-fetch /users/me). Phone +
+  // location start empty so the edit screens see a clean seed; the city is
+  // OPTIONAL for a CLIENT, so a null city must persist as a valid save.
+  String clientFirstName = 'Дмитро';
+  String clientLastName = 'Клієнт';
+  String? clientPhone;
+  String? clientCityId;
+  String? clientCityName;
+  String? clientDistrictId;
+  String? clientStreet;
+  String? clientBuildingNo;
+  String? clientLocationNote;
+
   // ── Service state ─────────────────────────────────────────────────────────
 
   /// In-memory services list. Starts pre-seeded.
@@ -405,6 +422,8 @@ final class FakeBackend {
   int registerCalls = 0;
   int verifyEmailCalls = 0;
   int getMeCalls = 0; // GET /api/v1/users/me counter
+  int patchMeCalls = 0; // PATCH /api/v1/users/me counter (CLIENT profile edit)
+  Map<String, dynamic>? lastPatchMeBody; // body of the most recent PATCH /users/me
   int getMasterCalls = 0;
   int patchProfileCalls = 0;
   Map<String, dynamic>? lastPatchBody;
@@ -450,6 +469,26 @@ final class FakeBackend {
   Map<String, dynamic>? lastOverrideBody;
 
   // ── Internal helpers ───────────────────────────────────────────────────────
+
+  /// The CLIENT `GET /users/me` body, built from the mutable client state so a
+  /// PATCH made by the Contacts / Location edit screen round-trips on re-fetch.
+  /// Shape matches `UserProfileResponse` (the DTO `UserMapper.fromProfileDto`
+  /// consumes): id / email / role / firstName / lastName + the optional
+  /// phone + location enrichment fields.
+  Map<String, dynamic> _clientProfileBody() => <String, dynamic>{
+    'id': 'user-client-1',
+    'email': 'client@beautica.ua',
+    'role': 'CLIENT',
+    'firstName': clientFirstName,
+    'lastName': clientLastName,
+    'phoneNumber': clientPhone,
+    'cityId': clientCityId,
+    'cityName': clientCityName,
+    'districtId': clientDistrictId,
+    'street': clientStreet,
+    'buildingNo': clientBuildingNo,
+    'locationNote': clientLocationNote,
+  };
 
   Map<String, dynamic> _masterDetailEnvelope() => _ok(<String, dynamic>{
     'masterId': 'user-master-1',
@@ -551,13 +590,70 @@ final class FakeBackend {
     );
 
     // GET /api/v1/users/me
+    // For the CLIENT role, returns the MUTABLE client body so a PATCH /users/me
+    // round-trips on the next read (the edit screens invalidate
+    // clientEditProfileProvider → re-fetch). Other roles keep the static fixture.
     _adapter.onRoute(
       '/api/v1/users/me',
       (server) => server.replyCallback(200, (_) {
         getMeCalls++;
-        return _ok(userJsonForRole(currentRole));
+        return currentRole == UserRole.client
+            ? _ok(_clientProfileBody())
+            : _ok(userJsonForRole(currentRole));
       }),
       request: const Request(method: RequestMethods.get),
+    );
+
+    // PATCH /api/v1/users/me — CLIENT profile partial update (the shared,
+    // CLIENT-callable profile endpoint the client edit screens hit via
+    // UserControllerApi.updateMe). Merge-onto-cache: each key present in the body
+    // overlays the in-memory state; keys absent from the body are preserved.
+    //
+    // CONTRACT NOTES the flow asserts against:
+    //   • `instagram` is NEVER sent by ClientProfileRepository — if it ever
+    //     appears in the body this would surface it (lastPatchMeBody captured).
+    //   • a null `cityId` in the body is a VALID save (CLIENT location optional)
+    //     and clears the city; the body still carries cityId (built_value emits
+    //     it when the location slice is touched).
+    _adapter.onRoute(
+      '/api/v1/users/me',
+      (server) => server.replyCallback(200, (req) {
+        patchMeCalls++;
+        final body = _decodeBody(req.data);
+        lastPatchMeBody = body;
+        if (body.containsKey('firstName')) {
+          clientFirstName = body['firstName'] as String? ?? clientFirstName;
+        }
+        if (body.containsKey('lastName')) {
+          clientLastName = body['lastName'] as String? ?? clientLastName;
+        }
+        if (body.containsKey('phoneNumber')) {
+          clientPhone = body['phoneNumber'] as String?;
+        }
+        // The location slice is sent only when the Location screen owns it; when
+        // present, cityId/districtId/street/buildingNo/locationNote are applied
+        // exactly as carried (including a null cityId — clears the city).
+        if (body.containsKey('cityId')) {
+          clientCityId = body['cityId'] as String?;
+          clientCityName = clientCityId == null ? null : clientCityName;
+        }
+        if (body.containsKey('districtId')) {
+          clientDistrictId = body['districtId'] as String?;
+        }
+        if (body.containsKey('street')) {
+          clientStreet = body['street'] as String?;
+        }
+        if (body.containsKey('buildingNo')) {
+          clientBuildingNo = body['buildingNo'] as String?;
+        }
+        if (body.containsKey('locationNote')) {
+          clientLocationNote = body['locationNote'] as String?;
+        }
+        // The update response is an ApiResponseUserProfileResponse — return the
+        // updated profile body so the generated client deserializes cleanly.
+        return _ok(_clientProfileBody());
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
     );
 
     // GET /api/v1/masters/me

@@ -114,11 +114,10 @@ class _HomeHubScreenState extends ConsumerState<HomeHubScreen> {
   }
 
   void _onBurgerTap() {
-    // Opens the shared SettingsScreen (/settings) which is accessible to any
-    // authenticated role (not role-gated in auth_redirect.dart).
-    // TODO(14.10): point at a dedicated CLIENT settings/menu hub when that
-    // screen ships in Phase 14.10 (RouteNames.clientSettings).
-    context.push(RouteNames.settings);
+    // Opens the CLIENT settings hub (/client/menu) — the burger-menu mirror of
+    // the master settings hub. Role-gated to CLIENT in auth_redirect.dart. The
+    // hub's Account row routes onward to the shared SettingsScreen (/settings).
+    context.push(RouteNames.clientMenu);
   }
 
   @override

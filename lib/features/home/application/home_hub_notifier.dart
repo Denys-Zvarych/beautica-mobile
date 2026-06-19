@@ -41,11 +41,12 @@ Future<ClientProfileSummary> clientProfile(Ref ref) async {
     Authenticated(:final user) => ClientProfileSummary(
       firstName: user.firstName ?? '',
       lastName: user.lastName ?? '',
-      // city and phone are not yet fields on the User domain model
-      // (those live on the provider/user profile, not auth/me).
-      // TODO(phase-19.x): replace with GET /clients/me profile endpoint.
-      city: '',
-      phone: '',
+      // city/phone come from the User profile hydrated via repo.me() during
+      // cold-start / login (AuthNotifier.build → fromProfileDto). Both are
+      // nullable because CLIENT location is optional — fall back to the empty
+      // string so the profile card renders its placeholder.
+      city: user.cityName ?? '',
+      phone: user.phoneNumber ?? '',
       // TODO(backend): GET /clients/me/rating (two-sided client rating, excludes comments)
       clientRating: null,
       memberSinceYear: DateTime.now().year,

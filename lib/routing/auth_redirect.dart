@@ -231,6 +231,21 @@ String? authRedirectForLocation(
     }
   }
 
+  // Role gate: /client/* is only accessible to CLIENT.
+  //
+  // The mirror of the /master/* gate above: the CLIENT settings hub and its
+  // per-section edit pages (/client/menu, /client/edit/personal, etc.) are
+  // CLIENT-only. Any non-CLIENT authenticated role (INDEPENDENT_MASTER, salon
+  // roles) that navigates to a /client/* path is redirected to its own landing
+  // (INDEPENDENT_MASTER → profile, everyone else → "coming soon" home shell).
+  // These routes are NOT opened to any other role.
+  if (isAuthenticated && location.startsWith('/client/')) {
+    final Authenticated auth = session.value! as Authenticated;
+    if (auth.user.role != UserRole.client) {
+      return roleHomePath(auth.user.role);
+    }
+  }
+
   // Role gate (Phase 13.1 + Phase 13.7): CLIENT-only surfaces.
   //
   // The inverse of the /master/*, /services, /schedule gates above: any non-

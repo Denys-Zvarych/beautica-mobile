@@ -61,6 +61,16 @@ abstract final class RouteNames {
   static const String clientBookings = '/bookings';
   static const String clientPassport = '/passport';
 
+  // CLIENT settings hub + per-section edit pages. Pushed from the home-hub
+  // burger icon (mirrors the master `/master/menu` + `/master/edit/*` block).
+  // The three edit pages all PATCH /users/me via ClientProfileRepository,
+  // merging only the slice they own onto the cached profile so sibling fields
+  // are never cleared. Role-gated to CLIENT in [authRedirect].
+  static const String clientMenu = '/client/menu';
+  static const String clientEditPersonal = '/client/edit/personal';
+  static const String clientEditContacts = '/client/edit/contacts';
+  static const String clientEditLocation = '/client/edit/location';
+
   /// Support / contact-us screen («Напишіть нам»). Pushed from the master
   /// settings hub's "Допомога / Напишіть нам" row. Authenticated users submit a
   /// free-text message (+ optional subject + attachments) to

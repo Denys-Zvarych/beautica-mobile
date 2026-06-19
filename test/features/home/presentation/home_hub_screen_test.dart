@@ -199,8 +199,10 @@ void main() {
       );
     });
 
-    testWidgets('tapping burger pushes /settings route', (tester) async {
-      // Use a spy router so context.push(RouteNames.settings) fires correctly.
+    testWidgets('tapping burger pushes the CLIENT settings hub route', (
+      tester,
+    ) async {
+      // Use a spy router so context.push(RouteNames.clientMenu) fires correctly.
       // pumpApp uses plain MaterialApp which lacks a GoRouter delegate; the
       // burger calls context.push() which requires GoRouter in the widget tree.
       String? navigatedLocation;
@@ -212,9 +214,9 @@ void main() {
             builder: (context, state) => const HomeHubScreen(),
           ),
           GoRoute(
-            path: RouteNames.settings,
+            path: RouteNames.clientMenu,
             builder: (context, state) {
-              navigatedLocation = RouteNames.settings;
+              navigatedLocation = RouteNames.clientMenu;
               return const Scaffold(body: SizedBox.shrink());
             },
           ),
@@ -234,8 +236,8 @@ void main() {
 
       expect(
         navigatedLocation,
-        equals(RouteNames.settings),
-        reason: 'burger onTap must push RouteNames.settings (/settings)',
+        equals(RouteNames.clientMenu),
+        reason: 'burger onTap must push RouteNames.clientMenu (/client/menu)',
       );
     });
   });

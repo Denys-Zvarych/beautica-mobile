@@ -47,6 +47,10 @@ import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/service_setup_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/home/presentation/client_contacts_edit_screen.dart';
+import '../features/home/presentation/client_location_edit_screen.dart';
+import '../features/home/presentation/client_personal_info_edit_screen.dart';
+import '../features/home/presentation/client_settings_hub_screen.dart';
 import '../features/home/presentation/home_hub_screen.dart';
 import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/shell/presentation/branch_placeholders.dart';
@@ -312,6 +316,28 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.masterEditLocation,
         builder: (context, state) => const LocationEditScreen(),
+      ),
+      // CLIENT settings hub + per-section edit pages. Mirror the master
+      // /master/menu + /master/edit/* block above but for the CLIENT role.
+      // Pushed from the home-hub burger icon; all three edit pages PATCH
+      // /users/me via ClientProfileRepository. Role-gated to CLIENT in
+      // [authRedirect] (the /client/* prefix). MaterialPage (builder:) so the
+      // theme's CupertinoPageTransitionsBuilder installs the swipe-back gesture.
+      GoRoute(
+        path: RouteNames.clientMenu,
+        builder: (context, state) => const ClientSettingsHubScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.clientEditPersonal,
+        builder: (context, state) => const ClientPersonalInfoEditScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.clientEditContacts,
+        builder: (context, state) => const ClientContactsEditScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.clientEditLocation,
+        builder: (context, state) => const ClientLocationEditScreen(),
       ),
       // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
       // Phase 6.x — `expandCategory` query param: when present, the matching
