@@ -107,6 +107,7 @@ dependencies:
   # part carries Content-Type: application/json; file parts carry their sniffed
   # type). Dio does not re-export MediaType, so http_parser is a direct dep.
   http_parser: ^4.1.2
+  flutter_svg: ^2.3.0
 
 dev_dependencies:
   flutter_test:
@@ -285,3 +286,8 @@ flutter:
     # (belt — alongside network_security_config.xml) and iOS (suspenders —
     # no OS-level equivalent to Android's network_security_config).
     - assets/certs/
+
+    # Monochrome SVG icons — drop free line SVGs here, register a const in
+    # BeauticaAssetIcons (lib/core/icons/beautica_asset_icons.dart), then
+    # use AppIcon(BeauticaAssetIcons.x) anywhere.
+    - assets/icons/
