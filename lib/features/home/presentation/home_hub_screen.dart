@@ -221,7 +221,7 @@ class _HomeHubBody extends ConsumerWidget {
                 child: _StatPillsRow(
                   profileAsync: profileAsync,
                   onPassport: () => context.push(RouteNames.clientPassport),
-                  onReviews: () => context.push(RouteNames.myReviews),
+                  onRating: () => context.push(RouteNames.myRating),
                 ),
               ),
               const SizedBox(height: VelvetSpacing.md),
@@ -347,12 +347,12 @@ class _StatPillsRow extends StatelessWidget {
   const _StatPillsRow({
     required this.profileAsync,
     required this.onPassport,
-    required this.onReviews,
+    required this.onRating,
   });
 
   final AsyncValue<ClientProfileSummary> profileAsync;
   final VoidCallback onPassport;
-  final VoidCallback onReviews;
+  final VoidCallback onRating;
 
   @override
   Widget build(BuildContext context) {
@@ -367,17 +367,13 @@ class _StatPillsRow extends StatelessWidget {
           const SizedBox(width: VelvetSpacing.md - 4),
           Expanded(
             child: profileAsync.when(
-              data: (ClientProfileSummary p) => ReviewsStatCard(
-                reviewsLeft: p.reviewsLeft,
-                memberSinceYear: p.memberSinceYear,
-                onTap: onReviews,
+              data: (ClientProfileSummary p) => MyRatingStatCard(
+                clientRating: p.clientRating,
+                onTap: onRating,
               ),
               loading: () => const _StatPillSkeleton(),
-              error: (Object e, StackTrace st) => ReviewsStatCard(
-                reviewsLeft: 0,
-                memberSinceYear: DateTime.now().year,
-                onTap: onReviews,
-              ),
+              error: (Object e, StackTrace st) =>
+                  MyRatingStatCard(clientRating: null, onTap: onRating),
             ),
           ),
         ],
@@ -459,10 +455,12 @@ class _BellButton extends StatelessWidget {
                 child: Container(
                   height: 8,
                   width: 8,
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     color: BrandColors.accentDeep,
                     shape: BoxShape.circle,
-                    border: Border.all(color: BrandColors.base, width: 1.5),
+                    border: Border.fromBorderSide(
+                      BorderSide(color: BrandColors.base, width: 1.5),
+                    ),
                   ),
                 ),
               ),
@@ -481,18 +479,17 @@ class _BellButton extends StatelessWidget {
 class _ProfileSkeleton extends StatelessWidget {
   const _ProfileSkeleton();
 
+  // Hoisted — withValues inside build() allocates a Color on every frame.
+  static final BoxDecoration _avatarDecoration = BoxDecoration(
+    color: BrandColors.faint.withValues(alpha: 0.3),
+    shape: BoxShape.circle,
+  );
+
   @override
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
-        Container(
-          height: 96,
-          width: 96,
-          decoration: BoxDecoration(
-            color: BrandColors.faint.withValues(alpha: 0.3),
-            shape: BoxShape.circle,
-          ),
-        ),
+        Container(height: 96, width: 96, decoration: _avatarDecoration),
         const SizedBox(width: VelvetSpacing.md),
         const Expanded(
           child: Column(
@@ -514,20 +511,26 @@ class _ProfileSkeleton extends StatelessWidget {
 class _StatPillSkeleton extends StatelessWidget {
   const _StatPillSkeleton();
 
+  // Hoisted — withValues inside build() allocates a Color on every frame.
+  static final BoxDecoration _decoration = BoxDecoration(
+    color: BrandColors.faint.withValues(alpha: 0.25),
+    borderRadius: BorderRadius.circular(18),
+  );
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 64,
-      decoration: BoxDecoration(
-        color: BrandColors.faint.withValues(alpha: 0.25),
-        borderRadius: BorderRadius.circular(18),
-      ),
-    );
+    return Container(height: 64, decoration: _decoration);
   }
 }
 
 class _SectionSkeleton extends StatelessWidget {
   const _SectionSkeleton();
+
+  // Hoisted — withValues inside build() allocates a Color on every frame.
+  static final BoxDecoration _blockDecoration = BoxDecoration(
+    color: BrandColors.faint.withValues(alpha: 0.25),
+    borderRadius: BorderRadius.circular(20),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -536,13 +539,7 @@ class _SectionSkeleton extends StatelessWidget {
       children: <Widget>[
         const _SkeletonBar(width: 140, height: 14),
         const SizedBox(height: VelvetSpacing.md),
-        Container(
-          height: 80,
-          decoration: BoxDecoration(
-            color: BrandColors.faint.withValues(alpha: 0.25),
-            borderRadius: BorderRadius.circular(20),
-          ),
-        ),
+        Container(height: 80, decoration: _blockDecoration),
       ],
     );
   }
@@ -554,16 +551,16 @@ class _SkeletonBar extends StatelessWidget {
   final double width;
   final double height;
 
+  // Hoisted — withValues inside build() allocates a Color on every frame.
+  // BorderRadius.circular(8) is the same for all sizes so one decoration covers all.
+  static final BoxDecoration _decoration = BoxDecoration(
+    color: BrandColors.faint.withValues(alpha: 0.3),
+    borderRadius: BorderRadius.circular(8),
+  );
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        color: BrandColors.faint.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(8),
-      ),
-    );
+    return Container(width: width, height: height, decoration: _decoration);
   }
 }
 

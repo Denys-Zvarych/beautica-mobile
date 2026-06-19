@@ -242,9 +242,9 @@ String? authRedirectForLocation(
   // surface, and the gates above already keep a CLIENT out of every /master/*,
   // /services and /schedule surface.
   //
-  // Phase 13.7 — /reviews/me (MyReviewsScreen) is a CLIENT quick-link target
-  // added outside the StatefulShellRoute branches; it must be gated here to
-  // prevent non-CLIENT roles from reaching it when GET /reviews/me ships.
+  // Phase 13.7 (revised) — /rating (MyRatingScreen) is a CLIENT quick-link
+  // target added outside the StatefulShellRoute branches; it must be gated here
+  // to prevent non-CLIENT roles from reaching it.
   // Exact-segment matching avoids snagging unrelated future paths.
   if (isAuthenticated) {
     const clientBranchPrefixes = <String>[
@@ -253,8 +253,8 @@ String? authRedirectForLocation(
       RouteNames.clientSearch,
       RouteNames.clientBookings,
       RouteNames.clientPassport,
-      // Phase 13.7 — standalone CLIENT quick-link targets (not in shell branches)
-      RouteNames.myReviews,
+      // Phase 13.7 (revised) — standalone CLIENT quick-link targets (not in shell branches)
+      RouteNames.myRating,
     ];
     final isAtClientBranch = clientBranchPrefixes.any(
       (p) => location == p || location.startsWith('$p/'),

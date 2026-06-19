@@ -120,8 +120,9 @@ abstract final class RouteNames {
   static const String scheduleDayOverride = '/schedule/day';
   static const String schedulePropagate = '/schedule/copy';
 
-  // Phase 13.7 — CLIENT home hub quick-link targets.
-  //   • /reviews/me — CLIENT's written reviews list (Phase 13.7 minimal screen).
-  //     Backend GET /reviews/me is not yet shipped; the screen shows empty state.
-  static const String myReviews = '/reviews/me';
+  // Phase 13.7 (revised) — CLIENT rating screen.
+  //   • /rating — CLIENT's aggregate two-sided rating (★ n.n or empty).
+  //     Backend GET /clients/me/rating is not yet shipped; the screen shows
+  //     the empty state. Client comments are never shown (two-sided ratings only).
+  static const String myRating = '/rating';
 }

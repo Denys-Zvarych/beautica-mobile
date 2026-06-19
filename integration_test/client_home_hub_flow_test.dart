@@ -1,4 +1,4 @@
-// Phase 13.7 — E2E: CLIENT Home Hub flow.
+// Phase 13.7 (revised) — E2E: CLIENT Home Hub flow.
 //
 // WHY THIS FILE EXISTS
 // --------------------
@@ -16,14 +16,14 @@
 //   2. Home Hub renders: beautica wordmark, bell button, burger button.
 //   3. The BEAUTY PASSPORT brand literal is present in the stat-pills row.
 //   4. The BEAUTY TIMELINE brand literal is present in the timeline section.
-//   5. The 4 quick-links tiles are rendered (search / favorites / bookings /
-//      reviews).
+//   5. The 3 quick-links tiles are rendered (search / favorites / bookings).
 //   6. Next-appointment, favorites, and timeline show their empty states
 //      (backend 19.x not yet wired — they are placeholder providers).
 //   7. Role gate (reuses client_shell_flow_test.dart contracts — the gate
 //      itself is already proven there; here we confirm /home landing only):
 //      an INDEPENDENT_MASTER who navigates to /home is bounced to
-//      /master/profile; /reviews/me is also gated.
+//      /master/profile; /rating is also gated.
+//   8. The "Мій рейтинг" stat pill is rendered in the stat-pills row.
 //
 // BEAUTY PASSPORT / BEAUTY TIMELINE LITERALS
 // ------------------------------------------
@@ -38,9 +38,9 @@
 // FAKE-BACKEND GAPS
 // -----------------
 // GET /clients/me/passport, GET /bookings/me, GET /favorites/masters,
-// GET /clients/me/timeline — not yet wired in FakeBackend (backend 19.x).
-// Their providers return empty/null placeholders so the Hub shows empty states;
-// the integration test asserts the empty-state keys to confirm this behaviour.
+// GET /clients/me/timeline, GET /clients/me/rating — not yet wired in FakeBackend
+// (backend 19.x). Their providers return empty/null placeholders so the Hub shows
+// empty states; the integration test asserts the empty-state keys to confirm this.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
@@ -157,7 +157,7 @@ void main() {
   // ── Test 3 — Quick-links tiles rendered ──────────────────────────────────
 
   testWidgets(
-    'all 4 quick-link tiles render in the home hub',
+    'all 3 quick-link tiles render in the home hub (reviews removed from quick-links)',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
       await AppHarness.boot(tester, fb);
@@ -168,7 +168,6 @@ void main() {
         'quick_link_search',
         'quick_link_favorites',
         'quick_link_bookings',
-        'quick_link_reviews',
       ]) {
         expect(
           find.byKey(Key(key)),
@@ -176,6 +175,15 @@ void main() {
           reason: '$key quick-link tile must be present in the home hub',
         );
       }
+
+      // The reviews quick-link was removed; rating is reached via the stat pill.
+      expect(
+        find.byKey(const Key('quick_link_reviews')),
+        findsNothing,
+        reason:
+            'quick_link_reviews must be absent — rating navigation is via '
+            'the MyRatingStatCard stat pill',
+      );
     },
     timeout: const Timeout(Duration(seconds: 45)),
   );
@@ -217,42 +225,32 @@ void main() {
     );
   }, timeout: const Timeout(Duration(seconds: 45)));
 
-  // ── Test 5 — quick-link navigates to /reviews/me ─────────────────────────
+  // ── Test 5 — "Мій рейтинг" stat pill is rendered in the hub ────────────
 
   testWidgets(
-    'tapping the reviews quick-link navigates to /reviews/me',
+    '"Мій рейтинг" stat pill renders in the stat-pills row',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
-      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
-      expectLocation(router, RouteNames.clientHome);
-
-      // Scroll down if needed to ensure the quick-links card is visible.
-      await tester.ensureVisible(find.byKey(const Key('quick_link_reviews')));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('quick_link_reviews')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-
-      expectLocation(router, RouteNames.myReviews);
-
-      // The back button on MyReviewsScreen must be present.
+      // The stat pill must render "Мій рейтинг" (l10n.homeHubMyRating).
       expect(
-        find.byKey(const Key('my_reviews_back_button')),
+        find.textContaining('Мій рейтинг'),
         findsOneWidget,
-        reason: 'MyReviewsScreen must mount at /reviews/me with a back button',
+        reason:
+            'MyRatingStatCard must render "Мій рейтинг" in the stat-pills row',
       );
     },
-    timeout: const Timeout(Duration(seconds: 60)),
+    timeout: const Timeout(Duration(seconds: 45)),
   );
 
   // ── Test 6 — role gate: INDEPENDENT_MASTER bounced off /home ─────────────
 
   testWidgets(
     'role gate: an INDEPENDENT_MASTER navigating to /home is bounced to '
-    '/master/profile; /reviews/me is also bounced',
+    '/master/profile; /rating is also bounced',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -272,14 +270,14 @@ void main() {
         reason: 'HomeHubScreen must never mount for INDEPENDENT_MASTER',
       );
 
-      // Attempt /reviews/me — also gated.
-      router.go(RouteNames.myReviews);
+      // Attempt /rating — also gated.
+      router.go(RouteNames.myRating);
       await tester.pumpAndSettle(const Duration(seconds: 1));
       expectLocation(router, RouteNames.masterProfile);
       expect(
-        find.byKey(const Key('my_reviews_back_button')),
+        find.byKey(const Key('my_rating_back_button')),
         findsNothing,
-        reason: 'MyReviewsScreen must never mount for INDEPENDENT_MASTER',
+        reason: 'MyRatingScreen must never mount for INDEPENDENT_MASTER',
       );
     },
     timeout: const Timeout(Duration(seconds: 45)),

@@ -4,8 +4,8 @@
 // search / favorites / bookings.
 // Routes: /search, /favorites, /bookings.
 //
-// The "Мої відгуки" tile was removed in post-13.7 cleanup — the reviews stat
-// pill (ReviewsStatCard) navigates to /reviews/me instead.
+// The "Мої відгуки" tile was removed in post-13.7 cleanup — the rating stat
+// pill (MyRatingStatCard) navigates to /rating instead.
 //
 // Uses IntrinsicHeight + CrossAxisAlignment.stretch (same fix as stat pills)
 // to keep hairline dividers full-height without an infinite-cross-axis.

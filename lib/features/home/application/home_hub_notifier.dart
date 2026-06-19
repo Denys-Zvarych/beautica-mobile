@@ -12,8 +12,9 @@
 //   • favoriteMastersAsync  — TODO(19.1) wire GET /favorites/masters
 //   • timelineAsync         — TODO(19.5) wire GET /clients/me/timeline
 //
-// Counts of reviews are also derivable from GET /reviews/me but that endpoint
-// is not yet shipped; the reviewsLeft stat tile shows a placeholder until then.
+// The client's aggregate rating (two-sided system: masters/salons rate clients)
+// is derivable from GET /clients/me/rating but that endpoint is not yet shipped;
+// the clientRating stat tile shows null (empty state) until then.
 
 import 'dart:developer';
 
@@ -45,7 +46,8 @@ Future<ClientProfileSummary> clientProfile(Ref ref) async {
       // TODO(phase-19.x): replace with GET /clients/me profile endpoint.
       city: '',
       phone: '',
-      reviewsLeft: 0,
+      // TODO(backend): GET /clients/me/rating (two-sided client rating, excludes comments)
+      clientRating: null,
       memberSinceYear: DateTime.now().year,
     ),
     _ => throw StateError('clientProfile: no authenticated session'),

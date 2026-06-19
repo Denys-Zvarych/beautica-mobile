@@ -48,7 +48,7 @@ import '../features/services/presentation/service_setup_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import '../features/home/presentation/home_hub_screen.dart';
-import '../features/reviews/presentation/my_reviews_screen.dart';
+import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/shell/presentation/branch_placeholders.dart';
 import '../features/shell/presentation/client_shell.dart';
 import '../features/support/presentation/contact_support_screen.dart';
@@ -279,11 +279,12 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.contactSupport,
         builder: (context, state) => const ContactSupportScreen(),
       ),
-      // Phase 13.7 — CLIENT's written reviews list (quick-link from Home Hub).
-      // Backend GET /reviews/me is not yet shipped; the screen shows empty state.
+      // Phase 13.7 (revised) — CLIENT's aggregate rating screen.
+      // Backend GET /clients/me/rating is not yet shipped; the screen shows the
+      // empty state. Client comments are never shown (two-sided ratings only).
       GoRoute(
-        path: RouteNames.myReviews,
-        builder: (context, state) => const MyReviewsScreen(),
+        path: RouteNames.myRating,
+        builder: (context, state) => const MyRatingScreen(),
       ),
       // Phase 4.2 — Master profile (read-only).
       GoRoute(

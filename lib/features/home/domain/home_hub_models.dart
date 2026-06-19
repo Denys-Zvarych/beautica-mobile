@@ -15,7 +15,7 @@ class ClientProfileSummary {
     required this.lastName,
     required this.city,
     required this.phone,
-    required this.reviewsLeft,
+    required this.clientRating,
     required this.memberSinceYear,
   });
 
@@ -23,7 +23,13 @@ class ClientProfileSummary {
   final String lastName;
   final String city;
   final String phone;
-  final int reviewsLeft;
+
+  /// The client's aggregate rating from masters/salons (two-sided ratings system).
+  /// null = no rating yet (backend GET /clients/me/rating not yet shipped).
+  /// When rated, shows ★ n.n. Never shows individual comments.
+  /// TODO(backend): GET /clients/me/rating (two-sided client rating, excludes comments).
+  final double? clientRating;
+
   final int memberSinceYear;
 
   String get fullName => '$firstName $lastName';

@@ -2704,25 +2704,9 @@
   "@homeHubPassportSubtitle": {
     "description": "Subtitle under the BEAUTY PASSPORT tile in the stat pills row."
   },
-  "homeHubReviewsCount": "{count} відгуків",
-  "@homeHubReviewsCount": {
-    "description": "Number of reviews left by the client, shown in the reviews stat tile.",
-    "placeholders": {
-      "count": {
-        "type": "int",
-        "example": "12"
-      }
-    }
-  },
-  "homeHubMemberSince": "Користувач з {year}",
-  "@homeHubMemberSince": {
-    "description": "Member-since year label in the reviews stat tile.",
-    "placeholders": {
-      "year": {
-        "type": "int",
-        "example": "2026"
-      }
-    }
+  "homeHubMyRating": "Мій рейтинг",
+  "@homeHubMyRating": {
+    "description": "Label for the rating stat tile in the Home Hub stat-pills row. Shows the client's aggregate two-sided rating (★ n.n) or an em-dash when no rating yet."
   },
   "homeHubQuickSearch": "Пошук\nмайстрів",
   "@homeHubQuickSearch": {
@@ -2818,12 +2802,16 @@
   "@homeHubTimelineLoadError": {
     "description": "Error message shown in the BEAUTY TIMELINE section when loading fails."
   },
-  "myReviewsTitle": "Мої відгуки",
-  "@myReviewsTitle": {
-    "description": "Title for the My Reviews screen AppBar."
+  "myRatingTitle": "МІЙ РЕЙТИНГ",
+  "@myRatingTitle": {
+    "description": "AppBar title for the My Rating screen (all-caps brand style). Shows the client's aggregate two-sided rating."
   },
-  "myReviewsEmpty": "Ви ще не залишали відгуків.",
-  "@myReviewsEmpty": {
-    "description": "Empty state message on the My Reviews screen."
+  "myRatingEmpty": "У вас ще немає рейтингу. Він зʼявиться після завершених записів.",
+  "@myRatingEmpty": {
+    "description": "Empty state message on the My Rating screen when no rating has been assigned yet."
+  },
+  "myRatingExplanation": "Ваш рейтинг формується на основі оцінок майстрів і салонів після завершених процедур.",
+  "@myRatingExplanation": {
+    "description": "Explanation line under the rating number and stars on the My Rating screen. Tells the client who assigns their rating."
   }
 }

@@ -7,10 +7,13 @@
 //   4. Next appointment empty state is shown when no appointment.
 //   5. Favourite masters empty state is shown when no masters.
 //   6. BEAUTY TIMELINE empty state is shown when no entries.
-//   7. QuickLinksCard renders 3 tiles (reviews tile removed — reviews reached via stat pill).
+//   7. QuickLinksCard renders 3 tiles (reviews tile removed — rating reached via stat pill).
 //   8. PassportPreviewCard renders the untranslated "BEAUTY PASSPORT" literal.
 //   9. BEAUTY TIMELINE section renders the untranslated "BEAUTY TIMELINE" literal.
 //  10. HomeHubScreen renders a key widget without error (smoke test).
+//  11. MyRatingStatCard stat tile shows "Мий рейтинг" label and "—" empty value.
+//   QA addition:
+//  12. MyRatingStatCard onTap fires and navigates to RouteNames.myRating.
 //
 // NOTE: ScreenProtectionManager is a keepAlive singleton — tests override it
 // with a no-op so the native plugin is never called during tests.
@@ -57,7 +60,7 @@ const _sampleProfile = ClientProfileSummary(
   lastName: 'Тест',
   city: 'Львів',
   phone: '+380 97 000 00 00',
-  reviewsLeft: 3,
+  clientRating: null,
   memberSinceYear: 2026,
 );
 
@@ -437,8 +440,8 @@ void main() {
     });
 
     testWidgets('reviews tile is absent from quick-links card', (tester) async {
-      // The "Мої відгуки" tile was removed — reviews are reached from the
-      // ReviewsStatCard stat pill instead (separate widget, stays in the screen).
+      // The "Мої відгуки" tile was removed — rating is reached from the
+      // MyRatingStatCard stat pill instead (separate widget, stays in the screen).
       await tester.pumpApp(const QuickLinksCard());
       await tester.pump();
       expect(
@@ -446,9 +449,96 @@ void main() {
         findsNothing,
         reason:
             'quick_link_reviews tile must be absent — the stat pill navigates '
-            'to /reviews/me instead',
+            'to /rating instead',
       );
     });
+  });
+
+  group('MyRatingStatCard', () {
+    testWidgets('shows "Мій рейтинг" label', (tester) async {
+      await tester.pumpApp(
+        const MyRatingStatCard(clientRating: null, onTap: _noop),
+      );
+      await tester.pump();
+      expect(
+        find.textContaining('Мій рейтинг'),
+        findsOneWidget,
+        reason: 'MyRatingStatCard must render the homeHubMyRating l10n string',
+      );
+    });
+
+    testWidgets('shows em-dash when clientRating is null (empty state)', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MyRatingStatCard(clientRating: null, onTap: _noop),
+      );
+      await tester.pump();
+      expect(
+        find.text('—'),
+        findsOneWidget,
+        reason:
+            'MyRatingStatCard must show "—" when no rating has been assigned',
+      );
+    });
+
+    testWidgets('shows ★ value when clientRating is non-null', (tester) async {
+      await tester.pumpApp(
+        const MyRatingStatCard(clientRating: 4.7, onTap: _noop),
+      );
+      await tester.pump();
+      expect(
+        find.text('★ 4.7'),
+        findsOneWidget,
+        reason: 'MyRatingStatCard must show "★ 4.7" when clientRating = 4.7',
+      );
+    });
+
+    testWidgets('stat pills row renders MyRatingStatCard via HomeHubScreen', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const HomeHubScreen(),
+        overrides: _overrides(profile: const AsyncData(_sampleProfile)),
+      );
+      await tester.pump(const Duration(milliseconds: 1100));
+
+      // The label "Мій рейтинг" must appear in the stat-pills row.
+      expect(
+        find.textContaining('Мій рейтинг'),
+        findsOneWidget,
+        reason:
+            'stat-pills row must use MyRatingStatCard with Мій рейтинг label',
+      );
+    });
+
+    // QA addition: verify the onTap wiring of MyRatingStatCard fires.
+    // The pill's onTap calls context.push(RouteNames.myRating) in HomeHubScreen;
+    // we test MyRatingStatCard standalone with a spy callback so the wiring can
+    // be confirmed without a full GoRouter. The navigation correctness through
+    // GoRouter is covered by client_home_hub_flow_test.dart (integration tier).
+    testWidgets(
+      'MyRatingStatCard onTap callback fires when the card is tapped',
+      (tester) async {
+        var tapped = false;
+        await tester.pumpApp(
+          MyRatingStatCard(clientRating: null, onTap: () => tapped = true),
+        );
+        await tester.pump();
+
+        // The card is a HubFlatCard with an onTap. Tap anywhere on the card.
+        await tester.tap(find.byType(MyRatingStatCard));
+        await tester.pump();
+
+        expect(
+          tapped,
+          isTrue,
+          reason:
+              'tapping MyRatingStatCard must fire onTap — this wires to '
+              'context.push(RouteNames.myRating) in HomeHubScreen',
+        );
+      },
+    );
   });
 
   group('HubEmptyState', () {

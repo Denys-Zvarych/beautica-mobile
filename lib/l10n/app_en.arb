@@ -2704,25 +2704,9 @@
   "@homeHubPassportSubtitle": {
     "description": "Subtitle under the BEAUTY PASSPORT tile in the stat pills row."
   },
-  "homeHubReviewsCount": "{count} reviews",
-  "@homeHubReviewsCount": {
-    "description": "Number of reviews left by the client, shown in the reviews stat tile.",
-    "placeholders": {
-      "count": {
-        "type": "int",
-        "example": "12"
-      }
-    }
-  },
-  "homeHubMemberSince": "Member since {year}",
-  "@homeHubMemberSince": {
-    "description": "Member-since year label in the reviews stat tile.",
-    "placeholders": {
-      "year": {
-        "type": "int",
-        "example": "2026"
-      }
-    }
+  "homeHubMyRating": "My rating",
+  "@homeHubMyRating": {
+    "description": "Label for the rating stat tile in the Home Hub stat-pills row. Shows the client's aggregate two-sided rating (★ n.n) or an em-dash when no rating yet."
   },
   "homeHubQuickSearch": "Search\nmasters",
   "@homeHubQuickSearch": {
@@ -2818,12 +2802,16 @@
   "@homeHubTimelineLoadError": {
     "description": "Error message shown in the BEAUTY TIMELINE section when loading fails."
   },
-  "myReviewsTitle": "My reviews",
-  "@myReviewsTitle": {
-    "description": "Title for the My Reviews screen AppBar."
+  "myRatingTitle": "MY RATING",
+  "@myRatingTitle": {
+    "description": "AppBar title for the My Rating screen (all-caps brand style). Shows the client's aggregate two-sided rating."
   },
-  "myReviewsEmpty": "You haven't left any reviews yet.",
-  "@myReviewsEmpty": {
-    "description": "Empty state message on the My Reviews screen."
+  "myRatingEmpty": "You don't have a rating yet. It will appear after completed appointments.",
+  "@myRatingEmpty": {
+    "description": "Empty state message on the My Rating screen when no rating has been assigned yet."
+  },
+  "myRatingExplanation": "Your rating is based on scores from masters and salons after completed procedures.",
+  "@myRatingExplanation": {
+    "description": "Explanation line under the rating number and stars on the My Rating screen. Tells the client who assigns their rating."
   }
 }

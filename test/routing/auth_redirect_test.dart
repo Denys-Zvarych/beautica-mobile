@@ -606,13 +606,18 @@ void main() {
     // Phase 13.1 — CLIENT 5-tab shell role gate. The inverse of the master
     // gates: CLIENT reaches the five branches; every other role is bounced to
     // its own landing (INDEPENDENT_MASTER → /master/profile, salon roles → /).
-    group('CLIENT shell role gate (Phase 13.1)', () {
+    group('CLIENT shell role gate (Phase 13.1 + Phase 13.7)', () {
       const clientRoutes = <String>[
         RouteNames.clientHome,
         RouteNames.clientFavorites,
         RouteNames.clientSearch,
         RouteNames.clientBookings,
         RouteNames.clientPassport,
+        // Phase 13.7 (revised) — standalone CLIENT quick-link outside the shell
+        // branches. Must be gated identically to the five shell paths above so
+        // that a non-CLIENT role cannot reach /rating via direct navigation or
+        // a deep link.
+        RouteNames.myRating,
       ];
 
       for (final route in clientRoutes) {

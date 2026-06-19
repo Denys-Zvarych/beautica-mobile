@@ -158,7 +158,7 @@ List<Object> _homeHubOverrides() => [
       lastName: 'Клієнт',
       city: 'Київ',
       phone: '',
-      reviewsLeft: 0,
+      clientRating: null,
       memberSinceYear: 2024,
     ),
   ),

@@ -1,4 +1,4 @@
-// Phase 13.7 — HomeHub supplemental widget tests (QA gate additions).
+// Phase 13.7 (revised) — HomeHub supplemental widget tests (QA gate additions).
 //
 // Covers gaps not in the original home_hub_screen_test.dart:
 //   1.  Error state per card — profile error renders retry button; tap retry
@@ -7,7 +7,7 @@
 //   3.  Favorites error state + retry.
 //   4.  Timeline error state + retry.
 //   5.  IntrinsicHeight stat-pills regression — the Row that wraps
-//       PassportPreviewCard + ReviewsStatCard must produce a finite, non-zero
+//       PassportPreviewCard + MyRatingStatCard must produce a finite, non-zero
 //       height inside a constrained parent (regression guard for the Flutter web
 //       blank-sliver bug).
 //   6.  Quick-links tap callbacks navigate (each tile fires context.push via
@@ -18,7 +18,7 @@
 //       primary file — kept here for the IntrinsicHeight proof in the same pump
 //       that also checks the chip).
 //   9.  ProfileCard skipped with empty city/phone renders l10n placeholders.
-//  10.  ReviewsStatCard stat tile renders reviewsLeft + memberSinceYear values.
+//  10.  MyRatingStatCard stat tile renders "Мій рейтинг" label and "—" empty value.
 
 import 'dart:async';
 
@@ -74,7 +74,7 @@ const _sampleProfile = ClientProfileSummary(
   lastName: 'Клієнт',
   city: 'Київ',
   phone: '+380501234567',
-  reviewsLeft: 5,
+  clientRating: null,
   memberSinceYear: 2024,
 );
 
@@ -264,7 +264,7 @@ void main() {
 
   group('stat-pills IntrinsicHeight regression', () {
     testWidgets(
-      'PassportPreviewCard and ReviewsStatCard have finite non-zero height '
+      'PassportPreviewCard and MyRatingStatCard have finite non-zero height '
       'inside a constrained parent (web-blank-sliver regression guard)',
       (tester) async {
         // Pump just the stat-pills row standalone so we can measure it in
@@ -280,11 +280,7 @@ void main() {
                   Expanded(child: PassportPreviewCard(onTap: () {})),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: ReviewsStatCard(
-                      reviewsLeft: 3,
-                      memberSinceYear: 2024,
-                      onTap: () {},
-                    ),
+                    child: MyRatingStatCard(clientRating: null, onTap: () {}),
                   ),
                 ],
               ),
@@ -295,6 +291,7 @@ void main() {
 
         // Both tiles must be present (sanity).
         expect(find.textContaining('BEAUTY PASSPORT'), findsOneWidget);
+        expect(find.textContaining('Мій рейтинг'), findsOneWidget);
 
         // The IntrinsicHeight Row must have a finite, non-zero render size.
         final RenderBox row = tester.renderObject<RenderBox>(
@@ -376,8 +373,8 @@ void main() {
           find.byKey(const Key('quick_link_reviews')),
           findsNothing,
           reason:
-              'quick_link_reviews was removed — navigation to /reviews/me is '
-              'via the ReviewsStatCard stat pill, not the quick-links row',
+              'quick_link_reviews was removed — navigation to /rating is '
+              'via the MyRatingStatCard stat pill, not the quick-links row',
         );
       },
     );
@@ -465,7 +462,7 @@ void main() {
         lastName: 'Назаренко',
         city: '',
         phone: '',
-        reviewsLeft: 0,
+        clientRating: null,
         memberSinceYear: 2025,
       );
 
@@ -485,46 +482,47 @@ void main() {
     });
   });
 
-  // ── 6. ReviewsStatCard renders correct values ────────────────────────────
+  // ── 6. MyRatingStatCard renders correct values ────────────────────────────
 
-  group('ReviewsStatCard values', () {
-    testWidgets('renders reviewsLeft count from profile', (tester) async {
+  group('MyRatingStatCard values', () {
+    testWidgets('renders "Мій рейтинг" label in stat-pills row', (
+      tester,
+    ) async {
       await tester.pumpApp(
         const HomeHubScreen(),
         overrides: _overrides(
-          profile: const AsyncData(_sampleProfile), // reviewsLeft = 5
+          profile: const AsyncData(_sampleProfile), // clientRating = null
         ),
       );
       await tester.pump(const Duration(milliseconds: 1100));
 
-      // ReviewsStatCard renders l10n.homeHubReviewsCount(reviewsLeft).
-      // We verify the value is in the tree by checking the rendered text
-      // contains the count digit rather than using a raw l10n string.
-      // The stat card renders '5' as the count argument.
+      // MyRatingStatCard renders l10n.homeHubMyRating as its label.
       expect(
-        find.textContaining('5'),
-        findsWidgets,
+        find.textContaining('Мій рейтинг'),
+        findsOneWidget,
         reason:
-            'ReviewsStatCard must display the reviewsLeft count (5) from '
-            'the profile provider via l10n.homeHubReviewsCount',
+            'MyRatingStatCard must display "Мій рейтинг" from '
+            'the l10n.homeHubMyRating key',
       );
     });
 
-    testWidgets('renders memberSinceYear from profile', (tester) async {
+    testWidgets('renders "—" when clientRating is null (empty state)', (
+      tester,
+    ) async {
       await tester.pumpApp(
         const HomeHubScreen(),
         overrides: _overrides(
-          profile: const AsyncData(_sampleProfile), // memberSinceYear = 2024
+          profile: const AsyncData(_sampleProfile), // clientRating = null
         ),
       );
       await tester.pump(const Duration(milliseconds: 1100));
 
       expect(
-        find.textContaining('2024'),
-        findsWidgets,
+        find.text('—'),
+        findsOneWidget,
         reason:
-            'ReviewsStatCard must display the memberSinceYear (2024) from '
-            'the profile provider via l10n.homeHubMemberSince',
+            'MyRatingStatCard must show "—" em-dash when clientRating is null '
+            '(backend GET /clients/me/rating not yet shipped)',
       );
     });
   });
