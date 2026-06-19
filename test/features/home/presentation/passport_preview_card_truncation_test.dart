@@ -53,6 +53,9 @@ import '../../../helpers/pump_app.dart';
 const String _kSubtitleUk = "Твій б'юті-паспорт у Beautica";
 // The untranslated brand title (locked product decision).
 const String _kTitle = 'BEAUTY PASSPORT';
+// The full Ukrainian "Мій рейтинг" label that must never be ellipsis-cut at the
+// rating pill's narrower 2-share width.
+const String _kMyRatingUk = 'Мій рейтинг';
 
 // The narrow-width / large-font matrix the pill regressed on.
 //   • 320dp — smallest supported phone (worst horizontal squeeze).
@@ -77,6 +80,30 @@ Widget _halfWidthPill(Widget card) {
           Expanded(child: card),
           const SizedBox(width: VelvetSpacing.md - 4),
           const Expanded(child: SizedBox.shrink()),
+        ],
+      ),
+    ),
+  );
+}
+
+/// Wraps [card] so it receives EXACTLY the MyRatingStatCard's on-screen
+/// 2/5-share width: the real outer horizontal padding (VelvetSpacing.lg each
+/// side) + the real inter-pill gap (VelvetSpacing.md - 4) + the sibling
+/// Expanded(flex: 3) the passport pill occupies, mirroring _StatPillsRow's 3:2
+/// split. The card sits in the flex-2 slot so it gets precisely its 2/5 share —
+/// no hand-computed magic number.
+Widget _ratingSharePill(Widget card) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+    child: Align(
+      alignment: Alignment.topCenter,
+      child: Row(
+        children: <Widget>[
+          // The passport pill's 3-share — present so the rating card receives
+          // only the narrower 2/5 of the row width it has on screen.
+          const Expanded(flex: 3, child: SizedBox.shrink()),
+          const SizedBox(width: VelvetSpacing.md - 4),
+          Expanded(flex: 2, child: card),
         ],
       ),
     ),
@@ -140,6 +167,61 @@ void main() {
             );
           },
         );
+      }
+    }
+  });
+
+  // MyRatingStatCard — re-balanced to the NARROWER 2-share of the 3:2 stat-pill
+  // row (passport flex 3, rating flex 2). The label "Мій рейтинг" (two words)
+  // and the value ("★ n.n" / "—") just received fontSize 10 + FittedBox.scaleDown
+  // protection with ellipsis removed. This group proves BOTH the label and the
+  // value render fully (no ellipsis) at the card's real 2/5 width across the
+  // narrow-width × large-font matrix; reverting the protection (fontSize 11 +
+  // plain Text(overflow: ellipsis), no FittedBox) flips didExceedMaxLines true.
+  group('MyRatingStatCard — label & value never ellipsis-truncated', () {
+    // Rated (★ 4.7) and empty (—) value variants — both must render fully.
+    const Map<String, double?> ratingCases = <String, double?>{
+      'rated ★ 4.7': 4.7,
+      'empty —': null,
+    };
+
+    for (final MapEntry<String, double?> ratingCase in ratingCases.entries) {
+      final String caseName = ratingCase.key;
+      final double? clientRating = ratingCase.value;
+      final String valueText = clientRating != null
+          ? '★ ${clientRating.toStringAsFixed(1)}'
+          : '—';
+
+      for (final double width in _matrixWidths) {
+        for (final double scale in _matrixScales) {
+          testWidgets('shows full UA label + value ($caseName) untruncated at '
+              '${width.toInt()}px width × textScale $scale (2/5-share pill)', (
+            tester,
+          ) async {
+            await tester.pumpApp(
+              _ratingSharePill(
+                MyRatingStatCard(clientRating: clientRating, onTap: () {}),
+              ),
+              width: width,
+              textScaleFactor: scale,
+            );
+            await tester.pumpAndSettle();
+
+            // Label — the primary regression target at the narrow 2-share.
+            _expectNotTruncated(tester, _kMyRatingUk, label: 'Rating label');
+            // Value — short, but the guard asserts it is rendered fully too.
+            _expectNotTruncated(tester, valueText, label: 'Rating value');
+
+            // No overflow surfaced as a thrown FlutterError either.
+            expect(
+              tester.takeException(),
+              isNull,
+              reason:
+                  'MyRatingStatCard must not overflow at '
+                  '${width.toInt()}px × textScale $scale ($caseName).',
+            );
+          });
+        }
       }
     }
   });

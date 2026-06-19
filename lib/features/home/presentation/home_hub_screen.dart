@@ -365,9 +365,13 @@ class _StatPillsRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Expanded(child: PassportPreviewCard(onTap: onPassport)),
+          // 3 : 2 width split — BEAUTY PASSPORT is the primary CTA so it reads
+          // visibly wider; the rating pill (shorter content) takes the narrower
+          // 2-share. Heights stay equal via IntrinsicHeight + stretch above.
+          Expanded(flex: 3, child: PassportPreviewCard(onTap: onPassport)),
           const SizedBox(width: VelvetSpacing.md - 4),
           Expanded(
+            flex: 2,
             child: profileAsync.when(
               data: (ClientProfileSummary p) => MyRatingStatCard(
                 clientRating: p.clientRating,

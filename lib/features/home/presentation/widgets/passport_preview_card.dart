@@ -142,8 +142,13 @@ class MyRatingStatCard extends StatelessWidget {
   final VoidCallback onTap;
 
   // Pre-composed text styles — no per-build allocation.
+  // fontSize 10 (down from 11) mirrors the passport card's narrow-pill subtitle
+  // treatment: the rating pill now takes the smaller 2-share of the 3:2 row, so
+  // "Мій рейтинг" gets a tighter text column. The FittedBox.scaleDown wrappers
+  // below are the safety net that absorb any residual overflow (incl. the long
+  // UA label across two words at text-scale 1.3) so nothing is ever ellipsis-cut.
   static final TextStyle _labelStyle = VelvetText.bodyStrong().copyWith(
-    fontSize: 11,
+    fontSize: 10,
     letterSpacing: 0.3,
     height: 1.15,
     fontWeight: FontWeight.w800,
@@ -203,18 +208,26 @@ class MyRatingStatCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Text(
-                  l10n.homeHubMyRating,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: _labelStyle,
+                // FittedBox.scaleDown keeps the full "Мій рейтинг" label visible
+                // (no ellipsis) at the narrower 2-share width and across text
+                // scales up to the app's 1.3 clamp — matches the passport card.
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    l10n.homeHubMyRating,
+                    maxLines: 2,
+                    softWrap: true,
+                    style: _labelStyle,
+                  ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  valueText,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: valueStyle,
+                // The value ("★ n.n" / "—") is short, but wrap it too so the
+                // star+number is guaranteed to render fully at the narrow width.
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(valueText, maxLines: 1, style: valueStyle),
                 ),
               ],
             ),
