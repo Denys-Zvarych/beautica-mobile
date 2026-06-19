@@ -2686,5 +2686,148 @@
   "contactSupportErrUnavailable": "Підтримка тимчасово недоступна. Спробуйте, будь ласка, пізніше.",
   "@contactSupportErrUnavailable": {
     "description": "Error shown when the backend support channel is not configured (503)."
+  },
+
+  "homeHubChangePhotoLabel": "Змінити фото",
+  "@homeHubChangePhotoLabel": {
+    "description": "Accessibility label for the camera badge on the client avatar in the Home Hub."
+  },
+  "homeHubLocationPlaceholder": "Місто не вказано",
+  "@homeHubLocationPlaceholder": {
+    "description": "Placeholder shown in the profile block when the client has no city set."
+  },
+  "homeHubPhonePlaceholder": "Телефон не вказано",
+  "@homeHubPhonePlaceholder": {
+    "description": "Placeholder shown in the profile block when the client has no phone set."
+  },
+  "homeHubPassportSubtitle": "Твій б'юті-паспорт у Beautica",
+  "@homeHubPassportSubtitle": {
+    "description": "Subtitle under the BEAUTY PASSPORT tile in the stat pills row."
+  },
+  "homeHubReviewsCount": "{count} відгуків",
+  "@homeHubReviewsCount": {
+    "description": "Number of reviews left by the client, shown in the reviews stat tile.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "12"
+      }
+    }
+  },
+  "homeHubMemberSince": "Користувач з {year}",
+  "@homeHubMemberSince": {
+    "description": "Member-since year label in the reviews stat tile.",
+    "placeholders": {
+      "year": {
+        "type": "int",
+        "example": "2026"
+      }
+    }
+  },
+  "homeHubQuickSearch": "Пошук\nмайстрів",
+  "@homeHubQuickSearch": {
+    "description": "Quick-link tile label for master search."
+  },
+  "homeHubQuickFavorites": "Улюблені\nмайстри",
+  "@homeHubQuickFavorites": {
+    "description": "Quick-link tile label for favourite masters."
+  },
+  "homeHubQuickBookings": "Мої\nзаписи",
+  "@homeHubQuickBookings": {
+    "description": "Quick-link tile label for my bookings."
+  },
+  "homeHubQuickReviews": "Мої\nвідгуки",
+  "@homeHubQuickReviews": {
+    "description": "Quick-link tile label for my reviews."
+  },
+  "homeHubNextAppointmentTitle": "Найближчий запис",
+  "@homeHubNextAppointmentTitle": {
+    "description": "Section title for the next upcoming appointment card."
+  },
+  "homeHubNoUpcomingAppointments": "Немає майбутніх записів.",
+  "@homeHubNoUpcomingAppointments": {
+    "description": "Empty-state message in the next appointment card."
+  },
+  "homeHubFindMaster": "Знайти майстра",
+  "@homeHubFindMaster": {
+    "description": "CTA button in the next appointment empty state."
+  },
+  "homeHubRescheduleAppointment": "Перенести",
+  "@homeHubRescheduleAppointment": {
+    "description": "Button label to reschedule the next appointment."
+  },
+  "homeHubCancelAppointment": "Скасувати",
+  "@homeHubCancelAppointment": {
+    "description": "Button label to cancel the next appointment."
+  },
+  "homeHubAddToGoogleCalendar": "Google Календар",
+  "@homeHubAddToGoogleCalendar": {
+    "description": "Accessibility label for the Google Calendar button in the next appointment card."
+  },
+  "homeHubAddToAppleCalendar": "Apple Календар",
+  "@homeHubAddToAppleCalendar": {
+    "description": "Accessibility label for the Apple Calendar button in the next appointment card."
+  },
+  "homeHubFavoriteMastersTitle": "Улюблені майстри",
+  "@homeHubFavoriteMastersTitle": {
+    "description": "Section title for the favourite masters rail."
+  },
+  "homeHubFavoriteMastersSeeAll": "Всі ({count})",
+  "@homeHubFavoriteMastersSeeAll": {
+    "description": "See-all link label for the favourite masters section.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "6"
+      }
+    }
+  },
+  "homeHubFavoriteMastersEmpty": "Ще немає улюблених майстрів.\nТоркніться серця в профілі майстра, щоб зберегти.",
+  "@homeHubFavoriteMastersEmpty": {
+    "description": "Empty-state message in the favourite masters rail."
+  },
+  "homeHubUnlikeMasterLabel": "Прибрати з улюблених",
+  "@homeHubUnlikeMasterLabel": {
+    "description": "Accessibility label for the unlike (heart) button on a favourite master mini-card."
+  },
+  "homeHubTimelineSeeAll": "Вся історія",
+  "@homeHubTimelineSeeAll": {
+    "description": "See-all link label for the BEAUTY TIMELINE section."
+  },
+  "homeHubTimelineEmpty": "Тут зʼявиться історія ваших процедур.",
+  "@homeHubTimelineEmpty": {
+    "description": "Empty-state message in the BEAUTY TIMELINE rail."
+  },
+  "homeHubNotificationsLabel": "Сповіщення",
+  "@homeHubNotificationsLabel": {
+    "description": "Accessibility label for the notification bell button in the Home Hub top bar."
+  },
+  "homeHubMenuLabel": "Меню",
+  "@homeHubMenuLabel": {
+    "description": "Accessibility label for the burger menu button in the Home Hub top bar."
+  },
+  "homeHubProfileLoadError": "Не вдалося завантажити профіль.",
+  "@homeHubProfileLoadError": {
+    "description": "Error message shown in the profile section when profile loading fails."
+  },
+  "homeHubNextApptLoadError": "Не вдалося завантажити найближчий запис.",
+  "@homeHubNextApptLoadError": {
+    "description": "Error message shown in the next appointment section when loading fails."
+  },
+  "homeHubFavoritesLoadError": "Не вдалося завантажити улюблених майстрів.",
+  "@homeHubFavoritesLoadError": {
+    "description": "Error message shown in the favourite masters section when loading fails."
+  },
+  "homeHubTimelineLoadError": "Не вдалося завантажити часову шкалу.",
+  "@homeHubTimelineLoadError": {
+    "description": "Error message shown in the BEAUTY TIMELINE section when loading fails."
+  },
+  "myReviewsTitle": "Мої відгуки",
+  "@myReviewsTitle": {
+    "description": "Title for the My Reviews screen AppBar."
+  },
+  "myReviewsEmpty": "Ви ще не залишали відгуків.",
+  "@myReviewsEmpty": {
+    "description": "Empty state message on the My Reviews screen."
   }
 }

@@ -231,16 +231,21 @@ String? authRedirectForLocation(
     }
   }
 
-  // Role gate (Phase 13.1): the CLIENT 5-tab shell branches are CLIENT-only.
+  // Role gate (Phase 13.1 + Phase 13.7): CLIENT-only surfaces.
   //
   // The inverse of the /master/*, /services, /schedule gates above: any non-
   // CLIENT authenticated role (INDEPENDENT_MASTER, salon roles) that lands on a
   // client branch is bounced to its own landing — INDEPENDENT_MASTER back to
   // its profile, everyone else to the "coming soon" home shell. This keeps the
   // CLIENT and MASTER shells mutually fenced off: a MASTER can never reach
-  // /home, /favorites, /search, /bookings or /passport, and the gates above
-  // already keep a CLIENT out of every /master/*, /services and /schedule
-  // surface. Exact-segment matching avoids snagging unrelated future paths.
+  // /home, /favorites, /search, /bookings, /passport, or any other CLIENT-only
+  // surface, and the gates above already keep a CLIENT out of every /master/*,
+  // /services and /schedule surface.
+  //
+  // Phase 13.7 — /reviews/me (MyReviewsScreen) is a CLIENT quick-link target
+  // added outside the StatefulShellRoute branches; it must be gated here to
+  // prevent non-CLIENT roles from reaching it when GET /reviews/me ships.
+  // Exact-segment matching avoids snagging unrelated future paths.
   if (isAuthenticated) {
     const clientBranchPrefixes = <String>[
       RouteNames.clientHome,
@@ -248,6 +253,8 @@ String? authRedirectForLocation(
       RouteNames.clientSearch,
       RouteNames.clientBookings,
       RouteNames.clientPassport,
+      // Phase 13.7 — standalone CLIENT quick-link targets (not in shell branches)
+      RouteNames.myReviews,
     ];
     final isAtClientBranch = clientBranchPrefixes.any(
       (p) => location == p || location.startsWith('$p/'),

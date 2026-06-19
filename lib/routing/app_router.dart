@@ -47,6 +47,8 @@ import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/service_setup_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/home/presentation/home_hub_screen.dart';
+import '../features/reviews/presentation/my_reviews_screen.dart';
 import '../features/shell/presentation/branch_placeholders.dart';
 import '../features/shell/presentation/client_shell.dart';
 import '../features/support/presentation/contact_support_screen.dart';
@@ -215,10 +217,11 @@ GoRouter appRouter(Ref ref) {
         branches: [
           StatefulShellBranch(
             routes: [
+              // Phase 13.7 — real HomeHubScreen replaces the placeholder.
               GoRoute(
                 path: RouteNames.clientHome,
                 pageBuilder: (context, state) =>
-                    _instantPage(state, const ClientHomePlaceholderScreen()),
+                    _instantPage(state, const HomeHubScreen()),
               ),
             ],
           ),
@@ -275,6 +278,12 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.contactSupport,
         builder: (context, state) => const ContactSupportScreen(),
+      ),
+      // Phase 13.7 — CLIENT's written reviews list (quick-link from Home Hub).
+      // Backend GET /reviews/me is not yet shipped; the screen shows empty state.
+      GoRoute(
+        path: RouteNames.myReviews,
+        builder: (context, state) => const MyReviewsScreen(),
       ),
       // Phase 4.2 — Master profile (read-only).
       GoRoute(

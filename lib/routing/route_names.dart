@@ -119,4 +119,9 @@ abstract final class RouteNames {
   //   • 15.5 — copy/propagate range surface
   static const String scheduleDayOverride = '/schedule/day';
   static const String schedulePropagate = '/schedule/copy';
+
+  // Phase 13.7 — CLIENT home hub quick-link targets.
+  //   • /reviews/me — CLIENT's written reviews list (Phase 13.7 minimal screen).
+  //     Backend GET /reviews/me is not yet shipped; the screen shows empty state.
+  static const String myReviews = '/reviews/me';
 }

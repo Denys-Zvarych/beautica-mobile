@@ -1,0 +1,287 @@
+// Phase 13.7 — E2E: CLIENT Home Hub flow.
+//
+// WHY THIS FILE EXISTS
+// --------------------
+// The widget tier (test/features/home/presentation/home_hub_screen_test.dart +
+// home_hub_supplemental_test.dart) proves each card widget in isolation and the
+// ScreenProtector lifecycle. Neither exercises the REAL journey: a CLIENT
+// logging in through the real login form against the fake backend, landing on
+// /home, and seeing the Home Hub rendered with provider state from the real
+// auth session.
+//
+// This flow boots the REAL app via AppHarness (FakeBackend socket,
+// FakeSecureStorage, fixed clock, overflow guard) and drives:
+//
+//   1. CLIENT login → lands on /home (HomeHubScreen mounted as branch 0).
+//   2. Home Hub renders: beautica wordmark, bell button, burger button.
+//   3. The BEAUTY PASSPORT brand literal is present in the stat-pills row.
+//   4. The BEAUTY TIMELINE brand literal is present in the timeline section.
+//   5. The 4 quick-links tiles are rendered (search / favorites / bookings /
+//      reviews).
+//   6. Next-appointment, favorites, and timeline show their empty states
+//      (backend 19.x not yet wired — they are placeholder providers).
+//   7. Role gate (reuses client_shell_flow_test.dart contracts — the gate
+//      itself is already proven there; here we confirm /home landing only):
+//      an INDEPENDENT_MASTER who navigates to /home is bounced to
+//      /master/profile; /reviews/me is also gated.
+//
+// BEAUTY PASSPORT / BEAUTY TIMELINE LITERALS
+// ------------------------------------------
+// These are intentionally untranslated English brand constants (per the locked
+// product decision). Tests assert find.textContaining('BEAUTY PASSPORT') and
+// find.textContaining('BEAUTY TIMELINE') — raw-string assertions are correct
+// here because there is no l10n key for these literals.
+//
+// KEY POLICY (from AppHarness): all TAPS use key-based finders. Raw Ukrainian
+// text may appear in CONTENT ASSERTIONS only.
+//
+// FAKE-BACKEND GAPS
+// -----------------
+// GET /clients/me/passport, GET /bookings/me, GET /favorites/masters,
+// GET /clients/me/timeline — not yet wired in FakeBackend (backend 19.x).
+// Their providers return empty/null placeholders so the Hub shows empty states;
+// the integration test asserts the empty-state keys to confirm this behaviour.
+
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:integration_test/integration_test.dart';
+
+import '../test/helpers/overflow_guard.dart';
+import 'support/app_harness.dart';
+
+void main() {
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(installOverflowGuard);
+  tearDown(AppHarness.tearDownHarness);
+
+  // ── Helper: assert the router landed on [expected] ───────────────────────
+  void expectLocation(GoRouter router, String expected) {
+    final String current = router.routerDelegate.currentConfiguration.uri
+        .toString();
+    expect(
+      current,
+      startsWith(expected),
+      reason: 'Expected router to be at $expected, got $current',
+    );
+  }
+
+  // ── Test 1 — CLIENT login lands on /home (HomeHubScreen) ─────────────────
+
+  testWidgets(
+    'CLIENT login lands on /home and HomeHubScreen mounts with all key widgets',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      // Cold start → /login.
+      expect(
+        find.byKey(const ValueKey<String>('login_email')),
+        findsOneWidget,
+        reason: 'cold start (no token) must show /login',
+      );
+
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      // Allow the stagger animation to play so all hub sections become visible.
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      // Must be at /home.
+      expectLocation(router, RouteNames.clientHome);
+
+      // HomeHubScreen must be mounted.
+      expect(
+        find.byType(HomeHubScreen),
+        findsOneWidget,
+        reason:
+            'HomeHubScreen must mount as the branch-0 body of the client shell',
+      );
+
+      // Top bar: wordmark.
+      expect(
+        find.text('beautica'),
+        findsOneWidget,
+        reason: 'top bar must render the beautica wordmark',
+      );
+
+      // Top bar buttons.
+      expect(
+        find.byKey(const Key('home_hub_bell_button')),
+        findsOneWidget,
+        reason: 'bell button must be present in the top bar',
+      );
+      expect(
+        find.byKey(const Key('home_hub_menu_button')),
+        findsOneWidget,
+        reason: 'burger menu button must be present in the top bar',
+      );
+
+      expect(fb.loginCalls, equals(1));
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  // ── Test 2 — BEAUTY PASSPORT + BEAUTY TIMELINE brand literals ────────────
+
+  testWidgets(
+    'BEAUTY PASSPORT and BEAUTY TIMELINE brand literals render in the hub',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      // These are intentional English brand constants — the only raw-string
+      // assertions in this file.
+      expect(
+        find.textContaining('BEAUTY PASSPORT'),
+        findsOneWidget,
+        reason:
+            'PassportPreviewCard must render the "BEAUTY PASSPORT" brand literal '
+            '(intentionally untranslated per product decision)',
+      );
+      expect(
+        find.textContaining('BEAUTY TIMELINE'),
+        findsOneWidget,
+        reason:
+            'BeautyTimelineSection must render the "BEAUTY TIMELINE" brand literal '
+            '(intentionally untranslated per product decision)',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  // ── Test 3 — Quick-links tiles rendered ──────────────────────────────────
+
+  testWidgets(
+    'all 4 quick-link tiles render in the home hub',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      for (final String key in <String>[
+        'quick_link_search',
+        'quick_link_favorites',
+        'quick_link_bookings',
+        'quick_link_reviews',
+      ]) {
+        expect(
+          find.byKey(Key(key)),
+          findsOneWidget,
+          reason: '$key quick-link tile must be present in the home hub',
+        );
+      }
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  // ── Test 4 — empty states for placeholder sections ────────────────────────
+
+  testWidgets('next-appointment, favorites, and timeline show empty states '
+      '(backend 19.x not yet wired)', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    // NextAppointmentCard empty state key.
+    expect(
+      find.byKey(const Key('next_appointment_empty')),
+      findsOneWidget,
+      reason:
+          'next-appointment section must show its empty state because the '
+          'bookings endpoint (backend 19.3) is not yet wired',
+    );
+
+    // FavoriteMastersCard empty state key.
+    expect(
+      find.byKey(const Key('favorite_masters_empty')),
+      findsOneWidget,
+      reason:
+          'favorites section must show its empty state because the '
+          'favorites endpoint (backend 19.1) is not yet wired',
+    );
+
+    // BeautyTimelineSection empty state key.
+    expect(
+      find.byKey(const Key('timeline_empty')),
+      findsOneWidget,
+      reason:
+          'timeline section must show its empty state because the '
+          'timeline endpoint (backend 19.5) is not yet wired',
+    );
+  }, timeout: const Timeout(Duration(seconds: 45)));
+
+  // ── Test 5 — quick-link navigates to /reviews/me ─────────────────────────
+
+  testWidgets(
+    'tapping the reviews quick-link navigates to /reviews/me',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      expectLocation(router, RouteNames.clientHome);
+
+      // Scroll down if needed to ensure the quick-links card is visible.
+      await tester.ensureVisible(find.byKey(const Key('quick_link_reviews')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('quick_link_reviews')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      expectLocation(router, RouteNames.myReviews);
+
+      // The back button on MyReviewsScreen must be present.
+      expect(
+        find.byKey(const Key('my_reviews_back_button')),
+        findsOneWidget,
+        reason: 'MyReviewsScreen must mount at /reviews/me with a back button',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  // ── Test 6 — role gate: INDEPENDENT_MASTER bounced off /home ─────────────
+
+  testWidgets(
+    'role gate: an INDEPENDENT_MASTER navigating to /home is bounced to '
+    '/master/profile; /reviews/me is also bounced',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      // Master lands on /master/profile after login.
+      expectLocation(router, RouteNames.masterProfile);
+
+      // Attempt to navigate to /home — must be bounced back.
+      router.go(RouteNames.clientHome);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.masterProfile);
+      expect(
+        find.byType(HomeHubScreen),
+        findsNothing,
+        reason: 'HomeHubScreen must never mount for INDEPENDENT_MASTER',
+      );
+
+      // Attempt /reviews/me — also gated.
+      router.go(RouteNames.myReviews);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.masterProfile);
+      expect(
+        find.byKey(const Key('my_reviews_back_button')),
+        findsNothing,
+        reason: 'MyReviewsScreen must never mount for INDEPENDENT_MASTER',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+}
