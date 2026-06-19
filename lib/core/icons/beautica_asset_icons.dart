@@ -22,15 +22,31 @@ abstract final class BeauticaAssetIcons {
   /// Base asset directory — keep in sync with `pubspec.yaml` flutter.assets.
   static const String _base = 'assets/icons';
 
-  /// Sample 24 × 24 five-pointed star (outline stroke, single path).
+  // ---------------------------------------------------------------------------
+  // Navigation — home tab
+  // ---------------------------------------------------------------------------
+
+  /// Outline/line-style home glyph for the inactive nav state.
   ///
-  /// Included as the pipeline's smoke-test asset: if this renders, the
-  /// `flutter_svg` + asset-bundle wiring is correct. Safe to remove once a
-  /// real product icon replaces it.
-  static const String sampleStar = '$_base/sample_star.svg';
+  /// Licence: Flaticon Free (attribution required before release — add credit
+  /// to the app's "Licences / Ліцензії" screen as a release-gate item).
+  /// Author / original URL: TBD (pending provenance resolution).
+  /// SHA-256 of the downloaded file:
+  ///   f95493a915cc05109684f24823567931c9a9116ae164bbe6a5777b08fe60148e
+  /// (recorded verbatim in the SVG's top comment for git-history auditability).
+  ///
+  /// See `assets/icons/home_outline.svg` and `assets/icons/README.md`.
+  static const String homeOutline = '$_base/home_outline.svg';
+
+  /// Filled home glyph for the active/selected nav state.
+  ///
+  /// Hand-authored in-repo to match `homeOutline`'s 24×24 viewBox and
+  /// visual proportions (same roofline, same door opening). See
+  /// `assets/icons/home_filled.svg`.
+  static const String homeFilled = '$_base/home_filled.svg';
 
   // ---------------------------------------------------------------------------
   // Add new icons below, grouped by feature / category.
-  // Convention: feature_glyph, e.g. nav_home, booking_calendar, review_star.
+  // Convention: feature_glyph, e.g. booking_calendar, review_star.
   // ---------------------------------------------------------------------------
 }

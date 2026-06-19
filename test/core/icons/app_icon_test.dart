@@ -7,6 +7,9 @@
 //
 // Widget tests pump inside a minimal MaterialApp so IconTheme lookups resolve.
 // Pure unit tests (no widget tree) use plain test() rather than testWidgets.
+//
+// All tests use BeauticaAssetIcons.homeOutline as the canonical smoke-test
+// asset (replacing the retired sampleStar placeholder).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -40,11 +43,15 @@ void main() {
   // ─── BeauticaAssetIcons unit tests ────────────────────────────────────────
 
   group('BeauticaAssetIcons', () {
-    test('sampleStar resolves to the registered asset path', () {
+    test('homeOutline resolves to the registered asset path', () {
       // Regression guard: if the constant moves the test fails immediately,
       // alerting the developer that pubspec.yaml and widget references need
-      // updating.  Plain test() — no widget tree needed.
-      expect(BeauticaAssetIcons.sampleStar, 'assets/icons/sample_star.svg');
+      // updating. Plain test() — no widget tree needed.
+      expect(BeauticaAssetIcons.homeOutline, 'assets/icons/home_outline.svg');
+    });
+
+    test('homeFilled resolves to the registered asset path', () {
+      expect(BeauticaAssetIcons.homeFilled, 'assets/icons/home_filled.svg');
     });
   });
 
@@ -59,19 +66,19 @@ void main() {
       await _pump(
         tester,
         const AppIcon(
-          BeauticaAssetIcons.sampleStar,
-          key: Key('icon_sample_star'),
+          BeauticaAssetIcons.homeOutline,
+          key: Key('icon_home_outline'),
         ),
       );
 
-      expect(find.byKey(const Key('icon_sample_star')), findsOneWidget);
+      expect(find.byKey(const Key('icon_home_outline')), findsOneWidget);
       expect(find.byType(SvgPicture), findsOneWidget);
     });
 
     testWidgets('is a StatelessWidget (const-constructable contract)', (
       tester,
     ) async {
-      await _pump(tester, const AppIcon(BeauticaAssetIcons.sampleStar));
+      await _pump(tester, const AppIcon(BeauticaAssetIcons.homeOutline));
 
       expect(find.byType(AppIcon), findsOneWidget);
       // AppIcon must be a StatelessWidget — callers depend on the const
@@ -82,7 +89,7 @@ void main() {
     // --- Asset path forwarding ------------------------------------------------
 
     testWidgets('forwards the asset path to SvgPicture loader', (tester) async {
-      const path = BeauticaAssetIcons.sampleStar;
+      const path = BeauticaAssetIcons.homeOutline;
       await _pump(tester, const AppIcon(path));
 
       final svg = _svg(tester);
@@ -97,7 +104,7 @@ void main() {
     // --- Size -----------------------------------------------------------------
 
     testWidgets('default size is 24 × 24 logical pixels', (tester) async {
-      await _pump(tester, const AppIcon(BeauticaAssetIcons.sampleStar));
+      await _pump(tester, const AppIcon(BeauticaAssetIcons.homeOutline));
 
       final svg = _svg(tester);
       expect(svg.width, 24.0);
@@ -109,7 +116,7 @@ void main() {
     ) async {
       await _pump(
         tester,
-        const AppIcon(BeauticaAssetIcons.sampleStar, size: 48.0),
+        const AppIcon(BeauticaAssetIcons.homeOutline, size: 48.0),
       );
 
       final svg = _svg(tester);
@@ -126,7 +133,7 @@ void main() {
 
       await _pump(
         tester,
-        const AppIcon(BeauticaAssetIcons.sampleStar, color: tintColor),
+        const AppIcon(BeauticaAssetIcons.homeOutline, color: tintColor),
       );
 
       final svg = _svg(tester);
@@ -151,7 +158,7 @@ void main() {
             home: Scaffold(
               body: IconTheme(
                 data: IconThemeData(color: Color(0xFF6A4A28)), // mocha seed
-                child: Center(child: AppIcon(BeauticaAssetIcons.sampleStar)),
+                child: Center(child: AppIcon(BeauticaAssetIcons.homeOutline)),
               ),
             ),
           ),
@@ -178,7 +185,7 @@ void main() {
         await tester.pumpWidget(
           const Directionality(
             textDirection: TextDirection.ltr,
-            child: AppIcon(BeauticaAssetIcons.sampleStar),
+            child: AppIcon(BeauticaAssetIcons.homeOutline),
           ),
         );
 
@@ -196,11 +203,11 @@ void main() {
     testWidgets('semanticLabel is forwarded to SvgPicture.semanticsLabel', (
       tester,
     ) async {
-      const label = 'Star icon';
+      const label = 'Home icon';
 
       await _pump(
         tester,
-        const AppIcon(BeauticaAssetIcons.sampleStar, semanticLabel: label),
+        const AppIcon(BeauticaAssetIcons.homeOutline, semanticLabel: label),
       );
 
       expect(_svg(tester).semanticsLabel, label);
@@ -209,7 +216,7 @@ void main() {
     testWidgets(
       'null semanticLabel is forwarded as null — icon is decorative',
       (tester) async {
-        await _pump(tester, const AppIcon(BeauticaAssetIcons.sampleStar));
+        await _pump(tester, const AppIcon(BeauticaAssetIcons.homeOutline));
 
         expect(_svg(tester).semanticsLabel, isNull);
       },

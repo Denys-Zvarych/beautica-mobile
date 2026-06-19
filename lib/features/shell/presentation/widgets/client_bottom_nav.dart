@@ -10,9 +10,17 @@
 // This is a NEW widget — NOT a parametrisation of the master shell's 4-tile
 // `VelvetBottomNavBar` (profile_avatar.dart ~L459), which has no center-disc
 // support.
+//
+// Icon source model (gradual migration):
+//   A tab can carry either an `IconData` pair (Material) OR an SVG asset path
+//   pair (`svgIcon` / `svgActiveIcon`). When SVG paths are set, `_ClientNavTile`
+//   renders `AppIcon(...)` instead of `Icon(...)`. All other tabs still use
+//   Material `IconData`; only the home tab (index 0) uses SVG.
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -23,15 +31,45 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 const String kBeautyPassportLabel = 'BEAUTY PASSPORT';
 
 /// One flanking tab in the client bottom nav (the 4 non-center items).
+///
+/// Supports two icon sources:
+///   - **Material** (default): supply [icon] and [activeIcon] as [IconData].
+///     The tile renders `Icon(iconData)`.
+///   - **SVG asset** (gradual migration): supply [svgIcon] and [svgActiveIcon]
+///     as paths from [BeauticaAssetIcons]. The tile renders `AppIcon(path)`.
+///     When SVG paths are non-null they take precedence over the nullable
+///     [IconData] fields. When both SVG paths and IconData are absent, a
+///     fallback `Icons.circle` placeholder renders (should not occur in prod).
+///
+/// Exactly one source should be provided per item. Mixed configs are valid
+/// during migration but [svgIcon] always wins when non-null.
 class ClientNavItem {
   const ClientNavItem({
-    required this.icon,
-    required this.activeIcon,
+    this.icon,
+    this.activeIcon,
+    this.svgIcon,
+    this.svgActiveIcon,
     required this.label,
   });
 
-  final IconData icon;
-  final IconData activeIcon;
+  /// Material glyph for the inactive state. Ignored when [svgIcon] is set.
+  final IconData? icon;
+
+  /// Material glyph for the active/selected state. Ignored when [svgActiveIcon]
+  /// is set.
+  final IconData? activeIcon;
+
+  /// SVG asset path (from [BeauticaAssetIcons]) for the inactive state.
+  /// When non-null, [AppIcon] is rendered instead of [Icon].
+  final String? svgIcon;
+
+  /// SVG asset path (from [BeauticaAssetIcons]) for the active/selected state.
+  /// When non-null, [AppIcon] is rendered instead of [Icon].
+  final String? svgActiveIcon;
+
+  /// Whether this item uses SVG rather than Material [IconData].
+  bool get isSvg => svgIcon != null;
+
   final String label;
 }
 
@@ -86,38 +124,34 @@ class ClientBottomNav extends StatelessWidget {
     ),
   ];
 
-  List<ClientNavItem> _items() => <ClientNavItem>[
-    ClientNavItem(
-      icon: Icons.home_outlined,
-      activeIcon: Icons.home_rounded,
+  @override
+  Widget build(BuildContext context) {
+    // Item descriptors are constructed inline. Each is a value-type bag of
+    // const IconData / const String references — no heap cost beyond the four
+    // ClientNavItem stack-allocated objects. The SVG asset path strings are
+    // interned const literals (BeauticaAssetIcons._base is const), so
+    // flutter_svg's PictureCache keyed on the path string always hits.
+    final ClientNavItem homeItem = ClientNavItem(
+      svgIcon: BeauticaAssetIcons.homeOutline,
+      svgActiveIcon: BeauticaAssetIcons.homeFilled,
       label: homeLabel,
-    ),
-    ClientNavItem(
+    );
+    final ClientNavItem favItem = ClientNavItem(
       icon: Icons.favorite_outline_rounded,
       activeIcon: Icons.favorite_rounded,
       label: favoritesLabel,
-    ),
-    // index 2 — Пошук, the elevated center button.
-    ClientNavItem(
-      icon: Icons.search_rounded,
-      activeIcon: Icons.search_rounded,
-      label: searchLabel,
-    ),
-    ClientNavItem(
+    );
+    final ClientNavItem bookItem = ClientNavItem(
       icon: Icons.event_note_outlined,
       activeIcon: Icons.event_note_rounded,
       label: bookingsLabel,
-    ),
-    const ClientNavItem(
+    );
+    const ClientNavItem passItem = ClientNavItem(
       icon: Icons.badge_outlined,
       activeIcon: Icons.badge_rounded,
       label: kBeautyPassportLabel,
-    ),
-  ];
+    );
 
-  @override
-  Widget build(BuildContext context) {
-    final List<ClientNavItem> items = _items();
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         VelvetSpacing.md,
@@ -157,15 +191,15 @@ class ClientBottomNav extends StatelessWidget {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: <Widget>[
-                          _flank(items, 0),
+                          _tile(homeItem, 0),
                           const SizedBox(width: _itemGap),
-                          _flank(items, 1),
+                          _tile(favItem, 1),
                           const SizedBox(width: _itemGap),
                           // Center gap reserved for the floating disc.
                           const SizedBox(width: _centerSize + _itemGap),
-                          _flank(items, 3),
+                          _tile(bookItem, 3),
                           const SizedBox(width: _itemGap),
-                          _flank(items, 4),
+                          _tile(passItem, 4),
                         ],
                       ),
                     ),
@@ -191,12 +225,12 @@ class ClientBottomNav extends StatelessWidget {
     );
   }
 
-  Widget _flank(List<ClientNavItem> items, int index) {
+  Widget _tile(ClientNavItem item, int index) {
     return SizedBox(
       width: _tileWidth,
       child: _ClientNavTile(
         key: Key('client-nav-tile-$index'),
-        item: items[index],
+        item: item,
         active: index == activeIndex,
         onTap: () => onTap(index),
       ),
@@ -279,11 +313,22 @@ class _ClientNavTileState extends State<_ClientNavTile> {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              Icon(
-                widget.active ? widget.item.activeIcon : widget.item.icon,
-                size: 22,
-                color: color,
-              ),
+              if (widget.item.isSvg)
+                AppIcon(
+                  widget.active
+                      ? (widget.item.svgActiveIcon ??
+                            BeauticaAssetIcons.homeFilled)
+                      : (widget.item.svgIcon ?? BeauticaAssetIcons.homeOutline),
+                  size: 22,
+                  color: color,
+                )
+              else
+                Icon(
+                  (widget.active ? widget.item.activeIcon : widget.item.icon) ??
+                      Icons.circle,
+                  size: 22,
+                  color: color,
+                ),
               const SizedBox(height: 2),
               // Every tile reserves the same two-line label box so the long
               // "BEAUTY PASSPORT" label can wrap to two lines without clipping

@@ -15,6 +15,8 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -27,17 +29,30 @@ import 'widgets/client_bottom_nav.dart';
 ///
 /// [title] and [blurb] are supplied already-localised by the branch screens
 /// below; [icon] is the branch glyph.
+///
+/// For tabs whose icon is now an SVG asset (e.g. Головна), supply
+/// [iconWidget] instead of [icon]. When [iconWidget] is non-null it is
+/// rendered inside the pillow in place of the [Icon] widget and [icon] is
+/// ignored.
 class ClientBranchPlaceholder extends StatelessWidget {
   const ClientBranchPlaceholder({
     super.key,
     required this.title,
     required this.blurb,
-    required this.icon,
+    this.icon,
+    this.iconWidget,
   });
 
   final String title;
   final String blurb;
-  final IconData icon;
+
+  /// Material glyph for the branch. Ignored when [iconWidget] is non-null.
+  /// Either [icon] or [iconWidget] must be provided.
+  final IconData? icon;
+
+  /// Optional widget rendered inside the pillow instead of [icon].
+  /// Use this for tabs whose icon comes from [BeauticaAssetIcons].
+  final Widget? iconWidget;
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +85,7 @@ class ClientBranchPlaceholder extends StatelessWidget {
                       reveal(
                         start: 0.1,
                         end: 0.6,
-                        child: _IconPillow(icon: icon),
+                        child: _IconPillow(icon: icon, iconWidget: iconWidget),
                       ),
                       const SizedBox(height: VelvetSpacing.lg),
                       reveal(
@@ -115,10 +130,16 @@ class ClientBranchPlaceholder extends StatelessWidget {
 }
 
 /// A 96dp extruded neumorphic pillow cradling the branch glyph.
+///
+/// When [iconWidget] is non-null it is rendered in the centre instead of
+/// `Icon([icon], ...)`. Size and tint are equivalent: [iconWidget] is expected
+/// to be 40×40 dp tinted to [BrandColors.accentDeep] (callers should use
+/// `AppIcon(..., size: 40, color: BrandColors.accentDeep)`).
 class _IconPillow extends StatelessWidget {
-  const _IconPillow({required this.icon});
+  const _IconPillow({this.icon, this.iconWidget});
 
-  final IconData icon;
+  final IconData? icon;
+  final Widget? iconWidget;
 
   @override
   Widget build(BuildContext context) {
@@ -130,7 +151,11 @@ class _IconPillow extends StatelessWidget {
         shape: BoxShape.circle,
         boxShadow: VelvetShadows.extrudedCard,
       ),
-      child: Center(child: Icon(icon, size: 40, color: BrandColors.accentDeep)),
+      child: Center(
+        child:
+            iconWidget ??
+            Icon(icon ?? Icons.circle, size: 40, color: BrandColors.accentDeep),
+      ),
     );
   }
 }
@@ -185,7 +210,11 @@ class ClientHomePlaceholderScreen extends StatelessWidget {
       key: const Key('client-branch-home'),
       title: l10n.clientPlaceholderHomeTitle,
       blurb: l10n.clientPlaceholderHomeBlurb,
-      icon: Icons.home_rounded,
+      iconWidget: const AppIcon(
+        BeauticaAssetIcons.homeFilled,
+        size: 40,
+        color: BrandColors.accentDeep,
+      ),
     );
   }
 }

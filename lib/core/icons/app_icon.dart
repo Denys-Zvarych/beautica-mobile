@@ -8,13 +8,13 @@ import 'package:flutter_svg/flutter_svg.dart';
 ///
 /// ```dart
 /// // Inherits the surrounding IconTheme colour (behaves like Material Icon):
-/// AppIcon(BeauticaAssetIcons.sampleStar)
+/// AppIcon(BeauticaAssetIcons.homeOutline)
 ///
 /// // Explicit VelvetTouch tint — works only on monochrome SVGs:
-/// AppIcon(BeauticaAssetIcons.sampleStar, color: BrandColors.accent, size: 20)
+/// AppIcon(BeauticaAssetIcons.homeFilled, color: BrandColors.accent, size: 20)
 ///
 /// // Accessible variant:
-/// AppIcon(BeauticaAssetIcons.sampleStar, semanticLabel: l10n.starLabel)
+/// AppIcon(BeauticaAssetIcons.homeOutline, semanticLabel: l10n.homeLabel)
 /// ```
 ///
 /// ## Colour behaviour
@@ -51,7 +51,7 @@ class AppIcon extends StatelessWidget {
     this.semanticLabel,
   });
 
-  /// Asset path, e.g. `BeauticaAssetIcons.sampleStar`.
+  /// Asset path, e.g. `BeauticaAssetIcons.homeOutline`.
   final String asset;
 
   /// Rendered width and height in logical pixels. Defaults to 24.

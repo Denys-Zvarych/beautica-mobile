@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- source: authored in-repo — no external download; no attribution owed — derived geometry only from the companion home_outline.svg coordinates (same 24×24 viewBox, same visual proportions) -->
+<svg xmlns="http://www.w3.org/2000/svg" id="Filled" viewBox="0 0 24 24" width="512" height="512">
+  <!--
+    Solid house silhouette with centred door cut-out.
+    Coordinates derived from the companion home_outline.svg (same source file).
+
+    Outer house (clockwise):
+      Apex (12, 1.5) → right shoulder (21, 10) → right wall corner (21, 23)
+      → left wall corner (3, 23) → left shoulder (3, 10) → back to apex.
+    The outer path is wound clockwise (positive area).
+
+    Door rectangle (counter-clockwise — evenodd punches hole):
+      Top-left (9, 17.5) → top-right (15, 17.5) → bottom-right (15, 23)
+      → bottom-left (9, 23) → back to top-left.
+    Counter-clockwise winding + evenodd rule removes this rectangle from fill.
+  -->
+  <path fill-rule="evenodd" d="M12,1.5 L23.5,10.8 L21,10.8 L21,23 Q21,23.5 20.5,23.5 L3.5,23.5 Q3,23.5 3,23 L3,10.8 L0.5,10.8 Z M9,17.5 L9,23.5 L15,23.5 L15,17.5 Z"/>
+</svg>
