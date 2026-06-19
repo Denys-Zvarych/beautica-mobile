@@ -111,6 +111,15 @@ class ClientBottomNav extends StatelessWidget {
   static const double _itemGap = 4;
   static const BorderRadius _barRadius = BorderRadius.all(Radius.circular(28));
 
+  /// Symmetric inner horizontal padding INSIDE the bar, between the rounded
+  /// border and the tile cluster. Without it the outermost tiles (Home left,
+  /// BEAUTY PASSPORT right) sit flush against the 28px-radius corners with no
+  /// breathing room. 12px reads balanced against the corner radius and stays
+  /// OUTSIDE the FittedBox so it is preserved (not scaled away); the FittedBox
+  /// still receives a bounded width = bar width − 2×_innerPad, so it keeps
+  /// absorbing narrow widths without introducing overflow.
+  static const double _innerPad = 12;
+
   static const List<BoxShadow> _barShadow = <BoxShadow>[
     BoxShadow(
       color: BrandColors.shadowLightStrong,
@@ -191,34 +200,46 @@ class ClientBottomNav extends StatelessWidget {
                       //
                       // The cluster's natural width is fixed (312px =
                       // 4×_tileWidth(60) + (_centerSize(52)+_itemGap(4)) +
-                      // 4×_itemGap(4) = 240 + 56 + 16). On wide phones (≥390dp
-                      // the bar offers ≥358px after the 32px outer padding) the
-                      // cluster renders at natural size and looks identical. On
-                      // narrow phones (360/320dp) the bar is given a TIGHT width
-                      // below 312px, which would overflow the
-                      // Row to the right; FittedBox.scaleDown shrinks the whole
+                      // 4×_itemGap(4) = 240 + 56 + 16). Symmetric inner padding
+                      // of _innerPad(12) on each side insets the cluster from
+                      // the rounded border, so the bar's natural width is
+                      // 312 + 2×_innerPad = 336px. On wide phones (≥390dp the
+                      // bar offers ≥358px after the 32px outer padding) the
+                      // cluster renders at natural size with the full inset and
+                      // looks balanced. On narrow phones (360/320dp) the bar is
+                      // given a TIGHT width; the padding is honoured first and
+                      // the FittedBox receives a bounded width = bar width −
+                      // 2×_innerPad, so FittedBox.scaleDown shrinks the whole
                       // cluster just enough to fit, leaving wider screens
-                      // untouched. Because the cluster is symmetric and FittedBox
-                      // scales about its center, the center reservation stays
-                      // horizontally centered — so the floating disc (centered
-                      // independently by the outer Stack) keeps aligning over the
-                      // notch at every width.
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.center,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: <Widget>[
-                            _tile(homeItem, 0),
-                            const SizedBox(width: _itemGap),
-                            _tile(favItem, 1),
-                            const SizedBox(width: _itemGap),
-                            // Center gap reserved for the floating disc.
-                            const SizedBox(width: _centerSize + _itemGap),
-                            _tile(bookItem, 3),
-                            const SizedBox(width: _itemGap),
-                            _tile(passItem, 4),
-                          ],
+                      // untouched and introducing no overflow. The padding is
+                      // OUTSIDE the FittedBox so the inset is preserved (not
+                      // scaled away). Because the padding is symmetric, the
+                      // cluster is symmetric, and FittedBox scales about its
+                      // center, the center reservation stays horizontally
+                      // centered — so the floating disc (centered independently
+                      // by the outer Stack) keeps aligning over the notch at
+                      // every width.
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: _innerPad,
+                        ),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.center,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: <Widget>[
+                              _tile(homeItem, 0),
+                              const SizedBox(width: _itemGap),
+                              _tile(favItem, 1),
+                              const SizedBox(width: _itemGap),
+                              // Center gap reserved for the floating disc.
+                              const SizedBox(width: _centerSize + _itemGap),
+                              _tile(bookItem, 3),
+                              const SizedBox(width: _itemGap),
+                              _tile(passItem, 4),
+                            ],
+                          ),
                         ),
                       ),
                     ),
