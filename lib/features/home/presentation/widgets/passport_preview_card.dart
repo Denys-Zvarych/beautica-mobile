@@ -39,8 +39,13 @@ class PassportPreviewCard extends StatelessWidget {
     fontWeight: FontWeight.w800,
   );
 
+  // fontSize 10 (down from 11) gives the long UA subtitle
+  // "Твій б'юті-паспорт у Beautica" enough room to lay out in 2 lines at the
+  // narrow half-width pill (~80–94dp text column at 320dp). The FittedBox below
+  // is the safety net that absorbs any residual overflow (incl. text-scale 1.3)
+  // so the string can never be ellipsis-cut.
   static final TextStyle _subtitleStyle = VelvetText.body().copyWith(
-    fontSize: 11,
+    fontSize: 10,
     height: 1.25,
   );
 
@@ -83,20 +88,33 @@ class PassportPreviewCard extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 // "BEAUTY PASSPORT" — intentionally untranslated (brand constant).
-                Text(
-                  // ignore: avoid_hardcoded_strings — locked brand literal
-                  'BEAUTY PASSPORT',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  softWrap: true,
-                  style: _titleStyle,
+                // Wrapped in the same FittedBox.scaleDown as the subtitle so the
+                // brand title is never ellipsis-cut either at the narrow pill
+                // width / text-scale 1.3 (e.g. "PASSPORT" no longer fits one line).
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    // ignore: avoid_hardcoded_strings — locked brand literal
+                    'BEAUTY PASSPORT',
+                    maxLines: 2,
+                    softWrap: true,
+                    style: _titleStyle,
+                  ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  l10n.homeHubPassportSubtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: _subtitleStyle,
+                // FittedBox.scaleDown shrinks the (already small) subtitle just
+                // enough to keep the FULL UA string visible — no ellipsis — at
+                // 320dp+ and across text scales up to the app's 1.3 clamp.
+                // centerLeft keeps it left-aligned with the title above.
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    l10n.homeHubPassportSubtitle,
+                    maxLines: 2,
+                    style: _subtitleStyle,
+                  ),
                 ),
               ],
             ),
