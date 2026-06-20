@@ -64,6 +64,8 @@ import '../../location/presentation/widgets/locality_cascade.dart';
 import '../../location/state/location_providers.dart';
 import '../domain/register_result.dart';
 import '../domain/user_role.dart';
+import '../state/pending_locality.dart';
+import '../state/pending_locality_store.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_notifier.dart';
 import 'register_flow_shell.dart';
@@ -365,13 +367,77 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
       // slice stays in the draft for the post-verification save.
       draftNotifier.clearCredentials();
 
-      // 2. Navigate to verification carrying the email for the OTP screen.
+      // Silent-data-loss fix — durably stash the Step 3 locality slice keyed by
+      // email. The in-memory draft is routinely lost when the user backgrounds
+      // the app to read the OTP email (or is OS-killed under memory pressure);
+      // this minimal blob lets the verification screen re-hydrate the locality
+      // and run the post-OTP PATCH even after the draft is gone. It carries ONLY
+      // the locality slice + email + role — NEVER the password or the OTP.
+      // [localityProvided] is the discriminator that distinguishes a genuine
+      // CLIENT "skip" from a lost-draft case downstream.
       final email = result is VerificationRequired ? result.email : draft.email;
+      await _persistPendingLocality(
+        email: email,
+        role: role,
+        skipLocality: skipLocality,
+      );
+
+      // 2. Navigate to verification carrying the email for the OTP screen.
       if (!mounted) return;
       context.go(RouteNames.verification, extra: email);
     } finally {
       // Defect 2 — always re-enable CTAs.
       if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  /// Writes the durable [PendingLocality] blob from the current draft.
+  ///
+  /// Called after a successful `register()` and `clearCredentials()`, when the
+  /// draft still holds the locality slice (Step 3 just wrote it). Best-effort:
+  /// a storage write failure must never block the user from reaching the OTP
+  /// screen — it is logged in debug builds so the loss is not invisible.
+  Future<void> _persistPendingLocality({
+    required String email,
+    required UserRole role,
+    required bool skipLocality,
+  }) async {
+    final draft = ref.read(registerDraftProvider);
+    if (draft == null) return; // guard: should not happen post-register
+
+    final cityId = draft.cityId;
+    final bool localityProvided =
+        !skipLocality && cityId != null && cityId.isNotEmpty;
+
+    // salonName / phone are provider-only contact data, meaningful ONLY for
+    // SALON_OWNER (POST /salons). Persist them at rest only for that role to
+    // minimise PII in the durable blob; other roles leave them empty.
+    final bool isSalonOwner = role == UserRole.salonOwner;
+
+    final pending = PendingLocality(
+      email: email,
+      role: role,
+      localityProvided: localityProvided,
+      cityId: localityProvided ? cityId : null,
+      districtId: localityProvided ? draft.districtId : null,
+      // Provider-only address slice; empty for CLIENT (490febc dropped these).
+      street: draft.street,
+      buildingNo: draft.buildingNo,
+      locationNote: draft.locationNote,
+      salonName: isSalonOwner ? draft.salonName : '',
+      phone: isSalonOwner ? draft.phone : '',
+    );
+
+    try {
+      await ref.read(pendingLocalityStoreProvider).save(pending);
+    } catch (e) {
+      if (kDebugMode) {
+        log(
+          'Failed to stash pending locality (tolerated): ${e.runtimeType}',
+          name: 'auth.register.step3',
+          level: 900,
+        );
+      }
     }
   }
 

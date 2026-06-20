@@ -24,4 +24,16 @@ abstract final class StorageKeys {
   /// Written after login and profile updates; read during cold-start to
   /// restore the session without a round-trip to the server.
   static const String userJson = 'BEAUTICA_USER_JSON';
+
+  /// Key under which the durable post-OTP locality slice is stashed.
+  ///
+  /// Registration collects the locality on Step 3, but it can only be persisted
+  /// AFTER email verification (the PATCH needs a Bearer token). The in-memory
+  /// [RegisterDraft] is routinely lost while the user backgrounds the app to
+  /// read the OTP email (or is OS-killed under memory pressure), so the minimal
+  /// locality slice — email, role, cityId/districtId (+ provider address) — is
+  /// mirrored here so the verification screen can re-hydrate it. NEVER stores
+  /// the password or the OTP. Cleared on `/done` arrival and on logout
+  /// ([SecureStorage.deleteAll]).
+  static const String pendingLocality = 'BEAUTICA_PENDING_LOCALITY';
 }

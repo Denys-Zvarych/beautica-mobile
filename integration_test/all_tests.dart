@@ -57,6 +57,8 @@ import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
 import 'logout_flow_test.dart' as logout;
 import 'register_flow_test.dart' as register;
+import 'register_locality_persistence_flow_test.dart'
+    as register_locality_persistence;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'service_crud_flow_test.dart' as service_crud;
@@ -83,6 +85,10 @@ void main() {
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
   group('logout_flow', logout.main);
   group('register_flow', register.main);
+  group(
+    'register_locality_persistence_flow',
+    register_locality_persistence.main,
+  );
   group('schedule_edit_flow', schedule_edit.main);
   group('schedule_first_create_flow', schedule_first_create.main);
   group('service_crud_flow', service_crud.main);
