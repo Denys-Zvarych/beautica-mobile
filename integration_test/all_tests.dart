@@ -50,6 +50,7 @@ import 'package:integration_test/integration_test.dart';
 
 import 'auth_login_flow_test.dart' as auth_login;
 import 'client_home_hub_flow_test.dart' as client_home_hub;
+import 'client_logout_flow_test.dart' as client_logout;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
 import 'client_shell_flow_test.dart' as client_shell;
 import 'edit_profile_flow_test.dart' as edit_profile;
@@ -75,6 +76,7 @@ void main() {
   // re-launch model that directory-mode batching cannot provide.
   group('auth_login_flow', auth_login.main);
   group('client_home_hub_flow', client_home_hub.main);
+  group('client_logout_flow', client_logout.main);
   group('client_profile_settings_flow', client_profile_settings.main);
   group('client_shell_flow', client_shell.main);
   group('edit_profile_flow', edit_profile.main);
