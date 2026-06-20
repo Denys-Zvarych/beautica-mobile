@@ -141,6 +141,18 @@ abstract final class BeauticaAssetIcons {
   /// to avoid a permanent second dot. See `assets/icons/notification_plain.svg`.
   static const String notificationPlain = '$_base/notification_plain.svg';
 
+  /// Unread-state bell — the **same bell silhouette** as [notificationPlain]
+  /// plus a baked-in warm red-orange notification dot at the top-right corner.
+  ///
+  /// Hand-authored in-repo (no Flaticon release-gate). Unlike [notificationPlain]
+  /// this is a **two-tone** asset (brown bell `#6E5743` + vermilion dot `#E2552F`
+  /// with a base-colour ring), so it MUST be rendered with `AppIcon(...,
+  /// multicolor: true)` — the default `srcIn` flatten would repaint the red dot
+  /// to the bell colour and defeat the purpose. The home-hub bell swaps between
+  /// this and [notificationPlain] on `hasUnread`, replacing the old code-drawn
+  /// overlay dot. See `assets/icons/notification_unread.svg`.
+  static const String notificationUnread = '$_base/notification_unread.svg';
+
   /// Outline bell-with-dot glyph (the Flaticon source has a notification dot
   /// **baked into the artwork**).
   ///

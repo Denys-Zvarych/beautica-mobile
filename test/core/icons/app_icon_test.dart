@@ -100,6 +100,19 @@ void main() {
         'assets/icons/notification_filled.svg',
       );
     });
+    // Bell two-SVG state-swap assets (notification-bell migration).
+    test('notificationPlain resolves to the registered asset path', () {
+      expect(
+        BeauticaAssetIcons.notificationPlain,
+        'assets/icons/notification_plain.svg',
+      );
+    });
+    test('notificationUnread resolves to the registered asset path', () {
+      expect(
+        BeauticaAssetIcons.notificationUnread,
+        'assets/icons/notification_unread.svg',
+      );
+    });
   });
 
   // ─── AppIcon widget tests ─────────────────────────────────────────────────
@@ -241,6 +254,92 @@ void main() {
         expect(
           svg.colorFilter,
           equals(const ColorFilter.mode(Color(0xFF000000), BlendMode.srcIn)),
+        );
+      },
+    );
+
+    // --- multicolor flag (the bell's red-dot mechanism) ----------------------
+    //
+    // The unread bell SVG is two-tone (brown bell + vermilion dot). It MUST be
+    // rendered with `multicolor: true` so AppIcon emits NO colorFilter — the
+    // default srcIn flatten would repaint the red dot to a single colour and
+    // defeat the whole two-SVG swap. These tests pin that contract directly on
+    // AppIcon (the home_hub widget test only asserts the flag value; here we
+    // verify the flag's *effect* on the rendered SvgPicture).
+
+    testWidgets(
+      'multicolor:true forces colorFilter null even when color is non-null',
+      (tester) async {
+        // Both multicolor AND an explicit color set: multicolor wins, so the
+        // SVG keeps its own palette (the red dot survives).
+        await _pump(
+          tester,
+          const AppIcon(
+            BeauticaAssetIcons.notificationUnread,
+            color: Color(0xFFB89A7A), // would normally flatten via srcIn
+            multicolor: true,
+          ),
+        );
+
+        expect(
+          _svg(tester).colorFilter,
+          isNull,
+          reason:
+              'multicolor:true must suppress the srcIn ColorFilter so a '
+              'two-tone SVG keeps its baked palette (the bell red dot).',
+        );
+      },
+    );
+
+    testWidgets(
+      'multicolor:true forces colorFilter null even under an ambient IconTheme',
+      (tester) async {
+        // Guard the inheritance path too: an ambient IconTheme colour must NOT
+        // sneak a ColorFilter back in when multicolor is set.
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: IconTheme(
+                data: IconThemeData(color: Color(0xFF6A4A28)),
+                child: Center(
+                  child: AppIcon(
+                    BeauticaAssetIcons.notificationUnread,
+                    multicolor: true,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        expect(
+          _svg(tester).colorFilter,
+          isNull,
+          reason:
+              'multicolor must win over IconTheme inheritance — no srcIn filter '
+              'may be applied to the two-tone unread bell.',
+        );
+      },
+    );
+
+    testWidgets(
+      'multicolor:false (default) with explicit color still produces a srcIn '
+      'filter — the monochrome idle-bell path',
+      (tester) async {
+        // The idle/plain bell takes this path: monochrome flatten to a single
+        // tint. This is the contrast case to the multicolor tests above.
+        const tint = Color(0xFF8A8077); // BrandColors.textSecondary-ish
+        await _pump(
+          tester,
+          const AppIcon(BeauticaAssetIcons.notificationPlain, color: tint),
+        );
+
+        expect(
+          _svg(tester).colorFilter,
+          equals(const ColorFilter.mode(tint, BlendMode.srcIn)),
+          reason:
+              'multicolor:false is the monochrome path — an explicit color must '
+              'still flatten via srcIn (this is how the idle bell is tinted).',
         );
       },
     );

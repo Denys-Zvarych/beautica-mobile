@@ -135,7 +135,9 @@ void main() {
   /// clientProfileRepository. `me()` returns OLD on cold start, NEW afterwards.
   Future<ProviderContainer> bootAuthenticated(WidgetTester tester) async {
     await storage.writeRefreshToken('refresh-stored');
-    when(() => authRepo.refresh('refresh-stored')).thenAnswer((_) async => _tokens);
+    when(
+      () => authRepo.refresh('refresh-stored'),
+    ).thenAnswer((_) async => _tokens);
 
     // me() : 1st call (cold-start build) → OLD user; later (refreshUser) → NEW.
     var meCalls = 0;

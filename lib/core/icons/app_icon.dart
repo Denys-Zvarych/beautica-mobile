@@ -49,6 +49,7 @@ class AppIcon extends StatelessWidget {
     this.size = 24.0,
     this.color,
     this.semanticLabel,
+    this.multicolor = false,
   });
 
   /// Asset path, e.g. `BeauticaAssetIcons.homeOutline`.
@@ -66,12 +67,18 @@ class AppIcon extends StatelessWidget {
   /// Screen-reader label. When null the icon is marked decorative.
   final String? semanticLabel;
 
+  /// When `true`, the SVG renders with its own baked-in palette and **no**
+  /// `srcIn` tint is applied — even if [color] is non-null. Use this for
+  /// genuinely multi-colour SVGs (e.g. a bell whose notification dot must stay
+  /// red while the bell stays brown). Defaults to `false` (monochrome flatten).
+  final bool multicolor;
+
   @override
   Widget build(BuildContext context) {
     final effectiveColor = color ?? IconTheme.of(context).color;
-    final colorFilter = effectiveColor != null
-        ? ColorFilter.mode(effectiveColor, BlendMode.srcIn)
-        : null;
+    final colorFilter = (multicolor || effectiveColor == null)
+        ? null
+        : ColorFilter.mode(effectiveColor, BlendMode.srcIn);
 
     return SvgPicture.asset(
       asset,

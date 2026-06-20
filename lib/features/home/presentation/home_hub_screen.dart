@@ -432,11 +432,21 @@ class _TopBar extends StatelessWidget {
 
 /// Top-bar notification bell.
 ///
-/// Renders [BeauticaAssetIcons.notificationPlain] (a dotless bell) and draws a
-/// single app-controlled overlay dot ([unreadDotKey]) only when [hasUnread] is
-/// `true`. Public + `@visibleForTesting` so the unread-gating regression test
-/// can pump it with `hasUnread: true` (the production call site is currently
-/// pinned to `false` until the Phase 14.9 notification provider ships).
+/// Swaps between two state-driven bell SVGs:
+///   * [hasUnread] `false` ⇒ [BeauticaAssetIcons.notificationPlain] (dotless
+///     bell, flattened to [BrandColors.textSecondary] via `srcIn`);
+///   * [hasUnread] `true`  ⇒ [BeauticaAssetIcons.notificationUnread] (the same
+///     bell silhouette with a baked-in warm red-orange dot at the top-right).
+///
+/// The unread asset is two-tone, so it renders with `multicolor: true` (no
+/// `srcIn` flatten) — that keeps the dot red instead of repainting it to the
+/// bell colour. There is **no** `Positioned`/`Stack` overlay dot any more (it
+/// caused a double-dot bug); the dot now lives inside the asset and is purely
+/// state-driven.
+///
+/// Public + `@visibleForTesting` so the unread-gating regression test can pump
+/// it with `hasUnread: true` (the production call site is currently pinned to
+/// `false` until the Phase 14.9 notification provider ships).
 @visibleForTesting
 class BellButton extends StatelessWidget {
   const BellButton({
@@ -446,21 +456,21 @@ class BellButton extends StatelessWidget {
     this.hasUnread = false,
   });
 
-  /// Key on the unread overlay dot — present iff [hasUnread] is `true`.
-  static const Key unreadDotKey = Key('home_hub_bell_unread_dot');
+  /// Key on the rendered bell icon — stable across both states so a widget test
+  /// can grab the [AppIcon] and assert which asset path it points at.
+  static const Key bellIconKey = Key('home_hub_bell_icon');
 
   final VoidCallback onTap;
   final String semanticLabel;
 
-  /// Whether the app-controlled overlay dot should be shown.
+  /// Whether to render the unread-state bell (dot baked into the asset).
   ///
-  /// The bell uses [BeauticaAssetIcons.notificationPlain] (no baked-in dot), so
-  /// this single dynamic dot is the sole unread indicator: it renders only when
-  /// there are unread notifications and disappears when there are none.
+  /// `true` ⇒ [BeauticaAssetIcons.notificationUnread];
+  /// `false` ⇒ [BeauticaAssetIcons.notificationPlain].
   ///
   // TODO(14.9): bind from the unread-notifications provider once the
   // notification center ships (watch the unread count/flag and pass `> 0`).
-  // Until then it defaults to `false` so no dot is shown.
+  // Until then it defaults to `false` so the dotless bell is shown.
   final bool hasUnread;
 
   @override
@@ -473,33 +483,22 @@ class BellButton extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         child: Padding(
           padding: const EdgeInsets.all(4),
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: <Widget>[
-              const AppIcon(
-                BeauticaAssetIcons.notificationPlain,
-                size: 24,
-                color: BrandColors.textSecondary,
-              ),
-              if (hasUnread)
-                Positioned(
-                  right: 0,
-                  top: 1,
-                  child: Container(
-                    key: unreadDotKey,
-                    height: 8,
-                    width: 8,
-                    decoration: const BoxDecoration(
-                      color: BrandColors.accentDeep,
-                      shape: BoxShape.circle,
-                      border: Border.fromBorderSide(
-                        BorderSide(color: BrandColors.base, width: 1.5),
-                      ),
-                    ),
-                  ),
+          child: hasUnread
+              ? const AppIcon(
+                  BeauticaAssetIcons.notificationUnread,
+                  key: bellIconKey,
+                  size: 24,
+                  // Two-tone asset: skip the srcIn flatten so the red dot
+                  // survives. The bell colour is baked into the SVG to match
+                  // the idle bell's tint.
+                  multicolor: true,
+                )
+              : const AppIcon(
+                  BeauticaAssetIcons.notificationPlain,
+                  key: bellIconKey,
+                  size: 24,
+                  color: BrandColors.textSecondary,
                 ),
-            ],
-          ),
         ),
       ),
     );

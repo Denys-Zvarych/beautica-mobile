@@ -16,11 +16,16 @@
 //  12. MyRatingStatCard onTap fires and navigates to RouteNames.myRating.
 //  SVG-migration additions (Phase 13.7 icon update):
 //  13. BellButton renders notificationPlain SVG via AppIcon (not Material glyph,
-//      not the dotted notificationOutline/Filled) — Option B double-dot fix.
+//      not the dotted notificationOutline/Filled) — double-dot fix.
 //  14. PassportPreviewCard stat pill renders passportFilled SVG via AppIcon.
-//  Unread-dot gating (Option B double-dot fix):
-//  15. BellButton renders ZERO overlay dots when hasUnread is false.
-//  16. BellButton renders exactly ONE camel overlay dot when hasUnread is true.
+//  Bell two-SVG state swap (replaces the old Stack/Positioned overlay dot):
+//  15. hasUnread=false ⇒ AppIcon(notificationPlain), monochrome (multicolor
+//      false, color textSecondary) and NOT the unread asset.
+//  16. hasUnread=true  ⇒ AppIcon(notificationUnread) with multicolor:true so
+//      the baked-in red dot survives the srcIn flatten.
+//  17. Neither state contains any Positioned overlay dot — exactly one AppIcon
+//      bell glyph (the old code-drawn dot + its Key are gone).
+//  18. BellButton announces its semanticLabel (button role) and fires onTap.
 //
 // NOTE: ScreenProtectionManager is a keepAlive singleton — tests override it
 // with a no-op so the native plugin is never called during tests.
@@ -588,9 +593,11 @@ void main() {
   // These tests lock in the icon sources for the two widgets updated in the
   // Phase 13.7 SVG migration:
   //   • BellButton (home hub top bar) — was Icons.notifications_none_rounded,
-  //     then AppIcon(notificationOutline) (dotted), now
-  //     AppIcon(BeauticaAssetIcons.notificationPlain) (dotless — Option B fix
-  //     for the double-dot bug; the only dot is the app-controlled overlay).
+  //     then AppIcon(notificationOutline) (dotted), now a two-SVG state swap:
+  //     AppIcon(notificationPlain) when idle / AppIcon(notificationUnread) when
+  //     hasUnread. The old code-drawn Stack/Positioned overlay dot is gone (it
+  //     caused the double-dot bug); the dot now lives inside the unread asset.
+  //     The production call site is pinned to hasUnread:false ⇒ idle asset.
   //   • PassportPreviewCard icon circle — was Icons.badge_outlined,
   //     now AppIcon(BeauticaAssetIcons.passportFilled, …)
 
@@ -688,92 +695,145 @@ void main() {
     );
   });
 
-  // ── Unread-dot gating (Option B double-dot fix) ──────────────────────────────
+  // ── Unread state = two-SVG asset swap (double-dot fix) ───────────────────────
   //
-  // The bell asset is dotless, so the overlay dot is the SOLE unread indicator.
-  // It must render iff `hasUnread == true`. These tests guard against the
-  // double-dot regression (an always-on dot) and the inverted-logic regression
-  // (no dot when there ARE unread notifications).
+  // The dot is now baked into a dedicated unread SVG instead of a code-drawn
+  // Stack/Positioned overlay. BellButton swaps the rendered asset on hasUnread:
+  //   • hasUnread=false ⇒ AppIcon(notificationPlain)  (dotless bell)
+  //   • hasUnread=true  ⇒ AppIcon(notificationUnread) (bell + baked red dot)
+  // These tests guard against the always-on-dot regression (idle showing the
+  // unread asset) and the inverted-logic regression (unread showing the plain
+  // asset). They also lock in that the old overlay dot is gone (no Stack with
+  // clipBehavior: Clip.none, no Positioned dot) so the double-dot cannot recur.
   //
   // BellButton is pumped directly (it is @visibleForTesting public) because the
   // production call site is currently pinned to `hasUnread: false` (TODO 14.9),
   // so the `true` branch is only reachable from a test.
 
-  group('BellButton unread overlay dot gating', () {
-    testWidgets(
-      'renders ZERO overlay dots when hasUnread is false (no double-dot)',
-      (tester) async {
+  group('BellButton unread/idle asset swap', () {
+    AppIcon bellIcon(WidgetTester tester) => tester.widget<AppIcon>(
+      find.descendant(
+        of: find.byType(BellButton),
+        matching: find.byType(AppIcon),
+      ),
+    );
+
+    testWidgets('hasUnread=false renders the dotless plain asset', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const BellButton(onTap: _noop, semanticLabel: 'Сповіщення'),
+      );
+      await tester.pump();
+
+      final AppIcon icon = bellIcon(tester);
+      expect(
+        icon.asset,
+        BeauticaAssetIcons.notificationPlain,
+        reason: 'idle ⇒ the dotless plain bell asset',
+      );
+      expect(
+        icon.asset,
+        isNot(BeauticaAssetIcons.notificationUnread),
+        reason: 'idle must NOT show the unread (dotted) asset',
+      );
+      // Idle bell is flattened to the secondary text colour (single-tone).
+      expect(icon.multicolor, isFalse);
+      expect(icon.color, BrandColors.textSecondary);
+    });
+
+    testWidgets('hasUnread=true renders the unread (baked-dot) asset', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const BellButton(
+          onTap: _noop,
+          semanticLabel: 'Сповіщення',
+          hasUnread: true,
+        ),
+      );
+      await tester.pump();
+
+      final AppIcon icon = bellIcon(tester);
+      expect(
+        icon.asset,
+        BeauticaAssetIcons.notificationUnread,
+        reason: 'hasUnread ⇒ the bell asset with the baked-in notification dot',
+      );
+      // The unread asset is two-tone: it MUST skip the srcIn flatten, otherwise
+      // the red dot would be repainted to the bell colour (the whole point).
+      expect(
+        icon.multicolor,
+        isTrue,
+        reason:
+            'unread asset must render multicolor (no srcIn) so the red dot '
+            'survives instead of being tinted to the bell colour',
+      );
+    });
+
+    testWidgets('exposes the semantics label and fires its tap callback', (
+      tester,
+    ) async {
+      var tapped = false;
+      await tester.pumpApp(
+        BellButton(onTap: () => tapped = true, semanticLabel: 'Сповіщення'),
+      );
+      await tester.pump();
+
+      // The accessible label is announced via a button-role Semantics node so
+      // screen readers reach the bell. (homeHubNotificationsLabel at the call
+      // site; passed verbatim here so the test stays locale-independent.)
+      expect(
+        find.bySemanticsLabel('Сповіщення'),
+        findsOneWidget,
+        reason: 'BellButton must announce its semanticLabel (button role)',
+      );
+
+      // Tapping the bell must fire onTap — the wiring that opens the
+      // notification centre once Phase 14.9 lands.
+      await tester.tap(find.byType(BellButton));
+      await tester.pump();
+      expect(
+        tapped,
+        isTrue,
+        reason: 'tapping BellButton must invoke its onTap callback',
+      );
+    });
+
+    testWidgets('no code-drawn overlay dot remains in either state', (
+      tester,
+    ) async {
+      for (final unread in <bool>[false, true]) {
         await tester.pumpApp(
-          const BellButton(onTap: _noop, semanticLabel: 'Сповіщення'),
+          BellButton(
+            onTap: _noop,
+            semanticLabel: 'Сповіщення',
+            hasUnread: unread,
+          ),
         );
         await tester.pump();
 
-        // The bell itself is present...
-        expect(find.byType(BellButton), findsOneWidget);
+        // Exactly one bell glyph, never a Positioned overlay dot beside it.
         expect(
           find.descendant(
             of: find.byType(BellButton),
             matching: find.byType(AppIcon),
           ),
           findsOneWidget,
-          reason: 'bell glyph still renders when there are no unread items',
+          reason: 'the bell is a single AppIcon — no overlay companion widget',
         );
-
-        // ...but exactly zero overlay dots. The plain asset has no baked-in
-        // dot and the overlay is suppressed → the double-dot bug cannot recur.
         expect(
-          find.byKey(BellButton.unreadDotKey),
+          find.descendant(
+            of: find.byType(BellButton),
+            matching: find.byType(Positioned),
+          ),
           findsNothing,
           reason:
-              'hasUnread=false ⇒ the app-controlled overlay dot must NOT '
-              'render; combined with the dotless asset that means ZERO dots.',
+              'the old Positioned overlay dot is gone (hasUnread=$unread) — '
+              'the dot now lives inside the SVG asset',
         );
-      },
-    );
-
-    testWidgets(
-      'renders exactly ONE camel overlay dot when hasUnread is true',
-      (tester) async {
-        await tester.pumpApp(
-          const BellButton(
-            onTap: _noop,
-            semanticLabel: 'Сповіщення',
-            hasUnread: true,
-          ),
-        );
-        await tester.pump();
-
-        // Exactly one overlay dot.
-        final Finder dot = find.byKey(BellButton.unreadDotKey);
-        expect(
-          dot,
-          findsOneWidget,
-          reason:
-              'hasUnread=true ⇒ exactly one app-controlled overlay dot must '
-              'render as the sole unread indicator.',
-        );
-
-        // Token check: 8×8 camel-deep circle with a base-coloured border.
-        final Container dotContainer = tester.widget<Container>(dot);
-        expect(dotContainer.constraints?.maxHeight, 8);
-        expect(dotContainer.constraints?.maxWidth, 8);
-
-        final decoration = dotContainer.decoration! as BoxDecoration;
-        expect(
-          decoration.color,
-          BrandColors.accentDeep,
-          reason: 'unread dot must use the camel-deep accent token',
-        );
-        expect(decoration.shape, BoxShape.circle);
-        expect(
-          decoration.border?.bottom.color,
-          BrandColors.base,
-          reason:
-              'unread dot border must use the base token so it reads as a '
-              'cut-out against the top bar',
-        );
-      },
-    );
+      }
+    });
   });
 }
 
