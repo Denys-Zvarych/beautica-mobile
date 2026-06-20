@@ -77,7 +77,8 @@ void main() {
       expect(
         router.routerDelegate.currentConfiguration.uri.toString(),
         startsWith(RouteNames.masterProfile),
-        reason: 'login must land on the real /master/profile screen so the '
+        reason:
+            'login must land on the real /master/profile screen so the '
             'masterProfile→auth provider cascade is mounted before logout',
       );
 
@@ -130,7 +131,8 @@ void main() {
       expect(
         find.text(l10n.logoutFailed),
         findsNothing,
-        reason: 'logout must succeed end-to-end — the "${l10n.logoutFailed}" '
+        reason:
+            'logout must succeed end-to-end — the "${l10n.logoutFailed}" '
             'SnackBar means logout() threw (the cyclic-invalidation regression)',
       );
 
@@ -139,7 +141,8 @@ void main() {
       expect(
         fb.logoutCalls,
         equals(1),
-        reason: 'logout() must call POST /auth/logout once before wiping local '
+        reason:
+            'logout() must call POST /auth/logout once before wiping local '
             'state',
       );
     },
