@@ -19,11 +19,13 @@
 // onto the cached profile so editing one section never clobbers another:
 //   • firstName / lastName / phoneNumber are sent only when non-null on the
 //     [ClientProfileUpdate] (a screen that does not own them leaves them null).
-//   • the location keys (cityId / districtId / street / buildingNo /
-//     locationNote) are sent ONLY when `update.touchesLocation` is true — and
-//     then EXACTLY as carried, including a null cityId (CLIENT location is
-//     optional, so null clears the city). When false they are omitted and the
-//     server-side location is preserved.
+//   • the locality keys (cityId / districtId) are sent ONLY when
+//     `update.touchesLocation` is true — and then EXACTLY as carried, including
+//     a null cityId (CLIENT location is optional, so null clears the city). When
+//     false they are omitted and the server-side location is preserved. The
+//     free-text address keys (street / buildingNo / locationNote) are NEVER sent
+//     from the client — the CLIENT only edits the locality cascade, so the
+//     backend always preserves any existing address values.
 //
 // Every method either resolves successfully or throws a [Failure] subclass from
 // `core/errors/failures.dart`. Raw [DioException]s are caught here and never
@@ -123,22 +125,16 @@ final class HttpClientProfileRepository implements ClientProfileRepository {
       if (phone != null && phone.isNotEmpty) b.phoneNumber = phone;
 
       if (update.touchesLocation) {
-        // CLIENT location is OPTIONAL — send cityId exactly as carried,
-        // including null (null clears the city server-side; the backend's
-        // validateClientLocality permits a null city for clients).
+        // CLIENT location is OPTIONAL — send cityId/districtId exactly as
+        // carried, including null (null clears the city server-side; the
+        // backend's validateClientLocality permits a null city for clients).
+        //
+        // The free-text address keys (street / buildingNo / locationNote) are
+        // deliberately NEVER set here: a CLIENT only edits the locality cascade,
+        // so leaving these unset omits them from the wire body and the backend
+        // preserves any existing values (Optional null-means-keep semantics).
         b.cityId = update.cityId;
         b.districtId = update.districtId;
-
-        final street = update.street?.trim();
-        b.street = (street != null && street.isNotEmpty) ? street : null;
-
-        final buildingNo = update.buildingNo?.trim();
-        b.buildingNo = (buildingNo != null && buildingNo.isNotEmpty)
-            ? buildingNo
-            : null;
-
-        final note = update.locationNote?.trim();
-        b.locationNote = (note != null && note.isNotEmpty) ? note : null;
       }
     });
 

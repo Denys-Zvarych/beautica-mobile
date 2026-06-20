@@ -29,10 +29,12 @@
 //      restart (refreshUser() re-fetched /users/me) — the stale-home-card
 //      regression guard (a profile edit used to surface on the card only after
 //      a cold start).
-//   3. Hub → Location edit (row-location) → Save with NO city selected
-//      (btn-save-location) → the save SUCCEEDS (no "city required" block — a
-//      null city is valid for a CLIENT), the PATCH location slice carries a
-//      null cityId, and the screen leaves the editor.
+//   3. Hub → Location edit (row-location) → the three free-text address fields
+//      (street / buildingNo / locationNote) are GONE → the CLIENT picks
+//      oblast → city through the REAL cascade picker sheets → Save
+//      (btn-save-location) → the PATCH location slice carries the selected
+//      cityId WITHOUT any address key (and no instagram), the save SUCCEEDS, the
+//      screen leaves the editor, and the city round-trips on re-fetch.
 //
 // LOCATION NOTE (forward-compat — see QA brief)
 // ---------------------------------------------
@@ -218,11 +220,21 @@ void main() {
     timeout: const Timeout(Duration(seconds: 60)),
   );
 
-  // ── Test 2 — Location edit: save with NO city selected SUCCEEDS ───────────
+  // ── Test 2 — Location edit: locality-only save (NO address fields) ─────────
+  //
+  // Address-field removal guard: the CLIENT Location screen no longer renders or
+  // sends the free-text street / building / note fields. This flow proves the
+  // E2E journey still works with ONLY the locality cascade — the user picks
+  // oblast → city through the REAL picker sheets, saves, and the PATCH carries
+  // the selected cityId WITHOUT any address key (street / buildingNo /
+  // locationNote) and WITHOUT instagram. The picked city round-trips on the next
+  // GET /users/me. Selecting a city (vs. the old "type a street") is now what
+  // makes the form dirty, since the address fields are gone.
 
   testWidgets(
-    'CLIENT saves the Location screen with NO city selected → save SUCCEEDS '
-    '(null cityId is valid) and the PATCH location slice carries a null cityId',
+    'CLIENT picks a city on the Location screen (no address fields) → save '
+    'SUCCEEDS, the PATCH carries the cityId with NO street/buildingNo/'
+    'locationNote keys, and the city round-trips',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
       // No city seeded — the CLIENT starts with an empty location.
@@ -234,41 +246,63 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 2));
       expectLocation(router, RouteNames.clientEditLocation);
 
+      // The locality cascade renders…
+      expect(
+        find.byKey(const Key('location-cascade')),
+        findsOneWidget,
+        reason: 'Location edit must render the locality cascade',
+      );
+      // …and the three free-text address fields are GONE (the removal guard).
       expect(
         find.byKey(const Key('field-street')),
-        findsOneWidget,
-        reason: 'Location edit must render the street field',
+        findsNothing,
+        reason: 'the CLIENT Location screen must NOT render a street field',
+      );
+      expect(
+        find.byKey(const Key('field-buildingNo')),
+        findsNothing,
+        reason: 'the CLIENT Location screen must NOT render a building field',
+      );
+      expect(
+        find.byKey(const Key('field-locationNote')),
+        findsNothing,
+        reason: 'the CLIENT Location screen must NOT render a note field',
       );
 
       final int patchesBefore = fb.patchMeCalls;
 
-      // Make the form dirty WITHOUT selecting a city — type a street only.
-      await tester.enterText(
-        find.descendant(
-          of: find.byKey(const Key('field-street')),
-          matching: find.byType(TextField),
-        ),
-        'вул. Хрещатик',
+      // Drive the REAL cascade: tap the Область row → pick the seeded oblast.
+      await tester.tap(find.byKey(const Key('locality_row_oblast')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.tap(
+        find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
       );
-      await tester.pumpAndSettle();
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      // Tap the Місто row → pick the seeded city (no districts → cascade done).
+      await tester.tap(find.byKey(const Key('locality_row_city')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.tap(
+        find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
+      );
+      await tester.pumpAndSettle(const Duration(seconds: 1));
 
       await tester.ensureVisible(find.byKey(const Key('btn-save-location')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('btn-save-location')));
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
-      // The save must SUCCEED — no "city required" block for a CLIENT.
+      // The save must SUCCEED — exactly one PATCH /users/me for the location.
       expect(
         fb.patchMeCalls,
         equals(patchesBefore + 1),
-        reason:
-            'saving with no city must still issue exactly one PATCH /users/me '
-            '(a null city is valid for a CLIENT)',
+        reason: 'a city-selected save must issue exactly one PATCH /users/me',
       );
 
       final body = fb.lastPatchMeBody;
       expect(body, isNotNull);
-      // The location slice IS touched here, so cityId is present and null.
+      // The location slice IS touched here, so cityId is present and carries the
+      // selected city id.
       expect(
         body!.containsKey('cityId'),
         isTrue,
@@ -276,13 +310,27 @@ void main() {
       );
       expect(
         body['cityId'],
-        isNull,
-        reason: 'a CLIENT save with no city selected must send a null cityId',
+        'city-kyiv',
+        reason: 'the PATCH body must carry the city the CLIENT selected',
+      );
+      // ── ADDRESS-FIELD REMOVAL GUARD (the contract this flow protects) ──────
+      // The CLIENT only edits the locality cascade — the free-text address keys
+      // must NEVER appear on the wire body (the backend preserves any existing
+      // values). A present key here is the regression this flow guards.
+      expect(
+        body.containsKey('street'),
+        isFalse,
+        reason: 'the CLIENT location PATCH must NEVER carry a street key',
       );
       expect(
-        body['street'],
-        'вул. Хрещатик',
-        reason: 'the typed street must be carried in the PATCH body',
+        body.containsKey('buildingNo'),
+        isFalse,
+        reason: 'the CLIENT location PATCH must NEVER carry a buildingNo key',
+      );
+      expect(
+        body.containsKey('locationNote'),
+        isFalse,
+        reason: 'the CLIENT location PATCH must NEVER carry a locationNote key',
       );
       expect(
         body.containsKey('instagram'),
@@ -292,15 +340,17 @@ void main() {
 
       // Save left the editor (navigated home) — proving no validation block.
       expectLocation(router, RouteNames.clientHome);
-      expect(
-        fb.clientStreet,
-        'вул. Хрещатик',
-        reason: 'the fake /users/me state must reflect the persisted street',
-      );
+      // The picked city round-trips through the fake /users/me state.
       expect(
         fb.clientCityId,
+        'city-kyiv',
+        reason: 'the fake /users/me state must reflect the persisted city',
+      );
+      // The address state was never touched by this CLIENT save.
+      expect(
+        fb.clientStreet,
         isNull,
-        reason: 'the persisted city must remain null after a no-city save',
+        reason: 'a CLIENT location save must never persist a street value',
       );
     },
     timeout: const Timeout(Duration(seconds: 60)),

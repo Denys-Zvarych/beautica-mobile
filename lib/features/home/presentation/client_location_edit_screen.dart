@@ -1,20 +1,23 @@
 // CLIENT Локація — the location slice of the client profile: a three-level
 // locality cascade (Область → Місто → Район, district required only when a
-// chosen city subdivides) plus the free-text Вулиця, Будинок and Примітка
-// (optional) VelvetFields. A pinned "Зберегти" CTA sits at the bottom.
+// chosen city subdivides). A pinned "Зберегти" CTA sits at the bottom.
+//
+// For a CLIENT only the locality (oblast → city → district) is meaningful, so
+// the free-text address fields (Вулиця / Будинок / Примітка) are NOT shown,
+// collected, validated, or sent — the backend preserves any existing address
+// values because the PATCH omits those keys.
 //
 // 1:1 transcription of the master [LocationEditScreen] with the approved CLIENT
 // modifications:
 //   • City is OPTIONAL — the master's "city required when editing address" rule
 //     is DROPPED. A CLIENT may save with no city selected (the backend's
 //     validateClientLocality permits a null city for clients).
-//   • Street / buildingNo are OPTIONAL (the master required them once an address
-//     was being entered).
+//   • The free-text address fields are omitted entirely (client-only change).
 //   • District is required ONLY when a city with districts is chosen.
 //   • Save goes through [ClientProfileRepository.updateMyProfile] with
 //     `touchesLocation: true` (PATCH /users/me) — the same endpoint as the other
-//     client edit screens — sending the location slice with a possibly-null
-//     cityId.
+//     client edit screens — sending the locality slice with a possibly-null
+//     cityId and no address keys.
 //
 // Pre-population: the User profile carries oblastId / cityId / districtId, so the
 // cascade seeds its oblast selection directly from user.oblastId and loads just
@@ -36,7 +39,6 @@ import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
@@ -54,7 +56,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 
 import 'package:beautica_mobile/features/master/presentation/widgets/section_scaffold.dart';
 
-/// CLIENT location edit page (optional locality cascade + optional address).
+/// CLIENT location edit page (optional locality cascade only).
 class ClientLocationEditScreen extends ConsumerStatefulWidget {
   const ClientLocationEditScreen({super.key});
 
@@ -66,10 +68,6 @@ class ClientLocationEditScreen extends ConsumerStatefulWidget {
 class _ClientLocationEditScreenState
     extends ConsumerState<ClientLocationEditScreen>
     with SingleTickerProviderStateMixin {
-  late final TextEditingController _street;
-  late final TextEditingController _buildingNo;
-  late final TextEditingController _locationNote;
-
   bool _initialized = false;
 
   Oblast? _selectedOblast;
@@ -79,29 +77,15 @@ class _ClientLocationEditScreenState
   String? _origCityId;
   String? _origOblastId;
   String? _origDistrictId;
-  String _origStreet = '';
-  String _origBuildingNo = '';
-  String _origLocationNote = '';
 
   Map<String, String> _fieldErrors = const <String, String>{};
   bool _saving = false;
 
   String? _errDistrict;
-  String? _errStreet;
-  String? _errBuildingNo;
-  String? _errLocationNote;
-
-  // Aligned to the backend address DTO.
-  static const int _streetMax = 255;
-  static const int _buildingNoMax = 50;
-  static const int _locationNoteMax = 1000;
 
   // Animation — pre-built in initState; zero allocations in build().
   late final AnimationController _controller;
   late final CurvedAnimation _anim0; // subheading + cascade
-  late final CurvedAnimation _anim1; // street
-  late final CurvedAnimation _anim2; // buildingNo
-  late final CurvedAnimation _anim3; // note
   late final CurvedAnimation _animFooter; // pinned Save
 
   static final Tween<Offset> _slideTween = Tween<Offset>(
@@ -122,9 +106,6 @@ class _ClientLocationEditScreenState
       duration: const Duration(milliseconds: 900),
     );
     _anim0 = _curve(0.00, 0.46);
-    _anim1 = _curve(0.18, 0.62);
-    _anim2 = _curve(0.26, 0.70);
-    _anim3 = _curve(0.34, 0.78);
     _animFooter = _curve(0.60, 1.0);
   }
 
@@ -136,17 +117,6 @@ class _ClientLocationEditScreenState
   void _maybeInit(User user) {
     if (_initialized) return;
     _initialized = true;
-
-    _origStreet = user.street ?? '';
-    _origBuildingNo = user.buildingNo ?? '';
-    _origLocationNote = user.locationNote ?? '';
-    _street = TextEditingController(text: _origStreet);
-    _buildingNo = TextEditingController(text: _origBuildingNo);
-    _locationNote = TextEditingController(text: _origLocationNote);
-
-    for (final c in _editableControllers) {
-      c.addListener(_onFormChanged);
-    }
 
     _origOblastId = user.oblastId;
     _origCityId = user.cityId;
@@ -234,36 +204,17 @@ class _ClientLocationEditScreenState
   @override
   void dispose() {
     _screenProtection.release();
-    if (_initialized) {
-      for (final c in _editableControllers) {
-        c.removeListener(_onFormChanged);
-        c.dispose();
-      }
-    }
     _anim0.dispose();
-    _anim1.dispose();
-    _anim2.dispose();
-    _anim3.dispose();
     _animFooter.dispose();
     _controller.dispose();
     super.dispose();
-  }
-
-  List<TextEditingController> get _editableControllers =>
-      <TextEditingController>[_street, _buildingNo, _locationNote];
-
-  void _onFormChanged() {
-    if (mounted) setState(() {});
   }
 
   bool get _isDirty =>
       _initialized &&
       (_selectedOblast?.id != _origOblastId ||
           _selectedCity?.id != _origCityId ||
-          _selectedDistrict?.id != _origDistrictId ||
-          _street.text.trim() != _origStreet ||
-          _buildingNo.text.trim() != _origBuildingNo ||
-          _locationNote.text.trim() != _origLocationNote);
+          _selectedDistrict?.id != _origDistrictId);
 
   Widget _reveal(CurvedAnimation anim, Widget child) {
     final Animation<Offset> slide = _slideTween.animate(anim);
@@ -273,40 +224,18 @@ class _ClientLocationEditScreenState
     );
   }
 
-  void _clearServerError(String fieldName) {
-    if (_fieldErrors.containsKey(fieldName)) {
-      setState(() {
-        _fieldErrors = Map<String, String>.unmodifiable(
-          Map<String, String>.from(_fieldErrors)..remove(fieldName),
-        );
-      });
-    }
-  }
-
-  /// Returns true when the location section is valid for a CLIENT.
+  /// Returns true when the locality section is valid for a CLIENT.
   ///
   /// CLIENT modification vs master: the city is OPTIONAL (no "city required"
-  /// rule) and street / buildingNo are OPTIONAL. The ONLY local rule is that a
-  /// district must be chosen when the selected city subdivides into districts.
-  /// Server field errors (district / street / buildingNo / locationNote) take
-  /// precedence and short-circuit to invalid.
+  /// rule). The ONLY local rule is that a district must be chosen when the
+  /// selected city subdivides into districts. A server `district` field error
+  /// takes precedence and short-circuits to invalid.
   bool _validateLocation() {
     final l10n = AppLocalizations.of(context);
 
     final serverDistrict = _fieldErrors['district'];
-    final serverStreet = _fieldErrors['street'];
-    final serverBuildingNo = _fieldErrors['buildingNo'];
-    final serverLocationNote = _fieldErrors['locationNote'];
-    if (serverDistrict != null ||
-        serverStreet != null ||
-        serverBuildingNo != null ||
-        serverLocationNote != null) {
-      setState(() {
-        _errDistrict = serverDistrict ?? _errDistrict;
-        _errStreet = serverStreet ?? _errStreet;
-        _errBuildingNo = serverBuildingNo ?? _errBuildingNo;
-        _errLocationNote = serverLocationNote;
-      });
+    if (serverDistrict != null) {
+      setState(() => _errDistrict = serverDistrict);
       return false;
     }
 
@@ -319,20 +248,7 @@ class _ClientLocationEditScreenState
         ? l10n.errRequired
         : null;
 
-    setState(() {
-      _errDistrict = errDistrict;
-      _errStreet = null;
-      _errBuildingNo = null;
-    });
-
-    final streetLen = _street.text.trim().length;
-    final buildingLen = _buildingNo.text.trim().length;
-    final noteLen = _locationNote.text.trim().length;
-    if (streetLen > _streetMax ||
-        buildingLen > _buildingNoMax ||
-        noteLen > _locationNoteMax) {
-      return false;
-    }
+    setState(() => _errDistrict = errDistrict);
 
     return errDistrict == null;
   }
@@ -342,9 +258,6 @@ class _ClientLocationEditScreenState
     setState(() {
       _fieldErrors = const <String, String>{};
       _errDistrict = null;
-      _errStreet = null;
-      _errBuildingNo = null;
-      _errLocationNote = null;
     });
 
     if (!_validateLocation()) {
@@ -362,10 +275,12 @@ class _ClientLocationEditScreenState
     setState(() => _saving = true);
 
     try {
-      // CLIENT location is OPTIONAL — send the location slice with a
+      // CLIENT location is OPTIONAL — send the locality slice with a
       // possibly-null cityId (touchesLocation flags the repository to send the
-      // location keys exactly as carried, null included). Name + phone are
-      // untouched and preserved server-side.
+      // locality keys exactly as carried, null included). The free-text address
+      // keys (street / buildingNo / locationNote) are deliberately NOT passed,
+      // so the PATCH omits them and the backend preserves any existing values.
+      // Name + phone are untouched and preserved server-side too.
       await ref
           .read(clientProfileRepositoryProvider)
           .updateMyProfile(
@@ -373,9 +288,6 @@ class _ClientLocationEditScreenState
               touchesLocation: true,
               cityId: _selectedCity?.id,
               districtId: _selectedDistrict?.id,
-              street: _street.text.trim(),
-              buildingNo: _buildingNo.text.trim(),
-              locationNote: _locationNote.text.trim(),
             ),
           );
 
@@ -524,67 +436,6 @@ class _ClientLocationEditScreenState
                   },
                 ),
               ],
-            ),
-          ),
-          const SizedBox(height: VelvetSpacing.lg),
-          _reveal(
-            _anim1,
-            VelvetField(
-              key: const Key('field-street'),
-              label: l10n.streetLabel,
-              controller: _street,
-              enabled: !_saving,
-              optional: true,
-              hint: l10n.step3FieldStreetPlaceholder,
-              errorText: _errStreet,
-              maxLength: _streetMax,
-              onChanged: (_) {
-                _clearServerError('street');
-                if (_errStreet != null) {
-                  setState(() => _errStreet = null);
-                }
-              },
-            ),
-          ),
-          const SizedBox(height: VelvetSpacing.lg),
-          _reveal(
-            _anim2,
-            VelvetField(
-              key: const Key('field-buildingNo'),
-              label: l10n.buildingNoLabel,
-              controller: _buildingNo,
-              enabled: !_saving,
-              optional: true,
-              hint: l10n.step3FieldBuildingPlaceholder,
-              errorText: _errBuildingNo,
-              maxLength: _buildingNoMax,
-              onChanged: (_) {
-                _clearServerError('buildingNo');
-                if (_errBuildingNo != null) {
-                  setState(() => _errBuildingNo = null);
-                }
-              },
-            ),
-          ),
-          const SizedBox(height: VelvetSpacing.lg),
-          _reveal(
-            _anim3,
-            VelvetField(
-              key: const Key('field-locationNote'),
-              label: l10n.locationNoteLabel,
-              controller: _locationNote,
-              enabled: !_saving,
-              optional: true,
-              maxLines: 3,
-              hint: l10n.step3FieldNotePlaceholder,
-              errorText: _errLocationNote,
-              maxLength: _locationNoteMax,
-              onChanged: (_) {
-                _clearServerError('locationNote');
-                if (_errLocationNote != null) {
-                  setState(() => _errLocationNote = null);
-                }
-              },
             ),
           ),
         ],

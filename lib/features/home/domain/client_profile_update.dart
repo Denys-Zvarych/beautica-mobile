@@ -8,10 +8,12 @@
 // differences vs the master value object:
 //   • NO `instagram` field — clients have no Instagram on their profile, so the
 //     repository never sends the `instagram` key in the PATCH body.
-//   • Adds location fields (cityId / districtId / street / buildingNo /
-//     locationNote) because the CLIENT location edit screen patches the same
-//     `PATCH /users/me` endpoint (the master location edit hit a separate
-//     master-locality endpoint).
+//   • Adds locality fields (cityId / districtId) because the CLIENT location
+//     edit screen patches the same `PATCH /users/me` endpoint (the master
+//     location edit hit a separate master-locality endpoint). The free-text
+//     address fields (street / buildingNo / locationNote) are deliberately NOT
+//     carried here: a CLIENT only edits the locality cascade, so those keys are
+//     never sent and the backend preserves any existing values.
 //
 // Every field is nullable: each edit screen owns only a slice of the profile and
 // the repository merges the slice onto the cached profile (see
@@ -33,9 +35,6 @@ final class ClientProfileUpdate {
     this.phoneNumber,
     this.cityId,
     this.districtId,
-    this.street,
-    this.buildingNo,
-    this.locationNote,
     this.touchesLocation = false,
   });
 
@@ -56,21 +55,13 @@ final class ClientProfileUpdate {
   /// none chosen.
   final String? districtId;
 
-  /// Free-text street name, or null.
-  final String? street;
-
-  /// Building number, or null.
-  final String? buildingNo;
-
-  /// Optional location note (entrance / floor hints), or null.
-  final String? locationNote;
-
-  /// Whether this update OWNS the location slice (city / district / street /
-  /// buildingNo / locationNote). When true the repository sends those keys
-  /// EXACTLY as carried here — including a null [cityId] (CLIENT location is
-  /// optional, so null legitimately clears the city). When false the location
-  /// keys are omitted entirely and the cached location is preserved. This flag
-  /// is what lets the repository tell "field not owned by this screen" apart
-  /// from "field explicitly cleared".
+  /// Whether this update OWNS the locality slice (cityId / districtId). When
+  /// true the repository sends those keys EXACTLY as carried here — including a
+  /// null [cityId] (CLIENT location is optional, so null legitimately clears the
+  /// city). When false the locality keys are omitted entirely and the cached
+  /// location is preserved. This flag is what lets the repository tell "field
+  /// not owned by this screen" apart from "field explicitly cleared". The
+  /// free-text address keys (street / buildingNo / locationNote) are never sent
+  /// from the client and are always preserved server-side.
   final bool touchesLocation;
 }

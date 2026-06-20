@@ -1,9 +1,10 @@
-// Widget tests for ClientLocationEditScreen (optional locality cascade + address).
+// Widget tests for ClientLocationEditScreen (optional locality cascade only).
 //
-// 1:1 client transcription of the master location screen with the CLIENT
-// modifications: the city is OPTIONAL (no "city required" rule) and street /
-// buildingNo are OPTIONAL. Save goes through updateMyProfile(touchesLocation:
-// true) on PATCH /users/me. Coverage:
+// For a CLIENT only the locality (oblast → city → district) is meaningful, so
+// the free-text address fields (street / buildingNo / locationNote) are NOT
+// shown, collected, validated, or sent. Save goes through
+// updateMyProfile(touchesLocation: true) on PATCH /users/me. Coverage:
+//   • the three address fields are NO LONGER rendered.
 //   • saving with NO city selected SUCCEEDS (no "city required" error) and sends
 //     a ClientProfileUpdate with touchesLocation true + null cityId.
 //   • selecting a city (without districts) persists with that cityId.
@@ -24,6 +25,7 @@ import 'package:beautica_mobile/features/home/data/client_profile_repository.dar
 import 'package:beautica_mobile/features/home/domain/client_profile_update.dart';
 import 'package:beautica_mobile/features/home/presentation/client_location_edit_screen.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -46,6 +48,12 @@ const _stubUser = User(
   firstName: 'Олена',
   lastName: 'Ковальчук',
   phoneNumber: '+380 50 123 45 67',
+);
+
+const _oblast = Oblast(
+  id: 'oblast-01',
+  name: 'Київська',
+  katotthCode: 'UA32000000000000000',
 );
 
 const _cityNoDistricts = City(
@@ -100,9 +108,6 @@ List<Object> _overrides(_MockClientProfileRepository repo) => <Object>[
   clientProfileRepositoryProvider.overrideWithValue(repo),
 ];
 
-Finder _field(String key) =>
-    find.descendant(of: find.byKey(Key(key)), matching: find.byType(TextField));
-
 void main() {
   late _MockClientProfileRepository repo;
 
@@ -116,8 +121,34 @@ void main() {
   });
 
   testWidgets(
+    'the free-text address fields (street / buildingNo / locationNote) are NOT '
+    'rendered for a CLIENT',
+    (tester) async {
+      await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+      await tester.pump();
+      await tester.pump();
+
+      // The locality cascade still renders…
+      expect(find.byKey(const Key('location-cascade')), findsOneWidget);
+      // …but the three address fields are gone.
+      expect(find.byKey(const Key('field-street')), findsNothing);
+      expect(find.byKey(const Key('field-buildingNo')), findsNothing);
+      expect(find.byKey(const Key('field-locationNote')), findsNothing);
+      // Structural guard: with the address fields removed, the loaded Location
+      // screen owns NO free-text input at all — the cascade rows are tap-rows
+      // (GestureDetector), not TextFields. A surviving TextField here would mean
+      // an address field slipped back in.
+      expect(
+        find.byType(TextField),
+        findsNothing,
+        reason: 'the CLIENT Location screen must render no free-text input',
+      );
+    },
+  );
+
+  testWidgets(
     'saving with NO city selected SUCCEEDS (no "city required" error) and sends '
-    'touchesLocation true with a null cityId',
+    'touchesLocation true with a null cityId and no address keys',
     (tester) async {
       ClientProfileUpdate? captured;
       when(() => repo.updateMyProfile(any())).thenAnswer((invocation) async {
@@ -128,8 +159,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      // Enter a street to make the form dirty — but never select a city.
-      await tester.enterText(_field('field-street'), 'вул. Хрещатик');
+      // Pick an oblast (only) to make the form dirty — but never select a city.
+      tester
+          .widget<LocalityCascade>(find.byKey(const Key('location-cascade')))
+          .onOblast(_oblast);
       await tester.pump();
 
       await tester.tap(find.byKey(const Key('btn-save-location')));
@@ -143,13 +176,14 @@ void main() {
         isNull,
         reason: 'CLIENT location is optional — a null cityId is valid',
       );
-      expect(captured!.street, 'вул. Хрещатик');
+      expect(captured!.districtId, isNull);
       expect(find.byKey(const Key('stub-home')), findsOneWidget);
     },
   );
 
   testWidgets(
-    'selecting a city (no districts) + address persists that cityId',
+    'selecting a city (no districts) persists that cityId and sends no address '
+    'keys',
     (tester) async {
       ClientProfileUpdate? captured;
       when(() => repo.updateMyProfile(any())).thenAnswer((invocation) async {
@@ -165,11 +199,6 @@ void main() {
           .onCity(_cityNoDistricts);
       await tester.pump();
 
-      await tester.enterText(_field('field-street'), 'вул. Шевченка');
-      await tester.pump();
-      await tester.enterText(_field('field-buildingNo'), '1');
-      await tester.pump();
-
       await tester.tap(find.byKey(const Key('btn-save-location')));
       await tester.pumpAndSettle();
 
@@ -177,8 +206,6 @@ void main() {
       expect(captured!.touchesLocation, isTrue);
       expect(captured!.cityId, 'city-99');
       expect(captured!.districtId, isNull);
-      expect(captured!.street, 'вул. Шевченка');
-      expect(captured!.buildingNo, '1');
     },
   );
 
@@ -198,7 +225,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // Still on the edit screen; nothing persisted (district required).
-      expect(find.byKey(const Key('field-street')), findsOneWidget);
+      expect(find.byKey(const Key('location-cascade')), findsOneWidget);
+      expect(find.byKey(const Key('stub-home')), findsNothing);
       verifyNever(() => repo.updateMyProfile(any()));
     },
   );
@@ -215,9 +243,11 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      // Make the form dirty (street only — city stays optional/null) so the
-      // Save CTA is enabled and validation passes.
-      await tester.enterText(_field('field-street'), 'вул. Хрещатик');
+      // Make the form dirty (pick an oblast only — city stays optional/null) so
+      // the Save CTA is enabled and validation passes.
+      tester
+          .widget<LocalityCascade>(find.byKey(const Key('location-cascade')))
+          .onOblast(_oblast);
       await tester.pump();
 
       await tester.tap(find.byKey(const Key('btn-save-location')));
@@ -226,11 +256,11 @@ void main() {
 
       // The screen stays put — no navigation to the stub home occurred.
       expect(find.byKey(const Key('stub-home')), findsNothing);
-      expect(find.byKey(const Key('field-street')), findsOneWidget);
+      expect(find.byKey(const Key('location-cascade')), findsOneWidget);
 
       // The localized ServerFailure message renders inside a SnackBar.
       final BuildContext ctx = tester.element(
-        find.byKey(const Key('field-street')),
+        find.byKey(const Key('location-cascade')),
       );
       final String expected = AppLocalizations.of(ctx).errServer;
       expect(

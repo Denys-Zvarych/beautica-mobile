@@ -423,7 +423,8 @@ final class FakeBackend {
   int verifyEmailCalls = 0;
   int getMeCalls = 0; // GET /api/v1/users/me counter
   int patchMeCalls = 0; // PATCH /api/v1/users/me counter (CLIENT profile edit)
-  Map<String, dynamic>? lastPatchMeBody; // body of the most recent PATCH /users/me
+  Map<String, dynamic>?
+  lastPatchMeBody; // body of the most recent PATCH /users/me
   int getMasterCalls = 0;
   int patchProfileCalls = 0;
   Map<String, dynamic>? lastPatchBody;
@@ -952,10 +953,46 @@ final class FakeBackend {
       );
     }
 
-    // GET /api/v1/locations/oblasts — returns empty list (locality cascade)
+    // GET /api/v1/locations/oblasts — one seeded oblast so the locality cascade
+    // picker has a selectable row (the CLIENT Location flow drives the REAL
+    // picker sheets to make the form dirty now that the free-text address fields
+    // — the previous "type a street to dirty" mechanism — are gone). Shape:
+    // OblastResponse { id, katotthCode, nameUk, nameEn }.
     _adapter.onRoute(
       '/api/v1/locations/oblasts',
-      (server) => server.reply(200, _okList(const <dynamic>[])),
+      (server) => server.reply(
+        200,
+        _okList(<Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'oblast-kyiv',
+            'katotthCode': 'UA32000000000000000',
+            'nameUk': 'Київська',
+            'nameEn': 'Kyiv Oblast',
+          },
+        ]),
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/locations/oblasts/{oblastId}/cities — one seeded city WITHOUT
+    // districts so a CLIENT can select a city through the real cascade and save
+    // with ONLY the locality slice (no district step, no address fields). Shape:
+    // CityResponse { id, oblastId, katotthCode, nameUk, nameEn, hasDistricts }.
+    _adapter.onRoute(
+      '/api/v1/locations/oblasts/oblast-kyiv/cities',
+      (server) => server.reply(
+        200,
+        _okList(<Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'city-kyiv',
+            'oblastId': 'oblast-kyiv',
+            'katotthCode': 'UA80000000000093317',
+            'nameUk': 'Київ',
+            'nameEn': 'Kyiv',
+            'hasDistricts': false,
+          },
+        ]),
+      ),
       request: const Request(method: RequestMethods.get),
     );
 

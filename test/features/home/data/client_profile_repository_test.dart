@@ -112,66 +112,47 @@ void main() {
       },
     );
 
-    test(
-      'a location update with touchesLocation true sends the location slice '
-      'including a null cityId (optional for clients) and never instagram',
-      () async {
-        await repository.updateMyProfile(
-          const ClientProfileUpdate(
-            touchesLocation: true,
-            cityId: null,
-            districtId: null,
-            street: 'вул. Хрещатик',
-            buildingNo: '10',
-            locationNote: 'кв. 5',
-          ),
-        );
+    test('a location update with touchesLocation true sends the locality slice '
+        'including a null cityId (optional for clients), NEVER any address key, '
+        'and never instagram', () async {
+      await repository.updateMyProfile(
+        const ClientProfileUpdate(
+          touchesLocation: true,
+          cityId: null,
+          districtId: null,
+        ),
+      );
 
-        final req = _captureRequest(userApi);
-        expect(req.cityId, isNull);
-        expect(req.street, 'вул. Хрещатик');
-        expect(req.buildingNo, '10');
-        expect(req.locationNote, 'кв. 5');
-        expect(req.instagram, isNull);
-      },
-    );
+      final req = _captureRequest(userApi);
+      expect(req.cityId, isNull);
+      // The CLIENT only edits the locality cascade — the free-text address
+      // keys are NEVER sent, so the backend preserves any existing values.
+      expect(req.street, isNull);
+      expect(req.buildingNo, isNull);
+      expect(req.locationNote, isNull);
+      expect(req.instagram, isNull);
+    });
 
     test(
-      'a location update with a selected city + district sends both ids',
+      'a location update with a selected city + district sends both ids and no '
+      'address keys',
       () async {
         await repository.updateMyProfile(
           const ClientProfileUpdate(
             touchesLocation: true,
             cityId: 'city-77',
             districtId: 'district-3',
-            street: 'вул. Шевченка',
-            buildingNo: '1',
           ),
         );
 
         final req = _captureRequest(userApi);
         expect(req.cityId, 'city-77');
         expect(req.districtId, 'district-3');
+        expect(req.street, isNull);
+        expect(req.buildingNo, isNull);
+        expect(req.locationNote, isNull);
         expect(req.instagram, isNull);
       },
     );
-
-    test('empty location strings collapse to null (not blank)', () async {
-      await repository.updateMyProfile(
-        const ClientProfileUpdate(
-          touchesLocation: true,
-          cityId: 'city-99',
-          street: '   ',
-          buildingNo: '',
-          locationNote: '',
-        ),
-      );
-
-      final req = _captureRequest(userApi);
-      expect(req.cityId, 'city-99');
-      expect(req.street, isNull);
-      expect(req.buildingNo, isNull);
-      expect(req.locationNote, isNull);
-    });
   });
 }
