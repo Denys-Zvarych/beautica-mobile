@@ -86,11 +86,7 @@ const _populatedPassport = Passport(
     'Брови ламінування',
     'Косметологія обличчя',
   ],
-  favoriteDistricts: <String>[
-    'Центр',
-    'Сихів',
-    'Залізничний',
-  ],
+  favoriteDistricts: <String>['Центр', 'Сихів', 'Залізничний'],
   budget: BudgetBand(avg: 650, min: 400, max: 800),
   bookingsConsidered: 12,
   reviewsLeft: 8,
@@ -130,6 +126,54 @@ const List<_Viewport> _matrix = <_Viewport>[
   // lines all grow; the fixed chrome can squeeze the Expanded hero negative.
   _Viewport('baseline 390x844 @1.3x', 390, 844, 1.3),
   _Viewport('baseline 390x844 @1.5x', 390, 844, 1.5),
+];
+
+// ---------------------------------------------------------------------------
+// EXTREME-but-SAFE matrix — cells proven overflow-free. These are PERMANENT
+// guards: if a future change reintroduces a top-bar overflow at any of these
+// realistic-or-extreme cells, the suite goes red.
+//
+// FIX HISTORY (2026-06-22): the `_TopBar` Row (passport_screen.dart:499 —
+// wordmark + Spacer + bell + burger) previously overflowed on the RIGHT at
+// large text scale because the `beautica` wordmark `Text` grew with text scale
+// while the fixed-size bell + burger could not yield space. The wordmark is now
+// wrapped in `Flexible(child: Text(..., overflow: ellipsis, maxLines: 1))`, so
+// it ellipsizes (and ultimately collapses to nothing) before the Row overflows.
+// The four cells that USED to overflow are now safe and have moved here:
+//   • 360x640 @2.0x  — Android "largest font" on the most common Android width.
+//   • 320x568 @1.5x  — iPhone-SE-class width at a moderate a11y scale.
+//   • 280x653 @1.3x  — split-screen + large font.
+//   • 270x844 @1.0x  — sub-floor ultra-narrow portrait.
+//
+// The boundary sweep AFTER the fix proves the top bar is now overflow-free at
+// every reachable config and well beyond — safe down to 240x844 @3.0x and
+// 200x844 @3.0x. Residual overflow only appears at absurd, unreachable widths
+// (≤160px @ ≥4.0x), where the fixed bell + burger + gaps alone exceed the
+// surface (the wordmark is already fully ellipsized to zero) and the offending
+// widget is no longer the top bar — i.e. there is no longer a reachable
+// top-bar overflow boundary to document, so the EXPECTED-OVERFLOW probe matrix
+// was removed.
+// ---------------------------------------------------------------------------
+const List<_Viewport> _extremeSafeMatrix = <_Viewport>[
+  // ── Previously-overflowing cells, now fixed by the Flexible+ellipsis wrap. ──
+  _Viewport('360x640 @2.0x (a11y largest font, common width)', 360, 640, 2.0),
+  _Viewport('320x568 @1.5x (iPhone-SE-class a11y)', 320, 568, 1.5),
+  _Viewport('280x653 @1.3x (split-screen + large font)', 280, 653, 1.3),
+  _Viewport('270x844 @1.0x (sub-floor ultra-narrow)', 270, 844, 1.0),
+  // ── Pre-existing safe guards. ──
+  // 2.0× ("largest font" Android a11y) on the baseline-WIDTH phone.
+  _Viewport('baseline 390x844 @2.0x (a11y largest font)', 390, 844, 2.0),
+  // Ultra-narrow split-screen / old Android at 1.0×.
+  _Viewport('ultra-narrow 280x653 @1.0x', 280, 653, 1.0),
+  // Short / landscape-ish surfaces at 1.0× — exercise the vertical squeeze of
+  // the no-scroll Column directly. Wide enough that the top bar never overflows;
+  // the hero's SingleChildScrollView absorbs the vertical squeeze, so PASS.
+  _Viewport('landscape-ish 640x360 @1.0x', 640, 360, 1.0),
+  _Viewport('landscape-ish 720x360 @1.0x', 720, 360, 1.0),
+  // Beyond-reachable extreme — proves the Flexible wrap holds far past any real
+  // device. The wordmark ellipsizes to zero; the bell + burger still fit.
+  _Viewport('beyond-reach 240x844 @3.0x (top bar still safe)', 240, 844, 3.0),
+  _Viewport('beyond-reach 200x844 @3.0x (top bar still safe)', 200, 844, 3.0),
 ];
 
 /// Pumps [PassportScreen] at an EXACT device viewport (width AND height) with
@@ -210,4 +254,60 @@ void main() {
       });
     }
   });
+
+  // -------------------------------------------------------------------------
+  // EXTREME-but-SAFE cells — permanent guards. POPULATED + EMPTY both proven
+  // overflow-free by the 2026-06-22 boundary sweep. They must STAY green.
+  // -------------------------------------------------------------------------
+  group('PassportScreen overflow matrix — EXTREME (safe) POPULATED', () {
+    for (final _Viewport vp in _extremeSafeMatrix) {
+      testWidgets('no overflow at ${vp.label} (populated)', (tester) async {
+        await _pumpPassport(tester, vp: vp, passport: _populatedPassport);
+
+        expect(
+          find.byKey(const Key('client-branch-passport')),
+          findsOneWidget,
+          reason: 'PassportScreen must render (sanity) at ${vp.label}',
+        );
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'PassportScreen (populated) must stay overflow-free at the '
+              'extreme-but-safe cell ${vp.label} — top bar / hero squeeze.',
+        );
+      });
+    }
+  });
+
+  group('PassportScreen overflow matrix — EXTREME (safe) EMPTY', () {
+    for (final _Viewport vp in _extremeSafeMatrix) {
+      testWidgets('no overflow at ${vp.label} (empty)', (tester) async {
+        await _pumpPassport(tester, vp: vp, passport: _emptyPassport);
+
+        expect(
+          find.byKey(const Key('passport_find_master_button')),
+          findsOneWidget,
+          reason: 'empty-passport CTA must render (sanity) at ${vp.label}',
+        );
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'PassportScreen (empty) must stay overflow-free at the '
+              'extreme-but-safe cell ${vp.label}.',
+        );
+      });
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // NOTE: the former EXPECTED-OVERFLOW boundary probe group was removed in the
+  // 2026-06-22 fix. The `beautica` wordmark is now wrapped in
+  // `Flexible(child: Text(..., overflow: ellipsis))`, so the `_TopBar` Row no
+  // longer overflows at any reachable config (or even far beyond — see the
+  // beyond-reach cells in `_extremeSafeMatrix`). There is therefore no longer a
+  // reachable top-bar overflow boundary to document as an executable
+  // expectation; the safe-matrix assertions above are the regression guard.
+  // -------------------------------------------------------------------------
 }

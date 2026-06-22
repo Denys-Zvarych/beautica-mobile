@@ -402,11 +402,20 @@ class _TopBar extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     return Row(
       children: <Widget>[
-        // beautica wordmark — intentionally lowercase (brand decision)
-        Text(
-          // ignore: avoid_hardcoded_strings — brand wordmark, NOT translated
-          'beautica',
-          style: VelvetText.wordmark(),
+        // beautica wordmark — intentionally lowercase (brand decision).
+        // Wrap in Flexible + ellipsis so the wordmark yields space before the
+        // Row overflows at extreme text scale; the fixed-size bell + burger
+        // stay fully tappable. No visual change at 1.0× (the wordmark is far
+        // narrower than the available width). Kept byte-identical to the
+        // PassportScreen _TopBar (both must stay in sync).
+        Flexible(
+          child: Text(
+            // ignore: avoid_hardcoded_strings — brand wordmark, NOT translated
+            'beautica',
+            style: VelvetText.wordmark(),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+          ),
         ),
         const Spacer(),
         BellButton(

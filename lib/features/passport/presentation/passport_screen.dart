@@ -498,10 +498,18 @@ class _TopBar extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     return Row(
       children: <Widget>[
-        Text(
-          // ignore: avoid_hardcoded_strings — brand wordmark, NOT translated.
-          'beautica',
-          style: VelvetText.wordmark(),
+        // Wrap in Flexible + ellipsis so the wordmark yields space before the
+        // Row overflows at extreme text scale; the fixed-size bell + burger
+        // stay fully tappable. No visual change at 1.0× (the wordmark is far
+        // narrower than the available width).
+        Flexible(
+          child: Text(
+            // ignore: avoid_hardcoded_strings — brand wordmark, NOT translated.
+            'beautica',
+            style: VelvetText.wordmark(),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+          ),
         ),
         const Spacer(),
         _BellButton(
