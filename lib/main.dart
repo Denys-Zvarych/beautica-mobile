@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'core/config/app_config.dart';
+import 'core/icons/beautica_asset_icons.dart';
 import 'core/network/dio_provider.dart';
 import 'core/theme/app_theme.dart';
 import 'l10n/app_localizations.dart';
@@ -102,6 +104,15 @@ Future<void> main() async {
   ); // pill / field accent / form caption
   await GoogleFonts.pendingFonts();
 
+  // L3 (mobile-perf, MP11 pattern): warm the flutter_svg cache for the
+  // shared notification bell so its first paint (Головна AND the Beauty
+  // Passport top bar) does NOT decode + rasterise the SVG on the UI thread.
+  // SvgPicture keys its PictureCache on the asset path, so a pre-seeded entry
+  // is a guaranteed hit on the first real render. Fire-and-forget: a miss
+  // simply falls back to a one-time on-render decode, so this never blocks
+  // startup — hence no `await`.
+  unawaited(_warmSharedSvgs());
+
   // MEDIUM-3 (mobile-security 2026-05-27): pre-load ISRG Root X1 cert for
   // Dio IOHttpClientAdapter cert-pinning. Must complete before runApp so
   // the SecurityContext is cached before any provider reads dioProvider.
@@ -126,6 +137,22 @@ Future<void> main() async {
   unawaited(
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]),
   );
+}
+
+/// Pre-seeds the flutter_svg [PictureCache] for the SVGs shared across the
+/// first screens a CLIENT lands on, so their first paint is a cache hit rather
+/// than an on-the-UI-thread decode. Currently just the notification bell
+/// ([BeauticaAssetIcons.notificationPlain]) reused by Головна and the Beauty
+/// Passport top bar (L3). Add further high-traffic SVGs here as needed.
+Future<void> _warmSharedSvgs() async {
+  const List<String> assets = <String>[BeauticaAssetIcons.notificationPlain];
+  for (final String asset in assets) {
+    final SvgAssetLoader loader = SvgAssetLoader(asset);
+    await svg.cache.putIfAbsent(
+      loader.cacheKey(null),
+      () => loader.loadBytes(null),
+    );
+  }
 }
 
 class BeauticaApp extends ConsumerWidget {

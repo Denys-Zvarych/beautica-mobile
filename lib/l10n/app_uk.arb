@@ -2813,5 +2813,62 @@
   "myRatingExplanation": "Ваш рейтинг формується на основі оцінок майстрів і салонів після завершених процедур.",
   "@myRatingExplanation": {
     "description": "Explanation line under the rating number and stars on the My Rating screen. Tells the client who assigns their rating."
+  },
+  "passportColumnProcedures": "Улюблені процедури",
+  "@passportColumnProcedures": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's first column (auto-derived top-3 most-booked service types)."
+  },
+  "passportColumnDistricts": "Улюблені райони",
+  "@passportColumnDistricts": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's second column (auto-derived top-3 most-visited districts)."
+  },
+  "passportColumnBudget": "Бюджет",
+  "@passportColumnBudget": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's third column (auto-derived spend band)."
+  },
+  "passportBudgetCeiling": "до {max} грн",
+  "@passportBudgetCeiling": {
+    "description": "Budget value chip on the BEAUTY PASSPORT card — the upper bound of the client's derived spend band, in UAH.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "passportBudgetUnknown": "—",
+  "@passportBudgetUnknown": {
+    "description": "Budget value chip placeholder on the BEAUTY PASSPORT card when there is no spend history yet."
+  },
+  "passportReviewsLeft": "{count, plural, =0{Жодного відгуку залишено} =1{1 відгук залишено} few{{count} відгуки залишено} many{{count} відгуків залишено} other{{count} відгуків залишено}}",
+  "@passportReviewsLeft": {
+    "description": "Footer standing line on the BEAUTY PASSPORT card — how many reviews the client has left.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "passportMemberSince": "Користувач з {year}",
+  "@passportMemberSince": {
+    "description": "Footer subtitle on the BEAUTY PASSPORT card — the year the client joined Beautica.",
+    "placeholders": {
+      "year": {
+        "type": "String",
+        "example": "2024"
+      }
+    }
+  },
+  "passportEmptyTitle": "Твій паспорт ще порожній",
+  "@passportEmptyTitle": {
+    "description": "Heading of the empty BEAUTY PASSPORT state, shown when the client has no completed bookings yet."
+  },
+  "passportEmptyBody": "Запишись на першу процедуру — і Beautica почне збирати твої улюблені послуги, райони та бюджет.",
+  "@passportEmptyBody": {
+    "description": "Body copy of the empty BEAUTY PASSPORT state inviting the client to book their first service."
+  },
+  "passportEmptyCta": "Знайти майстра",
+  "@passportEmptyCta": {
+    "description": "Call-to-action button on the empty BEAUTY PASSPORT state — opens discovery search."
   }
 }

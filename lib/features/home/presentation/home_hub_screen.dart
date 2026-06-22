@@ -482,7 +482,7 @@ class BellButton extends StatelessWidget {
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: Padding(
-          padding: const EdgeInsets.all(4),
+          padding: const EdgeInsets.all(VelvetSpacing.xs),
           child: hasUnread
               ? const AppIcon(
                   BeauticaAssetIcons.notificationUnread,

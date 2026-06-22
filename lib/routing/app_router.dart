@@ -52,6 +52,7 @@ import '../features/home/presentation/client_location_edit_screen.dart';
 import '../features/home/presentation/client_personal_info_edit_screen.dart';
 import '../features/home/presentation/client_settings_hub_screen.dart';
 import '../features/home/presentation/home_hub_screen.dart';
+import '../features/passport/presentation/passport_screen.dart';
 import '../features/rating/presentation/my_rating_screen.dart';
 import '../features/shell/presentation/branch_placeholders.dart';
 import '../features/shell/presentation/client_shell.dart';
@@ -262,12 +263,11 @@ GoRouter appRouter(Ref ref) {
           ),
           StatefulShellBranch(
             routes: [
+              // Phase 13.8 — real PassportScreen replaces the placeholder.
               GoRoute(
                 path: RouteNames.clientPassport,
-                pageBuilder: (context, state) => _instantPage(
-                  state,
-                  const ClientPassportPlaceholderScreen(),
-                ),
+                pageBuilder: (context, state) =>
+                    _instantPage(state, const PassportScreen()),
               ),
             ],
           ),

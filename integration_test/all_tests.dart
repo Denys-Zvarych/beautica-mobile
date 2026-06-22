@@ -56,6 +56,7 @@ import 'client_shell_flow_test.dart' as client_shell;
 import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
 import 'logout_flow_test.dart' as logout;
+import 'passport_flow_test.dart' as passport;
 import 'register_flow_test.dart' as register;
 import 'register_locality_persistence_flow_test.dart'
     as register_locality_persistence;
@@ -84,6 +85,7 @@ void main() {
   group('edit_profile_flow', edit_profile.main);
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
   group('logout_flow', logout.main);
+  group('passport_flow', passport.main);
   group('register_flow', register.main);
   group(
     'register_locality_persistence_flow',

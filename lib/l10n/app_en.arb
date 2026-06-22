@@ -2813,5 +2813,62 @@
   "myRatingExplanation": "Your rating is based on scores from masters and salons after completed procedures.",
   "@myRatingExplanation": {
     "description": "Explanation line under the rating number and stars on the My Rating screen. Tells the client who assigns their rating."
+  },
+  "passportColumnProcedures": "Favourite procedures",
+  "@passportColumnProcedures": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's first column (auto-derived top-3 most-booked service types)."
+  },
+  "passportColumnDistricts": "Favourite districts",
+  "@passportColumnDistricts": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's second column (auto-derived top-3 most-visited districts)."
+  },
+  "passportColumnBudget": "Budget",
+  "@passportColumnBudget": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's third column (auto-derived spend band)."
+  },
+  "passportBudgetCeiling": "up to {max} UAH",
+  "@passportBudgetCeiling": {
+    "description": "Budget value chip on the BEAUTY PASSPORT card — the upper bound of the client's derived spend band, in UAH.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "passportBudgetUnknown": "—",
+  "@passportBudgetUnknown": {
+    "description": "Budget value chip placeholder on the BEAUTY PASSPORT card when there is no spend history yet."
+  },
+  "passportReviewsLeft": "{count, plural, =0{No reviews left} =1{1 review left} other{{count} reviews left}}",
+  "@passportReviewsLeft": {
+    "description": "Footer standing line on the BEAUTY PASSPORT card — how many reviews the client has left.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "passportMemberSince": "Member since {year}",
+  "@passportMemberSince": {
+    "description": "Footer subtitle on the BEAUTY PASSPORT card — the year the client joined Beautica.",
+    "placeholders": {
+      "year": {
+        "type": "String",
+        "example": "2024"
+      }
+    }
+  },
+  "passportEmptyTitle": "Your passport is still empty",
+  "@passportEmptyTitle": {
+    "description": "Heading of the empty BEAUTY PASSPORT state, shown when the client has no completed bookings yet."
+  },
+  "passportEmptyBody": "Book your first service — and Beautica will start collecting your favourite services, districts and budget.",
+  "@passportEmptyBody": {
+    "description": "Body copy of the empty BEAUTY PASSPORT state inviting the client to book their first service."
+  },
+  "passportEmptyCta": "Find a master",
+  "@passportEmptyCta": {
+    "description": "Call-to-action button on the empty BEAUTY PASSPORT state — opens discovery search."
   }
 }
