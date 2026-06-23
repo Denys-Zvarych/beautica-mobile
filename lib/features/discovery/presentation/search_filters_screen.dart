@@ -423,10 +423,10 @@ class _ServiceTypeGrid extends ConsumerWidget {
           key: const Key('search_service_type_grid'),
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 4,
+          crossAxisCount: 3,
           mainAxisSpacing: VelvetSpacing.md,
           crossAxisSpacing: VelvetSpacing.sm,
-          childAspectRatio: 0.78,
+          childAspectRatio: 0.95,
           children: <Widget>[
             for (final ServiceCategoryOption category in categories)
               ServiceTypeTile(
@@ -468,10 +468,10 @@ class _GridSkeleton extends StatelessWidget {
     return GridView.count(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 4,
+      crossAxisCount: 3,
       mainAxisSpacing: VelvetSpacing.md,
       crossAxisSpacing: VelvetSpacing.sm,
-      childAspectRatio: 0.78,
+      childAspectRatio: 0.95,
       children: <Widget>[
         for (int i = 0; i < 8; i++)
           Column(

@@ -325,6 +325,34 @@ void main() {
         'Манікюр',
       );
     });
+
+    // Regression guard for the 4→3 column change (full category names were
+    // truncated at 4 columns / 0.78 aspect). Reads the grid's delegate rather
+    // than counting on-screen rows so it is layout-deterministic and would FAIL
+    // on the old crossAxisCount: 4, childAspectRatio: 0.78 values.
+    testWidgets('category grid lays out 3 columns at 0.95 aspect ratio', (
+      tester,
+    ) async {
+      await _pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      final GridView grid = tester.widget<GridView>(
+        find.byKey(const Key('search_service_type_grid')),
+      );
+      final delegate = grid.gridDelegate;
+      expect(
+        delegate,
+        isA<SliverGridDelegateWithFixedCrossAxisCount>(),
+        reason: 'grid must use a fixed cross-axis count delegate',
+      );
+      final fixed = delegate as SliverGridDelegateWithFixedCrossAxisCount;
+      expect(
+        fixed.crossAxisCount,
+        3,
+        reason: 'full category names need 3 columns (4 truncated them)',
+      );
+      expect(fixed.childAspectRatio, 0.95);
+    });
   });
 
   group('ClientSearchScreen — category grid (loading/error/empty)', () {
