@@ -88,6 +88,20 @@ CustomTransitionPage<void> _instantPage(GoRouterState state, Widget child) =>
           child,
     );
 
+// ---------------------------------------------------------------------------
+// CLIENT shell branch indices (locked — must match the [StatefulShellBranch]
+// order in the [StatefulShellRoute.indexedStack] below). These are the single
+// source of truth for "which tab is which index": the shell hops branches via
+// `navigationShell.goBranch(<index>)`, the bottom nav fills the tile whose
+// `index == navigationShell.currentIndex`, and in-page tiles that target a tab
+// must hop the SAME index (never `context.push`, which stacks on the current
+// branch and leaves the nav selection out of sync).
+const int kClientHomeBranch = 0;
+const int kClientFavoritesBranch = 1;
+const int kClientSearchBranch = 2;
+const int kClientBookingsBranch = 3;
+const int kClientPassportBranch = 4;
+
 @Riverpod(keepAlive: true)
 GoRouter appRouter(Ref ref) {
   final refresh = AuthRefreshNotifier(ref);

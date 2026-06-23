@@ -37,6 +37,7 @@ import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../routing/app_router.dart';
 import '../../../routing/route_names.dart';
 import '../application/home_hub_notifier.dart';
 import '../domain/home_hub_models.dart';
@@ -221,7 +222,14 @@ class _HomeHubBody extends ConsumerWidget {
                 end: 0.52,
                 child: _StatPillsRow(
                   profileAsync: profileAsync,
-                  onPassport: () => context.push(RouteNames.clientPassport),
+                  // Passport is shell branch [kClientPassportBranch]. Hop the
+                  // branch (not `context.push`) so the page AND the bottom-nav
+                  // selection stay in sync — a plain push stacks Passport on the
+                  // Home branch and leaves the Home tile filled.
+                  onPassport: () => StatefulNavigationShell.of(
+                    context,
+                  ).goBranch(kClientPassportBranch),
+                  // Rating lives OUTSIDE the shell — a normal push is correct.
                   onRating: () => context.push(RouteNames.myRating),
                 ),
               ),

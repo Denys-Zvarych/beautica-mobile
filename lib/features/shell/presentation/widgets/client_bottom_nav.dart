@@ -24,6 +24,7 @@ import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/routing/app_router.dart';
 
 /// The untranslated 5th-tab brand label. Product decision: "BEAUTY PASSPORT" is
 /// never translated, so it is a const and intentionally NOT an l10n key.
@@ -229,15 +230,15 @@ class ClientBottomNav extends StatelessWidget {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: <Widget>[
-                              _tile(homeItem, 0),
+                              _tile(homeItem, kClientHomeBranch),
                               const SizedBox(width: _itemGap),
-                              _tile(favItem, 1),
+                              _tile(favItem, kClientFavoritesBranch),
                               const SizedBox(width: _itemGap),
                               // Center gap reserved for the floating disc.
                               const SizedBox(width: _centerSize + _itemGap),
-                              _tile(bookItem, 3),
+                              _tile(bookItem, kClientBookingsBranch),
                               const SizedBox(width: _itemGap),
-                              _tile(passItem, 4),
+                              _tile(passItem, kClientPassportBranch),
                             ],
                           ),
                         ),
@@ -254,9 +255,9 @@ class ClientBottomNav extends StatelessWidget {
               child: _CenterSearchButton(
                 key: const Key('client-nav-search-center'),
                 size: _centerSize,
-                active: activeIndex == 2,
+                active: activeIndex == kClientSearchBranch,
                 semanticLabel: searchLabel,
-                onTap: () => onTap(2),
+                onTap: () => onTap(kClientSearchBranch),
               ),
             ),
           ],

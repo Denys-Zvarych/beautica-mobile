@@ -44,8 +44,10 @@
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
+import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
@@ -333,6 +335,74 @@ void main() {
             'the location taxonomy via cityId when User.cityName is empty — '
             'regression guard for clientProfile city resolution',
       );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
+
+  // ── Test 8 — REGRESSION (Rule 3b): in-page Passport tile syncs the navbar ──
+  //
+  // The widget-tier guard (test/features/shell/home_inpage_branch_hop_test.dart)
+  // proves the page↔navbar sync against a purpose-built shell router. This light
+  // end-to-end assertion confirms the SAME sync survives the full production
+  // stack: real appRouter, real auth session, real ClientShell + ClientBottomNav.
+  // Tapping the in-page BEAUTY PASSPORT preview tile must (a) land on /passport
+  // AND (b) make the Passport nav tile (4) the selected one while the Home tile
+  // (0) deselects. With the pre-fix `context.push` the page would change but
+  // currentIndex would stay 0, so tile-0 would stay selected — this fails then.
+  testWidgets(
+    'REGRESSION: tapping the in-page Passport tile lands on /passport AND '
+    'selects nav tile-4 (Home tile-0 deselects) — page↔navbar sync',
+    (tester) async {
+      final handle = tester.ensureSemantics();
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      bool navTileSelected(int index) {
+        final SemanticsData data = tester
+            .getSemantics(find.byKey(Key('client-nav-tile-$index')))
+            .getSemanticsData();
+        return data.flagsCollection.isSelected.toBoolOrNull() ?? false;
+      }
+
+      // Pre-condition: on Home, the Home tile is selected, Passport is not.
+      expectLocation(router, RouteNames.clientHome);
+      expect(navTileSelected(0), isTrue, reason: 'Home tile selected on /home');
+      expect(navTileSelected(4), isFalse, reason: 'Passport tile not selected');
+
+      // Tap the in-page Passport preview tile (unique widget type, no localised
+      // string — robust finder).
+      final Finder passportTile = find.byType(PassportPreviewCard);
+      expect(passportTile, findsOneWidget);
+      await tester.ensureVisible(passportTile);
+      await tester.tap(passportTile);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      // Page changed to the Passport branch...
+      expectLocation(router, RouteNames.clientPassport);
+      expect(
+        find.byKey(const Key('client-branch-passport')),
+        findsOneWidget,
+        reason: 'the Passport page must be shown after the in-page tap',
+      );
+
+      // ...AND the bottom-nav selection followed the page (the bug surface).
+      expect(
+        navTileSelected(4),
+        isTrue,
+        reason:
+            'Passport nav tile (4) must be selected after the in-page tap — '
+            'goBranch must sync currentIndex; a context.push would not',
+      );
+      expect(
+        navTileSelected(0),
+        isFalse,
+        reason:
+            'Home nav tile (0) must deselect — the bug left it filled because '
+            'currentIndex never changed',
+      );
+      handle.dispose();
     },
     timeout: const Timeout(Duration(seconds: 45)),
   );

@@ -17,6 +17,7 @@ import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
 import '../../../../l10n/app_localizations.dart';
+import '../../../../routing/app_router.dart';
 import '../../../../routing/route_names.dart';
 import '../widgets/hub_widgets.dart';
 
@@ -28,23 +29,29 @@ class QuickLinksCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final links = <_QuickLinkDef>[
+      // All three targets are CLIENT shell branches, so each hops its branch
+      // (via [branchIndex]) instead of `context.push` — a push would stack the
+      // destination on the Home branch and leave the Home nav tile filled.
       _QuickLinkDef(
         key: const Key('quick_link_search'),
         icon: Icons.search_rounded,
         label: l10n.homeHubQuickSearch,
         route: RouteNames.clientSearch,
+        branchIndex: kClientSearchBranch,
       ),
       _QuickLinkDef(
         key: const Key('quick_link_favorites'),
         icon: Icons.favorite_border_rounded,
         label: l10n.homeHubQuickFavorites,
         route: RouteNames.clientFavorites,
+        branchIndex: kClientFavoritesBranch,
       ),
       _QuickLinkDef(
         key: const Key('quick_link_bookings'),
         icon: Icons.event_note_outlined,
         label: l10n.homeHubQuickBookings,
         route: RouteNames.clientBookings,
+        branchIndex: kClientBookingsBranch,
       ),
     ];
 
@@ -79,12 +86,19 @@ class _QuickLinkDef {
     required this.icon,
     required this.label,
     required this.route,
+    this.branchIndex,
   });
 
   final Key key;
   final IconData icon;
   final String label;
   final String route;
+
+  /// The CLIENT shell branch index this tile targets, or `null` when [route] is
+  /// NOT a shell branch (in which case the tile uses `context.push`). When
+  /// non-null the tile hops the branch via `StatefulNavigationShell.goBranch`
+  /// so the page and the bottom-nav selection stay in sync.
+  final int? branchIndex;
 }
 
 /// Thin vertical hairline separating quick-link items.
@@ -130,7 +144,15 @@ class _QuickTileState extends State<_QuickTile> {
         onTapCancel: () => setState(() => _pressed = false),
         onTapUp: (_) {
           setState(() => _pressed = false);
-          context.push(widget.def.route);
+          final int? branchIndex = widget.def.branchIndex;
+          if (branchIndex != null) {
+            // Shell-branch target: hop the branch so the bottom-nav selection
+            // follows the page (a plain push would keep the Home tile filled).
+            StatefulNavigationShell.of(context).goBranch(branchIndex);
+          } else {
+            // Non-shell route: a normal push is correct.
+            context.push(widget.def.route);
+          }
         },
         behavior: HitTestBehavior.opaque,
         child: AnimatedScale(
