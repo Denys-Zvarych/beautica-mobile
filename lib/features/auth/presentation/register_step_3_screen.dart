@@ -493,7 +493,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
               child: const AppIcon(
                 BeauticaAssetIcons.locationMarker,
                 color: BrandColors.accent,
-                size: 30,
+                size: 22,
               ),
             ),
           ),
