@@ -45,20 +45,17 @@ void main() {
       expect(p.isEmpty, isFalse);
     });
 
-    test(
-      'keys off bookingsConsidered, not off empty derived lists '
-      '(history present but lists transiently empty ⇒ NOT empty)',
-      () {
-        const Passport p = Passport(
-          favoriteProcedures: <String>[],
-          favoriteDistricts: <String>[],
-          budget: null,
-          bookingsConsidered: 2,
-        );
+    test('keys off bookingsConsidered, not off empty derived lists '
+        '(history present but lists transiently empty ⇒ NOT empty)', () {
+      const Passport p = Passport(
+        favoriteProcedures: <String>[],
+        favoriteDistricts: <String>[],
+        budget: null,
+        bookingsConsidered: 2,
+      );
 
-        expect(p.isEmpty, isFalse);
-      },
-    );
+      expect(p.isEmpty, isFalse);
+    });
 
     test('is true exactly when bookingsConsidered == 0', () {
       const Passport p = Passport(

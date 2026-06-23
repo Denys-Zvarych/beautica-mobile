@@ -14,6 +14,8 @@
 // value/placeholder, and a trailing chevron (when enabled). All repeated paint
 // objects are hoisted to module-level `final` so `build()` allocates nothing.
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -97,8 +99,8 @@ class LocalityTapRow extends StatelessWidget {
                 child: Row(
                   children: [
                     const SizedBox(width: VelvetSpacing.md),
-                    Icon(
-                      Icons.place_outlined,
+                    AppIcon(
+                      BeauticaAssetIcons.locationMarker,
                       size: 20,
                       color: isEmpty ? BrandColors.muted : BrandColors.accent,
                     ),

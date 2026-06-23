@@ -176,6 +176,27 @@ abstract final class BeauticaAssetIcons {
   static const String notificationFilled = '$_base/notification_filled.svg';
 
   // ---------------------------------------------------------------------------
+  // Location — pin / marker
+  // ---------------------------------------------------------------------------
+
+  /// Filled location-pin glyph — the single canonical location marker across the
+  /// app (profile/passport locality lines, settings location rows, the locality
+  /// picker field, the register location-step hero, and the master identity
+  /// card address line). Replaces every `Icons.location_on_*` / `Icons.place_*`
+  /// Material glyph.
+  ///
+  /// Source: https://www.flaticon.com/free-icon-font/marker_3916880
+  /// Author: Flaticon UICONS (free icon font).
+  /// Licence: Flaticon Free (attribution required; same release-gate as above —
+  /// re-download under 1-month Premium before any store build, keep certificate).
+  /// SHA-256: 71111aa34ced576c936597993e431167ac111ce897203f52b9e05303b74a211c
+  ///
+  /// Monochrome — render via `AppIcon(BeauticaAssetIcons.locationMarker,
+  /// color: …, size: …)` so the `srcIn` tint matches the Material icon it
+  /// replaced at each site. See `assets/icons/location_marker.svg`.
+  static const String locationMarker = '$_base/location_marker.svg';
+
+  // ---------------------------------------------------------------------------
   // Add new icons below, grouped by feature / category.
   // Convention: feature_glyph, e.g. booking_calendar, review_star.
   // ---------------------------------------------------------------------------

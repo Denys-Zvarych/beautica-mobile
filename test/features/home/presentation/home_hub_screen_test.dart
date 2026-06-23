@@ -431,52 +431,49 @@ void main() {
     //
     // RED-AGAINST-ABSENCE: before this feature the card showed only the bare
     // city ("Львів"); the combined-label assertion would fail.
-    testWidgets(
-      'data state: profile card renders "<city>, <district>" via '
-      'home_profile_city key when districtId resolves',
-      (tester) async {
-        await tester.pumpApp(
-          const HomeHubScreen(),
-          overrides: <Object>[
-            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
-            authProvider.overrideWith(
-              () => _FixedAuthNotifier(_userCityAndDistrictNoNames),
+    testWidgets('data state: profile card renders "<city>, <district>" via '
+        'home_profile_city key when districtId resolves', (tester) async {
+      await tester.pumpApp(
+        const HomeHubScreen(),
+        overrides: <Object>[
+          screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+          authProvider.overrideWith(
+            () => _FixedAuthNotifier(_userCityAndDistrictNoNames),
+          ),
+          locationRepositoryProvider.overrideWith(
+            (_) => const _FakeLocationRepository(
+              <City>[_lvivCity],
+              districts: <CityDistrict>[_sykhivDistrict],
             ),
-            locationRepositoryProvider.overrideWith(
-              (_) => const _FakeLocationRepository(
-                <City>[_lvivCity],
-                districts: <CityDistrict>[_sykhivDistrict],
-              ),
-            ),
-            nextAppointmentProvider.overrideWith((ref) async => null),
-            favoriteMastersProvider.overrideWith(
-              (ref) async => const <FavoriteMasterItem>[],
-            ),
-            beautyTimelineProvider.overrideWith(
-              (ref) async => const <TimelineEntry>[],
-            ),
-            unlikeFavoriteMasterProvider.overrideWith(
-              () => UnlikeFavoriteMaster(),
-            ),
-          ],
-        );
-        // Settle auth + clientProfile + cityList + districtList futures, then
-        // the 1100 ms reveal animation, so the composed label is painted.
-        await tester.pumpAndSettle();
-        await tester.pump(const Duration(milliseconds: 1100));
+          ),
+          nextAppointmentProvider.overrideWith((ref) async => null),
+          favoriteMastersProvider.overrideWith(
+            (ref) async => const <FavoriteMasterItem>[],
+          ),
+          beautyTimelineProvider.overrideWith(
+            (ref) async => const <TimelineEntry>[],
+          ),
+          unlikeFavoriteMasterProvider.overrideWith(
+            () => UnlikeFavoriteMaster(),
+          ),
+        ],
+      );
+      // Settle auth + clientProfile + cityList + districtList futures, then
+      // the 1100 ms reveal animation, so the composed label is painted.
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 1100));
 
-        final Finder cityLine = find.byKey(const Key('home_profile_city'));
-        expect(cityLine, findsOneWidget);
-        expect(
-          tester.widget<Text>(cityLine).data,
-          'Львів, Сихівський район',
-          reason:
-              'the profile card location row must compose the combined '
-              '"<city>, <district>" label when the client has a resolvable '
-              'districtId',
-        );
-      },
-    );
+      final Finder cityLine = find.byKey(const Key('home_profile_city'));
+      expect(cityLine, findsOneWidget);
+      expect(
+        tester.widget<Text>(cityLine).data,
+        'Львів, Сихівський район',
+        reason:
+            'the profile card location row must compose the combined '
+            '"<city>, <district>" label when the client has a resolvable '
+            'districtId',
+      );
+    });
 
     testWidgets('loading state: change photo button visible', (tester) async {
       // Even in loading state, the screen renders (skeleton in profile area)

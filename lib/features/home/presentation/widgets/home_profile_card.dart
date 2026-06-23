@@ -6,6 +6,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/icons/app_icon.dart';
+import '../../../../core/icons/beautica_asset_icons.dart';
 import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
@@ -32,6 +34,14 @@ class HomeProfileCard extends StatelessWidget {
   // Pre-composed text style to avoid per-build TextStyle allocation.
   static final TextStyle _nameStyle = VelvetText.displayName().copyWith(
     fontSize: 21,
+  );
+
+  // Shared location-pin SVG sized/tinted to match the Material glyph it replaced
+  // (16 px, [BrandColors.accent] — same as [_MetaLine]'s Material fallback).
+  static const Widget _locationIcon = AppIcon(
+    BeauticaAssetIcons.locationMarker,
+    size: 16,
+    color: BrandColors.accent,
   );
 
   @override
@@ -94,6 +104,7 @@ class HomeProfileCard extends StatelessWidget {
               if (profile.city.isNotEmpty)
                 _MetaLine(
                   icon: Icons.location_on_rounded,
+                  iconWidget: _locationIcon,
                   text: profile.city,
                   onTap: onLocation,
                   textKey: const Key('home_profile_city'),
@@ -101,6 +112,7 @@ class HomeProfileCard extends StatelessWidget {
               else
                 _MetaLine(
                   icon: Icons.location_on_rounded,
+                  iconWidget: _locationIcon,
                   text: l10n.homeHubLocationPlaceholder,
                   onTap: onLocation,
                 ),
@@ -130,11 +142,17 @@ class _MetaLine extends StatelessWidget {
   const _MetaLine({
     required this.icon,
     required this.text,
+    this.iconWidget,
     this.onTap,
     this.textKey,
   });
 
   final IconData icon;
+
+  /// Optional pre-built icon widget (e.g. an [AppIcon] SVG). When non-null it
+  /// replaces the Material [Icon] built from [icon]; callers must size/tint it
+  /// to match (16 px, [BrandColors.accent]).
+  final Widget? iconWidget;
   final String text;
   final VoidCallback? onTap;
 
@@ -152,7 +170,7 @@ class _MetaLine extends StatelessWidget {
     final Widget row = Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Icon(icon, size: 16, color: BrandColors.accent),
+        iconWidget ?? Icon(icon, size: 16, color: BrandColors.accent),
         const SizedBox(width: VelvetSpacing.sm),
         Flexible(
           child: Text(

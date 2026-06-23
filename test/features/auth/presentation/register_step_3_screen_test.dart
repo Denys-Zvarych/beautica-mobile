@@ -39,6 +39,8 @@
 //   (C). location_on_outlined icon tile renders at top of Step 3.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -1467,7 +1469,7 @@ void main() {
   );
 
   // ── Location icon tile (Phase 2.x icon standardisation) ───────────────────
-  testWidgets('location_on_outlined icon tile renders at top of Step 3 '
+  testWidgets('location-marker icon tile renders at top of Step 3 '
       '(VelvetTouch icon tile consistency — no VelvetHeader logo)', (
     tester,
   ) async {
@@ -1481,12 +1483,20 @@ void main() {
     await tester.pump(); // addPostFrameCallback flush
     await tester.pumpAndSettle();
 
-    final icons = tester.widgetList<Icon>(find.byType(Icon)).toList();
+    // The hero tile is the size-30 locationMarker AppIcon inside the 72×72
+    // neumorphic Container; the locality-cascade pins are smaller (size 20), so
+    // matching on size pins us to the top tile without coupling to any glyph
+    // name or locale.
     expect(
-      icons.any((i) => i.icon == Icons.location_on_outlined),
-      isTrue,
+      find.byWidgetPredicate(
+        (w) =>
+            w is AppIcon &&
+            w.asset == BeauticaAssetIcons.locationMarker &&
+            w.size == 30,
+      ),
+      findsOneWidget,
       reason:
-          'RegisterStep3Screen must render Icons.location_on_outlined '
+          'RegisterStep3Screen must render the locationMarker AppIcon SVG '
           '(72×72 neumorphic icon tile) at the top of the screen.',
     );
   });

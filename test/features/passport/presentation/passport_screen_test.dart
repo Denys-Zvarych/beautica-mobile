@@ -76,7 +76,9 @@ Future<AppLocalizations> _uk() =>
 
 void main() {
   group('PassportScreen — chrome + profile + populated card', () {
-    testWidgets('renders the top bar wordmark, bell and burger', (tester) async {
+    testWidgets('renders the top bar wordmark, bell and burger', (
+      tester,
+    ) async {
       await tester.pumpApp(
         const PassportScreen(),
         overrides: _overrides(passport: _populatedPassport),

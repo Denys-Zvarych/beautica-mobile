@@ -39,6 +39,8 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -65,6 +67,17 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../../../helpers/pump_app.dart';
+
+// ---------------------------------------------------------------------------
+// Finders
+// ---------------------------------------------------------------------------
+
+/// Locale/asset-invariant finder for the location-line pin, now rendered as an
+/// [AppIcon] SVG (`BeauticaAssetIcons.locationMarker`) rather than a Material
+/// `Icons.location_on_outlined`.
+final Finder _locationIcon = find.byWidgetPredicate(
+  (w) => w is AppIcon && w.asset == BeauticaAssetIcons.locationMarker,
+);
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -735,8 +748,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Location icon must be present (location_on_outlined is in the Row).
-      expect(find.byIcon(Icons.location_on_outlined), findsOneWidget);
+      // Location icon must be present (the locationMarker AppIcon is in the Row).
+      expect(_locationIcon, findsOneWidget);
       // The combined address text must equal just the city.
       expect(find.text('Київ'), findsOneWidget);
     });
@@ -831,7 +844,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.location_on_outlined), findsOneWidget);
+      expect(_locationIcon, findsOneWidget);
     });
   });
 
@@ -852,7 +865,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // No location row should appear — the conditional is `if (locationLine != null)`.
-      expect(find.byIcon(Icons.location_on_outlined), findsNothing);
+      expect(_locationIcon, findsNothing);
     });
 
     testWidgets('note row absent when city and street are null', (
@@ -870,7 +883,7 @@ void main() {
 
       // Master name must still render — only the location row is suppressed.
       expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
-      expect(find.byIcon(Icons.location_on_outlined), findsNothing);
+      expect(_locationIcon, findsNothing);
     });
   });
 

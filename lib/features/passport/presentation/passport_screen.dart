@@ -461,7 +461,15 @@ class _ProfileBlock extends StatelessWidget {
               const SizedBox(height: VelvetSpacing.sm + 2),
               // Location line — pin + city, NO chevron and NO tap (approved
               // design dropped the chevron the Головна card has).
-              _line(Icons.location_on_rounded, city),
+              _line(
+                Icons.location_on_rounded,
+                city,
+                iconWidget: const AppIcon(
+                  BeauticaAssetIcons.locationMarker,
+                  size: 16,
+                  color: BrandColors.accent,
+                ),
+              ),
               const SizedBox(height: VelvetSpacing.sm),
               _line(Icons.call_rounded, phone),
             ],
@@ -471,11 +479,11 @@ class _ProfileBlock extends StatelessWidget {
     );
   }
 
-  Widget _line(IconData icon, String text) {
+  Widget _line(IconData icon, String text, {Widget? iconWidget}) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Icon(icon, size: 16, color: BrandColors.accent),
+        iconWidget ?? Icon(icon, size: 16, color: BrandColors.accent),
         const SizedBox(width: VelvetSpacing.sm),
         Flexible(
           child: Text(text, style: _lineStyle, overflow: TextOverflow.ellipsis),

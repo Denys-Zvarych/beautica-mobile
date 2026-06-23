@@ -22,6 +22,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -160,6 +162,11 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
             SettingsRow(
               key: const Key('row-location'),
               icon: Icons.location_on_outlined,
+              iconWidget: const AppIcon(
+                BeauticaAssetIcons.locationMarker,
+                size: 19,
+                color: BrandColors.accentDeep,
+              ),
               label: l10n.settingsHubLocation,
               onTap: () => context.push(RouteNames.masterEditLocation),
             ),

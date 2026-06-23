@@ -46,6 +46,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/icons/app_icon.dart';
+import '../../../core/icons/beautica_asset_icons.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
@@ -488,8 +490,8 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
                 ),
                 boxShadow: VelvetShadows.extrudedSmall,
               ),
-              child: const Icon(
-                Icons.location_on_outlined,
+              child: const AppIcon(
+                BeauticaAssetIcons.locationMarker,
                 color: BrandColors.accent,
                 size: 30,
               ),

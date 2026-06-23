@@ -16,6 +16,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/icons/app_icon.dart';
+import '../../../../core/icons/beautica_asset_icons.dart';
 import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
@@ -134,6 +136,11 @@ class PassportCard extends StatelessWidget {
                           Expanded(
                             child: _PassportColumn(
                               icon: Icons.location_on_rounded,
+                              iconWidget: const AppIcon(
+                                BeauticaAssetIcons.locationMarker,
+                                size: 14,
+                                color: BrandColors.accentDeep,
+                              ),
                               label: l10n.passportColumnDistricts,
                               items: districts,
                             ),
@@ -229,9 +236,15 @@ class _PassportColumn extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.items,
+    this.iconWidget,
   });
 
   final IconData icon;
+
+  /// Optional pre-built icon widget (e.g. an [AppIcon] SVG). When non-null it
+  /// replaces the Material [Icon] built from [icon]; callers must size/tint it
+  /// to match (14 px, [BrandColors.accentDeep]).
+  final Widget? iconWidget;
   final String label;
   final List<String> items;
 
@@ -252,7 +265,7 @@ class _PassportColumn extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Icon(icon, size: 14, color: BrandColors.accentDeep),
+              iconWidget ?? Icon(icon, size: 14, color: BrandColors.accentDeep),
               const SizedBox(width: 5),
               Expanded(child: Text(label.toUpperCase(), style: _labelStyle)),
             ],

@@ -15,6 +15,9 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/home/presentation/client_settings_hub_screen.dart';
@@ -144,6 +147,55 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('stub-home')), findsOneWidget);
+    });
+  });
+
+  group('ClientSettingsHubScreen location-marker icon (swap guard)', () {
+    // The location row's glyph was swapped from a Material
+    // Icon(Icons.location_on_outlined) to AppIcon(locationMarker), 19px /
+    // accentDeep. Red-against-revert: the predicate finds 0 if reverted to the
+    // Material icon (Icon is not AppIcon) → fails; with the swap it finds the
+    // single location-marker SVG → passes. Rule 3 (previously unguarded site).
+    Finder locationMarker() => find.byWidgetPredicate(
+      (w) => w is AppIcon && w.asset == BeauticaAssetIcons.locationMarker,
+    );
+
+    testWidgets('row-location renders the locationMarker AppIcon', (
+      tester,
+    ) async {
+      final router = _hubRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      // Exactly one location-marker SVG in the hub, inside the location row.
+      expect(locationMarker(), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('row-location')),
+          matching: locationMarker(),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('location marker keeps the 19px / accentDeep tint and size', (
+      tester,
+    ) async {
+      final router = _hubRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      final icon = tester.widget<AppIcon>(locationMarker());
+      expect(icon.size, 19, reason: 'settings location marker must stay 19px');
+      expect(
+        icon.color,
+        BrandColors.accentDeep,
+        reason: 'settings location marker must stay BrandColors.accentDeep',
+      );
     });
   });
 

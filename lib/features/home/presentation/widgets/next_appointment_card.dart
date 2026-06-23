@@ -14,6 +14,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/icons/app_icon.dart';
+import '../../../../core/icons/beautica_asset_icons.dart';
 import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
@@ -103,6 +105,11 @@ class NextAppointmentCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       _MetaRow(
                         icon: Icons.location_on_rounded,
+                        iconWidget: const AppIcon(
+                          BeauticaAssetIcons.locationMarker,
+                          size: 14,
+                          color: BrandColors.accent,
+                        ),
                         text: appt.location,
                       ),
                     ],
@@ -198,16 +205,21 @@ final TextStyle _serviceStyle = VelvetText.bodyStrong().copyWith(
 );
 
 class _MetaRow extends StatelessWidget {
-  const _MetaRow({required this.icon, required this.text});
+  const _MetaRow({required this.icon, required this.text, this.iconWidget});
 
   final IconData icon;
+
+  /// Optional pre-built icon widget (e.g. an [AppIcon] SVG). When non-null it
+  /// replaces the Material [Icon] built from [icon]; callers must size/tint it
+  /// to match (14 px, [BrandColors.accent]).
+  final Widget? iconWidget;
   final String text;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
-        Icon(icon, size: 14, color: BrandColors.accent),
+        iconWidget ?? Icon(icon, size: 14, color: BrandColors.accent),
         const SizedBox(width: VelvetSpacing.xs + 1),
         Flexible(
           child: Text(text, style: _metaStyle, overflow: TextOverflow.ellipsis),

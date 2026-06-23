@@ -38,6 +38,16 @@ Drop monochrome SVG icons here. The pipeline tints them to the VelvetTouch palet
    AppIcon(BeauticaAssetIcons.myNewIcon, semanticLabel: l10n.starLabel)
    ```
 
+## Flaticon source manifest (release-gate provenance)
+
+Every Flaticon FREE icon's source URL is recorded here at download time (and as a
+comment at the top of the SVG). Before any store build, re-download each under a
+1-month Flaticon Premium and keep the licence certificate.
+
+| Asset | Source URL | SHA-256 |
+|---|---|---|
+| `location_marker.svg` | https://www.flaticon.com/free-icon-font/marker_3916880 | `71111aa34ced576c936597993e431167ac111ce897203f52b9e05303b74a211c` |
+
 ## Notes
 
 - `AppIcon` lives in `lib/core/icons/app_icon.dart`.

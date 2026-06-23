@@ -97,7 +97,10 @@ class _FakeLocationRepository implements LocationRepository {
 
 /// Pairs the built [ProviderContainer] with the [_FakeLocationRepository] backing
 /// it so tests can assert on `fetchDistrictsCalls` (the denormalized fast-path).
-typedef _Harness = ({ProviderContainer container, _FakeLocationRepository repo});
+typedef _Harness = ({
+  ProviderContainer container,
+  _FakeLocationRepository repo,
+});
 
 /// Builds a [ProviderContainer] wired with [user] and a fake location
 /// repository serving [cities] (and optionally [districts]).
@@ -361,27 +364,24 @@ void main() {
   // "Львів". The first test therefore pins the new "<city>, <district>" wiring;
   // the remaining tests pin its graceful-degradation and fast-path contracts.
   group('clientProfile district label', () {
-    test(
-      'districtId set + district in taxonomy ⇒ '
-      'summary.city == "Львів, Сихівський район"',
-      () async {
-        final container = _harnessForUser(
-          _userLvivWithDistrict,
-          cities: const [_lvivCity],
-          districts: const [_sykhivDistrict],
-        ).container;
+    test('districtId set + district in taxonomy ⇒ '
+        'summary.city == "Львів, Сихівський район"', () async {
+      final container = _harnessForUser(
+        _userLvivWithDistrict,
+        cities: const [_lvivCity],
+        districts: const [_sykhivDistrict],
+      ).container;
 
-        final summary = await container.read(clientProfileProvider.future);
+      final summary = await container.read(clientProfileProvider.future);
 
-        expect(
-          summary.city,
-          'Львів, Сихівський район',
-          reason:
-              'when the client has a resolvable city AND a districtId present '
-              'in the taxonomy, the label composes "<city>, <district>"',
-        );
-      },
-    );
+      expect(
+        summary.city,
+        'Львів, Сихівський район',
+        reason:
+            'when the client has a resolvable city AND a districtId present '
+            'in the taxonomy, the label composes "<city>, <district>"',
+      );
+    });
 
     test(
       'districtId == null ⇒ summary.city == "Львів" (bare city, unchanged)',

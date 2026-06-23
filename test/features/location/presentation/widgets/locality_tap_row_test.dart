@@ -12,6 +12,8 @@
 // Semantics (button/enabled/label/value). Tapping is verified through both the
 // callback fired and the callback suppressed when disabled.
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/locality_tap_row.dart';
 import 'package:flutter/material.dart';
@@ -52,9 +54,12 @@ Future<void> _pumpRow(
   );
 }
 
-/// Returns the leading place-pin [Icon] (the only `Icons.place_outlined`).
-Icon _pinIcon(WidgetTester tester) =>
-    tester.widget<Icon>(find.byIcon(Icons.place_outlined));
+/// Returns the leading place-pin [AppIcon] (the only location-marker SVG).
+AppIcon _pinIcon(WidgetTester tester) => tester.widget<AppIcon>(
+  find.byWidgetPredicate(
+    (w) => w is AppIcon && w.asset == BeauticaAssetIcons.locationMarker,
+  ),
+);
 
 /// Resolves the row's own [Semantics] wrapper (the one enclosing the tappable
 /// [GestureDetector]) — NOT the separate label-text node. The widget renders a

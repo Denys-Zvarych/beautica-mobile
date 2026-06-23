@@ -24,9 +24,7 @@ Widget _wrap(Widget child) => MaterialApp(
   localizationsDelegates: AppLocalizations.localizationsDelegates,
   supportedLocales: AppLocalizations.supportedLocales,
   home: Scaffold(
-    body: Center(
-      child: SizedBox(width: 360, child: child),
-    ),
+    body: Center(child: SizedBox(width: 360, child: child)),
   ),
 );
 
@@ -74,9 +72,18 @@ void main() {
       final AppLocalizations l10n = await AppLocalizations.delegate.load(
         const Locale('uk'),
       );
-      expect(find.text(l10n.passportColumnProcedures.toUpperCase()), findsOneWidget);
-      expect(find.text(l10n.passportColumnDistricts.toUpperCase()), findsOneWidget);
-      expect(find.text(l10n.passportColumnBudget.toUpperCase()), findsOneWidget);
+      expect(
+        find.text(l10n.passportColumnProcedures.toUpperCase()),
+        findsOneWidget,
+      );
+      expect(
+        find.text(l10n.passportColumnDistricts.toUpperCase()),
+        findsOneWidget,
+      );
+      expect(
+        find.text(l10n.passportColumnBudget.toUpperCase()),
+        findsOneWidget,
+      );
     });
 
     testWidgets('renders every procedure chip', (tester) async {
