@@ -369,4 +369,81 @@ void main() {
       expect(_state(c), const SearchFilters());
     });
   });
+
+  // -------------------------------------------------------------------------
+  // SearchServiceSelectionController — the Variant A («Рейка + послуги»)
+  // second-level service-chip selection set. Multi-select; reset imperatively
+  // on a category change AND automatically on a session flip (logout/login).
+  // -------------------------------------------------------------------------
+  group('SearchServiceSelectionController', () {
+    Set<String> selection(ProviderContainer c) =>
+        c.read(searchServiceSelectionControllerProvider);
+    SearchServiceSelectionController notifier(ProviderContainer c) =>
+        c.read(searchServiceSelectionControllerProvider.notifier);
+
+    test('starts as an empty set', () {
+      final c = _make().container;
+      expect(selection(c), isEmpty);
+    });
+
+    test('toggle adds a key when absent', () {
+      final c = _make().container;
+
+      notifier(c).toggle('haircut');
+
+      expect(selection(c), <String>{'haircut'});
+    });
+
+    test('toggle is multi-select — distinct keys accumulate', () {
+      final c = _make().container;
+
+      notifier(c)
+        ..toggle('haircut')
+        ..toggle('coloring');
+
+      expect(selection(c), <String>{'haircut', 'coloring'});
+    });
+
+    test('toggle removes a key when already present', () {
+      final c = _make().container;
+      notifier(c).toggle('haircut');
+
+      notifier(c).toggle('haircut');
+
+      expect(selection(c), isEmpty);
+    });
+
+    test('clear drops every selected service', () {
+      final c = _make().container;
+      notifier(c)
+        ..toggle('haircut')
+        ..toggle('coloring');
+      expect(selection(c), isNotEmpty);
+
+      notifier(c).clear();
+
+      expect(selection(c), isEmpty);
+    });
+
+    test('rebuilds to an empty set when the session goes Unauthenticated', () {
+      final made = _make(auth: _authenticated);
+      final c = made.container;
+
+      notifier(c)
+        ..toggle('haircut')
+        ..toggle('coloring');
+      expect(selection(c), isNotEmpty);
+
+      // Flip the watched authProvider to Unauthenticated (logout). The keepAlive
+      // controller watches authProvider, so build() re-runs and the per-user
+      // service selection is shed — mirroring SearchFiltersController.
+      made.auth.emit(_unauthenticated);
+
+      expect(
+        selection(c),
+        isEmpty,
+        reason: 'a fresh session must not inherit the prior user\'s services',
+      );
+    });
+  });
 }

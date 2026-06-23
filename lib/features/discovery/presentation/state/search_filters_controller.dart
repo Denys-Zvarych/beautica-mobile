@@ -133,8 +133,9 @@ class SearchFiltersController extends _$SearchFiltersController {
     );
   }
 
-  /// Single-select toggle for the «Вид послуги» grid. Selecting a new tile
-  /// replaces the prior category; tapping the already-selected tile clears it.
+  /// Single-select toggle for the category rail (Variant A) / legacy grid.
+  /// Selecting a new tile replaces the prior category; tapping the
+  /// already-selected tile clears it.
   void toggleServiceType(String categoryKey) {
     state = state.copyWith(
       categoryKey: state.categoryKey == categoryKey ? null : categoryKey,
@@ -155,4 +156,52 @@ class SearchFiltersController extends _$SearchFiltersController {
 
   /// Clears every filter back to an empty [SearchFilters].
   void reset() => state = const SearchFilters();
+}
+
+/// Second-level service selection for the Variant A category → service flow.
+///
+/// The redesign introduces a SERVICE selection (the chips inside a category's
+/// drawer) alongside the existing single category key on [SearchFilters]. This
+/// is a multi-select set of service-option keys scoped to the currently chosen
+/// category.
+///
+/// CONTRACT NOTE (outstanding): [SearchFilters] (the wire-facing request model)
+/// carries NO service-key field yet, so these selections are NOT sent to the
+/// discovery backend — the search endpoints expose no per-service filter. The
+/// set is kept here, forward-wired, exactly like [SearchFiltersController]'s
+/// `query` (INERT in v1). Persisting it on the request is a future contract
+/// addition (a `serviceKeys`/`serviceTypeKeys` query param) owned by
+/// `backend-dev`.
+///
+/// keepAlive + auth-watched for the same reasons as [SearchFiltersController]:
+/// selections survive the push to results and reset on a fresh session.
+@Riverpod(keepAlive: true)
+class SearchServiceSelectionController
+    extends _$SearchServiceSelectionController {
+  @override
+  Set<String> build() {
+    // Reset to an empty set whenever the session changes (logout → login) —
+    // the same self-clearing pattern every keepAlive per-user provider uses.
+    //
+    // The category-change reset is driven imperatively (the rail/sheet call
+    // [clear] when the parent category changes) rather than by watching
+    // [searchFiltersControllerProvider] here: watching the whole filter set
+    // would wrongly drop the service selection on an unrelated mutation (a
+    // price drag, a city pick), since this generated notifier's `build()`
+    // ref.watch cannot `.select` a single slice.
+    ref.watch(authProvider);
+    return const <String>{};
+  }
+
+  /// Toggles a service-option key within the active category. Adds it when
+  /// absent, removes it when present — multi-select, mirroring the preview's
+  /// `_toggleService`.
+  void toggle(String serviceKey) {
+    final Set<String> next = <String>{...state};
+    if (!next.add(serviceKey)) next.remove(serviceKey);
+    state = next;
+  }
+
+  /// Clears the selected services (paired with a category change / reset).
+  void clear() => state = const <String>{};
 }

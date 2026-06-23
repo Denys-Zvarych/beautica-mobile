@@ -7,9 +7,19 @@
 // SearchFilters state machine. Neither exercises the REAL journey: a CLIENT
 // logging in, tapping the elevated center «Пошук» nav disc to reach the real
 // ClientSearchScreen branch, picking a city through the REAL locality picker
-// cascade, selecting a service-type tile, dragging the price slider, and
-// tapping «Показати майстрів» to push /search/results with the assembled
-// SearchFilters in `extra`.
+// cascade, selecting a category in the Variant A rail (which reveals the
+// second-level service-chip drawer), dragging the price slider, and tapping
+// «Показати майстрів» to push /search/results with the assembled SearchFilters
+// in `extra`.
+//
+// VARIANT A («Рейка + послуги») COVERAGE: the rail tile reveals a service-chip
+// drawer sourced from the PLACEHOLDER categoryServiceOptionsProvider (there is
+// no per-category services endpoint yet — see
+// lib/features/discovery/data/category_service_providers.dart). NAILS resolves
+// (substring `NAIL`) to a placeholder family list, so the drawer renders real
+// chips here. The selected service set is INERT (SearchFilters has no
+// service-key field — also placeholder wiring), so the E2E asserts what is
+// actually rendered/carried and does NOT assert a service key on the filters.
 //
 // This boots the REAL app via AppHarness (FakeBackend socket, FakeSecureStorage,
 // fixed clock, overflow guard) and drives the whole flow against the fake
@@ -25,6 +35,7 @@
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
+import 'package:beautica_mobile/features/discovery/presentation/widgets/service_chip_drawer.dart';
 import 'package:beautica_mobile/features/shell/presentation/branch_placeholders.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -84,10 +95,15 @@ void main() {
         findsOneWidget,
         reason: 'the search disc must mount the real ClientSearchScreen branch',
       );
-      // All five filter sections are present.
+      // All five filter sections are present (Variant A — category RAIL).
       expect(find.byKey(const Key('search_query_field')), findsOneWidget);
       expect(find.byKey(const Key('search_city_value')), findsOneWidget);
-      expect(find.byKey(const Key('search_service_type_grid')), findsOneWidget);
+      expect(find.byKey(const Key('search_category_rail')), findsOneWidget);
+      expect(
+        find.byKey(const Key('search_all_categories_tile')),
+        findsOneWidget,
+        reason: 'the rail ends in the «Всі категорії» more-tile',
+      );
       expect(find.byKey(const Key('search_price_slider')), findsOneWidget);
       expect(find.byKey(const Key('search_show_masters_cta')), findsOneWidget);
 
@@ -110,8 +126,26 @@ void main() {
       );
       expect(cityValue.data, 'Київ');
 
-      // ── Select a service-type tile (NAILS) ────────────────────────────────
+      // ── Select a category in the rail (NAILS) → reveals the chip drawer ───
       await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
+      await tester.pumpAndSettle();
+
+      // Variant A second level: the recessed service-chip drawer opens with the
+      // NAILS family chips (from the placeholder provider — see file header).
+      expect(
+        find.byType(ServiceChipDrawer),
+        findsOneWidget,
+        reason: 'selecting a category must reveal its service-chip drawer',
+      );
+      expect(
+        find.byKey(const Key('search_service_chip_manicure')),
+        findsOneWidget,
+        reason: 'the NAILS placeholder family renders keyed service chips',
+      );
+
+      // Tap a service chip — exercises the (currently INERT) second-level
+      // selection. It toggles UI state but is NOT carried on SearchFilters yet.
+      await tester.tap(find.byKey(const Key('search_service_chip_manicure')));
       await tester.pumpAndSettle();
 
       // ── Drag the price slider down from the «будь-яка» ceiling ────────────
@@ -163,7 +197,8 @@ void main() {
       expect(
         fb.getMasterCalls,
         0,
-        reason: 'the CLIENT search journey must not touch GET /masters/me '
+        reason:
+            'the CLIENT search journey must not touch GET /masters/me '
             '(403 decoupling regression)',
       );
     },

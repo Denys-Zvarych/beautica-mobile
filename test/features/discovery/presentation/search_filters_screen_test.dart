@@ -12,16 +12,17 @@
 // All finders are key/predicate-based (locale-invariant); city/category NAMES
 // are backend data, asserted as content only.
 //
-// States / interactions covered:
-//   • the 5 sections render (search field, city row, category grid, price
+// States / interactions covered (Variant A «Рейка + послуги» redesign):
+//   • the 5 sections render (search field, city row, category RAIL, price
 //     slider + readout, sticky CTA) — all by Key;
-//   • the category grid renders one tile per provided category, keyed by slug;
-//   • tapping a tile selects it (visual inset well) AND sets the controller's
-//     categoryKey;
+//   • the rail renders one tile per provided category (keyed by slug) PLUS the
+//     «Всі категорії» more-tile, laid out horizontally;
+//   • tapping a rail tile selects it (visual inset well) AND sets the
+//     controller's categoryKey;
 //   • dragging the slider updates the readout and the controller's maxPrice;
-//   • grid LOADING → skeleton (no grid, no error retry);
-//   • grid ERROR → retry button (search_categories_retry), no grid;
-//   • grid EMPTY → empty message, no grid;
+//   • category LOADING → skeleton (no rail, no error retry);
+//   • category ERROR → retry button (search_categories_retry), no rail;
+//   • category EMPTY → empty message, no rail;
 //   • CTA is enabled and pushes /search/results carrying the assembled filters.
 
 import 'dart:async';
@@ -36,7 +37,8 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_filters_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
-import 'package:beautica_mobile/features/discovery/presentation/widgets/service_type_tile.dart';
+import 'package:beautica_mobile/features/discovery/presentation/widgets/category_rail.dart';
+import 'package:beautica_mobile/features/discovery/presentation/widgets/service_chip_drawer.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -226,8 +228,12 @@ void main() {
       expect(find.byKey(const Key('search_query_field')), findsOneWidget);
       // 2. city select row.
       expect(find.byKey(const Key('search_city_value')), findsOneWidget);
-      // 3. category grid.
-      expect(find.byKey(const Key('search_service_type_grid')), findsOneWidget);
+      // 3. category rail (Variant A) + its «Всі категорії» more-tile.
+      expect(find.byKey(const Key('search_category_rail')), findsOneWidget);
+      expect(
+        find.byKey(const Key('search_all_categories_tile')),
+        findsOneWidget,
+      );
       // 4. price slider + readout.
       expect(find.byKey(const Key('search_price_slider')), findsOneWidget);
       expect(find.byKey(const Key('search_price_readout')), findsOneWidget);
@@ -263,28 +269,54 @@ void main() {
     );
   });
 
-  group('ClientSearchScreen — category grid (loaded)', () {
-    testWidgets('renders one tile per provided category, keyed by slug', (
-      tester,
-    ) async {
-      await _pumpScreen(tester);
-      await tester.pumpAndSettle();
+  group('ClientSearchScreen — category rail (loaded)', () {
+    testWidgets(
+      'rail renders one tile per provided category (keyed by slug) plus the '
+      '«Всі категорії» more-tile, laid out horizontally',
+      (tester) async {
+        await _pumpScreen(tester);
+        await tester.pumpAndSettle();
 
-      expect(find.byType(ServiceTypeTile), findsNWidgets(_categories.length));
-      expect(
-        find.byKey(const Key('search_service_type_NAILS')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('search_service_type_BROWS')),
-        findsOneWidget,
-      );
-      expect(find.byKey(const Key('search_service_type_HAIR')), findsOneWidget);
+        // One CategoryRailTile per provided category, each keyed by slug.
+        expect(
+          find.byType(CategoryRailTile),
+          findsNWidgets(_categories.length),
+        );
+        expect(
+          find.byKey(const Key('search_service_type_NAILS')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('search_service_type_BROWS')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('search_service_type_HAIR')),
+          findsOneWidget,
+        );
 
-      // Ukrainian display labels (backend data, content assertion).
-      expect(find.text('Манікюр'), findsOneWidget);
-      expect(find.text('Брови'), findsOneWidget);
-    });
+        // The trailing «Всі категорії» more-tile is rendered alongside them.
+        expect(find.byType(CategoryRailMoreTile), findsOneWidget);
+        expect(
+          find.byKey(const Key('search_all_categories_tile')),
+          findsOneWidget,
+        );
+
+        // The rail is a horizontally-scrolling ListView (never grows the page).
+        final ListView rail = tester.widget<ListView>(
+          find.byKey(const Key('search_category_rail')),
+        );
+        expect(
+          rail.scrollDirection,
+          Axis.horizontal,
+          reason: 'the Variant A rail scrolls sideways, not vertically',
+        );
+
+        // Ukrainian display labels (backend data, content assertion).
+        expect(find.text('Манікюр'), findsOneWidget);
+        expect(find.text('Брови'), findsOneWidget);
+      },
+    );
 
     testWidgets('tapping a tile selects it — inset well + controller key set', (
       tester,
@@ -302,6 +334,9 @@ void main() {
         container().read(searchFiltersControllerProvider).categoryKey,
         isNull,
       );
+
+      // Before selection the second-level service drawer is collapsed.
+      expect(find.byType(ServiceChipDrawer), findsNothing);
 
       await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
       await tester.pumpAndSettle();
@@ -324,39 +359,41 @@ void main() {
         container().read(searchFilterLabelsControllerProvider).categoryName,
         'Манікюр',
       );
+      // Variant A second level: selecting a category reveals its service-chip
+      // drawer (NAILS resolves to the placeholder family list).
+      expect(find.byType(ServiceChipDrawer), findsOneWidget);
     });
 
-    // Regression guard for the 4→3 column change (full category names were
-    // truncated at 4 columns / 0.78 aspect). Reads the grid's delegate rather
-    // than counting on-screen rows so it is layout-deterministic and would FAIL
-    // on the old crossAxisCount: 4, childAspectRatio: 0.78 values.
-    testWidgets('category grid lays out 3 columns at 0.95 aspect ratio', (
-      tester,
-    ) async {
-      await _pumpScreen(tester);
-      await tester.pumpAndSettle();
+    // Variant A layout guard. The OLD grid put `crossAxisCount: 3` tiles in a
+    // GridView; the rail replaced it with a fixed-height horizontal ListView so
+    // the page never grows vertically and the trailing tile is clipped as a
+    // "scroll for more" cue. This asserts the rail's geometry, NOT a grid.
+    testWidgets(
+      'category rail is a fixed-height horizontal ListView (no GridView)',
+      (tester) async {
+        await _pumpScreen(tester);
+        await tester.pumpAndSettle();
 
-      final GridView grid = tester.widget<GridView>(
-        find.byKey(const Key('search_service_type_grid')),
-      );
-      final delegate = grid.gridDelegate;
-      expect(
-        delegate,
-        isA<SliverGridDelegateWithFixedCrossAxisCount>(),
-        reason: 'grid must use a fixed cross-axis count delegate',
-      );
-      final fixed = delegate as SliverGridDelegateWithFixedCrossAxisCount;
-      expect(
-        fixed.crossAxisCount,
-        3,
-        reason: 'full category names need 3 columns (4 truncated them)',
-      );
-      expect(fixed.childAspectRatio, 0.95);
-    });
+        // The old grid is gone entirely.
+        expect(find.byKey(const Key('search_service_type_grid')), findsNothing);
+
+        // The rail is a horizontal ListView bounded to a fixed height.
+        final Finder railFinder = find.byKey(const Key('search_category_rail'));
+        final ListView rail = tester.widget<ListView>(railFinder);
+        expect(rail.scrollDirection, Axis.horizontal);
+
+        final Size railSize = tester.getSize(railFinder);
+        expect(
+          railSize.height,
+          92,
+          reason: 'the rail is pinned to its 92 dp design height',
+        );
+      },
+    );
   });
 
-  group('ClientSearchScreen — category grid (loading/error/empty)', () {
-    testWidgets('LOADING → skeleton, no grid and no retry', (tester) async {
+  group('ClientSearchScreen — category rail (loading/error/empty)', () {
+    testWidgets('LOADING → skeleton, no rail and no retry', (tester) async {
       await _pumpScreen(
         tester,
         categories: const AsyncLoading<List<ServiceCategoryOption>>(),
@@ -364,18 +401,23 @@ void main() {
       // Do NOT settle — keep the async provider pending so loading renders.
       await tester.pump();
 
-      expect(find.byKey(const Key('search_service_type_grid')), findsNothing);
+      expect(find.byKey(const Key('search_category_rail')), findsNothing);
       expect(find.byKey(const Key('search_categories_retry')), findsNothing);
-      expect(find.byType(ServiceTypeTile), findsNothing);
+      expect(find.byType(CategoryRailTile), findsNothing);
     });
 
-    testWidgets('ERROR → retry button + error copy rendered, no grid; retry '
-        'reloads the grid', (tester) async {
+    testWidgets('ERROR → retry button + error copy rendered, no rail; retry '
+        'reloads the rail', (tester) async {
       // The override body returns a rejected Future on first load, settling
       // approvedCategoriesProvider to AsyncError (isLoading false, no prior
-      // value) so the grid paints _GridError. We pump single frames (bounded)
+      // value) so the section paints _GridError. We pump single frames (bounded)
       // until the rejection settles rather than pumpAndSettle — the keepAlive
       // search controllers rebuild and could otherwise re-enter loading.
+      //
+      // PRESERVED Riverpod 3.x AsyncError-capture mechanism: a thrown Dart
+      // Error + a plain MaterialApp `home:` (NOT MaterialApp.router) + single
+      // bounded pump()s. pumpAndSettle would let the keepAlive controllers'
+      // rebuild re-resolve the provider into a seamless AsyncLoading(error:).
       final categoriesController = await _pumpScreen(
         tester,
         categories: AsyncError<List<ServiceCategoryOption>>(
@@ -383,9 +425,8 @@ void main() {
           StackTrace.empty,
         ),
       );
-      // Do NOT pumpAndSettle — that lets the keepAlive controllers' rebuild
-      // re-resolve the provider into seamless loading. Pump single frames until
-      // the error branch appears (bounded, no settle-loop).
+      // Do NOT pumpAndSettle — pump single frames until the error branch appears
+      // (bounded, no settle-loop).
       for (var i = 0; i < 4; i++) {
         if (find
             .byKey(const Key('search_categories_retry'))
@@ -396,26 +437,26 @@ void main() {
         await tester.pump();
       }
 
-      // Error branch: retry affordance + localized error copy, NO grid.
+      // Error branch: retry affordance + localized error copy, NO rail.
       expect(find.byKey(const Key('search_categories_retry')), findsOneWidget);
-      expect(find.byKey(const Key('search_service_type_grid')), findsNothing);
-      expect(find.byType(ServiceTypeTile), findsNothing);
+      expect(find.byKey(const Key('search_category_rail')), findsNothing);
+      expect(find.byType(CategoryRailTile), findsNothing);
       final AppLocalizations l10n = await _uk();
       expect(find.text(l10n.searchCategoriesLoadError), findsOneWidget);
 
       // Tapping retry calls ref.invalidate(approvedCategoriesProvider); flip the
-      // controller to succeed so the re-run paints the grid — proving the retry
+      // controller to succeed so the re-run paints the rail — proving the retry
       // callback rewires the provider, not a dead button.
       categoriesController.current = const AsyncData(_categories);
       await tester.tap(find.byKey(const Key('search_categories_retry')));
       await tester.pump();
       await tester.pump();
 
-      expect(find.byKey(const Key('search_service_type_grid')), findsOneWidget);
+      expect(find.byKey(const Key('search_category_rail')), findsOneWidget);
       expect(find.byKey(const Key('search_categories_retry')), findsNothing);
     });
 
-    testWidgets('EMPTY → empty message, no grid and no retry', (tester) async {
+    testWidgets('EMPTY → empty message, no rail and no retry', (tester) async {
       await _pumpScreen(
         tester,
         categories: const AsyncData<List<ServiceCategoryOption>>(
@@ -424,7 +465,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('search_service_type_grid')), findsNothing);
+      expect(find.byKey(const Key('search_category_rail')), findsNothing);
       expect(find.byKey(const Key('search_categories_retry')), findsNothing);
 
       final AppLocalizations l10n = await _uk();

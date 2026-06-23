@@ -40,7 +40,7 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_filters_screen.dart';
-import 'package:beautica_mobile/features/discovery/presentation/widgets/service_type_tile.dart';
+import 'package:beautica_mobile/features/discovery/presentation/widgets/category_rail.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -183,11 +183,13 @@ void main() {
         await pumpSearch(tester);
         await tester.pumpAndSettle();
 
-        // The grid rendered the categories sourced from the PUBLIC leaf.
+        // The rail rendered the categories sourced from the PUBLIC leaf
+        // (Variant A — CategoryRailTile replaced the old grid's ServiceTypeTile).
         expect(
-          find.byType(ServiceTypeTile),
+          find.byType(CategoryRailTile),
           findsNWidgets(2),
-          reason: 'the real approvedCategoriesProvider must hydrate the grid '
+          reason:
+              'the real approvedCategoriesProvider must hydrate the rail '
               'from listApproved()',
         );
         expect(
@@ -201,7 +203,9 @@ void main() {
 
         // NEW sourcing exercised: the public approved-categories endpoint WAS
         // hit (at least once — keepAlive controllers may rebuild).
-        verify(() => categoryApi.listApproved()).called(greaterThanOrEqualTo(1));
+        verify(
+          () => categoryApi.listApproved(),
+        ).called(greaterThanOrEqualTo(1));
 
         // THE INVARIANT: the master self-profile endpoint (`GET /masters/me`,
         // wrapped by MasterRepository.getMyProfile) was NEVER touched on the
@@ -211,19 +215,18 @@ void main() {
       },
     );
 
-    testWidgets(
-      'selecting a category tile still does not reach /masters/me',
-      (tester) async {
-        await pumpSearch(tester);
-        await tester.pumpAndSettle();
+    testWidgets('selecting a category tile still does not reach /masters/me', (
+      tester,
+    ) async {
+      await pumpSearch(tester);
+      await tester.pumpAndSettle();
 
-        // Interact with the grid (the realistic CLIENT action) and re-assert
-        // the master leaf stays untouched through the selection rebuild.
-        await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
-        await tester.pumpAndSettle();
+      // Interact with the grid (the realistic CLIENT action) and re-assert
+      // the master leaf stays untouched through the selection rebuild.
+      await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
+      await tester.pumpAndSettle();
 
-        verifyNever(() => masterRepo.getMyProfile(any()));
-      },
-    );
+      verifyNever(() => masterRepo.getMyProfile(any()));
+    });
   });
 }

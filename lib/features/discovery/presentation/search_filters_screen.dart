@@ -12,8 +12,12 @@
 //      backend-side in v1 but wired forward via the controller).
 //   3. «Місто» — recessed select row → opens the existing locality picker
 //      (oblast → city cascade) and writes the chosen city onto SearchFilters.
-//   4. «Вид послуги» — a 4-column grid of [ServiceTypeTile]s, populated from the
-//      live `approvedCategoriesProvider`. Single-select.
+//   4. «Категорія» — a fixed-height horizontal rail of the popular categories
+//      ([CategoryRailTile]) ending in a «Всі категорії» tile that opens the
+//      full-list sheet ([showAllCategoriesSheet]). Populated from the live
+//      `approvedCategoriesProvider`; single-select. Tapping a category reveals
+//      its bookable SERVICES as chips in a recessed [ServiceChipDrawer] below
+//      (multi-select, second level — Variant A «Рейка + послуги»).
 //   5. «Вартість послуги» — single-thumb price slider with a live «до N грн»
 //      readout (collapses to «будь-яка» at the ceiling).
 //   6. Sticky «Показати майстрів» CTA → pushes /search/results with the
@@ -40,9 +44,15 @@ import '../../location/presentation/widgets/locality_picker_sheet.dart';
 import '../../location/state/location_providers.dart';
 import '../../services/data/service_repository.dart';
 import '../../services/domain/service_category_option.dart';
+import '../data/category_service_providers.dart';
+import '../domain/category_service_option.dart';
 import '../domain/search_filters.dart';
 import 'state/search_filters_controller.dart';
+import 'widgets/all_categories_sheet.dart';
+import 'widgets/category_rail.dart';
+import 'widgets/service_chip_drawer.dart';
 import 'widgets/service_type_tile.dart';
+import 'widgets/staggered_reveal.dart';
 
 // Shell import only for the shared top bar — NOT a cross-feature presentation
 // dependency on screens, only the reusable chrome widget.
@@ -205,40 +215,59 @@ class _SearchFiltersBody extends ConsumerWidget {
     // No broad watch here: the body shell never needs to rebuild on a filter
     // change. Each section below self-watches only the slice it renders, so a
     // slider drag rebuilds just [_PriceSection], a category tap rebuilds just
-    // [_ServiceTypeGrid], and a city pick rebuilds just [_CitySelectRow].
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(
-        VelvetSpacing.lg,
-        VelvetSpacing.lg,
-        VelvetSpacing.lg,
-        VelvetSpacing.xl,
-      ),
-      children: <Widget>[
-        // ── Pill search field ──────────────────────────────────────────────
-        _SearchField(
-          controller: searchController,
-          hintText: l10n.searchFieldHint,
-          onChanged: (String value) => ref
-              .read(searchFiltersControllerProvider.notifier)
-              .setQuery(value),
-        ),
-        const SizedBox(height: VelvetSpacing.lg),
+    // [_CategorySection], and a city pick rebuilds just [_CitySelectRow].
+    //
+    // Variant A («Рейка + послуги») staggered fade-up entrance: the surface
+    // assembles itself on mount rather than snapping in flat. Each [reveal]
+    // slice mirrors the approved preview's start/end intervals exactly.
+    return SearchStaggeredReveal(
+      builder: (BuildContext context, SearchRevealFn reveal) {
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(
+            VelvetSpacing.lg,
+            VelvetSpacing.sm,
+            VelvetSpacing.lg,
+            VelvetSpacing.xl,
+          ),
+          children: <Widget>[
+            // ── Pill search field ──────────────────────────────────────────
+            reveal(
+              start: 0.0,
+              end: 0.4,
+              child: _SearchField(
+                controller: searchController,
+                hintText: l10n.searchFieldHint,
+                onChanged: (String value) => ref
+                    .read(searchFiltersControllerProvider.notifier)
+                    .setQuery(value),
+              ),
+            ),
+            const SizedBox(height: VelvetSpacing.lg),
 
-        // ── Місто ──────────────────────────────────────────────────────────
-        _SectionLabel(text: l10n.searchCityLabel),
-        const SizedBox(height: VelvetSpacing.sm),
-        _CitySelectRow(onTap: onPickCity),
-        const SizedBox(height: VelvetSpacing.lg),
+            // ── Місто ───────────────────────────────────────────────────────
+            reveal(
+              start: 0.1,
+              end: 0.5,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  _SectionLabel(text: l10n.searchCityLabel),
+                  const SizedBox(height: VelvetSpacing.sm),
+                  _CitySelectRow(onTap: onPickCity),
+                ],
+              ),
+            ),
+            const SizedBox(height: VelvetSpacing.lg),
 
-        // ── Вид послуги ─────────────────────────────────────────────────────
-        _SectionLabel(text: l10n.searchServiceTypeLabel),
-        const SizedBox(height: VelvetSpacing.md),
-        const _ServiceTypeGrid(),
-        const SizedBox(height: VelvetSpacing.lg),
+            // ── Категорія (rail) + Послуги (drawer) — Variant A ─────────────
+            _CategorySection(reveal: reveal),
+            const SizedBox(height: VelvetSpacing.lg),
 
-        // ── Вартість послуги ────────────────────────────────────────────────
-        const _PriceSection(),
-      ],
+            // ── Вартість послуги ────────────────────────────────────────────
+            const _PriceSection(),
+          ],
+        );
+      },
     );
   }
 }
@@ -391,17 +420,70 @@ class _CitySelectRow extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Вид послуги — 4-column grid populated from approvedCategoriesProvider.
+// Категорія (rail) + Послуги (drawer) — Variant A «Рейка + послуги».
+//
+// First level: a fixed-height (92 dp) horizontal rail of the popular categories
+// ending in a «Всі категорії» tile that opens the full-list sheet. The rail
+// width (96 dp tiles) is sized so the last visible tile is partially clipped —
+// the "scroll for more" cue from the approved preview.
+//
+// Second level: tapping a category reveals its bookable services as selectable
+// chips in a recessed [ServiceChipDrawer], wrapped in an [AnimatedSize] so the
+// drawer slides open/closed (240 ms easeOutCubic) exactly as in the preview.
 // ---------------------------------------------------------------------------
 
-class _ServiceTypeGrid extends ConsumerWidget {
-  const _ServiceTypeGrid();
+/// How many categories surface up front in the rail before «Всі категорії».
+/// The live taxonomy has no `popular` flag (unlike the preview's mock catalog),
+/// so the first [_kRailPopularCount] approved categories are surfaced and the
+/// full list lives behind the «Всі категорії» sheet — preserving Variant A's
+/// "fewer icons up front, with a path to the full list" move.
+const int _kRailPopularCount = 6;
+
+class _CategorySection extends ConsumerWidget {
+  const _CategorySection({required this.reveal});
+
+  final SearchRevealFn reveal;
+
+  Future<void> _openAllCategories(
+    BuildContext context,
+    WidgetRef ref,
+    List<ServiceCategoryOption> categories,
+    String? selectedKey,
+  ) async {
+    final ServiceCategoryOption? picked = await showAllCategoriesSheet(
+      context,
+      categories: categories,
+      selectedKey: selectedKey,
+    );
+    if (picked == null) return;
+    _select(ref, picked);
+  }
+
+  /// Single-selects [category]: sets the filter key + display label. (The
+  /// sheet always selects — it never toggles off — matching the preview.)
+  void _select(WidgetRef ref, ServiceCategoryOption category) {
+    final String? current = ref.read(
+      searchFiltersControllerProvider.select(
+        (SearchFilters f) => f.categoryKey,
+      ),
+    );
+    if (current != category.name) {
+      ref
+          .read(searchFiltersControllerProvider.notifier)
+          .toggleServiceType(category.name);
+      ref
+          .read(searchFilterLabelsControllerProvider.notifier)
+          .setCategoryName(category.displayName);
+      // Category changed → clear the second-level service selection.
+      ref.read(searchServiceSelectionControllerProvider.notifier).clear();
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
-    // Watch only the selected-category slice for the tile highlight — so a
-    // price drag does NOT rebuild this grid or its tiles.
+    // Watch only the selected-category slice for the rail highlight — so a
+    // price drag does NOT rebuild the rail or drawer.
     final String? selectedKey = ref.watch(
       searchFiltersControllerProvider.select(
         (SearchFilters f) => f.categoryKey,
@@ -410,77 +492,209 @@ class _ServiceTypeGrid extends ConsumerWidget {
     final categoriesAsync = ref.watch(approvedCategoriesProvider);
 
     return categoriesAsync.when(
-      loading: () => const _GridSkeleton(),
-      error: (Object e, _) => _GridError(
-        message: l10n.searchCategoriesLoadError,
-        onRetry: () => ref.invalidate(approvedCategoriesProvider),
+      loading: () => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          reveal(
+            start: 0.2,
+            end: 0.7,
+            child: _SectionLabel(text: l10n.searchCategoryLabel),
+          ),
+          const SizedBox(height: VelvetSpacing.sm),
+          reveal(start: 0.25, end: 0.8, child: const _RailSkeleton()),
+        ],
+      ),
+      error: (Object e, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _SectionLabel(text: l10n.searchCategoryLabel),
+          const SizedBox(height: VelvetSpacing.sm),
+          _GridError(
+            message: l10n.searchCategoriesLoadError,
+            onRetry: () => ref.invalidate(approvedCategoriesProvider),
+          ),
+        ],
       ),
       data: (List<ServiceCategoryOption> categories) {
         if (categories.isEmpty) {
-          return _GridEmpty(message: l10n.searchCategoriesEmpty);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              _SectionLabel(text: l10n.searchCategoryLabel),
+              const SizedBox(height: VelvetSpacing.sm),
+              _GridEmpty(message: l10n.searchCategoriesEmpty),
+            ],
+          );
         }
-        return GridView.count(
-          key: const Key('search_service_type_grid'),
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 3,
-          mainAxisSpacing: VelvetSpacing.md,
-          crossAxisSpacing: VelvetSpacing.sm,
-          childAspectRatio: 0.95,
+
+        final List<ServiceCategoryOption> railCategories =
+            categories.take(_kRailPopularCount).toList(growable: false);
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            for (final ServiceCategoryOption category in categories)
-              ServiceTypeTile(
-                key: Key('search_service_type_${category.name}'),
-                icon: serviceTypeIcon(category.name),
-                label: category.displayName,
-                selected: selectedKey == category.name,
-                onTap: () {
-                  ref
-                      .read(searchFiltersControllerProvider.notifier)
-                      .toggleServiceType(category.name);
-                  // Mirror the human-readable label for any chrome that shows
-                  // the active category; cleared when the tile is deselected.
-                  final bool willSelect = selectedKey != category.name;
-                  ref
-                      .read(searchFilterLabelsControllerProvider.notifier)
-                      .setCategoryName(
-                        willSelect ? category.displayName : null,
-                      );
-                },
+            reveal(
+              start: 0.2,
+              end: 0.7,
+              child: _SectionLabel(text: l10n.searchCategoryLabel),
+            ),
+            const SizedBox(height: VelvetSpacing.sm),
+
+            // Fixed-height rail — scrolls sideways, never grows the page. The
+            // partially-clipped trailing tile signals "scroll for more".
+            reveal(
+              start: 0.25,
+              end: 0.8,
+              child: SizedBox(
+                height: 92,
+                child: ListView(
+                  key: const Key('search_category_rail'),
+                  scrollDirection: Axis.horizontal,
+                  clipBehavior: Clip.none,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 4,
+                  ),
+                  children: <Widget>[
+                    for (final ServiceCategoryOption c in railCategories) ...<Widget>[
+                      CategoryRailTile(
+                        key: Key('search_service_type_${c.name}'),
+                        icon: serviceTypeIcon(c.name),
+                        label: c.displayName,
+                        selected: selectedKey == c.name,
+                        onTap: () => _toggle(ref, c, selectedKey),
+                      ),
+                      const SizedBox(width: VelvetSpacing.sm + 2),
+                    ],
+                    CategoryRailMoreTile(
+                      key: const Key('search_all_categories_tile'),
+                      label: l10n.searchAllCategories,
+                      semanticLabel: l10n.searchAllCategoriesSheetTitle,
+                      onTap: () => _openAllCategories(
+                        context,
+                        ref,
+                        categories,
+                        selectedKey,
+                      ),
+                    ),
+                  ],
+                ),
               ),
+            ),
+
+            // Service drawer (second level). AnimatedSize slides it open/closed.
+            _ServiceDrawerSlot(selectedKey: selectedKey, categories: categories),
           ],
         );
       },
     );
   }
+
+  /// Rail tap: toggles the category (tapping the active one collapses the
+  /// drawer), mirroring the filter + label + clearing the service selection.
+  void _toggle(
+    WidgetRef ref,
+    ServiceCategoryOption category,
+    String? selectedKey,
+  ) {
+    final bool willSelect = selectedKey != category.name;
+    ref
+        .read(searchFiltersControllerProvider.notifier)
+        .toggleServiceType(category.name);
+    // Mirror the human-readable label for any chrome that shows the active
+    // category; cleared when the tile is deselected.
+    ref
+        .read(searchFilterLabelsControllerProvider.notifier)
+        .setCategoryName(willSelect ? category.displayName : null);
+    // The parent category changed (selected, deselected, or switched) → clear
+    // the second-level service selection so it never leaks across categories.
+    ref.read(searchServiceSelectionControllerProvider.notifier).clear();
+  }
 }
 
-class _GridSkeleton extends StatelessWidget {
-  const _GridSkeleton();
+/// The animated slot beneath the rail that opens the service-chip drawer for
+/// the selected category. Collapsed (zero-height) when nothing is selected.
+class _ServiceDrawerSlot extends ConsumerWidget {
+  const _ServiceDrawerSlot({
+    required this.selectedKey,
+    required this.categories,
+  });
 
-  static final BoxDecoration _circle = BoxDecoration(
+  final String? selectedKey;
+  final List<ServiceCategoryOption> categories;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+
+    Widget content = const SizedBox(width: double.infinity);
+    if (selectedKey != null) {
+      ServiceCategoryOption? category;
+      for (final ServiceCategoryOption c in categories) {
+        if (c.name == selectedKey) {
+          category = c;
+          break;
+        }
+      }
+      if (category != null) {
+        final List<CategoryServiceOption> services = ref.watch(
+          categoryServiceOptionsProvider(category.name),
+        );
+        // Only render the drawer when the category actually has services —
+        // an empty placeholder list would otherwise show an empty well.
+        if (services.isNotEmpty) {
+          final Set<String> selectedServices = ref.watch(
+            searchServiceSelectionControllerProvider,
+          );
+          content = Padding(
+            padding: const EdgeInsets.only(top: VelvetSpacing.lg),
+            child: ServiceChipDrawer(
+              label: l10n.searchServicesDrawerLabel(category.displayName),
+              services: services,
+              selectedKeys: selectedServices,
+              onToggle: (String key) => ref
+                  .read(searchServiceSelectionControllerProvider.notifier)
+                  .toggle(key),
+            ),
+          );
+        }
+      }
+    }
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: content,
+    );
+  }
+}
+
+/// Loading placeholder shaped like the rail — a row of muted raised pills.
+class _RailSkeleton extends StatelessWidget {
+  const _RailSkeleton();
+
+  static final BoxDecoration _pill = BoxDecoration(
     color: BrandColors.faint.withValues(alpha: 0.3),
-    shape: BoxShape.circle,
+    borderRadius: BorderRadius.circular(VelvetRadii.card),
   );
 
   @override
   Widget build(BuildContext context) {
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 3,
-      mainAxisSpacing: VelvetSpacing.md,
-      crossAxisSpacing: VelvetSpacing.sm,
-      childAspectRatio: 0.95,
-      children: <Widget>[
-        for (int i = 0; i < 8; i++)
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Container(height: 66, width: 66, decoration: _circle),
-            ],
-          ),
-      ],
+    return SizedBox(
+      height: 92,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        clipBehavior: Clip.none,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        children: <Widget>[
+          for (int i = 0; i < 5; i++) ...<Widget>[
+            Container(height: 84, width: 96, decoration: _pill),
+            const SizedBox(width: VelvetSpacing.sm + 2),
+          ],
+        ],
+      ),
     );
   }
 }
