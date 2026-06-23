@@ -151,6 +151,21 @@ void main() {
         reason: 'a dragged-down slider must carry a finite max price',
       );
       expect(filters.maxPrice, lessThan(5000));
+
+      // ── Regression (Step 2.7 Rule 3b) — CLIENT 403 decoupling ─────────────
+      // A CLIENT walking the entire search journey must NEVER hit the
+      // master-only `GET /api/v1/masters/me`. The buggy
+      // approvedCategoriesProvider → serviceRepositoryProvider →
+      // masterProfileProvider chain would have called it (and against the real
+      // backend it 403s, then Riverpod retries ~4×). The fake backend counts
+      // every hit on that route, so a zero count proves the public
+      // listApproved() sourcing kept the master profile out of the path.
+      expect(
+        fb.getMasterCalls,
+        0,
+        reason: 'the CLIENT search journey must not touch GET /masters/me '
+            '(403 decoupling regression)',
+      );
     },
     timeout: const Timeout(Duration(seconds: 90)),
   );

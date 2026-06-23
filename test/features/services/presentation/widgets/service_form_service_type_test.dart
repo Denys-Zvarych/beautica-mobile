@@ -74,13 +74,14 @@ String _nameText(WidgetTester tester) =>
 void main() {
   late _MockServiceRepository repo;
 
+  // approvedCategoriesProvider is overridden directly below (it fetches via
+  // categoryRequestApi, not the repo).
+  const categories = <ServiceCategoryOption>[
+    ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+  ];
+
   setUp(() {
     repo = _MockServiceRepository();
-    when(() => repo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-      ],
-    );
   });
 
   Future<void> pumpForm(
@@ -100,6 +101,7 @@ void main() {
       ProviderScope(
         overrides: [
           serviceRepositoryProvider.overrideWithValue(repo),
+          approvedCategoriesProvider.overrideWith((ref) async => categories),
           // _ServiceTypeChips mounts as soon as a category is selected and
           // watches serviceTypesProvider(category) → fetchServiceTypes. Stub it
           // so no un-mocked repository fetch fires inside the form subtree.

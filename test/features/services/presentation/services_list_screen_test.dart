@@ -61,6 +61,20 @@ const _stubService = MasterService(
 
 const _stubServiceList = <MasterService>[_stubService];
 
+/// The default approved-category list. approvedCategoriesProvider now fetches
+/// DIRECTLY (not through the repository), so it must be overridden in-scope;
+/// _LoadedBody watches it to resolve category labels. This mirrors the list the
+/// pre-migration `fetchApprovedCategories` stub returned in setUp.
+const _defaultCategories = <ServiceCategoryOption>[
+  ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+];
+
+/// Builds the [approvedCategoriesProvider] override for [categories]. Pass each
+/// test's specific category list; defaults to [_defaultCategories].
+Object _categoriesOverride([
+  List<ServiceCategoryOption> categories = _defaultCategories,
+]) => approvedCategoriesProvider.overrideWith((ref) async => categories);
+
 /// Minimal [MasterService] factory for generating lists of arbitrary length.
 /// Only the required fields are set; freezed defaults cover the rest.
 MasterService _makeService(int i) => MasterService(
@@ -215,14 +229,10 @@ void main() {
   setUp(() {
     mockRepo = _MockServiceRepository();
     when(() => mockRepo.listMyServices()).thenAnswer((_) async => const []);
-    // _LoadedBody watches approvedCategoriesProvider to resolve category
-    // labels (FIX 4). Default stub keeps the provider in the data state for
-    // every existing test; FIX 4 tests override it with their own values.
-    when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-      ],
-    );
+    // _LoadedBody watches approvedCategoriesProvider to resolve category labels
+    // (FIX 4). That provider now fetches DIRECTLY (not through the repository),
+    // so it is overridden per-test via _categoriesOverride(...) rather than
+    // stubbed here. Tests that need specific labels pass their own list.
   });
 
   // ── 1. Loading state ───────────────────────────────────────────────────────
@@ -235,6 +245,7 @@ void main() {
       overrides: [
         _servicesOverride(const AsyncLoading()),
         serviceRepositoryProvider.overrideWithValue(mockRepo),
+        _categoriesOverride(),
       ],
     );
     // First pump triggers the loading frame.
@@ -270,6 +281,7 @@ void main() {
         overrides: [
           _servicesOverride(const AsyncLoading()),
           serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
         ],
       );
       // Loading frame — the shimmer controllers are running.
@@ -300,6 +312,7 @@ void main() {
       overrides: [
         _servicesOverride(const AsyncError(NetworkFailure(), StackTrace.empty)),
         serviceRepositoryProvider.overrideWithValue(mockRepo),
+        _categoriesOverride(),
       ],
     );
     // First pump: loading frame. Second pump: microtask delivers error state.
@@ -319,6 +332,7 @@ void main() {
       overrides: [
         _servicesOverride(const AsyncData(<MasterService>[])),
         serviceRepositoryProvider.overrideWithValue(mockRepo),
+        _categoriesOverride(),
       ],
     );
     // Loading frame → microtask → data frame.
@@ -345,6 +359,7 @@ void main() {
         overrides: [
           _servicesOverride(const AsyncData(_stubServiceList)),
           serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
         ],
       );
       // Loading frame → microtask → data frame.
@@ -391,6 +406,7 @@ void main() {
         overrides: [
           _servicesOverride(const AsyncData(_stubServiceList)),
           serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
         ],
       );
       // Loading frame → microtask → data frame → entrance animation.
@@ -448,6 +464,7 @@ void main() {
       overrides: [
         _servicesOverride(const AsyncData(_stubServiceList)),
         serviceRepositoryProvider.overrideWithValue(mockRepo),
+        _categoriesOverride(),
       ],
     );
     await tester.pump();
@@ -470,6 +487,7 @@ void main() {
       overrides: [
         _servicesOverride(const AsyncData(_stubServiceList)),
         serviceRepositoryProvider.overrideWithValue(mockRepo),
+        _categoriesOverride(),
       ],
     );
     await tester.pump();
@@ -512,6 +530,7 @@ void main() {
         overrides: [
           _servicesOverride(AsyncData(services)),
           serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
         ],
       );
       // Loading frame → microtask delivers data → data frame.
@@ -594,17 +613,14 @@ void main() {
     testWidgets(
       'approved slug renders Ukrainian displayName (Брови), not raw BROWS',
       (tester) async {
-        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
-          ],
-        );
-
         await tester.pumpApp(
           const ServicesListScreen(),
           overrides: [
             _servicesOverride(const AsyncData(<MasterService>[browsService])),
             serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(const <ServiceCategoryOption>[
+              ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+            ]),
           ],
         );
         await tester.pump();
@@ -630,17 +646,14 @@ void main() {
       'unapproved slug falls back to humanized label (Brows), not raw BROWS',
       (tester) async {
         // Approved list does NOT contain BROWS (inactive/retired category).
-        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-          ],
-        );
-
         await tester.pumpApp(
           const ServicesListScreen(),
           overrides: [
             _servicesOverride(const AsyncData(<MasterService>[browsService])),
             serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(const <ServiceCategoryOption>[
+              ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+            ]),
           ],
         );
         await tester.pump();
@@ -708,13 +721,15 @@ void main() {
 
     Future<void> pumpList(
       WidgetTester tester,
-      List<MasterService> services,
-    ) async {
+      List<MasterService> services, {
+      List<ServiceCategoryOption> categories = _defaultCategories,
+    }) async {
       await tester.pumpApp(
         const ServicesListScreen(),
         overrides: [
           _servicesOverride(AsyncData(services)),
           serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(categories),
         ],
       );
       // Loading frame → microtask delivers data → data frame.
@@ -728,14 +743,14 @@ void main() {
     testWidgets('B2 — preserves creation order across and within categories '
         '(HAIRCUT before BROWS; A before C in HAIRCUT)', (tester) async {
       // Approved list covers both slugs so labels resolve to Ukrainian.
-      when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-        (_) async => const <ServiceCategoryOption>[
+      await pumpList(
+        tester,
+        const <MasterService>[aHaircut, bBrows, cHaircut],
+        categories: const <ServiceCategoryOption>[
           ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
           ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
         ],
       );
-
-      await pumpList(tester, const <MasterService>[aHaircut, bBrows, cHaircut]);
 
       // Exactly two sections.
       expect(sectionKey('HAIRCUT'), findsOneWidget);
@@ -786,12 +801,6 @@ void main() {
       'B3 — sections default-collapsed; tapping the header expands then '
       're-collapses the cards',
       (tester) async {
-        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-          ],
-        );
-
         await pumpList(tester, const <MasterService>[aHaircut, cHaircut]);
 
         // Default-collapsed: neither card is visible on first build.
@@ -837,12 +846,6 @@ void main() {
       'B4 — the category label appears only in the section header, never '
       'inside a service card',
       (tester) async {
-        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-          ],
-        );
-
         await pumpList(tester, const <MasterService>[aHaircut]);
 
         // The section header is present even when the section is collapsed.
@@ -882,12 +885,6 @@ void main() {
           priceMin: 400,
           priceDisplay: '400 грн',
           // no category → uncategorized bucket
-        );
-
-        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-          ],
         );
 
         await pumpList(tester, const <MasterService>[aHaircut, noCategory]);
@@ -981,13 +978,6 @@ void main() {
     // and the findsNothing assertions would have thrown.
     testWidgets('REGRESSION-1: null initialExpandCategory — all sections collapsed; '
         'no service-card keys present in the widget tree', (tester) async {
-      when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-        (_) async => const <ServiceCategoryOption>[
-          ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
-          ServiceCategoryOption(name: 'BODY', displayName: 'Тіло'),
-        ],
-      );
-
       // ServicesListScreen with the default null initialExpandCategory.
       await tester.pumpApp(
         const ServicesListScreen(),
@@ -996,6 +986,10 @@ void main() {
             const AsyncData(<MasterService>[hairService, bodyService]),
           ),
           serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
+            ServiceCategoryOption(name: 'BODY', displayName: 'Тіло'),
+          ]),
         ],
       );
       // Loading frame → microtask delivers data → data frame.
@@ -1051,13 +1045,6 @@ void main() {
       'REGRESSION-2: specific initialExpandCategory="HAIR" — only HAIR expanded; '
       'BODY section remains collapsed',
       (tester) async {
-        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
-            ServiceCategoryOption(name: 'BODY', displayName: 'Тіло'),
-          ],
-        );
-
         await tester.pumpApp(
           const ServicesListScreen(initialExpandCategory: 'HAIR'),
           overrides: [
@@ -1065,6 +1052,10 @@ void main() {
               const AsyncData(<MasterService>[hairService, bodyService]),
             ),
             serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(const <ServiceCategoryOption>[
+              ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
+              ServiceCategoryOption(name: 'BODY', displayName: 'Тіло'),
+            ]),
           ],
         );
         await tester.pump();
@@ -1123,6 +1114,7 @@ void main() {
           overrides: [
             _repoBackedOverride(),
             serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(),
           ],
         );
         // Loading frame → microtask delivers the pure error state.
@@ -1183,6 +1175,7 @@ void main() {
           overrides: [
             _repoBackedOverride(),
             serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(),
           ],
         );
         await tester.pump();
@@ -1257,6 +1250,7 @@ void main() {
         overrides: [
           _repoBackedOverride(),
           serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
         ],
       );
       await tester.pump();
@@ -1316,6 +1310,7 @@ void main() {
           overrides: [
             _repoBackedOverride(),
             serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(),
           ],
         );
         await tester.pump();

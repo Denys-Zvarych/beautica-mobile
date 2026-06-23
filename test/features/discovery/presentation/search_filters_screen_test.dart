@@ -50,14 +50,12 @@ import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/overflow_guard.dart';
 
-// Mock the repository the real approvedCategoriesProvider delegates to. We
-// override serviceRepositoryProvider (NOT approvedCategoriesProvider) so the
-// REAL provider body runs: `ref.watch(serviceRepositoryProvider)
-// .fetchApprovedCategories()`. A `thenThrow` makes that body throw
-// SYNCHRONOUSLY, which settles the FutureProvider to a pure AsyncError
-// (isLoading: false) — the only way the screen's plain `.when(error:)` branch
-// fires for this keepAlive FutureProvider in Riverpod 3.x (a returned
-// Future.error or an override on the provider itself stays seamless-loading).
+// The production approvedCategoriesProvider now sources categories DIRECTLY
+// from categoryRequestApiProvider.listApproved() (a CLIENT-search 403
+// decoupling — it no longer delegates to ServiceRepository.fetchApproved
+// categories()). So each test overrides approvedCategoriesProvider itself with
+// an async body that resolves / throws / never-completes to drive the grid's
+// loaded / error / loading states deterministically.
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
 // ---------------------------------------------------------------------------
@@ -99,36 +97,43 @@ Future<AppLocalizations> _uk() =>
 // Captures the SearchFilters the CTA pushes to /search/results.
 SearchFilters? _pushedFilters;
 
-/// Stubs [repo.fetchApprovedCategories] to reflect [categories]:
-///   • AsyncData(value) → completes with the value,
-///   • AsyncError       → throws SYNCHRONOUSLY (pure AsyncError settle),
-///   • AsyncLoading     → never completes (skeleton stays up).
-void _stubCategories(
-  _MockServiceRepository repo,
-  AsyncValue<List<ServiceCategoryOption>> categories,
-) {
-  switch (categories) {
-    case AsyncError(:final Object error):
-      when(() => repo.fetchApprovedCategories()).thenThrow(error);
-    case AsyncData(:final List<ServiceCategoryOption> value):
-      when(() => repo.fetchApprovedCategories()).thenAnswer((_) async => value);
-    default:
-      when(
-        () => repo.fetchApprovedCategories(),
-      ).thenAnswer((_) => Completer<List<ServiceCategoryOption>>().future);
+/// A mutable holder for the desired [approvedCategoriesProvider] result, read
+/// fresh on every provider (re-)run. Lets the retry test flip the result from
+/// error → data and have a subsequent `ref.invalidate` re-resolve to the new
+/// value — exactly as the production retry affordance does.
+class _CategoriesController {
+  _CategoriesController(this.current);
+
+  AsyncValue<List<ServiceCategoryOption>> current;
+
+  /// Produces the body for the [approvedCategoriesProvider] override, reflecting
+  /// the latest [current] each time the provider runs:
+  ///   • AsyncData(value) → completes with the value,
+  ///   • AsyncError       → throws (settles to AsyncError),
+  ///   • AsyncLoading     → never completes (skeleton stays up).
+  Future<List<ServiceCategoryOption>> build(Ref ref) {
+    final categories = current;
+    switch (categories) {
+      case AsyncError(:final Object error):
+        return Future<List<ServiceCategoryOption>>.error(error);
+      case AsyncData(:final List<ServiceCategoryOption> value):
+        return Future<List<ServiceCategoryOption>>.value(value);
+      default:
+        return Completer<List<ServiceCategoryOption>>().future;
+    }
   }
 }
 
-/// Pumps [ClientSearchScreen] with the approved categories source stubbed to
-/// [categories]. Returns the mock repo so a test can re-stub it (e.g. retry:
-/// error → data) before invalidating.
+/// Pumps [ClientSearchScreen] with [approvedCategoriesProvider] overridden to
+/// reflect [categories]. Returns a [_CategoriesController] so a test can re-set
+/// the result (e.g. retry: error → data) before invalidating.
 ///
 /// By default the screen is the `home:` of a plain [MaterialApp]. Pass
 /// [withRouter] = true for the CTA-handoff test (which needs go_router's
 /// `context.push` to reach /search/results). A plain `home:` avoids the
 /// initial route-transition frame that, with [MaterialApp.router], defers the
 /// grid's first provider read into the seamless AsyncLoading(error:) state.
-Future<_MockServiceRepository> _pumpScreen(
+Future<_CategoriesController> _pumpScreen(
   WidgetTester tester, {
   AsyncValue<List<ServiceCategoryOption>> categories = const AsyncData(
     _categories,
@@ -139,7 +144,7 @@ Future<_MockServiceRepository> _pumpScreen(
   _pushedFilters = null;
 
   final repo = _MockServiceRepository();
-  _stubCategories(repo, categories);
+  final categoriesController = _CategoriesController(categories);
 
   // Tall surface so the whole scrollable filter column (incl. the price slider
   // near the bottom) lays out on-screen — drag()/tap() need an on-screen,
@@ -191,15 +196,18 @@ Future<_MockServiceRepository> _pumpScreen(
         authProvider.overrideWith(_FixedAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-        // Override the REPOSITORY (not the provider) so the real
-        // approvedCategoriesProvider body runs and settles correctly.
+        // Repo override kept for any other repository-backed reads the screen
+        // performs; categories now come straight from the provider override.
         serviceRepositoryProvider.overrideWithValue(repo),
+        // Drive the grid's loaded / error / loading states directly via the
+        // production provider, reading the mutable controller on each run.
+        approvedCategoriesProvider.overrideWith(categoriesController.build),
       ],
       child: app,
     ),
   );
 
-  return repo;
+  return categoriesController;
 }
 
 void main() {
@@ -335,19 +343,12 @@ void main() {
 
     testWidgets('ERROR → retry button + error copy rendered, no grid; retry '
         'reloads the grid', (tester) async {
-      // The repo stub throws SYNCHRONOUSLY, settling approvedCategoriesProvider
-      // to a pure AsyncError (isLoading: false) on the first build so the grid
-      // paints _GridError.
-      //
-      // The thrown object is an Error (StateError) on purpose: a thrown Dart
-      // Error settles the FutureProvider to a clean AsyncError synchronously,
-      // whereas a thrown Exception (which is what the production repository
-      // raises — its Failure types implement Exception) lands in the seamless
-      // AsyncLoading(error:) state that a plain `.when` paints as LOADING, not
-      // error. That divergence means the live first-load error UI is currently
-      // unreachable — tracked as the separate P1. This test pins the error
-      // BRANCH + retry wiring; the P1 fix flips the production path to reach it.
-      final repo = await _pumpScreen(
+      // The override body returns a rejected Future on first load, settling
+      // approvedCategoriesProvider to AsyncError (isLoading false, no prior
+      // value) so the grid paints _GridError. We pump single frames (bounded)
+      // until the rejection settles rather than pumpAndSettle — the keepAlive
+      // search controllers rebuild and could otherwise re-enter loading.
+      final categoriesController = await _pumpScreen(
         tester,
         categories: AsyncError<List<ServiceCategoryOption>>(
           StateError('boom'),
@@ -374,10 +375,10 @@ void main() {
       final AppLocalizations l10n = await _uk();
       expect(find.text(l10n.searchCategoriesLoadError), findsOneWidget);
 
-      // Tapping retry calls ref.invalidate(approvedCategoriesProvider); re-stub
-      // the repo to succeed so the reload paints the grid — proving the retry
+      // Tapping retry calls ref.invalidate(approvedCategoriesProvider); flip the
+      // controller to succeed so the re-run paints the grid — proving the retry
       // callback rewires the provider, not a dead button.
-      _stubCategories(repo, const AsyncData(_categories));
+      categoriesController.current = const AsyncData(_categories);
       await tester.tap(find.byKey(const Key('search_categories_retry')));
       await tester.pump();
       await tester.pump();

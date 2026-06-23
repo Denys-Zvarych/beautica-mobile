@@ -814,7 +814,20 @@ ServiceCatalogControllerApi serviceCatalogApi(Ref ref) =>
 /// On error, the picker row shows a compact retry affordance that calls
 /// `ref.invalidate(approvedCategoriesProvider)` — the rest of the form stays
 /// usable (category is optional).
+/// Sourced directly from [categoryRequestApiProvider] (which depends only on
+/// [dioProvider], NOT on the master-only [masterProfileProvider]) so that
+/// CLIENT-side callers — e.g. the discovery search `_ServiceTypeGrid` — never
+/// transitively drag in `GET /api/v1/masters/me` (a master-only endpoint that
+/// 403s for a CLIENT and then gets retried ~4× by Riverpod's backoff). The
+/// returned list mirrors [ServiceRepository.fetchApprovedCategories] exactly
+/// (same `MasterServiceMapper.fromApprovedCategoryList` mapping + null/empty
+/// handling), so master-side callers are unaffected.
 @Riverpod(keepAlive: true)
-Future<List<ServiceCategoryOption>> approvedCategories(Ref ref) {
-  return ref.watch(serviceRepositoryProvider).fetchApprovedCategories();
+Future<List<ServiceCategoryOption>> approvedCategories(Ref ref) async {
+  final res = await ref.watch(categoryRequestApiProvider).listApproved();
+  final list = res.data?.data;
+  if (list == null) {
+    return const [];
+  }
+  return MasterServiceMapper.fromApprovedCategoryList(list);
 }

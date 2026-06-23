@@ -150,10 +150,26 @@ class _StubMasterProfileNotifier extends MasterProfile {
 // Provider overrides
 // ---------------------------------------------------------------------------
 
+/// The default approved-category list used by the form's category dropdown.
+/// approvedCategoriesProvider now fetches directly (not via the repository), so
+/// it must be overridden in-scope; this is the list the create tests rely on.
+const _defaultCategories = <ServiceCategoryOption>[
+  ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+  ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+];
+
 /// Overrides [serviceRepositoryProvider] with [mock] in a [ProviderScope].
-List<Object> _overrides(_MockServiceRepository mock) {
+///
+/// [categories] feeds [approvedCategoriesProvider] directly — the form's
+/// category dropdown watches that provider, which fetches independently of the
+/// repository, so the override (not a repo stub) is what populates the chips.
+List<Object> _overrides(
+  _MockServiceRepository mock, {
+  List<ServiceCategoryOption> categories = _defaultCategories,
+}) {
   return <Object>[
     serviceRepositoryProvider.overrideWithValue(mock),
+    approvedCategoriesProvider.overrideWith((ref) async => categories),
     // Selecting a category mounts the second-level service-type dropdown →
     // serviceTypesProvider. Stub it to a calm empty list so no un-mocked fetch
     // fires in-tree (the dropdown then resolves to its empty state).
@@ -183,15 +199,10 @@ void main() {
     when(
       () => mockRepo.listMyServices(),
     ).thenAnswer((_) async => const <MasterService>[]);
-    // The category chip selector in ServiceForm watches approvedCategoriesProvider
-    // (which calls fetchApprovedCategories on the repository). Stub it so the
-    // form's category row resolves to the data state in these tests.
-    when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-      ],
-    );
+    // The category chip selector in ServiceForm watches approvedCategoriesProvider,
+    // which now fetches DIRECTLY (not through the repository). It is overridden in
+    // _overrides() with _defaultCategories so the form's category row resolves to
+    // the data state — no repository stub is needed for it.
   });
 
   // Convenience: pump the screen.

@@ -231,6 +231,7 @@ List<Object> _buildOverrides({
   required AsyncValue<Master> masterState,
   required _MockMasterRepository repo,
   required _MockServiceRepository serviceRepo,
+  List<ServiceCategoryOption> categories = const <ServiceCategoryOption>[],
 }) {
   return <Object>[
     authProvider.overrideWith(() => _StubAuthNotifier(_stubUser)),
@@ -239,6 +240,11 @@ List<Object> _buildOverrides({
     ),
     masterRepositoryProvider.overrideWithValue(repo),
     serviceRepositoryProvider.overrideWithValue(serviceRepo),
+    // The profile's services section watches approvedCategoriesProvider (which
+    // now sources categories straight from categoryRequestApiProvider, not the
+    // repository). Override it directly so the section resolves with no pending
+    // Timer / real API hit.
+    approvedCategoriesProvider.overrideWith((ref) async => categories),
   ];
 }
 
@@ -999,9 +1005,6 @@ void main() {
       when(
         () => mockServiceRepo.listMyServices(),
       ).thenAnswer((_) async => stubServices);
-      when(
-        () => mockServiceRepo.fetchApprovedCategories(),
-      ).thenAnswer((_) async => const <ServiceCategoryOption>[]);
 
       await tester.pumpApp(
         const MasterProfileScreen(),
@@ -1231,19 +1234,16 @@ void main() {
           ),
         ],
       );
-      when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
-        (_) async => const <ServiceCategoryOption>[
-          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-          ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
-        ],
-      );
-
       await tester.pumpApp(
         const MasterProfileScreen(),
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMaster),
           repo: repo,
           serviceRepo: mockServiceRepo,
+          categories: const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+            ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+          ],
         ),
       );
       await tester.pumpAndSettle();
@@ -1280,19 +1280,16 @@ void main() {
             ),
           ],
         );
-        when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-            ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
-          ],
-        );
-
         await tester.pumpApp(
           const MasterProfileScreen(),
           overrides: _buildOverrides(
             masterState: const AsyncData<Master>(_stubMaster),
             repo: repo,
             serviceRepo: mockServiceRepo,
+            categories: const <ServiceCategoryOption>[
+              ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+              ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+            ],
           ),
         );
         await tester.pumpAndSettle();
@@ -1328,10 +1325,6 @@ void main() {
             ),
           ],
         );
-        when(
-          () => mockServiceRepo.fetchApprovedCategories(),
-        ).thenAnswer((_) async => const <ServiceCategoryOption>[]);
-
         await tester.pumpApp(
           const MasterProfileScreen(),
           overrides: _buildOverrides(
@@ -1373,12 +1366,6 @@ void main() {
             ),
           ],
         );
-        when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-          ],
-        );
-
         final pushedRoutes = <String>[];
         final router = buildRouter(pushedRoutes: pushedRoutes);
 
@@ -1396,6 +1383,9 @@ void main() {
             masterState: const AsyncData<Master>(_stubMaster),
             repo: repo,
             serviceRepo: mockServiceRepo,
+            categories: const <ServiceCategoryOption>[
+              ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+            ],
           ),
         );
         // Settle all microtasks (master data, services data, categories data)

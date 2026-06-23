@@ -92,12 +92,27 @@ AppLocalizations _l10n(WidgetTester tester) =>
 /// [includeMasterProfile] — when true also overrides [masterProfileProvider]
 /// with a stub notifier so tests that track its invalidation have an active
 /// subscriber. Defaults to false so existing tests are unaffected.
+/// The default approved-category list used by the edit form's category
+/// dropdown. approvedCategoriesProvider now fetches DIRECTLY (not through the
+/// repository), so it must be overridden in-scope. This mirrors the list the
+/// pre-migration `fetchApprovedCategories` stub returned in setUp.
+const _defaultCategories = <ServiceCategoryOption>[
+  ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+  ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+  ServiceCategoryOption(name: 'EYELASH', displayName: 'Вії'),
+];
+
 List<Object> _overrides(
   _MockServiceRepository repo, {
   bool includeMasterProfile = false,
+  List<ServiceCategoryOption> categories = _defaultCategories,
 }) {
   return <Object>[
     serviceRepositoryProvider.overrideWithValue(repo),
+    // The category dropdown watches approvedCategoriesProvider, which now
+    // fetches DIRECTLY (not through the repository); override it in-scope so the
+    // category row resolves to the data state.
+    approvedCategoriesProvider.overrideWith((ref) async => categories),
     // The seeded service has a category, so _ServiceTypeChips mounts on pump
     // and would drive a real fetchServiceTypes for the seeded category (and any
     // category the test taps). Override with a calm empty list for every
@@ -175,6 +190,7 @@ Future<void> _pumpEdit(
   String id = 'svc-edit-1',
   List<AsyncValue<Object?>>? watcherStates,
   List<AsyncValue<Object?>>? masterProfileStates,
+  List<ServiceCategoryOption> categories = _defaultCategories,
 }) async {
   // The seeded service has a category, so the form mounts the second-level
   // _ServiceTypeChips section and grows taller. Use a roomy viewport so the
@@ -199,6 +215,7 @@ Future<void> _pumpEdit(
       overrides: _overrides(
         repo,
         includeMasterProfile: masterProfileStates != null,
+        categories: categories,
       ).cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -343,16 +360,10 @@ void main() {
     when(
       () => repo.deactivate(_stubService.serviceDefId),
     ).thenAnswer((_) async {});
-    // The category chip selector watches approvedCategoriesProvider, which
-    // calls fetchApprovedCategories on the repository. Stub it so the form's
-    // category row resolves to the data state.
-    when(() => repo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-        ServiceCategoryOption(name: 'EYELASH', displayName: 'Вії'),
-      ],
-    );
+    // The category chip selector watches approvedCategoriesProvider, which now
+    // fetches DIRECTLY (not through the repository). It is overridden in-scope
+    // via _overrides(categories: ...) with _defaultCategories, so no repository
+    // stub is needed here.
   });
 
   // ── 1. Form pre-populated from cache ──────────────────────────────────────
@@ -821,14 +832,6 @@ void main() {
       when(
         () => repo.getMyService(manicureService.id),
       ).thenAnswer((_) async => manicureService);
-      // Approved categories must include both MANICURE (baseline) and BROWS
-      // (the new selection) so both chips render.
-      when(() => repo.fetchApprovedCategories()).thenAnswer(
-        (_) async => const <ServiceCategoryOption>[
-          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-          ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
-        ],
-      );
       when(
         () => repo.update(
           manicureService.serviceDefId,
@@ -837,7 +840,17 @@ void main() {
         ),
       ).thenAnswer((_) async => manicureService);
 
-      await _pumpEdit(tester, repo, id: manicureService.id);
+      // Approved categories must include both MANICURE (baseline) and BROWS
+      // (the new selection) so both chips render.
+      await _pumpEdit(
+        tester,
+        repo,
+        id: manicureService.id,
+        categories: const <ServiceCategoryOption>[
+          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+          ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+        ],
+      );
 
       // Switch category MANICURE → BROWS via the dropdown.
       await selectCategoryOption(tester, 'BROWS');
@@ -911,11 +924,6 @@ void main() {
       when(
         () => repo.getMyService(editService.id),
       ).thenAnswer((_) async => editService);
-      when(() => repo.fetchApprovedCategories()).thenAnswer(
-        (_) async => const <ServiceCategoryOption>[
-          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ],
-      );
       when(
         () => repo.update(
           editService.serviceDefId,
@@ -934,6 +942,13 @@ void main() {
         ProviderScope(
           overrides: [
             serviceRepositoryProvider.overrideWithValue(repo),
+            // approvedCategoriesProvider fetches directly now — override it here
+            // with the single MANICURE category this test selects.
+            approvedCategoriesProvider.overrideWith(
+              (ref) async => const <ServiceCategoryOption>[
+                ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+              ],
+            ),
             // The selected MANICURE category surfaces the new type in the
             // second-level picker so it can be tapped.
             serviceTypesProvider.overrideWith(

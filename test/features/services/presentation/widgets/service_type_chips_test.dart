@@ -95,9 +95,6 @@ void main() {
 
   setUp(() {
     repo = _MockServiceRepository();
-    when(
-      () => repo.fetchApprovedCategories(),
-    ).thenAnswer((_) async => _categories);
   });
 
   /// Pumps the create form. [serviceTypes] is the synchronous list every
@@ -121,6 +118,7 @@ void main() {
       ProviderScope(
         overrides: [
           serviceRepositoryProvider.overrideWithValue(repo),
+          approvedCategoriesProvider.overrideWith((ref) async => _categories),
           serviceTypesProvider.overrideWith((ref, String categoryName) async {
             if (typesError != null) throw typesError;
             if (typesDelay != null) await Future<void>.delayed(typesDelay);
@@ -288,6 +286,7 @@ void main() {
         ProviderScope(
           overrides: [
             serviceRepositoryProvider.overrideWithValue(repo),
+            approvedCategoriesProvider.overrideWith((ref) async => _categories),
             serviceTypesProvider.overrideWith(
               // Completer that is never completed → a permanently in-flight load.
               (ref, String categoryName) =>

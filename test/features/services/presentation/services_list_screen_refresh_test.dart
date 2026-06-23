@@ -88,11 +88,8 @@ void main() {
     when(
       () => repo.listMyServices(),
     ).thenAnswer((_) async => const <MasterService>[_populatedService]);
-    when(() => repo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-      ],
-    );
+    // approvedCategoriesProvider fetches DIRECTLY now (not through the
+    // repository), so it is overridden in pumpScreen() rather than stubbed here.
     when(
       () => repo.fetchServiceTypes('HAIRCUT'),
     ).thenAnswer((_) async => _hairTypes);
@@ -105,6 +102,13 @@ void main() {
     final container = ProviderContainer(
       overrides: [
         serviceRepositoryProvider.overrideWithValue(repo),
+        // approvedCategoriesProvider fetches directly; override it so the list's
+        // category labels resolve without hitting the un-stubbed real fetch.
+        approvedCategoriesProvider.overrideWith(
+          (ref) async => const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+          ],
+        ),
         servicesListProvider.overrideWith(
           () => _StubServicesList(const <MasterService>[_populatedService]),
         ),

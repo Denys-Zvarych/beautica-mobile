@@ -80,6 +80,10 @@ Future<void> _pumpForm(
   WidgetTester tester,
   _MockServiceRepository repo, {
   required void Function(MasterServiceCreate) onSubmit,
+  // The approvedCategoriesProvider now feeds the picker directly (no longer via
+  // repo.fetchApprovedCategories). Pass a custom resolver to exercise the
+  // error / loading / alternate-list branches; the default is the happy list.
+  Future<List<ServiceCategoryOption>> Function()? categories,
 }) async {
   // Selecting a category mounts the second-level _ServiceTypeChips section,
   // making the form taller. Use a roomy viewport so every chip + the submit CTA
@@ -94,6 +98,9 @@ Future<void> _pumpForm(
     ProviderScope(
       overrides: <Object>[
         serviceRepositoryProvider.overrideWithValue(repo),
+        approvedCategoriesProvider.overrideWith(
+          (ref) async => categories != null ? await categories() : _options,
+        ),
         // Selecting a category mounts _ServiceTypeChips → serviceTypesProvider.
         // Stub it to a calm empty list so no un-mocked fetch fires in-tree.
         serviceTypesProvider.overrideWith(
@@ -135,6 +142,9 @@ Future<void> _pumpFormWithInitial(
   _MockServiceRepository repo, {
   required MasterService initial,
   double? physicalWidth,
+  // Feeds approvedCategoriesProvider directly (see _pumpForm). Defaults to the
+  // happy list; pass an empty / alternate list to exercise label-fallback cases.
+  List<ServiceCategoryOption> categories = _options,
 }) async {
   if (physicalWidth != null) {
     tester.view.physicalSize = Size(physicalWidth, 1280);
@@ -146,6 +156,7 @@ Future<void> _pumpFormWithInitial(
     ProviderScope(
       overrides: <Object>[
         serviceRepositoryProvider.overrideWithValue(repo),
+        approvedCategoriesProvider.overrideWith((ref) async => categories),
         // The seeded initial.category mounts _ServiceTypeChips on pump → stub
         // serviceTypesProvider to an empty list so no real fetch fires.
         serviceTypesProvider.overrideWith(
@@ -182,9 +193,6 @@ void main() {
 
   setUp(() {
     repo = _MockServiceRepository();
-    when(
-      () => repo.fetchApprovedCategories(),
-    ).thenAnswer((_) async => _options);
   });
 
   // ── 1. Renders displayName labels ──────────────────────────────────────────
@@ -470,17 +478,20 @@ void main() {
   testWidgets(
     '7. picker error renders error state + retry chip; retry re-fetches',
     (tester) async {
-      // The fetch fails while [fail] is true, then succeeds once the retry flips
-      // it. A returned Future.error (rather than a thrown Failure) is what the
-      // FutureProvider resolves into AsyncError under pumpAndSettle here.
+      // approvedCategoriesProvider now feeds the picker directly. The resolver
+      // fails while [fail] is true, then succeeds once the retry flips it; the
+      // retry's `ref.invalidate(approvedCategoriesProvider)` re-runs this same
+      // (sticky) override, so flipping the flag changes what the re-fetch yields.
       var fail = true;
-      when(() => repo.fetchApprovedCategories()).thenAnswer(
-        (_) => fail
-            ? Future<List<ServiceCategoryOption>>.error(const NetworkFailure())
-            : Future<List<ServiceCategoryOption>>.value(_options),
+      await _pumpForm(
+        tester,
+        repo,
+        onSubmit: (_) {},
+        categories: () async {
+          if (fail) throw const NetworkFailure();
+          return _options;
+        },
       );
-
-      await _pumpForm(tester, repo, onSubmit: (_) {});
 
       // The closed category field shows an error affordance (not a chevron),
       // and no option is selectable yet.
@@ -497,16 +508,26 @@ void main() {
       expect(find.byKey(const Key('select-menu-error')), findsOneWidget);
       expect(find.byKey(const Key('select-menu-retry')), findsOneWidget);
 
-      // Recovery: flip the stub to success, then tap retry. The retry button
+      // Recovery: flip the resolver to success, then tap retry. The retry button
       // closes the sheet and invalidates approvedCategoriesProvider, forcing a
-      // fresh repo call.
+      // fresh fetch that now resolves to data.
       fail = false;
       await tester.tap(find.byKey(const Key('select-menu-retry')));
       await tester.pumpAndSettle();
 
-      // Re-fetch happened. Re-open the (now resolved) menu → the option renders.
-      verify(() => repo.fetchApprovedCategories()).called(greaterThan(1));
+      // Re-fetch happened: the error affordance is gone and the refreshed
+      // options render in the (now resolved) menu — proving a real reload, not a
+      // stale error frame.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('select-category-field')),
+          matching: find.byIcon(Icons.error_outline_rounded),
+        ),
+        findsNothing,
+        reason: 'a successful retry must clear the error affordance',
+      );
       await openCategoryMenu(tester);
+      expect(find.byKey(const Key('select-menu-error')), findsNothing);
       expect(find.byKey(const Key('chip-category-MANICURE')), findsOneWidget);
       expect(find.text('Манікюр'), findsOneWidget);
     },
@@ -518,14 +539,12 @@ void main() {
     // A Completer that never completes → the provider stays in the loading
     // state so the skeleton row is rendered.
     final completer = Completer<List<ServiceCategoryOption>>();
-    when(
-      () => repo.fetchApprovedCategories(),
-    ).thenAnswer((_) => completer.future);
 
     await tester.pumpWidget(
       ProviderScope(
         overrides: <Object>[
           serviceRepositoryProvider.overrideWithValue(repo),
+          approvedCategoriesProvider.overrideWith((ref) => completer.future),
         ].cast(),
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -761,14 +780,11 @@ void main() {
     'never the raw slug; wire value preserved on submit',
     (tester) async {
       // Approved list does NOT contain BROWS (deactivated/retired category).
-      when(
-        () => repo.fetchApprovedCategories(),
-      ).thenAnswer((_) async => _options);
-
       await _pumpFormWithInitial(
         tester,
         repo,
         initial: _serviceWithCategory('BROWS'),
+        categories: _options,
       );
 
       // The persisted selection stays visible in the closed dropdown field even
@@ -793,14 +809,11 @@ void main() {
     'never the raw slug',
     (tester) async {
       // Transient empty list while the backend is slow / returns nothing.
-      when(
-        () => repo.fetchApprovedCategories(),
-      ).thenAnswer((_) async => const <ServiceCategoryOption>[]);
-
       await _pumpFormWithInitial(
         tester,
         repo,
         initial: _serviceWithCategory('NAIL_ART'),
+        categories: const <ServiceCategoryOption>[],
       );
 
       final field = find.byKey(const Key('select-category-field'));
@@ -822,14 +835,11 @@ void main() {
     '13. selected category present in approved list shows the Ukrainian '
     'displayName (happy-path regression guard)',
     (tester) async {
-      when(
-        () => repo.fetchApprovedCategories(),
-      ).thenAnswer((_) async => _options);
-
       await _pumpFormWithInitial(
         tester,
         repo,
         initial: _serviceWithCategory('MANICURE'),
+        categories: _options,
       );
 
       final field = find.byKey(const Key('select-category-field'));
@@ -860,13 +870,12 @@ void main() {
         ServiceCategoryOption(name: 'MAKEUP', displayName: 'Макіяж'),
         ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
       ];
-      when(() => repo.fetchApprovedCategories()).thenAnswer((_) async => many);
-
       await _pumpFormWithInitial(
         tester,
         repo,
         initial: _serviceWithCategory('BROWS'),
         physicalWidth: 360,
+        categories: many,
       );
 
       final field = find.byKey(const Key('select-category-field'));

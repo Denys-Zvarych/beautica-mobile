@@ -87,14 +87,15 @@ AppLocalizations _l10n(WidgetTester tester) =>
 void main() {
   late _MockServiceRepository repo;
 
+  // approvedCategoriesProvider is overridden directly below (it fetches via
+  // categoryRequestApi, not the repo).
+  const categories = <ServiceCategoryOption>[
+    ServiceCategoryOption(name: 'NAILS', displayName: 'Нігті'),
+    ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+  ];
+
   setUp(() {
     repo = _MockServiceRepository();
-    when(() => repo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'NAILS', displayName: 'Нігті'),
-        ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
-      ],
-    );
   });
 
   Future<void> pumpForm(
@@ -111,6 +112,7 @@ void main() {
       ProviderScope(
         overrides: [
           serviceRepositoryProvider.overrideWithValue(repo),
+          approvedCategoriesProvider.overrideWith((ref) async => categories),
           serviceTypesProvider.overrideWith((ref, String categoryName) async {
             switch (categoryName) {
               case 'NAILS':
