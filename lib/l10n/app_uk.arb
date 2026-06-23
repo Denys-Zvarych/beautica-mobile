@@ -2870,5 +2870,71 @@
   "passportEmptyCta": "Знайти майстра",
   "@passportEmptyCta": {
     "description": "Call-to-action button on the empty BEAUTY PASSPORT state — opens discovery search."
+  },
+  "searchTitle": "Пошук",
+  "@searchTitle": {
+    "description": "Title of the CLIENT Пошук (Search) filters screen — the elevated center bottom-nav tab."
+  },
+  "searchFieldHint": "Пошук майстра або послуги",
+  "@searchFieldHint": {
+    "description": "Placeholder text in the free-text search field on the Пошук screen."
+  },
+  "searchCityLabel": "Місто",
+  "@searchCityLabel": {
+    "description": "Label above the city-select row on the Пошук screen."
+  },
+  "searchCityPlaceholder": "Оберіть місто",
+  "@searchCityPlaceholder": {
+    "description": "Placeholder shown in the city-select row before a city is chosen."
+  },
+  "searchServiceTypeLabel": "Вид послуги",
+  "@searchServiceTypeLabel": {
+    "description": "Label above the service-type tile grid on the Пошук screen."
+  },
+  "searchCategoriesLoadError": "Не вдалося завантажити категорії",
+  "@searchCategoriesLoadError": {
+    "description": "Inline error shown when the service-category list fails to load in the Пошук grid."
+  },
+  "searchCategoriesEmpty": "Категорії поки недоступні",
+  "@searchCategoriesEmpty": {
+    "description": "Shown in place of the service-type grid when the backend returns no approved categories."
+  },
+  "searchPriceLabel": "Вартість послуги",
+  "@searchPriceLabel": {
+    "description": "Label above the price slider on the Пошук screen."
+  },
+  "searchPriceUpTo": "до {price} грн",
+  "@searchPriceUpTo": {
+    "description": "Live readout of the selected price ceiling on the Пошук slider.",
+    "placeholders": {
+      "price": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "searchPriceAny": "будь-яка",
+  "@searchPriceAny": {
+    "description": "Price readout when the slider is at the ceiling — no upper price bound."
+  },
+  "searchPriceMin": "0 грн",
+  "@searchPriceMin": {
+    "description": "Left end label under the price slider (minimum)."
+  },
+  "searchPriceMax": "5000+ грн",
+  "@searchPriceMax": {
+    "description": "Right end label under the price slider (ceiling and above)."
+  },
+  "searchCtaShowMasters": "Показати майстрів",
+  "@searchCtaShowMasters": {
+    "description": "Primary CTA on the Пошук screen — runs the search and opens the results screen."
+  },
+  "searchResultsTitle": "Результати",
+  "@searchResultsTitle": {
+    "description": "App-bar title of the discovery results screen."
+  },
+  "searchResultsComingSoon": "Список майстрів з'явиться тут найближчим часом.",
+  "@searchResultsComingSoon": {
+    "description": "Placeholder copy on the discovery results screen until the real paged list ships."
   }
 }

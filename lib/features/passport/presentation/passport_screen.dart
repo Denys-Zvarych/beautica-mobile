@@ -40,16 +40,15 @@ import 'package:go_router/go_router.dart';
 import '../../../core/icons/app_icon.dart';
 import '../../../core/icons/beautica_asset_icons.dart';
 import '../../../core/security/screen_protection.dart';
-import '../../../core/theme/beautica_icons.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
-import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../home/application/home_hub_notifier.dart';
 import '../../home/domain/home_hub_models.dart';
 import '../../home/presentation/widgets/hub_widgets.dart';
+import '../../shell/presentation/widgets/client_top_bar.dart';
 import '../application/passport_notifier.dart';
 import '../domain/passport.dart';
 import 'widgets/passport_table.dart';
@@ -191,7 +190,18 @@ class _PassportBody extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _TopBar(onBell: onBell, onBurger: onBurger),
+          ClientTopBar(
+            onBell: onBell,
+            onBurger: onBurger,
+            bellSemanticLabel: AppLocalizations.of(
+              context,
+            ).homeHubNotificationsLabel,
+            burgerSemanticLabel: AppLocalizations.of(
+              context,
+            ).settingsHubMenuButton,
+            bellKey: const Key('passport_bell_button'),
+            burgerKey: const Key('btn-menu-passport'),
+          ),
           // Aligned with Home (canonical landing page) so the identity card sits
           // at the same vertical position across both pages — no jump on nav.
           const SizedBox(height: VelvetSpacing.lg),
@@ -489,84 +499,6 @@ class _ProfileBlock extends StatelessWidget {
           child: Text(text, style: _lineStyle, overflow: TextOverflow.ellipsis),
         ),
       ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Top bar — beautica wordmark · bell · burger (identical to Головна).
-// ---------------------------------------------------------------------------
-
-class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onBell, required this.onBurger});
-
-  final VoidCallback onBell;
-  final VoidCallback onBurger;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Row(
-      children: <Widget>[
-        // Wrap in Flexible + ellipsis so the wordmark yields space before the
-        // Row overflows at extreme text scale; the fixed-size bell + burger
-        // stay fully tappable. No visual change at 1.0× (the wordmark is far
-        // narrower than the available width).
-        Flexible(
-          child: Text(
-            // ignore: avoid_hardcoded_strings — brand wordmark, NOT translated.
-            'beautica',
-            style: VelvetText.wordmark(),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 1,
-          ),
-        ),
-        const Spacer(),
-        _BellButton(
-          onTap: onBell,
-          semanticLabel: l10n.homeHubNotificationsLabel,
-        ),
-        const SizedBox(width: VelvetSpacing.sm + 4),
-        NeumorphicIconButton(
-          key: const Key('btn-menu-passport'),
-          icon: BeauticaIcons.menuBurger,
-          semanticLabel: l10n.settingsHubMenuButton,
-          onTap: onBurger,
-        ),
-      ],
-    );
-  }
-}
-
-/// Notification bell — identical idle-state recipe to the real Home Hub
-/// `BellButton` (which is `@visibleForTesting`, so it can't be reused across
-/// features): the in-repo [BeauticaAssetIcons.notificationPlain] rendered FLAT
-/// at 24×24, tinted [BrandColors.textSecondary]. The production call site is
-/// pinned to the dotless (no-unread) state, matching Головна.
-class _BellButton extends StatelessWidget {
-  const _BellButton({required this.onTap, required this.semanticLabel});
-
-  final VoidCallback onTap;
-  final String semanticLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      child: GestureDetector(
-        key: const Key('passport_bell_button'),
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: const Padding(
-          padding: EdgeInsets.all(VelvetSpacing.xs),
-          child: AppIcon(
-            BeauticaAssetIcons.notificationPlain,
-            size: 24,
-            color: BrandColors.textSecondary,
-          ),
-        ),
-      ),
     );
   }
 }

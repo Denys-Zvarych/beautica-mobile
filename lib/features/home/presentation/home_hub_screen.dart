@@ -28,17 +28,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/icons/app_icon.dart';
-import '../../../core/icons/beautica_asset_icons.dart';
 import '../../../core/security/screen_protection.dart';
-import '../../../core/theme/beautica_icons.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
-import '../../../core/theme/velvet_text.dart';
-import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/app_router.dart';
 import '../../../routing/route_names.dart';
+import '../../shell/presentation/widgets/client_top_bar.dart';
 import '../application/home_hub_notifier.dart';
 import '../domain/home_hub_models.dart';
 import 'widgets/beauty_timeline_section.dart';
@@ -177,7 +173,14 @@ class _HomeHubBody extends ConsumerWidget {
               reveal(
                 start: 0.0,
                 end: 0.4,
-                child: _TopBar(onBell: onBellTap, onBurger: onBurgerTap),
+                child: ClientTopBar(
+                  onBell: onBellTap,
+                  onBurger: onBurgerTap,
+                  bellSemanticLabel: l10n.homeHubNotificationsLabel,
+                  burgerSemanticLabel: l10n.settingsHubMenuButton,
+                  bellKey: const Key('home_hub_bell_button'),
+                  burgerKey: const Key('btn-menu-client'),
+                ),
               ),
               const SizedBox(height: VelvetSpacing.lg),
 
@@ -390,133 +393,6 @@ class _StatPillsRow extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Top bar
-// ---------------------------------------------------------------------------
-
-class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onBell, required this.onBurger});
-
-  final VoidCallback onBell;
-  final VoidCallback onBurger;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Row(
-      children: <Widget>[
-        // beautica wordmark — intentionally lowercase (brand decision).
-        // Wrap in Flexible + ellipsis so the wordmark yields space before the
-        // Row overflows at extreme text scale; the fixed-size bell + burger
-        // stay fully tappable. No visual change at 1.0× (the wordmark is far
-        // narrower than the available width). Kept byte-identical to the
-        // PassportScreen _TopBar (both must stay in sync).
-        Flexible(
-          child: Text(
-            // ignore: avoid_hardcoded_strings — brand wordmark, NOT translated
-            'beautica',
-            style: VelvetText.wordmark(),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 1,
-          ),
-        ),
-        const Spacer(),
-        BellButton(
-          key: const Key('home_hub_bell_button'),
-          onTap: onBell,
-          semanticLabel: l10n.homeHubNotificationsLabel,
-          // TODO(14.9): pass `unreadCount > 0` from the notifications provider
-          // once the notification center ships. The bell asset is dotless, so
-          // this flag is the sole unread indicator — false ⇒ no dot.
-          hasUnread: false,
-        ),
-        const SizedBox(width: VelvetSpacing.sm + 4),
-        NeumorphicIconButton(
-          key: const Key('btn-menu-client'),
-          icon: BeauticaIcons.menuBurger,
-          semanticLabel: l10n.settingsHubMenuButton,
-          onTap: onBurger,
-        ),
-      ],
-    );
-  }
-}
-
-/// Top-bar notification bell.
-///
-/// Swaps between two state-driven bell SVGs:
-///   * [hasUnread] `false` ⇒ [BeauticaAssetIcons.notificationPlain] (dotless
-///     bell, flattened to [BrandColors.textSecondary] via `srcIn`);
-///   * [hasUnread] `true`  ⇒ [BeauticaAssetIcons.notificationUnread] (the same
-///     bell silhouette with a baked-in warm red-orange dot at the top-right).
-///
-/// The unread asset is two-tone, so it renders with `multicolor: true` (no
-/// `srcIn` flatten) — that keeps the dot red instead of repainting it to the
-/// bell colour. There is **no** `Positioned`/`Stack` overlay dot any more (it
-/// caused a double-dot bug); the dot now lives inside the asset and is purely
-/// state-driven.
-///
-/// Public + `@visibleForTesting` so the unread-gating regression test can pump
-/// it with `hasUnread: true` (the production call site is currently pinned to
-/// `false` until the Phase 14.9 notification provider ships).
-@visibleForTesting
-class BellButton extends StatelessWidget {
-  const BellButton({
-    super.key,
-    required this.onTap,
-    required this.semanticLabel,
-    this.hasUnread = false,
-  });
-
-  /// Key on the rendered bell icon — stable across both states so a widget test
-  /// can grab the [AppIcon] and assert which asset path it points at.
-  static const Key bellIconKey = Key('home_hub_bell_icon');
-
-  final VoidCallback onTap;
-  final String semanticLabel;
-
-  /// Whether to render the unread-state bell (dot baked into the asset).
-  ///
-  /// `true` ⇒ [BeauticaAssetIcons.notificationUnread];
-  /// `false` ⇒ [BeauticaAssetIcons.notificationPlain].
-  ///
-  // TODO(14.9): bind from the unread-notifications provider once the
-  // notification center ships (watch the unread count/flag and pass `> 0`).
-  // Until then it defaults to `false` so the dotless bell is shown.
-  final bool hasUnread;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Padding(
-          padding: const EdgeInsets.all(VelvetSpacing.xs),
-          child: hasUnread
-              ? const AppIcon(
-                  BeauticaAssetIcons.notificationUnread,
-                  key: bellIconKey,
-                  size: 24,
-                  // Two-tone asset: skip the srcIn flatten so the red dot
-                  // survives. The bell colour is baked into the SVG to match
-                  // the idle bell's tint.
-                  multicolor: true,
-                )
-              : const AppIcon(
-                  BeauticaAssetIcons.notificationPlain,
-                  key: bellIconKey,
-                  size: 24,
-                  color: BrandColors.textSecondary,
-                ),
-        ),
       ),
     );
   }

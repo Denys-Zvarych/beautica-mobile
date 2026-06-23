@@ -37,6 +37,8 @@ import '../features/auth/presentation/register_step_3_screen.dart';
 import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
+import '../features/discovery/domain/search_filters.dart';
+import '../features/discovery/presentation/search_filters_screen.dart';
 import '../features/master/presentation/contacts_edit_screen.dart';
 import '../features/master/presentation/location_edit_screen.dart';
 import '../features/master/presentation/master_profile_screen.dart';
@@ -257,10 +259,25 @@ GoRouter appRouter(Ref ref) {
           ),
           StatefulShellBranch(
             routes: [
+              // Phase 13.3 — real ClientSearchScreen replaces the placeholder.
               GoRoute(
                 path: RouteNames.clientSearch,
                 pageBuilder: (context, state) =>
-                    _instantPage(state, const ClientSearchPlaceholderScreen()),
+                    _instantPage(state, const ClientSearchScreen()),
+                routes: [
+                  // /search/results — pushed from the Пошук CTA with the
+                  // assembled SearchFilters in `extra`. Nested under the search
+                  // branch so it pushes onto that branch's navigator (swipe-back
+                  // returns to the still-populated filters). Placeholder until
+                  // the real paged results list ships in a later 13.x phase.
+                  GoRoute(
+                    path: 'results',
+                    builder: (context, state) =>
+                        ClientSearchResultsPlaceholderScreen(
+                          filters: state.extra as SearchFilters?,
+                        ),
+                  ),
+                ],
               ),
             ],
           ),

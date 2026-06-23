@@ -61,6 +61,14 @@ abstract final class RouteNames {
   static const String clientBookings = '/bookings';
   static const String clientPassport = '/passport';
 
+  /// Phase 13.3 — discovery results. Reached from the Пошук filters screen's
+  /// «Показати майстрів» CTA via `context.push(..., extra: SearchFilters)`. A
+  /// `push` (not a branch hop) so the swipe-back gesture returns to the filters
+  /// with the keepAlive selection intact. The real paged results list ships in
+  /// a later 13.x phase; for now the route renders a placeholder that echoes the
+  /// received [SearchFilters].
+  static const String clientSearchResults = '/search/results';
+
   // CLIENT settings hub + per-section edit pages. Pushed from the home-hub
   // burger icon (mirrors the master `/master/menu` + `/master/edit/*` block).
   // The three edit pages all PATCH /users/me via ClientProfileRepository,

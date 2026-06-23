@@ -1,0 +1,471 @@
+// Phase 13.3 — Widget tests for [ClientSearchScreen] (the Пошук filters screen).
+//
+// Drives the real screen with the keepAlive filter controllers running against
+// a stubbed authProvider (so build() settles) and an overridden
+// approvedCategoriesProvider so each of the grid's loading / loaded / empty /
+// error states can be pumped deterministically.
+//
+// The screen is pumped inside a minimal GoRouter (the CTA does
+// context.push(/search/results) — a real router context is required) so the
+// nav-with-filters handoff can be asserted end-to-end here too.
+//
+// All finders are key/predicate-based (locale-invariant); city/category NAMES
+// are backend data, asserted as content only.
+//
+// States / interactions covered:
+//   • the 5 sections render (search field, city row, category grid, price
+//     slider + readout, sticky CTA) — all by Key;
+//   • the category grid renders one tile per provided category, keyed by slug;
+//   • tapping a tile selects it (visual inset well) AND sets the controller's
+//     categoryKey;
+//   • dragging the slider updates the readout and the controller's maxPrice;
+//   • grid LOADING → skeleton (no grid, no error retry);
+//   • grid ERROR → retry button (search_categories_retry), no grid;
+//   • grid EMPTY → empty message, no grid;
+//   • CTA is enabled and pushes /search/results carrying the assembled filters.
+
+import 'dart:async';
+
+import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
+import 'package:beautica_mobile/features/discovery/presentation/search_filters_screen.dart';
+import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
+import 'package:beautica_mobile/features/discovery/presentation/widgets/service_type_tile.dart';
+import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:mocktail/mocktail.dart';
+
+import '../../../helpers/fakes/fake_auth_repository.dart';
+import '../../../helpers/fakes/fake_secure_storage.dart';
+import '../../../helpers/overflow_guard.dart';
+
+// Mock the repository the real approvedCategoriesProvider delegates to. We
+// override serviceRepositoryProvider (NOT approvedCategoriesProvider) so the
+// REAL provider body runs: `ref.watch(serviceRepositoryProvider)
+// .fetchApprovedCategories()`. A `thenThrow` makes that body throw
+// SYNCHRONOUSLY, which settles the FutureProvider to a pure AsyncError
+// (isLoading: false) — the only way the screen's plain `.when(error:)` branch
+// fires for this keepAlive FutureProvider in Riverpod 3.x (a returned
+// Future.error or an override on the provider itself stays seamless-loading).
+class _MockServiceRepository extends Mock implements ServiceRepository {}
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+const _testUser = User(
+  id: 'u-client-1',
+  email: 'client@beautica.ua',
+  role: UserRole.client,
+  firstName: 'Дмитро',
+  lastName: 'Клієнт',
+);
+
+const _authenticated = AsyncData<AuthSession>(
+  AuthSession.authenticated(user: _testUser, accessToken: 'tok'),
+);
+
+const _categories = <ServiceCategoryOption>[
+  ServiceCategoryOption(name: 'NAILS', displayName: 'Манікюр'),
+  ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+  ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
+];
+
+// Stub authProvider so the keepAlive search controllers build cleanly.
+// Posts AsyncData(Authenticated) synchronously inside build() so authProvider
+// is settled from the first frame.
+class _FixedAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async {
+    state = _authenticated;
+    return const AuthSession.authenticated(user: _testUser, accessToken: 'tok');
+  }
+}
+
+Future<AppLocalizations> _uk() =>
+    AppLocalizations.delegate.load(const Locale('uk'));
+
+// Captures the SearchFilters the CTA pushes to /search/results.
+SearchFilters? _pushedFilters;
+
+/// Stubs [repo.fetchApprovedCategories] to reflect [categories]:
+///   • AsyncData(value) → completes with the value,
+///   • AsyncError       → throws SYNCHRONOUSLY (pure AsyncError settle),
+///   • AsyncLoading     → never completes (skeleton stays up).
+void _stubCategories(
+  _MockServiceRepository repo,
+  AsyncValue<List<ServiceCategoryOption>> categories,
+) {
+  switch (categories) {
+    case AsyncError(:final Object error):
+      when(() => repo.fetchApprovedCategories()).thenThrow(error);
+    case AsyncData(:final List<ServiceCategoryOption> value):
+      when(() => repo.fetchApprovedCategories()).thenAnswer((_) async => value);
+    default:
+      when(
+        () => repo.fetchApprovedCategories(),
+      ).thenAnswer((_) => Completer<List<ServiceCategoryOption>>().future);
+  }
+}
+
+/// Pumps [ClientSearchScreen] with the approved categories source stubbed to
+/// [categories]. Returns the mock repo so a test can re-stub it (e.g. retry:
+/// error → data) before invalidating.
+///
+/// By default the screen is the `home:` of a plain [MaterialApp]. Pass
+/// [withRouter] = true for the CTA-handoff test (which needs go_router's
+/// `context.push` to reach /search/results). A plain `home:` avoids the
+/// initial route-transition frame that, with [MaterialApp.router], defers the
+/// grid's first provider read into the seamless AsyncLoading(error:) state.
+Future<_MockServiceRepository> _pumpScreen(
+  WidgetTester tester, {
+  AsyncValue<List<ServiceCategoryOption>> categories = const AsyncData(
+    _categories,
+  ),
+  bool withRouter = false,
+}) async {
+  installOverflowGuard();
+  _pushedFilters = null;
+
+  final repo = _MockServiceRepository();
+  _stubCategories(repo, categories);
+
+  // Tall surface so the whole scrollable filter column (incl. the price slider
+  // near the bottom) lays out on-screen — drag()/tap() need an on-screen,
+  // hit-testable target, not just a present-in-tree one.
+  tester.view.physicalSize = const Size(900, 2400);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
+  // Construct the GoRouter ONLY for the routed variant — building it eagerly
+  // for the plain-home case perturbs the first-frame settle that the error
+  // test relies on.
+  final Widget app = withRouter
+      ? MaterialApp.router(
+          routerConfig: GoRouter(
+            initialLocation: '/search',
+            routes: <RouteBase>[
+              GoRoute(
+                path: '/search',
+                builder: (_, _) => const ClientSearchScreen(),
+              ),
+              GoRoute(
+                path: '/search/results',
+                builder: (_, GoRouterState state) {
+                  _pushedFilters = state.extra as SearchFilters?;
+                  return const Scaffold(key: Key('test-results-sink'));
+                },
+              ),
+              GoRoute(
+                path: '/client/menu',
+                builder: (_, _) => const Scaffold(key: Key('test-menu-sink')),
+              ),
+            ],
+          ),
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+        )
+      : const MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: Locale('uk'),
+          home: ClientSearchScreen(),
+        );
+
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        authProvider.overrideWith(_FixedAuthNotifier.new),
+        authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+        secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+        // Override the REPOSITORY (not the provider) so the real
+        // approvedCategoriesProvider body runs and settles correctly.
+        serviceRepositoryProvider.overrideWithValue(repo),
+      ],
+      child: app,
+    ),
+  );
+
+  return repo;
+}
+
+void main() {
+  group('ClientSearchScreen — sections', () {
+    testWidgets('renders the 5 filter sections + top bar chrome (by Key)', (
+      tester,
+    ) async {
+      await _pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      // Top bar (shared ClientTopBar).
+      expect(find.byKey(const Key('search_bell_button')), findsOneWidget);
+      expect(find.byKey(const Key('btn-menu-search')), findsOneWidget);
+
+      // 1. pill search field.
+      expect(find.byKey(const Key('search_query_field')), findsOneWidget);
+      // 2. city select row.
+      expect(find.byKey(const Key('search_city_value')), findsOneWidget);
+      // 3. category grid.
+      expect(find.byKey(const Key('search_service_type_grid')), findsOneWidget);
+      // 4. price slider + readout.
+      expect(find.byKey(const Key('search_price_slider')), findsOneWidget);
+      expect(find.byKey(const Key('search_price_readout')), findsOneWidget);
+      // 5. sticky CTA.
+      expect(find.byKey(const Key('search_show_masters_cta')), findsOneWidget);
+    });
+
+    testWidgets('city row shows the placeholder until a city is picked', (
+      tester,
+    ) async {
+      await _pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      final AppLocalizations l10n = await _uk();
+      final Text cityText = tester.widget<Text>(
+        find.byKey(const Key('search_city_value')),
+      );
+      expect(cityText.data, l10n.searchCityPlaceholder);
+    });
+
+    testWidgets(
+      'price readout starts at "будь-яка" (slider pinned to ceiling)',
+      (tester) async {
+        await _pumpScreen(tester);
+        await tester.pumpAndSettle();
+
+        final AppLocalizations l10n = await _uk();
+        final Text readout = tester.widget<Text>(
+          find.byKey(const Key('search_price_readout')),
+        );
+        expect(readout.data, l10n.searchPriceAny);
+      },
+    );
+  });
+
+  group('ClientSearchScreen — category grid (loaded)', () {
+    testWidgets('renders one tile per provided category, keyed by slug', (
+      tester,
+    ) async {
+      await _pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ServiceTypeTile), findsNWidgets(_categories.length));
+      expect(
+        find.byKey(const Key('search_service_type_NAILS')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('search_service_type_BROWS')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('search_service_type_HAIR')), findsOneWidget);
+
+      // Ukrainian display labels (backend data, content assertion).
+      expect(find.text('Манікюр'), findsOneWidget);
+      expect(find.text('Брови'), findsOneWidget);
+    });
+
+    testWidgets('tapping a tile selects it — inset well + controller key set', (
+      tester,
+    ) async {
+      await _pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      // Read state via the element's container.
+      ProviderContainer container() => ProviderScope.containerOf(
+        tester.element(find.byType(ClientSearchScreen)),
+      );
+
+      // Precondition: nothing selected.
+      expect(
+        container().read(searchFiltersControllerProvider).categoryKey,
+        isNull,
+      );
+
+      await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
+      await tester.pumpAndSettle();
+
+      // Controller now carries the slug.
+      expect(
+        container().read(searchFiltersControllerProvider).categoryKey,
+        'NAILS',
+      );
+      // The selected tile renders its concave inset well.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('search_service_type_NAILS')),
+          matching: find.byType(NeumorphicInset),
+        ),
+        findsOneWidget,
+      );
+      // The label controller mirrors the display name.
+      expect(
+        container().read(searchFilterLabelsControllerProvider).categoryName,
+        'Манікюр',
+      );
+    });
+  });
+
+  group('ClientSearchScreen — category grid (loading/error/empty)', () {
+    testWidgets('LOADING → skeleton, no grid and no retry', (tester) async {
+      await _pumpScreen(
+        tester,
+        categories: const AsyncLoading<List<ServiceCategoryOption>>(),
+      );
+      // Do NOT settle — keep the async provider pending so loading renders.
+      await tester.pump();
+
+      expect(find.byKey(const Key('search_service_type_grid')), findsNothing);
+      expect(find.byKey(const Key('search_categories_retry')), findsNothing);
+      expect(find.byType(ServiceTypeTile), findsNothing);
+    });
+
+    testWidgets('ERROR → retry button + error copy rendered, no grid; retry '
+        'reloads the grid', (tester) async {
+      // The repo stub throws SYNCHRONOUSLY, settling approvedCategoriesProvider
+      // to a pure AsyncError (isLoading: false) on the first build so the grid
+      // paints _GridError.
+      //
+      // The thrown object is an Error (StateError) on purpose: a thrown Dart
+      // Error settles the FutureProvider to a clean AsyncError synchronously,
+      // whereas a thrown Exception (which is what the production repository
+      // raises — its Failure types implement Exception) lands in the seamless
+      // AsyncLoading(error:) state that a plain `.when` paints as LOADING, not
+      // error. That divergence means the live first-load error UI is currently
+      // unreachable — tracked as the separate P1. This test pins the error
+      // BRANCH + retry wiring; the P1 fix flips the production path to reach it.
+      final repo = await _pumpScreen(
+        tester,
+        categories: AsyncError<List<ServiceCategoryOption>>(
+          StateError('boom'),
+          StackTrace.empty,
+        ),
+      );
+      // Do NOT pumpAndSettle — that lets the keepAlive controllers' rebuild
+      // re-resolve the provider into seamless loading. Pump single frames until
+      // the error branch appears (bounded, no settle-loop).
+      for (var i = 0; i < 4; i++) {
+        if (find
+            .byKey(const Key('search_categories_retry'))
+            .evaluate()
+            .isNotEmpty) {
+          break;
+        }
+        await tester.pump();
+      }
+
+      // Error branch: retry affordance + localized error copy, NO grid.
+      expect(find.byKey(const Key('search_categories_retry')), findsOneWidget);
+      expect(find.byKey(const Key('search_service_type_grid')), findsNothing);
+      expect(find.byType(ServiceTypeTile), findsNothing);
+      final AppLocalizations l10n = await _uk();
+      expect(find.text(l10n.searchCategoriesLoadError), findsOneWidget);
+
+      // Tapping retry calls ref.invalidate(approvedCategoriesProvider); re-stub
+      // the repo to succeed so the reload paints the grid — proving the retry
+      // callback rewires the provider, not a dead button.
+      _stubCategories(repo, const AsyncData(_categories));
+      await tester.tap(find.byKey(const Key('search_categories_retry')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('search_service_type_grid')), findsOneWidget);
+      expect(find.byKey(const Key('search_categories_retry')), findsNothing);
+    });
+
+    testWidgets('EMPTY → empty message, no grid and no retry', (tester) async {
+      await _pumpScreen(
+        tester,
+        categories: const AsyncData<List<ServiceCategoryOption>>(
+          <ServiceCategoryOption>[],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('search_service_type_grid')), findsNothing);
+      expect(find.byKey(const Key('search_categories_retry')), findsNothing);
+
+      final AppLocalizations l10n = await _uk();
+      expect(find.text(l10n.searchCategoriesEmpty), findsOneWidget);
+    });
+  });
+
+  group('ClientSearchScreen — price slider', () {
+    testWidgets('dragging the slider updates the readout and maxPrice', (
+      tester,
+    ) async {
+      await _pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      ProviderContainer container() => ProviderScope.containerOf(
+        tester.element(find.byType(ClientSearchScreen)),
+      );
+
+      // Drag the thumb left from the ceiling — must produce a finite maxPrice
+      // strictly below kSearchPriceCeiling (and the readout leaves "будь-яка").
+      final Finder slider = find.byKey(const Key('search_price_slider'));
+      await tester.drag(slider, const Offset(-200, 0));
+      await tester.pumpAndSettle();
+
+      final double? maxPrice = container()
+          .read(searchFiltersControllerProvider)
+          .maxPrice;
+      expect(maxPrice, isNotNull);
+      expect(maxPrice, lessThan(kSearchPriceCeiling));
+
+      final AppLocalizations l10n = await _uk();
+      final Text readout = tester.widget<Text>(
+        find.byKey(const Key('search_price_readout')),
+      );
+      expect(readout.data, isNot(l10n.searchPriceAny));
+      expect(readout.data, l10n.searchPriceUpTo(maxPrice!.round()));
+    });
+  });
+
+  group('ClientSearchScreen — CTA handoff', () {
+    testWidgets('CTA is enabled and pushes /search/results with the assembled '
+        'SearchFilters in extra', (tester) async {
+      // withRouter: the CTA does context.push(/search/results) — needs go_router.
+      await _pumpScreen(tester, withRouter: true);
+      await tester.pumpAndSettle();
+
+      // Assemble a filter set: pick a category + drag price.
+      await tester.tap(find.byKey(const Key('search_service_type_BROWS')));
+      await tester.pumpAndSettle();
+      await tester.drag(
+        find.byKey(const Key('search_price_slider')),
+        const Offset(-150, 0),
+      );
+      await tester.pumpAndSettle();
+
+      // The CTA is a NeumorphicButton with a non-null onPressed (enabled).
+      final NeumorphicButton cta = tester.widget<NeumorphicButton>(
+        find.byKey(const Key('search_show_masters_cta')),
+      );
+      expect(cta.onPressed, isNotNull);
+
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle();
+
+      // Landed on the results sink with the carried filters.
+      expect(find.byKey(const Key('test-results-sink')), findsOneWidget);
+      expect(_pushedFilters, isNotNull);
+      expect(_pushedFilters!.categoryKey, 'BROWS');
+      expect(_pushedFilters!.maxPrice, isNotNull);
+      expect(_pushedFilters!.maxPrice, lessThan(kSearchPriceCeiling));
+    });
+  });
+}

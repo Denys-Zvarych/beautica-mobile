@@ -45,6 +45,7 @@ import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
+import 'package:beautica_mobile/features/shell/presentation/widgets/client_top_bar.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/favorite_masters_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.dart';
