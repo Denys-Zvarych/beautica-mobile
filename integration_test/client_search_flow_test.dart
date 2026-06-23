@@ -13,13 +13,16 @@
 // in `extra`.
 //
 // VARIANT A («Рейка + послуги») COVERAGE: the rail tile reveals a service-chip
-// drawer sourced from the PLACEHOLDER categoryServiceOptionsProvider (there is
-// no per-category services endpoint yet — see
-// lib/features/discovery/data/category_service_providers.dart). NAILS resolves
-// (substring `NAIL`) to a placeholder family list, so the drawer renders real
-// chips here. The selected service set is INERT (SearchFilters has no
-// service-key field — also placeholder wiring), so the E2E asserts what is
-// actually rendered/carried and does NOT assert a service key on the filters.
+// drawer sourced from the REAL async categoryServiceOptionsProvider →
+// CategoryServiceRepository → `GET /api/v1/service-types?categoryName=NAILS`
+// (served by the fake backend). The fake's NAILS slice is a single
+// PlatformServiceTypeResponse { slug: CLASSIC_MANICURE, nameUk: «Класичний
+// манікюр» }, so the drawer renders one keyed chip whose key is
+// `search_service_chip_CLASSIC_MANICURE` (chip key = `option.key` = slug). This
+// exercises the real repository→provider→drawer path end to end. The selected
+// service set is still INERT (SearchFilters has no service-key field — future
+// wiring), so the E2E asserts what is rendered/carried and does NOT assert a
+// service key on the filters.
 //
 // This boots the REAL app via AppHarness (FakeBackend socket, FakeSecureStorage,
 // fixed clock, overflow guard) and drives the whole flow against the fake
@@ -131,21 +134,26 @@ void main() {
       await tester.pumpAndSettle();
 
       // Variant A second level: the recessed service-chip drawer opens with the
-      // NAILS family chips (from the placeholder provider — see file header).
+      // NAILS family chips fetched live from the fake backend's
+      // GET /service-types?categoryName=NAILS slice (slug CLASSIC_MANICURE).
       expect(
         find.byType(ServiceChipDrawer),
         findsOneWidget,
         reason: 'selecting a category must reveal its service-chip drawer',
       );
       expect(
-        find.byKey(const Key('search_service_chip_manicure')),
+        find.byKey(const Key('search_service_chip_CLASSIC_MANICURE')),
         findsOneWidget,
-        reason: 'the NAILS placeholder family renders keyed service chips',
+        reason:
+            'the NAILS service-types endpoint slice renders a keyed chip '
+            '(key = slug CLASSIC_MANICURE)',
       );
 
       // Tap a service chip — exercises the (currently INERT) second-level
       // selection. It toggles UI state but is NOT carried on SearchFilters yet.
-      await tester.tap(find.byKey(const Key('search_service_chip_manicure')));
+      await tester.tap(
+        find.byKey(const Key('search_service_chip_CLASSIC_MANICURE')),
+      );
       await tester.pumpAndSettle();
 
       // ── Drag the price slider down from the «будь-яка» ceiling ────────────

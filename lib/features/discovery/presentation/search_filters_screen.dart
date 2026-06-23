@@ -527,8 +527,23 @@ class _CategorySection extends ConsumerWidget {
           );
         }
 
-        final List<ServiceCategoryOption> railCategories =
-            categories.take(_kRailPopularCount).toList(growable: false);
+        final List<ServiceCategoryOption> railCategories = categories
+            .take(_kRailPopularCount)
+            .toList(growable: false);
+
+        // Resolve the selected category once here (this branch already holds
+        // both `selectedKey` and the list) so the drawer slot doesn't re-scan
+        // the list on every rebuild — including each frame of its 240ms
+        // open/close animation.
+        ServiceCategoryOption? selectedCategory;
+        if (selectedKey != null) {
+          for (final ServiceCategoryOption c in categories) {
+            if (c.name == selectedKey) {
+              selectedCategory = c;
+              break;
+            }
+          }
+        }
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -556,7 +571,8 @@ class _CategorySection extends ConsumerWidget {
                     vertical: 4,
                   ),
                   children: <Widget>[
-                    for (final ServiceCategoryOption c in railCategories) ...<Widget>[
+                    for (final ServiceCategoryOption c
+                        in railCategories) ...<Widget>[
                       CategoryRailTile(
                         key: Key('search_service_type_${c.name}'),
                         icon: serviceTypeIcon(c.name),
@@ -583,7 +599,7 @@ class _CategorySection extends ConsumerWidget {
             ),
 
             // Service drawer (second level). AnimatedSize slides it open/closed.
-            _ServiceDrawerSlot(selectedKey: selectedKey, categories: categories),
+            _ServiceDrawerSlot(category: selectedCategory),
           ],
         );
       },
@@ -615,49 +631,62 @@ class _CategorySection extends ConsumerWidget {
 /// The animated slot beneath the rail that opens the service-chip drawer for
 /// the selected category. Collapsed (zero-height) when nothing is selected.
 class _ServiceDrawerSlot extends ConsumerWidget {
-  const _ServiceDrawerSlot({
-    required this.selectedKey,
-    required this.categories,
-  });
+  const _ServiceDrawerSlot({required this.category});
 
-  final String? selectedKey;
-  final List<ServiceCategoryOption> categories;
+  /// The already-resolved selected category (resolved once in the parent), or
+  /// `null` when nothing is selected — the drawer collapses to zero height.
+  final ServiceCategoryOption? category;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
 
     Widget content = const SizedBox(width: double.infinity);
-    if (selectedKey != null) {
-      ServiceCategoryOption? category;
-      for (final ServiceCategoryOption c in categories) {
-        if (c.name == selectedKey) {
-          category = c;
-          break;
-        }
-      }
+    {
+      final ServiceCategoryOption? category = this.category;
       if (category != null) {
-        final List<CategoryServiceOption> services = ref.watch(
-          categoryServiceOptionsProvider(category.name),
+        final ServiceCategoryOption resolved = category;
+        final AsyncValue<List<CategoryServiceOption>> servicesAsync = ref.watch(
+          categoryServiceOptionsProvider(resolved.name),
         );
-        // Only render the drawer when the category actually has services —
-        // an empty placeholder list would otherwise show an empty well.
-        if (services.isNotEmpty) {
-          final Set<String> selectedServices = ref.watch(
-            searchServiceSelectionControllerProvider,
-          );
-          content = Padding(
+        final String drawerLabel = l10n.searchServicesDrawerLabel(
+          resolved.displayName,
+        );
+        content = servicesAsync.when(
+          loading: () => Padding(
             padding: const EdgeInsets.only(top: VelvetSpacing.lg),
-            child: ServiceChipDrawer(
-              label: l10n.searchServicesDrawerLabel(category.displayName),
-              services: services,
-              selectedKeys: selectedServices,
-              onToggle: (String key) => ref
-                  .read(searchServiceSelectionControllerProvider.notifier)
-                  .toggle(key),
+            child: _ServiceDrawerSkeleton(label: drawerLabel),
+          ),
+          error: (Object e, _) => Padding(
+            padding: const EdgeInsets.only(top: VelvetSpacing.lg),
+            child: _GridError(
+              message: l10n.searchServicesLoadError,
+              onRetry: () =>
+                  ref.invalidate(categoryServiceOptionsProvider(resolved.name)),
             ),
-          );
-        }
+          ),
+          data: (List<CategoryServiceOption> services) {
+            // Only render the drawer when the category actually has services —
+            // an empty list would otherwise show an empty well.
+            if (services.isEmpty) {
+              return const SizedBox(width: double.infinity);
+            }
+            final Set<String> selectedServices = ref.watch(
+              searchServiceSelectionControllerProvider,
+            );
+            return Padding(
+              padding: const EdgeInsets.only(top: VelvetSpacing.lg),
+              child: ServiceChipDrawer(
+                label: drawerLabel,
+                services: services,
+                selectedKeys: selectedServices,
+                onToggle: (String key) => ref
+                    .read(searchServiceSelectionControllerProvider.notifier)
+                    .toggle(key),
+              ),
+            );
+          },
+        );
       }
     }
 
@@ -666,6 +695,45 @@ class _ServiceDrawerSlot extends ConsumerWidget {
       curve: Curves.easeOutCubic,
       alignment: Alignment.topCenter,
       child: content,
+    );
+  }
+}
+
+/// Loading placeholder for the service-chip drawer — the labelled recessed well
+/// with a centred spinner, so the drawer's reveal animation has stable chrome
+/// while the per-category service types load.
+class _ServiceDrawerSkeleton extends StatelessWidget {
+  const _ServiceDrawerSkeleton({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(left: 6),
+          child: Text(label, style: VelvetText.label()),
+        ),
+        const SizedBox(height: VelvetSpacing.sm),
+        const NeumorphicInset(
+          radius: VelvetRadii.card,
+          child: Padding(
+            padding: EdgeInsets.all(VelvetSpacing.md),
+            child: Center(
+              child: SizedBox(
+                height: 24,
+                width: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: BrandColors.accent,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

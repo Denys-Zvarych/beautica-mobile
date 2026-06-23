@@ -2921,6 +2921,10 @@
   "@searchCategoriesLoadError": {
     "description": "Inline error shown when the service-category list fails to load in the Пошук grid."
   },
+  "searchServicesLoadError": "Не вдалося завантажити послуги",
+  "@searchServicesLoadError": {
+    "description": "Inline error shown when the per-category service list fails to load in the Пошук service-chip drawer."
+  },
   "searchCategoriesEmpty": "Категорії поки недоступні",
   "@searchCategoriesEmpty": {
     "description": "Shown in place of the service-type grid when the backend returns no approved categories."

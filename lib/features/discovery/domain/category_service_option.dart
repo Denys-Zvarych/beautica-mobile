@@ -6,11 +6,12 @@
 // services appear as selectable chips in the drawer below.
 //
 // In the preview app this was `BeautyService(key, label)` mock data inside
-// `catalog.dart`. There is NO backend endpoint exposing per-category services
-// yet, so the live provider that feeds these is a clearly-marked placeholder
-// (see `category_service_providers.dart`). When the backend ships a
-// services-within-category endpoint, swap that provider's body — this model is
-// the stable shape the UI keys off.
+// `catalog.dart`. The live provider that feeds these
+// (`categoryServiceProviders.categoryServiceOptionsProvider`) fetches the real
+// platform service types from the backend
+// (`GET /api/v1/service-types?categoryName={slug}`) and maps each
+// `PlatformServiceTypeResponse{slug, nameUk}` → this model's `{key,
+// displayName}`. This model is the stable shape the UI keys off.
 //
 // Pure Dart: no Flutter imports in this file.
 

@@ -34,6 +34,8 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/discovery/data/category_service_providers.dart';
+import 'package:beautica_mobile/features/discovery/domain/category_service_option.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_filters_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
@@ -204,6 +206,15 @@ Future<_CategoriesController> _pumpScreen(
         // Drive the grid's loaded / error / loading states directly via the
         // production provider, reading the mutable controller on each run.
         approvedCategoriesProvider.overrideWith(categoriesController.build),
+        // The second-level service drawer is now async (categoryServiceOptions
+        // Provider → CategoryServiceRepository). Resolve NAILS to a fake family
+        // so the «select a tile → drawer reveals» assertion resolves to the data
+        // state deterministically (no real network).
+        categoryServiceOptionsProvider('NAILS').overrideWith(
+          (ref) async => const <CategoryServiceOption>[
+            CategoryServiceOption(key: 'manicure', displayName: 'Манікюр'),
+          ],
+        ),
       ],
       child: app,
     ),
@@ -360,7 +371,8 @@ void main() {
         'Манікюр',
       );
       // Variant A second level: selecting a category reveals its service-chip
-      // drawer (NAILS resolves to the placeholder family list).
+      // drawer (NAILS resolves via the overridden async categoryServiceOptions
+      // Provider to a one-item fake family).
       expect(find.byType(ServiceChipDrawer), findsOneWidget);
     });
 

@@ -16,11 +16,17 @@
 // All finders are key/type-based (locale-invariant); category/service NAMES are
 // backend/placeholder data, asserted only as rendered content.
 //
-// SERVICES SOURCE: the chips come from the PLACEHOLDER
-// categoryServiceOptionsProvider (no backend endpoint yet — see
-// lib/features/discovery/data/category_service_providers.dart header). NAILS
-// resolves (substring `NAIL`) to the placeholder family list, so the drawer
-// renders real chips. This is asserted as-is; the provider is NOT overridden.
+// SERVICES SOURCE: the chips come from the now-ASYNC categoryServiceOptionsProvider
+// (a keepAlive FutureProvider.family backed by CategoryServiceRepository →
+// `GET /api/v1/service-types?categoryName={slug}` — see
+// lib/features/discovery/data/category_service_providers.dart). The sync
+// placeholder map is gone, so each test OVERRIDES the family per slug with a
+// resolved fake list (`categoryServiceOptionsProvider(<slug>).overrideWith(...)`).
+// The fakes are keyed `manicure` / `haircut` so the existing chip-key
+// assertions (`search_service_chip_manicure` / `_haircut`) stay valid — the
+// chip key is `search_service_chip_${option.key}` (see ServiceChipDrawer).
+
+import 'dart:async';
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -28,6 +34,9 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/discovery/data/category_service_providers.dart';
+import 'package:beautica_mobile/features/discovery/data/category_service_repository.dart';
+import 'package:beautica_mobile/features/discovery/domain/category_service_option.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_filters_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/service_chip_drawer.dart';
@@ -55,12 +64,23 @@ const _authenticated = AsyncData<AuthSession>(
   AuthSession.authenticated(user: _testUser, accessToken: 'tok'),
 );
 
-// NAILS resolves to the placeholder family list (Манікюр / Педикюр / …); HAIR
-// resolves to its own (Стрижка / …). Two distinct families let the
-// category-switch-clears-services test prove the selection does not leak.
+// Two distinct categories with two distinct service families. Two families let
+// the category-switch-clears-services test prove the selection does not leak.
 const _categories = <ServiceCategoryOption>[
   ServiceCategoryOption(name: 'NAILS', displayName: 'Манікюр'),
   ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
+];
+
+// Per-slug service-option fakes the async categoryServiceOptionsProvider is
+// overridden to return. Keyed `manicure` / `haircut` so the rendered chips key
+// to `search_service_chip_manicure` / `_haircut` (ServiceChipDrawer builds the
+// key from `option.key`), keeping the existing assertions valid.
+const _nailsServices = <CategoryServiceOption>[
+  CategoryServiceOption(key: 'manicure', displayName: 'Манікюр'),
+  CategoryServiceOption(key: 'pedicure', displayName: 'Педикюр'),
+];
+const _hairServices = <CategoryServiceOption>[
+  CategoryServiceOption(key: 'haircut', displayName: 'Стрижка'),
 ];
 
 class _FixedAuthNotifier extends AuthNotifier {
@@ -73,7 +93,29 @@ class _FixedAuthNotifier extends AuthNotifier {
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
-Future<void> _pumpScreen(WidgetTester tester) async {
+class _MockCategoryServiceRepository extends Mock
+    implements CategoryServiceRepository {}
+
+/// Default per-slug async overrides for the service-chip drawer: NAILS / HAIR
+/// each resolve to their fake family. Pass [serviceOverrides] to [_pumpScreen]
+/// to replace these (e.g. drive a single slug into loading / error / empty).
+///
+/// Typed as `List<Object>` (not the internal `Override` type, which
+/// flutter_riverpod does not re-export from its barrel) — `ProviderScope`
+/// accepts the cast list, mirroring `test/helpers/pump_app.dart`.
+List<Object> _defaultServiceOverrides() => <Object>[
+  categoryServiceOptionsProvider(
+    'NAILS',
+  ).overrideWith((ref) async => _nailsServices),
+  categoryServiceOptionsProvider(
+    'HAIR',
+  ).overrideWith((ref) async => _hairServices),
+];
+
+Future<void> _pumpScreen(
+  WidgetTester tester, {
+  List<Object>? serviceOverrides,
+}) async {
   installOverflowGuard();
   // Tall surface so the rail + revealed drawer + sheet all lay out on-screen for
   // hit-testing.
@@ -82,15 +124,23 @@ Future<void> _pumpScreen(WidgetTester tester) async {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
+  // Built as List<Object> then cast at the ProviderScope boundary (the internal
+  // Override type is not re-exported) — see _defaultServiceOverrides.
+  final List<Object> overrides = <Object>[
+    authProvider.overrideWith(_FixedAuthNotifier.new),
+    authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+    secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+    serviceRepositoryProvider.overrideWithValue(_MockServiceRepository()),
+    approvedCategoriesProvider.overrideWith((ref) async => _categories),
+    // The category→services drawer is now async; resolve each slug to its fake
+    // family so the data state (chips) renders deterministically with no real
+    // network. Per-state tests pass [serviceOverrides] instead.
+    ...(serviceOverrides ?? _defaultServiceOverrides()),
+  ];
+
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [
-        authProvider.overrideWith(_FixedAuthNotifier.new),
-        authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
-        secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-        serviceRepositoryProvider.overrideWithValue(_MockServiceRepository()),
-        approvedCategoriesProvider.overrideWith((ref) async => _categories),
-      ],
+      overrides: overrides.cast(),
       child: const MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
@@ -124,7 +174,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(ServiceChipDrawer), findsOneWidget);
-      // The placeholder family for NAILS renders real chips, each keyed.
+      // The overridden async family for NAILS resolves to chips, each keyed.
       expect(
         find.byKey(const Key('search_service_chip_manicure')),
         findsOneWidget,
@@ -255,5 +305,212 @@ void main() {
         expect(find.byType(ServiceChipDrawer), findsOneWidget);
       },
     );
+  });
+
+  // ── Variant A second-level drawer: async loading / error / empty states ─────
+  //
+  // The drawer's service list is now an async family (categoryServiceOptions
+  // Provider). Each state is driven via a per-slug provider/repository override
+  // so it renders deterministically with no real network.
+  group('ClientSearchScreen — service drawer async states', () {
+    testWidgets('LOADING → drawer skeleton, no chips', (tester) async {
+      // A never-completing override keeps the family in AsyncLoading so the
+      // skeleton (with its spinner) stays up.
+      await _pumpScreen(
+        tester,
+        serviceOverrides: <Object>[
+          categoryServiceOptionsProvider('NAILS').overrideWith(
+            (ref) => Completer<List<CategoryServiceOption>>().future,
+          ),
+        ],
+      );
+      // pumpAndSettle for the rail (approvedCategories resolves) but the NAILS
+      // family stays pending.
+      await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
+      // Single bounded pumps (NOT settle — the family never completes).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // The drawer's loading affordance is the skeleton's spinner; no chips and
+      // no error retry yet.
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(
+        find.byKey(const Key('search_service_chip_manicure')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('ERROR → error copy + retry; retry re-fetches and renders chips', (
+      tester,
+    ) async {
+      // The override body reads a mutable flag on every (re-)run: it throws a
+      // StateError first (a Dart Error → Riverpod's defaultRetry does NOT
+      // auto-retry, so the family settles cleanly to AsyncError and the drawer
+      // paints _GridError), then — after retry flips the flag — resolves to the
+      // fake family. This proves the retry's ref.invalidate genuinely re-runs
+      // the provider body (a second fetch), not a dead button.
+      var fetches = 0;
+      var shouldSucceed = false;
+
+      await _pumpScreen(
+        tester,
+        serviceOverrides: <Object>[
+          categoryServiceOptionsProvider('NAILS').overrideWith((ref) {
+            fetches++;
+            if (shouldSucceed) {
+              return Future<List<CategoryServiceOption>>.value(_nailsServices);
+            }
+            return Future<List<CategoryServiceOption>>.error(
+              StateError('services boom'),
+            );
+          }),
+        ],
+      );
+      final AppLocalizations l10n = await AppLocalizations.delegate.load(
+        const Locale('uk'),
+      );
+
+      await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
+      // Bounded single pumps until the rejected Future settles the family to
+      // AsyncError → _GridError paints. NOT pumpAndSettle: the keepAlive search
+      // controllers rebuild and could otherwise re-enter a seamless loading
+      // state (Riverpod 3.x seamless-invalidate), masking the error branch.
+      for (var i = 0; i < 6; i++) {
+        if (find.text(l10n.searchServicesLoadError).evaluate().isNotEmpty)
+          break;
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      // Error branch: localized services error copy + retry affordance, no chips.
+      expect(find.text(l10n.searchServicesLoadError), findsOneWidget);
+      expect(find.byKey(const Key('search_categories_retry')), findsOneWidget);
+      expect(
+        find.byKey(const Key('search_service_chip_manicure')),
+        findsNothing,
+      );
+      expect(fetches, 1, reason: 'the first reveal fetched once');
+
+      // Tap retry → ref.invalidate(categoryServiceOptionsProvider('NAILS')) →
+      // the provider body re-runs; with the flag flipped it now resolves, so the
+      // chips render — proving the retry re-fetches.
+      shouldSucceed = true;
+      await tester.tap(find.byKey(const Key('search_categories_retry')));
+      for (var i = 0; i < 6; i++) {
+        if (find
+            .byKey(const Key('search_service_chip_manicure'))
+            .evaluate()
+            .isNotEmpty) {
+          break;
+        }
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      expect(
+        fetches,
+        2,
+        reason: 'retry must re-run the provider (a 2nd fetch)',
+      );
+      expect(find.text(l10n.searchServicesLoadError), findsNothing);
+      expect(
+        find.byKey(const Key('search_service_chip_manicure')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('EMPTY → drawer collapses (no chips, no skeleton)', (
+      tester,
+    ) async {
+      await _pumpScreen(
+        tester,
+        serviceOverrides: <Object>[
+          categoryServiceOptionsProvider(
+            'NAILS',
+          ).overrideWith((ref) async => const <CategoryServiceOption>[]),
+        ],
+      );
+
+      await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
+      await tester.pumpAndSettle();
+
+      // An empty service list collapses the drawer entirely: no chip drawer, no
+      // skeleton, no error.
+      expect(find.byType(ServiceChipDrawer), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text('Не вдалося завантажити послуги'), findsNothing);
+    });
+  });
+
+  // ── categoryServiceOptionsProvider behaviour (keyed by slug + keepAlive) ────
+  group('categoryServiceOptionsProvider', () {
+    test('returns the repo-mapped list for the queried slug', () async {
+      final repo = _MockCategoryServiceRepository();
+      when(
+        () => repo.fetchServices('NAILS'),
+      ).thenAnswer((_) async => _nailsServices);
+
+      final container = ProviderContainer(
+        overrides: [categoryServiceRepositoryProvider.overrideWithValue(repo)],
+      );
+      addTearDown(container.dispose);
+
+      final result = await container.read(
+        categoryServiceOptionsProvider('NAILS').future,
+      );
+
+      expect(result, _nailsServices);
+      verify(() => repo.fetchServices('NAILS')).called(1);
+    });
+
+    test(
+      'different slugs are independent (each queries its own slug)',
+      () async {
+        final repo = _MockCategoryServiceRepository();
+        when(
+          () => repo.fetchServices('NAILS'),
+        ).thenAnswer((_) async => _nailsServices);
+        when(
+          () => repo.fetchServices('HAIR'),
+        ).thenAnswer((_) async => _hairServices);
+
+        final container = ProviderContainer(
+          overrides: [
+            categoryServiceRepositoryProvider.overrideWithValue(repo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final nails = await container.read(
+          categoryServiceOptionsProvider('NAILS').future,
+        );
+        final hair = await container.read(
+          categoryServiceOptionsProvider('HAIR').future,
+        );
+
+        expect(nails, _nailsServices);
+        expect(hair, _hairServices);
+        verify(() => repo.fetchServices('NAILS')).called(1);
+        verify(() => repo.fetchServices('HAIR')).called(1);
+      },
+    );
+
+    test('keepAlive caches: a second read of the same slug does not re-invoke '
+        'the repo', () async {
+      final repo = _MockCategoryServiceRepository();
+      when(
+        () => repo.fetchServices('NAILS'),
+      ).thenAnswer((_) async => _nailsServices);
+
+      final container = ProviderContainer(
+        overrides: [categoryServiceRepositoryProvider.overrideWithValue(repo)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(categoryServiceOptionsProvider('NAILS').future);
+      // Second read of the SAME slug — the keepAlive family must serve the cached
+      // value, not re-run the provider body.
+      await container.read(categoryServiceOptionsProvider('NAILS').future);
+
+      verify(() => repo.fetchServices('NAILS')).called(1);
+    });
   });
 }
