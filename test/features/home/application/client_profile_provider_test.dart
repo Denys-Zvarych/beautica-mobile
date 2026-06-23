@@ -60,15 +60,26 @@ class _FixedAuthNotifier extends AuthNotifier {
 // Location stub
 // ---------------------------------------------------------------------------
 
-/// Fake [LocationRepository] returning a fixed city list for every oblast.
+/// Fake [LocationRepository] returning a fixed city list for every oblast and a
+/// fixed district list for every city.
 ///
-/// `clientProfile._resolveCityName` only reaches [fetchCities]; the oblast and
-/// district methods are never exercised by these tests but throw if hit so a
-/// stray dependency surfaces loudly instead of silently returning empty data.
+/// `clientProfile._resolveCityName` reaches [fetchCities];
+/// `_resolveDistrictName` reaches [fetchDistricts] (only when the user has a
+/// `districtId` but no denormalized `districtName`). [fetchDistrictsCalls]
+/// records how many times the district route was hit so the denormalized
+/// fast-path test can assert it was NOT fetched. The oblast method throws if
+/// hit so a stray dependency surfaces loudly instead of silently returning
+/// empty data.
 class _FakeLocationRepository implements LocationRepository {
-  const _FakeLocationRepository(this._cities);
+  _FakeLocationRepository(this._cities, {List<CityDistrict>? districts})
+    : _districts = districts ?? const <CityDistrict>[];
 
   final List<City> _cities;
+  final List<CityDistrict> _districts;
+
+  /// Number of times [fetchDistricts] was invoked. Used to assert the
+  /// denormalized `User.districtName` fast-path skips the taxonomy fetch.
+  int fetchDistrictsCalls = 0;
 
   @override
   Future<List<City>> fetchCities(String oblastId) async => _cities;
@@ -78,26 +89,32 @@ class _FakeLocationRepository implements LocationRepository {
       throw UnimplementedError('fetchOblasts not used in this test');
 
   @override
-  Future<List<CityDistrict>> fetchDistricts(String cityId) =>
-      throw UnimplementedError('fetchDistricts not used in this test');
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async {
+    fetchDistrictsCalls++;
+    return _districts;
+  }
 }
 
+/// Pairs the built [ProviderContainer] with the [_FakeLocationRepository] backing
+/// it so tests can assert on `fetchDistrictsCalls` (the denormalized fast-path).
+typedef _Harness = ({ProviderContainer container, _FakeLocationRepository repo});
+
 /// Builds a [ProviderContainer] wired with [user] and a fake location
-/// repository serving [cities].
+/// repository serving [cities] (and optionally [districts]).
 ///
 /// Holds [clientProfileProvider] alive with a no-op [ProviderContainer.listen]
 /// subscription so the container is not torn down while the provider's future
 /// is still loading.
-ProviderContainer _containerForUser(
+_Harness _harnessForUser(
   User user, {
   List<City> cities = const <City>[],
+  List<CityDistrict> districts = const <CityDistrict>[],
 }) {
+  final repo = _FakeLocationRepository(cities, districts: districts);
   final container = ProviderContainer(
     overrides: [
       authProvider.overrideWith(() => _FixedAuthNotifier(user)),
-      locationRepositoryProvider.overrideWith(
-        (_) => _FakeLocationRepository(cities),
-      ),
+      locationRepositoryProvider.overrideWith((_) => repo),
     ],
   );
   addTearDown(container.dispose);
@@ -109,8 +126,15 @@ ProviderContainer _containerForUser(
     fireImmediately: true,
   );
   addTearDown(sub.close);
-  return container;
+  return (container: container, repo: repo);
 }
+
+/// Convenience wrapper that returns just the container for the existing
+/// city-only tests that do not assert on district fetch counts.
+ProviderContainer _containerForUser(
+  User user, {
+  List<City> cities = const <City>[],
+}) => _harnessForUser(user, cities: cities).container;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -168,6 +192,81 @@ const _kyivCity = City(
   name: 'Київ',
   katotthCode: 'UA80000000000093317',
   hasDistricts: true,
+);
+
+// ── District-display fixtures ───────────────────────────────────────────────
+//
+// The CLIENT profile locality now shows "<city>, <district>" when districtId is
+// set and resolvable. Lviv + Sykhivskyi raion exercise the combined label.
+
+const _lvivCity = City(
+  id: 'city-lviv',
+  oblastId: 'oblast-lviv',
+  name: 'Львів',
+  katotthCode: 'UA46000000000026686',
+  hasDistricts: true,
+);
+
+const _sykhivDistrict = CityDistrict(
+  id: 'district-sykhiv',
+  cityId: 'city-lviv',
+  name: 'Сихівський район',
+  katotthCode: 'UA46060370000000000',
+);
+
+/// cityName empty (cityId resolves "Львів") + districtId set and present in the
+/// taxonomy → combined "Львів, Сихівський район".
+const _userLvivWithDistrict = User(
+  id: 'usr-d1',
+  email: 'lviv-district@beautica.test',
+  role: UserRole.client,
+  firstName: 'Софія',
+  lastName: 'Сихів',
+  cityId: 'city-lviv',
+  oblastId: 'oblast-lviv',
+  districtId: 'district-sykhiv',
+  // cityName + districtName intentionally null → both resolved from taxonomy.
+);
+
+/// cityId resolves "Львів" but districtId is null → bare "Львів".
+const _userLvivNoDistrict = User(
+  id: 'usr-d2',
+  email: 'lviv-nodistrict@beautica.test',
+  role: UserRole.client,
+  firstName: 'Софія',
+  lastName: 'Без',
+  cityId: 'city-lviv',
+  oblastId: 'oblast-lviv',
+  // districtId intentionally null.
+);
+
+/// cityId resolves "Львів" + districtId set but ABSENT from the taxonomy →
+/// graceful fallback to bare "Львів" (no throw).
+const _userLvivUnresolvableDistrict = User(
+  id: 'usr-d3',
+  email: 'lviv-baddistrict@beautica.test',
+  role: UserRole.client,
+  firstName: 'Софія',
+  lastName: 'Невідомий',
+  cityId: 'city-lviv',
+  oblastId: 'oblast-lviv',
+  districtId: 'district-missing',
+  // districtName null → taxonomy lookup runs but finds no match.
+);
+
+/// Denormalized districtName present (fast path) → used WITHOUT a
+/// districtListProvider fetch.
+const _userLvivDenormDistrict = User(
+  id: 'usr-d4',
+  email: 'lviv-denorm@beautica.test',
+  role: UserRole.client,
+  firstName: 'Софія',
+  lastName: 'Денорм',
+  cityName: 'Львів',
+  districtId: 'district-sykhiv',
+  districtName: 'Сихівський район',
+  // cityId/oblastId omitted: city resolves via the cityName fast path, and the
+  // districtName fast path means the district route must never be hit.
 );
 
 void main() {
@@ -250,6 +349,113 @@ void main() {
               'card renders its l10n placeholder instead of "null"',
         );
         expect(summary.phone, '');
+      },
+    );
+  });
+
+  // ── District-display branches (new feature) ───────────────────────────────
+  //
+  // RED-AGAINST-ABSENCE: before this feature clientProfile produced a city-only
+  // label (`city: _resolveCityName(...)`), so the combined-label assertion below
+  // ("Львів, Сихівський район") would FAIL — the provider would return the bare
+  // "Львів". The first test therefore pins the new "<city>, <district>" wiring;
+  // the remaining tests pin its graceful-degradation and fast-path contracts.
+  group('clientProfile district label', () {
+    test(
+      'districtId set + district in taxonomy ⇒ '
+      'summary.city == "Львів, Сихівський район"',
+      () async {
+        final container = _harnessForUser(
+          _userLvivWithDistrict,
+          cities: const [_lvivCity],
+          districts: const [_sykhivDistrict],
+        ).container;
+
+        final summary = await container.read(clientProfileProvider.future);
+
+        expect(
+          summary.city,
+          'Львів, Сихівський район',
+          reason:
+              'when the client has a resolvable city AND a districtId present '
+              'in the taxonomy, the label composes "<city>, <district>"',
+        );
+      },
+    );
+
+    test(
+      'districtId == null ⇒ summary.city == "Львів" (bare city, unchanged)',
+      () async {
+        final container = _harnessForUser(
+          _userLvivNoDistrict,
+          cities: const [_lvivCity],
+          districts: const [_sykhivDistrict],
+        ).container;
+
+        final summary = await container.read(clientProfileProvider.future);
+
+        expect(
+          summary.city,
+          'Львів',
+          reason:
+              'with no districtId the label stays the bare city — the district '
+              'cascade is skipped entirely',
+        );
+      },
+    );
+
+    test(
+      'districtId set but absent from taxonomy ⇒ graceful fallback to "Львів"',
+      () async {
+        // The fake serves a district list that does NOT contain
+        // `district-missing`, so the resolution loop finds no match and must
+        // degrade to the bare city without throwing.
+        final container = _harnessForUser(
+          _userLvivUnresolvableDistrict,
+          cities: const [_lvivCity],
+          districts: const [_sykhivDistrict],
+        ).container;
+
+        final summary = await container.read(clientProfileProvider.future);
+
+        expect(
+          summary.city,
+          'Львів',
+          reason:
+              'a districtId that references a district absent from the taxonomy '
+              'must degrade to the bare city, never throw and never blank the '
+              'card',
+        );
+      },
+    );
+
+    test(
+      'denormalized districtName ⇒ used WITHOUT a districtListProvider fetch',
+      () async {
+        final harness = _harnessForUser(
+          _userLvivDenormDistrict,
+          // No cities/districts seeded: both fast paths (cityName + districtName)
+          // must short-circuit before any taxonomy fetch.
+        );
+
+        final summary = await harness.container.read(
+          clientProfileProvider.future,
+        );
+
+        expect(
+          summary.city,
+          'Львів, Сихівський район',
+          reason:
+              'a non-empty denormalized districtName composes the combined '
+              'label directly',
+        );
+        expect(
+          harness.repo.fetchDistrictsCalls,
+          0,
+          reason:
+              'the denormalized districtName fast path must NOT hit '
+              'districtListProvider → fetchDistricts',
+        );
       },
     );
   });

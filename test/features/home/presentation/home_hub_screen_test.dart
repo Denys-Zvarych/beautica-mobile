@@ -97,11 +97,16 @@ class _FixedAuthNotifier extends AuthNotifier {
   }
 }
 
-/// Fake [LocationRepository] serving a fixed city list for any oblast.
+/// Fake [LocationRepository] serving a fixed city list for any oblast and a
+/// fixed district list for any city (empty unless seeded).
 class _FakeLocationRepository implements LocationRepository {
-  const _FakeLocationRepository(this._cities);
+  const _FakeLocationRepository(
+    this._cities, {
+    List<CityDistrict> districts = const <CityDistrict>[],
+  }) : _districts = districts;
 
   final List<City> _cities;
+  final List<CityDistrict> _districts;
 
   @override
   Future<List<City>> fetchCities(String oblastId) async => _cities;
@@ -111,8 +116,7 @@ class _FakeLocationRepository implements LocationRepository {
       throw UnimplementedError('fetchOblasts not used here');
 
   @override
-  Future<List<CityDistrict>> fetchDistricts(String cityId) =>
-      throw UnimplementedError('fetchDistricts not used here');
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async => _districts;
 }
 
 /// CLIENT with the authoritative cityId/oblastId FK set but an EMPTY
@@ -134,6 +138,36 @@ const _kyivCity = City(
   name: 'Київ',
   katotthCode: 'UA80000000000093317',
   hasDistricts: false,
+);
+
+/// CLIENT with cityId + districtId set (both denormalized names empty) — drives
+/// the combined `"city, district"` label end-to-end through the REAL
+/// clientProfile → cityListProvider + districtListProvider chain.
+const _userCityAndDistrictNoNames = User(
+  id: 'usr-home-2',
+  email: 'district@beautica.ua',
+  role: UserRole.client,
+  firstName: 'Софія',
+  lastName: 'Сихів',
+  cityId: 'city-lviv',
+  oblastId: 'oblast-lviv',
+  districtId: 'district-sykhiv',
+  // cityName + districtName intentionally null → both resolved from taxonomy.
+);
+
+const _lvivCity = City(
+  id: 'city-lviv',
+  oblastId: 'oblast-lviv',
+  name: 'Львів',
+  katotthCode: 'UA46000000000026686',
+  hasDistricts: true,
+);
+
+const _sykhivDistrict = CityDistrict(
+  id: 'district-sykhiv',
+  cityId: 'city-lviv',
+  name: 'Сихівський район',
+  katotthCode: 'UA46060370000000000',
 );
 
 // ---------------------------------------------------------------------------
@@ -383,6 +417,63 @@ void main() {
               'with cityName empty but cityId set, the profile card must '
               'resolve "Київ" from the location taxonomy instead of falling '
               'back to the "add location" placeholder',
+        );
+      },
+    );
+
+    // District-display feature: the profile card's location row composes
+    // "<city>, <district>" when the client has a resolvable districtId. This
+    // drives the REAL clientProfile provider (no stub) so the full
+    // cityListProvider + districtListProvider taxonomy chain executes. The
+    // assertion uses the Key('home_profile_city') finder (locale-invariant per
+    // backlog M2) rather than matching the raw "Львів, Сихівський район"
+    // literal across the whole tree.
+    //
+    // RED-AGAINST-ABSENCE: before this feature the card showed only the bare
+    // city ("Львів"); the combined-label assertion would fail.
+    testWidgets(
+      'data state: profile card renders "<city>, <district>" via '
+      'home_profile_city key when districtId resolves',
+      (tester) async {
+        await tester.pumpApp(
+          const HomeHubScreen(),
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            authProvider.overrideWith(
+              () => _FixedAuthNotifier(_userCityAndDistrictNoNames),
+            ),
+            locationRepositoryProvider.overrideWith(
+              (_) => const _FakeLocationRepository(
+                <City>[_lvivCity],
+                districts: <CityDistrict>[_sykhivDistrict],
+              ),
+            ),
+            nextAppointmentProvider.overrideWith((ref) async => null),
+            favoriteMastersProvider.overrideWith(
+              (ref) async => const <FavoriteMasterItem>[],
+            ),
+            beautyTimelineProvider.overrideWith(
+              (ref) async => const <TimelineEntry>[],
+            ),
+            unlikeFavoriteMasterProvider.overrideWith(
+              () => UnlikeFavoriteMaster(),
+            ),
+          ],
+        );
+        // Settle auth + clientProfile + cityList + districtList futures, then
+        // the 1100 ms reveal animation, so the composed label is painted.
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 1100));
+
+        final Finder cityLine = find.byKey(const Key('home_profile_city'));
+        expect(cityLine, findsOneWidget);
+        expect(
+          tester.widget<Text>(cityLine).data,
+          'Львів, Сихівський район',
+          reason:
+              'the profile card location row must compose the combined '
+              '"<city>, <district>" label when the client has a resolvable '
+              'districtId',
         );
       },
     );

@@ -85,6 +85,7 @@ class HomeProfileCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 profile.fullName,
+                key: const Key('home_profile_name'),
                 style: _nameStyle,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -106,11 +107,16 @@ class HomeProfileCard extends StatelessWidget {
               const SizedBox(height: VelvetSpacing.sm),
               // Phone row
               if (profile.phone.isNotEmpty)
-                _MetaLine(icon: Icons.call_rounded, text: profile.phone)
+                _MetaLine(
+                  icon: Icons.call_rounded,
+                  text: profile.phone,
+                  textKey: const Key('home_profile_phone'),
+                )
               else
                 _MetaLine(
                   icon: Icons.call_rounded,
                   text: l10n.homeHubPhonePlaceholder,
+                  textKey: const Key('home_profile_phone'),
                 ),
             ],
           ),

@@ -47,7 +47,7 @@ Future<ClientProfileSummary> clientProfile(Ref ref) async {
       // cold-start / login (AuthNotifier.build → fromProfileDto); nullable
       // because CLIENT location is optional — fall back to the empty string
       // so the profile card renders its placeholder.
-      city: await _resolveCityName(ref, user),
+      city: await _resolveLocalityLabel(ref, user),
       phone: user.phoneNumber ?? '',
       // TODO(backend): GET /clients/me/rating (two-sided client rating, excludes comments)
       clientRating: null,
@@ -55,6 +55,41 @@ Future<ClientProfileSummary> clientProfile(Ref ref) async {
     ),
     _ => throw StateError('clientProfile: no authenticated session'),
   };
+}
+
+/// Resolves the human-readable locality label for the profile card.
+///
+/// Produces `"<city>, <district>"` when the client has a district set (e.g.
+/// "Львів, Сихівський район"), or just `"<city>"` when no district is set.
+/// Returns the empty string when no city is resolvable (placeholder is then
+/// correct).
+///
+/// City and district both derive solely from fields already on [User]
+/// ([User.cityId]/[User.oblastId] for the city, [User.cityId]/[User.districtId]
+/// for the district) — neither lookup depends on the other's result. So both
+/// futures are started before either is awaited: on the cold path (no
+/// denormalized name on either) the two taxonomy round-trips overlap instead of
+/// serializing. The district future is still created only when
+/// [User.districtId] is set, so users without a district trigger no fetch.
+///
+/// A missing/failed district lookup degrades gracefully to the bare city — it
+/// never throws and never blocks the card.
+Future<String> _resolveLocalityLabel(Ref ref, User user) async {
+  final cityFuture = _resolveCityName(ref, user);
+  final districtFuture = user.districtId == null
+      ? null
+      : _resolveDistrictName(ref, user);
+
+  final city = await cityFuture;
+  if (city.isEmpty || districtFuture == null) {
+    return city;
+  }
+
+  final district = await districtFuture;
+  if (district == null || district.isEmpty) {
+    return city;
+  }
+  return '$city, $district';
 }
 
 /// Resolves the human-readable city name for the profile card.
@@ -102,6 +137,49 @@ Future<String> _resolveCityName(Ref ref, User user) async {
     }
   }
   return '';
+}
+
+/// Resolves the human-readable district name for the profile card, or null when
+/// none can be resolved.
+///
+/// Mirrors [_resolveCityName]'s strategy one cascade level deeper, matching the
+/// Settings location screen (`ClientLocationEditScreen._prePopulateLocality`):
+///   1. Non-empty [User.districtName] → use it (fast path, no extra fetch).
+///   2. Else [User.districtId]+[User.cityId] set → look it up in the city's
+///      district list (`districtListProvider(cityId)`).
+///   3. Else / on failure → null (caller falls back to the bare city).
+Future<String?> _resolveDistrictName(Ref ref, User user) async {
+  final districtName = user.districtName;
+  if (districtName != null && districtName.isNotEmpty) {
+    return districtName;
+  }
+
+  final districtId = user.districtId;
+  final cityId = user.cityId;
+  if (districtId == null || cityId == null) {
+    return null;
+  }
+
+  try {
+    final districts = await ref.watch(districtListProvider(cityId).future);
+    for (final d in districts) {
+      if (d.id == districtId) {
+        return d.name;
+      }
+    }
+  } catch (e, st) {
+    if (kDebugMode) {
+      log(
+        'clientProfile: district-name taxonomy resolution failed — falling '
+        'back to bare city',
+        name: 'feature.home',
+        level: 800,
+        error: e,
+        stackTrace: st,
+      );
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
