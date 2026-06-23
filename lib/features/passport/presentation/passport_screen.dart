@@ -192,7 +192,9 @@ class _PassportBody extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           _TopBar(onBell: onBell, onBurger: onBurger),
-          const SizedBox(height: VelvetSpacing.sm + 2),
+          // Aligned with Home (canonical landing page) so the identity card sits
+          // at the same vertical position across both pages — no jump on nav.
+          const SizedBox(height: VelvetSpacing.lg),
           // Profile block — name / location (pin + city, no chevron) / phone.
           // Scoped Consumer: only this subtree rebuilds on a profile refresh.
           Consumer(
