@@ -13,6 +13,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/icons/app_icon.dart';
+import '../../../../core/icons/beautica_asset_icons.dart';
 import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
@@ -42,6 +44,8 @@ class QuickLinksCard extends StatelessWidget {
       _QuickLinkDef(
         key: const Key('quick_link_favorites'),
         icon: Icons.favorite_border_rounded,
+        // Match the bottom nav-bar "Улюблені" tab icon (client_bottom_nav.dart).
+        svgIcon: BeauticaAssetIcons.heartOutline,
         label: l10n.homeHubQuickFavorites,
         route: RouteNames.clientFavorites,
         branchIndex: kClientFavoritesBranch,
@@ -49,6 +53,8 @@ class QuickLinksCard extends StatelessWidget {
       _QuickLinkDef(
         key: const Key('quick_link_bookings'),
         icon: Icons.event_note_outlined,
+        // Match the bottom nav-bar "Записи" tab icon (client_bottom_nav.dart).
+        svgIcon: BeauticaAssetIcons.noteOutline,
         label: l10n.homeHubQuickBookings,
         route: RouteNames.clientBookings,
         branchIndex: kClientBookingsBranch,
@@ -86,11 +92,17 @@ class _QuickLinkDef {
     required this.icon,
     required this.label,
     required this.route,
+    this.svgIcon,
     this.branchIndex,
   });
 
   final Key key;
   final IconData icon;
+
+  /// Optional SVG asset path (from [BeauticaAssetIcons]) rendered via [AppIcon]
+  /// in place of [icon]. When null the tile falls back to the Material [icon].
+  /// Used by the bookings tile so it matches the nav bar's "Записи" SVG.
+  final String? svgIcon;
   final String label;
   final String route;
 
@@ -161,7 +173,10 @@ class _QuickTileState extends State<_QuickTile> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(widget.def.icon, color: BrandColors.accentDeep, size: 21),
+              if (widget.def.svgIcon case final String svgIcon)
+                AppIcon(svgIcon, color: BrandColors.accentDeep, size: 21)
+              else
+                Icon(widget.def.icon, color: BrandColors.accentDeep, size: 21),
               const SizedBox(height: VelvetSpacing.xs + 1),
               Text(
                 widget.def.label,

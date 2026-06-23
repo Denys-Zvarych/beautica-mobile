@@ -22,7 +22,10 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
@@ -375,6 +378,109 @@ void main() {
           reason:
               'quick_link_reviews was removed — navigation to /rating is '
               'via the MyRatingStatCard stat pill, not the quick-links row',
+        );
+      },
+    );
+  });
+
+  group('QuickLinksCard — nav-parity icon swap guard', () {
+    // The bookings + favorites tiles were swapped from Material glyphs
+    // (Icons.event_note_outlined / Icons.favorite_border_rounded) to AppIcon
+    // SVGs so they match the bottom nav bar's "Записи" / "Улюблені" tabs
+    // (client_bottom_nav.dart). The tiles are key-addressed, so before this
+    // guard no test asserted their glyph — the swap was unguarded (Rule 3).
+    //
+    // Red-against-revert: with the old Material Icon, the AppIcon-asset
+    // predicate finds 0 (an Icon is not an AppIcon) → fails. With the swap it
+    // finds exactly one AppIcon carrying the nav-bar SVG asset → passes.
+    //
+    // Finders are key/predicate-scoped (no localized-string finders, M2).
+
+    Finder appIconOf(String asset) =>
+        find.byWidgetPredicate((w) => w is AppIcon && w.asset == asset);
+
+    // (tileKey, expected nav-bar SVG asset).
+    const cases = <(String, String)>[
+      ('quick_link_bookings', BeauticaAssetIcons.noteOutline),
+      ('quick_link_favorites', BeauticaAssetIcons.heartOutline),
+    ];
+
+    for (final (tileKey, asset) in cases) {
+      testWidgets(
+        '$tileKey renders the AppIcon SVG (nav-parity, not Material)',
+        (tester) async {
+          await tester.pumpApp(const QuickLinksCard());
+          await tester.pump();
+
+          // Exactly one AppIcon with this asset in the whole card, and it lives
+          // under the intended tile's key.
+          expect(
+            appIconOf(asset),
+            findsOneWidget,
+            reason: '$tileKey must render AppIcon($asset)',
+          );
+          expect(
+            find.descendant(
+              of: find.byKey(Key(tileKey)),
+              matching: appIconOf(asset),
+            ),
+            findsOneWidget,
+            reason:
+                '$tileKey must carry the nav-bar SVG glyph, not a Material '
+                'Icon — reverting to Icon(...) makes this predicate find 0',
+          );
+        },
+      );
+
+      testWidgets('$tileKey AppIcon keeps accentDeep tint and 21px size', (
+        tester,
+      ) async {
+        await tester.pumpApp(const QuickLinksCard());
+        await tester.pump();
+
+        final AppIcon icon = tester.widget<AppIcon>(
+          find.descendant(
+            of: find.byKey(Key(tileKey)),
+            matching: appIconOf(asset),
+          ),
+        );
+        expect(
+          icon.color,
+          BrandColors.accentDeep,
+          reason: '$tileKey glyph must match the other tiles / nav-bar tint',
+        );
+        expect(
+          icon.size,
+          21,
+          reason: '$tileKey glyph must keep the 21px tile icon size',
+        );
+      });
+    }
+
+    testWidgets(
+      'search tile stays a Material Icon (swap is scoped, not global)',
+      (tester) async {
+        await tester.pumpApp(const QuickLinksCard());
+        await tester.pump();
+
+        // The search tile must NOT have been converted to an AppIcon: it still
+        // renders the Material search glyph. Asserting the absence of any AppIcon
+        // under its key keeps the swap scoped to the two nav-parity tiles.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('quick_link_search')),
+            matching: find.byType(AppIcon),
+          ),
+          findsNothing,
+          reason: 'search tile must remain a Material Icon — swap is scoped',
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('quick_link_search')),
+            matching: find.byIcon(Icons.search_rounded),
+          ),
+          findsOneWidget,
+          reason: 'search tile must still render Icons.search_rounded',
         );
       },
     );
