@@ -173,15 +173,15 @@ void main() {
 
   // MyRatingStatCard — re-balanced to the NARROWER 2-share of the 3:2 stat-pill
   // row (passport flex 3, rating flex 2). The label "Мій рейтинг" (two words)
-  // and the value ("★ n.n" / "—") just received fontSize 10 + FittedBox.scaleDown
+  // and the value ("n.n" / "—") just received fontSize 10 + FittedBox.scaleDown
   // protection with ellipsis removed. This group proves BOTH the label and the
   // value render fully (no ellipsis) at the card's real 2/5 width across the
   // narrow-width × large-font matrix; reverting the protection (fontSize 11 +
   // plain Text(overflow: ellipsis), no FittedBox) flips didExceedMaxLines true.
   group('MyRatingStatCard — label & value never ellipsis-truncated', () {
-    // Rated (★ 4.7) and empty (—) value variants — both must render fully.
+    // Rated (4.7) and empty (—) value variants — both must render fully.
     const Map<String, double?> ratingCases = <String, double?>{
-      'rated ★ 4.7': 4.7,
+      'rated 4.7': 4.7,
       'empty —': null,
     };
 
@@ -189,7 +189,7 @@ void main() {
       final String caseName = ratingCase.key;
       final double? clientRating = ratingCase.value;
       final String valueText = clientRating != null
-          ? '★ ${clientRating.toStringAsFixed(1)}'
+          ? clientRating.toStringAsFixed(1)
           : '—';
 
       for (final double width in _matrixWidths) {

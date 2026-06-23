@@ -3,22 +3,23 @@
 // Replaces test/features/reviews/presentation/my_reviews_screen_test.dart.
 //
 // Tests cover:
-//   1. Empty state renders (HubEmptyState with star_outline_rounded icon).
+//   1. Empty state renders (HubEmptyState with the AppIcon star SVG).
 //   2. AppBar back button has the correct key.
 //   3. AppBar title renders via l10n.myRatingTitle.
 //   4. Back button triggers context.pop() — verified via router pop.
-//   5. Rated state: big number + star row visible (Key my_rating_display).
+//   5. Rated state: big number + RatingStar visible (Key my_rating_display).
 //   6. Empty state: Key my_rating_empty_state is present when clientRating null.
-//   7. Star row: 5 star icons painted for rating 5.0.
-//   8. Star value text: "★ 4.7" rendered for rating 4.7.
+//   7. Rated state renders a single RatingStar carrying the rating value.
+//   8. Star value text: "4.7" rendered for rating 4.7.
 //   QA additions (mobile-qa):
-//   9. _StarRow per-slot breakdown: 4.7 → 4 full + 1 half + 0 outlined.
-//  10. _StarRow per-slot breakdown: 0.0 → 0 full + 0 half + 5 outlined.
-//  11. _StarRow per-slot breakdown: 2.3 → 2 full + 0 half + 3 outlined.
-//  12. _StarRow per-slot breakdown: 2.5 → 2 full + 1 half + 2 outlined (exact boundary).
-//  13. Rated state renders explanation text (l10n.myRatingExplanation).
+//   9. RatingStar.fillFor fill-fraction boundaries are pinned (1.0/5.0/3.0/4.7/
+//      2.3/0.0/null) — replaces the deleted 5-slot _StarRow breakdown.
+//  10. Rated state renders explanation text (l10n.myRatingExplanation).
 
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/features/rating/presentation/my_rating_screen.dart';
+import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -41,17 +42,19 @@ void main() {
       );
     });
 
-    testWidgets('empty state renders star_outline_rounded icon', (
-      tester,
-    ) async {
+    testWidgets('empty state renders the AppIcon star SVG', (tester) async {
       await tester.pumpApp(const MyRatingScreen());
       await tester.pump();
 
+      // The empty-state star is now a BeauticaAssetIcons.star SVG passed to
+      // HubEmptyState via iconWidget (replacing Material's star_outline_rounded).
       expect(
-        find.byIcon(Icons.star_outline_rounded),
+        find.byWidgetPredicate(
+          (w) => w is AppIcon && w.asset == BeauticaAssetIcons.star,
+        ),
         findsOneWidget,
         reason:
-            'HubEmptyState in the empty state must use star_outline_rounded icon',
+            'HubEmptyState in the empty state must render the star SVG icon',
       );
     });
 
@@ -106,199 +109,103 @@ void main() {
       );
     });
 
-    testWidgets('renders 5 star icons (filled/half/outlined mix)', (
+    testWidgets('renders a single RatingStar carrying the rating', (
       tester,
     ) async {
-      // clientRating = 4.7 → 4 filled + 1 half star = 5 star icons total.
+      // The old 5-slot _StarRow is gone: the rated state now renders exactly
+      // ONE RatingStar (single fractional-fill star) holding the rating value.
       await tester.pumpApp(const MyRatingScreen(clientRating: 4.7));
       await tester.pump();
 
-      // All 5 slots will be Icons.star_rounded or Icons.star_half_rounded or
-      // Icons.star_outline_rounded — just count the total star-icon footprint.
-      final int starCount = tester.widgetList<Icon>(find.byType(Icon)).where((
-        Icon icon,
-      ) {
-        return icon.icon == Icons.star_rounded ||
-            icon.icon == Icons.star_half_rounded ||
-            icon.icon == Icons.star_outline_rounded;
-      }).length;
-
+      final Finder starFinder = find.byType(RatingStar);
       expect(
-        starCount,
-        equals(5),
-        reason: '_StarRow must render exactly 5 star icon slots',
+        starFinder,
+        findsOneWidget,
+        reason: 'rated state must render exactly one RatingStar',
+      );
+
+      final RatingStar star = tester.widget<RatingStar>(starFinder);
+      expect(
+        star.rating,
+        equals(4.7),
+        reason: 'the RatingStar must carry the clientRating value (4.7)',
       );
     });
 
-    testWidgets('for rating 5.0 all stars are filled', (tester) async {
+    testWidgets('for rating 5.0 the RatingStar is fully filled', (
+      tester,
+    ) async {
       await tester.pumpApp(const MyRatingScreen(clientRating: 5.0));
       await tester.pump();
 
-      // All 5 must be Icons.star_rounded (fully filled).
-      final int filledCount = tester
-          .widgetList<Icon>(find.byType(Icon))
-          .where((Icon icon) => icon.icon == Icons.star_rounded)
-          .length;
-
-      // Also count half and outline to confirm only filled are present.
-      final int halfCount = tester
-          .widgetList<Icon>(find.byType(Icon))
-          .where((Icon icon) => icon.icon == Icons.star_half_rounded)
-          .length;
-      final int outlinedCount = tester
-          .widgetList<Icon>(find.byType(Icon))
-          .where((Icon icon) => icon.icon == Icons.star_outline_rounded)
-          .length;
-
-      // The AppBar back button icon is arrow_back_ios_new_rounded, not a star.
-      // filledCount should be exactly 5 (all star slots filled).
+      final Finder starFinder = find.byType(RatingStar);
       expect(
-        filledCount,
-        equals(5),
-        reason: 'for rating 5.0 all 5 star slots must use Icons.star_rounded',
+        starFinder,
+        findsOneWidget,
+        reason: 'rated state must render exactly one RatingStar',
       );
-      expect(halfCount, equals(0), reason: 'no half stars for 5.0');
-      expect(outlinedCount, equals(0), reason: 'no outlined stars for 5.0');
+
+      final RatingStar star = tester.widget<RatingStar>(starFinder);
+      expect(
+        star.rating,
+        equals(5.0),
+        reason: 'the RatingStar must carry the clientRating value (5.0)',
+      );
+      // 5.0 is the top of the 1–5 scale → fully filled (fraction 1.0).
+      expect(
+        RatingStar.fillFor(5.0),
+        equals(1.0),
+        reason: 'rating 5.0 must map to a fully filled star (fill == 1.0)',
+      );
     });
   });
 
-  // ── _StarRow per-slot breakdown (QA additions) ────────────────────────────
+  // ── RatingStar fill-fraction boundaries (QA additions) ────────────────────
   //
-  // The existing tests for 4.7 and 5.0 only count totals. These tests verify
-  // the exact full/half/outlined split to guard against regressions in the
-  // threshold logic (rating >= starValue vs rating >= starValue - 0.5).
+  // The deleted _StarRow per-slot breakdown counted full/half/outlined Material
+  // glyphs. The single fractional-fill RatingStar replaces that model: there are
+  // no per-slot glyphs, so we pin the fill-fraction formula instead. Fill is
+  // normalized: ((rating - 1) / 4).clamp(0, 1) — 1.0 is empty, 5.0 is full.
 
-  group('MyRatingScreen — _StarRow per-slot breakdown', () {
-    // Helper: count star icon types from the _StarRow in the rated widget tree.
-    // The AppBar contains arrow_back_ios_new_rounded, which is not a star icon.
-    // We filter for only the three star icon variants.
-    Map<String, int> countStars(WidgetTester tester) {
-      final icons = tester.widgetList<Icon>(find.byType(Icon));
-      int full = 0, half = 0, outlined = 0;
-      for (final icon in icons) {
-        if (icon.icon == Icons.star_rounded) full++;
-        if (icon.icon == Icons.star_half_rounded) half++;
-        if (icon.icon == Icons.star_outline_rounded) outlined++;
-      }
-      return {'full': full, 'half': half, 'outlined': outlined};
-    }
-
-    testWidgets('rating 4.7 → 4 full + 1 half + 0 outlined', (tester) async {
-      // Slot logic (starValue = index + 1):
-      //   slot 1: 4.7 >= 1 → full
-      //   slot 2: 4.7 >= 2 → full
-      //   slot 3: 4.7 >= 3 → full
-      //   slot 4: 4.7 >= 4 → full
-      //   slot 5: 4.7 >= 5? No. 4.7 >= 4.5? Yes → half
-      await tester.pumpApp(const MyRatingScreen(clientRating: 4.7));
-      await tester.pump();
-
-      final counts = countStars(tester);
-      expect(
-        counts['full'],
-        equals(4),
-        reason: 'rating 4.7: slots 1–4 must be star_rounded (fully filled)',
-      );
-      expect(
-        counts['half'],
-        equals(1),
-        reason:
-            'rating 4.7: slot 5 must be star_half_rounded (4.7 >= 4.5 = true)',
-      );
-      expect(
-        counts['outlined'],
-        equals(0),
-        reason: 'rating 4.7: no slots must be star_outline_rounded',
-      );
+  group('RatingStar.fillFor — fill-fraction boundaries', () {
+    test('rating 1.0 → 0.0 (bottom of scale renders an empty star)', () {
+      expect(RatingStar.fillFor(1.0), equals(0.0));
     });
 
-    testWidgets('rating 0.0 → 0 full + 0 half + 5 outlined', (tester) async {
-      // Slot logic:
-      //   slot 1: 0.0 >= 1? No. 0.0 >= 0.5? No → outlined
-      //   slot 2: 0.0 >= 2? No. 0.0 >= 1.5? No → outlined
-      //   …all 5 slots → outlined
-      await tester.pumpApp(const MyRatingScreen(clientRating: 0.0));
-      await tester.pump();
-
-      final counts = countStars(tester);
-      expect(
-        counts['full'],
-        equals(0),
-        reason: 'rating 0.0: no slots must be filled',
-      );
-      expect(
-        counts['half'],
-        equals(0),
-        reason: 'rating 0.0: no slots must be half (0.0 < 0.5)',
-      );
-      expect(
-        counts['outlined'],
-        equals(5),
-        reason: 'rating 0.0: all 5 slots must be star_outline_rounded',
-      );
+    test('rating 5.0 → 1.0 (top of scale renders a full star)', () {
+      expect(RatingStar.fillFor(5.0), equals(1.0));
     });
 
-    testWidgets('rating 2.3 → 2 full + 0 half + 3 outlined', (tester) async {
-      // Slot logic:
-      //   slot 1: 2.3 >= 1 → full
-      //   slot 2: 2.3 >= 2 → full
-      //   slot 3: 2.3 >= 3? No. 2.3 >= 2.5? No → outlined (frac 0.3 < 0.5)
-      //   slot 4: 2.3 >= 4? No. 2.3 >= 3.5? No → outlined
-      //   slot 5: 2.3 >= 5? No. 2.3 >= 4.5? No → outlined
-      await tester.pumpApp(const MyRatingScreen(clientRating: 2.3));
-      await tester.pump();
-
-      final counts = countStars(tester);
-      expect(
-        counts['full'],
-        equals(2),
-        reason: 'rating 2.3: slots 1–2 must be fully filled',
-      );
-      expect(
-        counts['half'],
-        equals(0),
-        reason:
-            'rating 2.3: fractional part 0.3 < 0.5 so no half star must appear',
-      );
-      expect(
-        counts['outlined'],
-        equals(3),
-        reason: 'rating 2.3: slots 3–5 must be outlined',
-      );
+    test('rating 3.0 → 0.5 (midpoint of the 1–5 scale)', () {
+      expect(RatingStar.fillFor(3.0), equals(0.5));
     });
 
-    testWidgets(
-      'rating 2.5 → 2 full + 1 half + 2 outlined (exact half boundary)',
-      (tester) async {
-        // Slot logic:
-        //   slot 1: 2.5 >= 1 → full
-        //   slot 2: 2.5 >= 2 → full
-        //   slot 3: 2.5 >= 3? No. 2.5 >= 2.5? Yes → half (exact boundary)
-        //   slot 4: 2.5 >= 4? No. 2.5 >= 3.5? No → outlined
-        //   slot 5: 2.5 >= 5? No. 2.5 >= 4.5? No → outlined
-        await tester.pumpApp(const MyRatingScreen(clientRating: 2.5));
-        await tester.pump();
+    test('rating 4.7 → 0.925 (the canonical sample value)', () {
+      expect(RatingStar.fillFor(4.7), closeTo(0.925, 1e-9));
+    });
 
-        final counts = countStars(tester);
-        expect(
-          counts['full'],
-          equals(2),
-          reason: 'rating 2.5: slots 1–2 must be fully filled',
-        );
-        expect(
-          counts['half'],
-          equals(1),
-          reason:
-              'rating 2.5: slot 3 must be half (2.5 >= 2.5 is true — '
-              'exact lower bound of the half-star threshold)',
-        );
-        expect(
-          counts['outlined'],
-          equals(2),
-          reason: 'rating 2.5: slots 4–5 must be outlined',
-        );
+    test('rating 2.3 → 0.325 (no rounding to a half boundary)', () {
+      // Replaces the old "2.3 → no half star (frac < 0.5)" intent: under the
+      // continuous fill model 2.3 simply maps to its exact fraction.
+      expect(RatingStar.fillFor(2.3), closeTo(0.325, 1e-9));
+    });
+
+    test(
+      'rating 2.5 → 0.375 (former exact-half boundary is just a fraction)',
+      () {
+        // Old model treated 2.5 as the exact half-star lower bound. The new model
+        // has no glyph boundary; 2.5 is simply (2.5 - 1) / 4 = 0.375.
+        expect(RatingStar.fillFor(2.5), closeTo(0.375, 1e-9));
       },
     );
+
+    test('rating 0.0 → 0.0 (below-scale value clamps to empty)', () {
+      expect(RatingStar.fillFor(0.0), equals(0.0));
+    });
+
+    test('null rating → 0.0 (no rating yet renders an empty star)', () {
+      expect(RatingStar.fillFor(null), equals(0.0));
+    });
   });
 
   // ── Explanation text (QA addition) ────────────────────────────────────────

@@ -47,6 +47,7 @@ comment at the top of the SVG). Before any store build, re-download each under a
 | Asset | Source URL | SHA-256 |
 |---|---|---|
 | `location_marker.svg` | https://www.flaticon.com/free-icon-font/marker_3916880 | `71111aa34ced576c936597993e431167ac111ce897203f52b9e05303b74a211c` |
+| `star.svg` | https://www.flaticon.com/free-icon-font/star_3916582 | `5a27637436e57a5483fb36d85a456bbf9e733e76e230ab99ccf6adf87a408bf6` |
 
 ## Notes
 

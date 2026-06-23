@@ -197,6 +197,30 @@ abstract final class BeauticaAssetIcons {
   static const String locationMarker = '$_base/location_marker.svg';
 
   // ---------------------------------------------------------------------------
+  // Rating — star (single canonical rating glyph)
+  // ---------------------------------------------------------------------------
+
+  /// Single solid-silhouette star glyph — the one canonical rating star across
+  /// the app (master rating badges, passport rating pill, master-profile rating
+  /// stat, the "Мій рейтинг" client screen). Replaces every `Icons.star_*`
+  /// Material glyph used for ratings.
+  ///
+  /// Rendered exclusively via [RatingStar] (`lib/shared/widgets/rating_star.dart`),
+  /// which stacks two tinted copies — a muted BASE empty star plus an accent
+  /// FOREGROUND star clipped to a left→right fractional fill — to show a single
+  /// star whose fill encodes the normalized rating (1.0 = empty, 5.0 = full).
+  ///
+  /// Source: https://www.flaticon.com/free-icon-font/star_3916582
+  /// Author: Flaticon UICONS (free icon font).
+  /// Licence: Flaticon Free (attribution required; same release-gate as above —
+  /// re-download under 1-month Premium before any store build, keep certificate).
+  /// SHA-256: 5a27637436e57a5483fb36d85a456bbf9e733e76e230ab99ccf6adf87a408bf6
+  ///
+  /// Monochrome solid silhouette — render TINTED (pass a [AppIcon.color]); never
+  /// `multicolor: true`. See `assets/icons/star.svg` and `assets/icons/README.md`.
+  static const String star = '$_base/star.svg';
+
+  // ---------------------------------------------------------------------------
   // Add new icons below, grouped by feature / category.
   // Convention: feature_glyph, e.g. booking_calendar, review_star.
   // ---------------------------------------------------------------------------

@@ -9,8 +9,8 @@
 // TODO(19.5): show bookingsConsidered count + favourite procedures/districts/budget.
 //
 // MyRatingStatCard replaces the old ReviewsStatCard (Phase 13.7 revision):
-// shows the client's aggregate two-sided rating (★ n.n) or an em-dash when no
-// rating yet. Client comments are never shown.
+// shows the client's aggregate two-sided rating (SVG star + n.n) or an em-dash
+// when no rating yet. Client comments are never shown.
 // TODO(backend): GET /clients/me/rating (two-sided client rating, excludes comments).
 
 import 'package:flutter/material.dart';
@@ -125,8 +125,8 @@ class PassportPreviewCard extends StatelessWidget {
   }
 }
 
-/// Stat tile that shows the client's aggregate two-sided rating (★ n.n)
-/// or an em-dash when no rating has been assigned yet.
+/// Stat tile that shows the client's aggregate two-sided rating
+/// (SVG star icon + n.n) or an em-dash when no rating has been assigned yet.
 ///
 /// [clientRating] is null when the backend rating endpoint hasn't yet returned
 /// a value (backend GET /clients/me/rating, two-sided system — excludes comments).
@@ -176,8 +176,10 @@ class MyRatingStatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    // The SVG star (BeauticaAssetIcons.star) in the icon circle is the rating's
+    // star; the value text is just the number to avoid a duplicate glyph star.
     final String valueText = clientRating != null
-        ? '★ ${clientRating!.toStringAsFixed(1)}'
+        ? clientRating!.toStringAsFixed(1)
         : '—';
     final TextStyle valueStyle = clientRating != null
         ? _valueRatedStyle
@@ -196,10 +198,12 @@ class MyRatingStatCard extends StatelessWidget {
             height: 32,
             width: 32,
             decoration: _iconCircleDecoration,
-            child: const Icon(
-              Icons.star_rounded,
-              size: 17,
-              color: BrandColors.accentDeep,
+            child: const Center(
+              child: AppIcon(
+                BeauticaAssetIcons.star,
+                size: 17,
+                color: BrandColors.accentDeep,
+              ),
             ),
           ),
           const SizedBox(width: VelvetSpacing.sm),
@@ -222,8 +226,8 @@ class MyRatingStatCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                // The value ("★ n.n" / "—") is short, but wrap it too so the
-                // star+number is guaranteed to render fully at the narrow width.
+                // The value ("n.n" / "—") is short, but wrap it too so the
+                // number is guaranteed to render fully at the narrow width.
                 FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,

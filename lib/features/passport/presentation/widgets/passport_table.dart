@@ -368,8 +368,8 @@ class _PassportFooter extends StatelessWidget {
           width: 32,
           decoration: _iconCircleDecoration,
           child: const Center(
-            child: Icon(
-              Icons.star_rounded,
+            child: AppIcon(
+              BeauticaAssetIcons.star,
               size: 17,
               color: BrandColors.accentDeep,
             ),

@@ -20,10 +20,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/icons/app_icon.dart';
+import '../../../core/icons/beautica_asset_icons.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../shared/widgets/rating_star.dart';
 import '../../home/presentation/widgets/hub_widgets.dart';
 
 // ---------------------------------------------------------------------------
@@ -89,6 +92,11 @@ class MyRatingScreen extends StatelessWidget {
                 : HubEmptyState(
                     key: const Key('my_rating_empty_state'),
                     icon: Icons.star_outline_rounded,
+                    iconWidget: const AppIcon(
+                      BeauticaAssetIcons.star,
+                      size: 24,
+                      color: BrandColors.faint,
+                    ),
                     message: l10n.myRatingEmpty,
                   ),
           ),
@@ -131,8 +139,9 @@ class _RatingDisplay extends StatelessWidget {
         Text(rating.toStringAsFixed(1), style: _bigNumberStyle),
         const SizedBox(height: VelvetSpacing.sm),
 
-        // 5-star row
-        _StarRow(rating: rating),
+        // Single normalized-fill star (1.0 = empty, 5.0 = full). The numeric
+        // value is already shown above, so the star carries no label here.
+        RatingStar(rating: rating, size: 28, showLabel: false),
         const SizedBox(height: VelvetSpacing.md),
 
         // Explanation
@@ -142,50 +151,6 @@ class _RatingDisplay extends StatelessWidget {
           style: _explanationStyle,
         ),
       ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// _StarRow — filled / half / outlined stars in camel
-// ---------------------------------------------------------------------------
-
-class _StarRow extends StatelessWidget {
-  const _StarRow({required this.rating});
-
-  final double rating;
-
-  static const int _totalStars = 5;
-  static const double _starSize = 28;
-  static const Color _starColor = BrandColors.accentDeep;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List<Widget>.generate(_totalStars, (int index) {
-        final double starValue = index + 1;
-        final IconData iconData;
-
-        if (rating >= starValue) {
-          // Fully filled
-          iconData = Icons.star_rounded;
-        } else if (rating >= starValue - 0.5) {
-          // Half filled (frac >= 0.5)
-          iconData = Icons.star_half_rounded;
-        } else {
-          // Outlined
-          iconData = Icons.star_outline_rounded;
-        }
-
-        // VelvetSpacing.xs - 2 == 4 - 2 == 2 — a compile-time constant, so
-        // EdgeInsets.symmetric(horizontal: 2) is const; avoids a per-star
-        // EdgeInsets allocation on every build.
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 2),
-          child: Icon(iconData, size: _starSize, color: _starColor),
-        );
-      }),
     );
   }
 }

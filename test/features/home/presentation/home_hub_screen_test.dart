@@ -706,15 +706,17 @@ void main() {
       );
     });
 
-    testWidgets('shows ★ value when clientRating is non-null', (tester) async {
+    testWidgets('shows rating value when clientRating is non-null', (
+      tester,
+    ) async {
       await tester.pumpApp(
         const MyRatingStatCard(clientRating: 4.7, onTap: _noop),
       );
       await tester.pump();
       expect(
-        find.text('★ 4.7'),
+        find.text('4.7'),
         findsOneWidget,
-        reason: 'MyRatingStatCard must show "★ 4.7" when clientRating = 4.7',
+        reason: 'MyRatingStatCard must show "4.7" when clientRating = 4.7',
       );
     });
 

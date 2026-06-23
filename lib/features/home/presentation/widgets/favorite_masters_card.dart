@@ -20,6 +20,7 @@ import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
 import '../../../../l10n/app_localizations.dart';
+import '../../../../shared/widgets/rating_star.dart';
 import '../../application/home_hub_notifier.dart';
 import '../../domain/home_hub_models.dart';
 import '../widgets/hub_widgets.dart';
@@ -86,16 +87,18 @@ class FavoriteMastersCard extends ConsumerWidget {
               itemCount: masters.length,
               separatorBuilder: (BuildContext context, int index) =>
                   const SizedBox(width: VelvetSpacing.md - 4),
-              itemBuilder: (BuildContext context, int i) => _MasterMiniCard(
-                master: masters[i],
-                onTap: () => context.push(
-                  // TODO(13.3): replace with RouteNames.masterPublicProfile(id)
-                  // when the public master profile route ships.
-                  '/masters/${masters[i].masterId}',
+              itemBuilder: (BuildContext context, int i) => RepaintBoundary(
+                child: _MasterMiniCard(
+                  master: masters[i],
+                  onTap: () => context.push(
+                    // TODO(13.3): replace with RouteNames.masterPublicProfile(id)
+                    // when the public master profile route ships.
+                    '/masters/${masters[i].masterId}',
+                  ),
+                  onUnlike: () => ref
+                      .read(unlikeFavoriteMasterProvider.notifier)
+                      .unlike(masters[i].favoriteId),
                 ),
-                onUnlike: () => ref
-                    .read(unlikeFavoriteMasterProvider.notifier)
-                    .unlike(masters[i].favoriteId),
               ),
             ),
           ),
@@ -189,11 +192,7 @@ class _MasterMiniCard extends StatelessWidget {
             const SizedBox(height: 1),
             Row(
               children: <Widget>[
-                const Icon(
-                  Icons.star_rounded,
-                  size: 13,
-                  color: BrandColors.accent,
-                ),
+                RatingStar(rating: master.rating, size: 13, showLabel: false),
                 const SizedBox(width: 2),
                 Flexible(
                   child: Text(

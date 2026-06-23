@@ -48,6 +48,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/utils/phone_uri.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import 'package:beautica_mobile/core/theme/beautica_icons.dart';
@@ -432,6 +433,11 @@ class _ProfileBody extends StatelessWidget {
                 Expanded(
                   child: StatTile(
                     icon: Icons.star_rounded,
+                    iconWidget: RatingStar(
+                      rating: master.reviewCount == 0 ? null : master.avgRating,
+                      size: 18,
+                      showLabel: false,
+                    ),
                     value: master.reviewCount == 0
                         ? '—'
                         : master.avgRating.toStringAsFixed(1),

@@ -561,12 +561,17 @@ class HubEmptyState extends StatelessWidget {
     required this.message,
     this.ctaLabel,
     this.onCta,
+    this.iconWidget,
   });
 
   final IconData icon;
   final String message;
   final String? ctaLabel;
   final VoidCallback? onCta;
+
+  /// Optional widget rendered in place of the [icon] glyph (e.g. a tinted SVG
+  /// [AppIcon]). When non-null, [icon] is ignored. Mirrors the StatTile pattern.
+  final Widget? iconWidget;
 
   static final TextStyle _msgStyle = _bodyBase().copyWith(fontSize: 14);
 
@@ -582,7 +587,7 @@ class HubEmptyState extends StatelessWidget {
             shape: BoxShape.circle,
             border: Border.all(color: BrandColors.faint.withValues(alpha: 0.5)),
           ),
-          child: Icon(icon, size: 24, color: BrandColors.faint),
+          child: iconWidget ?? Icon(icon, size: 24, color: BrandColors.faint),
         ),
         const SizedBox(height: VelvetSpacing.md),
         Text(message, textAlign: TextAlign.center, style: _msgStyle),
