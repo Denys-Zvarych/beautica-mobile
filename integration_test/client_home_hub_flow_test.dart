@@ -282,4 +282,58 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 45)),
   );
+
+  // ── Test 7 — REGRESSION: saved city resolves from the taxonomy on /home ──
+  //
+  // BUG (fixed): clientProfile mapped `city: user.cityName ?? ''` (the
+  // denormalized string). When the backend returned an empty cityName but a
+  // populated cityId/oblastId FK — the authoritative locality — the Home Hub
+  // profile card fell to its "add location" placeholder while Settings (which
+  // resolves the name from the location taxonomy by id) correctly showed the
+  // city. The fix routes the name through `_resolveCityName` → cityListProvider.
+  //
+  // This flow drives the REAL wiring the provider unit test fakes:
+  //   HomeHubScreen → real clientProfile → real cityListProvider → real
+  //   LocationRepository → GET /users/me (cityId set, cityName empty) +
+  //   GET /locations/oblasts/oblast-kyiv/cities (resolves "Київ").
+  //
+  // The FakeBackend client body carries cityId/cityName from its mutable client
+  // state; we seed cityId='city-kyiv' with a NULL cityName — exactly the bug
+  // condition (FK set, denormalized name absent). The seeded cities route
+  // returns the "Київ" city with id 'city-kyiv', so the taxonomy match resolves.
+  // Asserting the literal "Київ" renders on the card guards the regression at
+  // the screen tier; if clientProfile ever reverts to `user.cityName ?? ''` the
+  // card would show the placeholder and this test fails.
+
+  testWidgets(
+    'REGRESSION: CLIENT with cityId set but empty cityName sees the city '
+    'resolved from the taxonomy on the Home Hub profile card',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        // Bug condition: authoritative FK present, denormalized name absent.
+        ..clientCityId = 'city-kyiv'
+        ..clientCityName = null;
+
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      // Allow the stagger animation + the cityListProvider taxonomy fetch to
+      // settle so the resolved name is painted on the card.
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      // The profile card's location row must show the resolved city name, NOT
+      // the l10n "add location" placeholder. The card renders profile.city as
+      // literal text — a raw-string assertion is correct here because the value
+      // is backend data (a city name), not a localised key.
+      expect(
+        find.text('Київ'),
+        findsOneWidget,
+        reason:
+            'Home Hub profile card must resolve the saved city ("Київ") from '
+            'the location taxonomy via cityId when User.cityName is empty — '
+            'regression guard for clientProfile city resolution',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
 }

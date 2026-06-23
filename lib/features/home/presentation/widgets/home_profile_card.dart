@@ -95,6 +95,7 @@ class HomeProfileCard extends StatelessWidget {
                   icon: Icons.location_on_rounded,
                   text: profile.city,
                   onTap: onLocation,
+                  textKey: const Key('home_profile_city'),
                 )
               else
                 _MetaLine(
@@ -120,11 +121,20 @@ class HomeProfileCard extends StatelessWidget {
 }
 
 class _MetaLine extends StatelessWidget {
-  const _MetaLine({required this.icon, required this.text, this.onTap});
+  const _MetaLine({
+    required this.icon,
+    required this.text,
+    this.onTap,
+    this.textKey,
+  });
 
   final IconData icon;
   final String text;
   final VoidCallback? onTap;
+
+  /// Optional key applied to the inner [Text] so finders can target a specific
+  /// meta line (e.g. the city) by key rather than matching its literal string.
+  final Key? textKey;
 
   static final TextStyle _style = VelvetText.body().copyWith(
     fontSize: 14,
@@ -139,7 +149,12 @@ class _MetaLine extends StatelessWidget {
         Icon(icon, size: 16, color: BrandColors.accent),
         const SizedBox(width: VelvetSpacing.sm),
         Flexible(
-          child: Text(text, style: _style, overflow: TextOverflow.ellipsis),
+          child: Text(
+            text,
+            key: textKey,
+            style: _style,
+            overflow: TextOverflow.ellipsis,
+          ),
         ),
       ],
     );

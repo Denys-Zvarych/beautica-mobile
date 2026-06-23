@@ -22,7 +22,9 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../features/auth/domain/auth_session.dart';
+import '../../../features/auth/domain/user.dart';
 import '../../../features/auth/presentation/auth_notifier.dart';
+import '../../../features/location/state/location_providers.dart';
 import '../domain/home_hub_models.dart';
 
 part 'home_hub_notifier.g.dart';
@@ -41,11 +43,11 @@ Future<ClientProfileSummary> clientProfile(Ref ref) async {
     Authenticated(:final user) => ClientProfileSummary(
       firstName: user.firstName ?? '',
       lastName: user.lastName ?? '',
-      // city/phone come from the User profile hydrated via repo.me() during
-      // cold-start / login (AuthNotifier.build → fromProfileDto). Both are
-      // nullable because CLIENT location is optional — fall back to the empty
-      // string so the profile card renders its placeholder.
-      city: user.cityName ?? '',
+      // phone comes from the User profile hydrated via repo.me() during
+      // cold-start / login (AuthNotifier.build → fromProfileDto); nullable
+      // because CLIENT location is optional — fall back to the empty string
+      // so the profile card renders its placeholder.
+      city: await _resolveCityName(ref, user),
       phone: user.phoneNumber ?? '',
       // TODO(backend): GET /clients/me/rating (two-sided client rating, excludes comments)
       clientRating: null,
@@ -53,6 +55,53 @@ Future<ClientProfileSummary> clientProfile(Ref ref) async {
     ),
     _ => throw StateError('clientProfile: no authenticated session'),
   };
+}
+
+/// Resolves the human-readable city name for the profile card.
+///
+/// The denormalized [User.cityName] string can be null/empty even when the
+/// authoritative [User.cityId] FK is set, in which case the card would wrongly
+/// render its "add location" placeholder. To stay consistent with the Settings
+/// location screen (`ClientLocationEditScreen._prePopulateLocality`), fall back
+/// to resolving the display name from the location taxonomy by matching the
+/// city id — exactly as Settings does.
+///
+/// Resolution order:
+///   1. Non-empty [User.cityName] → use it (fast path, no extra fetch).
+///   2. Else [User.cityId] set → look it up in the oblast's city list.
+///   3. Else → empty string (genuinely no location → placeholder is correct).
+Future<String> _resolveCityName(Ref ref, User user) async {
+  final cityName = user.cityName;
+  if (cityName != null && cityName.isNotEmpty) {
+    return cityName;
+  }
+
+  final cityId = user.cityId;
+  final oblastId = user.oblastId;
+  if (cityId == null || oblastId == null) {
+    return '';
+  }
+
+  try {
+    final cities = await ref.watch(cityListProvider(oblastId).future);
+    for (final c in cities) {
+      if (c.id == cityId) {
+        return c.name;
+      }
+    }
+  } catch (e, st) {
+    if (kDebugMode) {
+      log(
+        'clientProfile: city-name taxonomy resolution failed — falling back '
+        'to placeholder',
+        name: 'feature.home',
+        level: 800,
+        error: e,
+        stackTrace: st,
+      );
+    }
+  }
+  return '';
 }
 
 // ---------------------------------------------------------------------------

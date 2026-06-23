@@ -34,8 +34,16 @@ import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
+import 'package:beautica_mobile/features/location/data/location_repository.dart';
+import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/city_district.dart';
+import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/favorite_masters_card.dart';
@@ -65,6 +73,68 @@ class _NoOpScreenProtection extends ScreenProtectionManager {
   @override
   void reset() {}
 }
+
+// ---------------------------------------------------------------------------
+// Auth + location stubs for the city-resolution regression test
+// ---------------------------------------------------------------------------
+//
+// These drive the REAL clientProfile provider (NOT a stubbed override) so the
+// `_resolveCityName` taxonomy-fallback path actually executes end-to-end:
+//   authProvider(User cityId set, cityName empty) → clientProfile →
+//   cityListProvider → LocationRepository.fetchCities → match by id → "Київ".
+
+/// Settled, authenticated session carrying [_user].
+class _FixedAuthNotifier extends AuthNotifier {
+  _FixedAuthNotifier(this._user);
+
+  final User _user;
+
+  @override
+  Future<AuthSession> build() async {
+    final session = AuthSession.authenticated(user: _user, accessToken: 't');
+    state = AsyncData(session);
+    return session;
+  }
+}
+
+/// Fake [LocationRepository] serving a fixed city list for any oblast.
+class _FakeLocationRepository implements LocationRepository {
+  const _FakeLocationRepository(this._cities);
+
+  final List<City> _cities;
+
+  @override
+  Future<List<City>> fetchCities(String oblastId) async => _cities;
+
+  @override
+  Future<List<Oblast>> fetchOblasts() =>
+      throw UnimplementedError('fetchOblasts not used here');
+
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) =>
+      throw UnimplementedError('fetchDistricts not used here');
+}
+
+/// CLIENT with the authoritative cityId/oblastId FK set but an EMPTY
+/// denormalized cityName — the exact condition that triggered the bug.
+const _userCityIdNoName = User(
+  id: 'usr-home-1',
+  email: 'client@beautica.ua',
+  role: UserRole.client,
+  firstName: 'Олена',
+  lastName: 'Тест',
+  cityId: 'city-kyiv',
+  oblastId: 'oblast-kyiv',
+  // cityName intentionally null → must be resolved from the taxonomy.
+);
+
+const _kyivCity = City(
+  id: 'city-kyiv',
+  oblastId: 'oblast-kyiv',
+  name: 'Київ',
+  katotthCode: 'UA80000000000093317',
+  hasDistricts: false,
+);
 
 // ---------------------------------------------------------------------------
 // Test-wide sample data
@@ -267,6 +337,55 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1100));
       expect(find.text('Львів'), findsOneWidget);
     });
+
+    // REGRESSION (saved-location bug): the card must show the saved city even
+    // when the backend returns an EMPTY denormalized cityName but a populated
+    // cityId/oblastId. This drives the REAL clientProfile provider (no stub) so
+    // `_resolveCityName` resolves the name from the location taxonomy by id —
+    // exactly as the Settings screen does. With the pre-fix mapping
+    // (`city: user.cityName ?? ''`) the card would show the location
+    // placeholder and this test would fail.
+    testWidgets(
+      'regression: empty cityName + cityId set ⇒ card shows city resolved '
+      'from the taxonomy (not the placeholder)',
+      (tester) async {
+        await tester.pumpApp(
+          const HomeHubScreen(),
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            authProvider.overrideWith(
+              () => _FixedAuthNotifier(_userCityIdNoName),
+            ),
+            locationRepositoryProvider.overrideWith(
+              (_) => const _FakeLocationRepository(<City>[_kyivCity]),
+            ),
+            nextAppointmentProvider.overrideWith((ref) async => null),
+            favoriteMastersProvider.overrideWith(
+              (ref) async => const <FavoriteMasterItem>[],
+            ),
+            beautyTimelineProvider.overrideWith(
+              (ref) async => const <TimelineEntry>[],
+            ),
+            unlikeFavoriteMasterProvider.overrideWith(
+              () => UnlikeFavoriteMaster(),
+            ),
+          ],
+        );
+        // Settle the auth + clientProfile + cityListProvider futures, then the
+        // 1100 ms reveal animation, so the resolved city is painted.
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 1100));
+
+        expect(
+          find.text('Київ'),
+          findsOneWidget,
+          reason:
+              'with cityName empty but cityId set, the profile card must '
+              'resolve "Київ" from the location taxonomy instead of falling '
+              'back to the "add location" placeholder',
+        );
+      },
+    );
 
     testWidgets('loading state: change photo button visible', (tester) async {
       // Even in loading state, the screen renders (skeleton in profile area)
