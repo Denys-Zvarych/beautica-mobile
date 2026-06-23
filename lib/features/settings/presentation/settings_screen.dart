@@ -17,7 +17,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/icons/app_icon.dart';
+import '../../../core/icons/beautica_asset_icons.dart';
 import '../../../core/security/screen_protection.dart';
+import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
 import '../../../features/auth/domain/auth_session.dart';
@@ -156,6 +159,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               key: const Key('row-notifications'),
               switchKey: const Key('switch-notifications'),
               icon: Icons.notifications_none_rounded,
+              // Match the top-bar idle bell (BellButton): the dotless
+              // `notificationPlain` SVG, tinted + sized to the settings-row
+              // glyph spec (19 px, accentDeep) so it sits identically.
+              iconWidget: const AppIcon(
+                BeauticaAssetIcons.notificationPlain,
+                size: 19,
+                color: BrandColors.accentDeep,
+              ),
               label: l10n.accountNotificationsLabel,
               subtitle: l10n.accountNotificationsSubtitle,
               initialValue: true,

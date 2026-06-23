@@ -148,11 +148,18 @@ class SettingsToggleRow extends StatefulWidget {
     required this.icon,
     required this.label,
     required this.initialValue,
+    this.iconWidget,
     this.subtitle,
     this.switchKey,
   });
 
   final IconData icon;
+
+  /// Optional pre-built glyph widget (e.g. an [AppIcon] SVG) rendered inside the
+  /// inset well in place of the Material [Icon] built from [icon]. Callers must
+  /// size it to 19 px and tint it to [BrandColors.accentDeep] so it sits
+  /// identically to the Material fallback and the sibling [SettingsRow] glyphs.
+  final Widget? iconWidget;
   final String label;
   final bool initialValue;
   final String? subtitle;
@@ -198,11 +205,13 @@ class _SettingsToggleRowState extends State<SettingsToggleRow> {
                 child: NeumorphicInset(
                   radius: VelvetRadii.field - 4,
                   child: Center(
-                    child: Icon(
-                      widget.icon,
-                      size: 19,
-                      color: BrandColors.accentDeep,
-                    ),
+                    child:
+                        widget.iconWidget ??
+                        Icon(
+                          widget.icon,
+                          size: 19,
+                          color: BrandColors.accentDeep,
+                        ),
                   ),
                 ),
               ),
