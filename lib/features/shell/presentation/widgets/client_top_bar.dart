@@ -7,9 +7,13 @@
 // the bar never drifts between pages.
 //
 // Visuals are preserved exactly:
-//   • lowercase "beautica" wordmark (brand literal — NOT translated), wrapped in
-//     Flexible + ellipsis so it yields space before the row overflows at extreme
-//     text scale while the fixed bell + burger stay tappable;
+//   • lowercase "beautica" wordmark (brand literal — NOT translated) sized to its
+//     intrinsic width — a single trailing [Spacer] absorbs ALL row slack and
+//     pushes the fixed bell + burger to the right. (It is NOT wrapped in
+//     Flexible: a Flexible here would split the free space 1:1 with the Spacer,
+//     starving the wordmark to ~50% width and truncating it to "Beatu…". The
+//     ellipsis + maxLines:1 remain only as a defensive guard against pathological
+//     text scaling.);
 //   • the notification [BellButton] (idle / unread states baked into the SVG);
 //   • a [NeumorphicIconButton] burger on the right.
 //
@@ -69,19 +73,18 @@ class ClientTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
-        // beautica wordmark — intentionally lowercase (brand decision). Wrapped
-        // in Flexible + ellipsis so the wordmark yields space before the Row
-        // overflows at extreme text scale; the fixed-size bell + burger stay
-        // fully tappable. No visual change at 1.0× (the wordmark is far narrower
-        // than the available width).
-        Flexible(
-          child: Text(
-            // ignore: avoid_hardcoded_strings — brand wordmark, NOT translated.
-            'beautica',
-            style: VelvetText.wordmark(),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 1,
-          ),
+        // beautica wordmark — intentionally lowercase (brand decision). NOT
+        // wrapped in Flexible: the trailing Spacer is the row's only flex child,
+        // so it absorbs 100% of the slack and the wordmark sizes to its intrinsic
+        // width (it is far narrower than the available room at 1.0× text scale).
+        // ellipsis + maxLines:1 stay only as a defensive guard against
+        // pathological text scaling — never expected to trigger at normal scale.
+        Text(
+          // ignore: avoid_hardcoded_strings — brand wordmark, NOT translated.
+          'beautica',
+          style: VelvetText.wordmark(),
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1,
         ),
         const Spacer(),
         BellButton(
