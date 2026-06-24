@@ -972,6 +972,12 @@ class NeumorphicIconButton extends StatelessWidget {
   final VoidCallback onTap;
   final String semanticLabel;
 
+  /// Fixed square extent of the button (width == height). Exposed so callers
+  /// that lay this button out alongside shorter siblings (e.g. the CLIENT top
+  /// bar's bell) can pin their own cross-axis height to the burger extent and
+  /// avoid a vertical jump when the burger is conditionally absent.
+  static const double extent = 48;
+
   // Hoisted: VelvetRadii.field is a compile-time constant so the BorderRadius
   // can be static const, avoiding an allocation per build.
   static const BorderRadius _buttonRadius = BorderRadius.all(
@@ -986,8 +992,8 @@ class NeumorphicIconButton extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          height: 48,
-          width: 48,
+          height: extent,
+          width: extent,
           decoration: const BoxDecoration(
             color: BrandColors.base,
             borderRadius: _buttonRadius,

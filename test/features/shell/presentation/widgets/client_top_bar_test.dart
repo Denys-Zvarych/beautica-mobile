@@ -269,4 +269,94 @@ void main() {
       expect(find.byKey(const Key('btn-menu-search')), findsOneWidget);
     },
   );
+
+  // ---------------------------------------------------------------------------
+  // Regression — wordmark vertical JUMP on the bottom-nav branch switch.
+  //
+  // The bug: the bar's top-level Row had NO fixed cross-axis height, so its
+  // height collapsed to its tallest child:
+  //   • Головна / BEAUTY PASSPORT (burger present) → 48 dp (NeumorphicIconButton)
+  //   • Пошук (burger omitted in 7fada10, bell-only) → ~32 dp
+  // The centred "beautica" wordmark therefore sat ~8 dp LOWER on Головна than on
+  // Пошук. Switching tabs in the indexedStack shell read as a visible vertical
+  // jump of the wordmark.
+  //
+  // The fix wraps the Row in `SizedBox(height: NeumorphicIconButton.extent)`
+  // (== 48), so the wordmark centres in the SAME 48 dp box on every branch root,
+  // independent of whether the (optional) burger renders.
+  //
+  // The pin: pump BOTH configs at an identical width + 1.0× text scale and
+  // assert the wordmark's global top-left `dy` is BYTE-identical across them
+  // (delta == 0). On the OLD max(child-height) Row the Пошук row was ~32 dp and
+  // the Головна row ~48 dp, so the centred wordmark's `dy` differed by ~8 dp —
+  // this assertion would FAIL. On the fixed 48 dp box both configs centre the
+  // wordmark identically → delta is exactly 0.
+  // ---------------------------------------------------------------------------
+
+  /// Головна / BEAUTY PASSPORT configuration — bell + burger (onBurger supplied).
+  ClientTopBar homeConfig() => ClientTopBar(
+    onBell: () {},
+    onBurger: () {},
+    bellSemanticLabel: 'Сповіщення',
+    burgerSemanticLabel: 'Меню',
+    burgerKey: const Key('btn-menu-home'),
+  );
+
+  /// Пошук configuration — bell only (onBurger omitted → no burger).
+  ClientTopBar searchConfig() => ClientTopBar(
+    onBell: () {},
+    // onBurger intentionally omitted → no burger renders (the 32 dp case that
+    // caused the jump).
+    bellSemanticLabel: 'Сповіщення',
+  );
+
+  testWidgets(
+    'wordmark sits at the SAME vertical offset with and without the burger '
+    '(no branch-switch jump)',
+    (tester) async {
+      // Pin width + text scale so the ONLY variable between the two pumps is
+      // whether the burger renders.
+      await tester.pumpWidget(_phoneHost(homeConfig()));
+      await tester.pumpAndSettle();
+      final double homeDy = tester.getTopLeft(find.text('beautica')).dy;
+      final double homeBarHeight = tester
+          .getSize(find.byType(ClientTopBar))
+          .height;
+
+      await tester.pumpWidget(_phoneHost(searchConfig()));
+      await tester.pumpAndSettle();
+      final double searchDy = tester.getTopLeft(find.text('beautica')).dy;
+      final double searchBarHeight = tester
+          .getSize(find.byType(ClientTopBar))
+          .height;
+
+      // THE PIN: the wordmark's vertical position is byte-identical across both
+      // branch configs. FAILS on the old max-height Row (32 vs 48 → ~8 dp jump);
+      // PASSES now that the Row is locked to a fixed 48 dp box.
+      expect(
+        searchDy,
+        homeDy,
+        reason:
+            'wordmark must not jump vertically when the burger is absent — '
+            'home dy=$homeDy, search dy=$searchDy',
+      );
+
+      // Guard against silent regression to a content-sized bar: the box must be
+      // exactly NeumorphicIconButton.extent (48) in BOTH configs. On the old
+      // content-sized Row the search bar would measure ~32 dp here.
+      expect(
+        homeBarHeight,
+        NeumorphicIconButton.extent,
+        reason:
+            'home bar must be a fixed ${NeumorphicIconButton.extent} dp box',
+      );
+      expect(
+        searchBarHeight,
+        NeumorphicIconButton.extent,
+        reason:
+            'search (burger-less) bar must STILL be a fixed '
+            '${NeumorphicIconButton.extent} dp box — not content-sized',
+      );
+    },
+  );
 }

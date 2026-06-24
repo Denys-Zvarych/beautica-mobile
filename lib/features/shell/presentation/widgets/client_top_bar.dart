@@ -74,43 +74,57 @@ class ClientTopBar extends StatelessWidget {
   /// Whether to render the unread-state bell (dot baked into the asset).
   final bool hasUnread;
 
+  /// Fixed cross-axis extent of the bar — pinned to the burger's square extent
+  /// so the centred "beautica" wordmark sits at the SAME vertical offset on
+  /// EVERY branch root, regardless of whether the (optional) burger renders.
+  ///
+  /// Without this, the Row's height collapsed to its tallest child: 48 dp with
+  /// the burger (Головна / BEAUTY PASSPORT) but only ~32 dp on Пошук (bell-only,
+  /// burger omitted in 7fada10). Switching tabs in the `indexedStack` shell then
+  /// read as an ~8 px wordmark jump. Locking the box to [NeumorphicIconButton.extent]
+  /// makes the wordmark position burger-INDEPENDENT.
+  static const double _barHeight = NeumorphicIconButton.extent;
+
   @override
   Widget build(BuildContext context) {
     final VoidCallback? onBurger = this.onBurger;
-    return Row(
-      children: <Widget>[
-        // beautica wordmark — intentionally lowercase (brand decision). NOT
-        // wrapped in Flexible: the trailing Spacer is the row's only flex child,
-        // so it absorbs 100% of the slack and the wordmark sizes to its intrinsic
-        // width (it is far narrower than the available room at 1.0× text scale).
-        // ellipsis + maxLines:1 stay only as a defensive guard against
-        // pathological text scaling — never expected to trigger at normal scale.
-        Text(
-          // ignore: avoid_hardcoded_strings — brand wordmark, NOT translated.
-          'beautica',
-          style: VelvetText.wordmark(),
-          overflow: TextOverflow.ellipsis,
-          maxLines: 1,
-        ),
-        const Spacer(),
-        BellButton(
-          key: bellKey,
-          onTap: onBell,
-          semanticLabel: bellSemanticLabel,
-          hasUnread: hasUnread,
-        ),
-        // Burger is optional — omitted on Пошук (redundant settings hub). When
-        // absent, the bell is the last trailing element.
-        if (onBurger != null) ...<Widget>[
-          const SizedBox(width: VelvetSpacing.sm + 4),
-          NeumorphicIconButton(
-            key: burgerKey,
-            icon: BeauticaIcons.menuBurger,
-            semanticLabel: burgerSemanticLabel ?? '',
-            onTap: onBurger,
+    return SizedBox(
+      height: _barHeight,
+      child: Row(
+        children: <Widget>[
+          // beautica wordmark — intentionally lowercase (brand decision). NOT
+          // wrapped in Flexible: the trailing Spacer is the row's only flex child,
+          // so it absorbs 100% of the slack and the wordmark sizes to its intrinsic
+          // width (it is far narrower than the available room at 1.0× text scale).
+          // ellipsis + maxLines:1 stay only as a defensive guard against
+          // pathological text scaling — never expected to trigger at normal scale.
+          Text(
+            // ignore: avoid_hardcoded_strings — brand wordmark, NOT translated.
+            'beautica',
+            style: VelvetText.wordmark(),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
           ),
+          const Spacer(),
+          BellButton(
+            key: bellKey,
+            onTap: onBell,
+            semanticLabel: bellSemanticLabel,
+            hasUnread: hasUnread,
+          ),
+          // Burger is optional — omitted on Пошук (redundant settings hub). When
+          // absent, the bell is the last trailing element.
+          if (onBurger != null) ...<Widget>[
+            const SizedBox(width: VelvetSpacing.sm + 4),
+            NeumorphicIconButton(
+              key: burgerKey,
+              icon: BeauticaIcons.menuBurger,
+              semanticLabel: burgerSemanticLabel ?? '',
+              onTap: onBurger,
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 }
