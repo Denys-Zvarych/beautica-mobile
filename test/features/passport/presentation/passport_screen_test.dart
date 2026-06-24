@@ -76,18 +76,26 @@ Future<AppLocalizations> _uk() =>
 
 void main() {
   group('PassportScreen — chrome + profile + populated card', () {
-    testWidgets('renders the top bar wordmark, bell and burger', (
+    testWidgets('body renders WITHOUT the top bar (bar is shell-owned)', (
       tester,
     ) async {
+      // 2026-06-24 wordmark-jump hoist: the top bar (wordmark · bell · burger)
+      // is mounted by ClientShell above the branch body, NOT by PassportScreen.
+      // Pumped in isolation the screen therefore has NO bar; its per-branch
+      // config (passport_bell_button / btn-menu-passport) is pinned in
+      // test/features/shell/client_shell_top_bar_test.dart. Here we assert the
+      // bar is absent and the passport body still renders.
       await tester.pumpApp(
         const PassportScreen(),
         overrides: _overrides(passport: _populatedPassport),
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('beautica'), findsOneWidget);
-      expect(find.byKey(const Key('passport_bell_button')), findsOneWidget);
-      expect(find.byKey(const Key('btn-menu-passport')), findsOneWidget);
+      expect(find.text('beautica'), findsNothing);
+      expect(find.byKey(const Key('passport_bell_button')), findsNothing);
+      expect(find.byKey(const Key('btn-menu-passport')), findsNothing);
+      // The body is present (profile name from the populated state).
+      expect(find.text('Олена Тест'), findsOneWidget);
     });
 
     testWidgets('renders the profile name, city and phone', (tester) async {

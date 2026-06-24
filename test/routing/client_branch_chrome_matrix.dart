@@ -8,16 +8,15 @@
 // things:
 //   • the `beautica` wordmark inside [ClientTopBar] (its global `dy`), and
 //   • the [ClientBottomNav] top edge (its global Y).
-// Neither bar is hosted by the shell uniformly: the bottom nav IS shell-hosted
-// (good), but [ClientTopBar] is mounted PER SCREEN — each branch root builds its
-// OWN `SafeArea(bottom:false)` + a `Padding`/`ListView` whose top inset is a
-// hand-copied `VelvetSpacing.sm`. That means a single screen re-adding an AppBar,
-// nudging its top padding (`sm` → `lg`), or double-wrapping a SafeArea silently
-// shifts the wordmark on THAT branch only — and the user sees the wordmark JUMP
-// when they switch to it. The old chrome tests pinned only two SYNTHETIC
-// [ClientTopBar] configs in isolation (burger vs no-burger); nothing pumped the
-// REAL branch screens through the REAL router, so a per-screen wrapper drift was
-// invisible.
+// BOTH bars are now SHELL-owned (2026-06-24 hoist): [ClientShell] mounts a
+// single [ClientTopBar] (above `navigationShell`) and a single
+// [ClientBottomNav], so the top chrome is byte-identical across every branch BY
+// CONSTRUCTION — not by three branch roots coincidentally copying the same
+// `SafeArea(bottom:false)` + `VelvetSpacing.sm` inset. This net still pins the
+// invariant at the router tier so a future regression (e.g. a branch root that
+// re-introduces its own bar, an AppBar, or a stray top inset that pushes the
+// shell bar down) is caught: it drives the REAL router through every branch and
+// asserts the wordmark dy + bottom-nav Y never move.
 //
 // This registry is the durable generalisation: it lists every real CLIENT branch
 // root so the router-driven net (`client_branch_chrome_test.dart`) can boot the
@@ -108,16 +107,17 @@ class ClientBranchChrome {
 /// │ # │ Branch       │ Route     │ Root widget                    │ TopBar? │
 /// ├───┼──────────────┼───────────┼────────────────────────────────┼─────────┤
 /// │ 0 │ Головна      │ /home     │ HomeHubScreen                  │  YES    │
-/// │ 1 │ Улюблені     │ /favorites│ ClientFavoritesPlaceholder…    │  no*    │
+/// │ 1 │ Улюблені     │ /favorites│ ClientFavoritesPlaceholder…    │  YES*   │
 /// │ 2 │ Пошук        │ /search   │ ClientSearchScreen             │  YES    │
-/// │ 3 │ Записи       │ /bookings │ ClientBookingsPlaceholder…     │  no*    │
+/// │ 3 │ Записи       │ /bookings │ ClientBookingsPlaceholder…     │  YES*   │
 /// │ 4 │ BEAUTY PASS… │ /passport │ PassportScreen                 │  YES    │
 /// └───┴──────────────┴───────────┴────────────────────────────────┴─────────┘
-/// * Favorites + Bookings are still placeholder screens (Phase 13.11 / 14.3).
-///   They render the `appTitle` ("Beautica") wordmark via
-///   [ClientBranchPlaceholder], NOT the shared [ClientTopBar]. They are pinned
-///   for route/root/bottom-nav-Y but excluded from the [ClientTopBar] wordmark
-///   `dy` invariant until their real screens ship and adopt the shared bar.
+/// * The [ClientTopBar] is shell-owned (2026-06-24 hoist), so ALL five branches
+///   — including the Favorites + Bookings placeholders (Phase 13.11 / 14.3) —
+///   sit beneath the same shared bar and join the wordmark-`dy` invariant. The
+///   placeholder bodies still draw their own `appTitle` ("Beautica") wordmark,
+///   but that is the placeholder's body text, distinct from the shell's
+///   "beautica" [ClientTopBar] wordmark the invariant measures.
 final List<ClientBranchChrome> clientBranchChromeMatrix = <ClientBranchChrome>[
   const ClientBranchChrome(
     branchIndex: kClientHomeBranch, // 0
@@ -131,8 +131,12 @@ final List<ClientBranchChrome> clientBranchChromeMatrix = <ClientBranchChrome>[
     branchName: 'Улюблені (favorites)',
     expectedRoute: RouteNames.clientFavorites, // '/favorites'
     expectedRootType: ClientFavoritesPlaceholderScreen,
-    // Placeholder renders appTitle wordmark, not ClientTopBar (see note).
-    hasTopBar: false,
+    // The ClientTopBar is now SHELL-owned (2026-06-24 hoist), so EVERY branch —
+    // including the favorites placeholder body — sits beneath the same shared
+    // bar. The placeholder body still draws its own appTitle "Beautica"
+    // wordmark, but the shell's "beautica" ClientTopBar wordmark is also
+    // present and is what the dy invariant measures.
+    hasTopBar: true,
   ),
   const ClientBranchChrome(
     branchIndex: kClientSearchBranch, // 2
@@ -146,8 +150,9 @@ final List<ClientBranchChrome> clientBranchChromeMatrix = <ClientBranchChrome>[
     branchName: 'Записи (bookings)',
     expectedRoute: RouteNames.clientBookings, // '/bookings'
     expectedRootType: ClientBookingsPlaceholderScreen,
-    // Placeholder renders appTitle wordmark, not ClientTopBar (see note).
-    hasTopBar: false,
+    // Shell-owned ClientTopBar (see favorites note) — bookings now joins the
+    // wordmark-dy invariant too.
+    hasTopBar: true,
   ),
   const ClientBranchChrome(
     branchIndex: kClientPassportBranch, // 4

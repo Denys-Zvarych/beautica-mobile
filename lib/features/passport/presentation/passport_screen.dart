@@ -48,7 +48,6 @@ import '../../../routing/route_names.dart';
 import '../../home/application/home_hub_notifier.dart';
 import '../../home/domain/home_hub_models.dart';
 import '../../home/presentation/widgets/hub_widgets.dart';
-import '../../shell/presentation/widgets/client_top_bar.dart';
 import '../application/passport_notifier.dart';
 import '../domain/passport.dart';
 import 'widgets/passport_table.dart';
@@ -97,19 +96,6 @@ class _PassportScreenState extends ConsumerState<PassportScreen> {
     super.dispose();
   }
 
-  void _onBellTap() {
-    // TODO(14.9): route to RouteNames.notifications when that screen ships.
-    if (kDebugMode) {
-      log(
-        'notifications tapped — placeholder',
-        name: 'feature.passport',
-        level: 700,
-      );
-    }
-  }
-
-  void _onBurgerTap() => context.push(RouteNames.clientMenu);
-
   void _onCameraTap() {
     // TODO(13.7.1): wire image upload. Placeholder for now.
     if (kDebugMode) {
@@ -136,16 +122,13 @@ class _PassportScreenState extends ConsumerState<PassportScreen> {
       // locale-independent target.
       key: const Key('client-branch-passport'),
       backgroundColor: BrandColors.base,
-      // Bottom nav is hosted by ClientShell — this screen is just the body.
-      body: SafeArea(
-        bottom: false,
-        child: RepaintBoundary(
-          child: _PassportBody(
-            onBell: _onBellTap,
-            onBurger: _onBurgerTap,
-            onCamera: _onCameraTap,
-            onFindMaster: _onFindMaster,
-          ),
+      // Top bar (wordmark · bell · burger) AND bottom nav are hosted by
+      // ClientShell — this screen is just the body. The shell owns the single
+      // SafeArea(top), so the body must NOT re-wrap one.
+      body: RepaintBoundary(
+        child: _PassportBody(
+          onCamera: _onCameraTap,
+          onFindMaster: _onFindMaster,
         ),
       ),
     );
@@ -157,15 +140,8 @@ class _PassportScreenState extends ConsumerState<PassportScreen> {
 // ---------------------------------------------------------------------------
 
 class _PassportBody extends ConsumerWidget {
-  const _PassportBody({
-    required this.onBell,
-    required this.onBurger,
-    required this.onCamera,
-    required this.onFindMaster,
-  });
+  const _PassportBody({required this.onCamera, required this.onFindMaster});
 
-  final VoidCallback onBell;
-  final VoidCallback onBurger;
   final VoidCallback onCamera;
   final VoidCallback onFindMaster;
 
@@ -181,30 +157,21 @@ class _PassportBody extends ConsumerWidget {
     // the hero and absorbs the slack via Expanded; the chrome + profile take
     // only what they need, so the whole page fits one phone viewport.
     return Padding(
+      // Top inset matches Home's body: the shell-owned ClientTopBar sits
+      // directly above, so the profile block needs a `lg` breathing gap (the
+      // old in-body bar + its trailing `lg` SizedBox collapsed to this top
+      // pad). This keeps the identity card at the SAME vertical position as
+      // Home — no jump on nav.
       padding: const EdgeInsets.fromLTRB(
         VelvetSpacing.lg,
-        VelvetSpacing.sm,
+        VelvetSpacing.lg,
         VelvetSpacing.lg,
         VelvetSpacing.md,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          ClientTopBar(
-            onBell: onBell,
-            onBurger: onBurger,
-            bellSemanticLabel: AppLocalizations.of(
-              context,
-            ).homeHubNotificationsLabel,
-            burgerSemanticLabel: AppLocalizations.of(
-              context,
-            ).settingsHubMenuButton,
-            bellKey: const Key('passport_bell_button'),
-            burgerKey: const Key('btn-menu-passport'),
-          ),
-          // Aligned with Home (canonical landing page) so the identity card sits
-          // at the same vertical position across both pages — no jump on nav.
-          const SizedBox(height: VelvetSpacing.lg),
+          // (Top bar removed — now persistent chrome owned by ClientShell.)
           // Profile block — name / location (pin + city, no chevron) / phone.
           // Scoped Consumer: only this subtree rebuilds on a profile refresh.
           Consumer(

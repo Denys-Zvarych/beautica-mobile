@@ -34,7 +34,6 @@ import '../../../core/theme/velvet_geometry.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/app_router.dart';
 import '../../../routing/route_names.dart';
-import '../../shell/presentation/widgets/client_top_bar.dart';
 import '../application/home_hub_notifier.dart';
 import '../domain/home_hub_models.dart';
 import 'widgets/beauty_timeline_section.dart';
@@ -98,40 +97,14 @@ class _HomeHubScreenState extends ConsumerState<HomeHubScreen> {
     super.dispose();
   }
 
-  void _onBellTap() {
-    // Phase 14.9 not yet shipped — placeholder navigation.
-    // TODO(14.9): route to RouteNames.notifications when that screen ships.
-    if (kDebugMode) {
-      log(
-        'notifications tapped — placeholder',
-        name: 'feature.home',
-        level: 700,
-      );
-    }
-  }
-
-  void _onBurgerTap() {
-    // Opens the CLIENT settings hub (/client/menu) — the burger-menu mirror of
-    // the master settings hub. Role-gated to CLIENT in auth_redirect.dart. The
-    // hub's Account row routes onward to the shared SettingsScreen (/settings).
-    context.push(RouteNames.clientMenu);
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
 
-    return Scaffold(
-      backgroundColor: BrandColors.base,
-      body: SafeArea(
-        bottom: false,
-        child: _HomeHubBody(
-          l10n: l10n,
-          onBellTap: _onBellTap,
-          onBurgerTap: _onBurgerTap,
-        ),
-      ),
-    );
+    // The top bar (wordmark · bell · burger) is hosted by ClientShell — this
+    // screen is just the branch body. The shell owns the single SafeArea(top)
+    // too, so the body must NOT re-wrap one.
+    return _HomeHubBody(l10n: l10n);
   }
 }
 
@@ -140,15 +113,9 @@ class _HomeHubScreenState extends ConsumerState<HomeHubScreen> {
 // ---------------------------------------------------------------------------
 
 class _HomeHubBody extends ConsumerWidget {
-  const _HomeHubBody({
-    required this.l10n,
-    required this.onBellTap,
-    required this.onBurgerTap,
-  });
+  const _HomeHubBody({required this.l10n});
 
   final AppLocalizations l10n;
-  final VoidCallback onBellTap;
-  final VoidCallback onBurgerTap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -162,27 +129,19 @@ class _HomeHubBody extends ConsumerWidget {
       child: _StaggeredReveal(
         builder: (BuildContext context, _RevealFn reveal) {
           return ListView(
+            // Top inset matches the gap the on-screen bar used to leave above
+            // the profile block: the shell-owned ClientTopBar sits directly
+            // above this body, so the first card needs a `lg` breathing gap
+            // (the old bar reveal + its trailing `lg` SizedBox collapsed to
+            // this single top pad). Bottom keeps the page's `lg` end inset.
             padding: const EdgeInsets.fromLTRB(
               VelvetSpacing.lg,
-              VelvetSpacing.sm,
+              VelvetSpacing.lg,
               VelvetSpacing.lg,
               VelvetSpacing.lg,
             ),
             children: <Widget>[
-              // 1. Top bar
-              reveal(
-                start: 0.0,
-                end: 0.4,
-                child: ClientTopBar(
-                  onBell: onBellTap,
-                  onBurger: onBurgerTap,
-                  bellSemanticLabel: l10n.homeHubNotificationsLabel,
-                  burgerSemanticLabel: l10n.settingsHubMenuButton,
-                  bellKey: const Key('home_hub_bell_button'),
-                  burgerKey: const Key('btn-menu-client'),
-                ),
-              ),
-              const SizedBox(height: VelvetSpacing.lg),
+              // (Top bar removed — now persistent chrome owned by ClientShell.)
 
               // 2. Profile block
               reveal(

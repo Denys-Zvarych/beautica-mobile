@@ -52,11 +52,9 @@ import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.d
 import 'package:beautica_mobile/features/home/presentation/widgets/next_appointment_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/quick_links_card.dart';
-import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../helpers/pump_app.dart';
 
@@ -263,91 +261,38 @@ List<Object> _overrides({
 // ---------------------------------------------------------------------------
 
 void main() {
+  // NOTE (2026-06-24 wordmark-jump hoist): the top bar (wordmark · bell ·
+  // burger) is no longer built by HomeHubScreen — it is mounted ONCE by
+  // ClientShell above the branch body. The former per-screen assertions here
+  // (smoke wordmark / bell key / btn-menu-client key / tune_rounded glyph /
+  // burger→/client/menu push) moved to
+  // `test/features/shell/client_shell_top_bar_test.dart`, which pumps the bar
+  // through the REAL router/shell on the home branch. Coverage is preserved,
+  // not deleted — it just lives where the bar lives now. The smoke test below
+  // pins that the home BODY still renders (a key body widget).
+
   group('HomeHubScreen', () {
-    testWidgets('smoke — renders top bar wordmark', (tester) async {
-      await tester.pumpApp(
-        const HomeHubScreen(),
-        overrides: _overrides(profile: const AsyncData(_sampleProfile)),
-      );
-      await tester.pump();
-      // The top bar renders the "beautica" wordmark (brand literal)
-      expect(find.text('beautica'), findsOneWidget);
-    });
-
-    testWidgets('renders notification bell button', (tester) async {
-      await tester.pumpApp(
-        const HomeHubScreen(),
-        overrides: _overrides(profile: const AsyncData(_sampleProfile)),
-      );
-      await tester.pump();
-      expect(find.byKey(const Key('home_hub_bell_button')), findsOneWidget);
-    });
-
-    testWidgets('renders burger menu button with Key btn-menu-client', (
+    testWidgets('smoke — body renders (profile card) without the top bar', (
       tester,
     ) async {
       await tester.pumpApp(
         const HomeHubScreen(),
         overrides: _overrides(profile: const AsyncData(_sampleProfile)),
       );
+      // One pump builds the tree; the staggered reveal is a FadeTransition +
+      // SlideTransition (the child is ALWAYS mounted, only its opacity/offset
+      // animate), so the body widgets resolve immediately — no fixed-duration
+      // sleep needed to settle the reveal (mobile-qa: no `pump(Duration)`).
       await tester.pump();
-      expect(find.byKey(const Key('btn-menu-client')), findsOneWidget);
-    });
-
-    testWidgets('burger menu button uses tune_rounded icon', (tester) async {
-      await tester.pumpApp(
-        const HomeHubScreen(),
-        overrides: _overrides(profile: const AsyncData(_sampleProfile)),
-      );
-      await tester.pump();
-      // The NeumorphicIconButton is present; verify its icon data.
+      // The bar is shell-owned now, so the screen pumped in isolation has NO
+      // wordmark…
+      expect(find.text('beautica'), findsNothing);
+      // …but the body still renders (the profile block shows the client name,
+      // keyed by the profile card so an l10n move can't mask the regression).
       expect(
-        find.byIcon(Icons.tune_rounded),
+        find.byKey(const Key('home_profile_name')),
         findsOneWidget,
-        reason:
-            'top-bar burger must use Icons.tune_rounded (matches master profile)',
-      );
-    });
-
-    testWidgets('tapping burger pushes the CLIENT settings hub route', (
-      tester,
-    ) async {
-      // Use a spy router so context.push(RouteNames.clientMenu) fires correctly.
-      // pumpApp uses plain MaterialApp which lacks a GoRouter delegate; the
-      // burger calls context.push() which requires GoRouter in the widget tree.
-      String? navigatedLocation;
-      final router = GoRouter(
-        initialLocation: RouteNames.clientHome,
-        routes: [
-          GoRoute(
-            path: RouteNames.clientHome,
-            builder: (context, state) => const HomeHubScreen(),
-          ),
-          GoRoute(
-            path: RouteNames.clientMenu,
-            builder: (context, state) {
-              navigatedLocation = RouteNames.clientMenu;
-              return const Scaffold(body: SizedBox.shrink());
-            },
-          ),
-        ],
-      );
-      addTearDown(router.dispose);
-
-      await tester.pumpRoutedApp(
-        router,
-        overrides: _overrides(profile: const AsyncData(_sampleProfile)),
-      );
-      // Pump until the initial route renders.
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('btn-menu-client')));
-      await tester.pumpAndSettle();
-
-      expect(
-        navigatedLocation,
-        equals(RouteNames.clientMenu),
-        reason: 'burger onTap must push RouteNames.clientMenu (/client/menu)',
+        reason: 'home body must render in isolation even with the bar hoisted',
       );
     });
   });
@@ -815,9 +760,11 @@ void main() {
     testWidgets(
       'BellButton renders notificationPlain SVG, not Material glyph or dotted asset',
       (tester) async {
+        // The bell now lives in the shell-owned ClientTopBar, not in
+        // HomeHubScreen, so pump BellButton directly (it is public) in its idle
+        // (hasUnread: false) state — the production call site is pinned false.
         await tester.pumpApp(
-          const HomeHubScreen(),
-          overrides: _overrides(profile: const AsyncData(_sampleProfile)),
+          const BellButton(onTap: _noop, semanticLabel: 'Сповіщення'),
         );
         await tester.pump();
 
@@ -833,7 +780,7 @@ void main() {
         // AppIcon inside the bell button's subtree must be the DOTLESS plain
         // asset — never the dotted notificationOutline/notificationFilled
         // (whose baked-in dot caused the double-dot bug).
-        final Finder bellButton = find.byKey(const Key('home_hub_bell_button'));
+        final Finder bellButton = find.byType(BellButton);
         expect(bellButton, findsOneWidget);
 
         final List<AppIcon> appIconsInBell = tester

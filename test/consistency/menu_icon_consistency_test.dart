@@ -11,7 +11,9 @@
 // This file closes that gap. It:
 //   1. Pumps MasterProfileScreen, finds Key('btn-menu-master'), reads the
 //      rendered Icon's IconData.
-//   2. Pumps HomeHubScreen, finds Key('btn-menu-client'), reads its Icon's
+//   2. Pumps the shared ClientTopBar in its home-branch config (the burger the
+//      shell-owned bar mounts on /home — 2026-06-24 wordmark-jump hoist moved
+//      it out of HomeHubScreen), finds Key('btn-menu-client'), reads its Icon's
 //      IconData.
 //   3. Asserts both are equal to BeauticaIcons.menuBurger (Icons.tune_rounded).
 //   4. Asserts they are equal to each other — so a future change to one
@@ -31,15 +33,12 @@
 // Icons that are intentionally different per role (e.g. the role-select
 // glyphs) do NOT belong here. This file guards *convergence*, not *identity*.
 
-import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/beautica_icons.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
-import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
-import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
-import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
+import 'package:beautica_mobile/features/shell/presentation/widgets/client_top_bar.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
@@ -52,21 +51,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/pump_app.dart';
-
-// ---------------------------------------------------------------------------
-// No-op ScreenProtectionManager (prevents native plugin calls in tests)
-// ---------------------------------------------------------------------------
-
-class _NoOpScreenProtection extends ScreenProtectionManager {
-  @override
-  void acquire() {}
-
-  @override
-  void release() {}
-
-  @override
-  void reset() {}
-}
 
 // ---------------------------------------------------------------------------
 // Stub auth notifier (INDEPENDENT_MASTER session; no network)
@@ -145,30 +129,21 @@ List<Object> _masterProfileOverrides() => [
   serviceRepositoryProvider.overrideWithValue(_FakeServiceRepository()),
 ];
 
-/// Minimal override set for HomeHubScreen.
-///
-/// The burger button is rendered in _TopBar which is always visible.
-/// All four async card providers are stubbed to empty/no-op so the screen
-/// renders quickly without real network calls.
-List<Object> _homeHubOverrides() => [
-  screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
-  clientProfileProvider.overrideWith(
-    (ref) async => const ClientProfileSummary(
-      firstName: 'Тест',
-      lastName: 'Клієнт',
-      city: 'Київ',
-      phone: '',
-      clientRating: null,
-      memberSinceYear: 2024,
-    ),
-  ),
-  nextAppointmentProvider.overrideWith((ref) async => null),
-  favoriteMastersProvider.overrideWith(
-    (ref) async => const <FavoriteMasterItem>[],
-  ),
-  beautyTimelineProvider.overrideWith((ref) async => const <TimelineEntry>[]),
-  unlikeFavoriteMasterProvider.overrideWith(() => UnlikeFavoriteMaster()),
-];
+/// The shared [ClientTopBar] in its home-branch config — the burger the
+/// shell-owned bar mounts on /home (Key 'btn-menu-client', the preserved home
+/// burger Key). The 2026-06-24 wordmark-jump hoist moved the bar out of
+/// HomeHubScreen into ClientShell, so the client burger icon is now sourced
+/// from the bar widget directly (its config drives the same BeauticaIcons
+/// constant either way — that constant identity is exactly what this file
+/// pins).
+Widget _clientHomeTopBar() => ClientTopBar(
+  onBell: () {},
+  onBurger: () {},
+  bellSemanticLabel: 'Сповіщення',
+  burgerSemanticLabel: 'Меню',
+  bellKey: const Key('home_hub_bell_button'),
+  burgerKey: const Key('btn-menu-client'),
+);
 
 // ---------------------------------------------------------------------------
 // Helper: extract the IconData from the Icon inside a NeumorphicIconButton
@@ -255,14 +230,10 @@ void main() {
       );
 
       testWidgets(
-        'HomeHubScreen btn-menu-client renders BeauticaIcons.menuBurger',
+        'CLIENT home top bar btn-menu-client renders BeauticaIcons.menuBurger',
         (tester) async {
-          // Arrange + Act: pump the client home hub screen and settle.
-          await tester.pumpApp(
-            const HomeHubScreen(),
-            overrides: _homeHubOverrides(),
-          );
-          // One pump renders the _TopBar which contains the burger immediately.
+          // Arrange + Act: pump the shell-owned bar in its home-branch config.
+          await tester.pumpApp(_clientHomeTopBar());
           await tester.pump();
 
           // Assert: the burger button is in the tree with the expected icon.
@@ -271,9 +242,9 @@ void main() {
             clientBurgerIcon,
             equals(BeauticaIcons.menuBurger),
             reason:
-                'HomeHubScreen top-bar burger (btn-menu-client) must use '
+                'CLIENT home top-bar burger (btn-menu-client) must use '
                 'BeauticaIcons.menuBurger (Icons.tune_rounded). '
-                'If you changed the icon on this screen, update BeauticaIcons '
+                'If you changed the icon on this bar, update BeauticaIcons '
                 'AND the MasterProfileScreen burger in the same commit.',
           );
         },
@@ -296,16 +267,13 @@ void main() {
         await tester.pump();
         masterBurgerIcon = _iconDataAt(tester, const Key('btn-menu-master'));
 
-        // Tear down the current ProviderScope before pumping a different screen
+        // Tear down the current ProviderScope before pumping the next surface
         // with a different override set. Without this, Riverpod asserts
         // "_debugOverridesLength == overrides.length" and fails the test.
         await tester.pumpWidget(const SizedBox.shrink());
 
-        // --- Home hub ---
-        await tester.pumpApp(
-          const HomeHubScreen(),
-          overrides: _homeHubOverrides(),
-        );
+        // --- CLIENT home top bar (shell-owned bar, home config) ---
+        await tester.pumpApp(_clientHomeTopBar());
         await tester.pump();
         clientBurgerIcon = _iconDataAt(tester, const Key('btn-menu-client'));
 

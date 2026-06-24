@@ -17,12 +17,11 @@
 //
 // WHY THE WORDMARK INVARIANT IS REAL HERE
 // ---------------------------------------
-// [ClientTopBar] is mounted PER SCREEN (home_hub_screen / search_filters_screen /
-// passport_screen each build their own SafeArea + Padding with a hand-copied
-// `VelvetSpacing.sm` top inset). The shell only hosts the bottom nav. So the top
-// chrome's stability is an emergent property of three independently-maintained
-// wrappers — precisely the kind of invariant that drifts silently. This net
-// pins it at the router tier.
+// [ClientTopBar] is mounted ONCE by [ClientShell] (above `navigationShell`),
+// exactly like [ClientBottomNav] — so the top chrome is byte-identical across
+// branches BY CONSTRUCTION (2026-06-24 hoist). This net pins that invariant at
+// the router tier so a future regression — a branch root re-introducing its own
+// bar / an AppBar / a stray top inset that shifts the shell bar — is caught.
 //
 // HARNESS NOTES (generalised from role_landing_chrome_test.dart)
 // --------------------------------------------------------------
@@ -81,22 +80,24 @@ void main() {
       assertMatrixCoversAllClientBranches();
     });
 
-    test('three live branches mount the shared ClientTopBar wordmark', () {
-      // Home, Search, Passport carry ClientTopBar; Favorites + Bookings are
-      // still placeholders (excluded from the wordmark invariant). If a
-      // placeholder is replaced by a real screen that adopts ClientTopBar, flip
-      // its row's hasTopBar → true so it JOINS the invariant.
+    test('every live branch sits beneath the shell-owned ClientTopBar', () {
+      // The ClientTopBar is now SHELL-owned (2026-06-24 hoist): ClientShell
+      // mounts ONE bar above navigationShell, so ALL FIVE branches — Home,
+      // Favorites, Search, Bookings, Passport — share it and join the
+      // wordmark-dy invariant. (Before the hoist only the three non-placeholder
+      // branches that each mounted their own bar were in the set.)
       expect(
         topBarBranches.map((b) => b.branchIndex).toSet(),
         equals(<int>{
           kClientHomeBranch,
+          kClientFavoritesBranch,
           kClientSearchBranch,
+          kClientBookingsBranch,
           kClientPassportBranch,
         }),
         reason:
-            'exactly Головна / Пошук / BEAUTY PASSPORT host a ClientTopBar '
-            'today; favorites + bookings are placeholders. Update topBarBranches '
-            'expectation when a placeholder adopts the shared bar.',
+            'all five CLIENT branches sit beneath the single shell-owned '
+            'ClientTopBar, so every branch joins the wordmark-dy invariant.',
       );
     });
 
@@ -148,7 +149,9 @@ void main() {
                 '${row.expectedRootType} at ${row.expectedRoute}.',
           );
 
-          samples[row.branchIndex] = harness.sampleChrome(measureTopBar: row.hasTopBar);
+          samples[row.branchIndex] = harness.sampleChrome(
+            measureTopBar: row.hasTopBar,
+          );
         }
 
         // ── Bottom nav top-Y: byte-identical across ALL five branches ─────────
@@ -170,11 +173,12 @@ void main() {
           );
         }
 
-        // ── Wordmark dy: byte-identical across the TOP-BAR branches ───────────
-        // Home / Search / Passport each mount ClientTopBar via their OWN
-        // SafeArea + Padding(top: VelvetSpacing.sm). If any one screen drifts
-        // its top inset, re-adds an AppBar, or double-wraps a SafeArea, the
-        // wordmark `dy` on THAT branch diverges → this fails (the wordmark-jump).
+        // ── Wordmark dy: byte-identical across ALL branches ───────────────────
+        // The ClientTopBar is shell-owned now (one bar above navigationShell),
+        // so the wordmark dy is identical across branches by construction. If a
+        // branch root re-introduces its own bar, re-adds an AppBar, or adds a
+        // stray top inset that pushes the shell bar down, the wordmark `dy` on
+        // THAT branch diverges → this fails (the wordmark-jump regression).
         final dys = <int, double>{
           for (final e in samples.entries)
             if (e.value.wordmarkDy != null) e.key: e.value.wordmarkDy!,
@@ -390,9 +394,7 @@ class _ClientShellHarness {
 
   /// Captures the chrome anchors for the CURRENT branch.
   _ChromeSample sampleChrome({required bool measureTopBar}) {
-    final navBox = tester.renderObject<RenderBox>(
-      find.byType(ClientBottomNav),
-    );
+    final navBox = tester.renderObject<RenderBox>(find.byType(ClientBottomNav));
     final double navTopY = navBox.localToGlobal(Offset.zero).dy;
 
     double? wordmarkDy;
@@ -465,9 +467,7 @@ class _ClientShellHarness {
     if (hasTopBar) {
       return _activeWordmarkBox().localToGlobal(Offset.zero).dy;
     }
-    final navBox = tester.renderObject<RenderBox>(
-      find.byType(ClientBottomNav),
-    );
+    final navBox = tester.renderObject<RenderBox>(find.byType(ClientBottomNav));
     return navBox.localToGlobal(Offset.zero).dy;
   }
 

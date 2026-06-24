@@ -54,10 +54,6 @@ import 'widgets/service_chip_drawer.dart';
 import 'widgets/service_type_tile.dart';
 import 'widgets/staggered_reveal.dart';
 
-// Shell import only for the shared top bar — NOT a cross-feature presentation
-// dependency on screens, only the reusable chrome widget.
-import '../../shell/presentation/widgets/client_top_bar.dart';
-
 /// The CLIENT Пошук (Search) filters screen — branch index 2.
 class ClientSearchScreen extends ConsumerStatefulWidget {
   const ClientSearchScreen({super.key});
@@ -84,10 +80,6 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
-  }
-
-  void _onBellTap() {
-    // TODO(14.9): route to RouteNames.notifications when that screen ships.
   }
 
   /// Opens the oblast → city cascade using the existing locality picker, then
@@ -139,53 +131,39 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
       // locale-independent target.
       key: const Key('client-branch-search'),
       backgroundColor: BrandColors.base,
-      body: SafeArea(
-        bottom: false,
-        child: RepaintBoundary(
-          child: Column(
-            children: <Widget>[
-              Padding(
+      // Top bar (wordmark · bell — Пошук omits the burger) AND bottom nav are
+      // hosted by ClientShell — this screen is just the body. The shell owns
+      // the single SafeArea(top), so the body must NOT re-wrap one; only the
+      // sticky CTA keeps its own SafeArea(top:false) bottom inset.
+      body: RepaintBoundary(
+        child: Column(
+          children: <Widget>[
+            Expanded(
+              child: _SearchFiltersBody(
+                l10n: l10n,
+                searchController: _searchController,
+                onPickCity: _pickCity,
+              ),
+            ),
+            // Sticky CTA pinned below the scrollable body.
+            SafeArea(
+              top: false,
+              child: Padding(
                 padding: const EdgeInsets.fromLTRB(
                   VelvetSpacing.lg,
                   VelvetSpacing.sm,
                   VelvetSpacing.lg,
-                  0,
+                  VelvetSpacing.md,
                 ),
-                // No burger here — the settings hub it opens is redundant on
-                // Пошук (the home hub keeps it). Bell only.
-                child: ClientTopBar(
-                  onBell: _onBellTap,
-                  bellSemanticLabel: l10n.homeHubNotificationsLabel,
-                  bellKey: const Key('search_bell_button'),
-                ),
-              ),
-              Expanded(
-                child: _SearchFiltersBody(
-                  l10n: l10n,
-                  searchController: _searchController,
-                  onPickCity: _pickCity,
+                child: NeumorphicButton(
+                  key: const Key('search_show_masters_cta'),
+                  label: l10n.searchCtaShowMasters,
+                  icon: Icons.search_rounded,
+                  onPressed: _onShowMasters,
                 ),
               ),
-              // Sticky CTA pinned below the scrollable body.
-              SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    VelvetSpacing.lg,
-                    VelvetSpacing.sm,
-                    VelvetSpacing.lg,
-                    VelvetSpacing.md,
-                  ),
-                  child: NeumorphicButton(
-                    key: const Key('search_show_masters_cta'),
-                    label: l10n.searchCtaShowMasters,
-                    icon: Icons.search_rounded,
-                    onPressed: _onShowMasters,
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

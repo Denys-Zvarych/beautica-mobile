@@ -241,15 +241,15 @@ Future<_CategoriesController> _pumpScreen(
 
 void main() {
   group('ClientSearchScreen — sections', () {
-    testWidgets('renders the 5 filter sections + top bar chrome (by Key)', (
-      tester,
-    ) async {
+    testWidgets('renders the 5 filter sections (by Key)', (tester) async {
       await _pumpScreen(tester);
       await tester.pumpAndSettle();
 
-      // Top bar (shared ClientTopBar) — bell only; the burger is intentionally
-      // omitted on Пошук (the settings hub it opens is redundant here).
-      expect(find.byKey(const Key('search_bell_button')), findsOneWidget);
+      // 2026-06-24 wordmark-jump hoist: the top bar (bell, no burger on Пошук)
+      // is shell-owned now, so it is NOT present when the screen is pumped in
+      // isolation. Its config (search_bell_button present, btn-menu-search
+      // absent) is pinned in test/features/shell/client_shell_top_bar_test.dart.
+      expect(find.byKey(const Key('search_bell_button')), findsNothing);
 
       // 1. pill search field.
       expect(find.byKey(const Key('search_query_field')), findsOneWidget);
@@ -476,28 +476,31 @@ void main() {
     );
   });
 
-  // ── Top bar: the burger is OMITTED on Пошук (settings hub is redundant) ─────
+  // ── Top bar is shell-owned (2026-06-24 wordmark-jump hoist) ─────────────────
   //
-  // ClientTopBar's burger is now optional and ClientSearchScreen no longer passes
-  // onBurger → no burger renders. The bell stays. The old screen passed
-  // `btn-menu-search`, so its absence is the regression pin here.
-  group('ClientSearchScreen — top bar burger omitted', () {
-    testWidgets('no burger button (btn-menu-search) — bell still renders', (
-      tester,
-    ) async {
-      await _pumpScreen(tester);
-      await tester.pumpAndSettle();
+  // ClientSearchScreen no longer builds a ClientTopBar — ClientShell mounts it
+  // ONCE above the branch body, and on the Пошук branch the shell config omits
+  // the burger (the settings hub it opens reads as redundant on a filter
+  // surface). The burger-omission + bell-presence config is now pinned through
+  // the real shell in test/features/shell/client_shell_top_bar_test.dart. Here
+  // we only assert the screen pumped in isolation carries NO bar at all.
+  group(
+    'ClientSearchScreen — top bar is shell-owned (absent in isolation)',
+    () {
+      testWidgets('no bar widgets render when the screen is pumped alone', (
+        tester,
+      ) async {
+        await _pumpScreen(tester);
+        await tester.pumpAndSettle();
 
-      // The bell remains the last trailing top-bar element.
-      expect(find.byKey(const Key('search_bell_button')), findsOneWidget);
-      // The burger key the screen used to pass is gone — no burger on Пошук.
-      expect(find.byKey(const Key('btn-menu-search')), findsNothing);
-      // Defensive: the burger glyph (the menu-burger NeumorphicIconButton) is not
-      // laid out either. The bell is a BellButton (AppIcon), not a
-      // NeumorphicIconButton, so a zero count proves no burger renders.
-      expect(find.byType(NeumorphicIconButton), findsNothing);
-    });
-  });
+        // No bell (it lives in the shell), no burger of any key, and the burger
+        // glyph widget (NeumorphicIconButton) is absent from the screen body.
+        expect(find.byKey(const Key('search_bell_button')), findsNothing);
+        expect(find.byKey(const Key('btn-menu-search')), findsNothing);
+        expect(find.byType(NeumorphicIconButton), findsNothing);
+      });
+    },
+  );
 
   group('ClientSearchScreen — category rail (loading/error/empty)', () {
     testWidgets('LOADING → skeleton, no rail and no retry', (tester) async {
