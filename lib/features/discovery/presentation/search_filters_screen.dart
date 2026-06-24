@@ -29,6 +29,7 @@
 // backend data (city / category names) and numeric prices.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -810,12 +811,30 @@ class _GridEmpty extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Вартість послуги — single-thumb price slider + readout + end labels.
+// Вартість послуги — two-thumb price range slider + live readout + axis labels
+// + paired MIN/MAX numeric input fields.
+//
+// The RangeSlider, the readout, and the two text fields are bidirectionally
+// synced through [SearchFiltersController]: a drag writes both bounds atomically
+// via `setPriceRange`, a field edit writes its bound via `setMinPrice` /
+// `setMaxPrice`, and the controller is the single source of truth that flows
+// back into the slider thumbs and (guarded against cursor jumps) the field text.
+//
+// Semantics carried over from the controller:
+//   • minPrice == null  → no lower bound (left thumb at 0,    empty MIN field)
+//   • maxPrice == null  → no upper bound (right thumb at ceil, empty MAX field)
+//   • the controller enforces min <= max, so the UI can never emit a 400-able
+//     inverted pair.
 // ---------------------------------------------------------------------------
 
-class _PriceSection extends ConsumerWidget {
+class _PriceSection extends ConsumerStatefulWidget {
   const _PriceSection();
 
+  @override
+  ConsumerState<_PriceSection> createState() => _PriceSectionState();
+}
+
+class _PriceSectionState extends ConsumerState<_PriceSection> {
   static final TextStyle _readoutStyle = VelvetText.bodyStrong().copyWith(
     fontSize: 14,
     color: BrandColors.accentDeep,
@@ -825,19 +844,100 @@ class _PriceSection extends ConsumerWidget {
     color: BrandColors.muted,
   );
 
+  // Digits-only + cap length at 4 chars (max meaningful value is the 5000
+  // ceiling; the controller clamps the parsed value to the ceiling anyway).
+  static final List<TextInputFormatter> _priceFormatters = <TextInputFormatter>[
+    FilteringTextInputFormatter.digitsOnly,
+    LengthLimitingTextInputFormatter(4),
+  ];
+
+  final TextEditingController _minController = TextEditingController();
+  final TextEditingController _maxController = TextEditingController();
+
+  // Guards the controller→field write so we never stomp the user's caret while
+  // they are actively editing a field (and never recurse field→controller→field).
+  bool _syncingFromState = false;
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void initState() {
+    super.initState();
+    // Hydrate the fields from any surviving (keepAlive) price selection so a
+    // back-nav from results shows the previously entered bounds.
+    final SearchFilters filters = ref.read(searchFiltersControllerProvider);
+    _minController.text = _format(filters.minPrice);
+    _maxController.text = _format(filters.maxPrice);
+  }
+
+  @override
+  void dispose() {
+    _minController.dispose();
+    _maxController.dispose();
+    super.dispose();
+  }
+
+  /// Renders a bound as field text — null (no bound) becomes an empty field.
+  static String _format(double? value) =>
+      value == null ? '' : value.round().toString();
+
+  /// Reflects the authoritative controller bounds back into the field text,
+  /// but ONLY when the value actually differs from what the field already shows
+  /// (so typing "30" never gets rewritten to "30" mid-keystroke, and the caret
+  /// is preserved). Wrapped in [_syncingFromState] so the resulting programmatic
+  /// edit does not loop back through the onChanged handlers.
+  void _syncFieldsFromState(double? minPrice, double? maxPrice) {
+    final String minText = _format(minPrice);
+    final String maxText = _format(maxPrice);
+    if (_minController.text == minText && _maxController.text == maxText) {
+      return;
+    }
+    _syncingFromState = true;
+    if (_minController.text != minText) _minController.text = minText;
+    if (_maxController.text != maxText) _maxController.text = maxText;
+    _syncingFromState = false;
+  }
+
+  void _onMinChanged(String raw) {
+    if (_syncingFromState) return;
+    final double? parsed = raw.isEmpty ? null : double.tryParse(raw);
+    ref.read(searchFiltersControllerProvider.notifier).setMinPrice(parsed);
+  }
+
+  void _onMaxChanged(String raw) {
+    if (_syncingFromState) return;
+    final double? parsed = raw.isEmpty ? null : double.tryParse(raw);
+    ref.read(searchFiltersControllerProvider.notifier).setMaxPrice(parsed);
+  }
+
+  void _onRangeChanged(RangeValues values) {
+    ref
+        .read(searchFiltersControllerProvider.notifier)
+        .setPriceRange(min: values.start, max: values.end);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    // Watch only the price-ceiling slice — so a slider drag rebuilds ONLY this
-    // section, not the category grid or city row.
-    final double? maxPrice = ref.watch(
-      searchFiltersControllerProvider.select((SearchFilters f) => f.maxPrice),
+    // Watch only the price slice — so a slider drag / field edit rebuilds ONLY
+    // this section, not the category grid or city row.
+    final ({double? min, double? max}) price = ref.watch(
+      searchFiltersControllerProvider.select(
+        (SearchFilters f) => (min: f.minPrice, max: f.maxPrice),
+      ),
     );
-    // null maxPrice → "будь-яка" → slider sits at the ceiling.
-    final double sliderValue = maxPrice ?? kSearchPriceCeiling;
-    final String readout = maxPrice == null
-        ? l10n.searchPriceAny
-        : l10n.searchPriceUpTo(maxPrice.round());
+    final double? minPrice = price.min;
+    final double? maxPrice = price.max;
+
+    // null bounds map to the rail extremes: left thumb at 0, right at ceiling.
+    final RangeValues sliderValues = RangeValues(
+      minPrice ?? 0,
+      maxPrice ?? kSearchPriceCeiling,
+    );
+
+    final String readout = _readoutText(l10n, minPrice, maxPrice);
+
+    // Push the authoritative bounds into the fields after this frame's build,
+    // so a slider drag updates the MIN/MAX text (without fighting the caret).
+    _syncFieldsFromState(minPrice, maxPrice);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -846,10 +946,15 @@ class _PriceSection extends ConsumerWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: <Widget>[
             _SectionLabel(text: l10n.searchPriceLabel),
-            Text(
-              readout,
-              key: const Key('search_price_readout'),
-              style: _readoutStyle,
+            Flexible(
+              child: Text(
+                readout,
+                key: const Key('search_price_readout'),
+                textAlign: TextAlign.end,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _readoutStyle,
+              ),
             ),
           ],
         ),
@@ -861,17 +966,17 @@ class _PriceSection extends ConsumerWidget {
             inactiveTrackColor: BrandColors.shadowDarkCard,
             thumbColor: BrandColors.accentDeep,
             overlayColor: BrandColors.accent.withValues(alpha: 0.16),
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 11),
+            rangeThumbShape: const RoundRangeSliderThumbShape(
+              enabledThumbRadius: 11,
+            ),
           ),
-          child: Slider(
+          child: RangeSlider(
             key: const Key('search_price_slider'),
-            value: sliderValue,
+            values: sliderValues,
             min: 0,
             max: kSearchPriceCeiling,
             divisions: kSearchPriceDivisions,
-            onChanged: (double v) => ref
-                .read(searchFiltersControllerProvider.notifier)
-                .setMaxPrice(v),
+            onChanged: _onRangeChanged,
           ),
         ),
         Padding(
@@ -882,6 +987,135 @@ class _PriceSection extends ConsumerWidget {
               Text(l10n.searchPriceMin, style: _endLabelStyle),
               Text(l10n.searchPriceMax, style: _endLabelStyle),
             ],
+          ),
+        ),
+        const SizedBox(height: VelvetSpacing.md),
+        // Paired MIN / MAX numeric wells — two labelled fields split evenly.
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Expanded(
+              child: _PriceField(
+                fieldKey: const Key('search_price_min_field'),
+                label: l10n.searchPriceMinFieldLabel,
+                hintText: l10n.searchPriceMinFieldHint,
+                suffix: l10n.searchPriceCurrencySuffix,
+                controller: _minController,
+                formatters: _priceFormatters,
+                onChanged: _onMinChanged,
+              ),
+            ),
+            const SizedBox(width: VelvetSpacing.md),
+            Expanded(
+              child: _PriceField(
+                fieldKey: const Key('search_price_max_field'),
+                label: l10n.searchPriceMaxFieldLabel,
+                hintText: l10n.searchPriceMaxFieldHint,
+                suffix: l10n.searchPriceCurrencySuffix,
+                controller: _maxController,
+                formatters: _priceFormatters,
+                onChanged: _onMaxChanged,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Builds the live price readout from the current bounds:
+  ///   both set   → «від X до Y грн»
+  ///   max only   → «до Y грн»
+  ///   min only   → «від X грн»
+  ///   neither    → «будь-яка»
+  String _readoutText(
+    AppLocalizations l10n,
+    double? minPrice,
+    double? maxPrice,
+  ) {
+    if (minPrice != null && maxPrice != null) {
+      return l10n.searchPriceRange(minPrice.round(), maxPrice.round());
+    }
+    if (maxPrice != null) {
+      return l10n.searchPriceUpTo(maxPrice.round());
+    }
+    if (minPrice != null) {
+      return l10n.searchPriceFrom(minPrice.round());
+    }
+    return l10n.searchPriceAny;
+  }
+}
+
+/// One compact numeric price well (the MIN or MAX field). A labelled recessed
+/// inset that reuses the screen's existing field chrome, with an inline «грн»
+/// suffix so it reads as a unit rather than a bare number.
+class _PriceField extends StatelessWidget {
+  const _PriceField({
+    required this.fieldKey,
+    required this.label,
+    required this.hintText,
+    required this.suffix,
+    required this.controller,
+    required this.formatters,
+    required this.onChanged,
+  });
+
+  final Key fieldKey;
+  final String label;
+  final String hintText;
+  final String suffix;
+  final TextEditingController controller;
+  final List<TextInputFormatter> formatters;
+  final ValueChanged<String> onChanged;
+
+  static final TextStyle _hintStyle = VelvetText.input().copyWith(
+    color: BrandColors.placeholder,
+    fontWeight: FontWeight.w600,
+  );
+  static final TextStyle _suffixStyle = VelvetText.input().copyWith(
+    color: BrandColors.muted,
+    fontWeight: FontWeight.w600,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(left: 6),
+          child: Text(label, style: VelvetText.label()),
+        ),
+        const SizedBox(height: VelvetSpacing.sm),
+        NeumorphicInset(
+          child: SizedBox(
+            height: VelvetSizes.field,
+            child: Row(
+              children: <Widget>[
+                const SizedBox(width: VelvetSpacing.md),
+                Expanded(
+                  child: TextField(
+                    key: fieldKey,
+                    controller: controller,
+                    onChanged: onChanged,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.done,
+                    inputFormatters: formatters,
+                    style: VelvetText.input(),
+                    cursorColor: BrandColors.accent,
+                    decoration: InputDecoration(
+                      isCollapsed: true,
+                      border: InputBorder.none,
+                      hintText: hintText,
+                      hintStyle: _hintStyle,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: VelvetSpacing.xs),
+                Text(suffix, style: _suffixStyle),
+                const SizedBox(width: VelvetSpacing.md),
+              ],
+            ),
           ),
         ),
       ],

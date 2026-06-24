@@ -485,8 +485,8 @@ void main() {
     });
   });
 
-  group('ClientSearchScreen — price slider', () {
-    testWidgets('dragging the slider updates the readout and maxPrice', (
+  group('ClientSearchScreen — price range', () {
+    testWidgets('entering a MAX value updates the readout and maxPrice', (
       tester,
     ) async {
       await _pumpScreen(tester);
@@ -496,10 +496,15 @@ void main() {
         tester.element(find.byType(ClientSearchScreen)),
       );
 
-      // Drag the thumb left from the ceiling — must produce a finite maxPrice
-      // strictly below kSearchPriceCeiling (and the readout leaves "будь-яка").
-      final Finder slider = find.byKey(const Key('search_price_slider'));
-      await tester.drag(slider, const Offset(-200, 0));
+      // The price line is now a two-thumb RangeSlider (key search_price_slider)
+      // bidirectionally synced with the MIN/MAX numeric fields. Driving the MAX
+      // field is the deterministic way to set a finite upper bound (a raw drag
+      // on a RangeSlider is ambiguous between its two thumbs). The controller
+      // keeps the upper bound below the ceiling and leaves "будь-яка".
+      await tester.enterText(
+        find.byKey(const Key('search_price_max_field')),
+        '800',
+      );
       await tester.pumpAndSettle();
 
       final double? maxPrice = container()
@@ -507,13 +512,49 @@ void main() {
           .maxPrice;
       expect(maxPrice, isNotNull);
       expect(maxPrice, lessThan(kSearchPriceCeiling));
+      expect(maxPrice, 800);
 
+      // With no lower bound, the four-state readout collapses to «до Y грн».
       final AppLocalizations l10n = await _uk();
       final Text readout = tester.widget<Text>(
         find.byKey(const Key('search_price_readout')),
       );
       expect(readout.data, isNot(l10n.searchPriceAny));
       expect(readout.data, l10n.searchPriceUpTo(maxPrice!.round()));
+    });
+
+    testWidgets('entering MIN + MAX shows the «від X до Y грн» range readout', (
+      tester,
+    ) async {
+      await _pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      ProviderContainer container() => ProviderScope.containerOf(
+        tester.element(find.byType(ClientSearchScreen)),
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('search_price_min_field')),
+        '300',
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('search_price_max_field')),
+        '900',
+      );
+      await tester.pumpAndSettle();
+
+      final SearchFilters filters = container().read(
+        searchFiltersControllerProvider,
+      );
+      expect(filters.minPrice, 300);
+      expect(filters.maxPrice, 900);
+
+      final AppLocalizations l10n = await _uk();
+      final Text readout = tester.widget<Text>(
+        find.byKey(const Key('search_price_readout')),
+      );
+      expect(readout.data, l10n.searchPriceRange(300, 900));
     });
   });
 
@@ -524,12 +565,14 @@ void main() {
       await _pumpScreen(tester, withRouter: true);
       await tester.pumpAndSettle();
 
-      // Assemble a filter set: pick a category + drag price.
+      // Assemble a filter set: pick a category + set a price ceiling via the
+      // MAX field (the price line is now a two-thumb RangeSlider synced with the
+      // MIN/MAX wells — a field entry is the deterministic way to set a bound).
       await tester.tap(find.byKey(const Key('search_service_type_BROWS')));
       await tester.pumpAndSettle();
-      await tester.drag(
-        find.byKey(const Key('search_price_slider')),
-        const Offset(-150, 0),
+      await tester.enterText(
+        find.byKey(const Key('search_price_max_field')),
+        '750',
       );
       await tester.pumpAndSettle();
 
@@ -547,6 +590,7 @@ void main() {
       expect(_pushedFilters, isNotNull);
       expect(_pushedFilters!.categoryKey, 'BROWS');
       expect(_pushedFilters!.maxPrice, isNotNull);
+      expect(_pushedFilters!.maxPrice, 750);
       expect(_pushedFilters!.maxPrice, lessThan(kSearchPriceCeiling));
     });
   });

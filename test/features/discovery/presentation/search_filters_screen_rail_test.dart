@@ -376,8 +376,9 @@ void main() {
       // controllers rebuild and could otherwise re-enter a seamless loading
       // state (Riverpod 3.x seamless-invalidate), masking the error branch.
       for (var i = 0; i < 6; i++) {
-        if (find.text(l10n.searchServicesLoadError).evaluate().isNotEmpty)
+        if (find.text(l10n.searchServicesLoadError).evaluate().isNotEmpty) {
           break;
+        }
         await tester.pump(const Duration(milliseconds: 50));
       }
 

@@ -2955,6 +2955,50 @@
   "@searchPriceMax": {
     "description": "Right end label under the price slider (ceiling and above)."
   },
+  "searchPriceFrom": "from {price} UAH",
+  "@searchPriceFrom": {
+    "description": "Price readout fragment for the lower bound when only a minimum is set (no upper bound).",
+    "placeholders": {
+      "price": {
+        "type": "int",
+        "example": "300"
+      }
+    }
+  },
+  "searchPriceRange": "from {min} to {max} UAH",
+  "@searchPriceRange": {
+    "description": "Price readout when both a minimum and a maximum bound are set.",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "300"
+      },
+      "max": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "searchPriceMinFieldLabel": "From",
+  "@searchPriceMinFieldLabel": {
+    "description": "Caption above the minimum-price numeric input field."
+  },
+  "searchPriceMaxFieldLabel": "To",
+  "@searchPriceMaxFieldLabel": {
+    "description": "Caption above the maximum-price numeric input field."
+  },
+  "searchPriceMinFieldHint": "0",
+  "@searchPriceMinFieldHint": {
+    "description": "Placeholder hint inside the minimum-price numeric input field (no lower bound)."
+  },
+  "searchPriceMaxFieldHint": "5000",
+  "@searchPriceMaxFieldHint": {
+    "description": "Placeholder hint inside the maximum-price numeric input field (no upper bound)."
+  },
+  "searchPriceCurrencySuffix": "UAH",
+  "@searchPriceCurrencySuffix": {
+    "description": "Inline currency suffix (UAH) shown inside the min/max price input fields."
+  },
   "searchCtaShowMasters": "Show masters",
   "@searchCtaShowMasters": {
     "description": "Primary CTA on the Пошук screen — runs the search and opens the results screen."

@@ -142,16 +142,74 @@ class SearchFiltersController extends _$SearchFiltersController {
     );
   }
 
-  /// Sets the price ceiling from the single-thumb slider.
+  /// Sets the upper price bound (the MAX field / right slider thumb).
   ///
-  /// A value at/above [kSearchPriceCeiling] means "будь-яка" (no upper bound) —
-  /// [SearchFilters.maxPrice] is cleared. [SearchFilters.minPrice] is never set
-  /// by this single-thumb control (it stays null). Pass null to clear directly.
+  /// A value at/above [kSearchPriceCeiling] (or null) means "будь-яка" (no upper
+  /// bound) — [SearchFilters.maxPrice] is cleared. Otherwise the value is clamped
+  /// to `[0, kSearchPriceCeiling]`.
+  ///
+  /// `min <= max` is enforced at this boundary: lowering the ceiling below the
+  /// current lower bound pulls the lower bound down with it, so the UI can never
+  /// emit an inverted pair the backend would reject with a 400.
   void setMaxPrice(double? maxPrice) {
-    final double? next = (maxPrice == null || maxPrice >= kSearchPriceCeiling)
+    final double? nextMax =
+        (maxPrice == null || maxPrice >= kSearchPriceCeiling)
         ? null
-        : maxPrice;
-    state = state.copyWith(maxPrice: next);
+        : maxPrice.clamp(0.0, kSearchPriceCeiling);
+
+    // Pull the lower bound down if the new ceiling drops below it (only possible
+    // when a finite ceiling is set; a cleared ceiling is "no upper bound").
+    double? nextMin = state.minPrice;
+    if (nextMax != null && nextMin != null && nextMin > nextMax) {
+      nextMin = nextMax;
+    }
+
+    state = state.copyWith(minPrice: nextMin, maxPrice: nextMax);
+  }
+
+  /// Sets the lower price bound (the MIN field / left slider thumb).
+  ///
+  /// A value `<= 0` (or null) means "no lower bound" — [SearchFilters.minPrice]
+  /// is cleared. Otherwise the value is clamped to `[0, kSearchPriceCeiling]`.
+  ///
+  /// `min <= max` is enforced at this boundary: raising the floor above the
+  /// current ceiling pushes the ceiling up with it, so the pair stays valid.
+  void setMinPrice(double? minPrice) {
+    final double? nextMin = (minPrice == null || minPrice <= 0)
+        ? null
+        : minPrice.clamp(0.0, kSearchPriceCeiling);
+
+    // Push the ceiling up if the new floor rises above it. A null ceiling means
+    // "no upper bound" (already >= any floor), so it needs no adjustment.
+    double? nextMax = state.maxPrice;
+    if (nextMin != null && nextMax != null && nextMin > nextMax) {
+      nextMax = nextMin >= kSearchPriceCeiling ? null : nextMin;
+    }
+
+    state = state.copyWith(minPrice: nextMin, maxPrice: nextMax);
+  }
+
+  /// Sets both price bounds atomically from a single range-slider drag.
+  ///
+  /// Applies the same clear/clamp semantics as [setMinPrice] / [setMaxPrice]
+  /// (min `<= 0` → cleared, max `>= kSearchPriceCeiling` → cleared) and enforces
+  /// `min <= max` in one pass so a drag can never momentarily emit an inverted
+  /// pair. When both resolve to finite values with `min > max`, they are
+  /// coalesced to the lower of the two.
+  void setPriceRange({double? min, double? max}) {
+    double? nextMin = (min == null || min <= 0)
+        ? null
+        : min.clamp(0.0, kSearchPriceCeiling);
+    double? nextMax = (max == null || max >= kSearchPriceCeiling)
+        ? null
+        : max.clamp(0.0, kSearchPriceCeiling);
+
+    if (nextMin != null && nextMax != null && nextMin > nextMax) {
+      // Inverted finite pair — collapse to the lower value.
+      nextMin = nextMax;
+    }
+
+    state = state.copyWith(minPrice: nextMin, maxPrice: nextMax);
   }
 
   /// Clears every filter back to an empty [SearchFilters].
