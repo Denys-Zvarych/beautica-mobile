@@ -21,7 +21,6 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 import 'widgets/client_bottom_nav.dart';
@@ -259,57 +258,6 @@ class ClientSearchPlaceholderScreen extends StatelessWidget {
         BeauticaAssetIcons.searchFilled,
         size: 40,
         color: BrandColors.accentDeep,
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Пошук results — Phase 13.x. Pushed from ClientSearchScreen's CTA with the
-// assembled [SearchFilters] in `extra`. The real paged results list ships in a
-// later 13.x phase; this placeholder confirms the filters arrived (and renders
-// a back-navigable scaffold so the swipe-back returns to the still-populated
-// filters).
-// ---------------------------------------------------------------------------
-class ClientSearchResultsPlaceholderScreen extends StatelessWidget {
-  const ClientSearchResultsPlaceholderScreen({super.key, this.filters});
-
-  /// The filter set forwarded from the Пошук screen, or null if reached
-  /// directly (e.g. a deep link) without `extra`.
-  final SearchFilters? filters;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Scaffold(
-      key: const Key('client-search-results'),
-      backgroundColor: BrandColors.base,
-      appBar: AppBar(
-        backgroundColor: BrandColors.base,
-        foregroundColor: BrandColors.text,
-        elevation: 0,
-        title: Text(l10n.searchResultsTitle, style: VelvetText.heading()),
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 320),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(
-                Icons.search_rounded,
-                size: 48,
-                color: BrandColors.accent,
-              ),
-              const SizedBox(height: VelvetSpacing.md),
-              Text(
-                l10n.searchResultsComingSoon,
-                textAlign: TextAlign.center,
-                style: VelvetText.body(),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

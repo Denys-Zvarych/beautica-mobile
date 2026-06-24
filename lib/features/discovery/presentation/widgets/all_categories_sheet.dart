@@ -62,8 +62,10 @@ Future<ServiceCategoryOption?> showAllCategoriesSheet(
                 ),
               ),
               const SizedBox(height: VelvetSpacing.md),
-              Text(l10n.searchAllCategoriesSheetTitle,
-                  style: VelvetText.heading()),
+              Text(
+                l10n.searchAllCategoriesSheetTitle,
+                style: VelvetText.heading(),
+              ),
               const SizedBox(height: VelvetSpacing.xs),
               Text(
                 l10n.searchAllCategoriesSheetSubtitle,

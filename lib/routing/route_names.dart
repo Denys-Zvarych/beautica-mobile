@@ -69,6 +69,16 @@ abstract final class RouteNames {
   /// received [SearchFilters].
   static const String clientSearchResults = '/search/results';
 
+  /// Phase 13.5 — public master profile, opened from a master result card tap.
+  /// The screen itself ships in Phase 13.5; until then the route may not be
+  /// registered, but the path constant is the single source of truth for the
+  /// card's nav target. Pushed onto the search branch navigator.
+  static String masterPublicProfile(String masterId) => '/masters/$masterId';
+
+  /// Phase 13.6 — public salon profile, opened from a salon result card tap.
+  /// Same lifecycle note as [masterPublicProfile].
+  static String salonPublicProfile(String salonId) => '/salons/$salonId';
+
   // CLIENT settings hub + per-section edit pages. Pushed from the home-hub
   // burger icon (mirrors the master `/master/menu` + `/master/edit/*` block).
   // The three edit pages all PATCH /users/me via ClientProfileRepository,

@@ -38,8 +38,8 @@
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
+import 'package:beautica_mobile/features/discovery/presentation/search_results_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/service_chip_drawer.dart';
-import 'package:beautica_mobile/features/shell/presentation/branch_placeholders.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -66,13 +66,12 @@ void main() {
     );
   }
 
-  /// Reads the SearchFilters the results placeholder received via `extra`.
+  /// Reads the SearchFilters the results screen received via `extra`.
   SearchFilters? receivedFilters(WidgetTester tester) {
-    final ClientSearchResultsPlaceholderScreen results = tester
-        .widget<ClientSearchResultsPlaceholderScreen>(
-          find.byType(ClientSearchResultsPlaceholderScreen),
-        );
-    return results.filters;
+    final SearchResultsScreen results = tester.widget<SearchResultsScreen>(
+      find.byType(SearchResultsScreen),
+    );
+    return results.initialFilters;
   }
 
   testWidgets(
@@ -212,4 +211,96 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 90)),
   );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 13.4 — E2E: results render REAL cards → favorite POST → loadMore.
+  //
+  // The first flow stops at the /search/results handoff. THIS flow continues
+  // into the live results screen: with /search/masters + /search/salons now
+  // wired in the fake backend, the family-keyed SearchResultsNotifier fires
+  // BOTH endpoints, merges (masters-first), and renders real cards. Then it taps
+  // the master heart (drives the optimistic toggle → POST /favorites) and
+  // scrolls to fetch page 1 (loadMore → second master appended).
+  //
+  // Step 2.7 Rule 3b: this is the real user journey (screen + navigation +
+  // provider→repository + API contract + favorites write) the widget tier
+  // cannot prove end to end.
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets('CLIENT search results render real cards, tapping a heart POSTs a '
+      'favorite, and scrolling appends page 2', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    // ── Reach the search screen + submit with no filters (browse all) ───────
+    await tester.tap(find.byKey(const Key('client-nav-search-center')));
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    expectLocation(router, RouteNames.clientSearchResults);
+    expect(find.byKey(const Key('client-search-results')), findsOneWidget);
+
+    // ── Page 0 fetched BOTH endpoints and rendered the merged cards ─────────
+    expect(find.byKey(const Key('results_list')), findsOneWidget);
+    expect(
+      fb.searchMastersCalls,
+      greaterThanOrEqualTo(1),
+      reason: 'the results screen must query /search/masters',
+    );
+    expect(
+      fb.searchSalonsCalls,
+      greaterThanOrEqualTo(1),
+      reason: 'the results screen must query /search/salons',
+    );
+    // The seeded page-0 master + salon both rendered (key = backend id).
+    expect(find.byKey(const Key('favorite_master_master-aaa')), findsOneWidget);
+    expect(find.byKey(const Key('favorite_salon_salon-xyz')), findsOneWidget);
+    // Master price «від N грн» + salon price RANGE are the documented gaps.
+    expect(find.text('від 450 грн'), findsOneWidget);
+
+    // ── Tap the master heart → optimistic flip → POST /favorites ────────────
+    expect(fb.addFavoriteCalls, 0);
+    await tester.tap(find.byKey(const Key('favorite_master_master-aaa')));
+    await tester.pumpAndSettle();
+
+    expect(
+      fb.addFavoriteCalls,
+      1,
+      reason: 'tapping an empty heart must POST exactly one favorite',
+    );
+    expect(fb.lastAddFavoriteBody?['targetType'], 'MASTER');
+    expect(fb.lastAddFavoriteBody?['targetId'], 'master-aaa');
+
+    // ── Scroll to the end → loadMore fetches page 1 (second master) ─────────
+    final ScrollableState scrollable = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byKey(const Key('results_list')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+    // loadMore fires, fetches the (fast, in-memory) last master page, and the
+    // trailing spinner is removed once BOTH endpoints are spent — so the tree
+    // settles. A settle is safe here precisely because the seeded fake leaves no
+    // page pending (the integration binding forbids the pump(Duration) idiom the
+    // widget tier uses for the mid-flight spinner case).
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    expect(
+      fb.lastSearchMastersPage,
+      1,
+      reason: 'scrolling to the end must request the next masters page',
+    );
+    // The second page's master row is now in the model; jump again to surface
+    // the lazily-built card and assert it rendered.
+    scrollable.position.jumpTo(scrollable.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('favorite_master_master-bbb')), findsOneWidget);
+
+    // The CLIENT results journey still never touched GET /masters/me.
+    expect(fb.getMasterCalls, 0);
+  }, timeout: const Timeout(Duration(seconds: 90)));
 }

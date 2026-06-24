@@ -462,6 +462,24 @@ final class FakeBackend {
   /// Number of `POST /api/v1/support/contact` calls the fake accepted (202).
   int supportContactCalls = 0;
 
+  // ── Discovery search telemetry (Phase 13.4) ───────────────────────────────
+  /// `GET /api/v1/search/masters` call count + the last `page` requested.
+  int searchMastersCalls = 0;
+  int? lastSearchMastersPage;
+
+  /// `GET /api/v1/search/salons` call count + the last `page` requested.
+  int searchSalonsCalls = 0;
+  int? lastSearchSalonsPage;
+
+  // ── Favorites telemetry (Phase 13.4) ──────────────────────────────────────
+  /// `POST /api/v1/favorites` (add) call count + the most recent body.
+  int addFavoriteCalls = 0;
+  Map<String, dynamic>? lastAddFavoriteBody;
+
+  /// `DELETE /api/v1/favorites` (remove) call count + the most recent query.
+  int removeFavoriteCalls = 0;
+  Map<String, dynamic>? lastRemoveFavoriteQuery;
+
   // ── Override telemetry (Phase 15.8) ───────────────────────────────────────
   int putOverrideCalls = 0;
 
@@ -490,6 +508,90 @@ final class FakeBackend {
     'buildingNo': clientBuildingNo,
     'locationNote': clientLocationNote,
   };
+
+  // ── Discovery search fixtures (Phase 13.4) ────────────────────────────────
+  //
+  // Two pages of master results + one page of salon results so the E2E can drive
+  // BOTH the first-page render AND a loadMore append. Shapes match the generated
+  // `MasterSearchResult` / `SalonSearchResult` DTOs (camelCase wire keys). The
+  // mapper rejects a null/empty id, so every row carries a non-empty id.
+  static const List<Map<String, dynamic>> _searchMastersPage0 =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'masterId': 'master-aaa',
+          'firstName': 'Софія',
+          'lastName': 'Бондар',
+          'cityLabel': 'Київ',
+          'districtLabel': 'Печерський',
+          'avgRating': 4.9,
+          'reviewCount': 24,
+          'avatarUrl': null,
+          'minEffectivePrice': 450,
+        },
+      ];
+
+  static const List<Map<String, dynamic>> _searchMastersPage1 =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'masterId': 'master-bbb',
+          'firstName': 'Ірина',
+          'lastName': 'Левчук',
+          'cityLabel': 'Київ',
+          'districtLabel': 'Шевченківський',
+          'avgRating': 0,
+          'reviewCount': 0,
+          'avatarUrl': null,
+          'minEffectivePrice': 700,
+        },
+      ];
+
+  static const List<Map<String, dynamic>> _searchSalonsPage0 =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'salonId': 'salon-xyz',
+          'name': 'Студія Краси «Камелія»',
+          'cityLabel': 'Київ',
+          'districtLabel': 'Печерський',
+          'avatarUrl': null,
+          'priceMin': 300,
+          'priceMax': 1200,
+        },
+      ];
+
+  /// Builds the `ApiResponse<PageResponse<…>>` envelope the generated client
+  /// deserializes: `{ success, data: { data: [...], page, size, totalElements,
+  /// totalPages }, message }`.
+  static Map<String, dynamic> _searchEnvelope(
+    List<Map<String, dynamic>> rows, {
+    required int page,
+    required int totalPages,
+    required int totalElements,
+  }) => <String, dynamic>{
+    'success': true,
+    'message': 'ok',
+    'data': <String, dynamic>{
+      'data': rows,
+      'page': page,
+      'size': 20,
+      'totalElements': totalElements,
+      'totalPages': totalPages,
+    },
+  };
+
+  /// Extracts the zero-based `page` from a `?request=<json>` search query param.
+  static int _pageFromRequest(Map<String, dynamic> query) {
+    final raw = query['request'];
+    if (raw is! String || raw.isEmpty) return 0;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map && decoded['page'] is int) {
+        return decoded['page'] as int;
+      }
+    } catch (_) {
+      // Non-JSON request param — fall back to page 0.
+    }
+    return 0;
+  }
 
   Map<String, dynamic> _masterDetailEnvelope() => _ok(<String, dynamic>{
     'masterId': 'user-master-1',
@@ -1063,6 +1165,97 @@ final class FakeBackend {
       '/api/v1/platform-categories',
       (server) => server.reply(200, _okList(const <dynamic>[])),
       request: const Request(method: RequestMethods.get),
+    );
+
+    // ── Discovery search (Phase 13.4) ─────────────────────────────────────────
+    //
+    // GET /api/v1/search/masters?request=<MasterSearchRequest json> — paged.
+    // The `request` query param carries the serialized request DTO (page nested
+    // inside it). Page 0 returns one master + signals a second page
+    // (totalPages=2); page 1 returns the second master (last page). This drives
+    // both the first-page render AND the loadMore append in the E2E.
+    _adapter.onRoute(
+      '/api/v1/search/masters',
+      (server) => server.replyCallback(200, (req) {
+        searchMastersCalls++;
+        final int page = _pageFromRequest(req.queryParameters);
+        lastSearchMastersPage = page;
+        if (page <= 0) {
+          return _searchEnvelope(
+            _searchMastersPage0,
+            page: 0,
+            totalPages: 2,
+            totalElements: 2,
+          );
+        }
+        return _searchEnvelope(
+          _searchMastersPage1,
+          page: page,
+          totalPages: 2,
+          totalElements: 2,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/search/salons?request=<SalonSearchRequest json> — single page.
+    _adapter.onRoute(
+      '/api/v1/search/salons',
+      (server) => server.replyCallback(200, (req) {
+        searchSalonsCalls++;
+        final int page = _pageFromRequest(req.queryParameters);
+        lastSearchSalonsPage = page;
+        // Salons have a single page: page 0 carries the row, any later page is
+        // empty (the notifier only re-requests salons while salonHasMore).
+        if (page <= 0) {
+          return _searchEnvelope(
+            _searchSalonsPage0,
+            page: 0,
+            totalPages: 1,
+            totalElements: 1,
+          );
+        }
+        return _searchEnvelope(
+          const <Map<String, dynamic>>[],
+          page: page,
+          totalPages: 1,
+          totalElements: 1,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // ── Favorites (Phase 13.4) ────────────────────────────────────────────────
+    //
+    // POST /api/v1/favorites — add (idempotent 200). Returns a FavoriteResponse
+    // envelope so the generated addFavorite() deserializes cleanly.
+    _adapter.onRoute(
+      '/api/v1/favorites',
+      (server) => server.replyCallback(200, (req) {
+        addFavoriteCalls++;
+        final body = _decodeBody(req.data);
+        lastAddFavoriteBody = body;
+        return _ok(<String, dynamic>{
+          'id': 'fav-1',
+          'targetType': body['targetType'] ?? 'MASTER',
+          'targetId': body['targetId'] ?? '',
+          'createdAt': '2026-06-14T12:00:00Z',
+        });
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // DELETE /api/v1/favorites?targetType&targetId — remove (idempotent 204).
+    _adapter.onRoute(
+      '/api/v1/favorites',
+      (server) => server.replyCallback(204, (req) {
+        removeFavoriteCalls++;
+        lastRemoveFavoriteQuery = Map<String, dynamic>.from(
+          req.queryParameters,
+        );
+        return null;
+      }),
+      request: const Request(method: RequestMethods.delete),
     );
   }
 

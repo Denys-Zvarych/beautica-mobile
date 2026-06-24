@@ -3010,5 +3010,79 @@
   "searchResultsComingSoon": "The list of masters will appear here soon.",
   "@searchResultsComingSoon": {
     "description": "Placeholder copy on the discovery results screen until the real paged list ships."
+  },
+  "searchResultsBack": "Back",
+  "@searchResultsBack": {
+    "description": "Accessibility label for the back button on the discovery results screen (returns to the filters screen)."
+  },
+  "searchResultsOpenFilters": "Edit filters",
+  "@searchResultsOpenFilters": {
+    "description": "Accessibility label for the filter icon in the results screen top bar — re-opens the search filter controls."
+  },
+  "searchResultsEmptyTitle": "Nothing found",
+  "@searchResultsEmptyTitle": {
+    "description": "Title of the empty state on the discovery results screen when no master or salon matches the filters."
+  },
+  "searchResultsEmptyBody": "Try changing the city, category or price range.",
+  "@searchResultsEmptyBody": {
+    "description": "Supporting copy under the empty-state title on the results screen."
+  },
+  "searchResultsEditFilters": "Edit filters",
+  "@searchResultsEditFilters": {
+    "description": "Button on the empty results state that re-opens the search filter controls."
+  },
+  "searchResultPriceRange": "{min}–{max} UAH",
+  "@searchResultPriceRange": {
+    "description": "Price range shown on a salon result card (lower–upper bound).",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "400"
+      },
+      "max": {
+        "type": "int",
+        "example": "1200"
+      }
+    }
+  },
+  "searchResultReviewCount": "{count, plural, =1{({count} review)} other{({count} reviews)}}",
+  "@searchResultReviewCount": {
+    "description": "Parenthesised review count beside a master card's star rating.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "128"
+      }
+    }
+  },
+  "searchResultNoReviews": "No reviews",
+  "@searchResultNoReviews": {
+    "description": "Shown in place of the star rating on a master card that has no reviews yet."
+  },
+  "searchResultMasterFallbackName": "Master",
+  "@searchResultMasterFallbackName": {
+    "description": "Fallback name on a master result card when the backend sends neither first nor last name."
+  },
+  "searchResultSalonFallbackName": "Salon",
+  "@searchResultSalonFallbackName": {
+    "description": "Fallback name on a salon result card when the backend sends no salon name."
+  },
+  "searchResultClearFilter": "Clear filter {label}",
+  "@searchResultClearFilter": {
+    "description": "Accessibility label for the «×» on an applied-filter chip (clears that filter).",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Lviv"
+      }
+    }
+  },
+  "favoriteAddLabel": "Add to favourites",
+  "@favoriteAddLabel": {
+    "description": "Accessibility label for the favourite heart when the item is NOT yet favourited (tapping adds it)."
+  },
+  "favoriteRemoveLabel": "Remove from favourites",
+  "@favoriteRemoveLabel": {
+    "description": "Accessibility label for the favourite heart when the item IS favourited (tapping removes it)."
   }
 }

@@ -39,8 +39,9 @@ class CategoryRailTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color glyph =
-        selected ? BrandColors.accent : BrandColors.textSecondary;
+    final Color glyph = selected
+        ? BrandColors.accent
+        : BrandColors.textSecondary;
     final Widget inner = Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: VelvetSpacing.md,
