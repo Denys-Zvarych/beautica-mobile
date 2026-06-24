@@ -53,6 +53,13 @@ abstract final class MasterSearchMapper {
       throw const ServerFailure(statusCode: null);
     }
 
+    // Backend contract: serviceNames is always present ([] when none, ≤3
+    // entries, custom-preferred). The generated builtSet is defensively
+    // null-coalesced to const [] so a stale/omitting payload still yields a
+    // card with no service line rather than a crash.
+    final List<String> serviceNames =
+        dto.serviceNames?.toList(growable: false) ?? const <String>[];
+
     return MasterSearchItem(
       masterId: id,
       firstName: dto.firstName ?? '',
@@ -64,6 +71,13 @@ abstract final class MasterSearchMapper {
       cityLabel: dto.cityLabel,
       districtLabel: dto.districtLabel,
       minEffectivePrice: dto.minEffectivePrice?.toDouble(),
+      serviceNames: serviceNames,
+      // Pre-join the preview line ONCE here so the scrolling result list never
+      // re-runs join() per card build() (LOW perf fix). Null when empty → the
+      // card omits the line (no placeholder).
+      servicesLine: serviceNames.isEmpty
+          ? null
+          : serviceNames.join(kServiceNamesSeparator),
     );
   }
 }

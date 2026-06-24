@@ -17,6 +17,36 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 part 'search_filters.freezed.dart';
 
+/// Allow-listed sort orderings for the discovery endpoints.
+///
+/// Maps 1:1 onto the backend `SearchSort` enum
+/// (`com.beautica.search.dto.SearchSort`). The [wireValue] is the exact enum
+/// constant name the `?sort=` query param binds to — caller text never reaches
+/// an `ORDER BY` server-side (the enum binding is the injection control).
+///
+/// Salon side: the backend honours [priceAsc]/[priceDesc] as a price-band
+/// ordering but falls back to name order for [ratingDesc]/[reviewsDesc] (salons
+/// have no per-row rating/review column to sort on cheaply). The client sends
+/// the same enum regardless; the fallback is the backend's concern.
+enum SearchSort {
+  /// Highest average rating first. The default ordering.
+  ratingDesc('RATING_DESC'),
+
+  /// Cheapest effective price first.
+  priceAsc('PRICE_ASC'),
+
+  /// Most expensive effective price first.
+  priceDesc('PRICE_DESC'),
+
+  /// Most-reviewed first.
+  reviewsDesc('REVIEWS_DESC');
+
+  const SearchSort(this.wireValue);
+
+  /// The backend enum constant name this option binds to on the wire.
+  final String wireValue;
+}
+
 /// The discovery filter set built by the search UI.
 ///
 /// All fields are nullable — a null field means "no constraint" and is omitted
@@ -24,9 +54,10 @@ part 'search_filters.freezed.dart';
 @freezed
 abstract class SearchFilters with _$SearchFilters {
   const factory SearchFilters({
-    /// Free-text query. INERT in v1 — kept for forward-compatibility but NEVER
-    /// sent to the backend by the repository (the search endpoints expose no
-    /// free-text param yet). Wiring it is a future phase.
+    /// Free-text name / service query. Trimmed + forwarded to the backend `q`
+    /// param by the repository (empty/blank → omitted). The backend normalises a
+    /// `q` shorter than 3 characters to null (location-scoped results) — the
+    /// client sends it verbatim.
     String? query,
 
     /// Platform category key/slug to filter by (e.g. "HAIR"), or null for all.
@@ -47,6 +78,10 @@ abstract class SearchFilters with _$SearchFilters {
 
     /// Maximum price filter, or null for no upper bound.
     double? maxPrice,
+
+    /// Result ordering. Defaults to [SearchSort.ratingDesc] (the backend
+    /// default), so it is always forwarded — never null.
+    @Default(SearchSort.ratingDesc) SearchSort sort,
   }) = _SearchFilters;
 }
 

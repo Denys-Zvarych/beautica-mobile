@@ -70,6 +70,7 @@ MasterSearchItem _master(
   double? avgRating = 4.8,
   int? reviewCount = 12,
   double? minEffectivePrice = 600,
+  List<String> serviceNames = const <String>[],
 }) => MasterSearchItem(
   masterId: id,
   firstName: 'Марія',
@@ -80,6 +81,12 @@ MasterSearchItem _master(
   cityLabel: 'Львів',
   districtLabel: 'Центр',
   minEffectivePrice: minEffectivePrice,
+  serviceNames: serviceNames,
+  // Mirror the mapper: the card reads the pre-joined `servicesLine`, so derive
+  // it here from `serviceNames` instead of constructing it by hand.
+  servicesLine: serviceNames.isEmpty
+      ? null
+      : serviceNames.join(kServiceNamesSeparator),
 );
 
 SalonSearchItem _salon(
@@ -422,6 +429,195 @@ void main() {
       final l10n = _l10n(tester);
       expect(find.text(l10n.searchPriceFrom(0)), findsNothing);
       expect(find.byType(SalonResultCard), findsOneWidget);
+    });
+
+    // Item 4 — procedure-name preview line.
+
+    testWidgets('master card renders the joined serviceNames line', (
+      tester,
+    ) async {
+      final repo = _MockSearchRepository();
+      when(
+        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+      ).thenAnswer(
+        (_) async => _page<MasterSearchItem>([
+          _master('m1', serviceNames: const ['Манікюр', 'Педикюр']),
+        ]),
+      );
+      when(
+        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+      ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
+
+      await tester.pumpWidget(
+        _host(repo, favorites: _MockFavoriteRepository()),
+      );
+      await tester.pumpAndSettle();
+
+      // Assert the line's content via the keyed Text widget (never find.text on
+      // a Cyrillic literal — CI's forbid_cyrillic_finder gate forbids it).
+      final Text servicesLine = tester.widget<Text>(
+        find.byKey(const Key('master_card_services')),
+      );
+      expect(servicesLine.data, 'Манікюр · Педикюр');
+    });
+
+    testWidgets('master card omits the serviceNames line when empty', (
+      tester,
+    ) async {
+      final repo = _MockSearchRepository();
+      when(
+        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+      ).thenAnswer(
+        (_) async => _page<MasterSearchItem>([
+          _master('m1', serviceNames: const <String>[]),
+        ]),
+      );
+      when(
+        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+      ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
+
+      await tester.pumpWidget(
+        _host(repo, favorites: _MockFavoriteRepository()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MasterResultCard), findsOneWidget);
+      expect(find.byKey(const Key('master_card_services')), findsNothing);
+    });
+
+    testWidgets('the serviceNames line is overflow-safe (1 line, ellipsis)', (
+      tester,
+    ) async {
+      final repo = _MockSearchRepository();
+      when(
+        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+      ).thenAnswer(
+        (_) async => _page<MasterSearchItem>([
+          _master(
+            'm1',
+            serviceNames: const <String>[
+              'Дуже довга назва процедури манікюру',
+              'Корекція та зміцнення нігтьової пластини',
+              'Художній дизайн з нарощуванням',
+            ],
+          ),
+        ]),
+      );
+      when(
+        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+      ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
+
+      await tester.pumpWidget(
+        _host(repo, favorites: _MockFavoriteRepository()),
+      );
+      await tester.pumpAndSettle();
+
+      // The line renders, but it can NEVER wrap or overflow the card row — pin
+      // the maxLines:1 + ellipsis so a future restyle can't reintroduce a
+      // multi-line / overflowing services line. (The overflow guard in setUp
+      // would also fail the test on an actual RenderFlex overflow.)
+      final Text servicesLine = tester.widget<Text>(
+        find.byKey(const Key('master_card_services')),
+      );
+      expect(servicesLine.maxLines, 1);
+      expect(servicesLine.overflow, TextOverflow.ellipsis);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Item 5 — sort control
+  // -------------------------------------------------------------------------
+
+  group('sort control', () {
+    /// Hosts the screen with the keepAlive filters controller overridden by an
+    /// auth-free seeded double so `_setSort` can read `.notifier` without
+    /// touching the production auth-watch.
+    Widget hostWithSort(
+      _MockSearchRepository repo, {
+      SearchFilters seed = const SearchFilters(),
+    }) => _host(
+      repo,
+      favorites: _MockFavoriteRepository(),
+      filters: seed,
+      extraOverrides: <Object>[
+        searchFiltersControllerProvider.overrideWith(
+          () => _SeededFiltersController(seed),
+        ),
+      ],
+    );
+
+    testWidgets('the sort button shows the active sort label', (tester) async {
+      final repo = _MockSearchRepository();
+      when(
+        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+      ).thenAnswer((_) async => _page<MasterSearchItem>([_master('m1')]));
+      when(
+        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+      ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
+
+      await tester.pumpWidget(hostWithSort(repo));
+      await tester.pumpAndSettle();
+
+      final l10n = _l10n(tester);
+      expect(find.byKey(const Key('results_sort_button')), findsOneWidget);
+      // Default ordering label is rendered on the pill.
+      expect(find.text(l10n.searchSortRatingDesc), findsOneWidget);
+    });
+
+    testWidgets('tapping the sort button opens a sheet with 4 options', (
+      tester,
+    ) async {
+      final repo = _MockSearchRepository();
+      when(
+        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+      ).thenAnswer((_) async => _page<MasterSearchItem>([_master('m1')]));
+      when(
+        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+      ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
+
+      await tester.pumpWidget(hostWithSort(repo));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('results_sort_button')));
+      await tester.pumpAndSettle();
+
+      for (final SearchSort option in SearchSort.values) {
+        expect(find.byKey(Key('sort_option_${option.name}')), findsOneWidget);
+      }
+    });
+
+    testWidgets('selecting a sort option re-queries with the new sort', (
+      tester,
+    ) async {
+      final repo = _MockSearchRepository();
+      final List<SearchFilters> masterCallFilters = <SearchFilters>[];
+      when(
+        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+      ).thenAnswer((invocation) async {
+        masterCallFilters.add(
+          invocation.namedArguments[const Symbol('filters')] as SearchFilters,
+        );
+        return _page<MasterSearchItem>([_master('m1')]);
+      });
+      when(
+        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+      ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
+
+      await tester.pumpWidget(hostWithSort(repo));
+      await tester.pumpAndSettle();
+
+      expect(masterCallFilters.first.sort, SearchSort.ratingDesc);
+
+      await tester.tap(find.byKey(const Key('results_sort_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(Key('sort_option_${SearchSort.priceAsc.name}')),
+      );
+      await tester.pumpAndSettle();
+
+      // A re-keyed family fetch fired with the new ordering.
+      expect(masterCallFilters.length, greaterThanOrEqualTo(2));
+      expect(masterCallFilters.last.sort, SearchSort.priceAsc);
     });
   });
 

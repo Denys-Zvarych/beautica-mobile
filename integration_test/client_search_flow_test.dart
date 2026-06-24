@@ -321,4 +321,62 @@ void main() {
     // The CLIENT results journey still never touched GET /masters/me.
     expect(fb.getMasterCalls, 0);
   }, timeout: const Timeout(Duration(seconds: 90)));
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 19.x — E2E: free-text query + sort selection reach the wire.
+  //
+  // Types a name/service query on the Пошук screen, submits to the results
+  // screen, opens the sort sheet, and picks «Спочатку дешевші» (PRICE_ASC). The
+  // fake backend captures the `q` + `sort` carried on the most recent
+  // /search/masters AND /search/salons request, proving Items 2 + 5 reach the
+  // wire end to end (controller → SearchFilters → repository → request DTO).
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets(
+    'CLIENT query + sort selection reach BOTH search endpoints',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      // ── Reach the search screen, type a query, submit ───────────────────────
+      await tester.tap(find.byKey(const Key('client-nav-search-center')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      await tester.enterText(
+        find.byKey(const Key('search_query_field')),
+        'Манікюр',
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      expectLocation(router, RouteNames.clientSearchResults);
+      expect(find.byKey(const Key('client-search-results')), findsOneWidget);
+
+      // Item 2 — the free-text query reached the wire on both endpoints with the
+      // default ordering applied.
+      expect(fb.lastSearchMastersQuery, 'Манікюр');
+      expect(fb.lastSearchSalonsQuery, 'Манікюр');
+      expect(fb.lastSearchMastersSort, 'RATING_DESC');
+
+      // ── Open the sort sheet, pick «Спочатку дешевші» (PRICE_ASC) ─────────────
+      await tester.tap(find.byKey(const Key('results_sort_button')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(Key('sort_option_${SearchSort.priceAsc.name}')),
+      );
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      // Item 5 — the new ordering re-queried both endpoints; the query persists.
+      expect(fb.lastSearchMastersSort, 'PRICE_ASC');
+      expect(fb.lastSearchSalonsSort, 'PRICE_ASC');
+      expect(fb.lastSearchMastersQuery, 'Манікюр');
+
+      expect(fb.getMasterCalls, 0);
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
 }

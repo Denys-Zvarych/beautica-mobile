@@ -15,6 +15,15 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 part 'master_search_item.freezed.dart';
 
+/// The interpunct used to join the master's top service names into the card's
+/// single preview line (e.g. «Манікюр · Педикюр»).
+///
+/// Lives in the (pure-Dart) domain layer because the join is computed at map
+/// time in [MasterSearchMapper.fromDto] — the `data/` layer must not import
+/// `presentation/`. The presentation layer re-exports this from
+/// `result_card_text.dart` for existing call sites.
+const String kServiceNamesSeparator = ' · ';
+
 /// A single master result in the discovery search list.
 ///
 /// All optional metadata fields ([avgRating], [reviewCount], [cityLabel],
@@ -60,5 +69,21 @@ abstract class MasterSearchItem with _$MasterSearchItem {
     /// rendered as "від {price}" by 13.3. Null when the master has no priced
     /// services to anchor a "from" value.
     required double? minEffectivePrice,
+
+    /// A short (≤3), custom-preferred list of the master's distinct active
+    /// service names (e.g. `['Манікюр', 'Педикюр']`), surfaced as a preview line
+    /// on the result card. Always non-null — an empty list (`const []`) means the
+    /// master has no active priced services and the card renders no service line.
+    /// The custom-over-default choice is already resolved backend-side.
+    @Default(<String>[]) List<String> serviceNames,
+
+    /// The [serviceNames] pre-joined into the single `' · '`-separated preview
+    /// line the card renders, or `null` when [serviceNames] is empty (the card
+    /// then omits the line — no placeholder). Computed ONCE by
+    /// [MasterSearchMapper.fromDto] at map time so the scrolling result list
+    /// never re-runs `join()` per card `build()` (perf house-rule: no
+    /// per-build allocation in a list row). Kept in lockstep with
+    /// [serviceNames]; mutating one without the other is a contract break.
+    @Default(null) String? servicesLine,
   }) = _MasterSearchItem;
 }

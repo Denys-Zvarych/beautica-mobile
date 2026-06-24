@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:beautica_api/src/model/location_filter.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -13,7 +14,11 @@ part 'salon_search_request.g.dart';
 ///
 /// Properties:
 /// * [location]
+/// * [q]
 /// * [category]
+/// * [sort]
+/// * [minPrice]
+/// * [maxPrice]
 /// * [page]
 /// * [size]
 @BuiltValue()
@@ -22,8 +27,21 @@ abstract class SalonSearchRequest
   @BuiltValueField(wireName: r'location')
   LocationFilter? get location;
 
+  @BuiltValueField(wireName: r'q')
+  String? get q;
+
   @BuiltValueField(wireName: r'category')
   String? get category;
+
+  @BuiltValueField(wireName: r'sort')
+  SalonSearchRequestSortEnum? get sort;
+  // enum sortEnum {  RATING_DESC,  PRICE_ASC,  PRICE_DESC,  REVIEWS_DESC,  };
+
+  @BuiltValueField(wireName: r'minPrice')
+  num? get minPrice;
+
+  @BuiltValueField(wireName: r'maxPrice')
+  num? get maxPrice;
 
   @BuiltValueField(wireName: r'page')
   int? get page;
@@ -64,11 +82,39 @@ class _$SalonSearchRequestSerializer
         specifiedType: const FullType(LocationFilter),
       );
     }
+    if (object.q != null) {
+      yield r'q';
+      yield serializers.serialize(
+        object.q,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.category != null) {
       yield r'category';
       yield serializers.serialize(
         object.category,
         specifiedType: const FullType(String),
+      );
+    }
+    if (object.sort != null) {
+      yield r'sort';
+      yield serializers.serialize(
+        object.sort,
+        specifiedType: const FullType(SalonSearchRequestSortEnum),
+      );
+    }
+    if (object.minPrice != null) {
+      yield r'minPrice';
+      yield serializers.serialize(
+        object.minPrice,
+        specifiedType: const FullType(num),
+      );
+    }
+    if (object.maxPrice != null) {
+      yield r'maxPrice';
+      yield serializers.serialize(
+        object.maxPrice,
+        specifiedType: const FullType(num),
       );
     }
     if (object.page != null) {
@@ -117,12 +163,40 @@ class _$SalonSearchRequestSerializer
           ) as LocationFilter;
           result.location.replace(valueDes);
           break;
+        case r'q':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.q = valueDes;
+          break;
         case r'category':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
           result.category = valueDes;
+          break;
+        case r'sort':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(SalonSearchRequestSortEnum),
+          ) as SalonSearchRequestSortEnum;
+          result.sort = valueDes;
+          break;
+        case r'minPrice':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.minPrice = valueDes;
+          break;
+        case r'maxPrice':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.maxPrice = valueDes;
           break;
         case r'page':
           final valueDes = serializers.deserialize(
@@ -165,4 +239,29 @@ class _$SalonSearchRequestSerializer
     );
     return result.build();
   }
+}
+
+class SalonSearchRequestSortEnum extends EnumClass {
+  @BuiltValueEnumConst(wireName: r'RATING_DESC')
+  static const SalonSearchRequestSortEnum RATING_DESC =
+      _$salonSearchRequestSortEnum_RATING_DESC;
+  @BuiltValueEnumConst(wireName: r'PRICE_ASC')
+  static const SalonSearchRequestSortEnum PRICE_ASC =
+      _$salonSearchRequestSortEnum_PRICE_ASC;
+  @BuiltValueEnumConst(wireName: r'PRICE_DESC')
+  static const SalonSearchRequestSortEnum PRICE_DESC =
+      _$salonSearchRequestSortEnum_PRICE_DESC;
+  @BuiltValueEnumConst(wireName: r'REVIEWS_DESC')
+  static const SalonSearchRequestSortEnum REVIEWS_DESC =
+      _$salonSearchRequestSortEnum_REVIEWS_DESC;
+
+  static Serializer<SalonSearchRequestSortEnum> get serializer =>
+      _$salonSearchRequestSortEnumSerializer;
+
+  const SalonSearchRequestSortEnum._(String name) : super(name);
+
+  static BuiltSet<SalonSearchRequestSortEnum> get values =>
+      _$salonSearchRequestSortEnumValues;
+  static SalonSearchRequestSortEnum valueOf(String name) =>
+      _$salonSearchRequestSortEnumValueOf(name);
 }

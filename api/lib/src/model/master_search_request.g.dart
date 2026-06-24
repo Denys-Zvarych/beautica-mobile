@@ -6,11 +6,85 @@ part of 'master_search_request.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
+const MasterSearchRequestSortEnum _$masterSearchRequestSortEnum_RATING_DESC =
+    const MasterSearchRequestSortEnum._('RATING_DESC');
+const MasterSearchRequestSortEnum _$masterSearchRequestSortEnum_PRICE_ASC =
+    const MasterSearchRequestSortEnum._('PRICE_ASC');
+const MasterSearchRequestSortEnum _$masterSearchRequestSortEnum_PRICE_DESC =
+    const MasterSearchRequestSortEnum._('PRICE_DESC');
+const MasterSearchRequestSortEnum _$masterSearchRequestSortEnum_REVIEWS_DESC =
+    const MasterSearchRequestSortEnum._('REVIEWS_DESC');
+
+MasterSearchRequestSortEnum _$masterSearchRequestSortEnumValueOf(String name) {
+  switch (name) {
+    case 'RATING_DESC':
+      return _$masterSearchRequestSortEnum_RATING_DESC;
+    case 'PRICE_ASC':
+      return _$masterSearchRequestSortEnum_PRICE_ASC;
+    case 'PRICE_DESC':
+      return _$masterSearchRequestSortEnum_PRICE_DESC;
+    case 'REVIEWS_DESC':
+      return _$masterSearchRequestSortEnum_REVIEWS_DESC;
+    default:
+      throw ArgumentError(name);
+  }
+}
+
+final BuiltSet<MasterSearchRequestSortEnum>
+    _$masterSearchRequestSortEnumValues =
+    BuiltSet<MasterSearchRequestSortEnum>(const <MasterSearchRequestSortEnum>[
+  _$masterSearchRequestSortEnum_RATING_DESC,
+  _$masterSearchRequestSortEnum_PRICE_ASC,
+  _$masterSearchRequestSortEnum_PRICE_DESC,
+  _$masterSearchRequestSortEnum_REVIEWS_DESC,
+]);
+
+Serializer<MasterSearchRequestSortEnum>
+    _$masterSearchRequestSortEnumSerializer =
+    _$MasterSearchRequestSortEnumSerializer();
+
+class _$MasterSearchRequestSortEnumSerializer
+    implements PrimitiveSerializer<MasterSearchRequestSortEnum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'RATING_DESC': 'RATING_DESC',
+    'PRICE_ASC': 'PRICE_ASC',
+    'PRICE_DESC': 'PRICE_DESC',
+    'REVIEWS_DESC': 'REVIEWS_DESC',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'RATING_DESC': 'RATING_DESC',
+    'PRICE_ASC': 'PRICE_ASC',
+    'PRICE_DESC': 'PRICE_DESC',
+    'REVIEWS_DESC': 'REVIEWS_DESC',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[MasterSearchRequestSortEnum];
+  @override
+  final String wireName = 'MasterSearchRequestSortEnum';
+
+  @override
+  Object serialize(Serializers serializers, MasterSearchRequestSortEnum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  MasterSearchRequestSortEnum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      MasterSearchRequestSortEnum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$MasterSearchRequest extends MasterSearchRequest {
   @override
   final LocationFilter? location;
   @override
+  final String? q;
+  @override
   final String? category;
+  @override
+  final MasterSearchRequestSortEnum? sort;
   @override
   final num? minPrice;
   @override
@@ -30,7 +104,9 @@ class _$MasterSearchRequest extends MasterSearchRequest {
 
   _$MasterSearchRequest._(
       {this.location,
+      this.q,
       this.category,
+      this.sort,
       this.minPrice,
       this.maxPrice,
       this.minRating,
@@ -52,7 +128,9 @@ class _$MasterSearchRequest extends MasterSearchRequest {
     if (identical(other, this)) return true;
     return other is MasterSearchRequest &&
         location == other.location &&
+        q == other.q &&
         category == other.category &&
+        sort == other.sort &&
         minPrice == other.minPrice &&
         maxPrice == other.maxPrice &&
         minRating == other.minRating &&
@@ -65,7 +143,9 @@ class _$MasterSearchRequest extends MasterSearchRequest {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, location.hashCode);
+    _$hash = $jc(_$hash, q.hashCode);
     _$hash = $jc(_$hash, category.hashCode);
+    _$hash = $jc(_$hash, sort.hashCode);
     _$hash = $jc(_$hash, minPrice.hashCode);
     _$hash = $jc(_$hash, maxPrice.hashCode);
     _$hash = $jc(_$hash, minRating.hashCode);
@@ -80,7 +160,9 @@ class _$MasterSearchRequest extends MasterSearchRequest {
   String toString() {
     return (newBuiltValueToStringHelper(r'MasterSearchRequest')
           ..add('location', location)
+          ..add('q', q)
           ..add('category', category)
+          ..add('sort', sort)
           ..add('minPrice', minPrice)
           ..add('maxPrice', maxPrice)
           ..add('minRating', minRating)
@@ -100,9 +182,17 @@ class MasterSearchRequestBuilder
       _$this._location ??= LocationFilterBuilder();
   set location(LocationFilterBuilder? location) => _$this._location = location;
 
+  String? _q;
+  String? get q => _$this._q;
+  set q(String? q) => _$this._q = q;
+
   String? _category;
   String? get category => _$this._category;
   set category(String? category) => _$this._category = category;
+
+  MasterSearchRequestSortEnum? _sort;
+  MasterSearchRequestSortEnum? get sort => _$this._sort;
+  set sort(MasterSearchRequestSortEnum? sort) => _$this._sort = sort;
 
   num? _minPrice;
   num? get minPrice => _$this._minPrice;
@@ -137,7 +227,9 @@ class MasterSearchRequestBuilder
     final $v = _$v;
     if ($v != null) {
       _location = $v.location?.toBuilder();
+      _q = $v.q;
       _category = $v.category;
+      _sort = $v.sort;
       _minPrice = $v.minPrice;
       _maxPrice = $v.maxPrice;
       _minRating = $v.minRating;
@@ -168,7 +260,9 @@ class MasterSearchRequestBuilder
       _$result = _$v ??
           _$MasterSearchRequest._(
             location: _location?.build(),
+            q: q,
             category: category,
+            sort: sort,
             minPrice: minPrice,
             maxPrice: maxPrice,
             minRating: minRating,

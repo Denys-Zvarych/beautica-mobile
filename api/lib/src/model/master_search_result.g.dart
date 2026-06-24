@@ -25,6 +25,8 @@ class _$MasterSearchResult extends MasterSearchResult {
   final String? avatarUrl;
   @override
   final num? minEffectivePrice;
+  @override
+  final BuiltList<String>? serviceNames;
 
   factory _$MasterSearchResult(
           [void Function(MasterSearchResultBuilder)? updates]) =>
@@ -39,7 +41,8 @@ class _$MasterSearchResult extends MasterSearchResult {
       this.avgRating,
       this.reviewCount,
       this.avatarUrl,
-      this.minEffectivePrice})
+      this.minEffectivePrice,
+      this.serviceNames})
       : super._();
   @override
   MasterSearchResult rebuild(
@@ -62,7 +65,8 @@ class _$MasterSearchResult extends MasterSearchResult {
         avgRating == other.avgRating &&
         reviewCount == other.reviewCount &&
         avatarUrl == other.avatarUrl &&
-        minEffectivePrice == other.minEffectivePrice;
+        minEffectivePrice == other.minEffectivePrice &&
+        serviceNames == other.serviceNames;
   }
 
   @override
@@ -77,6 +81,7 @@ class _$MasterSearchResult extends MasterSearchResult {
     _$hash = $jc(_$hash, reviewCount.hashCode);
     _$hash = $jc(_$hash, avatarUrl.hashCode);
     _$hash = $jc(_$hash, minEffectivePrice.hashCode);
+    _$hash = $jc(_$hash, serviceNames.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -92,7 +97,8 @@ class _$MasterSearchResult extends MasterSearchResult {
           ..add('avgRating', avgRating)
           ..add('reviewCount', reviewCount)
           ..add('avatarUrl', avatarUrl)
-          ..add('minEffectivePrice', minEffectivePrice))
+          ..add('minEffectivePrice', minEffectivePrice)
+          ..add('serviceNames', serviceNames))
         .toString();
   }
 }
@@ -139,6 +145,12 @@ class MasterSearchResultBuilder
   set minEffectivePrice(num? minEffectivePrice) =>
       _$this._minEffectivePrice = minEffectivePrice;
 
+  ListBuilder<String>? _serviceNames;
+  ListBuilder<String> get serviceNames =>
+      _$this._serviceNames ??= ListBuilder<String>();
+  set serviceNames(ListBuilder<String>? serviceNames) =>
+      _$this._serviceNames = serviceNames;
+
   MasterSearchResultBuilder() {
     MasterSearchResult._defaults(this);
   }
@@ -155,6 +167,7 @@ class MasterSearchResultBuilder
       _reviewCount = $v.reviewCount;
       _avatarUrl = $v.avatarUrl;
       _minEffectivePrice = $v.minEffectivePrice;
+      _serviceNames = $v.serviceNames?.toBuilder();
       _$v = null;
     }
     return this;
@@ -174,18 +187,32 @@ class MasterSearchResultBuilder
   MasterSearchResult build() => _build();
 
   _$MasterSearchResult _build() {
-    final _$result = _$v ??
-        _$MasterSearchResult._(
-          masterId: masterId,
-          firstName: firstName,
-          lastName: lastName,
-          cityLabel: cityLabel,
-          districtLabel: districtLabel,
-          avgRating: avgRating,
-          reviewCount: reviewCount,
-          avatarUrl: avatarUrl,
-          minEffectivePrice: minEffectivePrice,
-        );
+    _$MasterSearchResult _$result;
+    try {
+      _$result = _$v ??
+          _$MasterSearchResult._(
+            masterId: masterId,
+            firstName: firstName,
+            lastName: lastName,
+            cityLabel: cityLabel,
+            districtLabel: districtLabel,
+            avgRating: avgRating,
+            reviewCount: reviewCount,
+            avatarUrl: avatarUrl,
+            minEffectivePrice: minEffectivePrice,
+            serviceNames: _serviceNames?.build(),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'serviceNames';
+        _serviceNames?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'MasterSearchResult', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

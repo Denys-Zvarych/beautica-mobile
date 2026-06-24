@@ -9,8 +9,9 @@
 // Both endpoints bind a single `request` query param carrying the generated
 // `MasterSearchRequest` / `SalonSearchRequest` (location nested as a
 // `LocationFilter`). [_toMasterRequest] / [_toSalonRequest] translate
-// [SearchFilters] → those request DTOs, OMITTING `SearchFilters.query` (inert in
-// v1 — the endpoints expose no free-text param yet).
+// [SearchFilters] → those request DTOs, forwarding the free-text `q` query, the
+// allow-listed `sort` ordering, the structured location, the category, and the
+// price band (master + salon).
 //
 // All DioExceptions are mapped to typed [Failure] subclasses via the SAME
 // pattern as `service_repository.dart` (400/422 → ValidationFailure, 404 →
@@ -54,9 +55,10 @@ abstract interface class SearchRepository {
 
   /// Searches salons matching [filters].
   ///
-  /// Wraps `GET /api/v1/search/salons`. Salons ignore the rating/price filters
-  /// ([SalonSearchRequest] only carries location + category + paging), so those
-  /// fields of [filters] are not forwarded.
+  /// Wraps `GET /api/v1/search/salons`. Forwards location, category, the
+  /// free-text `q`, the `sort` ordering, and the `minPrice`/`maxPrice` band.
+  /// The salon endpoint carries no rating filter, so [SearchFilters.minRating]
+  /// is not forwarded here.
   Future<SearchPage<SalonSearchItem>> searchSalons({
     required SearchFilters filters,
     required int page,
@@ -170,10 +172,20 @@ final class HttpSearchRepository implements SearchRepository {
     );
   }
 
+  /// Normalises the free-text query for the `q` wire param: trims surrounding
+  /// whitespace and collapses an empty/blank value to null (so the serializer
+  /// omits the key entirely). The backend further normalises a `q` shorter than
+  /// 3 chars to null server-side; the client forwards a non-empty term as-is.
+  static String? _normalizeQuery(String? raw) {
+    final String? trimmed = raw?.trim();
+    return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
+  }
+
   /// Translates [SearchFilters] → [MasterSearchRequest].
   ///
-  /// `SearchFilters.query` is deliberately NOT forwarded (inert in v1). Null
-  /// filter fields are left unset on the builder so the serializer omits them.
+  /// Forwards the free-text `q`, the `sort` ordering, location, category, the
+  /// price band, and the rating floor. Null filter fields are left unset on the
+  /// builder so the serializer omits them.
   static MasterSearchRequest _toMasterRequest(
     SearchFilters f, {
     required int page,
@@ -181,10 +193,13 @@ final class HttpSearchRepository implements SearchRepository {
   }) {
     final location = _toLocation(f);
     final category = f.categoryKey;
+    final query = _normalizeQuery(f.query);
     return MasterSearchRequest((b) {
       b
         ..page = page
-        ..size = size;
+        ..size = size
+        ..sort = MasterSearchRequestSortEnum.valueOf(f.sort.wireValue);
+      if (query != null) b.q = query;
       if (location != null) b.location.replace(location);
       if (category != null && category.isNotEmpty) b.category = category;
       if (f.minPrice != null) b.minPrice = f.minPrice;
@@ -195,8 +210,9 @@ final class HttpSearchRepository implements SearchRepository {
 
   /// Translates [SearchFilters] → [SalonSearchRequest].
   ///
-  /// [SalonSearchRequest] carries only location + category + paging, so the
-  /// rating/price filters are intentionally not forwarded. `query` is inert.
+  /// Forwards the free-text `q`, the `sort` ordering, location, category, and
+  /// the `minPrice`/`maxPrice` band. The salon endpoint has no rating filter, so
+  /// [SearchFilters.minRating] is intentionally not forwarded.
   static SalonSearchRequest _toSalonRequest(
     SearchFilters f, {
     required int page,
@@ -204,12 +220,17 @@ final class HttpSearchRepository implements SearchRepository {
   }) {
     final location = _toLocation(f);
     final category = f.categoryKey;
+    final query = _normalizeQuery(f.query);
     return SalonSearchRequest((b) {
       b
         ..page = page
-        ..size = size;
+        ..size = size
+        ..sort = SalonSearchRequestSortEnum.valueOf(f.sort.wireValue);
+      if (query != null) b.q = query;
       if (location != null) b.location.replace(location);
       if (category != null && category.isNotEmpty) b.category = category;
+      if (f.minPrice != null) b.minPrice = f.minPrice;
+      if (f.maxPrice != null) b.maxPrice = f.maxPrice;
     });
   }
 

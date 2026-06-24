@@ -39,6 +39,7 @@ import 'widgets/applied_filters_row.dart';
 import 'widgets/master_result_card.dart';
 import 'widgets/results_states.dart';
 import 'widgets/salon_result_card.dart';
+import 'widgets/sort_options_sheet.dart';
 
 /// The discovery results screen. Receives the assembled [SearchFilters] via the
 /// router's `extra`.
@@ -129,6 +130,15 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
     setState(() => _filters = next);
   }
 
+  /// Applies a new sort ordering: updates the keepAlive controller (so the
+  /// selection survives a pop back to the filters screen) and re-keys the
+  /// results notifier by rebuilding with the amended filter set (fresh page 0).
+  void _setSort(SearchSort sort) {
+    if (sort == _filters.sort) return;
+    ref.read(searchFiltersControllerProvider.notifier).setSort(sort);
+    setState(() => _filters = _filters.copyWith(sort: sort));
+  }
+
   void _showFavoriteError(Failure failure) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -174,6 +184,8 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                 title: l10n.searchResultsTitle,
                 backLabel: l10n.searchResultsBack,
                 filterLabel: l10n.searchResultsOpenFilters,
+                activeSort: _filters.sort,
+                onSort: _setSort,
                 onBack: _openFilters,
                 onFilter: _openFilters,
               ),
@@ -294,6 +306,8 @@ class _ResultsTopBar extends StatelessWidget {
     required this.title,
     required this.backLabel,
     required this.filterLabel,
+    required this.activeSort,
+    required this.onSort,
     required this.onBack,
     required this.onFilter,
   });
@@ -301,6 +315,8 @@ class _ResultsTopBar extends StatelessWidget {
   final String title;
   final String backLabel;
   final String filterLabel;
+  final SearchSort activeSort;
+  final ValueChanged<SearchSort> onSort;
   final VoidCallback onBack;
   final VoidCallback onFilter;
 
@@ -321,6 +337,8 @@ class _ResultsTopBar extends StatelessWidget {
             style: VelvetText.subheading(),
           ),
         ),
+        SortPillButton(activeSort: activeSort, onSelected: onSort),
+        const SizedBox(width: VelvetSpacing.sm),
         NeumorphicIconButton(
           key: const Key('results_filter_button'),
           icon: Icons.tune_rounded,

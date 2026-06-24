@@ -3072,5 +3072,49 @@
   "favoriteRemoveLabel": "Remove from favourites",
   "@favoriteRemoveLabel": {
     "description": "Accessibility label for the favourite heart when the item IS favourited (tapping removes it)."
+  },
+  "searchSortButtonLabel": "Sort",
+  "@searchSortButtonLabel": {
+    "description": "Accessibility label for the sort button in the results top bar (opens the sort options sheet)."
+  },
+  "searchSortSheetTitle": "Sort",
+  "@searchSortSheetTitle": {
+    "description": "Title of the bottom sheet listing the result sort options."
+  },
+  "searchSortRatingDesc": "Top rated",
+  "@searchSortRatingDesc": {
+    "description": "Sort option: highest average rating first (the default ordering)."
+  },
+  "searchSortPriceAsc": "Lowest price first",
+  "@searchSortPriceAsc": {
+    "description": "Sort option: cheapest effective price first."
+  },
+  "searchSortPriceDesc": "Highest price first",
+  "@searchSortPriceDesc": {
+    "description": "Sort option: most expensive effective price first."
+  },
+  "searchSortReviewsDesc": "Most reviewed",
+  "@searchSortReviewsDesc": {
+    "description": "Sort option: most-reviewed first."
+  },
+  "searchSortOptionSelected": "{label}, selected",
+  "@searchSortOptionSelected": {
+    "description": "Accessibility label appended to the currently-selected sort row.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Top rated"
+      }
+    }
+  },
+  "searchResultServices": "{names}",
+  "@searchResultServices": {
+    "description": "Joined preview of a master's top service names on the result card. Already joined by the widget; passed through for an a11y-friendly key.",
+    "placeholders": {
+      "names": {
+        "type": "String",
+        "example": "Manicure · Pedicure"
+      }
+    }
   }
 }

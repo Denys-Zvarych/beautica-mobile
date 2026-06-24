@@ -117,6 +117,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(MasterProfileUpdateRequest.serializer)
       ..add(MasterPublicProfileResponse.serializer)
       ..add(MasterSearchRequest.serializer)
+      ..add(MasterSearchRequestSortEnum.serializer)
       ..add(MasterSearchResult.serializer)
       ..add(MasterServiceResponse.serializer)
       ..add(MasterServiceResponsePriceTypeEnum.serializer)
@@ -163,6 +164,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ReviewResponse.serializer)
       ..add(SalonResponse.serializer)
       ..add(SalonSearchRequest.serializer)
+      ..add(SalonSearchRequestSortEnum.serializer)
       ..add(SalonSearchResult.serializer)
       ..add(ScheduleOverrideRequest.serializer)
       ..add(ScheduleOverrideRequestKindEnum.serializer)
@@ -336,6 +338,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(ServiceSummaryDto)]),
           () => ListBuilder<ServiceSummaryDto>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(String)]),
+          () => ListBuilder<String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(String)]),
           () => ListBuilder<String>())

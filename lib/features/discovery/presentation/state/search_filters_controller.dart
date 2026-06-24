@@ -110,17 +110,21 @@ class SearchFiltersController extends _$SearchFiltersController {
     return const SearchFilters();
   }
 
-  /// Sets the free-text query.
+  /// Sets the free-text name / service query.
   ///
-  /// INERT backend-side in v1: the discovery search endpoints expose no
-  /// free-text param yet, so the repository drops [SearchFilters.query]. The
-  /// field is kept wired for forward-compatibility (the field stays present and
-  /// is carried in `extra` to the results screen). A blank/whitespace value is
-  /// normalised to null so an empty box never narrows anything.
+  /// Forwarded to the backend `q` param by the repository. A blank/whitespace
+  /// value is normalised to null so an empty box never narrows anything (and the
+  /// param is omitted). The value is carried in `extra` to the results screen.
   void setQuery(String? query) {
     final String? trimmed = query?.trim();
     final String? next = (trimmed == null || trimmed.isEmpty) ? null : trimmed;
     state = state.copyWith(query: next);
+  }
+
+  /// Sets the result ordering. Re-keys the results provider on the results
+  /// screen so a fresh page-0 fetch runs with the new `sort`.
+  void setSort(SearchSort sort) {
+    state = state.copyWith(sort: sort);
   }
 
   /// Selects a city (and optional district). Pass `cityId: null` to clear the

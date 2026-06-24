@@ -46,6 +46,27 @@ const MasterSearchItem _master = MasterSearchItem(
   cityLabel: 'Київ',
   districtLabel: 'Печерський район',
   minEffectivePrice: 350,
+  serviceNames: <String>['Манікюр', 'Педикюр', 'Нарощування'],
+  // Built directly (not via the mapper), so supply the pre-joined preview line
+  // the mapper would compute — the card reads `servicesLine`, not serviceNames.
+  servicesLine: 'Манікюр · Педикюр · Нарощування',
+);
+
+/// Same master, but with NO active priced services — the card must render no
+/// services line at all (the empty-serviceNames branch). Pins the no-line layout
+/// so a regression that injects a placeholder line, or leaks the previous
+/// fixture's line, reads as a pixel diff.
+const MasterSearchItem _masterNoServices = MasterSearchItem(
+  masterId: 'master-2',
+  firstName: 'Ірина',
+  lastName: 'Мельник',
+  avatarUrl: null,
+  avgRating: 4.5,
+  reviewCount: 31,
+  cityLabel: 'Київ',
+  districtLabel: 'Печерський район',
+  minEffectivePrice: 280,
+  serviceNames: <String>[],
 );
 
 const SalonSearchItem _salon = SalonSearchItem(
@@ -102,6 +123,16 @@ void main() {
       textScaleFactor: 1.0,
       pumpWidget: goldenPumpWidget(overrides: _overrides(), width: width),
       builder: () => _host(width, const MasterResultCard(master: _master)),
+    );
+
+    goldenTest(
+      'discovery master card (no services) ${w}dp x1.0',
+      fileName: 'discovery_master_card_no_services_${w}_1x',
+      constraints: BoxConstraints.tight(Size(width, 200)),
+      textScaleFactor: 1.0,
+      pumpWidget: goldenPumpWidget(overrides: _overrides(), width: width),
+      builder: () =>
+          _host(width, const MasterResultCard(master: _masterNoServices)),
     );
 
     goldenTest(

@@ -467,9 +467,18 @@ final class FakeBackend {
   int searchMastersCalls = 0;
   int? lastSearchMastersPage;
 
+  /// The last `q` (free-text) + `sort` carried on a `/search/masters` request
+  /// (Phase 19.x search wire-up). Null until the first call / when omitted.
+  String? lastSearchMastersQuery;
+  String? lastSearchMastersSort;
+
   /// `GET /api/v1/search/salons` call count + the last `page` requested.
   int searchSalonsCalls = 0;
   int? lastSearchSalonsPage;
+
+  /// The last `q` (free-text) + `sort` carried on a `/search/salons` request.
+  String? lastSearchSalonsQuery;
+  String? lastSearchSalonsSort;
 
   // ── Favorites telemetry (Phase 13.4) ──────────────────────────────────────
   /// `POST /api/v1/favorites` (add) call count + the most recent body.
@@ -591,6 +600,20 @@ final class FakeBackend {
       // Non-JSON request param — fall back to page 0.
     }
     return 0;
+  }
+
+  /// Decodes the `?request=<json>` search query param into a map, or `{}` when
+  /// it is absent / not valid JSON. Used to capture `q` / `sort` telemetry.
+  static Map<String, dynamic> _decodeRequest(Map<String, dynamic> query) {
+    final raw = query['request'];
+    if (raw is! String || raw.isEmpty) return const <String, dynamic>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      // Non-JSON request param.
+    }
+    return const <String, dynamic>{};
   }
 
   Map<String, dynamic> _masterDetailEnvelope() => _ok(<String, dynamic>{
@@ -1180,6 +1203,11 @@ final class FakeBackend {
         searchMastersCalls++;
         final int page = _pageFromRequest(req.queryParameters);
         lastSearchMastersPage = page;
+        final Map<String, dynamic> reqJson = _decodeRequest(
+          req.queryParameters,
+        );
+        lastSearchMastersQuery = reqJson['q'] as String?;
+        lastSearchMastersSort = reqJson['sort'] as String?;
         if (page <= 0) {
           return _searchEnvelope(
             _searchMastersPage0,
@@ -1205,6 +1233,11 @@ final class FakeBackend {
         searchSalonsCalls++;
         final int page = _pageFromRequest(req.queryParameters);
         lastSearchSalonsPage = page;
+        final Map<String, dynamic> reqJson = _decodeRequest(
+          req.queryParameters,
+        );
+        lastSearchSalonsQuery = reqJson['q'] as String?;
+        lastSearchSalonsSort = reqJson['sort'] as String?;
         // Salons have a single page: page 0 carries the row, any later page is
         // empty (the notifier only re-requests salons while salonHasMore).
         if (page <= 0) {

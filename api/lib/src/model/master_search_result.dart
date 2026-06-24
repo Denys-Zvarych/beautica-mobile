@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -20,6 +21,7 @@ part 'master_search_result.g.dart';
 /// * [reviewCount]
 /// * [avatarUrl]
 /// * [minEffectivePrice]
+/// * [serviceNames]
 @BuiltValue()
 abstract class MasterSearchResult
     implements Built<MasterSearchResult, MasterSearchResultBuilder> {
@@ -49,6 +51,9 @@ abstract class MasterSearchResult
 
   @BuiltValueField(wireName: r'minEffectivePrice')
   num? get minEffectivePrice;
+
+  @BuiltValueField(wireName: r'serviceNames')
+  BuiltList<String>? get serviceNames;
 
   MasterSearchResult._();
 
@@ -139,6 +144,13 @@ class _$MasterSearchResultSerializer
         specifiedType: const FullType(num),
       );
     }
+    if (object.serviceNames != null) {
+      yield r'serviceNames';
+      yield serializers.serialize(
+        object.serviceNames,
+        specifiedType: const FullType(BuiltList, [FullType(String)]),
+      );
+    }
   }
 
   @override
@@ -226,6 +238,13 @@ class _$MasterSearchResultSerializer
             specifiedType: const FullType(num),
           ) as num;
           result.minEffectivePrice = valueDes;
+          break;
+        case r'serviceNames':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.serviceNames.replace(valueDes);
           break;
         default:
           unhandled.add(key);

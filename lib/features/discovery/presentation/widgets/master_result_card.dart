@@ -5,10 +5,10 @@
 // a favourite heart. Tapping the card opens the public master profile (13.5)
 // via go_router (never Navigator).
 //
-// CONTRACT GAP (intentional): `MasterSearchResult` carries NO top-service /
-// category field, so the preview's per-card "Манікюр, Педикюр" services line is
-// OMITTED here — there is nothing in the real payload to render it from. The
-// card shows only fields the backend actually sends.
+// Procedure-name line: `MasterSearchResult.serviceNames` (≤3 custom-preferred
+// names) drives the preview's per-card "Манікюр · Педикюр" services line. When
+// the list is empty (master has no active priced services) the line is omitted
+// entirely — no placeholder.
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -49,6 +49,11 @@ class MasterResultCard extends StatelessWidget {
       master.cityLabel,
       master.districtLabel,
     );
+    // Pre-joined at map time (MasterSearchMapper.fromDto): the ≤3 service names
+    // as one preview line, or null when the master has none (line omitted — no
+    // placeholder). Never join() here — this card builds per row in a scrolling
+    // list.
+    final String? services = master.servicesLine;
 
     return Semantics(
       button: true,
@@ -81,6 +86,16 @@ class MasterResultCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: ResultCardText.locality,
+                      ),
+                    ],
+                    if (services != null) ...<Widget>[
+                      const SizedBox(height: 3),
+                      Text(
+                        services,
+                        key: const Key('master_card_services'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: ResultCardText.services,
                       ),
                     ],
                     const SizedBox(height: VelvetSpacing.sm),
