@@ -1,0 +1,57 @@
+# Grandfathered legacy files for scripts/forbid_fixed_wait.sh
+#
+# These test files carry fixed-duration pump/pumpAndSettle waits written
+# BEFORE the fixed-wait gate existed. They are frozen here so the gate is
+# GREEN today while still blocking NEW fixed sleeps in every other (and every
+# freshly-authored) test file. This is a RATCHET: when one of these files is
+# next meaningfully edited, convert its pump(const Duration(...)) calls to
+# pump-until-condition (pumpUntilFound) and DELETE its line here. The baseline
+# only ever shrinks. One repo-relative path per line.
+#
+# Generated 2026-06-24 from the then-current corpus.
+integration_test/client_home_hub_flow_test.dart
+integration_test/client_profile_settings_flow_test.dart
+integration_test/client_search_flow_test.dart
+integration_test/client_shell_flow_test.dart
+integration_test/edit_profile_flow_test.dart
+integration_test/edit_profile_redirect_flow_test.dart
+integration_test/passport_flow_test.dart
+integration_test/schedule_edit_flow_test.dart
+integration_test/schedule_first_create_flow_test.dart
+integration_test/service_crud_flow_test.dart
+integration_test/service_edit_category_type_test.dart
+integration_test/support/app_harness.dart
+test/core/widgets/app_refresh_indicator_test.dart
+test/features/auth/presentation/accept_invite_screen_test.dart
+test/features/auth/presentation/login_screen_test.dart
+test/features/auth/presentation/register_step_3_screen_test.dart
+test/features/auth/presentation/splash_screen_test.dart
+test/features/auth/presentation/verification_screen_test.dart
+test/features/discovery/presentation/search_filters_screen_rail_test.dart
+test/features/discovery/presentation/search_results_screen_test.dart
+test/features/discovery/presentation/widgets/staggered_reveal_test.dart
+test/features/home/presentation/client_settings_hub_screen_test.dart
+test/features/home/presentation/home_hub_overflow_test.dart
+test/features/home/presentation/home_hub_screen_test.dart
+test/features/home/presentation/home_hub_supplemental_test.dart
+test/features/location/presentation/widgets/locality_cascade_test.dart
+test/features/location/presentation/widgets/locality_picker_sheet_test.dart
+test/features/master/presentation/master_profile_screen_refresh_test.dart
+test/features/master/presentation/master_profile_screen_test.dart
+test/features/master/presentation/settings_hub_screen_test.dart
+test/features/overflow_guard_stress_test.dart
+test/features/passport/presentation/passport_screen_overflow_test.dart
+test/features/schedule/presentation/master_schedule_screen_refresh_test.dart
+test/features/schedule/presentation/master_schedule_screen_test.dart
+test/features/schedule/presentation/widgets/discrete_times_editor_test.dart
+test/features/services/presentation/services_list_pre_expand_test.dart
+test/features/services/presentation/services_list_screen_refresh_test.dart
+test/features/services/presentation/services_list_screen_test.dart
+test/features/services/presentation/widgets/searchable_select_field_test.dart
+test/features/services/presentation/widgets/service_type_chips_test.dart
+test/features/services/presentation/widgets/service_type_suggestion_dialog_golden_test.dart
+test/features/shell/client_shell_test.dart
+test/features/shell/home_inpage_branch_hop_test.dart
+test/routing/app_router_no_leaked_timer_test.dart
+test/routing/navigation_links_test.dart
+test/routing/role_landing_chrome_test.dart

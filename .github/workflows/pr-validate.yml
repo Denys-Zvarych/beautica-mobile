@@ -122,6 +122,44 @@ jobs:
         shell: bash
         run: ./scripts/test/test_cycle_gates.sh
 
+      # 2026-06-24 drift-prevention gate — CLIENT branch-root screens must reuse
+      # the shared ClientTopBar; a per-screen Scaffold(appBar:)/AppBar() re-lays
+      # out the wordmark and makes it jump on tab hop. The check lives in
+      # scripts/forbid_client_branch_appbar.sh (enumerated branch roots +
+      # rationale documented there). Each legitimate bar is unblocked by a
+      # `// client-chrome-ok: <reason>` annotation. Exits 0 clean, 1 on offense.
+      - name: Forbid AppBar in CLIENT branch-root screens
+        shell: bash
+        run: ./scripts/forbid_client_branch_appbar.sh
+
+      # 2026-06-24 drift-prevention gate — forbid Cyrillic find.text('…') finders
+      # in tests; they become findsNothing failures the day EN ships. Locate by
+      # Key / semantics / AppLocalizations instead. Legacy files predating the
+      # gate are grandfathered in scripts/.cyrillic_finder_allow (ratchet — the
+      # baseline only shrinks); new exceptions use `// i18n-finder-ok: <reason>`.
+      - name: Forbid Cyrillic find.text finders in tests
+        shell: bash
+        run: ./scripts/forbid_cyrillic_finder.sh
+
+      # 2026-06-24 drift-prevention gate — forbid fixed pump/pumpAndSettle(const
+      # Duration(...)) sleeps in tests; they are flaky (too short → red on slow
+      # CI, too long → slow suite). Prefer pump-until-condition. Legacy files are
+      # grandfathered in scripts/.fixed_wait_allow (ratchet — baseline only
+      # shrinks); new exceptions use `// fixed-wait-ok: <reason>`.
+      - name: Forbid fixed-duration pump waits in tests
+        shell: bash
+        run: ./scripts/forbid_fixed_wait.sh
+
+      # 2026-06-24 — self-test the three drift gates above. Each gate's awk
+      # comment/annotation detection is load-bearing; --self-test pins it against
+      # fixture snippets (plain offender → flagged, annotated/commented → pass).
+      - name: Self-test drift-prevention gates
+        shell: bash
+        run: |
+          ./scripts/forbid_client_branch_appbar.sh --self-test
+          ./scripts/forbid_cyrillic_finder.sh --self-test
+          ./scripts/forbid_fixed_wait.sh --self-test
+
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH
       # finding. lib/features/ is currently empty so this always passes, but the

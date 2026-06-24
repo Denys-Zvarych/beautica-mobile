@@ -1,0 +1,40 @@
+# Grandfathered legacy files for scripts/forbid_cyrillic_finder.sh
+#
+# These test files carry Cyrillic find.text('…') finders written BEFORE the
+# i18n-finder gate existed. They are frozen here so the gate is GREEN today
+# while still blocking NEW Cyrillic finders in every other (and every
+# freshly-authored) test file. This is a RATCHET: when one of these files is
+# next meaningfully edited, convert its find.text('<Cyrillic>') calls to
+# Keys / find.bySemanticsLabel / AppLocalizations and DELETE its line here.
+# The baseline only ever shrinks. One repo-relative path per line.
+#
+# Generated 2026-06-24 from the then-current corpus.
+integration_test/client_home_hub_flow_test.dart
+integration_test/client_search_flow_test.dart
+test/core/widgets/neumorphic_test.dart
+test/features/auth/presentation/registration_progress_test.dart
+test/features/auth/presentation/role_selection_screen_test.dart
+test/features/discovery/presentation/search_filters_screen_rail_test.dart
+test/features/discovery/presentation/search_filters_screen_test.dart
+test/features/discovery/presentation/service_type_tile_test.dart
+test/features/discovery/presentation/widgets/category_rail_test.dart
+test/features/home/presentation/home_hub_screen_test.dart
+test/features/home/presentation/home_hub_supplemental_test.dart
+test/features/location/presentation/widgets/locality_cascade_test.dart
+test/features/location/presentation/widgets/locality_tap_row_test.dart
+test/features/master/presentation/master_profile_screen_test.dart
+test/features/master/presentation/widgets/contact_service_tile_test.dart
+test/features/master/presentation/widgets/profile_avatar_test.dart
+test/features/passport/presentation/passport_screen_test.dart
+test/features/passport/presentation/widgets/passport_table_test.dart
+test/features/services/presentation/category_picker_test.dart
+test/features/services/presentation/service_create_screen_test.dart
+test/features/services/presentation/service_edit_screen_test.dart
+test/features/services/presentation/services_list_screen_test.dart
+test/features/services/presentation/services_list_type_label_test.dart
+test/features/services/presentation/widgets/pricing_field_one_line_layout_test.dart
+test/features/services/presentation/widgets/pricing_field_test.dart
+test/features/services/presentation/widgets/searchable_select_field_test.dart
+test/features/services/presentation/widgets/service_type_chips_test.dart
+test/features/shell/client_shell_test.dart
+test/shared/widgets/async_value_view_test.dart

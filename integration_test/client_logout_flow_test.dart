@@ -99,12 +99,14 @@ void main() {
       ],
     );
     await AppHarness.loginAs(tester, fb, UserRole.client);
+    // fixed-wait-ok: integration test, real async (auth+redirect); bounded pumpAndSettle is the recommended real-async settle.
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
     expectLocation(router, RouteNames.clientHome);
 
     // Open the home-hub burger → pushes /client/menu.
     await tester.tap(find.byKey(const Key('btn-menu-client')));
+    // fixed-wait-ok: integration test, real async (route push); bounded pumpAndSettle is the recommended real-async settle.
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
     expectLocation(router, RouteNames.clientMenu);
@@ -211,6 +213,7 @@ void main() {
       //   best-effort POST /auth/logout → secureStorage.deleteAll() →
       //   state = Unauthenticated → router redirect → context.go(/login).
       await tester.tap(find.byKey(const Key('btn-logout-confirm')));
+      // fixed-wait-ok: integration test, real async (logout teardown+redirect); bounded pumpAndSettle is the recommended real-async settle.
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
       // 1) Landed on /login. If logout() had thrown, context.go(login) would
@@ -243,6 +246,71 @@ void main() {
         findsNothing,
         reason:
             'a clean logout must not surface the "${l10n.logoutFailed}" SnackBar',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  // ── Test 3 — post-logout deep-link to a protected route bounces to /login ──
+  //
+  // M5 + M10, END-TO-END. Test 2 proved logout clears secure storage and lands
+  // on /login. This test then proves the SECOND half of the security contract
+  // the router-tier test (test/routing/unauthenticated_deeplink_redirect_test.
+  // dart) covers in isolation: once logged out, an UNAUTHENTICATED deep-link to
+  // a protected CLIENT route (/passport) must NOT slip through to the protected
+  // screen — the live GoRouter's auth guard must redirect it back to /login,
+  // with secure storage still empty. This drives the guard through the REAL
+  // router (not the pure seam), closing the deep-link-after-logout path E2E.
+
+  testWidgets(
+    'after CLIENT logout, a deep-link to a protected route (/passport) is '
+    'redirected back to /login with secure storage still cleared (M5 + M10)',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final storage = FakeSecureStorage();
+
+      final router = await openClientHub(tester, fb, storage);
+
+      // Confirm logout → storage wiped, on /login (preconditions re-proved here
+      // so this test stands alone, not coupled to Test 2's ordering).
+      await openLogoutDialog(tester);
+      await tester.tap(find.byKey(const Key('btn-logout-confirm')));
+      // fixed-wait-ok: integration test, real async (logout teardown+redirect); bounded pumpAndSettle is the recommended real-async settle.
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      expectLocation(router, RouteNames.login);
+      expect(
+        await storage.readRefreshToken(),
+        isNull,
+        reason: 'precondition: logout must have wiped the refresh token (M5)',
+      );
+
+      // Now attempt the unauthenticated deep-link to a protected CLIENT route.
+      // The live GoRouter's redirect guard (authRedirect → authRedirectForLocation)
+      // must bounce it straight back to /login.
+      router.go(RouteNames.clientPassport);
+      // fixed-wait-ok: integration test, real async (guard redirect to /login); bounded pumpAndSettle is the recommended real-async settle.
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      // 1) The guard redirected the deep-link back to /login — the protected
+      //    passport screen must NOT have rendered.
+      expectLocation(router, RouteNames.login);
+      expect(
+        find.byKey(const ValueKey<String>('login_email')),
+        findsOneWidget,
+        reason:
+            'an unauthenticated deep-link to /passport must land on the login '
+            'form, never the protected passport screen',
+      );
+
+      // 2) Secure storage is STILL empty — the bounced deep-link must not have
+      //    resurrected any token.
+      expect(
+        await storage.readRefreshToken(),
+        isNull,
+        reason:
+            'a redirected unauthenticated deep-link must leave secure storage '
+            'cleared (M5)',
       );
     },
     timeout: const Timeout(Duration(seconds: 60)),
