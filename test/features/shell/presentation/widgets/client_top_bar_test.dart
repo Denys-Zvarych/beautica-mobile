@@ -10,6 +10,7 @@
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/shell/presentation/widgets/client_top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -27,13 +28,13 @@ Widget _host(Widget child) => MaterialApp(
 /// (Головна / BEAUTY PASSPORT / Пошук), reproducing the original clip
 /// condition — the wordmark gets 360 − 32 = 328dp of row width to share with
 /// the bell + burger.
-Widget _phoneHost(Widget child, {TextScaler textScaler = TextScaler.noScaling}) {
+Widget _phoneHost(
+  Widget child, {
+  TextScaler textScaler = TextScaler.noScaling,
+}) {
   return MaterialApp(
     home: MediaQuery(
-      data: MediaQueryData(
-        size: const Size(360, 800),
-        textScaler: textScaler,
-      ),
+      data: MediaQueryData(size: const Size(360, 800), textScaler: textScaler),
       child: Scaffold(
         body: SizedBox(
           width: 360,
@@ -99,6 +100,57 @@ void main() {
       expect(find.text('beautica'), findsOneWidget);
       expect(find.byKey(const Key('search_bell_button')), findsOneWidget);
       expect(find.byKey(const Key('btn-menu-search')), findsOneWidget);
+    },
+  );
+
+  // ── Optional burger (regression pin for the new nullable onBurger) ──────────
+  //
+  // The burger is now OPTIONAL: Пошук passes no onBurger, so no burger renders;
+  // Головна / BEAUTY PASSPORT still pass it, so it does. These two cases pin BOTH
+  // branches of the `if (onBurger != null)` guard so a refactor that drops the
+  // optionality (or always renders the burger) fails the build.
+  testWidgets('omits the burger when onBurger is null — bell still renders', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        ClientTopBar(
+          onBell: () {},
+          // onBurger intentionally omitted (null) — the Пошук configuration.
+          bellSemanticLabel: 'Сповіщення',
+          bellKey: const Key('search_bell_button'),
+        ),
+      ),
+    );
+
+    // Bell present (it is a BellButton/AppIcon, NOT a NeumorphicIconButton).
+    expect(find.byKey(const Key('search_bell_button')), findsOneWidget);
+    expect(find.byKey(BellButton.bellIconKey), findsOneWidget);
+    // No burger: the only NeumorphicIconButton in the bar is the burger, so a
+    // zero count proves the burger branch did not render.
+    expect(find.byType(NeumorphicIconButton), findsNothing);
+  });
+
+  testWidgets(
+    'renders the burger when onBurger is provided (Головна / passport config)',
+    (tester) async {
+      await tester.pumpWidget(
+        _host(
+          ClientTopBar(
+            onBell: () {},
+            onBurger: () {},
+            bellSemanticLabel: 'Сповіщення',
+            burgerSemanticLabel: 'Меню',
+            bellKey: const Key('btn-bell-client'),
+            burgerKey: const Key('btn-menu-client'),
+          ),
+        ),
+      );
+
+      // Both the keyed burger AND the underlying NeumorphicIconButton render.
+      expect(find.byKey(const Key('btn-menu-client')), findsOneWidget);
+      expect(find.byType(NeumorphicIconButton), findsOneWidget);
+      expect(find.byKey(const Key('btn-bell-client')), findsOneWidget);
     },
   );
 

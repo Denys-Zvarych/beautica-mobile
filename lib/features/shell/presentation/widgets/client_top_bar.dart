@@ -15,11 +15,13 @@
 //     ellipsis + maxLines:1 remain only as a defensive guard against pathological
 //     text scaling.);
 //   • the notification [BellButton] (idle / unread states baked into the SVG);
-//   • a [NeumorphicIconButton] burger on the right.
+//   • an OPTIONAL [NeumorphicIconButton] burger on the right.
 //
 // The bell + burger semantic labels and the burger [Key] are supplied by the
 // caller so each host page keeps its own stable test target
-// (`btn-menu-client` / `btn-menu-passport` / `btn-menu-search`).
+// (`btn-menu-client` / `btn-menu-passport`). The burger is optional: Пошук omits
+// it (the settings hub it opens is redundant there), so the bell becomes the
+// last trailing element on that page.
 
 import 'package:flutter/material.dart';
 
@@ -34,16 +36,17 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 /// The shared CLIENT branch-root top bar: beautica wordmark · bell · burger.
 ///
 /// Used by Головна, BEAUTY PASSPORT and Пошук. Branch roots have no back
-/// button — the burger opens the CLIENT settings hub (the caller wires
-/// [onBurger]).
+/// button — when present, the burger opens the CLIENT settings hub (the caller
+/// wires [onBurger]). The burger is optional: pages where the settings hub is
+/// redundant (Пошук) omit [onBurger] and no burger renders.
 class ClientTopBar extends StatelessWidget {
   const ClientTopBar({
     super.key,
     required this.onBell,
-    required this.onBurger,
     required this.bellSemanticLabel,
-    required this.burgerSemanticLabel,
-    required this.burgerKey,
+    this.onBurger,
+    this.burgerSemanticLabel,
+    this.burgerKey,
     this.bellKey,
     this.hasUnread = false,
   });
@@ -52,16 +55,18 @@ class ClientTopBar extends StatelessWidget {
   final VoidCallback onBell;
 
   /// Invoked when the burger menu is tapped (opens the CLIENT settings hub).
-  final VoidCallback onBurger;
+  /// When `null`, the burger is omitted entirely.
+  final VoidCallback? onBurger;
 
   /// Accessibility label for the bell.
   final String bellSemanticLabel;
 
-  /// Accessibility label for the burger.
-  final String burgerSemanticLabel;
+  /// Accessibility label for the burger (ignored when [onBurger] is `null`).
+  final String? burgerSemanticLabel;
 
-  /// Stable [Key] for the burger button (per-host test target).
-  final Key burgerKey;
+  /// Stable [Key] for the burger button (per-host test target; ignored when
+  /// [onBurger] is `null`).
+  final Key? burgerKey;
 
   /// Optional stable [Key] for the bell button (per-host test target).
   final Key? bellKey;
@@ -71,6 +76,7 @@ class ClientTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final VoidCallback? onBurger = this.onBurger;
     return Row(
       children: <Widget>[
         // beautica wordmark — intentionally lowercase (brand decision). NOT
@@ -93,13 +99,17 @@ class ClientTopBar extends StatelessWidget {
           semanticLabel: bellSemanticLabel,
           hasUnread: hasUnread,
         ),
-        const SizedBox(width: VelvetSpacing.sm + 4),
-        NeumorphicIconButton(
-          key: burgerKey,
-          icon: BeauticaIcons.menuBurger,
-          semanticLabel: burgerSemanticLabel,
-          onTap: onBurger,
-        ),
+        // Burger is optional — omitted on Пошук (redundant settings hub). When
+        // absent, the bell is the last trailing element.
+        if (onBurger != null) ...<Widget>[
+          const SizedBox(width: VelvetSpacing.sm + 4),
+          NeumorphicIconButton(
+            key: burgerKey,
+            icon: BeauticaIcons.menuBurger,
+            semanticLabel: burgerSemanticLabel ?? '',
+            onTap: onBurger,
+          ),
+        ],
       ],
     );
   }

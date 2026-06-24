@@ -101,10 +101,28 @@ void main() {
       expect(find.byKey(const Key('search_query_field')), findsOneWidget);
       expect(find.byKey(const Key('search_city_value')), findsOneWidget);
       expect(find.byKey(const Key('search_category_rail')), findsOneWidget);
+      // The rail now renders EVERY approved category (no `take(6)` cap) and the
+      // «Всі категорії» more-tile + its sheet are DELETED — so it is absent.
       expect(
         find.byKey(const Key('search_all_categories_tile')),
+        findsNothing,
+        reason: 'the «Всі категорії» more-tile was removed from the rail',
+      );
+      // Both seeded categories render real, tappable tiles (NAILS «Нігті» +
+      // BROWS «Брови»). At least one real tile being present (and tapped below)
+      // proves the rail is populated, not a single more-tile.
+      expect(
+        find.byKey(const Key('search_service_type_NAILS')),
         findsOneWidget,
-        reason: 'the rail ends in the «Всі категорії» more-tile',
+        reason: 'every approved category renders a real, tappable rail tile',
+      );
+      // Пошук no longer passes onBurger to the shared ClientTopBar → no burger.
+      // The bell stays; the burger key the screen used to pass is gone.
+      expect(find.byKey(const Key('search_bell_button')), findsOneWidget);
+      expect(
+        find.byKey(const Key('btn-menu-search')),
+        findsNothing,
+        reason: 'the search top bar omits the burger (redundant settings hub)',
       );
       expect(find.byKey(const Key('search_price_slider')), findsOneWidget);
       expect(find.byKey(const Key('search_show_masters_cta')), findsOneWidget);

@@ -84,6 +84,22 @@ const _categories = <ServiceCategoryOption>[
   ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
 ];
 
+// Eight categories — MORE than the old `take(6)` cap. Used to prove the rail now
+// renders EVERY category (no 6-cap, no «Всі категорії» more-tile). The last two
+// entries (indices 6,7) existing AND rendering is the regression that fails on
+// the old capped rail. One entry carries the longest real label to also prove
+// the full-name (no-ellipsis) tile renders inside the screen's rail context.
+const _eightCategories = <ServiceCategoryOption>[
+  ServiceCategoryOption(name: 'NAILS', displayName: 'Манікюр'),
+  ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+  ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
+  ServiceCategoryOption(name: 'LASH', displayName: 'Вії'),
+  ServiceCategoryOption(name: 'MAKEUP', displayName: 'Макіяж'),
+  ServiceCategoryOption(name: 'MASSAGE', displayName: 'Масаж'),
+  ServiceCategoryOption(name: 'PERMANENT', displayName: 'Перманентний макіяж'),
+  ServiceCategoryOption(name: 'COSMETOLOGY', displayName: 'Косметологія'),
+];
+
 // Stub authProvider so the keepAlive search controllers build cleanly.
 // Posts AsyncData(Authenticated) synchronously inside build() so authProvider
 // is settled from the first frame.
@@ -231,20 +247,16 @@ void main() {
       await _pumpScreen(tester);
       await tester.pumpAndSettle();
 
-      // Top bar (shared ClientTopBar).
+      // Top bar (shared ClientTopBar) — bell only; the burger is intentionally
+      // omitted on Пошук (the settings hub it opens is redundant here).
       expect(find.byKey(const Key('search_bell_button')), findsOneWidget);
-      expect(find.byKey(const Key('btn-menu-search')), findsOneWidget);
 
       // 1. pill search field.
       expect(find.byKey(const Key('search_query_field')), findsOneWidget);
       // 2. city select row.
       expect(find.byKey(const Key('search_city_value')), findsOneWidget);
-      // 3. category rail (Variant A) + its «Всі категорії» more-tile.
+      // 3. category rail (Variant A).
       expect(find.byKey(const Key('search_category_rail')), findsOneWidget);
-      expect(
-        find.byKey(const Key('search_all_categories_tile')),
-        findsOneWidget,
-      );
       // 4. price slider + readout.
       expect(find.byKey(const Key('search_price_slider')), findsOneWidget);
       expect(find.byKey(const Key('search_price_readout')), findsOneWidget);
@@ -282,8 +294,8 @@ void main() {
 
   group('ClientSearchScreen — category rail (loaded)', () {
     testWidgets(
-      'rail renders one tile per provided category (keyed by slug) plus the '
-      '«Всі категорії» more-tile, laid out horizontally',
+      'rail renders one tile per provided category (keyed by slug), laid out '
+      'horizontally',
       (tester) async {
         await _pumpScreen(tester);
         await tester.pumpAndSettle();
@@ -303,13 +315,6 @@ void main() {
         );
         expect(
           find.byKey(const Key('search_service_type_HAIR')),
-          findsOneWidget,
-        );
-
-        // The trailing «Всі категорії» more-tile is rendered alongside them.
-        expect(find.byType(CategoryRailMoreTile), findsOneWidget);
-        expect(
-          find.byKey(const Key('search_all_categories_tile')),
           findsOneWidget,
         );
 
@@ -402,6 +407,96 @@ void main() {
         );
       },
     );
+  });
+
+  // ── Rail renders ALL categories (no `take(6)` cap, no «Всі категорії» tile) ─
+  //
+  // The redesign removed the 6-tile cap and the trailing «Всі категорії»
+  // more-tile + its sheet. With a fixture of EIGHT categories the rail must show
+  // all eight CategoryRailTiles and NOTHING extra — the old capped rail rendered
+  // only 6 + a more-tile, so both assertions below fail on the regression.
+  group('ClientSearchScreen — rail renders ALL categories', () {
+    testWidgets(
+      'renders one tile per category for >6 categories (the 6-cap is gone)',
+      (tester) async {
+        await _pumpScreen(
+          tester,
+          categories: const AsyncData(_eightCategories),
+        );
+        await tester.pumpAndSettle();
+
+        // Every one of the eight categories renders a tile — including the 7th
+        // and 8th, which the old `take(6)` cap would have dropped.
+        expect(find.byType(CategoryRailTile), findsNWidgets(8));
+        expect(
+          find.byKey(const Key('search_service_type_PERMANENT')),
+          findsOneWidget,
+          reason: 'the 7th category must render (proves the 6-cap is gone)',
+        );
+        expect(
+          find.byKey(const Key('search_service_type_COSMETOLOGY')),
+          findsOneWidget,
+          reason: 'the 8th category must render (proves the 6-cap is gone)',
+        );
+
+        // The «Всі категорії» more-tile + its sheet are deleted: no trailing
+        // more-tile is laid out anywhere in the rail.
+        expect(
+          find.byKey(const Key('search_all_categories_tile')),
+          findsNothing,
+          reason: 'the «Всі категорії» more-tile was removed',
+        );
+      },
+    );
+
+    testWidgets(
+      'a long category label renders IN FULL inside the rail (no ellipsis)',
+      (tester) async {
+        await _pumpScreen(
+          tester,
+          categories: const AsyncData(_eightCategories),
+        );
+        await tester.pumpAndSettle();
+
+        // The longest fixture label («Перманентний макіяж») is rendered verbatim
+        // by its tile — no truncation, no ellipsis (the tile sizes to its label).
+        expect(find.text('Перманентний макіяж'), findsOneWidget);
+        final Text label = tester.widget<Text>(
+          find.text('Перманентний макіяж'),
+        );
+        expect(label.data, 'Перманентний макіяж');
+        expect(
+          label.overflow,
+          isNot(TextOverflow.ellipsis),
+          reason: 'the rail tile caption must not clip the full category name',
+        );
+        expect(label.softWrap, isTrue);
+        expect(label.maxLines, 2);
+      },
+    );
+  });
+
+  // ── Top bar: the burger is OMITTED on Пошук (settings hub is redundant) ─────
+  //
+  // ClientTopBar's burger is now optional and ClientSearchScreen no longer passes
+  // onBurger → no burger renders. The bell stays. The old screen passed
+  // `btn-menu-search`, so its absence is the regression pin here.
+  group('ClientSearchScreen — top bar burger omitted', () {
+    testWidgets('no burger button (btn-menu-search) — bell still renders', (
+      tester,
+    ) async {
+      await _pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      // The bell remains the last trailing top-bar element.
+      expect(find.byKey(const Key('search_bell_button')), findsOneWidget);
+      // The burger key the screen used to pass is gone — no burger on Пошук.
+      expect(find.byKey(const Key('btn-menu-search')), findsNothing);
+      // Defensive: the burger glyph (the menu-burger NeumorphicIconButton) is not
+      // laid out either. The bell is a BellButton (AppIcon), not a
+      // NeumorphicIconButton, so a zero count proves no burger renders.
+      expect(find.byType(NeumorphicIconButton), findsNothing);
+    });
   });
 
   group('ClientSearchScreen — category rail (loading/error/empty)', () {

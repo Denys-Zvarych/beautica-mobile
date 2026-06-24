@@ -2895,18 +2895,6 @@
   "@searchCategoryLabel": {
     "description": "Section label above the horizontal category rail on the Пошук screen (Variant A)."
   },
-  "searchAllCategories": "All\ncategories",
-  "@searchAllCategories": {
-    "description": "Caption of the trailing rail tile that opens the full category sheet. The newline splits the two words across two lines to match the rail tile sizing."
-  },
-  "searchAllCategoriesSheetTitle": "All categories",
-  "@searchAllCategoriesSheetTitle": {
-    "description": "Heading of the «Всі категорії» bottom sheet listing every approved category."
-  },
-  "searchAllCategoriesSheetSubtitle": "Pick a category to see its services",
-  "@searchAllCategoriesSheetSubtitle": {
-    "description": "Subtitle under the «Усі категорії» sheet heading explaining the category → service flow."
-  },
   "searchServicesDrawerLabel": "Services · {category}",
   "@searchServicesDrawerLabel": {
     "description": "Label above the service-chip drawer, showing the selected category's services.",

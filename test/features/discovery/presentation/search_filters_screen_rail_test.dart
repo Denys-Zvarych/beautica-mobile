@@ -257,56 +257,6 @@ void main() {
     );
   });
 
-  group('ClientSearchScreen — «Всі категорії» sheet', () {
-    testWidgets(
-      'the more-tile opens the sheet; picking a category selects it + closes',
-      (tester) async {
-        await _pumpScreen(tester);
-        final AppLocalizations l10n = await AppLocalizations.delegate.load(
-          const Locale('uk'),
-        );
-
-        // Open the sheet via the more-tile.
-        await tester.tap(find.byKey(const Key('search_all_categories_tile')));
-        await tester.pumpAndSettle();
-
-        // The sheet lists every category as a keyed tile.
-        expect(find.text(l10n.searchAllCategoriesSheetTitle), findsOneWidget);
-        expect(
-          find.byKey(const Key('search_all_categories_HAIR')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const Key('search_all_categories_NAILS')),
-          findsOneWidget,
-        );
-
-        // Pick HAIR in the sheet.
-        await tester.tap(find.byKey(const Key('search_all_categories_HAIR')));
-        await tester.pumpAndSettle();
-
-        // Selection updated + label mirrored.
-        expect(
-          _container(tester).read(searchFiltersControllerProvider).categoryKey,
-          'HAIR',
-        );
-        expect(
-          _container(
-            tester,
-          ).read(searchFilterLabelsControllerProvider).categoryName,
-          'Волосся',
-        );
-        // The sheet closed (no sheet tiles left in the tree).
-        expect(
-          find.byKey(const Key('search_all_categories_HAIR')),
-          findsNothing,
-        );
-        // …and the drawer for the picked category is revealed.
-        expect(find.byType(ServiceChipDrawer), findsOneWidget);
-      },
-    );
-  });
-
   // ── Variant A second-level drawer: async loading / error / empty states ─────
   //
   // The drawer's service list is now an async family (categoryServiceOptions

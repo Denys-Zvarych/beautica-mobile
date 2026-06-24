@@ -12,9 +12,9 @@
 //      backend-side in v1 but wired forward via the controller).
 //   3. «Місто» — recessed select row → opens the existing locality picker
 //      (oblast → city cascade) and writes the chosen city onto SearchFilters.
-//   4. «Категорія» — a fixed-height horizontal rail of the popular categories
-//      ([CategoryRailTile]) ending in a «Всі категорії» tile that opens the
-//      full-list sheet ([showAllCategoriesSheet]). Populated from the live
+//   4. «Категорія» — a horizontal rail of ALL approved categories
+//      ([CategoryRailTile]), each tile sized to its label so the full name
+//      shows. Populated from the live
 //      `approvedCategoriesProvider`; single-select. Tapping a category reveals
 //      its bookable SERVICES as chips in a recessed [ServiceChipDrawer] below
 //      (multi-select, second level — Variant A «Рейка + послуги»).
@@ -49,7 +49,6 @@ import '../data/category_service_providers.dart';
 import '../domain/category_service_option.dart';
 import '../domain/search_filters.dart';
 import 'state/search_filters_controller.dart';
-import 'widgets/all_categories_sheet.dart';
 import 'widgets/category_rail.dart';
 import 'widgets/service_chip_drawer.dart';
 import 'widgets/service_type_tile.dart';
@@ -90,8 +89,6 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
   void _onBellTap() {
     // TODO(14.9): route to RouteNames.notifications when that screen ships.
   }
-
-  void _onBurgerTap() => context.push(RouteNames.clientMenu);
 
   /// Opens the oblast → city cascade using the existing locality picker, then
   /// writes the chosen city onto the filters + its display label.
@@ -154,13 +151,12 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
                   VelvetSpacing.lg,
                   0,
                 ),
+                // No burger here — the settings hub it opens is redundant on
+                // Пошук (the home hub keeps it). Bell only.
                 child: ClientTopBar(
                   onBell: _onBellTap,
-                  onBurger: _onBurgerTap,
                   bellSemanticLabel: l10n.homeHubNotificationsLabel,
-                  burgerSemanticLabel: l10n.settingsHubMenuButton,
                   bellKey: const Key('search_bell_button'),
-                  burgerKey: const Key('btn-menu-search'),
                 ),
               ),
               Expanded(
@@ -423,62 +419,18 @@ class _CitySelectRow extends ConsumerWidget {
 // ---------------------------------------------------------------------------
 // Категорія (rail) + Послуги (drawer) — Variant A «Рейка + послуги».
 //
-// First level: a fixed-height (92 dp) horizontal rail of the popular categories
-// ending in a «Всі категорії» tile that opens the full-list sheet. The rail
-// width (96 dp tiles) is sized so the last visible tile is partially clipped —
-// the "scroll for more" cue from the approved preview.
+// First level: a horizontal rail of ALL approved categories. Each tile sizes to
+// its label, so the full category name shows (short or long) without clipping.
 //
 // Second level: tapping a category reveals its bookable services as selectable
 // chips in a recessed [ServiceChipDrawer], wrapped in an [AnimatedSize] so the
 // drawer slides open/closed (240 ms easeOutCubic) exactly as in the preview.
 // ---------------------------------------------------------------------------
 
-/// How many categories surface up front in the rail before «Всі категорії».
-/// The live taxonomy has no `popular` flag (unlike the preview's mock catalog),
-/// so the first [_kRailPopularCount] approved categories are surfaced and the
-/// full list lives behind the «Всі категорії» sheet — preserving Variant A's
-/// "fewer icons up front, with a path to the full list" move.
-const int _kRailPopularCount = 6;
-
 class _CategorySection extends ConsumerWidget {
   const _CategorySection({required this.reveal});
 
   final SearchRevealFn reveal;
-
-  Future<void> _openAllCategories(
-    BuildContext context,
-    WidgetRef ref,
-    List<ServiceCategoryOption> categories,
-    String? selectedKey,
-  ) async {
-    final ServiceCategoryOption? picked = await showAllCategoriesSheet(
-      context,
-      categories: categories,
-      selectedKey: selectedKey,
-    );
-    if (picked == null) return;
-    _select(ref, picked);
-  }
-
-  /// Single-selects [category]: sets the filter key + display label. (The
-  /// sheet always selects — it never toggles off — matching the preview.)
-  void _select(WidgetRef ref, ServiceCategoryOption category) {
-    final String? current = ref.read(
-      searchFiltersControllerProvider.select(
-        (SearchFilters f) => f.categoryKey,
-      ),
-    );
-    if (current != category.name) {
-      ref
-          .read(searchFiltersControllerProvider.notifier)
-          .toggleServiceType(category.name);
-      ref
-          .read(searchFilterLabelsControllerProvider.notifier)
-          .setCategoryName(category.displayName);
-      // Category changed → clear the second-level service selection.
-      ref.read(searchServiceSelectionControllerProvider.notifier).clear();
-    }
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -528,10 +480,6 @@ class _CategorySection extends ConsumerWidget {
           );
         }
 
-        final List<ServiceCategoryOption> railCategories = categories
-            .take(_kRailPopularCount)
-            .toList(growable: false);
-
         // Resolve the selected category once here (this branch already holds
         // both `selectedKey` and the list) so the drawer slot doesn't re-scan
         // the list on every rebuild — including each frame of its 240ms
@@ -556,14 +504,16 @@ class _CategorySection extends ConsumerWidget {
             ),
             const SizedBox(height: VelvetSpacing.sm),
 
-            // Fixed-height rail — scrolls sideways, never grows the page. The
-            // partially-clipped trailing tile signals "scroll for more".
+            // Fixed-height rail — scrolls sideways, never grows the page. Shows
+            // EVERY approved category; each tile sizes to its label so the full
+            // name reads (short or long). Lazy [ListView.builder] so only the
+            // visible tiles build. Height fits a 2-line label without clipping.
             reveal(
               start: 0.25,
               end: 0.8,
               child: SizedBox(
                 height: 92,
-                child: ListView(
+                child: ListView.separated(
                   key: const Key('search_category_rail'),
                   scrollDirection: Axis.horizontal,
                   clipBehavior: Clip.none,
@@ -571,30 +521,21 @@ class _CategorySection extends ConsumerWidget {
                     horizontal: 4,
                     vertical: 4,
                   ),
-                  children: <Widget>[
-                    for (final ServiceCategoryOption c
-                        in railCategories) ...<Widget>[
-                      CategoryRailTile(
+                  itemCount: categories.length,
+                  separatorBuilder: (BuildContext _, int index) =>
+                      const SizedBox(width: VelvetSpacing.sm + 2),
+                  itemBuilder: (BuildContext context, int index) {
+                    final ServiceCategoryOption c = categories[index];
+                    return Center(
+                      child: CategoryRailTile(
                         key: Key('search_service_type_${c.name}'),
                         icon: serviceTypeIcon(c.name),
                         label: c.displayName,
                         selected: selectedKey == c.name,
                         onTap: () => _toggle(ref, c, selectedKey),
                       ),
-                      const SizedBox(width: VelvetSpacing.sm + 2),
-                    ],
-                    CategoryRailMoreTile(
-                      key: const Key('search_all_categories_tile'),
-                      label: l10n.searchAllCategories,
-                      semanticLabel: l10n.searchAllCategoriesSheetTitle,
-                      onTap: () => _openAllCategories(
-                        context,
-                        ref,
-                        categories,
-                        selectedKey,
-                      ),
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ),
             ),
