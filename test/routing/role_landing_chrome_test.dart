@@ -37,6 +37,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
 import 'package:beautica_mobile/features/shell/presentation/widgets/client_bottom_nav.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -163,6 +164,13 @@ ProviderContainer _authedContainer(UserRole role) {
       masterProfileProvider.overrideWith(_SettledMasterProfileNotifier.new),
       masterRepositoryProvider.overrideWith((_) => FakeMasterRepository()),
       serviceRepositoryProvider.overrideWith((_) => FakeServiceRepository()),
+      // MasterProfileScreen's categories section watches
+      // `approvedCategoriesProvider`, which builds via the REAL authenticated
+      // Dio (it bypasses serviceRepositoryProvider). Settle it with an empty
+      // list so no 15s connect-timeout Timer outlives the bounded `pump`.
+      approvedCategoriesProvider.overrideWith(
+        (ref) async => const <ServiceCategoryOption>[],
+      ),
     ],
   );
   addTearDown(container.dispose);

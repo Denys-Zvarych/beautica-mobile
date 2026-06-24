@@ -150,7 +150,17 @@ jobs:
         shell: bash
         run: ./scripts/forbid_fixed_wait.sh
 
-      # 2026-06-24 — self-test the three drift gates above. Each gate's awk
+      # 2026-06-24 fixture-footgun gate — a test that mounts ServiceForm( must
+      # also override approvedCategoriesProvider. That provider sources from the
+      # REAL Dio (not serviceRepositoryProvider); an un-overridden mount leaks a
+      # 15s connect-timeout Timer AND paints the category field's error ring at
+      # rest (silently-wrong golden). Bit 3 fixtures already. Exceptions use
+      # `// approved-categories-ok: <reason>`.
+      - name: Forbid unmocked approvedCategoriesProvider in ServiceForm tests
+        shell: bash
+        run: ./scripts/forbid_unmocked_approved_categories.sh
+
+      # 2026-06-24 — self-test the four drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).
       - name: Self-test drift-prevention gates
@@ -159,6 +169,7 @@ jobs:
           ./scripts/forbid_client_branch_appbar.sh --self-test
           ./scripts/forbid_cyrillic_finder.sh --self-test
           ./scripts/forbid_fixed_wait.sh --self-test
+          ./scripts/forbid_unmocked_approved_categories.sh --self-test
 
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH
