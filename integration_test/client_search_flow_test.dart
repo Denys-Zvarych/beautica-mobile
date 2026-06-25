@@ -379,4 +379,92 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 90)),
   );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 13.x — E2E REGRESSION: a picked city must SCOPE the search (the
+  // all-regions wire-format bug).
+  //
+  // WHY THIS FLOW EXISTS
+  // --------------------
+  // The original bug: filtering by city returned masters from ALL regions. The
+  // OpenAPI-generated client serialised the whole search DTO as ONE object query
+  // param → Dio bracket-nested it (`request[location][cityId]=…`) → Spring's
+  // @ModelAttribute binder could not read the bracketed keys → the backend bound
+  // an all-null request → an unfiltered all-regions 200. The unit tier
+  // (search_repository_test.dart) pins the FLAT wire at the repository seam; THIS
+  // flow proves the same end to end: a CLIENT picking «Київ» through the REAL
+  // locality cascade and submitting drives the live SearchResultsNotifier →
+  // HttpSearchRepository → GET /search/{masters,salons}, and the fake backend
+  // captures `location.cityId` as a FLAT key on BOTH endpoints. A reverted
+  // object-query encoding would leave that capture null (bracketed keys never
+  // bind), failing this flow.
+  //
+  // Step 2.7 Rule 3b: this is the real user journey (screen + locality picker +
+  // navigation + provider→repository + the exact API query contract) the widget
+  // tier cannot prove end to end.
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets(
+    'CLIENT picks a city → the search scopes to location.cityId on BOTH '
+    'endpoints (all-regions wire-format regression)',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      // ── Reach the search screen ─────────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('client-nav-search-center')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientSearch);
+
+      // ── Pick «Київ» through the REAL locality cascade ───────────────────────
+      await tester.tap(find.byKey(const Key('search_city_value')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
+      );
+      await tester.pumpAndSettle();
+
+      final Text cityValue = tester.widget<Text>(
+        find.byKey(const Key('search_city_value')),
+      );
+      expect(cityValue.data, 'Київ');
+
+      // ── Submit → results screen fires BOTH endpoints with the city scope ────
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      expectLocation(router, RouteNames.clientSearchResults);
+      expect(find.byKey(const Key('client-search-results')), findsOneWidget);
+      expect(fb.searchMastersCalls, greaterThanOrEqualTo(1));
+      expect(fb.searchSalonsCalls, greaterThanOrEqualTo(1));
+
+      // ── REGRESSION ASSERTION — the city reached the wire as a FLAT key ──────
+      // The fake backend reads `location.cityId` straight off the FLAT query
+      // map. A null here means the city scope never bound (the reverted
+      // object-query / bracket-nested encoding) → an all-regions result.
+      expect(
+        fb.lastSearchMastersCityId,
+        'city-kyiv',
+        reason: 'the picked city must scope /search/masters via the FLAT '
+            'location.cityId key (not a bracket-nested request[...])',
+      );
+      expect(
+        fb.lastSearchSalonsCityId,
+        'city-kyiv',
+        reason: 'the picked city must scope /search/salons too',
+      );
+      // No district was picked (the seeded city has none) → omitted, not empty.
+      expect(fb.lastSearchMastersDistrictId, isNull);
+      expect(fb.lastSearchSalonsDistrictId, isNull);
+
+      expect(fb.getMasterCalls, 0);
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
 }

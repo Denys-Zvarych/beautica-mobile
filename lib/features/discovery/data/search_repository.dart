@@ -1,17 +1,26 @@
 // Phase 13.2 — SearchRepository: interface + HTTP implementation.
 //
-// Wraps the generated [SearchControllerApi] for the discovery surface:
+// Issues the discovery searches against:
 //   - searchMasters() → GET /api/v1/search/masters  (INDEPENDENT_MASTER-only,
 //                        enforced backend-side in Phase 19.7 — no client-side
 //                        role filtering here)
 //   - searchSalons()  → GET /api/v1/search/salons
 //
-// Both endpoints bind a single `request` query param carrying the generated
-// `MasterSearchRequest` / `SalonSearchRequest` (location nested as a
-// `LocationFilter`). [_toMasterRequest] / [_toSalonRequest] translate
-// [SearchFilters] → those request DTOs, forwarding the free-text `q` query, the
-// allow-listed `sort` ordering, the structured location, the category, and the
-// price band (master + salon).
+// WIRE-FORMAT FIX (bug: city/all filters silently dropped):
+//   The backend binds `@ModelAttribute MasterSearchRequest` / `SalonSearchRequest`
+//   (SearchController.java:84/113) which expects FLAT dot-notation query params:
+//     location.cityId=<uuid>&location.districtId=<uuid>&q=…&category=…
+//     &sort=RATING_DESC&minPrice=…&maxPrice=…&minRating=…&page=0&size=20
+//   The OpenAPI-generated `SearchControllerApi.searchMasters/searchSalons`
+//   serialised the WHOLE request DTO as a single object query param named
+//   `request`, which Dio bracket-nests to `request[location][cityId]=…`. Those
+//   bracketed keys do NOT bind to the @ModelAttribute record → request arrived
+//   all-null → backend ran an unfiltered all-regions search and returned 200.
+//   We therefore bypass the generated object-query encoding and issue the GET
+//   directly through the shared authenticated [Dio] with an explicit FLAT
+//   `Map<String, dynamic>`. The response is still deserialized through the same
+//   generated `standardSerializers`, so parsing into the domain models is
+//   unchanged. See [_toMasterQuery] / [_toSalonQuery] for the flat mapping.
 //
 // All DioExceptions are mapped to typed [Failure] subclasses via the SAME
 // pattern as `service_repository.dart` (400/422 → ValidationFailure, 404 →
@@ -22,6 +31,7 @@
 import 'dart:developer';
 
 import 'package:beautica_api/beautica_api.dart';
+import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -69,12 +79,23 @@ abstract interface class SearchRepository {
 /// HTTP implementation of [SearchRepository].
 ///
 /// Inject via `searchRepositoryProvider` — never construct directly.
+///
+/// Issues the GET directly through the shared authenticated [Dio] with a FLAT
+/// dot-notation query map (see the file header for the wire-format fix) rather
+/// than the generated `SearchControllerApi`, whose object-query encoding
+/// bracket-nests the params and silently drops every filter server-side. The
+/// generated `standardSerializers` is still used to deserialize the response
+/// envelope, so domain-model parsing is unchanged.
 final class HttpSearchRepository implements SearchRepository {
-  HttpSearchRepository(this._searchApi);
+  HttpSearchRepository(this._dio, this._serializers);
 
-  final SearchControllerApi _searchApi;
+  final Dio _dio;
+  final Serializers _serializers;
 
   static const _tag = 'feature.discovery.repository';
+
+  static const _mastersPath = '/api/v1/search/masters';
+  static const _salonsPath = '/api/v1/search/salons';
 
   @override
   Future<SearchPage<MasterSearchItem>> searchMasters({
@@ -83,10 +104,16 @@ final class HttpSearchRepository implements SearchRepository {
     int size = kSearchPageSize,
   }) async {
     try {
-      final res = await _searchApi.searchMasters(
-        request: _toMasterRequest(filters, page: page, size: size),
+      final res = await _dio.get<Object>(
+        _mastersPath,
+        queryParameters: _toMasterQuery(filters, page: page, size: size),
       );
-      final body = res.data?.data;
+      final envelope = _deserialize<ApiResponsePageResponseMasterSearchResult>(
+        res.data,
+        const FullType(ApiResponsePageResponseMasterSearchResult),
+        res,
+      );
+      final body = envelope?.data;
       final items =
           body?.data?.map(MasterSearchMapper.fromDto).toList(growable: false) ??
           const [];
@@ -121,10 +148,16 @@ final class HttpSearchRepository implements SearchRepository {
     int size = kSearchPageSize,
   }) async {
     try {
-      final res = await _searchApi.searchSalons(
-        request: _toSalonRequest(filters, page: page, size: size),
+      final res = await _dio.get<Object>(
+        _salonsPath,
+        queryParameters: _toSalonQuery(filters, page: page, size: size),
       );
-      final body = res.data?.data;
+      final envelope = _deserialize<ApiResponsePageResponseSalonSearchResult>(
+        res.data,
+        const FullType(ApiResponsePageResponseSalonSearchResult),
+        res,
+      );
+      final body = envelope?.data;
       final items =
           body?.data?.map(SalonSearchMapper.fromDto).toList(growable: false) ??
           const [];
@@ -152,86 +185,98 @@ final class HttpSearchRepository implements SearchRepository {
     }
   }
 
-  /// Builds the nested [LocationFilter], or null when neither id is present.
-  ///
-  /// The generated serializer omits a null builder field, so a request with no
-  /// location simply carries no `location` key.
-  static LocationFilter? _toLocation(SearchFilters f) {
-    final cityId = f.cityId;
-    final districtId = f.districtId;
-    if ((cityId == null || cityId.isEmpty) &&
-        (districtId == null || districtId.isEmpty)) {
-      return null;
+  /// Deserializes a Dio response body into the generated envelope [T] using the
+  /// same `standardSerializers` the generated client uses. Mirrors the
+  /// generated client's failure path: a deserialization error is rethrown as a
+  /// [DioException] so it maps to a [ServerFailure] like any other parse fault.
+  T? _deserialize<T>(Object? raw, FullType type, Response<Object> res) {
+    if (raw == null) return null;
+    try {
+      return _serializers.deserialize(raw, specifiedType: type) as T;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: res.requestOptions,
+        response: res,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
-    return LocationFilter(
-      (b) => b
-        ..cityId = (cityId == null || cityId.isEmpty) ? null : cityId
-        ..districtId = (districtId == null || districtId.isEmpty)
-            ? null
-            : districtId,
-    );
   }
 
   /// Normalises the free-text query for the `q` wire param: trims surrounding
-  /// whitespace and collapses an empty/blank value to null (so the serializer
-  /// omits the key entirely). The backend further normalises a `q` shorter than
-  /// 3 chars to null server-side; the client forwards a non-empty term as-is.
+  /// whitespace and collapses an empty/blank value to null (so the key is
+  /// omitted). The backend further normalises a `q` shorter than 3 chars to null
+  /// server-side; the client forwards a non-empty term as-is.
   static String? _normalizeQuery(String? raw) {
     final String? trimmed = raw?.trim();
     return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
   }
 
-  /// Translates [SearchFilters] → [MasterSearchRequest].
-  ///
-  /// Forwards the free-text `q`, the `sort` ordering, location, category, the
-  /// price band, and the rating floor. Null filter fields are left unset on the
-  /// builder so the serializer omits them.
-  static MasterSearchRequest _toMasterRequest(
-    SearchFilters f, {
-    required int page,
-    required int size,
-  }) {
-    final location = _toLocation(f);
-    final category = f.categoryKey;
-    final query = _normalizeQuery(f.query);
-    return MasterSearchRequest((b) {
-      b
-        ..page = page
-        ..size = size
-        ..sort = MasterSearchRequestSortEnum.valueOf(f.sort.wireValue);
-      if (query != null) b.q = query;
-      if (location != null) b.location.replace(location);
-      if (category != null && category.isNotEmpty) b.category = category;
-      if (f.minPrice != null) b.minPrice = f.minPrice;
-      if (f.maxPrice != null) b.maxPrice = f.maxPrice;
-      if (f.minRating != null) b.minRating = f.minRating;
-    });
+  /// Adds the structured location keys (`location.cityId` / `location.districtId`)
+  /// to [q] when present. Empty/blank ids are skipped so the key is omitted,
+  /// matching the backend's "null id = no filter" semantics.
+  static void _addLocation(Map<String, dynamic> q, SearchFilters f) {
+    final cityId = f.cityId;
+    final districtId = f.districtId;
+    if (cityId != null && cityId.isNotEmpty) {
+      q['location.cityId'] = cityId;
+    }
+    if (districtId != null && districtId.isNotEmpty) {
+      q['location.districtId'] = districtId;
+    }
   }
 
-  /// Translates [SearchFilters] → [SalonSearchRequest].
-  ///
-  /// Forwards the free-text `q`, the `sort` ordering, location, category, and
-  /// the `minPrice`/`maxPrice` band. The salon endpoint has no rating filter, so
-  /// [SearchFilters.minRating] is intentionally not forwarded.
-  static SalonSearchRequest _toSalonRequest(
+  /// Builds the FLAT `@ModelAttribute`-bindable query map for the masters
+  /// endpoint. Keys mirror the backend `MasterSearchRequest` record field names
+  /// (`q`, `category`, `location.cityId`, `location.districtId`, `sort`,
+  /// `minPrice`, `maxPrice`, `minRating`, `page`, `size`). Null/blank filter
+  /// fields are omitted entirely so the backend treats them as "no constraint".
+  static Map<String, dynamic> _toMasterQuery(
     SearchFilters f, {
     required int page,
     required int size,
   }) {
-    final location = _toLocation(f);
     final category = f.categoryKey;
     final query = _normalizeQuery(f.query);
-    return SalonSearchRequest((b) {
-      b
-        ..page = page
-        ..size = size
-        ..sort = SalonSearchRequestSortEnum.valueOf(f.sort.wireValue);
-      if (query != null) b.q = query;
-      if (location != null) b.location.replace(location);
-      if (category != null && category.isNotEmpty) b.category = category;
-      if (f.minPrice != null) b.minPrice = f.minPrice;
-      if (f.maxPrice != null) b.maxPrice = f.maxPrice;
-    });
+    final q = <String, dynamic>{
+      'page': page,
+      'size': size,
+      // sort is never null (SearchFilters defaults to ratingDesc); the enum
+      // wireValue is the exact backend SearchSort constant name.
+      'sort': f.sort.wireValue,
+    };
+    _addLocation(q, f);
+    if (query != null) q['q'] = query;
+    if (category != null && category.isNotEmpty) q['category'] = category;
+    if (f.minPrice != null) q['minPrice'] = f.minPrice.toString();
+    if (f.maxPrice != null) q['maxPrice'] = f.maxPrice.toString();
+    if (f.minRating != null) q['minRating'] = f.minRating.toString();
+    return q;
+  }
+
+  /// Builds the FLAT `@ModelAttribute`-bindable query map for the salons
+  /// endpoint. Mirrors [_toMasterQuery] minus `minRating` — the backend
+  /// `SalonSearchRequest` record has no rating filter, so
+  /// [SearchFilters.minRating] is intentionally not forwarded.
+  static Map<String, dynamic> _toSalonQuery(
+    SearchFilters f, {
+    required int page,
+    required int size,
+  }) {
+    final category = f.categoryKey;
+    final query = _normalizeQuery(f.query);
+    final q = <String, dynamic>{
+      'page': page,
+      'size': size,
+      'sort': f.sort.wireValue,
+    };
+    _addLocation(q, f);
+    if (query != null) q['q'] = query;
+    if (category != null && category.isNotEmpty) q['category'] = category;
+    if (f.minPrice != null) q['minPrice'] = f.minPrice.toString();
+    if (f.maxPrice != null) q['maxPrice'] = f.maxPrice.toString();
+    return q;
   }
 
   /// Maps a [DioException] to a typed [Failure].

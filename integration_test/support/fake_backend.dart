@@ -472,6 +472,14 @@ final class FakeBackend {
   String? lastSearchMastersQuery;
   String? lastSearchMastersSort;
 
+  /// The last FLAT `location.cityId` / `location.districtId` the repository sent
+  /// on a `/search/masters` request. Null when the filter was absent. Proves the
+  /// city scope reaches the wire as a FLAT @ModelAttribute key (the city-filter
+  /// wire-format regression) — a bracket-nested `request[location][cityId]` would
+  /// leave these null and an all-regions result would slip through.
+  String? lastSearchMastersCityId;
+  String? lastSearchMastersDistrictId;
+
   /// `GET /api/v1/search/salons` call count + the last `page` requested.
   int searchSalonsCalls = 0;
   int? lastSearchSalonsPage;
@@ -479,6 +487,11 @@ final class FakeBackend {
   /// The last `q` (free-text) + `sort` carried on a `/search/salons` request.
   String? lastSearchSalonsQuery;
   String? lastSearchSalonsSort;
+
+  /// The last FLAT `location.cityId` / `location.districtId` on a
+  /// `/search/salons` request. See [lastSearchMastersCityId].
+  String? lastSearchSalonsCityId;
+  String? lastSearchSalonsDistrictId;
 
   // ── Favorites telemetry (Phase 13.4) ──────────────────────────────────────
   /// `POST /api/v1/favorites` (add) call count + the most recent body.
@@ -587,34 +600,26 @@ final class FakeBackend {
     },
   };
 
-  /// Extracts the zero-based `page` from a `?request=<json>` search query param.
+  /// Extracts the zero-based `page` from the FLAT search query map.
+  ///
+  /// WIRE-FORMAT FIX: the repository now sends `@ModelAttribute`-bindable FLAT
+  /// params (`page=0&size=20&sort=…&location.cityId=…&q=…`) directly — NOT the
+  /// old `?request=<json>` object-query wrapper the generated client used. The
+  /// `page` arrives as its own top-level query key.
   static int _pageFromRequest(Map<String, dynamic> query) {
-    final raw = query['request'];
-    if (raw is! String || raw.isEmpty) return 0;
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map && decoded['page'] is int) {
-        return decoded['page'] as int;
-      }
-    } catch (_) {
-      // Non-JSON request param — fall back to page 0.
-    }
+    final raw = query['page'];
+    if (raw is int) return raw;
+    if (raw is String) return int.tryParse(raw) ?? 0;
     return 0;
   }
 
-  /// Decodes the `?request=<json>` search query param into a map, or `{}` when
-  /// it is absent / not valid JSON. Used to capture `q` / `sort` telemetry.
-  static Map<String, dynamic> _decodeRequest(Map<String, dynamic> query) {
-    final raw = query['request'];
-    if (raw is! String || raw.isEmpty) return const <String, dynamic>{};
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map) return Map<String, dynamic>.from(decoded);
-    } catch (_) {
-      // Non-JSON request param.
-    }
-    return const <String, dynamic>{};
-  }
+  /// Reads the FLAT search query map as a plain `{ key: value }` map. Mirrors the
+  /// wire the @ModelAttribute binder reads: `q`, `sort`, `category`,
+  /// `location.cityId`, `location.districtId`, `minPrice`, `maxPrice`,
+  /// `minRating`, `page`, `size`. Used to capture `q` / `sort` / `location.*`
+  /// telemetry. The values are already URL-decoded by DioAdapter.
+  static Map<String, dynamic> _decodeRequest(Map<String, dynamic> query) =>
+      Map<String, dynamic>.from(query);
 
   Map<String, dynamic> _masterDetailEnvelope() => _ok(<String, dynamic>{
     'masterId': 'user-master-1',
@@ -1192,9 +1197,10 @@ final class FakeBackend {
 
     // ── Discovery search (Phase 13.4) ─────────────────────────────────────────
     //
-    // GET /api/v1/search/masters?request=<MasterSearchRequest json> — paged.
-    // The `request` query param carries the serialized request DTO (page nested
-    // inside it). Page 0 returns one master + signals a second page
+    // GET /api/v1/search/masters?page=&size=&sort=&location.cityId=&… — paged.
+    // The repository sends FLAT @ModelAttribute-bindable query params (the city
+    // arrives as `location.cityId`, NOT a bracket-nested `request[location]…`).
+    // Page 0 returns one master + signals a second page
     // (totalPages=2); page 1 returns the second master (last page). This drives
     // both the first-page render AND the loadMore append in the E2E.
     _adapter.onRoute(
@@ -1208,6 +1214,8 @@ final class FakeBackend {
         );
         lastSearchMastersQuery = reqJson['q'] as String?;
         lastSearchMastersSort = reqJson['sort'] as String?;
+        lastSearchMastersCityId = reqJson['location.cityId'] as String?;
+        lastSearchMastersDistrictId = reqJson['location.districtId'] as String?;
         if (page <= 0) {
           return _searchEnvelope(
             _searchMastersPage0,
@@ -1226,7 +1234,7 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // GET /api/v1/search/salons?request=<SalonSearchRequest json> — single page.
+    // GET /api/v1/search/salons?page=&size=&sort=&location.cityId=&… — 1 page.
     _adapter.onRoute(
       '/api/v1/search/salons',
       (server) => server.replyCallback(200, (req) {
@@ -1238,6 +1246,8 @@ final class FakeBackend {
         );
         lastSearchSalonsQuery = reqJson['q'] as String?;
         lastSearchSalonsSort = reqJson['sort'] as String?;
+        lastSearchSalonsCityId = reqJson['location.cityId'] as String?;
+        lastSearchSalonsDistrictId = reqJson['location.districtId'] as String?;
         // Salons have a single page: page 0 carries the row, any later page is
         // empty (the notifier only re-requests salons while salonHasMore).
         if (page <= 0) {

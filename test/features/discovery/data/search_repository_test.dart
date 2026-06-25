@@ -1,19 +1,41 @@
-// Phase 13.2 — Unit tests for [HttpSearchRepository] + the search mappers.
+// Phase 13.2 / 19.x — Unit tests for [HttpSearchRepository] + the search mappers.
 //
-// Strategy:
-//   All tests mock [SearchControllerApi] with mocktail and construct
-//   [HttpSearchRepository] directly (no Riverpod overhead — pure Dart units).
+// WIRE-FORMAT REGRESSION CONTEXT (the bug this file now pins)
+// ----------------------------------------------------------
+// Symptom: client discovery "filter by city" returned masters from ALL regions.
+// Root cause: the OpenAPI-generated `SearchControllerApi` serialised the whole
+// search DTO as ONE object query param named `request`; Dio bracket-nested it to
+// `request[location][cityId]=<uuid>`, which Spring's `@ModelAttribute` binder
+// cannot read → the backend bound an all-null request → an unfiltered all-regions
+// 200. Fix: [HttpSearchRepository] now issues GET `/api/v1/search/masters` and
+// `/api/v1/search/salons` through the shared [Dio] with a FLAT dot-notation query
+// map (`location.cityId=<uuid>`, `sort=…`, `page=…`, …) and deserialises the
+// response through the same `standardSerializers`. Constructor changed from
+// `HttpSearchRepository(SearchControllerApi)` to `HttpSearchRepository(Dio,
+// Serializers)`.
 //
-// Coverage (first cut — mobile-qa will harden/extend):
-//   1. searchMasters — success mapping (id/name/rating/price/location)
-//   2. searchSalons  — success mapping (id/name/price band; avgRating null)
-//   3. searchMasters — empty page
-//   4. searchMasters — 400 → ValidationFailure
-//   5. searchMasters — connection error → NetworkFailure
-//   6. searchMasters — null masterId → ServerFailure (mapper guard)
-//   7. mapper        — salon priceMin == priceMax (single value)
-//   8. mapper        — salon priceMin/priceMax both null (no price)
-//   9. mapper        — master missing avgRating defaults to 0.0
+// STRATEGY
+// --------
+// Mock [Dio] with mocktail and construct [HttpSearchRepository] directly (pure
+// Dart unit — no Riverpod). `Dio.get<Object>` is stubbed to return a [Response]
+// whose `data` is the JSON-collection form of the envelope (produced via
+// `standardSerializers.serialize`, exactly what the real Dio JSON transformer
+// yields), so response parsing into the domain models is exercised end to end.
+// The request side is asserted by CAPTURING the `path` + `queryParameters`
+// handed to `Dio.get` and checking the FLAT keys — this is what locks the wire.
+//
+// Coverage:
+//   • Response parsing — populated page, empty page, double coercion, mapper
+//     guards (null id → ServerFailure) for BOTH masters and salons.
+//   • Error mapping — 400/422 → ValidationFailure, connection/timeout →
+//     NetworkFailure (the same DioException → Failure table as before).
+//   • Request translation (FLAT wire) — q / category / location / sort /
+//     minPrice / maxPrice / minRating / page / size; null/blank fields OMITTED.
+//   • REGRESSION — a picked city reaches the wire as the literal dotted key
+//     `location.cityId` (NOT `request[location][cityId]`) on BOTH endpoints, the
+//     rendered query string contains `location.cityId=<uuid>` and contains NO
+//     `request` / `[` / `]` / `%5B` bracket-encoding. This assertion FAILS the
+//     instant anyone reverts to the object-query encoding.
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -23,13 +45,14 @@ import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/result_card_text.dart'
     show kServiceNamesSeparator;
 import 'package:built_collection/built_collection.dart';
+import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
-class _MockSearchControllerApi extends Mock implements SearchControllerApi {}
+class _MockDio extends Mock implements Dio {}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -83,7 +106,12 @@ SalonSearchResult _buildSalonDto({
           ..priceMax = priceMax)
         .build();
 
-Response<ApiResponsePageResponseMasterSearchResult> _masterResponse(
+/// The exact wire form the real Dio JSON transformer hands the repository: the
+/// JSON-collection (Map/List of primitives) serialization of the typed envelope.
+/// The repository's `_deserialize` re-hydrates it via `standardSerializers`, so
+/// feeding the SERIALIZED form (not the built object) exercises the real parse
+/// path — a deserialization fault would surface here exactly as in production.
+Object _serializeMasterEnvelope(
   List<MasterSearchResult> items, {
   int page = 0,
   int totalPages = 1,
@@ -104,14 +132,13 @@ Response<ApiResponsePageResponseMasterSearchResult> _masterResponse(
         ),
       ),
   );
-  return Response<ApiResponsePageResponseMasterSearchResult>(
-    data: body,
-    requestOptions: RequestOptions(path: _masterPath),
-    statusCode: 200,
-  );
+  return standardSerializers.serialize(
+    body,
+    specifiedType: const FullType(ApiResponsePageResponseMasterSearchResult),
+  )!;
 }
 
-Response<ApiResponsePageResponseSalonSearchResult> _salonResponse(
+Object _serializeSalonEnvelope(
   List<SalonSearchResult> items, {
   int page = 0,
   int totalPages = 1,
@@ -131,12 +158,37 @@ Response<ApiResponsePageResponseSalonSearchResult> _salonResponse(
         ),
       ),
   );
-  return Response<ApiResponsePageResponseSalonSearchResult>(
-    data: body,
-    requestOptions: RequestOptions(path: _salonPath),
-    statusCode: 200,
-  );
+  return standardSerializers.serialize(
+    body,
+    specifiedType: const FullType(ApiResponsePageResponseSalonSearchResult),
+  )!;
 }
+
+Response<Object> _masterResponse(
+  List<MasterSearchResult> items, {
+  int page = 0,
+  int totalPages = 1,
+  int? totalElements,
+}) => Response<Object>(
+  data: _serializeMasterEnvelope(
+    items,
+    page: page,
+    totalPages: totalPages,
+    totalElements: totalElements,
+  ),
+  requestOptions: RequestOptions(path: _masterPath),
+  statusCode: 200,
+);
+
+Response<Object> _salonResponse(
+  List<SalonSearchResult> items, {
+  int page = 0,
+  int totalPages = 1,
+}) => Response<Object>(
+  data: _serializeSalonEnvelope(items, page: page, totalPages: totalPages),
+  requestOptions: RequestOptions(path: _salonPath),
+  statusCode: 200,
+);
 
 DioException _dioBadResponse(int statusCode, String path) => DioException(
   requestOptions: RequestOptions(path: path),
@@ -147,28 +199,74 @@ DioException _dioBadResponse(int statusCode, String path) => DioException(
   type: DioExceptionType.badResponse,
 );
 
-// ── Test suite ───────────────────────────────────────────────────────────────
-
 void main() {
-  late _MockSearchControllerApi api;
+  late _MockDio dio;
   late HttpSearchRepository repository;
 
   const filters = SearchFilters();
 
   setUp(() {
-    api = _MockSearchControllerApi();
-    repository = HttpSearchRepository(api);
-    registerFallbackValue(MasterSearchRequest((b) => b..page = 0));
-    registerFallbackValue(SalonSearchRequest((b) => b..page = 0));
+    dio = _MockDio();
+    repository = HttpSearchRepository(dio, standardSerializers);
+    // `queryParameters` is a Map<String, dynamic> matched with any(); register a
+    // fallback so mocktail can synthesise it for the matcher.
+    registerFallbackValue(<String, dynamic>{});
   });
 
-  // ── 1. searchMasters — success mapping ──────────────────────────────────────
+  // ── stub helpers: arm Dio.get for the masters / salons GET ──────────────────
 
-  group('searchMasters', () {
+  void stubMasters(Response<Object> response) {
+    when(
+      () => dio.get<Object>(
+        _masterPath,
+        queryParameters: any(named: 'queryParameters'),
+      ),
+    ).thenAnswer((_) async => response);
+  }
+
+  void stubMastersThrows(Object error) {
+    when(
+      () => dio.get<Object>(
+        _masterPath,
+        queryParameters: any(named: 'queryParameters'),
+      ),
+    ).thenThrow(error);
+  }
+
+  void stubSalons(Response<Object> response) {
+    when(
+      () => dio.get<Object>(
+        _salonPath,
+        queryParameters: any(named: 'queryParameters'),
+      ),
+    ).thenAnswer((_) async => response);
+  }
+
+  void stubSalonsThrows(Object error) {
+    when(
+      () => dio.get<Object>(
+        _salonPath,
+        queryParameters: any(named: 'queryParameters'),
+      ),
+    ).thenThrow(error);
+  }
+
+  /// Captures the FLAT query map the repository handed `Dio.get` for [path].
+  Map<String, dynamic> capturedQuery(String path) {
+    final captured = verify(
+      () => dio.get<Object>(
+        path,
+        queryParameters: captureAny(named: 'queryParameters'),
+      ),
+    ).captured.single;
+    return Map<String, dynamic>.from(captured as Map);
+  }
+
+  // ── searchMasters — response parsing ────────────────────────────────────────
+
+  group('searchMasters response parsing', () {
     test('maps a populated page to domain MasterSearchItems', () async {
-      when(
-        () => api.searchMasters(request: any(named: 'request')),
-      ).thenAnswer((_) async => _masterResponse([_buildMasterDto()]));
+      stubMasters(_masterResponse([_buildMasterDto()]));
 
       final page = await repository.searchMasters(filters: filters, page: 0);
 
@@ -189,12 +287,8 @@ void main() {
       expect(page.totalElements, 1);
     });
 
-    // ── 3. searchMasters — empty page ─────────────────────────────────────────
-
     test('returns an empty page when the backend matches nothing', () async {
-      when(
-        () => api.searchMasters(request: any(named: 'request')),
-      ).thenAnswer((_) async => _masterResponse([], totalPages: 0));
+      stubMasters(_masterResponse([], totalPages: 0));
 
       final page = await repository.searchMasters(filters: filters, page: 0);
 
@@ -203,12 +297,20 @@ void main() {
       expect(page.hasMore, isFalse);
     });
 
-    // ── 4. searchMasters — 400 → ValidationFailure ────────────────────────────
+    test('empty page carries totalElements == 0 (no items, no match)', () async {
+      stubMasters(_masterResponse([], page: 0, totalPages: 0));
+
+      final page = await repository.searchMasters(filters: filters, page: 0);
+
+      expect(page.items, isEmpty);
+      expect(page.totalElements, 0);
+      expect(page.totalPages, 0);
+      expect(page.page, 0);
+      expect(page.hasMore, isFalse);
+    });
 
     test('maps a 400 response to ValidationFailure', () async {
-      when(
-        () => api.searchMasters(request: any(named: 'request')),
-      ).thenThrow(_dioBadResponse(400, _masterPath));
+      stubMastersThrows(_dioBadResponse(400, _masterPath));
 
       expect(
         () => repository.searchMasters(filters: filters, page: 0),
@@ -216,10 +318,17 @@ void main() {
       );
     });
 
-    // ── 5. searchMasters — connection error → NetworkFailure ──────────────────
+    test('maps a 422 response to ValidationFailure', () async {
+      stubMastersThrows(_dioBadResponse(422, _masterPath));
+
+      expect(
+        () => repository.searchMasters(filters: filters, page: 0),
+        throwsA(isA<ValidationFailure>()),
+      );
+    });
 
     test('maps a connection error to NetworkFailure', () async {
-      when(() => api.searchMasters(request: any(named: 'request'))).thenThrow(
+      stubMastersThrows(
         DioException(
           requestOptions: RequestOptions(path: _masterPath),
           type: DioExceptionType.connectionError,
@@ -232,49 +341,8 @@ void main() {
       );
     });
 
-    // ── 6. searchMasters — null masterId → ServerFailure ──────────────────────
-
-    test('maps a null masterId to ServerFailure (mapper guard)', () async {
-      when(() => api.searchMasters(request: any(named: 'request'))).thenAnswer(
-        (_) async => _masterResponse([_buildMasterDto(masterId: null)]),
-      );
-
-      expect(
-        () => repository.searchMasters(filters: filters, page: 0),
-        throwsA(isA<ServerFailure>()),
-      );
-    });
-
-    test(
-      'empty page carries totalElements == 0 (no items, no match)',
-      () async {
-        when(
-          () => api.searchMasters(request: any(named: 'request')),
-        ).thenAnswer((_) async => _masterResponse([], page: 0, totalPages: 0));
-
-        final page = await repository.searchMasters(filters: filters, page: 0);
-
-        expect(page.items, isEmpty);
-        expect(page.totalElements, 0);
-        expect(page.totalPages, 0);
-        expect(page.page, 0);
-        expect(page.hasMore, isFalse);
-      },
-    );
-
-    test('maps a 422 response to ValidationFailure', () async {
-      when(
-        () => api.searchMasters(request: any(named: 'request')),
-      ).thenThrow(_dioBadResponse(422, _masterPath));
-
-      expect(
-        () => repository.searchMasters(filters: filters, page: 0),
-        throwsA(isA<ValidationFailure>()),
-      );
-    });
-
     test('maps a receive timeout to NetworkFailure', () async {
-      when(() => api.searchMasters(request: any(named: 'request'))).thenThrow(
+      stubMastersThrows(
         DioException(
           requestOptions: RequestOptions(path: _masterPath),
           type: DioExceptionType.receiveTimeout,
@@ -287,15 +355,19 @@ void main() {
       );
     });
 
+    test('maps a null masterId to ServerFailure (mapper guard)', () async {
+      stubMasters(_masterResponse([_buildMasterDto(masterId: null)]));
+
+      expect(
+        () => repository.searchMasters(filters: filters, page: 0),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
+
     test(
       'minEffectivePrice is delivered as a double (not the raw num)',
       () async {
-        when(
-          () => api.searchMasters(request: any(named: 'request')),
-        ).thenAnswer(
-          (_) async =>
-              _masterResponse([_buildMasterDto(minEffectivePrice: 350)]),
-        );
+        stubMasters(_masterResponse([_buildMasterDto(minEffectivePrice: 350)]));
 
         final page = await repository.searchMasters(filters: filters, page: 0);
 
@@ -306,354 +378,11 @@ void main() {
     );
   });
 
-  // ── Request translation — q / sort / location / price ARE forwarded ──────────
-  //
-  // The search contract now exposes a free-text `q`, an allow-listed `sort`, and
-  // (salon side) a `minPrice`/`maxPrice` band. These tests capture the request
-  // DTO handed to [SearchControllerApi] and assert each new param reaches the
-  // wire with the right value, and that the `q` normalisation (trim / empty →
-  // null) is applied.
+  // ── searchSalons — response parsing ─────────────────────────────────────────
 
-  group('request translation', () {
-    const richFilters = SearchFilters(
-      query: 'Манікюр',
-      categoryKey: 'HAIR',
-      cityId: 'city-7',
-      districtId: 'district-3',
-      minPrice: 200,
-      maxPrice: 800,
-      minRating: 4.0,
-      sort: SearchSort.priceAsc,
-    );
-
-    test(
-      'searchMasters forwards q, sort, location, category, price, rating',
-      () async {
-        when(
-          () => api.searchMasters(request: any(named: 'request')),
-        ).thenAnswer((_) async => _masterResponse([_buildMasterDto()]));
-
-        await repository.searchMasters(filters: richFilters, page: 2);
-
-        final captured =
-            verify(
-                  () =>
-                      api.searchMasters(request: captureAny(named: 'request')),
-                ).captured.single
-                as MasterSearchRequest;
-
-        expect(captured.q, 'Манікюр');
-        expect(captured.sort, MasterSearchRequestSortEnum.PRICE_ASC);
-        expect(captured.category, 'HAIR');
-        expect(captured.location?.cityId, 'city-7');
-        expect(captured.location?.districtId, 'district-3');
-        expect(captured.minPrice, 200);
-        expect(captured.maxPrice, 800);
-        expect(captured.minRating, 4.0);
-        expect(captured.page, 2);
-        expect(captured.size, kSearchPageSize);
-      },
-    );
-
-    test(
-      'searchSalons forwards q, sort, location, category, AND the price band',
-      () async {
-        when(
-          () => api.searchSalons(request: any(named: 'request')),
-        ).thenAnswer((_) async => _salonResponse([_buildSalonDto()]));
-
-        await repository.searchSalons(filters: richFilters, page: 1);
-
-        final captured =
-            verify(
-                  () => api.searchSalons(request: captureAny(named: 'request')),
-                ).captured.single
-                as SalonSearchRequest;
-
-        expect(captured.q, 'Манікюр');
-        expect(captured.sort, SalonSearchRequestSortEnum.PRICE_ASC);
-        expect(captured.category, 'HAIR');
-        expect(captured.location?.cityId, 'city-7');
-        expect(captured.location?.districtId, 'district-3');
-        // Item 3: salon price band is now forwarded (previously dropped).
-        expect(captured.minPrice, 200);
-        expect(captured.maxPrice, 800);
-        expect(captured.page, 1);
-        expect(captured.size, kSearchPageSize);
-      },
-    );
-
-    test(
-      'a blank/whitespace query is normalised to null (q omitted)',
-      () async {
-        when(
-          () => api.searchMasters(request: any(named: 'request')),
-        ).thenAnswer((_) async => _masterResponse([]));
-
-        await repository.searchMasters(
-          filters: const SearchFilters(query: '   '),
-          page: 0,
-        );
-
-        final captured =
-            verify(
-                  () =>
-                      api.searchMasters(request: captureAny(named: 'request')),
-                ).captured.single
-                as MasterSearchRequest;
-
-        expect(captured.q, isNull);
-      },
-    );
-
-    test(
-      'a query with surrounding whitespace is trimmed before sending',
-      () async {
-        when(
-          () => api.searchSalons(request: any(named: 'request')),
-        ).thenAnswer((_) async => _salonResponse([]));
-
-        await repository.searchSalons(
-          filters: const SearchFilters(query: '  педикюр  '),
-          page: 0,
-        );
-
-        final captured =
-            verify(
-                  () => api.searchSalons(request: captureAny(named: 'request')),
-                ).captured.single
-                as SalonSearchRequest;
-
-        expect(captured.q, 'педикюр');
-      },
-    );
-
-    // Every SearchSort enum constant must serialize to its exact backend wire
-    // string on BOTH endpoints. The repository routes the value through
-    // `…SortEnum.valueOf(f.sort.wireValue)`; a drift in wireValue (or a missing
-    // enum constant) would surface a wrong `?sort=` and silently mis-order the
-    // results. RATING_DESC + PRICE_ASC are exercised elsewhere; this table makes
-    // PRICE_DESC and REVIEWS_DESC non-permissive too.
-    const Map<
-      SearchSort,
-      (MasterSearchRequestSortEnum, SalonSearchRequestSortEnum)
-    >
-    sortWireMap =
-        <SearchSort, (MasterSearchRequestSortEnum, SalonSearchRequestSortEnum)>{
-          SearchSort.ratingDesc: (
-            MasterSearchRequestSortEnum.RATING_DESC,
-            SalonSearchRequestSortEnum.RATING_DESC,
-          ),
-          SearchSort.priceAsc: (
-            MasterSearchRequestSortEnum.PRICE_ASC,
-            SalonSearchRequestSortEnum.PRICE_ASC,
-          ),
-          SearchSort.priceDesc: (
-            MasterSearchRequestSortEnum.PRICE_DESC,
-            SalonSearchRequestSortEnum.PRICE_DESC,
-          ),
-          SearchSort.reviewsDesc: (
-            MasterSearchRequestSortEnum.REVIEWS_DESC,
-            SalonSearchRequestSortEnum.REVIEWS_DESC,
-          ),
-        };
-
-    for (final MapEntry<
-          SearchSort,
-          (MasterSearchRequestSortEnum, SalonSearchRequestSortEnum)
-        >
-        entry
-        in sortWireMap.entries) {
-      final SearchSort sort = entry.key;
-      final MasterSearchRequestSortEnum masterWire = entry.value.$1;
-      final SalonSearchRequestSortEnum salonWire = entry.value.$2;
-
-      test(
-        'sort=${sort.name} maps to ${masterWire.name} on BOTH endpoints',
-        () async {
-          when(
-            () => api.searchMasters(request: any(named: 'request')),
-          ).thenAnswer((_) async => _masterResponse([]));
-          when(
-            () => api.searchSalons(request: any(named: 'request')),
-          ).thenAnswer((_) async => _salonResponse([]));
-
-          final filtersForSort = SearchFilters(sort: sort);
-          await repository.searchMasters(filters: filtersForSort, page: 0);
-          await repository.searchSalons(filters: filtersForSort, page: 0);
-
-          final master =
-              verify(
-                    () => api.searchMasters(
-                      request: captureAny(named: 'request'),
-                    ),
-                  ).captured.single
-                  as MasterSearchRequest;
-          final salon =
-              verify(
-                    () =>
-                        api.searchSalons(request: captureAny(named: 'request')),
-                  ).captured.single
-                  as SalonSearchRequest;
-
-          expect(master.sort, masterWire);
-          expect(salon.sort, salonWire);
-          // The enum's wireValue is the literal `?sort=` token — assert it too so a
-          // rename on the Dart side can't drift silently from the backend constant.
-          expect(sort.wireValue, masterWire.name);
-          expect(sort.wireValue, salonWire.name);
-        },
-      );
-    }
-
-    test('master endpoint forwards the minPrice/maxPrice band', () async {
-      when(
-        () => api.searchMasters(request: any(named: 'request')),
-      ).thenAnswer((_) async => _masterResponse([]));
-
-      await repository.searchMasters(
-        filters: const SearchFilters(minPrice: 150, maxPrice: 650),
-        page: 0,
-      );
-
-      final captured =
-          verify(
-                () => api.searchMasters(request: captureAny(named: 'request')),
-              ).captured.single
-              as MasterSearchRequest;
-
-      expect(captured.minPrice, 150);
-      expect(captured.maxPrice, 650);
-    });
-
-    test(
-      'a district-only location reaches the wire on BOTH endpoints',
-      () async {
-        const located = SearchFilters(
-          cityId: 'city-9',
-          districtId: 'district-4',
-        );
-        when(
-          () => api.searchMasters(request: any(named: 'request')),
-        ).thenAnswer((_) async => _masterResponse([]));
-        when(
-          () => api.searchSalons(request: any(named: 'request')),
-        ).thenAnswer((_) async => _salonResponse([]));
-
-        await repository.searchMasters(filters: located, page: 0);
-        await repository.searchSalons(filters: located, page: 0);
-
-        final master =
-            verify(
-                  () =>
-                      api.searchMasters(request: captureAny(named: 'request')),
-                ).captured.single
-                as MasterSearchRequest;
-        final salon =
-            verify(
-                  () => api.searchSalons(request: captureAny(named: 'request')),
-                ).captured.single
-                as SalonSearchRequest;
-
-        expect(master.location?.cityId, 'city-9');
-        expect(master.location?.districtId, 'district-4');
-        expect(salon.location?.cityId, 'city-9');
-        expect(salon.location?.districtId, 'district-4');
-      },
-    );
-
-    test('default filters send sort=RATING_DESC on both endpoints', () async {
-      when(
-        () => api.searchMasters(request: any(named: 'request')),
-      ).thenAnswer((_) async => _masterResponse([]));
-      when(
-        () => api.searchSalons(request: any(named: 'request')),
-      ).thenAnswer((_) async => _salonResponse([]));
-
-      await repository.searchMasters(filters: const SearchFilters(), page: 0);
-      await repository.searchSalons(filters: const SearchFilters(), page: 0);
-
-      final master =
-          verify(
-                () => api.searchMasters(request: captureAny(named: 'request')),
-              ).captured.single
-              as MasterSearchRequest;
-      final salon =
-          verify(
-                () => api.searchSalons(request: captureAny(named: 'request')),
-              ).captured.single
-              as SalonSearchRequest;
-
-      expect(master.sort, MasterSearchRequestSortEnum.RATING_DESC);
-      expect(salon.sort, SalonSearchRequestSortEnum.RATING_DESC);
-    });
-
-    test('Item 1 — a picked city reaches the wire as location.cityId on BOTH '
-        'master and salon requests', () async {
-      const located = SearchFilters(cityId: 'city-42');
-      when(
-        () => api.searchMasters(request: any(named: 'request')),
-      ).thenAnswer((_) async => _masterResponse([]));
-      when(
-        () => api.searchSalons(request: any(named: 'request')),
-      ).thenAnswer((_) async => _salonResponse([]));
-
-      await repository.searchMasters(filters: located, page: 0);
-      await repository.searchSalons(filters: located, page: 0);
-
-      final master =
-          verify(
-                () => api.searchMasters(request: captureAny(named: 'request')),
-              ).captured.single
-              as MasterSearchRequest;
-      final salon =
-          verify(
-                () => api.searchSalons(request: captureAny(named: 'request')),
-              ).captured.single
-              as SalonSearchRequest;
-
-      expect(master.location?.cityId, 'city-42');
-      expect(master.location?.districtId, isNull);
-      expect(salon.location?.cityId, 'city-42');
-      expect(salon.location?.districtId, isNull);
-    });
-
-    test(
-      'empty filters produce a request with paging + default sort only',
-      () async {
-        when(
-          () => api.searchMasters(request: any(named: 'request')),
-        ).thenAnswer((_) async => _masterResponse([]));
-
-        await repository.searchMasters(filters: const SearchFilters(), page: 0);
-
-        final captured =
-            verify(
-                  () =>
-                      api.searchMasters(request: captureAny(named: 'request')),
-                ).captured.single
-                as MasterSearchRequest;
-
-        expect(captured.q, isNull);
-        expect(captured.location, isNull);
-        expect(captured.category, isNull);
-        expect(captured.minPrice, isNull);
-        expect(captured.maxPrice, isNull);
-        expect(captured.minRating, isNull);
-        expect(captured.sort, MasterSearchRequestSortEnum.RATING_DESC);
-        expect(captured.page, 0);
-        expect(captured.size, kSearchPageSize);
-      },
-    );
-  });
-
-  // ── 2. searchSalons — success mapping ───────────────────────────────────────
-
-  group('searchSalons', () {
+  group('searchSalons response parsing', () {
     test('maps a populated page; avgRating is null (DTO omits it)', () async {
-      when(
-        () => api.searchSalons(request: any(named: 'request')),
-      ).thenAnswer((_) async => _salonResponse([_buildSalonDto()]));
+      stubSalons(_salonResponse([_buildSalonDto()]));
 
       final page = await repository.searchSalons(filters: filters, page: 0);
 
@@ -669,9 +398,7 @@ void main() {
     });
 
     test('maps a null salonId to ServerFailure (mapper guard)', () async {
-      when(() => api.searchSalons(request: any(named: 'request'))).thenAnswer(
-        (_) async => _salonResponse([_buildSalonDto(salonId: null)]),
-      );
+      stubSalons(_salonResponse([_buildSalonDto(salonId: null)]));
 
       expect(
         () => repository.searchSalons(filters: filters, page: 0),
@@ -680,9 +407,7 @@ void main() {
     });
 
     test('returns an empty page when the backend matches nothing', () async {
-      when(
-        () => api.searchSalons(request: any(named: 'request')),
-      ).thenAnswer((_) async => _salonResponse([], totalPages: 0));
+      stubSalons(_salonResponse([], totalPages: 0));
 
       final page = await repository.searchSalons(filters: filters, page: 0);
 
@@ -692,9 +417,7 @@ void main() {
     });
 
     test('maps a 400 response to ValidationFailure', () async {
-      when(
-        () => api.searchSalons(request: any(named: 'request')),
-      ).thenThrow(_dioBadResponse(400, _salonPath));
+      stubSalonsThrows(_dioBadResponse(400, _salonPath));
 
       expect(
         () => repository.searchSalons(filters: filters, page: 0),
@@ -703,7 +426,7 @@ void main() {
     });
 
     test('maps a connection error to NetworkFailure', () async {
-      when(() => api.searchSalons(request: any(named: 'request'))).thenThrow(
+      stubSalonsThrows(
         DioException(
           requestOptions: RequestOptions(path: _salonPath),
           type: DioExceptionType.connectionError,
@@ -717,9 +440,7 @@ void main() {
     });
 
     test('priceMin/priceMax are delivered as doubles (not raw num)', () async {
-      when(
-        () => api.searchSalons(request: any(named: 'request')),
-      ).thenAnswer((_) async => _salonResponse([_buildSalonDto()]));
+      stubSalons(_salonResponse([_buildSalonDto()]));
 
       final page = await repository.searchSalons(filters: filters, page: 0);
 
@@ -731,11 +452,322 @@ void main() {
     });
   });
 
+  // ── Request translation — FLAT @ModelAttribute-bindable wire ────────────────
+  //
+  // These capture the `path` + `queryParameters` handed to `Dio.get` and assert
+  // every param reaches the wire as a FLAT key with the exact backend field name
+  // (`q`, `category`, `location.cityId`, `location.districtId`, `sort`,
+  // `minPrice`, `maxPrice`, `minRating`, `page`, `size`). Null/blank filters are
+  // OMITTED (the backend treats an absent key as "no constraint").
+
+  group('request translation (flat wire)', () {
+    const richFilters = SearchFilters(
+      query: 'Манікюр',
+      categoryKey: 'HAIR',
+      cityId: 'city-7',
+      districtId: 'district-3',
+      minPrice: 200,
+      maxPrice: 800,
+      minRating: 4.0,
+      sort: SearchSort.priceAsc,
+    );
+
+    test(
+      'searchMasters forwards q, sort, location, category, price, rating, paging',
+      () async {
+        stubMasters(_masterResponse([_buildMasterDto()]));
+
+        await repository.searchMasters(filters: richFilters, page: 2);
+
+        final q = capturedQuery(_masterPath);
+        expect(q['q'], 'Манікюр');
+        expect(q['sort'], 'PRICE_ASC');
+        expect(q['category'], 'HAIR');
+        expect(q['location.cityId'], 'city-7');
+        expect(q['location.districtId'], 'district-3');
+        expect(q['minPrice'], '200.0');
+        expect(q['maxPrice'], '800.0');
+        expect(q['minRating'], '4.0');
+        expect(q['page'], 2);
+        expect(q['size'], kSearchPageSize);
+      },
+    );
+
+    test(
+      'searchSalons forwards q, sort, location, category AND the price band '
+      '(but NOT minRating — salon endpoint has no rating filter)',
+      () async {
+        stubSalons(_salonResponse([_buildSalonDto()]));
+
+        await repository.searchSalons(filters: richFilters, page: 1);
+
+        final q = capturedQuery(_salonPath);
+        expect(q['q'], 'Манікюр');
+        expect(q['sort'], 'PRICE_ASC');
+        expect(q['category'], 'HAIR');
+        expect(q['location.cityId'], 'city-7');
+        expect(q['location.districtId'], 'district-3');
+        expect(q['minPrice'], '200.0');
+        expect(q['maxPrice'], '800.0');
+        expect(q['page'], 1);
+        expect(q['size'], kSearchPageSize);
+        // minRating is intentionally absent on the salon endpoint.
+        expect(q.containsKey('minRating'), isFalse);
+      },
+    );
+
+    test('a blank/whitespace query is normalised to null (q OMITTED)', () async {
+      stubMasters(_masterResponse([]));
+
+      await repository.searchMasters(
+        filters: const SearchFilters(query: '   '),
+        page: 0,
+      );
+
+      final q = capturedQuery(_masterPath);
+      expect(q.containsKey('q'), isFalse);
+    });
+
+    test('a query with surrounding whitespace is trimmed before sending', () async {
+      stubSalons(_salonResponse([]));
+
+      await repository.searchSalons(
+        filters: const SearchFilters(query: '  педикюр  '),
+        page: 0,
+      );
+
+      final q = capturedQuery(_salonPath);
+      expect(q['q'], 'педикюр');
+    });
+
+    test(
+      'empty filters send paging + default sort ONLY (every optional omitted)',
+      () async {
+        stubMasters(_masterResponse([]));
+
+        await repository.searchMasters(filters: const SearchFilters(), page: 0);
+
+        final q = capturedQuery(_masterPath);
+        expect(q['page'], 0);
+        expect(q['size'], kSearchPageSize);
+        expect(q['sort'], 'RATING_DESC');
+        // Nothing else reaches the wire — null/blank filters are dropped.
+        expect(q.containsKey('q'), isFalse);
+        expect(q.containsKey('category'), isFalse);
+        expect(q.containsKey('location.cityId'), isFalse);
+        expect(q.containsKey('location.districtId'), isFalse);
+        expect(q.containsKey('minPrice'), isFalse);
+        expect(q.containsKey('maxPrice'), isFalse);
+        expect(q.containsKey('minRating'), isFalse);
+      },
+    );
+
+    test('default filters send sort=RATING_DESC on BOTH endpoints', () async {
+      stubMasters(_masterResponse([]));
+      stubSalons(_salonResponse([]));
+
+      await repository.searchMasters(filters: const SearchFilters(), page: 0);
+      await repository.searchSalons(filters: const SearchFilters(), page: 0);
+
+      expect(capturedQuery(_masterPath)['sort'], 'RATING_DESC');
+      expect(capturedQuery(_salonPath)['sort'], 'RATING_DESC');
+    });
+
+    test('master endpoint forwards the minPrice/maxPrice band', () async {
+      stubMasters(_masterResponse([]));
+
+      await repository.searchMasters(
+        filters: const SearchFilters(minPrice: 150, maxPrice: 650),
+        page: 0,
+      );
+
+      final q = capturedQuery(_masterPath);
+      expect(q['minPrice'], '150.0');
+      expect(q['maxPrice'], '650.0');
+    });
+
+    // Every SearchSort enum constant must serialise to its exact backend wire
+    // string on BOTH endpoints. The repository writes `f.sort.wireValue` to the
+    // `sort` key verbatim; a drift in wireValue (or a missing enum constant)
+    // would surface a wrong `?sort=` token and silently mis-order results.
+    const Map<SearchSort, String> sortWireMap = <SearchSort, String>{
+      SearchSort.ratingDesc: 'RATING_DESC',
+      SearchSort.priceAsc: 'PRICE_ASC',
+      SearchSort.priceDesc: 'PRICE_DESC',
+      SearchSort.reviewsDesc: 'REVIEWS_DESC',
+    };
+
+    for (final MapEntry<SearchSort, String> entry in sortWireMap.entries) {
+      final SearchSort sort = entry.key;
+      final String wire = entry.value;
+
+      test('sort=${sort.name} maps to $wire on BOTH endpoints', () async {
+        stubMasters(_masterResponse([]));
+        stubSalons(_salonResponse([]));
+
+        final filtersForSort = SearchFilters(sort: sort);
+        await repository.searchMasters(filters: filtersForSort, page: 0);
+        await repository.searchSalons(filters: filtersForSort, page: 0);
+
+        expect(capturedQuery(_masterPath)['sort'], wire);
+        expect(capturedQuery(_salonPath)['sort'], wire);
+        // The enum's wireValue is the literal `sort=` token — assert it too so a
+        // rename on the Dart side cannot drift from the backend constant.
+        expect(sort.wireValue, wire);
+      });
+    }
+  });
+
+  // ── REGRESSION — the city filter must reach the wire FLAT, never bracketed ──
+  //
+  // This is the test the original bug demanded: it pins the exact wire format so
+  // a future change / OpenAPI regenerate can never silently re-break the city
+  // filter by reverting to the object-query (`request[location][cityId]=…`)
+  // encoding the @ModelAttribute binder cannot read.
+
+  group('city filter wire-format regression', () {
+    const located = SearchFilters(
+      cityId: 'b3f1c2d4-0000-4aaa-bbbb-ccccdddd1111',
+      districtId: 'a1a2a3a4-0000-4bbb-cccc-ddddeeee2222',
+    );
+
+    /// Asserts the captured FLAT query map for [path] scopes the search to the
+    /// picked city/district via literal DOTTED keys and carries NO bracketed /
+    /// object-query encoding. Also renders the final URI and re-asserts the wire
+    /// string contains `location.cityId=<uuid>` and NO `request` / `[`/`]`/`%5B`.
+    void expectCityScopedFlatWire(String path) {
+      final q = capturedQuery(path);
+
+      // The picked ids reach the wire under the EXACT backend field names.
+      expect(
+        q['location.cityId'],
+        'b3f1c2d4-0000-4aaa-bbbb-ccccdddd1111',
+        reason: 'city must scope the search via the literal dotted key '
+            '`location.cityId` the @ModelAttribute binder reads',
+      );
+      expect(q['location.districtId'], 'a1a2a3a4-0000-4bbb-cccc-ddddeeee2222');
+
+      // No object-query encoding survives: no `request` wrapper key, and no key
+      // contains a `[` / `]` bracket. THIS is the assertion that fails the
+      // instant someone reverts to the generated SearchControllerApi encoding
+      // (which produced `request[location][cityId]=…`).
+      expect(
+        q.containsKey('request'),
+        isFalse,
+        reason: 'a `request` object-query wrapper key is the reverted bug',
+      );
+      for (final String key in q.keys) {
+        expect(
+          key.contains('['),
+          isFalse,
+          reason: 'bracket-nested key "$key" cannot bind @ModelAttribute',
+        );
+        expect(key.contains(']'), isFalse, reason: 'bracketed key "$key"');
+        expect(
+          key.startsWith('request'),
+          isFalse,
+          reason: 'object-query wrapper key "$key"',
+        );
+      }
+
+      // Render the final query string Dio would put on the wire and assert the
+      // ground-truth bytes: city present FLAT, no bracket-encoding at all.
+      final String queryString = Uri(
+        queryParameters: q.map(
+          (k, v) => MapEntry<String, String>(k, '$v'),
+        ),
+      ).query;
+      expect(
+        queryString,
+        contains(
+          'location.cityId=b3f1c2d4-0000-4aaa-bbbb-ccccdddd1111',
+        ),
+        reason: 'the city must appear FLAT in the rendered query string',
+      );
+      expect(
+        queryString.contains('request'),
+        isFalse,
+        reason: 'no `request` object-query wrapper in the wire string',
+      );
+      expect(
+        queryString.contains('%5B') || queryString.contains('['),
+        isFalse,
+        reason: 'no `[` / `%5B` bracket-encoding in the wire string',
+      );
+    }
+
+    test(
+      'a picked city+district reaches /search/masters as flat location.* keys, '
+      'never bracket-nested',
+      () async {
+        stubMasters(_masterResponse([]));
+
+        await repository.searchMasters(filters: located, page: 0);
+
+        expectCityScopedFlatWire(_masterPath);
+      },
+    );
+
+    test(
+      'a picked city+district reaches /search/salons as flat location.* keys, '
+      'never bracket-nested',
+      () async {
+        stubSalons(_salonResponse([]));
+
+        await repository.searchSalons(filters: located, page: 0);
+
+        expectCityScopedFlatWire(_salonPath);
+      },
+    );
+
+    test(
+      'a city-only filter sends location.cityId and OMITS location.districtId '
+      'on BOTH endpoints',
+      () async {
+        const cityOnly = SearchFilters(cityId: 'city-42');
+        stubMasters(_masterResponse([]));
+        stubSalons(_salonResponse([]));
+
+        await repository.searchMasters(filters: cityOnly, page: 0);
+        await repository.searchSalons(filters: cityOnly, page: 0);
+
+        final master = capturedQuery(_masterPath);
+        expect(master['location.cityId'], 'city-42');
+        expect(master.containsKey('location.districtId'), isFalse);
+
+        final salon = capturedQuery(_salonPath);
+        expect(salon['location.cityId'], 'city-42');
+        expect(salon.containsKey('location.districtId'), isFalse);
+      },
+    );
+
+    test('the search GET hits the documented paths', () async {
+      stubMasters(_masterResponse([]));
+      stubSalons(_salonResponse([]));
+
+      await repository.searchMasters(filters: located, page: 0);
+      await repository.searchSalons(filters: located, page: 0);
+
+      // capturedQuery(path) itself verifies Dio.get was called with that exact
+      // path; an extra explicit assertion documents the contract.
+      verify(
+        () => dio.get<Object>(
+          _masterPath,
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).called(1);
+      verify(
+        () => dio.get<Object>(
+          _salonPath,
+          queryParameters: any(named: 'queryParameters'),
+        ),
+      ).called(1);
+    });
+  });
+
   // ── Mapper-level edge cases ──────────────────────────────────────────────────
 
   group('SalonSearchMapper', () {
-    // ── 7. priceMin == priceMax ───────────────────────────────────────────────
-
     test('carries equal priceMin/priceMax through unchanged', () {
       final item = SalonSearchMapper.fromDto(
         _buildSalonDto(priceMin: 500, priceMax: 500),
@@ -743,8 +775,6 @@ void main() {
       expect(item.priceMin, 500.0);
       expect(item.priceMax, 500.0);
     });
-
-    // ── 8. both prices null ───────────────────────────────────────────────────
 
     test('carries both-null prices as null (no price)', () {
       final item = SalonSearchMapper.fromDto(
@@ -756,8 +786,6 @@ void main() {
   });
 
   group('MasterSearchMapper', () {
-    // ── 9. missing avgRating defaults to 0.0 ──────────────────────────────────
-
     test('defaults a missing avgRating to 0.0', () {
       final item = MasterSearchMapper.fromDto(_buildMasterDto(avgRating: null));
       expect(item.avgRating, 0.0);
@@ -770,8 +798,6 @@ void main() {
       expect(item.minEffectivePrice, isNull);
     });
 
-    // ── Item 4 — serviceNames mapping ─────────────────────────────────────────
-
     test('maps a populated serviceNames list through, order preserved', () {
       final item = MasterSearchMapper.fromDto(
         _buildMasterDto(serviceNames: const ['Стрижка', 'Фарбування']),
@@ -780,7 +806,6 @@ void main() {
     });
 
     test('maps an absent serviceNames (null DTO field) to an empty list', () {
-      // serviceNames: null skips setting the builder field → BuiltList is null.
       final item = MasterSearchMapper.fromDto(
         _buildMasterDto(serviceNames: null),
       );
@@ -793,16 +818,6 @@ void main() {
       );
       expect(item.serviceNames, isEmpty);
     });
-
-    // ── Services preview line — OBSERVABLE join behaviour ─────────────────────
-    //
-    // The card surfaces the master's top service names as one `' · '`-joined
-    // line. A perf change is landing that precomputes this line in the mapper
-    // (instead of join()-ing per build()); these tests assert the OBSERVABLE
-    // joined string the card must render, so they survive that refactor without
-    // coupling to where the join happens. The expected line is built from the
-    // domain `serviceNames` + the shared `kServiceNamesSeparator` so a separator
-    // change updates the contract in exactly one place.
 
     String? expectedServicesLine(List<String> names) =>
         names.isEmpty ? null : names.join(kServiceNamesSeparator);
@@ -822,8 +837,6 @@ void main() {
     });
 
     test('the backend cap of ≤3 names is carried through verbatim', () {
-      // The custom-preferred ≤3 trim is resolved backend-side; the mapper must
-      // neither pad nor truncate. A 3-name payload arrives and joins to 3.
       final item = MasterSearchMapper.fromDto(
         _buildMasterDto(
           serviceNames: const ['Манікюр', 'Педикюр', 'Нарощування'],
