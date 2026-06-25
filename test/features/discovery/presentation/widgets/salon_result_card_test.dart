@@ -44,6 +44,7 @@ SalonSearchItem _salon({
   String? addressLine,
   List<String> serviceNames = const <String>[],
   String? servicesLine,
+  String? matchedServicesLine,
 }) => SalonSearchItem(
   salonId: 'salon-1',
   name: 'Студія Краси «Камелія»',
@@ -59,6 +60,7 @@ SalonSearchItem _salon({
   addressLine: addressLine,
   serviceNames: serviceNames,
   servicesLine: servicesLine,
+  matchedServicesLine: matchedServicesLine,
 );
 
 Future<void> _pump(WidgetTester tester, SalonSearchItem salon) {
@@ -155,6 +157,51 @@ void main() {
 
       expect(find.byKey(const Key('salon_card_services')), findsNothing);
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 13.12 — the card PREFERS matchedServicesLine over servicesLine.
+  // -------------------------------------------------------------------------
+  group('SalonResultCard matched-service line (Phase 13.12)', () {
+    testWidgets(
+      'with a per-service filter active → renders matchedServicesLine, NOT the '
+      'generic servicesLine',
+      (tester) async {
+        await _pump(
+          tester,
+          _salon(
+            serviceNames: const <String>['Манікюр', 'Стрижка', 'Брови'],
+            servicesLine: 'Манікюр · Стрижка · Брови',
+            matchedServicesLine: 'Стрижка',
+          ),
+        );
+
+        final Text text = tester.widget<Text>(
+          find.byKey(const Key('salon_card_services')),
+        );
+        expect(text.data, 'Стрижка');
+        expect(find.text('Манікюр · Стрижка · Брови'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'no filter (matchedServicesLine null) → falls back to servicesLine',
+      (tester) async {
+        await _pump(
+          tester,
+          _salon(
+            serviceNames: const <String>['Манікюр', 'Стрижка'],
+            servicesLine: 'Манікюр · Стрижка',
+            matchedServicesLine: null,
+          ),
+        );
+
+        final Text text = tester.widget<Text>(
+          find.byKey(const Key('salon_card_services')),
+        );
+        expect(text.data, 'Манікюр · Стрижка');
+      },
+    );
   });
 
   // -------------------------------------------------------------------------

@@ -2933,6 +2933,26 @@
       }
     }
   },
+  "searchServicesSelectedCount": "Обрано {count}",
+  "@searchServicesSelectedCount": {
+    "description": "Badge beside the service-chip drawer label showing how many services are currently selected.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "searchServicesFilterChip": "{count, plural, =1{{count} послуга} few{{count} послуги} many{{count} послуг} other{{count} послуги}}",
+  "@searchServicesFilterChip": {
+    "description": "Applied-filter chip on the results screen summarising how many per-service filters are active (the slugs have no display label there, so a count is shown).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
   "searchCategoriesLoadError": "Не вдалося завантажити категорії",
   "@searchCategoriesLoadError": {
     "description": "Inline error shown when the service-category list fails to load in the Пошук grid."
@@ -3042,6 +3062,10 @@
   "searchResultsEmptyBody": "Спробуйте змінити місто, категорію або діапазон цін.",
   "@searchResultsEmptyBody": {
     "description": "Supporting copy under the empty-state title on the results screen."
+  },
+  "searchResultsEmptyServiceBody": "Жоден майстер не пропонує всі обрані послуги одночасно. Спробуйте прибрати частину послуг або змінити інші фільтри.",
+  "@searchResultsEmptyServiceBody": {
+    "description": "Supporting copy under the empty-state title when a per-service (serviceTypeSlugs) filter is active and the AND-narrowed search returns nothing — guides the user to broaden the service selection."
   },
   "searchResultsEditFilters": "Змінити фільтри",
   "@searchResultsEditFilters": {

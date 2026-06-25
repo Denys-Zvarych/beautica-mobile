@@ -54,6 +54,7 @@ MasterSearchItem _master({
   String? addressLine,
   List<String> serviceNames = const <String>[],
   String? servicesLine,
+  String? matchedServicesLine,
 }) => MasterSearchItem(
   masterId: 'master-1',
   firstName: 'Олена',
@@ -71,6 +72,7 @@ MasterSearchItem _master({
   addressLine: addressLine,
   serviceNames: serviceNames,
   servicesLine: servicesLine,
+  matchedServicesLine: matchedServicesLine,
 );
 
 Future<void> _pump(WidgetTester tester, MasterSearchItem master) {
@@ -175,6 +177,52 @@ void main() {
 
       expect(find.byKey(const Key('master_card_services')), findsNothing);
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 13.12 — the card PREFERS matchedServicesLine over servicesLine.
+  // -------------------------------------------------------------------------
+  group('MasterResultCard matched-service line (Phase 13.12)', () {
+    testWidgets(
+      'with a per-service filter active → renders matchedServicesLine, NOT the '
+      'generic servicesLine',
+      (tester) async {
+        await _pump(
+          tester,
+          _master(
+            serviceNames: const <String>['Манікюр', 'Педикюр', 'Брови'],
+            servicesLine: 'Манікюр · Педикюр · Брови',
+            matchedServicesLine: 'Брови',
+          ),
+        );
+
+        final Text text = tester.widget<Text>(
+          find.byKey(const Key('master_card_services')),
+        );
+        expect(text.data, 'Брови');
+        // The generic top-3 line must NOT appear when a match is present.
+        expect(find.text('Манікюр · Педикюр · Брови'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'no filter (matchedServicesLine null) → falls back to servicesLine',
+      (tester) async {
+        await _pump(
+          tester,
+          _master(
+            serviceNames: const <String>['Манікюр', 'Педикюр'],
+            servicesLine: 'Манікюр · Педикюр',
+            matchedServicesLine: null,
+          ),
+        );
+
+        final Text text = tester.widget<Text>(
+          find.byKey(const Key('master_card_services')),
+        );
+        expect(text.data, 'Манікюр · Педикюр');
+      },
+    );
   });
 
   // -------------------------------------------------------------------------

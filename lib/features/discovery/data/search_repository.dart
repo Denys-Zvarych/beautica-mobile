@@ -227,6 +227,21 @@ final class HttpSearchRepository implements SearchRepository {
     }
   }
 
+  /// Adds the per-service `serviceTypeSlugs` constraint to [q] when present.
+  ///
+  /// Emits the slug set as a SORTED `List<String>` value: Dio's default
+  /// `ListFormat.multi` renders it as repeated bare params
+  /// (`serviceTypeSlugs=a&serviceTypeSlugs=b`), which the backend
+  /// `@ModelAttribute List<String> serviceTypeSlugs` binds (AND semantics —
+  /// the provider must offer EVERY slug). Sorting makes the assembled URI
+  /// deterministic (stable transport tests); order is irrelevant to the
+  /// backend. Omitted entirely when the set is empty (no constraint).
+  static void _addServiceTypeSlugs(Map<String, dynamic> q, SearchFilters f) {
+    final Set<String> slugs = f.serviceTypeSlugs;
+    if (slugs.isEmpty) return;
+    q['serviceTypeSlugs'] = slugs.toList(growable: false)..sort();
+  }
+
   /// Builds the FLAT `@ModelAttribute`-bindable query map for the masters
   /// endpoint. Keys mirror the backend `MasterSearchRequest` record field names
   /// (`q`, `category`, `location.cityId`, `location.districtId`, `sort`,
@@ -247,6 +262,7 @@ final class HttpSearchRepository implements SearchRepository {
       'sort': f.sort.wireValue,
     };
     _addLocation(q, f);
+    _addServiceTypeSlugs(q, f);
     if (query != null) q['q'] = query;
     if (category != null && category.isNotEmpty) q['category'] = category;
     if (f.minPrice != null) q['minPrice'] = f.minPrice.toString();
@@ -272,6 +288,7 @@ final class HttpSearchRepository implements SearchRepository {
       'sort': f.sort.wireValue,
     };
     _addLocation(q, f);
+    _addServiceTypeSlugs(q, f);
     if (query != null) q['q'] = query;
     if (category != null && category.isNotEmpty) q['category'] = category;
     if (f.minPrice != null) q['minPrice'] = f.minPrice.toString();

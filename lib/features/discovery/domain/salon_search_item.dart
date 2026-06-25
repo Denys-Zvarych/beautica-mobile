@@ -98,5 +98,14 @@ abstract class SalonSearchItem with _$SalonSearchItem {
     /// re-runs `join()` per card `build()`. Kept in lockstep with [serviceNames];
     /// mutating one without the other is a contract break.
     @Default(null) String? servicesLine,
+
+    /// The MATCHED service names pre-joined into the same `' · '`-separated line
+    /// the card renders, or `null` when no per-service filter is active. Backend
+    /// `matchedServiceNames` (≤3 distinct) is populated ONLY when the search
+    /// carries `serviceTypeSlugs`; otherwise it is empty and this is `null`. The
+    /// card PREFERS this over [servicesLine] when non-null, so a filtered result
+    /// surfaces the service(s) that actually matched instead of the generic
+    /// top-3. Pre-joined ONCE at map time (same perf rule as [servicesLine]).
+    @Default(null) String? matchedServicesLine,
   }) = _SalonSearchItem;
 }

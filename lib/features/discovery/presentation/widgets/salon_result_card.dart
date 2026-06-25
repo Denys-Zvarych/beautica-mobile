@@ -52,7 +52,10 @@ class SalonResultCard extends StatelessWidget {
       salon.cityLabel,
       salon.districtLabel,
     );
-    final String? services = salon.servicesLine;
+    // When a per-service filter is active the backend sends the MATCHED names
+    // (matchedServicesLine) — prefer those so the card surfaces the service(s)
+    // that actually matched; else fall back to the generic top-3.
+    final String? services = salon.matchedServicesLine ?? salon.servicesLine;
     final String? price = _priceLabel(l10n, salon.priceMin, salon.priceMax);
 
     return Semantics(

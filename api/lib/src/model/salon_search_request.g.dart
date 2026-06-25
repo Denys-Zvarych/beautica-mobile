@@ -92,6 +92,8 @@ class _$SalonSearchRequest extends SalonSearchRequest {
   @override
   final int? size;
   @override
+  final BuiltList<String>? serviceTypeSlugs;
+  @override
   final bool? priceRangeValid;
 
   factory _$SalonSearchRequest(
@@ -107,6 +109,7 @@ class _$SalonSearchRequest extends SalonSearchRequest {
       this.maxPrice,
       this.page,
       this.size,
+      this.serviceTypeSlugs,
       this.priceRangeValid})
       : super._();
   @override
@@ -130,6 +133,7 @@ class _$SalonSearchRequest extends SalonSearchRequest {
         maxPrice == other.maxPrice &&
         page == other.page &&
         size == other.size &&
+        serviceTypeSlugs == other.serviceTypeSlugs &&
         priceRangeValid == other.priceRangeValid;
   }
 
@@ -144,6 +148,7 @@ class _$SalonSearchRequest extends SalonSearchRequest {
     _$hash = $jc(_$hash, maxPrice.hashCode);
     _$hash = $jc(_$hash, page.hashCode);
     _$hash = $jc(_$hash, size.hashCode);
+    _$hash = $jc(_$hash, serviceTypeSlugs.hashCode);
     _$hash = $jc(_$hash, priceRangeValid.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
@@ -160,6 +165,7 @@ class _$SalonSearchRequest extends SalonSearchRequest {
           ..add('maxPrice', maxPrice)
           ..add('page', page)
           ..add('size', size)
+          ..add('serviceTypeSlugs', serviceTypeSlugs)
           ..add('priceRangeValid', priceRangeValid))
         .toString();
   }
@@ -202,6 +208,12 @@ class SalonSearchRequestBuilder
   int? get size => _$this._size;
   set size(int? size) => _$this._size = size;
 
+  ListBuilder<String>? _serviceTypeSlugs;
+  ListBuilder<String> get serviceTypeSlugs =>
+      _$this._serviceTypeSlugs ??= ListBuilder<String>();
+  set serviceTypeSlugs(ListBuilder<String>? serviceTypeSlugs) =>
+      _$this._serviceTypeSlugs = serviceTypeSlugs;
+
   bool? _priceRangeValid;
   bool? get priceRangeValid => _$this._priceRangeValid;
   set priceRangeValid(bool? priceRangeValid) =>
@@ -222,6 +234,7 @@ class SalonSearchRequestBuilder
       _maxPrice = $v.maxPrice;
       _page = $v.page;
       _size = $v.size;
+      _serviceTypeSlugs = $v.serviceTypeSlugs?.toBuilder();
       _priceRangeValid = $v.priceRangeValid;
       _$v = null;
     }
@@ -254,6 +267,7 @@ class SalonSearchRequestBuilder
             maxPrice: maxPrice,
             page: page,
             size: size,
+            serviceTypeSlugs: _serviceTypeSlugs?.build(),
             priceRangeValid: priceRangeValid,
           );
     } catch (_) {
@@ -261,6 +275,9 @@ class SalonSearchRequestBuilder
       try {
         _$failedField = 'location';
         _location?.build();
+
+        _$failedField = 'serviceTypeSlugs';
+        _serviceTypeSlugs?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'SalonSearchRequest', _$failedField, e.toString());

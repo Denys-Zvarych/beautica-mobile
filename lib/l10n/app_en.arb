@@ -2933,6 +2933,26 @@
       }
     }
   },
+  "searchServicesSelectedCount": "{count} selected",
+  "@searchServicesSelectedCount": {
+    "description": "Badge beside the service-chip drawer label showing how many services are currently selected.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "searchServicesFilterChip": "{count, plural, =1{{count} service} other{{count} services}}",
+  "@searchServicesFilterChip": {
+    "description": "Applied-filter chip on the results screen summarising how many per-service filters are active (the slugs have no display label there, so a count is shown).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
   "searchCategoriesLoadError": "Couldn't load categories",
   "@searchCategoriesLoadError": {
     "description": "Inline error shown when the service-category list fails to load in the Пошук grid."
@@ -3042,6 +3062,10 @@
   "searchResultsEmptyBody": "Try changing the city, category or price range.",
   "@searchResultsEmptyBody": {
     "description": "Supporting copy under the empty-state title on the results screen."
+  },
+  "searchResultsEmptyServiceBody": "No master offers all of the selected services at once. Try removing some services or changing the other filters.",
+  "@searchResultsEmptyServiceBody": {
+    "description": "Supporting copy under the empty-state title when a per-service (serviceTypeSlugs) filter is active and the AND-narrowed search returns nothing — guides the user to broaden the service selection."
   },
   "searchResultsEditFilters": "Edit filters",
   "@searchResultsEditFilters": {

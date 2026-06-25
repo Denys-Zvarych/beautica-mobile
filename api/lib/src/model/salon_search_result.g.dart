@@ -29,6 +29,8 @@ class _$SalonSearchResult extends SalonSearchResult {
   final String? buildingNo;
   @override
   final String? locationNote;
+  @override
+  final BuiltList<String>? matchedServiceNames;
 
   factory _$SalonSearchResult(
           [void Function(SalonSearchResultBuilder)? updates]) =>
@@ -45,7 +47,8 @@ class _$SalonSearchResult extends SalonSearchResult {
       this.serviceNames,
       this.street,
       this.buildingNo,
-      this.locationNote})
+      this.locationNote,
+      this.matchedServiceNames})
       : super._();
   @override
   SalonSearchResult rebuild(void Function(SalonSearchResultBuilder) updates) =>
@@ -69,7 +72,8 @@ class _$SalonSearchResult extends SalonSearchResult {
         serviceNames == other.serviceNames &&
         street == other.street &&
         buildingNo == other.buildingNo &&
-        locationNote == other.locationNote;
+        locationNote == other.locationNote &&
+        matchedServiceNames == other.matchedServiceNames;
   }
 
   @override
@@ -86,6 +90,7 @@ class _$SalonSearchResult extends SalonSearchResult {
     _$hash = $jc(_$hash, street.hashCode);
     _$hash = $jc(_$hash, buildingNo.hashCode);
     _$hash = $jc(_$hash, locationNote.hashCode);
+    _$hash = $jc(_$hash, matchedServiceNames.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -103,7 +108,8 @@ class _$SalonSearchResult extends SalonSearchResult {
           ..add('serviceNames', serviceNames)
           ..add('street', street)
           ..add('buildingNo', buildingNo)
-          ..add('locationNote', locationNote))
+          ..add('locationNote', locationNote)
+          ..add('matchedServiceNames', matchedServiceNames))
         .toString();
   }
 }
@@ -159,6 +165,12 @@ class SalonSearchResultBuilder
   String? get locationNote => _$this._locationNote;
   set locationNote(String? locationNote) => _$this._locationNote = locationNote;
 
+  ListBuilder<String>? _matchedServiceNames;
+  ListBuilder<String> get matchedServiceNames =>
+      _$this._matchedServiceNames ??= ListBuilder<String>();
+  set matchedServiceNames(ListBuilder<String>? matchedServiceNames) =>
+      _$this._matchedServiceNames = matchedServiceNames;
+
   SalonSearchResultBuilder() {
     SalonSearchResult._defaults(this);
   }
@@ -177,6 +189,7 @@ class SalonSearchResultBuilder
       _street = $v.street;
       _buildingNo = $v.buildingNo;
       _locationNote = $v.locationNote;
+      _matchedServiceNames = $v.matchedServiceNames?.toBuilder();
       _$v = null;
     }
     return this;
@@ -211,12 +224,16 @@ class SalonSearchResultBuilder
             street: street,
             buildingNo: buildingNo,
             locationNote: locationNote,
+            matchedServiceNames: _matchedServiceNames?.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
         _$failedField = 'serviceNames';
         _serviceNames?.build();
+
+        _$failedField = 'matchedServiceNames';
+        _matchedServiceNames?.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'SalonSearchResult', _$failedField, e.toString());

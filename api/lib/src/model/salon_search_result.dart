@@ -23,6 +23,7 @@ part 'salon_search_result.g.dart';
 /// * [street]
 /// * [buildingNo]
 /// * [locationNote]
+/// * [matchedServiceNames]
 @BuiltValue()
 abstract class SalonSearchResult
     implements Built<SalonSearchResult, SalonSearchResultBuilder> {
@@ -58,6 +59,9 @@ abstract class SalonSearchResult
 
   @BuiltValueField(wireName: r'locationNote')
   String? get locationNote;
+
+  @BuiltValueField(wireName: r'matchedServiceNames')
+  BuiltList<String>? get matchedServiceNames;
 
   SalonSearchResult._();
 
@@ -162,6 +166,13 @@ class _$SalonSearchResultSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.matchedServiceNames != null) {
+      yield r'matchedServiceNames';
+      yield serializers.serialize(
+        object.matchedServiceNames,
+        specifiedType: const FullType(BuiltList, [FullType(String)]),
+      );
+    }
   }
 
   @override
@@ -263,6 +274,13 @@ class _$SalonSearchResultSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.locationNote = valueDes;
+          break;
+        case r'matchedServiceNames':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.matchedServiceNames.replace(valueDes);
           break;
         default:
           unhandled.add(key);

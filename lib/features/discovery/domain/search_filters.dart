@@ -63,6 +63,26 @@ abstract class SearchFilters with _$SearchFilters {
     /// Platform category key/slug to filter by (e.g. "HAIR"), or null for all.
     String? categoryKey,
 
+    /// Platform service-type slugs the provider must offer, or empty for "no
+    /// per-service constraint". Each entry is a `CategoryServiceOption.key`
+    /// (a service-type slug) the second-level drawer chips key off.
+    ///
+    /// **AND semantics** — a provider is kept only when it offers EVERY slug in
+    /// the set (backend `serviceTypeSlugs` multi-valued param, enforced
+    /// server-side; the client just sends the whole set). Emitted as repeated
+    /// `serviceTypeSlugs=<slug>` query params by the repository; omitted entirely
+    /// when empty.
+    ///
+    /// Order-insensitive in the [searchResultsProvider] family key: a [Set]
+    /// participates in freezed's `==`/`hashCode` via `DeepCollectionEquality`,
+    /// which hashes/compares sets WITHOUT regard to insertion order — so toggling
+    /// the chips in a different order never re-keys or re-fetches the results.
+    /// (The repository additionally sorts the slugs before emitting them so the
+    /// assembled wire URI is deterministic.) Scoped to [categoryKey]; cleared
+    /// whenever the category changes so a stale cross-category slug never reaches
+    /// the wire.
+    @Default(<String>{}) Set<String> serviceTypeSlugs,
+
     /// Oblast (region) id the city was funnelled through, or null when no region
     /// has been picked. The region is a MANDATORY narrowing step in the UI that
     /// always resolves to a [cityId]; there is NO whole-region search, so the

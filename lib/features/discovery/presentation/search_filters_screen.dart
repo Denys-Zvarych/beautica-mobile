@@ -204,8 +204,20 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
   }
 
   void _onShowMasters() {
-    // Forward the assembled filter set to the results screen via `extra`.
-    final SearchFilters filters = ref.read(searchFiltersControllerProvider);
+    // Fold the second-level service selection (held in the sibling
+    // [SearchServiceSelectionController]) into the wire-facing filter set at
+    // push time. The base controller never stores the slugs itself — they are
+    // snapshotted here — so a category switch (which calls
+    // SearchServiceSelectionController.clear()) can never leak a stale slug into
+    // the applied filters. Forward the assembled set to the results screen via
+    // `extra`.
+    final SearchFilters base = ref.read(searchFiltersControllerProvider);
+    final Set<String> serviceTypeSlugs = ref.read(
+      searchServiceSelectionControllerProvider,
+    );
+    final SearchFilters filters = base.copyWith(
+      serviceTypeSlugs: serviceTypeSlugs,
+    );
     context.push(RouteNames.clientSearchResults, extra: filters);
   }
 

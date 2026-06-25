@@ -257,6 +257,44 @@ void main() {
       );
     });
 
+    testWidgets(
+      'empty state with an ACTIVE per-service filter shows the service-specific '
+      'copy, not the generic body',
+      (tester) async {
+        final repo = _MockSearchRepository();
+        when(
+          () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        ).thenAnswer((_) async => _page<MasterSearchItem>(const []));
+        when(
+          () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
+
+        // A search carrying a serviceTypeSlugs filter that matches nothing must
+        // explain the AND-narrowing ("no provider offers ALL selected services")
+        // rather than the generic "change city / category / price" message.
+        await tester.pumpWidget(
+          _host(
+            repo,
+            filters: const SearchFilters(
+              serviceTypeSlugs: <String>{'manicure', 'pedicure'},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = _l10n(tester);
+        expect(find.byKey(const Key('results_empty')), findsOneWidget);
+        expect(find.text(l10n.searchResultsEmptyServiceBody), findsOneWidget);
+        expect(
+          find.text(l10n.searchResultsEmptyBody),
+          findsNothing,
+          reason:
+              'an active per-service filter must swap the generic empty body '
+              'for the service-narrowing guidance copy',
+        );
+      },
+    );
+
     testWidgets('shows the error state + retry on failure', (tester) async {
       final repo = _MockSearchRepository();
       when(

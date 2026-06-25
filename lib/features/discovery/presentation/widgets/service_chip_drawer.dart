@@ -19,6 +19,7 @@ import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
 import '../../../../core/widgets/neumorphic.dart';
+import '../../../../l10n/app_localizations.dart';
 import '../../domain/category_service_option.dart';
 
 /// A selectable service chip (the SECOND level). Resting = raised soft pill;
@@ -115,12 +116,28 @@ class ServiceChipDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final int selectedCount = selectedKeys.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Padding(
           padding: const EdgeInsets.only(left: 6),
-          child: Text(label, style: VelvetText.label()),
+          child: Row(
+            children: <Widget>[
+              Flexible(child: Text(label, style: VelvetText.label())),
+              // Active-service count badge — reflects how many service chips are
+              // selected, mirroring how other active filters are surfaced.
+              // Collapses to nothing at zero (and so resets on a category change,
+              // which clears the selection upstream).
+              if (selectedCount > 0) ...<Widget>[
+                const SizedBox(width: VelvetSpacing.sm),
+                _SelectedCountBadge(
+                  label: l10n.searchServicesSelectedCount(selectedCount),
+                ),
+              ],
+            ],
+          ),
         ),
         const SizedBox(height: VelvetSpacing.sm),
         NeumorphicInset(
@@ -143,6 +160,44 @@ class ServiceChipDrawer extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// A small accent pill carrying the active-service count beside the drawer
+/// label (e.g. «Обрано 2»). Reads as the same camel→mocha "on" treatment as a
+/// selected chip so it ties visually to the selection it summarises.
+class _SelectedCountBadge extends StatelessWidget {
+  const _SelectedCountBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: label,
+      child: Container(
+        key: const Key('search_services_selected_count'),
+        padding: const EdgeInsets.symmetric(
+          horizontal: VelvetSpacing.sm,
+          vertical: VelvetSpacing.xs,
+        ),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: <Color>[BrandColors.accentLatte, BrandColors.accentDeep],
+          ),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          label,
+          style: VelvetText.label().copyWith(
+            color: BrandColors.white,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
     );
   }
 }

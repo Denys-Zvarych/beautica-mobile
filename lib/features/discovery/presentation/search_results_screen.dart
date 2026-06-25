@@ -144,7 +144,19 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
         final String? key = _filters.categoryKey;
         if (key != null) filtersCtrl.toggleServiceType(key);
         labelsCtrl.setCategoryName(null);
-        next = _filters.copyWith(categoryKey: null);
+        // The per-service slugs are scoped to the category — clear them too so a
+        // cleared category never leaves orphaned service constraints on the wire.
+        ref.read(searchServiceSelectionControllerProvider.notifier).clear();
+        next = _filters.copyWith(
+          categoryKey: null,
+          serviceTypeSlugs: const <String>{},
+        );
+      case AppliedFilterField.services:
+        // Drop the whole per-service selection (both the sibling controller, so
+        // a pop back to the filters screen shows no chips selected, and the live
+        // filter set that re-keys the results).
+        ref.read(searchServiceSelectionControllerProvider.notifier).clear();
+        next = _filters.copyWith(serviceTypeSlugs: const <String>{});
       case AppliedFilterField.price:
         filtersCtrl.setPriceRange(min: null, max: null);
         next = _filters.copyWith(minPrice: null, maxPrice: null);
@@ -233,7 +245,10 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                 ),
                 data: (SearchResultsState data) {
                   if (data.items.isEmpty) {
-                    return ResultsEmpty(onEditFilters: _openFilters);
+                    return ResultsEmpty(
+                      onEditFilters: _openFilters,
+                      serviceFilterActive: _filters.serviceTypeSlugs.isNotEmpty,
+                    );
                   }
                   return _ResultsList(
                     scrollController: _scrollController,

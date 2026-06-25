@@ -348,6 +348,15 @@ final class FakeBackend {
             'nameUk': 'Класичний манікюр',
             'categoryName': 'NAILS',
           },
+          // Second NAILS service type (Phase 13.11) — gives the search drawer two
+          // selectable chips so the per-service filter E2E can prove a TWO-slug
+          // selection assembles two repeated `serviceTypeSlugs` params on the wire.
+          <String, dynamic>{
+            'id': 'type-nails-gel',
+            'slug': 'GEL_MANICURE',
+            'nameUk': 'Манікюр гель-лак',
+            'categoryName': 'NAILS',
+          },
         ];
       case 'BROWS':
         return <Map<String, dynamic>>[
@@ -361,6 +370,52 @@ final class FakeBackend {
       default:
         return const <Map<String, dynamic>>[];
     }
+  }
+
+  /// Slug → Ukrainian display name, mirroring [_serviceTypesFor]. Used to echo a
+  /// realistic `matchedServiceNames` slice (≤3) for whatever `serviceTypeSlugs`
+  /// the search carried — see [_withMatchedNames].
+  static const Map<String, String> _serviceTypeNameUk = <String, String>{
+    'CLASSIC_MANICURE': 'Класичний манікюр',
+    'GEL_MANICURE': 'Манікюр гель-лак',
+    'BROW_CORRECTION': 'Корекція брів',
+  };
+
+  /// Reads the `serviceTypeSlugs` multi-valued param off the FLAT search query
+  /// map. The repository sends a `List<String>` value (Dio `ListFormat.multi` →
+  /// repeated bare params), so the DioAdapter handler sees the raw list. A single
+  /// value is normalised to a one-element list; absent → null (no constraint).
+  static List<String>? _slugsFrom(Map<String, dynamic> query) {
+    final raw = query['serviceTypeSlugs'];
+    if (raw == null) return null;
+    if (raw is List) {
+      return raw.map((Object? e) => e.toString()).toList(growable: false);
+    }
+    return <String>[raw.toString()];
+  }
+
+  /// Injects a backend-style `matchedServiceNames` (≤3) onto each result row when
+  /// the search carried a `serviceTypeSlugs` filter — mirroring the real backend
+  /// contract (matched names populated ONLY when filtering). Without slugs the
+  /// rows are returned unchanged (no key → null matched line → the card falls
+  /// back to the generic `serviceNames`).
+  static List<Map<String, dynamic>> _withMatchedNames(
+    List<Map<String, dynamic>> rows,
+    List<String>? slugs,
+  ) {
+    if (slugs == null || slugs.isEmpty) return rows;
+    final List<String> matched = slugs
+        .map((String s) => _serviceTypeNameUk[s] ?? s)
+        .take(3)
+        .toList(growable: false);
+    return rows
+        .map(
+          (Map<String, dynamic> r) => <String, dynamic>{
+            ...r,
+            'matchedServiceNames': matched,
+          },
+        )
+        .toList(growable: false);
   }
 
   int _nextServiceSeq = 3;
@@ -480,6 +535,13 @@ final class FakeBackend {
   String? lastSearchMastersCityId;
   String? lastSearchMastersDistrictId;
 
+  /// The last `serviceTypeSlugs` multi-valued param the repository sent on a
+  /// `/search/masters` request (Phase 13.11 per-service filter). Null when no
+  /// service chip was selected (the param is omitted) — so a non-null list with
+  /// the selected slugs proves the chip selection reached the wire AND a stale
+  /// cross-category slug was dropped on a category switch.
+  List<String>? lastSearchMastersServiceTypeSlugs;
+
   /// `GET /api/v1/search/salons` call count + the last `page` requested.
   int searchSalonsCalls = 0;
   int? lastSearchSalonsPage;
@@ -492,6 +554,10 @@ final class FakeBackend {
   /// `/search/salons` request. See [lastSearchMastersCityId].
   String? lastSearchSalonsCityId;
   String? lastSearchSalonsDistrictId;
+
+  /// The last `serviceTypeSlugs` multi-valued param on a `/search/salons`
+  /// request. See [lastSearchMastersServiceTypeSlugs].
+  List<String>? lastSearchSalonsServiceTypeSlugs;
 
   // ── Favorites telemetry (Phase 13.4) ──────────────────────────────────────
   /// `POST /api/v1/favorites` (add) call count + the most recent body.
@@ -1226,16 +1292,23 @@ final class FakeBackend {
         lastSearchMastersSort = reqJson['sort'] as String?;
         lastSearchMastersCityId = reqJson['location.cityId'] as String?;
         lastSearchMastersDistrictId = reqJson['location.districtId'] as String?;
+        lastSearchMastersServiceTypeSlugs = _slugsFrom(reqJson);
         if (page <= 0) {
           return _searchEnvelope(
-            _searchMastersPage0,
+            _withMatchedNames(
+              _searchMastersPage0,
+              lastSearchMastersServiceTypeSlugs,
+            ),
             page: 0,
             totalPages: 2,
             totalElements: 2,
           );
         }
         return _searchEnvelope(
-          _searchMastersPage1,
+          _withMatchedNames(
+            _searchMastersPage1,
+            lastSearchMastersServiceTypeSlugs,
+          ),
           page: page,
           totalPages: 2,
           totalElements: 2,
@@ -1258,11 +1331,15 @@ final class FakeBackend {
         lastSearchSalonsSort = reqJson['sort'] as String?;
         lastSearchSalonsCityId = reqJson['location.cityId'] as String?;
         lastSearchSalonsDistrictId = reqJson['location.districtId'] as String?;
+        lastSearchSalonsServiceTypeSlugs = _slugsFrom(reqJson);
         // Salons have a single page: page 0 carries the row, any later page is
         // empty (the notifier only re-requests salons while salonHasMore).
         if (page <= 0) {
           return _searchEnvelope(
-            _searchSalonsPage0,
+            _withMatchedNames(
+              _searchSalonsPage0,
+              lastSearchSalonsServiceTypeSlugs,
+            ),
             page: 0,
             totalPages: 1,
             totalElements: 1,

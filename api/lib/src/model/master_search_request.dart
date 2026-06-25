@@ -22,6 +22,7 @@ part 'master_search_request.g.dart';
 /// * [minRating]
 /// * [page]
 /// * [size]
+/// * [serviceTypeSlugs]
 /// * [priceRangeValid]
 @BuiltValue()
 abstract class MasterSearchRequest
@@ -53,6 +54,9 @@ abstract class MasterSearchRequest
 
   @BuiltValueField(wireName: r'size')
   int? get size;
+
+  @BuiltValueField(wireName: r'serviceTypeSlugs')
+  BuiltList<String>? get serviceTypeSlugs;
 
   @BuiltValueField(wireName: r'priceRangeValid')
   bool? get priceRangeValid;
@@ -149,6 +153,13 @@ class _$MasterSearchRequestSerializer
         specifiedType: const FullType(int),
       );
     }
+    if (object.serviceTypeSlugs != null) {
+      yield r'serviceTypeSlugs';
+      yield serializers.serialize(
+        object.serviceTypeSlugs,
+        specifiedType: const FullType(BuiltList, [FullType(String)]),
+      );
+    }
     if (object.priceRangeValid != null) {
       yield r'priceRangeValid';
       yield serializers.serialize(
@@ -243,6 +254,13 @@ class _$MasterSearchRequestSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.size = valueDes;
+          break;
+        case r'serviceTypeSlugs':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.serviceTypeSlugs.replace(valueDes);
           break;
         case r'priceRangeValid':
           final valueDes = serializers.deserialize(

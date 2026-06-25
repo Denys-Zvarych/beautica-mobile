@@ -654,4 +654,219 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 90)),
   );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 13.11–13.13 — E2E: per-service filter reaches the wire AND the matched
+  // services surface on the result card.
+  //
+  // WHY THIS FLOW EXISTS
+  // --------------------
+  // The unit tier pins each piece in isolation: the repository emits a SORTED
+  // repeated `serviceTypeSlugs` param (search_repository_transport_test.dart),
+  // the mapper joins `matchedServiceNames` → `matchedServicesLine`
+  // (search_repository_test.dart), and the card prefers the matched line
+  // (master_result_card_test.dart). NONE of them proves the real journey: a
+  // CLIENT opening the category drawer, tapping specific SERVICE chips, applying,
+  // and the live SearchResultsNotifier → HttpSearchRepository → GET
+  // /search/{masters,salons} carrying those exact slugs — then the rendered card
+  // showing the backend's matched-service line built FROM those slugs.
+  //
+  // The fake backend echoes `matchedServiceNames` derived from whatever
+  // `serviceTypeSlugs` it received, so the rendered line is NOT a fixture
+  // constant — a broken wire (no slugs) would yield NO matched line (the master
+  // row carries no generic serviceNames, so the line would be absent entirely).
+  // The flow therefore asserts BOTH the captured wire param AND the rendered
+  // line, locking the full chip → wire → response → card chain.
+  //
+  // Step 2.7 Rule 3b: the category rail + async service drawer + chip multi-select
+  // + navigation + provider→repository + the exact repeated-param API contract +
+  // the rendered matched-service card — the widget tier cannot prove this
+  // composes end to end.
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets(
+    'CLIENT selects TWO service chips → both slugs reach BOTH endpoints AND the '
+    'result card shows the matched-service line',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      // ── Reach the search screen ─────────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('client-nav-search-center')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientSearch);
+
+      // Before selecting a category the service drawer + count badge are absent.
+      expect(find.byType(ServiceChipDrawer), findsNothing);
+      expect(
+        find.byKey(const Key('search_services_selected_count')),
+        findsNothing,
+      );
+
+      // ── Select the NAILS category → the service-chip drawer reveals ─────────
+      await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ServiceChipDrawer), findsOneWidget);
+      // Both seeded NAILS service types render keyed chips (key = slug).
+      expect(
+        find.byKey(const Key('search_service_chip_CLASSIC_MANICURE')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('search_service_chip_GEL_MANICURE')),
+        findsOneWidget,
+      );
+
+      // ── Select the FIRST service chip → the active-count badge appears ──────
+      await tester.tap(
+        find.byKey(const Key('search_service_chip_CLASSIC_MANICURE')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('search_services_selected_count')),
+        findsOneWidget,
+        reason: 'selecting one service must surface the active-count badge',
+      );
+
+      // ── Select the SECOND service chip (multi-select) ───────────────────────
+      await tester.tap(
+        find.byKey(const Key('search_service_chip_GEL_MANICURE')),
+      );
+      await tester.pumpAndSettle();
+      // The badge persists with two services selected.
+      expect(
+        find.byKey(const Key('search_services_selected_count')),
+        findsOneWidget,
+      );
+
+      // ── Apply → push /search/results, firing the scoped search ──────────────
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      expectLocation(router, RouteNames.clientSearchResults);
+      expect(find.byKey(const Key('client-search-results')), findsOneWidget);
+
+      // ── WIRE ASSERTION — BOTH selected slugs reached BOTH endpoints ─────────
+      // A null/short list here means a chip selection never reached the request
+      // (the per-service filter would be silently dropped).
+      expect(
+        fb.lastSearchMastersServiceTypeSlugs,
+        isNotNull,
+        reason: 'the selected service chips must reach /search/masters',
+      );
+      expect(
+        fb.lastSearchMastersServiceTypeSlugs,
+        containsAll(<String>['CLASSIC_MANICURE', 'GEL_MANICURE']),
+        reason: 'both selected slugs must be carried (AND semantics)',
+      );
+      expect(fb.lastSearchMastersServiceTypeSlugs, hasLength(2));
+      expect(
+        fb.lastSearchSalonsServiceTypeSlugs,
+        containsAll(<String>['CLASSIC_MANICURE', 'GEL_MANICURE']),
+        reason: 'the salon endpoint must carry the same per-service filter',
+      );
+
+      // ── RENDER ASSERTION — the card shows the backend matched-service line ──
+      // The fake echoed matchedServiceNames built from the slugs above; the
+      // master row carries NO generic serviceNames, so a present line proves the
+      // matched-service path (not a fallback) is what rendered.
+      final Finder matchedLine = find.byKey(const Key('master_card_services'));
+      expect(matchedLine, findsOneWidget);
+      expect(
+        tester.widget<Text>(matchedLine).data,
+        'Класичний манікюр · Манікюр гель-лак',
+        reason:
+            'the card must surface the matched-service line derived from the '
+            'two slugs it sent on the wire (not a fixture constant)',
+      );
+
+      expect(fb.getMasterCalls, 0);
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 13.11 — E2E REGRESSION: switching category DROPS the prior service
+  // selection (no stale cross-category slug on the wire).
+  //
+  // The per-service selection is scoped to the chosen category; the rail's
+  // `_toggle` clears [SearchServiceSelectionController] on any category change,
+  // and `_onShowMasters` snapshots the (now-empty) set. This flow proves the
+  // whole chain: a CLIENT selects a NAILS service, then switches to BROWS, and
+  // the applied search carries NO `serviceTypeSlugs` param — the stale
+  // CLASSIC_MANICURE slug never reaches the request. The widget tier cannot
+  // prove the rail-toggle → controller-clear → push-snapshot → wire composition.
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets(
+    'CLIENT switching category drops the prior service selection — no stale '
+    'slug reaches the wire',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      await tester.tap(find.byKey(const Key('client-nav-search-center')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientSearch);
+
+      // ── Select NAILS + a NAILS service chip ─────────────────────────────────
+      await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('search_service_chip_CLASSIC_MANICURE')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('search_services_selected_count')),
+        findsOneWidget,
+      );
+
+      // ── Switch the category to BROWS → the prior selection must clear ───────
+      await tester.tap(find.byKey(const Key('search_service_type_BROWS')));
+      await tester.pumpAndSettle();
+
+      // The drawer repopulated with the BROWS service type; the NAILS chip is
+      // gone and the active-count badge collapsed (selection cleared).
+      expect(
+        find.byKey(const Key('search_service_chip_BROW_CORRECTION')),
+        findsOneWidget,
+        reason: 'the drawer must repopulate with the new category services',
+      );
+      expect(
+        find.byKey(const Key('search_service_chip_CLASSIC_MANICURE')),
+        findsNothing,
+        reason: 'the prior category service chip must no longer be offered',
+      );
+      expect(
+        find.byKey(const Key('search_services_selected_count')),
+        findsNothing,
+        reason: 'switching category clears the selection → the badge collapses',
+      );
+
+      // ── Apply with NO BROWS service picked → NO serviceTypeSlugs on the wire ─
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      expectLocation(router, RouteNames.clientSearchResults);
+      expect(find.byKey(const Key('client-search-results')), findsOneWidget);
+
+      // The stale CLASSIC_MANICURE slug never reached the request — the param is
+      // omitted entirely on BOTH endpoints.
+      expect(
+        fb.lastSearchMastersServiceTypeSlugs,
+        isNull,
+        reason:
+            'a category switch must drop the prior service slug — no '
+            'serviceTypeSlugs param may reach /search/masters',
+      );
+      expect(fb.lastSearchSalonsServiceTypeSlugs, isNull);
+
+      expect(fb.getMasterCalls, 0);
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
 }

@@ -73,6 +73,7 @@ MasterSearchResult _buildMasterDto({
   String? street,
   String? buildingNo,
   List<String>? serviceNames = const ['Манікюр', 'Педикюр'],
+  List<String>? matchedServiceNames,
 }) {
   final b = MasterSearchResultBuilder()
     ..masterId = masterId
@@ -90,6 +91,9 @@ MasterSearchResult _buildMasterDto({
   if (serviceNames != null) {
     b.serviceNames = ListBuilder<String>(serviceNames);
   }
+  if (matchedServiceNames != null) {
+    b.matchedServiceNames = ListBuilder<String>(matchedServiceNames);
+  }
   return b.build();
 }
 
@@ -104,6 +108,7 @@ SalonSearchResult _buildSalonDto({
   String? street,
   String? buildingNo,
   List<String>? serviceNames,
+  List<String>? matchedServiceNames,
 }) {
   final b = SalonSearchResultBuilder()
     ..salonId = salonId
@@ -117,6 +122,9 @@ SalonSearchResult _buildSalonDto({
     ..buildingNo = buildingNo;
   if (serviceNames != null) {
     b.serviceNames = ListBuilder<String>(serviceNames);
+  }
+  if (matchedServiceNames != null) {
+    b.matchedServiceNames = ListBuilder<String>(matchedServiceNames);
   }
   return b.build();
 }
@@ -583,6 +591,58 @@ void main() {
       },
     );
 
+    test('Phase 13.11 — serviceTypeSlugs emitted (SORTED list) on the master '
+        'endpoint when populated, omitted when empty', () async {
+      stubMasters(_masterResponse([]));
+
+      await repository.searchMasters(
+        // Insertion order intentionally NOT alphabetical to prove the repo
+        // sorts before emitting (deterministic wire).
+        filters: const SearchFilters(
+          serviceTypeSlugs: <String>{'manicure', 'brows', 'lashes'},
+        ),
+        page: 0,
+      );
+
+      final q = capturedQuery(_masterPath);
+      expect(q['serviceTypeSlugs'], <String>['brows', 'lashes', 'manicure']);
+    });
+
+    test('Phase 13.11 — serviceTypeSlugs emitted (SORTED list) on the salon '
+        'endpoint when populated', () async {
+      stubSalons(_salonResponse([]));
+
+      await repository.searchSalons(
+        filters: const SearchFilters(
+          serviceTypeSlugs: <String>{'pedicure', 'manicure'},
+        ),
+        page: 0,
+      );
+
+      final q = capturedQuery(_salonPath);
+      expect(q['serviceTypeSlugs'], <String>['manicure', 'pedicure']);
+    });
+
+    test(
+      'Phase 13.11 — an empty serviceTypeSlugs set is OMITTED from the wire',
+      () async {
+        stubMasters(_masterResponse([]));
+        stubSalons(_salonResponse([]));
+
+        await repository.searchMasters(filters: const SearchFilters(), page: 0);
+        await repository.searchSalons(filters: const SearchFilters(), page: 0);
+
+        expect(
+          capturedQuery(_masterPath).containsKey('serviceTypeSlugs'),
+          isFalse,
+        );
+        expect(
+          capturedQuery(_salonPath).containsKey('serviceTypeSlugs'),
+          isFalse,
+        );
+      },
+    );
+
     test('default filters send sort=RATING_DESC on BOTH endpoints', () async {
       stubMasters(_masterResponse([]));
       stubSalons(_salonResponse([]));
@@ -933,6 +993,27 @@ void main() {
       );
       expect(empty.servicesLine, isNull);
     });
+
+    // Phase 13.12 — matchedServiceNames → matchedServicesLine.
+    test('matchedServiceNames join into matchedServicesLine when present', () {
+      final item = SalonSearchMapper.fromDto(
+        _buildSalonDto(
+          serviceNames: const ['Манікюр', 'Педикюр'],
+          matchedServiceNames: const ['Педикюр'],
+        ),
+      );
+      expect(item.matchedServicesLine, 'Педикюр');
+    });
+
+    test('absent/empty matchedServiceNames → null matchedServicesLine', () {
+      final absent = SalonSearchMapper.fromDto(_buildSalonDto());
+      expect(absent.matchedServicesLine, isNull);
+
+      final empty = SalonSearchMapper.fromDto(
+        _buildSalonDto(matchedServiceNames: const <String>[]),
+      );
+      expect(empty.matchedServicesLine, isNull);
+    });
   });
 
   group('MasterSearchMapper', () {
@@ -1043,6 +1124,31 @@ void main() {
         expectedServicesLine(item.serviceNames),
         'Манікюр · Педикюр · Нарощування',
       );
+    });
+
+    // Phase 13.12 — matchedServiceNames → matchedServicesLine (≤3, ' · ').
+    test('matchedServiceNames join into matchedServicesLine when present', () {
+      final item = MasterSearchMapper.fromDto(
+        _buildMasterDto(
+          serviceNames: const ['Манікюр', 'Педикюр', 'Брови'],
+          matchedServiceNames: const ['Манікюр', 'Брови'],
+        ),
+      );
+      expect(item.matchedServicesLine, 'Манікюр · Брови');
+    });
+
+    test('absent/empty matchedServiceNames → null matchedServicesLine', () {
+      final absent = MasterSearchMapper.fromDto(_buildMasterDto());
+      expect(
+        absent.matchedServicesLine,
+        isNull,
+        reason: 'no filter active → backend omits matchedServiceNames → null',
+      );
+
+      final empty = MasterSearchMapper.fromDto(
+        _buildMasterDto(matchedServiceNames: const <String>[]),
+      );
+      expect(empty.matchedServicesLine, isNull);
     });
   });
 }

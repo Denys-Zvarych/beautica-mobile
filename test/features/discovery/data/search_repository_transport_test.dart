@@ -165,4 +165,72 @@ void main() {
       },
     );
   });
+
+  group('Phase 13.11 — serviceTypeSlugs assemble as REPEATED bare params', () {
+    /// Asserts the rendered URI carries each slug as its own bare
+    /// `serviceTypeSlugs=<slug>` segment (Dio ListFormat.multi — what the
+    /// backend @ModelAttribute List<String> binds) with NO bracket/index
+    /// encoding (`[`, `]`, `%5B`) that a @ModelAttribute binder would drop.
+    void expectRepeatedSlugWire(RequestOptions options) {
+      final String uri = options.uri.toString();
+      expect(uri, contains('serviceTypeSlugs=brows'));
+      expect(uri, contains('serviceTypeSlugs=manicure'));
+      expect(
+        uri.contains('%5B') || uri.contains('['),
+        isFalse,
+        reason: 'no `[` / `%5B` bracket-encoding for the repeated list param',
+      );
+      // No CSV collapse — each value is its own param, not "a,b".
+      expect(uri.contains('serviceTypeSlugs=brows%2Cmanicure'), isFalse);
+    }
+
+    test('masters: two selected slugs → two bare repeated params', () async {
+      final getOptions = armAndCapture(_mastersPath);
+
+      await repository.searchMasters(
+        filters: const SearchFilters(
+          serviceTypeSlugs: <String>{'manicure', 'brows'},
+        ),
+        page: 0,
+      );
+
+      expectRepeatedSlugWire(getOptions());
+    });
+
+    test('salons: two selected slugs → two bare repeated params', () async {
+      final getOptions = armAndCapture(_salonsPath);
+
+      await repository.searchSalons(
+        filters: const SearchFilters(
+          serviceTypeSlugs: <String>{'manicure', 'brows'},
+        ),
+        page: 0,
+      );
+
+      expectRepeatedSlugWire(getOptions());
+    });
+  });
+
+  group('Phase 13.11 — serviceTypeSlugs family key is ORDER-INSENSITIVE', () {
+    test(
+      'two SearchFilters with the same slugs in different insertion order are '
+      '== and share a hashCode (no spurious re-key/refetch on chip re-order)',
+      () {
+        const a = SearchFilters(
+          serviceTypeSlugs: <String>{'manicure', 'brows', 'lashes'},
+        );
+        const b = SearchFilters(
+          serviceTypeSlugs: <String>{'lashes', 'manicure', 'brows'},
+        );
+        expect(a, equals(b));
+        expect(a.hashCode, equals(b.hashCode));
+      },
+    );
+
+    test('a different slug set IS a distinct key', () {
+      const a = SearchFilters(serviceTypeSlugs: <String>{'manicure'});
+      const b = SearchFilters(serviceTypeSlugs: <String>{'manicure', 'brows'});
+      expect(a, isNot(equals(b)));
+    });
+  });
 }

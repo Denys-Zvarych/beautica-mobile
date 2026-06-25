@@ -59,8 +59,10 @@ class MasterResultCard extends StatelessWidget {
     // Pre-joined at map time (MasterSearchMapper.fromDto): the ≤3 service names
     // as one preview line, or null when the master has none (line omitted — no
     // placeholder). Never join() here — this card builds per row in a scrolling
-    // list.
-    final String? services = master.servicesLine;
+    // list. When a per-service filter is active the backend sends the MATCHED
+    // names (matchedServicesLine) — prefer those so the card surfaces the
+    // service(s) that actually matched; else fall back to the generic top-3.
+    final String? services = master.matchedServicesLine ?? master.servicesLine;
     final String? priceLabel = _priceLabel(
       l10n,
       master.minEffectivePrice,

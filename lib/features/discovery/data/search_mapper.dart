@@ -87,6 +87,12 @@ abstract final class MasterSearchMapper {
     final List<String> serviceNames =
         dto.serviceNames?.toList(growable: false) ?? const <String>[];
 
+    // Matched service names (≤3) are populated by the backend ONLY when the
+    // search carried a `serviceTypeSlugs` filter; otherwise the list is empty
+    // and the pre-joined line stays null (the card falls back to serviceNames).
+    final List<String> matchedServiceNames =
+        dto.matchedServiceNames?.toList(growable: false) ?? const <String>[];
+
     return MasterSearchItem(
       masterId: id,
       firstName: dto.firstName ?? '',
@@ -117,6 +123,11 @@ abstract final class MasterSearchMapper {
       servicesLine: serviceNames.isEmpty
           ? null
           : serviceNames.join(kServiceNamesSeparator),
+      // Matched-service line: same ' · ' join + null-when-empty contract as
+      // servicesLine. Pre-joined ONCE here so the card never join()s per build.
+      matchedServicesLine: matchedServiceNames.isEmpty
+          ? null
+          : matchedServiceNames.join(kServiceNamesSeparator),
     );
   }
 }
@@ -149,6 +160,12 @@ abstract final class SalonSearchMapper {
     final List<String> serviceNames =
         dto.serviceNames?.toList(growable: false) ?? const <String>[];
 
+    // Matched service names (≤3) are populated by the backend ONLY when the
+    // search carried a `serviceTypeSlugs` filter; otherwise the list is empty
+    // and the pre-joined line stays null (the card falls back to serviceNames).
+    final List<String> matchedServiceNames =
+        dto.matchedServiceNames?.toList(growable: false) ?? const <String>[];
+
     return SalonSearchItem(
       salonId: id,
       name: dto.name ?? '',
@@ -177,6 +194,11 @@ abstract final class SalonSearchMapper {
       servicesLine: serviceNames.isEmpty
           ? null
           : serviceNames.join(kServiceNamesSeparator),
+      // Matched-service line: same ' · ' join + null-when-empty contract as
+      // servicesLine. Pre-joined ONCE here so the card never join()s per build.
+      matchedServicesLine: matchedServiceNames.isEmpty
+          ? null
+          : matchedServiceNames.join(kServiceNamesSeparator),
     );
   }
 }

@@ -303,13 +303,13 @@ class SearchFiltersController extends _$SearchFiltersController {
 /// is a multi-select set of service-option keys scoped to the currently chosen
 /// category.
 ///
-/// CONTRACT NOTE (outstanding): [SearchFilters] (the wire-facing request model)
-/// carries NO service-key field yet, so these selections are NOT sent to the
-/// discovery backend — the search endpoints expose no per-service filter. The
-/// set is kept here, forward-wired, exactly like [SearchFiltersController]'s
-/// `query` (INERT in v1). Persisting it on the request is a future contract
-/// addition (a `serviceKeys`/`serviceTypeKeys` query param) owned by
-/// `backend-dev`.
+/// WIRE (Phase 13.11): this selection is folded into [SearchFilters.serviceTypeSlugs]
+/// at "Apply" time by `SearchFiltersScreen._onShowMasters` (the base controller
+/// never stores the slugs itself), and the repository emits each slug as a
+/// repeated `serviceTypeSlugs` query param to `/search/masters` + `/search/salons`
+/// (AND semantics — the provider must offer EVERY selected service). The set is
+/// CLEARED on a category change (see the rail's `_toggle`) so a stale
+/// cross-category slug never reaches the wire.
 ///
 /// keepAlive + auth-watched for the same reasons as [SearchFiltersController]:
 /// selections survive the push to results and reset on a fresh session.

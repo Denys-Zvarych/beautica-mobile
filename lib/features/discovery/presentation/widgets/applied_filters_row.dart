@@ -34,7 +34,14 @@ class _ChipSpec {
 /// below it, since a city is meaningless without its region and a district
 /// without its city). [locality] is kept as the city-level field name for
 /// backward compatibility with existing call sites/tests.
-enum AppliedFilterField { region, locality, district, category, price }
+enum AppliedFilterField {
+  region,
+  locality,
+  district,
+  category,
+  services,
+  price,
+}
 
 /// A removable filter chip row above the results list.
 class AppliedFiltersRow extends StatelessWidget {
@@ -88,6 +95,19 @@ class AppliedFiltersRow extends StatelessWidget {
     if (categoryLabel != null && categoryLabel!.isNotEmpty) {
       specs.add(
         _ChipSpec(label: categoryLabel!, field: AppliedFilterField.category),
+      );
+    }
+
+    // Per-service filter is surfaced as a COUNT (the slugs themselves have no
+    // display label on the results screen). Clearing it drops the whole
+    // service selection.
+    final int serviceCount = filters.serviceTypeSlugs.length;
+    if (serviceCount > 0) {
+      specs.add(
+        _ChipSpec(
+          label: l10n.searchServicesFilterChip(serviceCount),
+          field: AppliedFilterField.services,
+        ),
       );
     }
 
