@@ -46,6 +46,9 @@ const MasterSearchItem _master = MasterSearchItem(
   cityLabel: 'Київ',
   districtLabel: 'Печерський район',
   minEffectivePrice: 350,
+  priceMax: null,
+  street: null,
+  buildingNo: null,
   serviceNames: <String>['Манікюр', 'Педикюр', 'Нарощування'],
   // Built directly (not via the mapper), so supply the pre-joined preview line
   // the mapper would compute — the card reads `servicesLine`, not serviceNames.
@@ -66,6 +69,9 @@ const MasterSearchItem _masterNoServices = MasterSearchItem(
   cityLabel: 'Київ',
   districtLabel: 'Печерський район',
   minEffectivePrice: 280,
+  priceMax: null,
+  street: null,
+  buildingNo: null,
   serviceNames: <String>[],
 );
 
@@ -78,6 +84,9 @@ const SalonSearchItem _salon = SalonSearchItem(
   districtLabel: 'Галицький район',
   priceMin: 200,
   priceMax: 800,
+  street: null,
+  buildingNo: null,
+  serviceNames: <String>[],
 );
 
 /// Fixed authenticated session so [authProvider] settles synchronously.

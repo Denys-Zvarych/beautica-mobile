@@ -21,7 +21,10 @@ part 'master_search_result.g.dart';
 /// * [reviewCount]
 /// * [avatarUrl]
 /// * [minEffectivePrice]
+/// * [priceMax]
 /// * [serviceNames]
+/// * [street]
+/// * [buildingNo]
 @BuiltValue()
 abstract class MasterSearchResult
     implements Built<MasterSearchResult, MasterSearchResultBuilder> {
@@ -52,8 +55,17 @@ abstract class MasterSearchResult
   @BuiltValueField(wireName: r'minEffectivePrice')
   num? get minEffectivePrice;
 
+  @BuiltValueField(wireName: r'priceMax')
+  num? get priceMax;
+
   @BuiltValueField(wireName: r'serviceNames')
   BuiltList<String>? get serviceNames;
+
+  @BuiltValueField(wireName: r'street')
+  String? get street;
+
+  @BuiltValueField(wireName: r'buildingNo')
+  String? get buildingNo;
 
   MasterSearchResult._();
 
@@ -144,11 +156,32 @@ class _$MasterSearchResultSerializer
         specifiedType: const FullType(num),
       );
     }
+    if (object.priceMax != null) {
+      yield r'priceMax';
+      yield serializers.serialize(
+        object.priceMax,
+        specifiedType: const FullType(num),
+      );
+    }
     if (object.serviceNames != null) {
       yield r'serviceNames';
       yield serializers.serialize(
         object.serviceNames,
         specifiedType: const FullType(BuiltList, [FullType(String)]),
+      );
+    }
+    if (object.street != null) {
+      yield r'street';
+      yield serializers.serialize(
+        object.street,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.buildingNo != null) {
+      yield r'buildingNo';
+      yield serializers.serialize(
+        object.buildingNo,
+        specifiedType: const FullType(String),
       );
     }
   }
@@ -239,12 +272,33 @@ class _$MasterSearchResultSerializer
           ) as num;
           result.minEffectivePrice = valueDes;
           break;
+        case r'priceMax':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.priceMax = valueDes;
+          break;
         case r'serviceNames':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(BuiltList, [FullType(String)]),
           ) as BuiltList<String>;
           result.serviceNames.replace(valueDes);
+          break;
+        case r'street':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.street = valueDes;
+          break;
+        case r'buildingNo':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.buildingNo = valueDes;
           break;
         default:
           unhandled.add(key);

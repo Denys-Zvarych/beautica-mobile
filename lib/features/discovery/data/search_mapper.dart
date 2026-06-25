@@ -31,6 +31,24 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import '../domain/master_search_item.dart';
 import '../domain/salon_search_item.dart';
 
+/// Pre-joins a (auth-gated) street + building number into one
+/// «street, buildingNo» address line, or returns `null` when the street is
+/// absent/blank. Pure-Dart so the data layer can compute it at map time without
+/// importing `presentation/`; mirrors `formatAddress` in the result-card
+/// helpers EXACTLY (street with no building → just the street; building with no
+/// street → null). Only the street portion is precomputed here — the
+/// city/district locality fallback stays in the card's `build()`.
+String? _formatAddressLine(String? street, String? buildingNo) {
+  final String? s = (street != null && street.trim().isNotEmpty)
+      ? street.trim()
+      : null;
+  if (s == null) return null;
+  final String? b = (buildingNo != null && buildingNo.trim().isNotEmpty)
+      ? buildingNo.trim()
+      : null;
+  return b == null ? s : '$s, $b';
+}
+
 /// Translates [MasterSearchResult] DTOs into the domain [MasterSearchItem].
 abstract final class MasterSearchMapper {
   static const _tag = 'feature.discovery.mapper';
@@ -71,6 +89,13 @@ abstract final class MasterSearchMapper {
       cityLabel: dto.cityLabel,
       districtLabel: dto.districtLabel,
       minEffectivePrice: dto.minEffectivePrice?.toDouble(),
+      priceMax: dto.priceMax?.toDouble(),
+      street: dto.street,
+      buildingNo: dto.buildingNo,
+      // Pre-join the street address ONCE here (mirrors servicesLine) so the
+      // scrolling result list never re-runs the street join per card build().
+      // Street portion only — the locality fallback stays in the card.
+      addressLine: _formatAddressLine(dto.street, dto.buildingNo),
       serviceNames: serviceNames,
       // Pre-join the preview line ONCE here so the scrolling result list never
       // re-runs join() per card build() (LOW perf fix). Null when empty → the
@@ -104,6 +129,12 @@ abstract final class SalonSearchMapper {
       throw const ServerFailure(statusCode: null);
     }
 
+    // Backend contract: serviceNames is always present ([] when none, ≤3
+    // entries). Defensively null-coalesced so a stale/omitting payload still
+    // yields a card with no service line rather than a crash.
+    final List<String> serviceNames =
+        dto.serviceNames?.toList(growable: false) ?? const <String>[];
+
     return SalonSearchItem(
       salonId: id,
       name: dto.name ?? '',
@@ -114,6 +145,19 @@ abstract final class SalonSearchMapper {
       districtLabel: dto.districtLabel,
       priceMin: dto.priceMin?.toDouble(),
       priceMax: dto.priceMax?.toDouble(),
+      street: dto.street,
+      buildingNo: dto.buildingNo,
+      // Pre-join the street address ONCE here (mirrors the master mapper) so the
+      // scrolling result list never re-runs the street join per card build().
+      // Street portion only — the locality fallback stays in the card.
+      addressLine: _formatAddressLine(dto.street, dto.buildingNo),
+      serviceNames: serviceNames,
+      // Pre-join the preview line ONCE here (mirrors the master mapper) so the
+      // scrolling result list never re-runs join() per card build(). Null when
+      // empty → the card omits the line (no placeholder).
+      servicesLine: serviceNames.isEmpty
+          ? null
+          : serviceNames.join(kServiceNamesSeparator),
     );
   }
 }

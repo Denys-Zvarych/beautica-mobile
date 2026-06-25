@@ -47,12 +47,18 @@ const List<String> kPublicPathPrefixes = [
   //   GET /api/v1/locations/oblasts/{oblastId}/cities
   //   GET /api/v1/locations/cities/{cityId}/districts
   '/api/v1/locations/',
-  // Phase 13.2 / security fix 2026-06-18 — discovery search endpoints are
-  // public reads. No Bearer token should be attached even when a logged-in
-  // user triggers a search or pagination (needless token egress on every call).
-  //   GET /api/v1/search/masters
-  //   GET /api/v1/search/salons
-  '/api/v1/search/',
+  // NOTE (security/correctness fix 2026-06-25): `/api/v1/search/` was REMOVED
+  // from this list. The discovery search endpoints are `permitAll` (a
+  // logged-out user can still browse), BUT the backend auth-gates the
+  // `street`/`buildingNo` address fields on the authenticated principal: an
+  // anonymous caller gets null addresses, an authenticated one gets the full
+  // address. Listing `/api/v1/search/` here forced [AuthInterceptor] to STRIP
+  // the Bearer token from every search call, so the app was always anonymous
+  // and full addresses were permanently dead. By NOT listing it, the
+  // interceptor attaches the token WHEN PRESENT (logged-in → addresses) and
+  // sends the request anonymously when absent (logged-out → still works, no
+  // addresses). [AuthInterceptor] never blocks/force-refreshes a tokenless
+  // request, so public browse remains functional. See `auth_interceptor.dart`.
 ];
 
 /// Paths whose request bodies must be redacted in debug logs — used by
@@ -77,4 +83,12 @@ const Set<String> kPiiPaths = {
   // Must be a separate entry because the path differs from the locality endpoint.
   '/api/v1/independent-masters/me/profile',
   '/api/v1/masters/me',
+  // Security fix 2026-06-25 — discovery search responses carry auth-gated
+  // address fields (street, buildingNo) for authenticated callers. Redact the
+  // response/request bodies in debug logs (the error-path logger in
+  // logging_interceptor.dart logs `err.response?.data` otherwise). These are
+  // exact paths (the search endpoints have no dynamic segments), so exact
+  // membership in this set matches the LoggingInterceptor's `.contains` check.
+  '/api/v1/search/masters',
+  '/api/v1/search/salons',
 };

@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -18,6 +19,9 @@ part 'salon_search_result.g.dart';
 /// * [avatarUrl]
 /// * [priceMin]
 /// * [priceMax]
+/// * [serviceNames]
+/// * [street]
+/// * [buildingNo]
 @BuiltValue()
 abstract class SalonSearchResult
     implements Built<SalonSearchResult, SalonSearchResultBuilder> {
@@ -41,6 +45,15 @@ abstract class SalonSearchResult
 
   @BuiltValueField(wireName: r'priceMax')
   num? get priceMax;
+
+  @BuiltValueField(wireName: r'serviceNames')
+  BuiltList<String>? get serviceNames;
+
+  @BuiltValueField(wireName: r'street')
+  String? get street;
+
+  @BuiltValueField(wireName: r'buildingNo')
+  String? get buildingNo;
 
   SalonSearchResult._();
 
@@ -117,6 +130,27 @@ class _$SalonSearchResultSerializer
         specifiedType: const FullType(num),
       );
     }
+    if (object.serviceNames != null) {
+      yield r'serviceNames';
+      yield serializers.serialize(
+        object.serviceNames,
+        specifiedType: const FullType(BuiltList, [FullType(String)]),
+      );
+    }
+    if (object.street != null) {
+      yield r'street';
+      yield serializers.serialize(
+        object.street,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.buildingNo != null) {
+      yield r'buildingNo';
+      yield serializers.serialize(
+        object.buildingNo,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -190,6 +224,27 @@ class _$SalonSearchResultSerializer
             specifiedType: const FullType(num),
           ) as num;
           result.priceMax = valueDes;
+          break;
+        case r'serviceNames':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BuiltList, [FullType(String)]),
+          ) as BuiltList<String>;
+          result.serviceNames.replace(valueDes);
+          break;
+        case r'street':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.street = valueDes;
+          break;
+        case r'buildingNo':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.buildingNo = valueDes;
           break;
         default:
           unhandled.add(key);

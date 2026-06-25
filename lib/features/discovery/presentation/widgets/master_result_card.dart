@@ -45,15 +45,22 @@ class MasterResultCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final String name = _displayName(master, l10n);
-    final String? locality = formatLocality(
-      master.cityLabel,
-      master.districtLabel,
-    );
+    // Pre-joined at map time (MasterSearchMapper.fromDto): the (auth-gated)
+    // «street, buildingNo» line when present, otherwise fall back to the
+    // city/district locality line at render.
+    final String? locality =
+        master.addressLine ??
+        formatLocality(master.cityLabel, master.districtLabel);
     // Pre-joined at map time (MasterSearchMapper.fromDto): the ≤3 service names
     // as one preview line, or null when the master has none (line omitted — no
     // placeholder). Never join() here — this card builds per row in a scrolling
     // list.
     final String? services = master.servicesLine;
+    final String? priceLabel = _priceLabel(
+      l10n,
+      master.minEffectivePrice,
+      master.priceMax,
+    );
 
     return Semantics(
       button: true,
@@ -93,7 +100,7 @@ class MasterResultCard extends StatelessWidget {
                       Text(
                         services,
                         key: const Key('master_card_services'),
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: ResultCardText.services,
                       ),
@@ -103,12 +110,9 @@ class MasterResultCard extends StatelessWidget {
                       rating: master.avgRating,
                       reviewCount: master.reviewCount,
                     ),
-                    if (master.minEffectivePrice != null) ...<Widget>[
+                    if (priceLabel != null) ...<Widget>[
                       const SizedBox(height: 3),
-                      Text(
-                        l10n.searchPriceFrom(master.minEffectivePrice!.round()),
-                        style: ResultCardText.price,
-                      ),
+                      Text(priceLabel, style: ResultCardText.price),
                     ],
                   ],
                 ),
@@ -128,6 +132,24 @@ class MasterResultCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Price rendering — mirrors [SalonResultCard]'s decision-5 logic, using the
+  /// master's [MasterSearchItem.minEffectivePrice] as the floor and
+  /// [MasterSearchItem.priceMax] as the ceiling:
+  ///   floor null            → null (no priced services → hide the line)
+  ///   max null / == floor    → exact fixed price «N грн» (NO «від»)
+  ///   floor < max           → «N–M грн» range
+  static String? _priceLabel(
+    AppLocalizations l10n,
+    double? floor,
+    double? max,
+  ) {
+    final int? lo = floor?.round();
+    final int? hi = max?.round();
+    if (lo == null) return null;
+    if (hi == null || hi == lo) return l10n.searchResultPriceExact(lo);
+    return l10n.searchResultPriceRange(lo, hi);
   }
 
   /// Builds a display name from first + last, falling back to a placeholder

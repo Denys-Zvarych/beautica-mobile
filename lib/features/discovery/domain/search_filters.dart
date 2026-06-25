@@ -63,7 +63,17 @@ abstract class SearchFilters with _$SearchFilters {
     /// Platform category key/slug to filter by (e.g. "HAIR"), or null for all.
     String? categoryKey,
 
-    /// City id to scope results to, or null for all cities.
+    /// Oblast (region) id the city was funnelled through, or null when no region
+    /// has been picked. The region is a MANDATORY narrowing step in the UI that
+    /// always resolves to a [cityId]; there is NO whole-region search, so the
+    /// oblast id is NOT sent to the backend (no `location.oblastId` param). It is
+    /// persisted only so the picker can re-open the right city list and the
+    /// applied-filter chips can show the region label. Cleared whenever [cityId]
+    /// is cleared (a city is only meaningful within its region).
+    String? oblastId,
+
+    /// City id to scope results to, or null for all cities. Sent flat as
+    /// `location.cityId`.
     String? cityId,
 
     /// District id to scope results to, or null for all districts. Only

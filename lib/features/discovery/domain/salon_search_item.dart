@@ -57,5 +57,38 @@ abstract class SalonSearchItem with _$SalonSearchItem {
     /// Upper bound of the salon's service price range, or null when the salon
     /// has no priced services / no range ceiling.
     required double? priceMax,
+
+    /// Street name of the salon's address, or null. AUTH-GATED server-side: the
+    /// backend omits it for anonymous callers and populates it for authenticated
+    /// ones. Rendered (with [buildingNo]) as a full-address line when present,
+    /// falling back to the city/district locality when null.
+    required String? street,
+
+    /// Building number of the salon's address, or null. Same auth-gating as
+    /// [street]; only meaningful alongside it.
+    required String? buildingNo,
+
+    /// The [street] + [buildingNo] pre-joined into one «street, buildingNo»
+    /// address line, or `null` when [street] is absent/blank (the card then
+    /// falls back to the city/district locality at render). Computed ONCE by
+    /// [SalonSearchMapper.fromDto] at map time — mirrors [servicesLine] so the
+    /// scrolling result list never re-runs the street join per card `build()`.
+    /// Only the street portion is precomputed; the locality fallback stays in
+    /// the card. Kept in lockstep with [street]/[buildingNo].
+    @Default(null) String? addressLine,
+
+    /// A short (≤3) list of the salon's distinct active service names (e.g.
+    /// `['Манікюр', 'Педикюр']`), surfaced as a preview line on the result card.
+    /// Always non-null — an empty list (`const []`) means the salon has no
+    /// active priced services and the card renders no service line.
+    @Default(<String>[]) List<String> serviceNames,
+
+    /// The [serviceNames] pre-joined into the single `' · '`-separated preview
+    /// line the card renders, or `null` when [serviceNames] is empty (the card
+    /// then omits the line — no placeholder). Computed ONCE by
+    /// [SalonSearchMapper.fromDto] at map time so the scrolling result list never
+    /// re-runs `join()` per card `build()`. Kept in lockstep with [serviceNames];
+    /// mutating one without the other is a contract break.
+    @Default(null) String? servicesLine,
   }) = _SalonSearchItem;
 }

@@ -69,6 +69,9 @@ MasterSearchResult _buildMasterDto({
   String? cityLabel = 'Київ',
   String? districtLabel = 'Печерський',
   num? minEffectivePrice = 350,
+  num? priceMax,
+  String? street,
+  String? buildingNo,
   List<String>? serviceNames = const ['Манікюр', 'Педикюр'],
 }) {
   final b = MasterSearchResultBuilder()
@@ -80,7 +83,10 @@ MasterSearchResult _buildMasterDto({
     ..reviewCount = reviewCount
     ..cityLabel = cityLabel
     ..districtLabel = districtLabel
-    ..minEffectivePrice = minEffectivePrice;
+    ..minEffectivePrice = minEffectivePrice
+    ..priceMax = priceMax
+    ..street = street
+    ..buildingNo = buildingNo;
   if (serviceNames != null) {
     b.serviceNames = ListBuilder<String>(serviceNames);
   }
@@ -95,16 +101,25 @@ SalonSearchResult _buildSalonDto({
   String? districtLabel = 'Галицький',
   num? priceMin = 400,
   num? priceMax = 900,
-}) =>
-    (SalonSearchResultBuilder()
-          ..salonId = salonId
-          ..name = name
-          ..avatarUrl = avatarUrl
-          ..cityLabel = cityLabel
-          ..districtLabel = districtLabel
-          ..priceMin = priceMin
-          ..priceMax = priceMax)
-        .build();
+  String? street,
+  String? buildingNo,
+  List<String>? serviceNames,
+}) {
+  final b = SalonSearchResultBuilder()
+    ..salonId = salonId
+    ..name = name
+    ..avatarUrl = avatarUrl
+    ..cityLabel = cityLabel
+    ..districtLabel = districtLabel
+    ..priceMin = priceMin
+    ..priceMax = priceMax
+    ..street = street
+    ..buildingNo = buildingNo;
+  if (serviceNames != null) {
+    b.serviceNames = ListBuilder<String>(serviceNames);
+  }
+  return b.build();
+}
 
 /// The exact wire form the real Dio JSON transformer hands the repository: the
 /// JSON-collection (Map/List of primitives) serialization of the typed envelope.
@@ -297,17 +312,20 @@ void main() {
       expect(page.hasMore, isFalse);
     });
 
-    test('empty page carries totalElements == 0 (no items, no match)', () async {
-      stubMasters(_masterResponse([], page: 0, totalPages: 0));
+    test(
+      'empty page carries totalElements == 0 (no items, no match)',
+      () async {
+        stubMasters(_masterResponse([], page: 0, totalPages: 0));
 
-      final page = await repository.searchMasters(filters: filters, page: 0);
+        final page = await repository.searchMasters(filters: filters, page: 0);
 
-      expect(page.items, isEmpty);
-      expect(page.totalElements, 0);
-      expect(page.totalPages, 0);
-      expect(page.page, 0);
-      expect(page.hasMore, isFalse);
-    });
+        expect(page.items, isEmpty);
+        expect(page.totalElements, 0);
+        expect(page.totalPages, 0);
+        expect(page.page, 0);
+        expect(page.hasMore, isFalse);
+      },
+    );
 
     test('maps a 400 response to ValidationFailure', () async {
       stubMastersThrows(_dioBadResponse(400, _masterPath));
@@ -493,52 +511,55 @@ void main() {
       },
     );
 
+    test('searchSalons forwards q, sort, location, category AND the price band '
+        '(but NOT minRating — salon endpoint has no rating filter)', () async {
+      stubSalons(_salonResponse([_buildSalonDto()]));
+
+      await repository.searchSalons(filters: richFilters, page: 1);
+
+      final q = capturedQuery(_salonPath);
+      expect(q['q'], 'Манікюр');
+      expect(q['sort'], 'PRICE_ASC');
+      expect(q['category'], 'HAIR');
+      expect(q['location.cityId'], 'city-7');
+      expect(q['location.districtId'], 'district-3');
+      expect(q['minPrice'], '200.0');
+      expect(q['maxPrice'], '800.0');
+      expect(q['page'], 1);
+      expect(q['size'], kSearchPageSize);
+      // minRating is intentionally absent on the salon endpoint.
+      expect(q.containsKey('minRating'), isFalse);
+    });
+
     test(
-      'searchSalons forwards q, sort, location, category AND the price band '
-      '(but NOT minRating — salon endpoint has no rating filter)',
+      'a blank/whitespace query is normalised to null (q OMITTED)',
       () async {
-        stubSalons(_salonResponse([_buildSalonDto()]));
+        stubMasters(_masterResponse([]));
 
-        await repository.searchSalons(filters: richFilters, page: 1);
+        await repository.searchMasters(
+          filters: const SearchFilters(query: '   '),
+          page: 0,
+        );
 
-        final q = capturedQuery(_salonPath);
-        expect(q['q'], 'Манікюр');
-        expect(q['sort'], 'PRICE_ASC');
-        expect(q['category'], 'HAIR');
-        expect(q['location.cityId'], 'city-7');
-        expect(q['location.districtId'], 'district-3');
-        expect(q['minPrice'], '200.0');
-        expect(q['maxPrice'], '800.0');
-        expect(q['page'], 1);
-        expect(q['size'], kSearchPageSize);
-        // minRating is intentionally absent on the salon endpoint.
-        expect(q.containsKey('minRating'), isFalse);
+        final q = capturedQuery(_masterPath);
+        expect(q.containsKey('q'), isFalse);
       },
     );
 
-    test('a blank/whitespace query is normalised to null (q OMITTED)', () async {
-      stubMasters(_masterResponse([]));
+    test(
+      'a query with surrounding whitespace is trimmed before sending',
+      () async {
+        stubSalons(_salonResponse([]));
 
-      await repository.searchMasters(
-        filters: const SearchFilters(query: '   '),
-        page: 0,
-      );
+        await repository.searchSalons(
+          filters: const SearchFilters(query: '  педикюр  '),
+          page: 0,
+        );
 
-      final q = capturedQuery(_masterPath);
-      expect(q.containsKey('q'), isFalse);
-    });
-
-    test('a query with surrounding whitespace is trimmed before sending', () async {
-      stubSalons(_salonResponse([]));
-
-      await repository.searchSalons(
-        filters: const SearchFilters(query: '  педикюр  '),
-        page: 0,
-      );
-
-      final q = capturedQuery(_salonPath);
-      expect(q['q'], 'педикюр');
-    });
+        final q = capturedQuery(_salonPath);
+        expect(q['q'], 'педикюр');
+      },
+    );
 
     test(
       'empty filters send paging + default sort ONLY (every optional omitted)',
@@ -642,7 +663,8 @@ void main() {
       expect(
         q['location.cityId'],
         'b3f1c2d4-0000-4aaa-bbbb-ccccdddd1111',
-        reason: 'city must scope the search via the literal dotted key '
+        reason:
+            'city must scope the search via the literal dotted key '
             '`location.cityId` the @ModelAttribute binder reads',
       );
       expect(q['location.districtId'], 'a1a2a3a4-0000-4bbb-cccc-ddddeeee2222');
@@ -673,15 +695,11 @@ void main() {
       // Render the final query string Dio would put on the wire and assert the
       // ground-truth bytes: city present FLAT, no bracket-encoding at all.
       final String queryString = Uri(
-        queryParameters: q.map(
-          (k, v) => MapEntry<String, String>(k, '$v'),
-        ),
+        queryParameters: q.map((k, v) => MapEntry<String, String>(k, '$v')),
       ).query;
       expect(
         queryString,
-        contains(
-          'location.cityId=b3f1c2d4-0000-4aaa-bbbb-ccccdddd1111',
-        ),
+        contains('location.cityId=b3f1c2d4-0000-4aaa-bbbb-ccccdddd1111'),
         reason: 'the city must appear FLAT in the rendered query string',
       );
       expect(
@@ -765,6 +783,86 @@ void main() {
     });
   });
 
+  // ── Item 4 — oblastId is UI-only; it must NEVER reach the wire ──────────────
+  //
+  // The region (oblast) narrows the city PICKER and labels the applied-filter
+  // chips, but there is no whole-region search: the cascade always resolves to a
+  // flat location.cityId (+ optional location.districtId). The repository sends
+  // those FLAT keys and must NOT emit any `oblastId` / `location.oblastId` key.
+  // A future "forward the oblast too" change would surface here as a leaked key
+  // the @ModelAttribute binder does not expect.
+
+  group('oblastId is UI-only (never sent to the wire)', () {
+    const withOblast = SearchFilters(
+      oblastId: 'oblast-kyiv',
+      cityId: 'city-kyiv',
+      districtId: 'dist-pechersk',
+    );
+
+    test(
+      'searchMasters sends location.cityId/districtId but NO oblast key',
+      () async {
+        stubMasters(_masterResponse([]));
+
+        await repository.searchMasters(filters: withOblast, page: 0);
+
+        final q = capturedQuery(_masterPath);
+        // The flat location keys reach the wire …
+        expect(q['location.cityId'], 'city-kyiv');
+        expect(q['location.districtId'], 'dist-pechersk');
+        // … but the oblast id does NOT, under any spelling.
+        expect(q.containsKey('oblastId'), isFalse);
+        expect(q.containsKey('location.oblastId'), isFalse);
+        expect(
+          q.keys.where((String k) => k.toLowerCase().contains('oblast')),
+          isEmpty,
+          reason: 'the oblast is UI-only — no oblast key may reach the request',
+        );
+      },
+    );
+
+    test(
+      'searchSalons sends location.cityId/districtId but NO oblast key',
+      () async {
+        stubSalons(_salonResponse([]));
+
+        await repository.searchSalons(filters: withOblast, page: 0);
+
+        final q = capturedQuery(_salonPath);
+        expect(q['location.cityId'], 'city-kyiv');
+        expect(q['location.districtId'], 'dist-pechersk');
+        expect(q.containsKey('oblastId'), isFalse);
+        expect(q.containsKey('location.oblastId'), isFalse);
+        expect(
+          q.keys.where((String k) => k.toLowerCase().contains('oblast')),
+          isEmpty,
+        );
+      },
+    );
+
+    test(
+      'a district-optional selection (oblast + city, no district) sends ONLY '
+      'location.cityId',
+      () async {
+        const cityNoDistrict = SearchFilters(
+          oblastId: 'oblast-kyiv',
+          cityId: 'city-kyiv',
+        );
+        stubMasters(_masterResponse([]));
+
+        await repository.searchMasters(filters: cityNoDistrict, page: 0);
+
+        final q = capturedQuery(_masterPath);
+        expect(q['location.cityId'], 'city-kyiv');
+        expect(q.containsKey('location.districtId'), isFalse);
+        expect(
+          q.keys.where((String k) => k.toLowerCase().contains('oblast')),
+          isEmpty,
+        );
+      },
+    );
+  });
+
   // ── Mapper-level edge cases ──────────────────────────────────────────────────
 
   group('SalonSearchMapper', () {
@@ -783,6 +881,58 @@ void main() {
       expect(item.priceMin, isNull);
       expect(item.priceMax, isNull);
     });
+
+    // ── Item 6 — addressLine pre-join (street + buildingNo) ───────────────────
+    test('builds addressLine «street, buildingNo» from both fields', () {
+      final item = SalonSearchMapper.fromDto(
+        _buildSalonDto(street: 'вул. Сагайдачного', buildingNo: '10А'),
+      );
+      expect(item.street, 'вул. Сагайдачного');
+      expect(item.buildingNo, '10А');
+      expect(item.addressLine, 'вул. Сагайдачного, 10А');
+    });
+
+    test('addressLine is the street alone when buildingNo is absent', () {
+      final item = SalonSearchMapper.fromDto(
+        _buildSalonDto(street: 'вул. Сагайдачного', buildingNo: null),
+      );
+      expect(item.addressLine, 'вул. Сагайдачного');
+    });
+
+    test('null street → null addressLine (card falls back to locality)', () {
+      final item = SalonSearchMapper.fromDto(
+        _buildSalonDto(street: null, buildingNo: '10А'),
+      );
+      expect(
+        item.addressLine,
+        isNull,
+        reason:
+            'a building number with no street is not a usable address — the '
+            'mapper emits null so the card renders the locality instead.',
+      );
+    });
+
+    // ── Item 7 — servicesLine pre-join from serviceNames ──────────────────────
+    test('builds the « · »-joined servicesLine from serviceNames', () {
+      final item = SalonSearchMapper.fromDto(
+        _buildSalonDto(serviceNames: const ['Манікюр', 'Стрижка']),
+      );
+      expect(item.serviceNames, <String>['Манікюр', 'Стрижка']);
+      expect(item.servicesLine, 'Манікюр · Стрижка');
+    });
+
+    test('null/empty serviceNames → null servicesLine (line omitted)', () {
+      final absent = SalonSearchMapper.fromDto(
+        _buildSalonDto(serviceNames: null),
+      );
+      expect(absent.serviceNames, isEmpty);
+      expect(absent.servicesLine, isNull);
+
+      final empty = SalonSearchMapper.fromDto(
+        _buildSalonDto(serviceNames: const <String>[]),
+      );
+      expect(empty.servicesLine, isNull);
+    });
   });
 
   group('MasterSearchMapper', () {
@@ -796,6 +946,52 @@ void main() {
         _buildMasterDto(minEffectivePrice: null),
       );
       expect(item.minEffectivePrice, isNull);
+    });
+
+    // ── Item 2 — priceMax is mapped (drives the «від» decision on the card) ───
+    test('maps priceMax as a double (not the raw num)', () {
+      final item = MasterSearchMapper.fromDto(
+        _buildMasterDto(minEffectivePrice: 350, priceMax: 900),
+      );
+      expect(item.priceMax, isA<double>());
+      expect(item.priceMax, 900.0);
+    });
+
+    test('a null priceMax maps to null (single fixed price on the card)', () {
+      final item = MasterSearchMapper.fromDto(
+        _buildMasterDto(minEffectivePrice: 350, priceMax: null),
+      );
+      expect(item.priceMax, isNull);
+    });
+
+    // ── Item 6 — addressLine pre-join (street + buildingNo) ───────────────────
+    test('builds addressLine «street, buildingNo» from both fields', () {
+      final item = MasterSearchMapper.fromDto(
+        _buildMasterDto(street: 'вул. Хрещатик', buildingNo: '22'),
+      );
+      expect(item.street, 'вул. Хрещатик');
+      expect(item.buildingNo, '22');
+      expect(item.addressLine, 'вул. Хрещатик, 22');
+    });
+
+    test('null street → null addressLine (card falls back to locality)', () {
+      final item = MasterSearchMapper.fromDto(
+        _buildMasterDto(street: null, buildingNo: '22'),
+      );
+      expect(
+        item.addressLine,
+        isNull,
+        reason:
+            'an anonymous caller gets a null street → the mapper emits a null '
+            'addressLine so the card renders the city/district locality.',
+      );
+    });
+
+    test('the precomputed servicesLine mirrors the joined serviceNames', () {
+      final item = MasterSearchMapper.fromDto(
+        _buildMasterDto(serviceNames: const ['Манікюр', 'Педикюр']),
+      );
+      expect(item.servicesLine, 'Манікюр · Педикюр');
     });
 
     test('maps a populated serviceNames list through, order preserved', () {

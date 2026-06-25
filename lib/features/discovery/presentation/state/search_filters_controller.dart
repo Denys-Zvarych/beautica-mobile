@@ -43,20 +43,37 @@ const int kSearchPriceDivisions = 50;
 /// placeholder.
 @immutable
 class SearchFilterLabels {
-  const SearchFilterLabels({this.cityName, this.categoryName});
+  const SearchFilterLabels({
+    this.oblastName,
+    this.cityName,
+    this.districtName,
+    this.categoryName,
+  });
+
+  /// Display name of the selected oblast / region (e.g. «Львівська область»), or
+  /// null.
+  final String? oblastName;
 
   /// Display name of the selected city (e.g. «Львів»), or null.
   final String? cityName;
+
+  /// Display name of the selected district (e.g. «Франківський»), or null when
+  /// the city has no districts or the (optional) district step was skipped.
+  final String? districtName;
 
   /// Display name of the selected service category (e.g. «Манікюр»), or null.
   final String? categoryName;
 
   SearchFilterLabels copyWith({
+    String? Function()? oblastName,
     String? Function()? cityName,
+    String? Function()? districtName,
     String? Function()? categoryName,
   }) {
     return SearchFilterLabels(
+      oblastName: oblastName != null ? oblastName() : this.oblastName,
       cityName: cityName != null ? cityName() : this.cityName,
+      districtName: districtName != null ? districtName() : this.districtName,
       categoryName: categoryName != null ? categoryName() : this.categoryName,
     );
   }
@@ -65,11 +82,14 @@ class SearchFilterLabels {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is SearchFilterLabels &&
+          other.oblastName == oblastName &&
           other.cityName == cityName &&
+          other.districtName == districtName &&
           other.categoryName == categoryName;
 
   @override
-  int get hashCode => Object.hash(cityName, categoryName);
+  int get hashCode =>
+      Object.hash(oblastName, cityName, districtName, categoryName);
 }
 
 /// Holds the display labels for the active [SearchFilters] selection.
@@ -85,15 +105,23 @@ class SearchFilterLabelsController extends _$SearchFilterLabelsController {
     return const SearchFilterLabels();
   }
 
+  /// Sets (or clears, when [name] is null) the selected-oblast display label.
+  void setOblastName(String? name) =>
+      state = state.copyWith(oblastName: () => name);
+
   /// Sets (or clears, when [name] is null) the selected-city display label.
   void setCityName(String? name) =>
       state = state.copyWith(cityName: () => name);
+
+  /// Sets (or clears, when [name] is null) the selected-district display label.
+  void setDistrictName(String? name) =>
+      state = state.copyWith(districtName: () => name);
 
   /// Sets (or clears, when [name] is null) the selected-category display label.
   void setCategoryName(String? name) =>
       state = state.copyWith(categoryName: () => name);
 
-  /// Clears both labels (paired with [SearchFiltersController.reset]).
+  /// Clears all labels (paired with [SearchFiltersController.reset]).
   void reset() => state = const SearchFilterLabels();
 }
 
@@ -127,14 +155,36 @@ class SearchFiltersController extends _$SearchFiltersController {
     state = state.copyWith(sort: sort);
   }
 
-  /// Selects a city (and optional district). Pass `cityId: null` to clear the
-  /// city scope — that also clears any district, since a district is only
-  /// meaningful alongside its city.
-  void selectCity({required String? cityId, String? districtId}) {
+  /// Selects (or clears) the oblast / region — the first cascade level.
+  ///
+  /// Changing or clearing the oblast invalidates everything funnelled through
+  /// it: the city and the district are both cleared, since neither is meaningful
+  /// outside its region. Pass `oblastId: null` to clear the whole locality.
+  void selectOblast({required String? oblastId}) {
+    state = state.copyWith(oblastId: oblastId, cityId: null, districtId: null);
+  }
+
+  /// Selects (or clears) the city — the second cascade level. Pass
+  /// `cityId: null` to clear the city scope; that also clears any district,
+  /// since a district is only meaningful alongside its city. The oblast is left
+  /// intact (the user stays within the chosen region).
+  void selectCity({required String? cityId}) {
     state = state.copyWith(
       cityId: cityId,
-      districtId: cityId == null ? null : districtId,
+      districtId: cityId == null ? null : state.districtId,
     );
+  }
+
+  /// Selects (or clears) the district — the optional third cascade level. Pass
+  /// `districtId: null` to clear / skip it.
+  ///
+  /// A district is only meaningful alongside a city: setting a non-null district
+  /// while no city is selected is dropped (the cascade integrity invariant). The
+  /// screen always picks a city first, so this guard only ever matters for a
+  /// stray/out-of-order call.
+  void selectDistrict({required String? districtId}) {
+    if (districtId != null && state.cityId == null) return;
+    state = state.copyWith(districtId: districtId);
   }
 
   /// Single-select toggle for the category rail (Variant A) / legacy grid.

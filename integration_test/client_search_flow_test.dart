@@ -403,9 +403,91 @@ void main() {
   // navigation + provider→repository + the exact API query contract) the widget
   // tier cannot prove end to end.
   // ──────────────────────────────────────────────────────────────────────────
+  testWidgets('CLIENT picks a city → the search scopes to location.cityId on BOTH '
+      'endpoints (all-regions wire-format regression)', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    // ── Reach the search screen ─────────────────────────────────────────────
+    await tester.tap(find.byKey(const Key('client-nav-search-center')));
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    expectLocation(router, RouteNames.clientSearch);
+
+    // ── Pick «Київ» through the REAL locality cascade ───────────────────────
+    await tester.tap(find.byKey(const Key('search_city_value')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
+    );
+    await tester.pumpAndSettle();
+
+    final Text cityValue = tester.widget<Text>(
+      find.byKey(const Key('search_city_value')),
+    );
+    expect(cityValue.data, 'Київ');
+
+    // ── Submit → results screen fires BOTH endpoints with the city scope ────
+    await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    expectLocation(router, RouteNames.clientSearchResults);
+    expect(find.byKey(const Key('client-search-results')), findsOneWidget);
+    expect(fb.searchMastersCalls, greaterThanOrEqualTo(1));
+    expect(fb.searchSalonsCalls, greaterThanOrEqualTo(1));
+
+    // ── REGRESSION ASSERTION — the city reached the wire as a FLAT key ──────
+    // The fake backend reads `location.cityId` straight off the FLAT query
+    // map. A null here means the city scope never bound (the reverted
+    // object-query / bracket-nested encoding) → an all-regions result.
+    expect(
+      fb.lastSearchMastersCityId,
+      'city-kyiv',
+      reason:
+          'the picked city must scope /search/masters via the FLAT '
+          'location.cityId key (not a bracket-nested request[...])',
+    );
+    expect(
+      fb.lastSearchSalonsCityId,
+      'city-kyiv',
+      reason: 'the picked city must scope /search/salons too',
+    );
+    // No district was picked (the seeded city has none) → omitted, not empty.
+    expect(fb.lastSearchMastersDistrictId, isNull);
+    expect(fb.lastSearchSalonsDistrictId, isNull);
+
+    expect(fb.getMasterCalls, 0);
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Search-page change (items 4, 5, 6, 7) — E2E: a region→city filter scopes
+  // the results, the results screen shows the applied-filter chips, and the
+  // salon card renders its price RANGE + services line + full street address.
+  //
+  // WHY THIS FLOW EXISTS
+  // --------------------
+  // The unit + widget tiers pin each piece in isolation (the controller cascade,
+  // the salon card's price/services/address rendering, the mapper's addressLine
+  // join). This flow proves they compose end to end: a CLIENT picking «Київська»
+  // → «Київ» through the REAL locality cascade, submitting, and seeing the
+  // results screen render the applied-filter chip strip AND a salon card whose
+  // price/services/address all come from the (authenticated) /search/salons
+  // response. The seeded salon-xyz now carries street/buildingNo (auth-gated)
+  // and serviceNames, so the card's `addressLine` + `servicesLine` are live.
+  //
+  // Step 2.7 Rule 3b: this is the real user journey (locality cascade +
+  // navigation + provider→repository + the rendered result card + chip strip)
+  // the widget tier cannot prove end to end.
+  // ──────────────────────────────────────────────────────────────────────────
   testWidgets(
-    'CLIENT picks a city → the search scopes to location.cityId on BOTH '
-    'endpoints (all-regions wire-format regression)',
+    'CLIENT region→city filter → results show applied-filter chips + a salon '
+    'card with price range, services line, and full address',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -418,7 +500,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 1));
       expectLocation(router, RouteNames.clientSearch);
 
-      // ── Pick «Київ» through the REAL locality cascade ───────────────────────
+      // ── Pick «Київська» → «Київ» through the REAL region→city cascade ───────
       await tester.tap(find.byKey(const Key('search_city_value')));
       await tester.pumpAndSettle();
       await tester.tap(
@@ -435,33 +517,57 @@ void main() {
       );
       expect(cityValue.data, 'Київ');
 
-      // ── Submit → results screen fires BOTH endpoints with the city scope ────
+      // ── Submit → results screen fires the scoped search ─────────────────────
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       expectLocation(router, RouteNames.clientSearchResults);
       expect(find.byKey(const Key('client-search-results')), findsOneWidget);
-      expect(fb.searchMastersCalls, greaterThanOrEqualTo(1));
-      expect(fb.searchSalonsCalls, greaterThanOrEqualTo(1));
+      expect(find.byKey(const Key('results_list')), findsOneWidget);
 
-      // ── REGRESSION ASSERTION — the city reached the wire as a FLAT key ──────
-      // The fake backend reads `location.cityId` straight off the FLAT query
-      // map. A null here means the city scope never bound (the reverted
-      // object-query / bracket-nested encoding) → an all-regions result.
+      // ── Item 4 — the city scoped the wire AND the chips reflect it ──────────
+      expect(fb.lastSearchSalonsCityId, 'city-kyiv');
+      // The applied-filter chip strip renders, with a city chip (the picker set
+      // the city label on the labels controller).
       expect(
-        fb.lastSearchMastersCityId,
-        'city-kyiv',
-        reason: 'the picked city must scope /search/masters via the FLAT '
-            'location.cityId key (not a bracket-nested request[...])',
+        find.byKey(const Key('applied_filters_row')),
+        findsOneWidget,
+        reason: 'a picked locality must surface the applied-filter chip strip',
       );
       expect(
-        fb.lastSearchSalonsCityId,
-        'city-kyiv',
-        reason: 'the picked city must scope /search/salons too',
+        find.byKey(const Key('filter_chip_locality')),
+        findsOneWidget,
+        reason: 'the picked city renders a removable locality chip',
       );
-      // No district was picked (the seeded city has none) → omitted, not empty.
-      expect(fb.lastSearchMastersDistrictId, isNull);
-      expect(fb.lastSearchSalonsDistrictId, isNull);
+
+      // ── The seeded salon card rendered (keyed by backend id) ────────────────
+      expect(find.byKey(const Key('favorite_salon_salon-xyz')), findsOneWidget);
+
+      // Item 5 — the salon price RANGE renders (priceMin 300, priceMax 1200).
+      expect(
+        find.text('300–1200 грн'),
+        findsOneWidget,
+        reason: 'salon-xyz has priceMin<priceMax → a «N–M грн» range renders',
+      );
+
+      // Item 7 — the salon services preview line renders.
+      final Finder servicesLine = find.byKey(const Key('salon_card_services'));
+      expect(servicesLine, findsOneWidget);
+      expect(
+        tester.widget<Text>(servicesLine).data,
+        'Манікюр · Стрижка',
+        reason: 'the salon serviceNames join into the « · » preview line',
+      );
+
+      // Item 6 — the authenticated caller gets the auth-gated street address,
+      // so the card shows the full address line in place of the locality.
+      expect(
+        find.text('вул. Хрещатик, 12'),
+        findsOneWidget,
+        reason:
+            'an authenticated search carries the Bearer token, so the backend '
+            'returns street/buildingNo and the card shows the full address.',
+      );
 
       expect(fb.getMasterCalls, 0);
     },

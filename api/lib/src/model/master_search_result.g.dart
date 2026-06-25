@@ -26,7 +26,13 @@ class _$MasterSearchResult extends MasterSearchResult {
   @override
   final num? minEffectivePrice;
   @override
+  final num? priceMax;
+  @override
   final BuiltList<String>? serviceNames;
+  @override
+  final String? street;
+  @override
+  final String? buildingNo;
 
   factory _$MasterSearchResult(
           [void Function(MasterSearchResultBuilder)? updates]) =>
@@ -42,7 +48,10 @@ class _$MasterSearchResult extends MasterSearchResult {
       this.reviewCount,
       this.avatarUrl,
       this.minEffectivePrice,
-      this.serviceNames})
+      this.priceMax,
+      this.serviceNames,
+      this.street,
+      this.buildingNo})
       : super._();
   @override
   MasterSearchResult rebuild(
@@ -66,7 +75,10 @@ class _$MasterSearchResult extends MasterSearchResult {
         reviewCount == other.reviewCount &&
         avatarUrl == other.avatarUrl &&
         minEffectivePrice == other.minEffectivePrice &&
-        serviceNames == other.serviceNames;
+        priceMax == other.priceMax &&
+        serviceNames == other.serviceNames &&
+        street == other.street &&
+        buildingNo == other.buildingNo;
   }
 
   @override
@@ -81,7 +93,10 @@ class _$MasterSearchResult extends MasterSearchResult {
     _$hash = $jc(_$hash, reviewCount.hashCode);
     _$hash = $jc(_$hash, avatarUrl.hashCode);
     _$hash = $jc(_$hash, minEffectivePrice.hashCode);
+    _$hash = $jc(_$hash, priceMax.hashCode);
     _$hash = $jc(_$hash, serviceNames.hashCode);
+    _$hash = $jc(_$hash, street.hashCode);
+    _$hash = $jc(_$hash, buildingNo.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -98,7 +113,10 @@ class _$MasterSearchResult extends MasterSearchResult {
           ..add('reviewCount', reviewCount)
           ..add('avatarUrl', avatarUrl)
           ..add('minEffectivePrice', minEffectivePrice)
-          ..add('serviceNames', serviceNames))
+          ..add('priceMax', priceMax)
+          ..add('serviceNames', serviceNames)
+          ..add('street', street)
+          ..add('buildingNo', buildingNo))
         .toString();
   }
 }
@@ -145,11 +163,23 @@ class MasterSearchResultBuilder
   set minEffectivePrice(num? minEffectivePrice) =>
       _$this._minEffectivePrice = minEffectivePrice;
 
+  num? _priceMax;
+  num? get priceMax => _$this._priceMax;
+  set priceMax(num? priceMax) => _$this._priceMax = priceMax;
+
   ListBuilder<String>? _serviceNames;
   ListBuilder<String> get serviceNames =>
       _$this._serviceNames ??= ListBuilder<String>();
   set serviceNames(ListBuilder<String>? serviceNames) =>
       _$this._serviceNames = serviceNames;
+
+  String? _street;
+  String? get street => _$this._street;
+  set street(String? street) => _$this._street = street;
+
+  String? _buildingNo;
+  String? get buildingNo => _$this._buildingNo;
+  set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
 
   MasterSearchResultBuilder() {
     MasterSearchResult._defaults(this);
@@ -167,7 +197,10 @@ class MasterSearchResultBuilder
       _reviewCount = $v.reviewCount;
       _avatarUrl = $v.avatarUrl;
       _minEffectivePrice = $v.minEffectivePrice;
+      _priceMax = $v.priceMax;
       _serviceNames = $v.serviceNames?.toBuilder();
+      _street = $v.street;
+      _buildingNo = $v.buildingNo;
       _$v = null;
     }
     return this;
@@ -200,7 +233,10 @@ class MasterSearchResultBuilder
             reviewCount: reviewCount,
             avatarUrl: avatarUrl,
             minEffectivePrice: minEffectivePrice,
+            priceMax: priceMax,
             serviceNames: _serviceNames?.build(),
+            street: street,
+            buildingNo: buildingNo,
           );
     } catch (_) {
       late String _$failedField;

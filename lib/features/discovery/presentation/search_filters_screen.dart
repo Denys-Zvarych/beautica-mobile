@@ -40,6 +40,7 @@ import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../location/domain/city.dart';
+import '../../location/domain/city_district.dart';
 import '../../location/domain/oblast.dart';
 import '../../location/presentation/widgets/locality_picker_sheet.dart';
 import '../../location/state/location_providers.dart';
@@ -82,10 +83,20 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
     super.dispose();
   }
 
-  /// Opens the oblast → city cascade using the existing locality picker, then
-  /// writes the chosen city onto the filters + its display label.
+  /// Runs the Region → City → District cascade using the shared locality picker.
+  ///
+  /// Region and City are mandatory narrowing steps (dismissing either aborts the
+  /// whole pick, leaving the prior selection untouched). The District step is
+  /// OPTIONAL: it only appears for a city that `hasDistricts`, and dismissing it
+  /// is a valid "no district" outcome — the search proceeds with region + city.
+  /// Only `location.cityId` (+ optional `location.districtId`) ever reach the
+  /// wire; the oblast id is persisted for re-opening + chip display only.
   Future<void> _pickCity() async {
     final l10n = AppLocalizations.of(context);
+    final filtersCtrl = ref.read(searchFiltersControllerProvider.notifier);
+    final labelsCtrl = ref.read(searchFilterLabelsControllerProvider.notifier);
+
+    // ── Step 1: Region (oblast) ────────────────────────────────────────────
     final Oblast? oblast = await showLocalityPickerSheet<Oblast>(
       context: context,
       provider: oblastListProvider,
@@ -96,6 +107,7 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
     );
     if (oblast == null || !mounted) return;
 
+    // ── Step 2: City (within the chosen region) ────────────────────────────
     final cityProvider = cityListProvider(oblast.id);
     final City? city = await showLocalityPickerSheet<City>(
       context: context,
@@ -107,12 +119,33 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
     );
     if (city == null || !mounted) return;
 
-    ref
-        .read(searchFiltersControllerProvider.notifier)
-        .selectCity(cityId: city.id);
-    ref
-        .read(searchFilterLabelsControllerProvider.notifier)
-        .setCityName(city.name);
+    // Commit region + city (and clear any stale district from a prior pick).
+    filtersCtrl.selectOblast(oblastId: oblast.id);
+    filtersCtrl.selectCity(cityId: city.id);
+    labelsCtrl
+      ..setOblastName(oblast.name)
+      ..setCityName(city.name)
+      ..setDistrictName(null);
+
+    // ── Step 3: District (OPTIONAL — only for cities that subdivide) ────────
+    if (!city.hasDistricts) return;
+
+    final districtProvider = districtListProvider(city.id);
+    final CityDistrict? district = await showLocalityPickerSheet<CityDistrict>(
+      context: context,
+      provider: districtProvider,
+      labelOf: (CityDistrict d) => d.name,
+      idOf: (CityDistrict d) => d.id,
+      titleLabel: l10n.localityDistrictLabel,
+      onRetry: () => ref.invalidate(districtProvider),
+    );
+    if (!mounted) return;
+    // Dismissing the district sheet (district == null) is a valid skip — the
+    // search runs with region + city only.
+    if (district == null) return;
+
+    filtersCtrl.selectDistrict(districtId: district.id);
+    labelsCtrl.setDistrictName(district.name);
   }
 
   void _onShowMasters() {
@@ -339,16 +372,22 @@ class _CitySelectRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Watch only the city-label slice — so this row rebuilds on a city pick but
-    // NOT on a price drag or category tap.
-    final String? cityName = ref.watch(
+    // Watch only the city + district label slices — so this row rebuilds on a
+    // locality pick but NOT on a price drag or category tap.
+    final ({String? city, String? district}) loc = ref.watch(
       searchFilterLabelsControllerProvider.select(
-        (SearchFilterLabels f) => f.cityName,
+        (SearchFilterLabels f) => (city: f.cityName, district: f.districtName),
       ),
     );
-    final bool hasSelection = cityName != null;
-    final String value =
-        cityName ?? AppLocalizations.of(context).searchCityPlaceholder;
+    final l10n = AppLocalizations.of(context);
+    final bool hasSelection = loc.city != null;
+    // City · District when the optional district is set; just the city
+    // otherwise; placeholder when nothing is chosen.
+    final String value = loc.city == null
+        ? l10n.searchCityPlaceholder
+        : (loc.district == null
+              ? loc.city!
+              : '${loc.city!} · ${loc.district!}');
 
     return Semantics(
       button: true,

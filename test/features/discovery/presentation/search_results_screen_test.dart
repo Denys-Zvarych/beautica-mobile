@@ -81,6 +81,9 @@ MasterSearchItem _master(
   cityLabel: 'Львів',
   districtLabel: 'Центр',
   minEffectivePrice: minEffectivePrice,
+  priceMax: null,
+  street: null,
+  buildingNo: null,
   serviceNames: serviceNames,
   // Mirror the mapper: the card reads the pre-joined `servicesLine`, so derive
   // it here from `serviceNames` instead of constructing it by hand.
@@ -93,6 +96,7 @@ SalonSearchItem _salon(
   String id, {
   double? priceMin = 400,
   double? priceMax = 900,
+  List<String> serviceNames = const <String>[],
 }) => SalonSearchItem(
   salonId: id,
   name: 'Lviv Nails Studio',
@@ -102,6 +106,12 @@ SalonSearchItem _salon(
   districtLabel: 'Центр',
   priceMin: priceMin,
   priceMax: priceMax,
+  street: null,
+  buildingNo: null,
+  serviceNames: serviceNames,
+  servicesLine: serviceNames.isEmpty
+      ? null
+      : serviceNames.join(kServiceNamesSeparator),
 );
 
 const List<LocalizationsDelegate<Object?>> _delegates =
@@ -324,7 +334,10 @@ void main() {
       final l10n = _l10n(tester);
       expect(find.text('4.8'), findsOneWidget);
       expect(find.text(l10n.searchResultReviewCount(12)), findsOneWidget);
-      expect(find.text(l10n.searchPriceFrom(600)), findsOneWidget);
+      // priceMax is null (== floor) → a single fixed price WITHOUT the «від»
+      // prefix (item 2 render rule), not «від 600 грн».
+      expect(find.text(l10n.searchResultPriceExact(600)), findsOneWidget);
+      expect(find.text(l10n.searchPriceFrom(600)), findsNothing);
       // Star icon present (the rating row renders it only when reviews exist).
       expect(find.byIcon(Icons.star_rounded), findsOneWidget);
     });
@@ -379,7 +392,7 @@ void main() {
       expect(find.byIcon(Icons.star_rounded), findsNothing);
     });
 
-    testWidgets('salon card collapses an equal price band to «від N грн»', (
+    testWidgets('salon card shows an equal price band as a fixed price', (
       tester,
     ) async {
       final repo = _MockSearchRepository();
@@ -400,7 +413,10 @@ void main() {
       await tester.pumpAndSettle();
 
       final l10n = _l10n(tester);
-      expect(find.text(l10n.searchPriceFrom(500)), findsOneWidget);
+      // Equal bounds ⇒ one fixed price with NO «від» prefix (item 2 render
+      // rule); never «від 500 грн» and never a degenerate 500–500 range.
+      expect(find.text(l10n.searchResultPriceExact(500)), findsOneWidget);
+      expect(find.text(l10n.searchPriceFrom(500)), findsNothing);
       expect(find.text(l10n.searchResultPriceRange(500, 500)), findsNothing);
     });
 
@@ -485,7 +501,7 @@ void main() {
       expect(find.byKey(const Key('master_card_services')), findsNothing);
     });
 
-    testWidgets('the serviceNames line is overflow-safe (1 line, ellipsis)', (
+    testWidgets('the serviceNames line is overflow-safe (≤2 lines, ellipsis)', (
       tester,
     ) async {
       final repo = _MockSearchRepository();
@@ -512,14 +528,15 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // The line renders, but it can NEVER wrap or overflow the card row — pin
-      // the maxLines:1 + ellipsis so a future restyle can't reintroduce a
-      // multi-line / overflowing services line. (The overflow guard in setUp
-      // would also fail the test on an actual RenderFlex overflow.)
+      // The line renders across at most two lines, then ellipsises — pin the
+      // maxLines:2 + ellipsis so a future restyle can't let it grow unbounded or
+      // drop back to a single clipped line. (item 3: master service name should
+      // be more fully visible.) The overflow guard in setUp would also fail the
+      // test on an actual RenderFlex overflow.
       final Text servicesLine = tester.widget<Text>(
         find.byKey(const Key('master_card_services')),
       );
-      expect(servicesLine.maxLines, 1);
+      expect(servicesLine.maxLines, 2);
       expect(servicesLine.overflow, TextOverflow.ellipsis);
     });
   });
@@ -546,7 +563,8 @@ void main() {
       ],
     );
 
-    testWidgets('the sort button shows the active sort label', (tester) async {
+    testWidgets('the sort button is icon-only with the active sort as a11y '
+        'value', (tester) async {
       final repo = _MockSearchRepository();
       when(
         () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
@@ -560,8 +578,15 @@ void main() {
 
       final l10n = _l10n(tester);
       expect(find.byKey(const Key('results_sort_button')), findsOneWidget);
-      // Default ordering label is rendered on the pill.
-      expect(find.text(l10n.searchSortRatingDesc), findsOneWidget);
+      // Item 1: the control is now icon-only (swap-vert icon) so the top bar
+      // never wraps to a second row — the sort label is NOT painted inline.
+      expect(find.byIcon(Icons.swap_vert_rounded), findsOneWidget);
+      expect(find.text(l10n.searchSortRatingDesc), findsNothing);
+      // The active sort is preserved for screen readers as the Semantics value.
+      expect(
+        tester.getSemantics(find.byKey(const Key('results_sort_button'))).value,
+        l10n.searchSortRatingDesc,
+      );
     });
 
     testWidgets('tapping the sort button opens a sheet with 4 options', (

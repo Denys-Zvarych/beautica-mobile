@@ -41,10 +41,13 @@ class SalonResultCard extends StatelessWidget {
     final String name = salon.name.isEmpty
         ? l10n.searchResultSalonFallbackName
         : salon.name;
-    final String? locality = formatLocality(
-      salon.cityLabel,
-      salon.districtLabel,
-    );
+    // Pre-joined at map time (SalonSearchMapper.fromDto): the (auth-gated)
+    // «street, buildingNo» line when present, otherwise fall back to the
+    // city/district locality line at render.
+    final String? locality =
+        salon.addressLine ??
+        formatLocality(salon.cityLabel, salon.districtLabel);
+    final String? services = salon.servicesLine;
     final String? price = _priceLabel(l10n, salon.priceMin, salon.priceMax);
 
     return Semantics(
@@ -79,6 +82,16 @@ class SalonResultCard extends StatelessWidget {
                         style: ResultCardText.locality,
                       ),
                     ],
+                    if (services != null) ...<Widget>[
+                      const SizedBox(height: 3),
+                      Text(
+                        services,
+                        key: const Key('salon_card_services'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: ResultCardText.services,
+                      ),
+                    ],
                     if (price != null) ...<Widget>[
                       const SizedBox(height: VelvetSpacing.sm),
                       Text(price, style: ResultCardText.price),
@@ -103,16 +116,22 @@ class SalonResultCard extends StatelessWidget {
     );
   }
 
-  /// Decision 5 price rendering:
+  /// Decision 5 price rendering. The «від» prefix shows ONLY when the two
+  /// bounds differ; an equal (or single) bound renders one fixed price with no
+  /// «від»:
   ///   both null      → null (hide the line)
-  ///   equal / one    → «від N грн»
-  ///   min < max      → «N–M грн»
+  ///   equal bounds   → exact fixed price «N грн» (NO «від»)
+  ///   one bound only → «від N грн» (open-ended on the other side)
+  ///   min < max      → «N–M грн» range
   static String? _priceLabel(AppLocalizations l10n, double? min, double? max) {
     final int? lo = min?.round();
     final int? hi = max?.round();
     if (lo == null && hi == null) return null;
+    // Only one bound known → genuinely open-ended → keep the «від» prefix.
     if (lo == null) return l10n.searchPriceFrom(hi!);
-    if (hi == null || hi == lo) return l10n.searchPriceFrom(lo);
+    if (hi == null) return l10n.searchPriceFrom(lo);
+    // Both known: equal ⇒ single fixed price (no «від»); else a range.
+    if (hi == lo) return l10n.searchResultPriceExact(lo);
     return l10n.searchResultPriceRange(lo, hi);
   }
 }

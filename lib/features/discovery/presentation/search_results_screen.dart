@@ -114,10 +114,32 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
 
     SearchFilters next;
     switch (field) {
+      case AppliedFilterField.region:
+        // Clearing the region tears down the whole locality cascade (region →
+        // city → district), since none of the lower levels is meaningful
+        // without its region.
+        filtersCtrl.selectOblast(oblastId: null);
+        labelsCtrl
+          ..setOblastName(null)
+          ..setCityName(null)
+          ..setDistrictName(null);
+        next = _filters.copyWith(
+          oblastId: null,
+          cityId: null,
+          districtId: null,
+        );
       case AppliedFilterField.locality:
+        // Clearing the city also clears the district (a district is only
+        // meaningful alongside its city); the region is left intact.
         filtersCtrl.selectCity(cityId: null);
-        labelsCtrl.setCityName(null);
+        labelsCtrl
+          ..setCityName(null)
+          ..setDistrictName(null);
         next = _filters.copyWith(cityId: null, districtId: null);
+      case AppliedFilterField.district:
+        filtersCtrl.selectDistrict(districtId: null);
+        labelsCtrl.setDistrictName(null);
+        next = _filters.copyWith(districtId: null);
       case AppliedFilterField.category:
         final String? key = _filters.categoryKey;
         if (key != null) filtersCtrl.toggleServiceType(key);
@@ -190,13 +212,17 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                 onFilter: _openFilters,
               ),
             ),
+            // The row supplies its OWN top/bottom breathing room when chips are
+            // active and collapses to nothing when empty, so there is no
+            // always-present gap below the top bar on a filterless search.
             AppliedFiltersRow(
               filters: _filters,
               cityLabel: labels.cityName,
               categoryLabel: labels.categoryName,
+              districtLabel: labels.districtName,
+              oblastLabel: labels.oblastName,
               onClear: _clearFilter,
             ),
-            const SizedBox(height: VelvetSpacing.sm),
             Expanded(
               child: resultsAsync.when(
                 loading: () => const ResultsSkeleton(),
@@ -334,6 +360,8 @@ class _ResultsTopBar extends StatelessWidget {
           child: Text(
             title,
             textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: VelvetText.subheading(),
           ),
         ),

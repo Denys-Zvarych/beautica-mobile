@@ -3033,6 +3033,16 @@
       }
     }
   },
+  "searchResultPriceExact": "{price} UAH",
+  "@searchResultPriceExact": {
+    "description": "Single fixed price on a result card — shown WITHOUT the «from» prefix when the lower and upper price bounds are equal (one fixed price).",
+    "placeholders": {
+      "price": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
   "searchResultReviewCount": "{count, plural, =1{({count} review)} other{({count} reviews)}}",
   "@searchResultReviewCount": {
     "description": "Parenthesised review count beside a master card's star rating.",

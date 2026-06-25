@@ -70,6 +70,32 @@ abstract class MasterSearchItem with _$MasterSearchItem {
     /// services to anchor a "from" value.
     required double? minEffectivePrice,
 
+    /// The maximum effective price across the master's published services, or
+    /// null when the master has no priced services / no range ceiling. Together
+    /// with [minEffectivePrice] this drives the «від» prefix decision on the
+    /// card: show a single fixed price when `priceMax == minEffectivePrice`
+    /// (or null), otherwise a «від N грн» / range label.
+    required double? priceMax,
+
+    /// Street name of the master's worksite, or null. AUTH-GATED server-side:
+    /// the backend omits it for anonymous callers and populates it for
+    /// authenticated ones. Rendered (with [buildingNo]) as a full-address line
+    /// when present, falling back to the city/district locality when null.
+    required String? street,
+
+    /// Building number of the master's worksite, or null. Same auth-gating as
+    /// [street]; only meaningful alongside it.
+    required String? buildingNo,
+
+    /// The [street] + [buildingNo] pre-joined into one «street, buildingNo»
+    /// address line, or `null` when [street] is absent/blank (the card then
+    /// falls back to the city/district locality at render). Computed ONCE by
+    /// [MasterSearchMapper.fromDto] at map time — mirrors [servicesLine] so the
+    /// scrolling result list never re-runs the street join per card `build()`.
+    /// Only the street portion is precomputed; the locality fallback stays in
+    /// the card. Kept in lockstep with [street]/[buildingNo].
+    @Default(null) String? addressLine,
+
     /// A short (≤3), custom-preferred list of the master's distinct active
     /// service names (e.g. `['Манікюр', 'Педикюр']`), surfaced as a preview line
     /// on the result card. Always non-null — an empty list (`const []`) means the

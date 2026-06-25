@@ -567,18 +567,25 @@ final class FakeBackend {
         },
       ];
 
-  static const List<Map<String, dynamic>> _searchSalonsPage0 =
-      <Map<String, dynamic>>[
-        <String, dynamic>{
-          'salonId': 'salon-xyz',
-          'name': 'Студія Краси «Камелія»',
-          'cityLabel': 'Київ',
-          'districtLabel': 'Печерський',
-          'avatarUrl': null,
-          'priceMin': 300,
-          'priceMax': 1200,
-        },
-      ];
+  static const List<Map<String, dynamic>>
+  _searchSalonsPage0 = <Map<String, dynamic>>[
+    <String, dynamic>{
+      'salonId': 'salon-xyz',
+      'name': 'Студія Краси «Камелія»',
+      'cityLabel': 'Київ',
+      'districtLabel': 'Печерський',
+      'avatarUrl': null,
+      'priceMin': 300,
+      'priceMax': 1200,
+      // Auth-gated address (item 6) — the seeded caller is authenticated, so
+      // the salon row carries street + buildingNo; the card joins them into
+      // its precomputed addressLine «вул. Хрещатик, 12».
+      'street': 'вул. Хрещатик',
+      'buildingNo': '12',
+      // Services preview (item 7) — the card renders the « · »-joined line.
+      'serviceNames': <String>['Манікюр', 'Стрижка'],
+    },
+  ];
 
   /// Builds the `ApiResponse<PageResponse<…>>` envelope the generated client
   /// deserializes: `{ success, data: { data: [...], page, size, totalElements,

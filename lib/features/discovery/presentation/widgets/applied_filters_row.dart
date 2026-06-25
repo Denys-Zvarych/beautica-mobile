@@ -28,7 +28,13 @@ class _ChipSpec {
 }
 
 /// The filter field an applied chip clears.
-enum AppliedFilterField { locality, category, price }
+///
+/// The locality cascade surfaces THREE chips — region, city, district — each
+/// clearing its own level (and, in the host's [onClear] handler, the levels
+/// below it, since a city is meaningless without its region and a district
+/// without its city). [locality] is kept as the city-level field name for
+/// backward compatibility with existing call sites/tests.
+enum AppliedFilterField { region, locality, district, category, price }
 
 /// A removable filter chip row above the results list.
 class AppliedFiltersRow extends StatelessWidget {
@@ -37,14 +43,22 @@ class AppliedFiltersRow extends StatelessWidget {
     required this.filters,
     required this.cityLabel,
     required this.categoryLabel,
+    this.oblastLabel,
+    this.districtLabel,
     required this.onClear,
   });
 
   /// The active filter set (drives which chips are shown).
   final SearchFilters filters;
 
+  /// Display label for the selected oblast / region, or null.
+  final String? oblastLabel;
+
   /// Display label for the selected city, or null.
   final String? cityLabel;
+
+  /// Display label for the selected district, or null.
+  final String? districtLabel;
 
   /// Display label for the selected category, or null.
   final String? categoryLabel;
@@ -55,9 +69,20 @@ class AppliedFiltersRow extends StatelessWidget {
   List<_ChipSpec> _specs(AppLocalizations l10n) {
     final List<_ChipSpec> specs = <_ChipSpec>[];
 
+    // Locality cascade — region, then city, then district (display order).
+    if (oblastLabel != null && oblastLabel!.isNotEmpty) {
+      specs.add(
+        _ChipSpec(label: oblastLabel!, field: AppliedFilterField.region),
+      );
+    }
     if (cityLabel != null && cityLabel!.isNotEmpty) {
       specs.add(
         _ChipSpec(label: cityLabel!, field: AppliedFilterField.locality),
+      );
+    }
+    if (districtLabel != null && districtLabel!.isNotEmpty) {
+      specs.add(
+        _ChipSpec(label: districtLabel!, field: AppliedFilterField.district),
       );
     }
     if (categoryLabel != null && categoryLabel!.isNotEmpty) {
@@ -91,23 +116,31 @@ class AppliedFiltersRow extends StatelessWidget {
     final List<_ChipSpec> specs = _specs(l10n);
     if (specs.isEmpty) return const SizedBox.shrink();
 
-    return SizedBox(
-      height: 38,
-      child: ListView.separated(
-        key: const Key('applied_filters_row'),
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-        itemCount: specs.length,
-        separatorBuilder: (_, _) => const SizedBox(width: VelvetSpacing.sm),
-        itemBuilder: (BuildContext context, int i) {
-          final _ChipSpec spec = specs[i];
-          return _RemovableChip(
-            key: Key('filter_chip_${spec.field.name}'),
-            label: spec.label,
-            clearSemanticLabel: l10n.searchResultClearFilter(spec.label),
-            onClear: () => onClear(spec.field),
-          );
-        },
+    // Breathing room above + below the chip strip, wrapped INSIDE the row so the
+    // gap collapses entirely when no filters are active (the early return above).
+    return Padding(
+      padding: const EdgeInsets.only(
+        top: VelvetSpacing.sm,
+        bottom: VelvetSpacing.sm,
+      ),
+      child: SizedBox(
+        height: 38,
+        child: ListView.separated(
+          key: const Key('applied_filters_row'),
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+          itemCount: specs.length,
+          separatorBuilder: (_, _) => const SizedBox(width: VelvetSpacing.sm),
+          itemBuilder: (BuildContext context, int i) {
+            final _ChipSpec spec = specs[i];
+            return _RemovableChip(
+              key: Key('filter_chip_${spec.field.name}'),
+              label: spec.label,
+              clearSemanticLabel: l10n.searchResultClearFilter(spec.label),
+              onClear: () => onClear(spec.field),
+            );
+          },
+        ),
       ),
     );
   }

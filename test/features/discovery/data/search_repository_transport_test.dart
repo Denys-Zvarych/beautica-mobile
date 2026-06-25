@@ -129,30 +129,40 @@ void main() {
   }
 
   group('searchMasters — real Dio transport (city wire-format regression)', () {
-    test('a picked city+district assembles a FLAT location.* URI, no brackets',
-        () async {
-      final getOptions = armAndCapture(_mastersPath);
+    test(
+      'a picked city+district assembles a FLAT location.* URI, no brackets',
+      () async {
+        final getOptions = armAndCapture(_mastersPath);
 
-      await repository.searchMasters(
-        filters: const SearchFilters(cityId: _cityId, districtId: _districtId),
-        page: 0,
-      );
+        await repository.searchMasters(
+          filters: const SearchFilters(
+            cityId: _cityId,
+            districtId: _districtId,
+          ),
+          page: 0,
+        );
 
-      expectFlatCityWire(getOptions(), _mastersPath);
-    });
+        expectFlatCityWire(getOptions(), _mastersPath);
+      },
+    );
   });
 
   group('searchSalons — real Dio transport (city wire-format regression)', () {
-    test('a picked city+district assembles a FLAT location.* URI, no brackets',
-        () async {
-      final getOptions = armAndCapture(_salonsPath);
+    test(
+      'a picked city+district assembles a FLAT location.* URI, no brackets',
+      () async {
+        final getOptions = armAndCapture(_salonsPath);
 
-      await repository.searchSalons(
-        filters: const SearchFilters(cityId: _cityId, districtId: _districtId),
-        page: 0,
-      );
+        await repository.searchSalons(
+          filters: const SearchFilters(
+            cityId: _cityId,
+            districtId: _districtId,
+          ),
+          page: 0,
+        );
 
-      expectFlatCityWire(getOptions(), _salonsPath);
-    });
+        expectFlatCityWire(getOptions(), _salonsPath);
+      },
+    );
   });
 }

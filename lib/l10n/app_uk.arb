@@ -3033,6 +3033,16 @@
       }
     }
   },
+  "searchResultPriceExact": "{price} грн",
+  "@searchResultPriceExact": {
+    "description": "Single fixed price on a result card — shown WITHOUT the «від» prefix when the lower and upper price bounds are equal (one fixed price).",
+    "placeholders": {
+      "price": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
   "searchResultReviewCount": "{count, plural, =1{({count} відгук)} few{({count} відгуки)} many{({count} відгуків)} other{({count} відгуків)}}",
   "@searchResultReviewCount": {
     "description": "Parenthesised review count beside a master card's star rating.",

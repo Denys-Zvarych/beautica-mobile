@@ -112,21 +112,37 @@ void main() {
       );
     });
 
+    test('does NOT include the discovery search prefix (auth-gated address fix, '
+        '2026-06-25)', () {
+      // REVERSAL of the earlier (2026-06-18) entry. The discovery search
+      // endpoints are permitAll, but the backend auth-gates the
+      // street/buildingNo address fields on the authenticated principal.
+      // Listing '/api/v1/search/' here forced AuthInterceptor to STRIP the
+      // Bearer token from every search call → the app was always anonymous →
+      // full addresses were permanently null. The prefix is therefore REMOVED
+      // so the interceptor attaches the token WHEN present (logged-in →
+      // addresses) and sends anonymously when absent (logged-out → still
+      // works). See auth_interceptor_test.dart Tests 7 & 8.
+      expect(
+        kPublicPathPrefixes,
+        isNot(contains('/api/v1/search/')),
+        reason:
+            'The search prefix must NOT be public-listed: doing so strips the '
+            'Bearer token and kills the auth-gated address feature. Token '
+            'injection on /search/* is conditional on a session (see '
+            'auth_interceptor.dart), not suppressed by a public prefix.',
+      );
+    });
+
     test(
-      'includes the public discovery search prefix (Phase 13.2 HIGH token-leak fix)',
+      'discovery search paths are redacted in logs via kPiiPaths (they carry '
+      'auth-gated address PII)',
       () {
-        expect(
-          kPublicPathPrefixes,
-          contains('/api/v1/search/'),
-          reason:
-              'The discovery search endpoints (/api/v1/search/masters, '
-              '/api/v1/search/salons) are PUBLIC reads called over the '
-              'authenticated Dio. Without this prefix AuthInterceptor attaches '
-              "an authenticated user's Bearer JWT to a public endpoint — a "
-              'token-leak (mobile-security HIGH, mirrors the /api/v1/locations/ '
-              'fix). This entry makes AuthInterceptor short-circuit before token '
-              'injection for any /api/v1/search/* path.',
-        );
+        // The search responses carry street/buildingNo for authenticated
+        // callers; the error-path logger logs response bodies, so these exact
+        // paths must be in kPiiPaths for body redaction.
+        expect(kPiiPaths, contains('/api/v1/search/masters'));
+        expect(kPiiPaths, contains('/api/v1/search/salons'));
       },
     );
 

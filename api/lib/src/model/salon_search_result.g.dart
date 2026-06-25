@@ -21,6 +21,12 @@ class _$SalonSearchResult extends SalonSearchResult {
   final num? priceMin;
   @override
   final num? priceMax;
+  @override
+  final BuiltList<String>? serviceNames;
+  @override
+  final String? street;
+  @override
+  final String? buildingNo;
 
   factory _$SalonSearchResult(
           [void Function(SalonSearchResultBuilder)? updates]) =>
@@ -33,7 +39,10 @@ class _$SalonSearchResult extends SalonSearchResult {
       this.districtLabel,
       this.avatarUrl,
       this.priceMin,
-      this.priceMax})
+      this.priceMax,
+      this.serviceNames,
+      this.street,
+      this.buildingNo})
       : super._();
   @override
   SalonSearchResult rebuild(void Function(SalonSearchResultBuilder) updates) =>
@@ -53,7 +62,10 @@ class _$SalonSearchResult extends SalonSearchResult {
         districtLabel == other.districtLabel &&
         avatarUrl == other.avatarUrl &&
         priceMin == other.priceMin &&
-        priceMax == other.priceMax;
+        priceMax == other.priceMax &&
+        serviceNames == other.serviceNames &&
+        street == other.street &&
+        buildingNo == other.buildingNo;
   }
 
   @override
@@ -66,6 +78,9 @@ class _$SalonSearchResult extends SalonSearchResult {
     _$hash = $jc(_$hash, avatarUrl.hashCode);
     _$hash = $jc(_$hash, priceMin.hashCode);
     _$hash = $jc(_$hash, priceMax.hashCode);
+    _$hash = $jc(_$hash, serviceNames.hashCode);
+    _$hash = $jc(_$hash, street.hashCode);
+    _$hash = $jc(_$hash, buildingNo.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -79,7 +94,10 @@ class _$SalonSearchResult extends SalonSearchResult {
           ..add('districtLabel', districtLabel)
           ..add('avatarUrl', avatarUrl)
           ..add('priceMin', priceMin)
-          ..add('priceMax', priceMax))
+          ..add('priceMax', priceMax)
+          ..add('serviceNames', serviceNames)
+          ..add('street', street)
+          ..add('buildingNo', buildingNo))
         .toString();
   }
 }
@@ -117,6 +135,20 @@ class SalonSearchResultBuilder
   num? get priceMax => _$this._priceMax;
   set priceMax(num? priceMax) => _$this._priceMax = priceMax;
 
+  ListBuilder<String>? _serviceNames;
+  ListBuilder<String> get serviceNames =>
+      _$this._serviceNames ??= ListBuilder<String>();
+  set serviceNames(ListBuilder<String>? serviceNames) =>
+      _$this._serviceNames = serviceNames;
+
+  String? _street;
+  String? get street => _$this._street;
+  set street(String? street) => _$this._street = street;
+
+  String? _buildingNo;
+  String? get buildingNo => _$this._buildingNo;
+  set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
+
   SalonSearchResultBuilder() {
     SalonSearchResult._defaults(this);
   }
@@ -131,6 +163,9 @@ class SalonSearchResultBuilder
       _avatarUrl = $v.avatarUrl;
       _priceMin = $v.priceMin;
       _priceMax = $v.priceMax;
+      _serviceNames = $v.serviceNames?.toBuilder();
+      _street = $v.street;
+      _buildingNo = $v.buildingNo;
       _$v = null;
     }
     return this;
@@ -150,16 +185,32 @@ class SalonSearchResultBuilder
   SalonSearchResult build() => _build();
 
   _$SalonSearchResult _build() {
-    final _$result = _$v ??
-        _$SalonSearchResult._(
-          salonId: salonId,
-          name: name,
-          cityLabel: cityLabel,
-          districtLabel: districtLabel,
-          avatarUrl: avatarUrl,
-          priceMin: priceMin,
-          priceMax: priceMax,
-        );
+    _$SalonSearchResult _$result;
+    try {
+      _$result = _$v ??
+          _$SalonSearchResult._(
+            salonId: salonId,
+            name: name,
+            cityLabel: cityLabel,
+            districtLabel: districtLabel,
+            avatarUrl: avatarUrl,
+            priceMin: priceMin,
+            priceMax: priceMax,
+            serviceNames: _serviceNames?.build(),
+            street: street,
+            buildingNo: buildingNo,
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'serviceNames';
+        _serviceNames?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'SalonSearchResult', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

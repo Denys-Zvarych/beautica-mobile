@@ -41,6 +41,14 @@ abstract final class ResultCardText {
   );
 }
 
+// NOTE (2026-06-25): the former `formatAddress(street, buildingNo)` helper was
+// removed. The «street, buildingNo» line is now PRECOMPUTED ONCE at map time in
+// `SearchMapper` (`MasterSearchItem.addressLine` / `SalonSearchItem.addressLine`)
+// so the scrolling result list never re-joins the street per card `build()`.
+// The cards read the precomputed field and keep ONLY the locality fallback
+// ([formatLocality]) at render. The single source of truth for the street join
+// is `_formatAddressLine` in `data/search_mapper.dart`.
+
 /// Joins a city + district label into one «district, city» / «city» string, or
 /// returns null when both are absent. Shared by both cards.
 String? formatLocality(String? cityLabel, String? districtLabel) {

@@ -6094,6 +6094,18 @@
           },
           "priceMax": {
             "type": "number"
+          },
+          "serviceNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "street": {
+            "type": "string"
+          },
+          "buildingNo": {
+            "type": "string"
           }
         }
       },
@@ -6205,11 +6217,20 @@
           "minEffectivePrice": {
             "type": "number"
           },
+          "priceMax": {
+            "type": "number"
+          },
           "serviceNames": {
             "type": "array",
             "items": {
               "type": "string"
             }
+          },
+          "street": {
+            "type": "string"
+          },
+          "buildingNo": {
+            "type": "string"
           }
         }
       },

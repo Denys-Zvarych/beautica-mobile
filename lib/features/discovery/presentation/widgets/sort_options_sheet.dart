@@ -35,11 +35,14 @@ String sortLabel(AppLocalizations l10n, SearchSort sort) {
   }
 }
 
-/// A compact extruded pill showing the active sort, opening [SortOptionsSheet].
+/// A square extruded icon control opening [SortOptionsSheet].
 ///
-/// Sits between the title and the filter icon in the results top bar. Unlike the
-/// filter icon (a pure action) the sort carries a current value, so it surfaces
-/// that value as a label rather than a bare icon.
+/// Sits between the title and the filter icon in the results top bar. It is
+/// rendered icon-only (matching the sibling [NeumorphicIconButton] filter
+/// control) so the top bar never wraps to a second row when the active sort
+/// label is long. The active sort value is NOT shown inline — it lives in the
+/// sheet's checked row — but is preserved as the control's accessible `value`
+/// so screen readers still announce «Сортування: За рейтингом».
 class SortPillButton extends StatelessWidget {
   const SortPillButton({
     super.key,
@@ -47,7 +50,7 @@ class SortPillButton extends StatelessWidget {
     required this.onSelected,
   });
 
-  /// The currently-applied ordering, rendered as the pill's label.
+  /// The currently-applied ordering, announced as the control's a11y value.
   final SearchSort activeSort;
 
   /// Invoked with the chosen ordering when the sheet returns a (changed)
@@ -55,14 +58,10 @@ class SortPillButton extends StatelessWidget {
   /// the already-active option.
   final ValueChanged<SearchSort> onSelected;
 
+  // Square extruded chrome matching NeumorphicIconButton (same extent + radius +
+  // shadow recipe), so the sort + filter icons read as one control pair.
   static const BorderRadius _radius = BorderRadius.all(
     Radius.circular(VelvetRadii.field),
-  );
-
-  static final TextStyle _labelStyle = VelvetText.body().copyWith(
-    fontSize: 13,
-    fontWeight: FontWeight.w700,
-    color: BrandColors.textSecondary,
   );
 
   Future<void> _open(BuildContext context) async {
@@ -86,31 +85,16 @@ class SortPillButton extends StatelessWidget {
         behavior: HitTestBehavior.opaque,
         child: Container(
           height: NeumorphicIconButton.extent,
-          constraints: const BoxConstraints(maxWidth: 168),
-          padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.md),
+          width: NeumorphicIconButton.extent,
           decoration: const BoxDecoration(
             color: BrandColors.base,
             borderRadius: _radius,
             boxShadow: VelvetShadows.extrudedSmall,
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(
-                Icons.swap_vert_rounded,
-                color: BrandColors.textSecondary,
-                size: 20,
-              ),
-              const SizedBox(width: VelvetSpacing.xs + 2),
-              Flexible(
-                child: Text(
-                  sortLabel(l10n, activeSort),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: _labelStyle,
-                ),
-              ),
-            ],
+          child: const Icon(
+            Icons.swap_vert_rounded,
+            color: BrandColors.textSecondary,
+            size: 22,
           ),
         ),
       ),
