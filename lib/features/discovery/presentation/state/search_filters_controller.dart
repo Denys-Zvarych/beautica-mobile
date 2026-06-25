@@ -46,6 +46,7 @@ class SearchFilterLabels {
   const SearchFilterLabels({
     this.oblastName,
     this.cityName,
+    this.cityHasDistricts = false,
     this.districtName,
     this.categoryName,
   });
@@ -57,6 +58,13 @@ class SearchFilterLabels {
   /// Display name of the selected city (e.g. «Львів»), or null.
   final String? cityName;
 
+  /// Whether the selected city subdivides into districts (mirrors
+  /// `City.hasDistricts`). Drives the District row's enabled/disabled state on
+  /// the filters screen: when false (or no city is chosen) the row is disabled
+  /// and the app never issues a districts request. UI-only — never sent on the
+  /// wire. Defaults to false (no city → no districts).
+  final bool cityHasDistricts;
+
   /// Display name of the selected district (e.g. «Франківський»), or null when
   /// the city has no districts or the (optional) district step was skipped.
   final String? districtName;
@@ -67,12 +75,14 @@ class SearchFilterLabels {
   SearchFilterLabels copyWith({
     String? Function()? oblastName,
     String? Function()? cityName,
+    bool? cityHasDistricts,
     String? Function()? districtName,
     String? Function()? categoryName,
   }) {
     return SearchFilterLabels(
       oblastName: oblastName != null ? oblastName() : this.oblastName,
       cityName: cityName != null ? cityName() : this.cityName,
+      cityHasDistricts: cityHasDistricts ?? this.cityHasDistricts,
       districtName: districtName != null ? districtName() : this.districtName,
       categoryName: categoryName != null ? categoryName() : this.categoryName,
     );
@@ -84,12 +94,18 @@ class SearchFilterLabels {
       other is SearchFilterLabels &&
           other.oblastName == oblastName &&
           other.cityName == cityName &&
+          other.cityHasDistricts == cityHasDistricts &&
           other.districtName == districtName &&
           other.categoryName == categoryName;
 
   @override
-  int get hashCode =>
-      Object.hash(oblastName, cityName, districtName, categoryName);
+  int get hashCode => Object.hash(
+    oblastName,
+    cityName,
+    cityHasDistricts,
+    districtName,
+    categoryName,
+  );
 }
 
 /// Holds the display labels for the active [SearchFilters] selection.
@@ -110,8 +126,18 @@ class SearchFilterLabelsController extends _$SearchFilterLabelsController {
       state = state.copyWith(oblastName: () => name);
 
   /// Sets (or clears, when [name] is null) the selected-city display label.
-  void setCityName(String? name) =>
-      state = state.copyWith(cityName: () => name);
+  ///
+  /// Clearing the city name also resets [SearchFilterLabels.cityHasDistricts] to
+  /// false (no city → no districts), so the District row falls back to disabled.
+  void setCityName(String? name) => state = state.copyWith(
+    cityName: () => name,
+    cityHasDistricts: name == null ? false : state.cityHasDistricts,
+  );
+
+  /// Records whether the selected city subdivides into districts (drives the
+  /// District row's enabled state on the filters screen).
+  void setCityHasDistricts(bool hasDistricts) =>
+      state = state.copyWith(cityHasDistricts: hasDistricts);
 
   /// Sets (or clears, when [name] is null) the selected-district display label.
   void setDistrictName(String? name) =>

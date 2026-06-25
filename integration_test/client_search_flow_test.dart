@@ -74,6 +74,26 @@ void main() {
     return results.initialFilters;
   }
 
+  /// Drives the THREE-field locality funnel through the REAL picker sheets:
+  /// Region («Київська») then City («Київ»). City is gated on a Region, so the
+  /// region MUST be picked first — tapping the city row before that is inert.
+  /// The seeded «Київ» has hasDistricts:false, so the District field stays
+  /// disabled and the (optional) district step is correctly skipped.
+  Future<void> pickRegionThenCity(WidgetTester tester) async {
+    await tester.tap(find.byKey(const Key('search_region_value')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('search_city_value')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
+    );
+    await tester.pumpAndSettle();
+  }
+
   testWidgets(
     'CLIENT taps the search disc, picks a city + service type + price, and '
     '«Показати майстрів» pushes /search/results carrying the filters',
@@ -127,18 +147,11 @@ void main() {
       expect(find.byKey(const Key('search_price_slider')), findsOneWidget);
       expect(find.byKey(const Key('search_show_masters_cta')), findsOneWidget);
 
-      // ── Pick a city through the REAL locality cascade ─────────────────────
-      // Tap the city row → oblast sheet → tap «Київська» → city sheet → «Київ».
-      await tester.tap(find.byKey(const Key('search_city_value')));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
-      );
-      await tester.pumpAndSettle();
+      // ── Pick a region → city through the REAL three-field cascade ─────────
+      // The location control is now three gated fields: Region must be picked
+      // first (it enables the City field), then City. Tap Region → oblast sheet
+      // → «Київська»; then City → city sheet → «Київ».
+      await pickRegionThenCity(tester);
 
       // The city label now shows the chosen city name (backend data).
       final Text cityValue = tester.widget<Text>(
@@ -226,6 +239,80 @@ void main() {
             'the CLIENT search journey must not touch GET /masters/me '
             '(403 decoupling regression)',
       );
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Three-field locality funnel — E2E: City is GATED on a Region, and a
+  // Region→City (no district) selection scopes the wire to location.cityId.
+  //
+  // WHY THIS FLOW EXISTS
+  // --------------------
+  // The combined «Місто · Район» row became three discrete, gated fields. The
+  // widget tier pins the gating in isolation; THIS flow proves the funnel end to
+  // end against the real picker sheets + the live SearchResultsNotifier →
+  // HttpSearchRepository. It asserts:
+  //   1. tapping the City field BEFORE a Region opens NO picker (it is inert),
+  //   2. after picking a Region the City field enables and a city can be chosen,
+  //   3. the seeded «Київ» (hasDistricts:false) leaves the District step skipped
+  //      (district-optional) — yet the search still scopes to location.cityId.
+  //
+  // Step 2.7 Rule 3b: the gated funnel + locality picker + navigation +
+  // provider→repository + the exact `location.cityId` query contract — the
+  // widget tier cannot prove this composes end to end against the real backend.
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets(
+    'CLIENT three-field funnel: City is inert until a Region is picked, then a '
+    'Region→City (no district) search scopes to location.cityId',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      // ── Reach the search screen ─────────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('client-nav-search-center')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientSearch);
+
+      // ── Gating: tapping City BEFORE a Region opens NO picker sheet ──────────
+      await tester.tap(find.byKey(const Key('search_city_value')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('locality_picker_search')),
+        findsNothing,
+        reason: 'the City field is gated on a Region — its tap must be inert',
+      );
+
+      // ── Pick Region → City (district skipped — «Київ» has none) ─────────────
+      await pickRegionThenCity(tester);
+      final Text cityValue = tester.widget<Text>(
+        find.byKey(const Key('search_city_value')),
+      );
+      expect(cityValue.data, 'Київ');
+
+      // ── Submit → the search scopes to the FLAT location.cityId ──────────────
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      expectLocation(router, RouteNames.clientSearchResults);
+      expect(find.byKey(const Key('client-search-results')), findsOneWidget);
+
+      // The region→city pick reached the wire as location.cityId on BOTH
+      // endpoints; with no district picked, location.districtId is OMITTED
+      // (district-optional) — null, not empty.
+      expect(fb.lastSearchMastersCityId, 'city-kyiv');
+      expect(fb.lastSearchSalonsCityId, 'city-kyiv');
+      expect(
+        fb.lastSearchMastersDistrictId,
+        isNull,
+        reason: 'a city with no districts skips the optional district step',
+      );
+      expect(fb.lastSearchSalonsDistrictId, isNull);
+
+      expect(fb.getMasterCalls, 0);
     },
     timeout: const Timeout(Duration(seconds: 90)),
   );
@@ -416,17 +503,8 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 1));
     expectLocation(router, RouteNames.clientSearch);
 
-    // ── Pick «Київ» through the REAL locality cascade ───────────────────────
-    await tester.tap(find.byKey(const Key('search_city_value')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
-    );
-    await tester.pumpAndSettle();
+    // ── Pick «Київ» through the REAL three-field region→city cascade ────────
+    await pickRegionThenCity(tester);
 
     final Text cityValue = tester.widget<Text>(
       find.byKey(const Key('search_city_value')),
@@ -500,17 +578,8 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 1));
       expectLocation(router, RouteNames.clientSearch);
 
-      // ── Pick «Київська» → «Київ» through the REAL region→city cascade ───────
-      await tester.tap(find.byKey(const Key('search_city_value')));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
-      );
-      await tester.pumpAndSettle();
+      // ── Pick «Київська» → «Київ» through the REAL three-field cascade ───────
+      await pickRegionThenCity(tester);
 
       final Text cityValue = tester.widget<Text>(
         find.byKey(const Key('search_city_value')),

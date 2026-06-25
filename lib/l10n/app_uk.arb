@@ -2887,6 +2887,34 @@
   "@searchCityPlaceholder": {
     "description": "Placeholder shown in the city-select row before a city is chosen."
   },
+  "searchRegionLabel": "Регіон",
+  "@searchRegionLabel": {
+    "description": "Label above the region (oblast) select row on the Пошук screen."
+  },
+  "searchRegionPlaceholder": "Оберіть регіон",
+  "@searchRegionPlaceholder": {
+    "description": "Placeholder shown in the region-select row before a region is chosen."
+  },
+  "searchCityDisabledHint": "Спочатку оберіть регіон",
+  "@searchCityDisabledHint": {
+    "description": "Helper line under the disabled city row prompting the user to pick a region first."
+  },
+  "searchDistrictLabel": "Район",
+  "@searchDistrictLabel": {
+    "description": "Label above the optional district select row on the Пошук screen."
+  },
+  "searchDistrictPlaceholder": "Оберіть район (необов'язково)",
+  "@searchDistrictPlaceholder": {
+    "description": "Placeholder shown in the district-select row before a district is chosen; signals the field is optional."
+  },
+  "searchDistrictDisabledHint": "Спочатку оберіть місто",
+  "@searchDistrictDisabledHint": {
+    "description": "Helper line under the disabled district row prompting the user to pick a city first."
+  },
+  "searchDistrictNoneHint": "У цьому місті немає районів",
+  "@searchDistrictNoneHint": {
+    "description": "Helper line under the disabled district row when the chosen city has no districts."
+  },
   "searchServiceTypeLabel": "Вид послуги",
   "@searchServiceTypeLabel": {
     "description": "Label above the service-type tile grid on the Пошук screen."

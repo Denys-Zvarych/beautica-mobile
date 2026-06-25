@@ -469,6 +469,85 @@ void main() {
       expect(labels.categoryName, isNull);
     });
 
+    // -----------------------------------------------------------------------
+    // cityHasDistricts — the UI-only flag that gates the District row on the
+    // filters screen. It is set when a city is picked (mirroring
+    // City.hasDistricts) and MUST reset to false the moment the city is cleared
+    // (no city → no districts → the District row falls back to disabled). The
+    // flag never reaches the wire (search_repository_test.dart pins that the
+    // request carries only location.cityId/districtId).
+    // -----------------------------------------------------------------------
+    test('cityHasDistricts defaults to false', () {
+      final c = _make().container;
+
+      expect(
+        c.read(searchFilterLabelsControllerProvider).cityHasDistricts,
+        isFalse,
+      );
+    });
+
+    test('setCityHasDistricts(true) records the flag', () {
+      final c = _make().container;
+      final notifier = c.read(searchFilterLabelsControllerProvider.notifier);
+
+      notifier
+        ..setCityName('Київ')
+        ..setCityHasDistricts(true);
+
+      expect(
+        c.read(searchFilterLabelsControllerProvider).cityHasDistricts,
+        isTrue,
+      );
+    });
+
+    test(
+      'clearing the city name (setCityName(null)) resets cityHasDistricts to '
+      'false',
+      () {
+        final c = _make().container;
+        final notifier = c.read(searchFilterLabelsControllerProvider.notifier);
+        notifier
+          ..setCityName('Київ')
+          ..setCityHasDistricts(true);
+        expect(
+          c.read(searchFilterLabelsControllerProvider).cityHasDistricts,
+          isTrue,
+        );
+
+        // Clearing the city must drop the districts flag — the District row has
+        // no city to subdivide, so it falls back to disabled.
+        notifier.setCityName(null);
+
+        expect(c.read(searchFilterLabelsControllerProvider).cityName, isNull);
+        expect(
+          c.read(searchFilterLabelsControllerProvider).cityHasDistricts,
+          isFalse,
+          reason: 'no city → no districts → the flag must reset',
+        );
+      },
+    );
+
+    test('setting a NEW city name keeps the prior cityHasDistricts until '
+        'explicitly updated (only a null clear resets it)', () {
+      final c = _make().container;
+      final notifier = c.read(searchFilterLabelsControllerProvider.notifier);
+      notifier
+        ..setCityName('Київ')
+        ..setCityHasDistricts(true);
+
+      // Swapping to another non-null city name does NOT auto-reset the flag —
+      // the screen always pairs setCityName with a fresh setCityHasDistricts, so
+      // this pins that only the null-clear path zeroes it.
+      notifier.setCityName('Львів');
+
+      expect(c.read(searchFilterLabelsControllerProvider).cityName, 'Львів');
+      expect(
+        c.read(searchFilterLabelsControllerProvider).cityHasDistricts,
+        isTrue,
+        reason: 'a non-null city swap preserves the flag (only null resets it)',
+      );
+    });
+
     test('labels are NOT mirrored onto SearchFilters (separate model)', () {
       final c = _make().container;
 

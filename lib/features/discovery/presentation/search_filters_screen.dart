@@ -83,32 +83,49 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
     super.dispose();
   }
 
-  /// Runs the Region → City → District cascade using the shared locality picker.
+  /// Region (oblast) field tap — the first, mandatory narrowing step.
   ///
-  /// Region and City are mandatory narrowing steps (dismissing either aborts the
-  /// whole pick, leaving the prior selection untouched). The District step is
-  /// OPTIONAL: it only appears for a city that `hasDistricts`, and dismissing it
-  /// is a valid "no district" outcome — the search proceeds with region + city.
-  /// Only `location.cityId` (+ optional `location.districtId`) ever reach the
-  /// wire; the oblast id is persisted for re-opening + chip display only.
-  Future<void> _pickCity() async {
+  /// Picking a region commits its id + label and CLEARS the dependent city and
+  /// district (they belonged to the previous region). Dismissing the sheet
+  /// leaves the prior selection untouched. The oblast id is UI-only — it never
+  /// reaches the wire (the repository sends `location.cityId` only).
+  Future<void> _pickRegion() async {
     final l10n = AppLocalizations.of(context);
     final filtersCtrl = ref.read(searchFiltersControllerProvider.notifier);
     final labelsCtrl = ref.read(searchFilterLabelsControllerProvider.notifier);
 
-    // ── Step 1: Region (oblast) ────────────────────────────────────────────
     final Oblast? oblast = await showLocalityPickerSheet<Oblast>(
       context: context,
       provider: oblastListProvider,
       labelOf: (Oblast o) => o.name,
       idOf: (Oblast o) => o.id,
-      titleLabel: l10n.localityOblastLabel,
+      titleLabel: l10n.searchRegionLabel,
       onRetry: () => ref.invalidate(oblastListProvider),
     );
     if (oblast == null || !mounted) return;
 
-    // ── Step 2: City (within the chosen region) ────────────────────────────
-    final cityProvider = cityListProvider(oblast.id);
+    // selectOblast already clears the dependent city + district ids.
+    filtersCtrl.selectOblast(oblastId: oblast.id);
+    labelsCtrl
+      ..setOblastName(oblast.name)
+      ..setCityName(null)
+      ..setDistrictName(null);
+  }
+
+  /// City field tap — the second, mandatory narrowing step (gated on a region).
+  ///
+  /// Scoped to the already-chosen region. Picking a city commits its id + label
+  /// and CLEARS any district from a prior city. A no-region call is a no-op
+  /// (the row is disabled in that state, so this only guards a stray call).
+  Future<void> _pickCity() async {
+    final l10n = AppLocalizations.of(context);
+    final filtersCtrl = ref.read(searchFiltersControllerProvider.notifier);
+    final labelsCtrl = ref.read(searchFilterLabelsControllerProvider.notifier);
+
+    final String? oblastId = ref.read(searchFiltersControllerProvider).oblastId;
+    if (oblastId == null) return;
+
+    final cityProvider = cityListProvider(oblastId);
     final City? city = await showLocalityPickerSheet<City>(
       context: context,
       provider: cityProvider,
@@ -119,18 +136,27 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
     );
     if (city == null || !mounted) return;
 
-    // Commit region + city (and clear any stale district from a prior pick).
-    filtersCtrl.selectOblast(oblastId: oblast.id);
+    // selectCity clears any stale district; mirror the labels + remember
+    // whether this city subdivides (gates the District row).
     filtersCtrl.selectCity(cityId: city.id);
     labelsCtrl
-      ..setOblastName(oblast.name)
       ..setCityName(city.name)
+      ..setCityHasDistricts(city.hasDistricts)
       ..setDistrictName(null);
+  }
 
-    // ── Step 3: District (OPTIONAL — only for cities that subdivide) ────────
-    if (!city.hasDistricts) return;
+  /// District field tap — the optional third step (gated on a city that
+  /// subdivides). Picking a district commits its id + label; the row also
+  /// offers an inline clear to return to a city-wide search.
+  Future<void> _pickDistrict() async {
+    final l10n = AppLocalizations.of(context);
+    final filtersCtrl = ref.read(searchFiltersControllerProvider.notifier);
+    final labelsCtrl = ref.read(searchFilterLabelsControllerProvider.notifier);
 
-    final districtProvider = districtListProvider(city.id);
+    final String? cityId = ref.read(searchFiltersControllerProvider).cityId;
+    if (cityId == null) return;
+
+    final districtProvider = districtListProvider(cityId);
     final CityDistrict? district = await showLocalityPickerSheet<CityDistrict>(
       context: context,
       provider: districtProvider,
@@ -139,13 +165,42 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
       titleLabel: l10n.localityDistrictLabel,
       onRetry: () => ref.invalidate(districtProvider),
     );
-    if (!mounted) return;
-    // Dismissing the district sheet (district == null) is a valid skip — the
-    // search runs with region + city only.
-    if (district == null) return;
+    if (district == null || !mounted) return;
 
     filtersCtrl.selectDistrict(districtId: district.id);
     labelsCtrl.setDistrictName(district.name);
+  }
+
+  /// Clears the region field — tears down the whole locality cascade
+  /// (region → city → district), since none of the lower levels is meaningful
+  /// without its region.
+  void _clearRegion() {
+    ref
+        .read(searchFiltersControllerProvider.notifier)
+        .selectOblast(oblastId: null);
+    ref.read(searchFilterLabelsControllerProvider.notifier)
+      ..setOblastName(null)
+      ..setCityName(null)
+      ..setDistrictName(null);
+  }
+
+  /// Clears the city field — also clears the district (only meaningful with its
+  /// city); the region is left intact so the user can pick another city.
+  void _clearCity() {
+    ref.read(searchFiltersControllerProvider.notifier).selectCity(cityId: null);
+    ref.read(searchFilterLabelsControllerProvider.notifier)
+      ..setCityName(null)
+      ..setDistrictName(null);
+  }
+
+  /// Clears just the (optional) district — back to a city-wide search.
+  void _clearDistrict() {
+    ref
+        .read(searchFiltersControllerProvider.notifier)
+        .selectDistrict(districtId: null);
+    ref
+        .read(searchFilterLabelsControllerProvider.notifier)
+        .setDistrictName(null);
   }
 
   void _onShowMasters() {
@@ -175,7 +230,12 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
               child: _SearchFiltersBody(
                 l10n: l10n,
                 searchController: _searchController,
+                onPickRegion: _pickRegion,
+                onClearRegion: _clearRegion,
                 onPickCity: _pickCity,
+                onClearCity: _clearCity,
+                onPickDistrict: _pickDistrict,
+                onClearDistrict: _clearDistrict,
               ),
             ),
             // Sticky CTA pinned below the scrollable body.
@@ -211,12 +271,22 @@ class _SearchFiltersBody extends ConsumerWidget {
   const _SearchFiltersBody({
     required this.l10n,
     required this.searchController,
+    required this.onPickRegion,
+    required this.onClearRegion,
     required this.onPickCity,
+    required this.onClearCity,
+    required this.onPickDistrict,
+    required this.onClearDistrict,
   });
 
   final AppLocalizations l10n;
   final TextEditingController searchController;
+  final VoidCallback onPickRegion;
+  final VoidCallback onClearRegion;
   final VoidCallback onPickCity;
+  final VoidCallback onClearCity;
+  final VoidCallback onPickDistrict;
+  final VoidCallback onClearDistrict;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -252,17 +322,17 @@ class _SearchFiltersBody extends ConsumerWidget {
             ),
             const SizedBox(height: VelvetSpacing.lg),
 
-            // ── Місто ───────────────────────────────────────────────────────
+            // ── Локація — three discrete fields (Регіон → Місто → Район) ────
             reveal(
               start: 0.1,
               end: 0.5,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  _SectionLabel(text: l10n.searchCityLabel),
-                  const SizedBox(height: VelvetSpacing.sm),
-                  _CitySelectRow(onTap: onPickCity),
-                ],
+              child: _LocationSection(
+                onPickRegion: onPickRegion,
+                onClearRegion: onClearRegion,
+                onPickCity: onPickCity,
+                onClearCity: onClearCity,
+                onPickDistrict: onPickDistrict,
+                onClearDistrict: onClearDistrict,
               ),
             ),
             const SizedBox(height: VelvetSpacing.lg),
@@ -358,77 +428,247 @@ class _SectionLabel extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Місто — recessed select row showing the chosen city + a chevron.
+// Локація — three discrete, independently-tappable fields.
+//
+// Region → City → District is a gated funnel: City is disabled until a Region is
+// chosen, District (optional) until a City that subdivides is chosen. Each field
+// shows its current selection or a placeholder, with an inline clear («×») when
+// set (else a chevron), and a quiet helper line when disabled. This replaces the
+// old single combined «Місто · Район» row.
+//
+// Watches only the locality label slices, so the section rebuilds on a locality
+// pick but NOT on a price drag or category tap.
 // ---------------------------------------------------------------------------
 
-class _CitySelectRow extends ConsumerWidget {
-  const _CitySelectRow({required this.onTap});
+class _LocationSection extends ConsumerWidget {
+  const _LocationSection({
+    required this.onPickRegion,
+    required this.onClearRegion,
+    required this.onPickCity,
+    required this.onClearCity,
+    required this.onPickDistrict,
+    required this.onClearDistrict,
+  });
 
+  final VoidCallback onPickRegion;
+  final VoidCallback onClearRegion;
+  final VoidCallback onPickCity;
+  final VoidCallback onClearCity;
+  final VoidCallback onPickDistrict;
+  final VoidCallback onClearDistrict;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final SearchFilterLabels loc = ref.watch(
+      searchFilterLabelsControllerProvider,
+    );
+
+    final bool hasRegion = loc.oblastName != null;
+    final bool hasCity = loc.cityName != null;
+    // District is offered only for a chosen city that actually subdivides.
+    final bool districtAvailable = hasCity && loc.cityHasDistricts;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        // ── Регіон ──────────────────────────────────────────────────────────
+        _SectionLabel(text: l10n.searchRegionLabel),
+        const SizedBox(height: VelvetSpacing.sm),
+        _LocalityTapRow(
+          fieldKey: const Key('search_region_value'),
+          icon: Icons.map_outlined,
+          value: loc.oblastName,
+          placeholder: l10n.searchRegionPlaceholder,
+          enabled: true,
+          onTap: onPickRegion,
+          onClear: hasRegion ? onClearRegion : null,
+        ),
+        const SizedBox(height: VelvetSpacing.md),
+
+        // ── Місто ───────────────────────────────────────────────────────────
+        _SectionLabel(text: l10n.searchCityLabel),
+        const SizedBox(height: VelvetSpacing.sm),
+        _LocalityTapRow(
+          fieldKey: const Key('search_city_value'),
+          icon: Icons.location_city_outlined,
+          value: loc.cityName,
+          placeholder: l10n.searchCityPlaceholder,
+          enabled: hasRegion,
+          // Quiet helper when the field is gated on a region first.
+          helperText: hasRegion ? null : l10n.searchCityDisabledHint,
+          onTap: onPickCity,
+          onClear: hasCity ? onClearCity : null,
+        ),
+        const SizedBox(height: VelvetSpacing.md),
+
+        // ── Район (optional) ─────────────────────────────────────────────────
+        _SectionLabel(text: l10n.searchDistrictLabel),
+        const SizedBox(height: VelvetSpacing.sm),
+        _LocalityTapRow(
+          fieldKey: const Key('search_district_value'),
+          icon: Icons.apartment_outlined,
+          value: loc.districtName,
+          placeholder: l10n.searchDistrictPlaceholder,
+          enabled: districtAvailable,
+          // Helper depends on WHY the field is gated: no city yet, vs. a city
+          // that simply has no districts.
+          helperText: districtAvailable
+              ? null
+              : (hasCity
+                    ? l10n.searchDistrictNoneHint
+                    : l10n.searchDistrictDisabledHint),
+          onTap: onPickDistrict,
+          onClear: loc.districtName != null ? onClearDistrict : null,
+        ),
+      ],
+    );
+  }
+}
+
+/// A single labelled locality tap-row: a recessed [NeumorphicInset] with a
+/// leading icon, the selected value (or a placeholder), and a trailing
+/// affordance — an inline clear («×») when [onClear] is non-null, else a
+/// chevron. When [enabled] is false the row is non-tappable, greyed, drops the
+/// trailing glyph, and shows an optional [helperText] beneath.
+class _LocalityTapRow extends StatelessWidget {
+  const _LocalityTapRow({
+    required this.fieldKey,
+    required this.icon,
+    required this.value,
+    required this.placeholder,
+    required this.enabled,
+    required this.onTap,
+    this.onClear,
+    this.helperText,
+  });
+
+  final Key fieldKey;
+  final IconData icon;
+  final String? value;
+  final String placeholder;
+  final bool enabled;
   final VoidCallback onTap;
+  final VoidCallback? onClear;
+  final String? helperText;
 
   static final TextStyle _placeholderStyle = VelvetText.input().copyWith(
     color: BrandColors.placeholder,
   );
+  static final TextStyle _disabledStyle = VelvetText.input().copyWith(
+    color: BrandColors.faint,
+  );
+  static final TextStyle _helperStyle = VelvetText.body().copyWith(
+    fontSize: 12,
+    color: BrandColors.muted,
+  );
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Watch only the city + district label slices — so this row rebuilds on a
-    // locality pick but NOT on a price drag or category tap.
-    final ({String? city, String? district}) loc = ref.watch(
-      searchFilterLabelsControllerProvider.select(
-        (SearchFilterLabels f) => (city: f.cityName, district: f.districtName),
+  Widget build(BuildContext context) {
+    final bool hasValue = value != null;
+    final String text = value ?? placeholder;
+    final TextStyle textStyle = !enabled
+        ? _disabledStyle
+        : (hasValue ? VelvetText.input() : _placeholderStyle);
+    final Color iconColor = enabled ? BrandColors.muted : BrandColors.faint;
+
+    final Widget row = NeumorphicInset(
+      child: SizedBox(
+        height: VelvetSizes.field,
+        child: Row(
+          children: <Widget>[
+            const SizedBox(width: VelvetSpacing.md),
+            Icon(icon, color: iconColor, size: 20),
+            const SizedBox(width: VelvetSpacing.sm),
+            Expanded(
+              child: Text(
+                text,
+                key: fieldKey,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: textStyle,
+              ),
+            ),
+            _TrailingAffordance(
+              enabled: enabled,
+              onClear: onClear,
+              clearKey: Key('${(fieldKey as ValueKey<String>).value}_clear'),
+            ),
+            const SizedBox(width: VelvetSpacing.md),
+          ],
+        ),
       ),
     );
-    final l10n = AppLocalizations.of(context);
-    final bool hasSelection = loc.city != null;
-    // City · District when the optional district is set; just the city
-    // otherwise; placeholder when nothing is chosen.
-    final String value = loc.city == null
-        ? l10n.searchCityPlaceholder
-        : (loc.district == null
-              ? loc.city!
-              : '${loc.city!} · ${loc.district!}');
 
-    return Semantics(
-      button: true,
-      label: value,
+    final Widget field = Semantics(
+      button: enabled,
+      enabled: enabled,
+      label: text,
       child: GestureDetector(
-        onTap: onTap,
+        // Swallow taps when disabled so the gated field reads as inert.
+        onTap: enabled ? onTap : null,
         behavior: HitTestBehavior.opaque,
-        child: NeumorphicInset(
-          child: SizedBox(
-            height: VelvetSizes.field,
-            child: Row(
-              children: <Widget>[
-                const SizedBox(width: VelvetSpacing.md),
-                const Icon(
-                  Icons.location_on_outlined,
-                  color: BrandColors.muted,
-                  size: 20,
-                ),
-                const SizedBox(width: VelvetSpacing.sm),
-                Expanded(
-                  child: Text(
-                    value,
-                    key: const Key('search_city_value'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: hasSelection
-                        ? VelvetText.input()
-                        : _placeholderStyle,
-                  ),
-                ),
-                const Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  color: BrandColors.textSecondary,
-                  size: 24,
-                ),
-                const SizedBox(width: VelvetSpacing.md),
-              ],
+        child: row,
+      ),
+    );
+
+    final String? helper = helperText;
+    if (helper == null) return field;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        field,
+        const SizedBox(height: VelvetSpacing.xs),
+        Padding(
+          padding: const EdgeInsets.only(left: 6),
+          child: Text(helper, style: _helperStyle),
+        ),
+      ],
+    );
+  }
+}
+
+/// The trailing glyph of a [_LocalityTapRow]: a tappable clear («×») when a
+/// value is set ([onClear] non-null), a chevron when enabled-but-empty, and
+/// nothing when the row is disabled.
+class _TrailingAffordance extends StatelessWidget {
+  const _TrailingAffordance({
+    required this.enabled,
+    required this.onClear,
+    required this.clearKey,
+  });
+
+  final bool enabled;
+  final VoidCallback? onClear;
+  final Key clearKey;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled) return const SizedBox.shrink();
+    final VoidCallback? clear = onClear;
+    if (clear != null) {
+      return Semantics(
+        button: true,
+        label: MaterialLocalizations.of(context).deleteButtonTooltip,
+        child: GestureDetector(
+          key: clearKey,
+          onTap: clear,
+          behavior: HitTestBehavior.opaque,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+            child: Icon(
+              Icons.close_rounded,
+              color: BrandColors.muted,
+              size: 20,
             ),
           ),
         ),
-      ),
+      );
+    }
+    return const Icon(
+      Icons.keyboard_arrow_down_rounded,
+      color: BrandColors.textSecondary,
+      size: 24,
     );
   }
 }
