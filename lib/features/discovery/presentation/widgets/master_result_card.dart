@@ -24,6 +24,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import '../../../favorites/domain/favorite_target.dart';
 import '../../domain/master_search_item.dart';
 import 'favorite_heart_button.dart';
+import 'result_address_block.dart';
 import 'result_card_text.dart';
 import 'result_thumbnail.dart';
 
@@ -45,12 +46,16 @@ class MasterResultCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final String name = _displayName(master, l10n);
-    // Pre-joined at map time (MasterSearchMapper.fromDto): the (auth-gated)
-    // «street, buildingNo» line when present, otherwise fall back to the
-    // city/district locality line at render.
-    final String? locality =
-        master.addressLine ??
-        formatLocality(master.cityLabel, master.districtLabel);
+    // The full address renders as two muted lines (see [ResultAddressBlock]):
+    //   1. locality = city · district, composed AT RENDER (l10n/presentation);
+    //   2. street detail = the auth-gated «street, buildingNo · note» line,
+    //      PRECOMPUTED at map time (MasterSearchMapper → addressLine).
+    // Anonymous callers have a null street line → only the locality shows. No
+    // region/oblast is ever part of either line — the search contract omits it.
+    final String? locality = formatLocality(
+      master.cityLabel,
+      master.districtLabel,
+    );
     // Pre-joined at map time (MasterSearchMapper.fromDto): the ≤3 service names
     // as one preview line, or null when the master has none (line omitted — no
     // placeholder). Never join() here — this card builds per row in a scrolling
@@ -86,15 +91,10 @@ class MasterResultCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: VelvetText.subheading(),
                     ),
-                    if (locality != null) ...<Widget>[
-                      const SizedBox(height: 3),
-                      Text(
-                        locality,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: ResultCardText.locality,
-                      ),
-                    ],
+                    ResultAddressBlock(
+                      locality: locality,
+                      streetLine: master.addressLine,
+                    ),
                     if (services != null) ...<Widget>[
                       const SizedBox(height: 3),
                       Text(

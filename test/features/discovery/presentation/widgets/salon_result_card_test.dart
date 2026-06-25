@@ -17,6 +17,7 @@
 // string for the price labels.
 
 import 'package:beautica_mobile/features/discovery/domain/salon_search_item.dart';
+import 'package:beautica_mobile/features/discovery/presentation/widgets/result_address_block.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/salon_result_card.dart';
 import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
@@ -39,6 +40,7 @@ SalonSearchItem _salon({
   String? districtLabel = 'Печерський',
   String? street,
   String? buildingNo,
+  String? locationNote,
   String? addressLine,
   List<String> serviceNames = const <String>[],
   String? servicesLine,
@@ -53,6 +55,7 @@ SalonSearchItem _salon({
   priceMax: priceMax,
   street: street,
   buildingNo: buildingNo,
+  locationNote: locationNote,
   addressLine: addressLine,
   serviceNames: serviceNames,
   servicesLine: servicesLine,
@@ -155,36 +158,75 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // Item 6 — full address line vs locality fallback.
+  // Item 6 — full two-line address (locality + street·note) via
+  // [ResultAddressBlock]. BOTH lines render together for an authed caller; the
+  // street line collapses for an anonymous one. Region/oblast is NOT in the
+  // contract and is never rendered.
   // -------------------------------------------------------------------------
-  group('SalonResultCard address line (item 6)', () {
+  group('SalonResultCard address block (item 6)', () {
     testWidgets(
-      'renders the precomputed addressLine when present (auth-gated)',
+      'authed FULL address: locality line AND street·note line both render',
       (tester) async {
         await _pump(
           tester,
           _salon(
             street: 'вул. Сагайдачного',
             buildingNo: '10А',
+            locationNote: '2 поверх',
+            addressLine: 'вул. Сагайдачного, 10А · 2 поверх',
+            cityLabel: 'Київ',
+            districtLabel: 'Печерський',
+          ),
+        );
+
+        // Two-line contract: locality PRESENT …
+        expect(
+          find.text('Печерський, Київ'),
+          findsOneWidget,
+          reason:
+              'the two-line layout keeps the locality line even when an '
+              'auth-gated street line is present.',
+        );
+        // … AND the full street·note line PRESENT below it.
+        expect(find.text('вул. Сагайдачного, 10А · 2 поверх'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'authed WITHOUT note: street line renders with NO trailing « · »',
+      (tester) async {
+        await _pump(
+          tester,
+          _salon(
+            street: 'вул. Сагайдачного',
+            buildingNo: '10А',
+            locationNote: null,
             addressLine: 'вул. Сагайдачного, 10А',
             cityLabel: 'Київ',
             districtLabel: 'Печерський',
           ),
         );
 
+        expect(find.text('Печерський, Київ'), findsOneWidget);
         expect(find.text('вул. Сагайдачного, 10А'), findsOneWidget);
-        expect(find.text('Печерський, Київ'), findsNothing);
+        expect(
+          find.textContaining(' · '),
+          findsNothing,
+          reason: 'a missing note must not leave a dangling « · » suffix.',
+        );
       },
     );
 
     testWidgets(
-      'falls back to the «district, city» locality when addressLine is null',
+      'anonymous (null street): ONLY the locality line renders — no street, '
+      'no oblast',
       (tester) async {
         await _pump(
           tester,
           _salon(
             street: null,
             buildingNo: null,
+            locationNote: null,
             addressLine: null,
             cityLabel: 'Київ',
             districtLabel: 'Печерський',
@@ -192,6 +234,38 @@ void main() {
         );
 
         expect(find.text('Печерський, Київ'), findsOneWidget);
+        expect(find.textContaining('вул.'), findsNothing);
+        // Region/oblast is NEVER rendered (not in the search contract).
+        expect(find.textContaining('Київська'), findsNothing);
+        expect(find.textContaining('область'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'both locality AND street null → the address block collapses to nothing',
+      (tester) async {
+        await _pump(
+          tester,
+          _salon(
+            street: null,
+            buildingNo: null,
+            locationNote: null,
+            addressLine: null,
+            cityLabel: null,
+            districtLabel: null,
+          ),
+        );
+
+        expect(
+          find.descendant(
+            of: find.byType(ResultAddressBlock),
+            matching: find.byIcon(Icons.place_outlined),
+          ),
+          findsNothing,
+          reason:
+              'with no locality and no street the block must not show a '
+              'lone place-pin glyph.',
+        );
       },
     );
   });

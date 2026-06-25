@@ -27,6 +27,8 @@ class _$SalonSearchResult extends SalonSearchResult {
   final String? street;
   @override
   final String? buildingNo;
+  @override
+  final String? locationNote;
 
   factory _$SalonSearchResult(
           [void Function(SalonSearchResultBuilder)? updates]) =>
@@ -42,7 +44,8 @@ class _$SalonSearchResult extends SalonSearchResult {
       this.priceMax,
       this.serviceNames,
       this.street,
-      this.buildingNo})
+      this.buildingNo,
+      this.locationNote})
       : super._();
   @override
   SalonSearchResult rebuild(void Function(SalonSearchResultBuilder) updates) =>
@@ -65,7 +68,8 @@ class _$SalonSearchResult extends SalonSearchResult {
         priceMax == other.priceMax &&
         serviceNames == other.serviceNames &&
         street == other.street &&
-        buildingNo == other.buildingNo;
+        buildingNo == other.buildingNo &&
+        locationNote == other.locationNote;
   }
 
   @override
@@ -81,6 +85,7 @@ class _$SalonSearchResult extends SalonSearchResult {
     _$hash = $jc(_$hash, serviceNames.hashCode);
     _$hash = $jc(_$hash, street.hashCode);
     _$hash = $jc(_$hash, buildingNo.hashCode);
+    _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -97,7 +102,8 @@ class _$SalonSearchResult extends SalonSearchResult {
           ..add('priceMax', priceMax)
           ..add('serviceNames', serviceNames)
           ..add('street', street)
-          ..add('buildingNo', buildingNo))
+          ..add('buildingNo', buildingNo)
+          ..add('locationNote', locationNote))
         .toString();
   }
 }
@@ -149,6 +155,10 @@ class SalonSearchResultBuilder
   String? get buildingNo => _$this._buildingNo;
   set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
 
+  String? _locationNote;
+  String? get locationNote => _$this._locationNote;
+  set locationNote(String? locationNote) => _$this._locationNote = locationNote;
+
   SalonSearchResultBuilder() {
     SalonSearchResult._defaults(this);
   }
@@ -166,6 +176,7 @@ class SalonSearchResultBuilder
       _serviceNames = $v.serviceNames?.toBuilder();
       _street = $v.street;
       _buildingNo = $v.buildingNo;
+      _locationNote = $v.locationNote;
       _$v = null;
     }
     return this;
@@ -199,6 +210,7 @@ class SalonSearchResultBuilder
             serviceNames: _serviceNames?.build(),
             street: street,
             buildingNo: buildingNo,
+            locationNote: locationNote,
           );
     } catch (_) {
       late String _$failedField;

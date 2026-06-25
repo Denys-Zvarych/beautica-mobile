@@ -21,6 +21,14 @@ abstract final class ResultCardText {
     color: BrandColors.muted,
   );
 
+  /// The auth-gated street-detail line under the locality (street, building,
+  /// note). A hair smaller than [locality] so the city reads first and the
+  /// precise street reads as supporting detail — same muted tone, no new color.
+  static final TextStyle addressDetail = VelvetText.body().copyWith(
+    fontSize: 12,
+    color: BrandColors.muted,
+  );
+
   /// Bold numeric rating value (13sp).
   static final TextStyle ratingValue = VelvetText.bodyStrong().copyWith(
     fontSize: 13,

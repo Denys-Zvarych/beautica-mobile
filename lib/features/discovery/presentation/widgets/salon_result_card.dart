@@ -24,6 +24,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import '../../../favorites/domain/favorite_target.dart';
 import '../../domain/salon_search_item.dart';
 import 'favorite_heart_button.dart';
+import 'result_address_block.dart';
 import 'result_card_text.dart';
 import 'result_thumbnail.dart';
 
@@ -41,12 +42,16 @@ class SalonResultCard extends StatelessWidget {
     final String name = salon.name.isEmpty
         ? l10n.searchResultSalonFallbackName
         : salon.name;
-    // Pre-joined at map time (SalonSearchMapper.fromDto): the (auth-gated)
-    // «street, buildingNo» line when present, otherwise fall back to the
-    // city/district locality line at render.
-    final String? locality =
-        salon.addressLine ??
-        formatLocality(salon.cityLabel, salon.districtLabel);
+    // The full address renders as two muted lines (see [ResultAddressBlock]):
+    //   1. locality = city · district, composed AT RENDER (l10n/presentation);
+    //   2. street detail = the auth-gated «street, buildingNo · note» line,
+    //      PRECOMPUTED at map time (SalonSearchMapper → addressLine).
+    // Anonymous callers have a null street line → only the locality shows. No
+    // region/oblast is ever part of either line — the search contract omits it.
+    final String? locality = formatLocality(
+      salon.cityLabel,
+      salon.districtLabel,
+    );
     final String? services = salon.servicesLine;
     final String? price = _priceLabel(l10n, salon.priceMin, salon.priceMax);
 
@@ -73,15 +78,10 @@ class SalonResultCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: VelvetText.subheading(),
                     ),
-                    if (locality != null) ...<Widget>[
-                      const SizedBox(height: 3),
-                      Text(
-                        locality,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: ResultCardText.locality,
-                      ),
-                    ],
+                    ResultAddressBlock(
+                      locality: locality,
+                      streetLine: salon.addressLine,
+                    ),
                     if (services != null) ...<Widget>[
                       const SizedBox(height: 3),
                       Text(

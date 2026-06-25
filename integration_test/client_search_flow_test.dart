@@ -628,15 +628,27 @@ void main() {
         reason: 'the salon serviceNames join into the « · » preview line',
       );
 
-      // Item 6 — the authenticated caller gets the auth-gated street address,
-      // so the card shows the full address line in place of the locality.
+      // Item 6 — two-line address: the authenticated caller gets the auth-gated
+      // street + note, and the card renders BOTH the locality line (line 1) and
+      // the full street·note line (line 2) together. Region/oblast is NOT in the
+      // contract, so no oblast text ever appears.
       expect(
-        find.text('вул. Хрещатик, 12'),
+        find.text('Печерський, Київ'),
+        findsOneWidget,
+        reason:
+            'the two-line layout keeps the «district, city» locality line even '
+            'when an auth-gated street line is also shown.',
+      );
+      expect(
+        find.text('вул. Хрещатик, 12 · 2 поверх'),
         findsOneWidget,
         reason:
             'an authenticated search carries the Bearer token, so the backend '
-            'returns street/buildingNo and the card shows the full address.',
+            'returns street/buildingNo/locationNote and the card folds them '
+            'into the full «street, buildingNo · note» line.',
       );
+      // The region/oblast is never rendered (it is not in the search contract).
+      expect(find.textContaining('область'), findsNothing);
 
       expect(fb.getMasterCalls, 0);
     },

@@ -33,6 +33,8 @@ class _$MasterSearchResult extends MasterSearchResult {
   final String? street;
   @override
   final String? buildingNo;
+  @override
+  final String? locationNote;
 
   factory _$MasterSearchResult(
           [void Function(MasterSearchResultBuilder)? updates]) =>
@@ -51,7 +53,8 @@ class _$MasterSearchResult extends MasterSearchResult {
       this.priceMax,
       this.serviceNames,
       this.street,
-      this.buildingNo})
+      this.buildingNo,
+      this.locationNote})
       : super._();
   @override
   MasterSearchResult rebuild(
@@ -78,7 +81,8 @@ class _$MasterSearchResult extends MasterSearchResult {
         priceMax == other.priceMax &&
         serviceNames == other.serviceNames &&
         street == other.street &&
-        buildingNo == other.buildingNo;
+        buildingNo == other.buildingNo &&
+        locationNote == other.locationNote;
   }
 
   @override
@@ -97,6 +101,7 @@ class _$MasterSearchResult extends MasterSearchResult {
     _$hash = $jc(_$hash, serviceNames.hashCode);
     _$hash = $jc(_$hash, street.hashCode);
     _$hash = $jc(_$hash, buildingNo.hashCode);
+    _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -116,7 +121,8 @@ class _$MasterSearchResult extends MasterSearchResult {
           ..add('priceMax', priceMax)
           ..add('serviceNames', serviceNames)
           ..add('street', street)
-          ..add('buildingNo', buildingNo))
+          ..add('buildingNo', buildingNo)
+          ..add('locationNote', locationNote))
         .toString();
   }
 }
@@ -181,6 +187,10 @@ class MasterSearchResultBuilder
   String? get buildingNo => _$this._buildingNo;
   set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
 
+  String? _locationNote;
+  String? get locationNote => _$this._locationNote;
+  set locationNote(String? locationNote) => _$this._locationNote = locationNote;
+
   MasterSearchResultBuilder() {
     MasterSearchResult._defaults(this);
   }
@@ -201,6 +211,7 @@ class MasterSearchResultBuilder
       _serviceNames = $v.serviceNames?.toBuilder();
       _street = $v.street;
       _buildingNo = $v.buildingNo;
+      _locationNote = $v.locationNote;
       _$v = null;
     }
     return this;
@@ -237,6 +248,7 @@ class MasterSearchResultBuilder
             serviceNames: _serviceNames?.build(),
             street: street,
             buildingNo: buildingNo,
+            locationNote: locationNote,
           );
     } catch (_) {
       late String _$failedField;

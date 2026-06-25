@@ -87,13 +87,21 @@ abstract class MasterSearchItem with _$MasterSearchItem {
     /// [street]; only meaningful alongside it.
     required String? buildingNo,
 
-    /// The [street] + [buildingNo] pre-joined into one «street, buildingNo»
-    /// address line, or `null` when [street] is absent/blank (the card then
-    /// falls back to the city/district locality at render). Computed ONCE by
-    /// [MasterSearchMapper.fromDto] at map time — mirrors [servicesLine] so the
-    /// scrolling result list never re-runs the street join per card `build()`.
-    /// Only the street portion is precomputed; the locality fallback stays in
-    /// the card. Kept in lockstep with [street]/[buildingNo].
+    /// Free-text location note (e.g. «вхід з двору»), or null. AUTH-GATED
+    /// server-side: the backend omits it for anonymous callers and populates it
+    /// for authenticated ones. Surfaced as a quiet ` · `-joined suffix on the
+    /// street detail line (already folded into [addressLine] at map time); never
+    /// rendered on its own / bracketed.
+    required String? locationNote,
+
+    /// The (auth-gated) street detail line, pre-joined ONCE at map time by
+    /// [MasterSearchMapper.fromDto]: «street, buildingNo» optionally suffixed
+    /// with « · locationNote» — or `null` when [street] is absent/blank (the
+    /// card then shows only the city/district locality, composed at render).
+    /// Mirrors [servicesLine] so the scrolling result list never re-runs the
+    /// join per card `build()`. Only the pure-string street/building/note
+    /// portion is precomputed; the locality (which needs l10n formatting) stays
+    /// in the card. Kept in lockstep with [street]/[buildingNo]/[locationNote].
     @Default(null) String? addressLine,
 
     /// A short (≤3), custom-preferred list of the master's distinct active

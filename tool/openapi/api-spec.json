@@ -6106,6 +6106,9 @@
           },
           "buildingNo": {
             "type": "string"
+          },
+          "locationNote": {
+            "type": "string"
           }
         }
       },
@@ -6230,6 +6233,9 @@
             "type": "string"
           },
           "buildingNo": {
+            "type": "string"
+          },
+          "locationNote": {
             "type": "string"
           }
         }

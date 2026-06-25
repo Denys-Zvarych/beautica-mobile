@@ -84,6 +84,7 @@ MasterSearchItem _master(
   priceMax: null,
   street: null,
   buildingNo: null,
+  locationNote: null,
   serviceNames: serviceNames,
   // Mirror the mapper: the card reads the pre-joined `servicesLine`, so derive
   // it here from `serviceNames` instead of constructing it by hand.
@@ -108,6 +109,7 @@ SalonSearchItem _salon(
   priceMax: priceMax,
   street: null,
   buildingNo: null,
+  locationNote: null,
   serviceNames: serviceNames,
   servicesLine: serviceNames.isEmpty
       ? null

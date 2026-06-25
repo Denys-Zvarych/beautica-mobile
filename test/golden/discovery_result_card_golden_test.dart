@@ -49,6 +49,7 @@ const MasterSearchItem _master = MasterSearchItem(
   priceMax: null,
   street: null,
   buildingNo: null,
+  locationNote: null,
   serviceNames: <String>['Манікюр', 'Педикюр', 'Нарощування'],
   // Built directly (not via the mapper), so supply the pre-joined preview line
   // the mapper would compute — the card reads `servicesLine`, not serviceNames.
@@ -72,6 +73,7 @@ const MasterSearchItem _masterNoServices = MasterSearchItem(
   priceMax: null,
   street: null,
   buildingNo: null,
+  locationNote: null,
   serviceNames: <String>[],
 );
 
@@ -86,6 +88,7 @@ const SalonSearchItem _salon = SalonSearchItem(
   priceMax: 800,
   street: null,
   buildingNo: null,
+  locationNote: null,
   serviceNames: <String>[],
 );
 

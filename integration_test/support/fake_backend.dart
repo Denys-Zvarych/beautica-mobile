@@ -578,10 +578,13 @@ final class FakeBackend {
       'priceMin': 300,
       'priceMax': 1200,
       // Auth-gated address (item 6) — the seeded caller is authenticated, so
-      // the salon row carries street + buildingNo; the card joins them into
-      // its precomputed addressLine «вул. Хрещатик, 12».
+      // the salon row carries street + buildingNo + note; the mapper folds them
+      // into its precomputed addressLine «вул. Хрещатик, 12 · 2 поверх» (the
+      // card renders the locality on line 1 and this street·note line on
+      // line 2).
       'street': 'вул. Хрещатик',
       'buildingNo': '12',
+      'locationNote': '2 поверх',
       // Services preview (item 7) — the card renders the « · »-joined line.
       'serviceNames': <String>['Манікюр', 'Стрижка'],
     },

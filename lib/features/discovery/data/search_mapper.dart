@@ -31,14 +31,19 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import '../domain/master_search_item.dart';
 import '../domain/salon_search_item.dart';
 
-/// Pre-joins a (auth-gated) street + building number into one
-/// «street, buildingNo» address line, or returns `null` when the street is
-/// absent/blank. Pure-Dart so the data layer can compute it at map time without
-/// importing `presentation/`; mirrors `formatAddress` in the result-card
-/// helpers EXACTLY (street with no building → just the street; building with no
-/// street → null). Only the street portion is precomputed here — the
-/// city/district locality fallback stays in the card's `build()`.
-String? _formatAddressLine(String? street, String? buildingNo) {
+/// Pre-joins the (auth-gated) street, building number, and optional free-text
+/// location note into one street detail line, or returns `null` when the street
+/// is absent/blank. Pure-Dart so the data layer can compute it at map time
+/// without importing `presentation/`. Only the street/building/note portion is
+/// precomputed here — the city/district locality (which needs l10n formatting)
+/// stays in the card's `build()`. Composition rules (parts skipped when
+/// blank, no stray separators):
+///   - street + buildingNo → «street, buildingNo» (street alone → just street;
+///     a building number with no street → `null`, since the street anchors the
+///     line);
+///   - locationNote appended as a quiet « · note» suffix (never bracketed, and
+///     dropped entirely when blank → no dangling separator).
+String? _formatAddressLine(String? street, String? buildingNo, String? note) {
   final String? s = (street != null && street.trim().isNotEmpty)
       ? street.trim()
       : null;
@@ -46,7 +51,11 @@ String? _formatAddressLine(String? street, String? buildingNo) {
   final String? b = (buildingNo != null && buildingNo.trim().isNotEmpty)
       ? buildingNo.trim()
       : null;
-  return b == null ? s : '$s, $b';
+  final String streetLine = b == null ? s : '$s, $b';
+  final String? n = (note != null && note.trim().isNotEmpty)
+      ? note.trim()
+      : null;
+  return n == null ? streetLine : '$streetLine$kServiceNamesSeparator$n';
 }
 
 /// Translates [MasterSearchResult] DTOs into the domain [MasterSearchItem].
@@ -92,10 +101,15 @@ abstract final class MasterSearchMapper {
       priceMax: dto.priceMax?.toDouble(),
       street: dto.street,
       buildingNo: dto.buildingNo,
-      // Pre-join the street address ONCE here (mirrors servicesLine) so the
-      // scrolling result list never re-runs the street join per card build().
-      // Street portion only — the locality fallback stays in the card.
-      addressLine: _formatAddressLine(dto.street, dto.buildingNo),
+      locationNote: dto.locationNote,
+      // Pre-join the street detail line ONCE here (mirrors servicesLine) so the
+      // scrolling result list never re-runs the join per card build(). Street +
+      // building + note only — the locality stays in the card.
+      addressLine: _formatAddressLine(
+        dto.street,
+        dto.buildingNo,
+        dto.locationNote,
+      ),
       serviceNames: serviceNames,
       // Pre-join the preview line ONCE here so the scrolling result list never
       // re-runs join() per card build() (LOW perf fix). Null when empty → the
@@ -147,10 +161,15 @@ abstract final class SalonSearchMapper {
       priceMax: dto.priceMax?.toDouble(),
       street: dto.street,
       buildingNo: dto.buildingNo,
-      // Pre-join the street address ONCE here (mirrors the master mapper) so the
-      // scrolling result list never re-runs the street join per card build().
-      // Street portion only — the locality fallback stays in the card.
-      addressLine: _formatAddressLine(dto.street, dto.buildingNo),
+      locationNote: dto.locationNote,
+      // Pre-join the street detail line ONCE here (mirrors the master mapper) so
+      // the scrolling result list never re-runs the join per card build().
+      // Street + building + note only — the locality stays in the card.
+      addressLine: _formatAddressLine(
+        dto.street,
+        dto.buildingNo,
+        dto.locationNote,
+      ),
       serviceNames: serviceNames,
       // Pre-join the preview line ONCE here (mirrors the master mapper) so the
       // scrolling result list never re-runs join() per card build(). Null when

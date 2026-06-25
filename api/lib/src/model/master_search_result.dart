@@ -25,6 +25,7 @@ part 'master_search_result.g.dart';
 /// * [serviceNames]
 /// * [street]
 /// * [buildingNo]
+/// * [locationNote]
 @BuiltValue()
 abstract class MasterSearchResult
     implements Built<MasterSearchResult, MasterSearchResultBuilder> {
@@ -66,6 +67,9 @@ abstract class MasterSearchResult
 
   @BuiltValueField(wireName: r'buildingNo')
   String? get buildingNo;
+
+  @BuiltValueField(wireName: r'locationNote')
+  String? get locationNote;
 
   MasterSearchResult._();
 
@@ -184,6 +188,13 @@ class _$MasterSearchResultSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.locationNote != null) {
+      yield r'locationNote';
+      yield serializers.serialize(
+        object.locationNote,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -299,6 +310,13 @@ class _$MasterSearchResultSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.buildingNo = valueDes;
+          break;
+        case r'locationNote':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.locationNote = valueDes;
           break;
         default:
           unhandled.add(key);
