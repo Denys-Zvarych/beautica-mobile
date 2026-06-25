@@ -16,6 +16,7 @@ Name | Type | Description | Notes
 **maxPrice** | **num** |  | [optional] 
 **page** | **int** |  | [optional] 
 **size** | **int** |  | [optional] 
+**priceRangeValid** | **bool** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

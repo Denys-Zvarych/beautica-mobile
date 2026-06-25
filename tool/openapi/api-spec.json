@@ -6011,6 +6011,9 @@
             "type": "integer",
             "format": "int32",
             "maximum": 100
+          },
+          "priceRangeValid": {
+            "type": "boolean"
           }
         }
       },
@@ -6131,8 +6134,8 @@
           },
           "minRating": {
             "type": "number",
-            "maximum": 5.0,
-            "minimum": 0.0
+            "maximum": 5,
+            "minimum": 0
           },
           "page": {
             "type": "integer",

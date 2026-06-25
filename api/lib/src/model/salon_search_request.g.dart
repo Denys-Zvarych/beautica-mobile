@@ -91,6 +91,8 @@ class _$SalonSearchRequest extends SalonSearchRequest {
   final int? page;
   @override
   final int? size;
+  @override
+  final bool? priceRangeValid;
 
   factory _$SalonSearchRequest(
           [void Function(SalonSearchRequestBuilder)? updates]) =>
@@ -104,7 +106,8 @@ class _$SalonSearchRequest extends SalonSearchRequest {
       this.minPrice,
       this.maxPrice,
       this.page,
-      this.size})
+      this.size,
+      this.priceRangeValid})
       : super._();
   @override
   SalonSearchRequest rebuild(
@@ -126,7 +129,8 @@ class _$SalonSearchRequest extends SalonSearchRequest {
         minPrice == other.minPrice &&
         maxPrice == other.maxPrice &&
         page == other.page &&
-        size == other.size;
+        size == other.size &&
+        priceRangeValid == other.priceRangeValid;
   }
 
   @override
@@ -140,6 +144,7 @@ class _$SalonSearchRequest extends SalonSearchRequest {
     _$hash = $jc(_$hash, maxPrice.hashCode);
     _$hash = $jc(_$hash, page.hashCode);
     _$hash = $jc(_$hash, size.hashCode);
+    _$hash = $jc(_$hash, priceRangeValid.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -154,7 +159,8 @@ class _$SalonSearchRequest extends SalonSearchRequest {
           ..add('minPrice', minPrice)
           ..add('maxPrice', maxPrice)
           ..add('page', page)
-          ..add('size', size))
+          ..add('size', size)
+          ..add('priceRangeValid', priceRangeValid))
         .toString();
   }
 }
@@ -196,6 +202,11 @@ class SalonSearchRequestBuilder
   int? get size => _$this._size;
   set size(int? size) => _$this._size = size;
 
+  bool? _priceRangeValid;
+  bool? get priceRangeValid => _$this._priceRangeValid;
+  set priceRangeValid(bool? priceRangeValid) =>
+      _$this._priceRangeValid = priceRangeValid;
+
   SalonSearchRequestBuilder() {
     SalonSearchRequest._defaults(this);
   }
@@ -211,6 +222,7 @@ class SalonSearchRequestBuilder
       _maxPrice = $v.maxPrice;
       _page = $v.page;
       _size = $v.size;
+      _priceRangeValid = $v.priceRangeValid;
       _$v = null;
     }
     return this;
@@ -242,6 +254,7 @@ class SalonSearchRequestBuilder
             maxPrice: maxPrice,
             page: page,
             size: size,
+            priceRangeValid: priceRangeValid,
           );
     } catch (_) {
       late String _$failedField;

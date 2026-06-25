@@ -21,6 +21,7 @@ part 'salon_search_request.g.dart';
 /// * [maxPrice]
 /// * [page]
 /// * [size]
+/// * [priceRangeValid]
 @BuiltValue()
 abstract class SalonSearchRequest
     implements Built<SalonSearchRequest, SalonSearchRequestBuilder> {
@@ -48,6 +49,9 @@ abstract class SalonSearchRequest
 
   @BuiltValueField(wireName: r'size')
   int? get size;
+
+  @BuiltValueField(wireName: r'priceRangeValid')
+  bool? get priceRangeValid;
 
   SalonSearchRequest._();
 
@@ -131,6 +135,13 @@ class _$SalonSearchRequestSerializer
         specifiedType: const FullType(int),
       );
     }
+    if (object.priceRangeValid != null) {
+      yield r'priceRangeValid';
+      yield serializers.serialize(
+        object.priceRangeValid,
+        specifiedType: const FullType(bool),
+      );
+    }
   }
 
   @override
@@ -211,6 +222,13 @@ class _$SalonSearchRequestSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.size = valueDes;
+          break;
+        case r'priceRangeValid':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.priceRangeValid = valueDes;
           break;
         default:
           unhandled.add(key);
