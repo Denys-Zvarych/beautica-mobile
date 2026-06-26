@@ -3055,6 +3055,15 @@
   "@searchResultsOpenFilters": {
     "description": "Accessibility label for the filter icon in the results screen top bar — re-opens the search filter controls."
   },
+  "searchResultsActiveFilters": "{count, plural, =1{{count} активний фільтр} few{{count} активні фільтри} many{{count} активних фільтрів} other{{count} активних фільтри}}",
+  "@searchResultsActiveFilters": {
+    "description": "Accessibility label announcing how many filter facets are currently active, read next to the «(N)» badge on the results top-bar filter icon.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "searchResultsEmptyTitle": "Нічого не знайдено",
   "@searchResultsEmptyTitle": {
     "description": "Title of the empty state on the discovery results screen when no master or salon matches the filters."

@@ -25,13 +25,13 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/features/discovery/data/search_repository.dart';
 import 'package:beautica_mobile/features/discovery/data/search_repository_provider.dart';
 import 'package:beautica_mobile/features/discovery/domain/master_search_item.dart';
 import 'package:beautica_mobile/features/discovery/domain/salon_search_item.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_results_screen.dart';
-import 'package:beautica_mobile/features/discovery/presentation/widgets/applied_filters_row.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/master_result_card.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/salon_result_card.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
@@ -43,6 +43,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -687,68 +688,171 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // 3 — chip-clear re-query
+  // 3 — top-bar filter button (SVG icon) + active-filter «(N)» count badge
+  //
+  // The applied-filters chip ROW was replaced by an SVG funnel filter button
+  // (`results_filter_button`, rendering `AppIcon(BeauticaAssetIcons.filter)`
+  // inside NeumorphicIconButton) and an active-filter «(N)» count badge
+  // (`results_active_filter_count`) beside it. These tests pin: the SVG (not the
+  // old `Icons.tune_rounded`) renders; the badge is ABSENT at 0 facets and
+  // PRESENT showing the exact count + a11y label when facets are set; and the
+  // button still pops back to the filters screen.
   // -------------------------------------------------------------------------
 
-  group('applied filters chip', () {
-    testWidgets('clearing the locality chip re-queries with cityId nulled', (
-      tester,
-    ) async {
-      final repo = _MockSearchRepository();
-      final List<SearchFilters> masterCallFilters = <SearchFilters>[];
+  group('top bar — filter button + active-filter badge', () {
+    /// Stubs both endpoints to one master so the data state (and the top bar)
+    /// settle synchronously.
+    void stubOneMaster(_MockSearchRepository repo) {
       when(
         () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
-      ).thenAnswer((invocation) async {
-        masterCallFilters.add(
-          invocation.namedArguments[const Symbol('filters')] as SearchFilters,
-        );
-        return _page<MasterSearchItem>([_master('m1')]);
-      });
+      ).thenAnswer((_) async => _page<MasterSearchItem>([_master('m1')]));
       when(
         () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
       ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
+    }
+
+    testWidgets('the filter button renders the SVG AppIcon, not the old '
+        'Icons.tune_rounded', (tester) async {
+      final repo = _MockSearchRepository();
+      stubOneMaster(repo);
 
       await tester.pumpWidget(
-        _host(
-          repo,
-          favorites: _MockFavoriteRepository(),
-          filters: const SearchFilters(cityId: 'city-1'),
-          // Seed the label controller so the locality chip actually renders
-          // (the chip row keys its specs off the display label, not the id).
-          // Both filter controllers are overridden with auth-free test doubles
-          // so the chip-clear path never pulls the real auth / secure-storage
-          // stack (the production build()s ref.watch(authProvider)).
-          extraOverrides: <Object>[
-            searchFilterLabelsControllerProvider.overrideWith(
-              () => _SeededLabelsController(
-                const SearchFilterLabels(cityName: 'Львів'),
-              ),
+        _host(repo, favorites: _MockFavoriteRepository()),
+      );
+      await tester.pumpAndSettle();
+
+      // The funnel SVG lives inside the keyed filter button…
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('results_filter_button')),
+          matching: find.byType(AppIcon),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('results_filter_button')),
+          matching: find.byType(SvgPicture),
+        ),
+        findsOneWidget,
+      );
+      // …and the obsolete Material glyph is gone everywhere on the screen.
+      expect(find.byIcon(Icons.tune_rounded), findsNothing);
+    });
+
+    testWidgets('the «(N)» count badge is ABSENT when no facets are active', (
+      tester,
+    ) async {
+      final repo = _MockSearchRepository();
+      stubOneMaster(repo);
+
+      // Default filters → activeFilterCount == 0 → no badge.
+      await tester.pumpWidget(
+        _host(repo, favorites: _MockFavoriteRepository()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('results_active_filter_count')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('the «(N)» count badge shows the exact facet count + a11y label '
+        'when facets are active', (tester) async {
+      final repo = _MockSearchRepository();
+      stubOneMaster(repo);
+
+      // Three distinct facets: city + category + price band → «(3)».
+      const filters = SearchFilters(
+        cityId: 'city-kyiv',
+        categoryKey: 'NAILS',
+        minPrice: 200,
+      );
+      expect(
+        filters.activeFilterCount,
+        3,
+        reason: 'guard the fixture: the three facets must total 3',
+      );
+
+      await tester.pumpWidget(
+        _host(repo, favorites: _MockFavoriteRepository(), filters: filters),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder badge = find.byKey(const Key('results_active_filter_count'));
+      expect(badge, findsOneWidget);
+      // The visible label is a parenthesised digit (no translatable copy).
+      expect(tester.widget<Text>(badge).data, '(3)');
+      // The screen-reader label routes through the pluralised l10n key. Read the
+      // wrapping Semantics widget's own `label` (the merged SemanticsNode also
+      // folds in the visible «(3)» digit child, so assert the source property).
+      final Semantics badgeSemantics = tester.widget<Semantics>(
+        find.ancestor(of: badge, matching: find.byType(Semantics)).first,
+      );
+      expect(
+        badgeSemantics.properties.label,
+        _l10n(tester).searchResultsActiveFilters(3),
+      );
+    });
+
+    testWidgets('tapping the filter button pops back to the filters screen', (
+      tester,
+    ) async {
+      final repo = _MockSearchRepository();
+      stubOneMaster(repo);
+
+      final router = GoRouter(
+        initialLocation: '/filters',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/filters',
+            builder: (_, _) => const Scaffold(key: Key('filters_stub')),
+          ),
+          GoRoute(
+            path: '/results',
+            builder: (_, _) =>
+                const SearchResultsScreen(initialFilters: SearchFilters()),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          // ignore: avoid_dynamic_calls
+          overrides: <Object>[
+            searchRepositoryProvider.overrideWithValue(repo),
+            favoriteRepositoryProvider.overrideWithValue(
+              _MockFavoriteRepository(),
             ),
-            searchFiltersControllerProvider.overrideWith(
-              () => _SeededFiltersController(
-                const SearchFilters(cityId: 'city-1'),
-              ),
+            favoriteToggleProvider.overrideWith(
+              _AuthFreeFavoriteToggleNotifier.new,
             ),
-          ],
+          ].cast(),
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: _delegates,
+            supportedLocales: _locales,
+            locale: const Locale('uk'),
+          ),
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('applied_filters_row')), findsOneWidget);
-      expect(
-        find.byKey(Key('filter_chip_${AppliedFilterField.locality.name}')),
-        findsOneWidget,
-      );
+      // Push the results screen onto the filters route so a pop has somewhere
+      // to land (canPop() == true). Don't await the push future (it completes
+      // only when the pushed route pops) — drive the frame with pumpAndSettle.
+      unawaited(router.push('/results'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('client-search-results')), findsOneWidget);
 
-      await tester.tap(
-        find.byKey(Key('filter_chip_${AppliedFilterField.locality.name}')),
-      );
+      await tester.tap(find.byKey(const Key('results_filter_button')));
       await tester.pumpAndSettle();
 
-      // A re-keyed family fetch fired with cityId cleared.
-      expect(masterCallFilters.length, greaterThanOrEqualTo(2));
-      expect(masterCallFilters.first.cityId, 'city-1');
-      expect(masterCallFilters.last.cityId, isNull);
+      // The open-filters action popped back to the still-populated filters
+      // screen (the keepAlive controllers hold the selection there).
+      expect(find.byKey(const Key('filters_stub')), findsOneWidget);
+      expect(find.byKey(const Key('client-search-results')), findsNothing);
     });
   });
 
@@ -1054,19 +1158,6 @@ void main() {
       expect(pushedLocation, '/masters/m1');
     });
   });
-}
-
-/// Test double for the keepAlive labels controller — seeds a fixed label set so
-/// the applied-filters chip row renders its chips (the row keys its specs off
-/// the display labels, not the raw filter ids). Overrides build() to skip the
-/// production ref.watch(authProvider) so the test stays auth-free.
-class _SeededLabelsController extends SearchFilterLabelsController {
-  _SeededLabelsController(this._seed);
-
-  final SearchFilterLabels _seed;
-
-  @override
-  SearchFilterLabels build() => _seed;
 }
 
 /// Test double for the keepAlive filters controller — seeds a fixed filter set

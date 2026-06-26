@@ -2,20 +2,18 @@
 //
 // Ports the approved preview `docs/signup-designs/SearchBooking/lib/screens/
 // search_results_screen.dart` into the real Riverpod + go_router structure:
-//   • top bar — back affordance · centred «Результати» title · filter icon that
-//     re-opens the 13.3 filter controls (pops back to the still-populated
-//     filters screen);
-//   • a removable applied-filters chip row (each «×» clears that field and
-//     re-queries);
+//   • top bar — back affordance · centred «Результати» title · filter icon
+//     (SVG funnel) that re-opens the 13.3 filter controls (pops back to the
+//     still-populated filters screen), with a «(N)» active-filter-count badge
+//     beside it when one or more facets are applied;
 //   • a scrolling list of master + salon result cards, infinite-scroll via a
 //     ScrollController calling loadMore() near the end + a bottom spinner;
 //   • the four AsyncValue states (skeleton / cards / empty / error).
 //
 // The screen owns the live [SearchFilters] in local state (seeded from the
-// `extra:` forwarded by 13.3). Clearing a chip produces a new filter set, which
-// re-keys the family-scoped [searchResultsProvider] — a fresh page-0
-// fetch. The keepAlive [SearchFilterLabelsController] supplies the chip display
-// labels and is kept in sync when a chip clears a field.
+// `extra:` forwarded by 13.3). The filter set re-keys the family-scoped
+// [searchResultsProvider] — a fresh page-0 fetch. The active-filter count is
+// derived directly from [SearchFilters.activeFilterCount].
 //
 // go_router only — the back/filter affordances use context.pop(); cards push the
 // public-profile routes. No Navigator anywhere.
@@ -25,6 +23,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -35,7 +35,6 @@ import '../application/search_results_notifier.dart';
 import '../domain/search_filters.dart';
 import '../domain/search_result_item.dart';
 import 'state/search_filters_controller.dart';
-import 'widgets/applied_filters_row.dart';
 import 'widgets/master_result_card.dart';
 import 'widgets/results_states.dart';
 import 'widgets/salon_result_card.dart';
@@ -102,68 +101,6 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
     }
   }
 
-  /// Clears one applied filter field + its display label, then re-queries by
-  /// re-keying the results notifier with the amended filter set.
-  void _clearFilter(AppliedFilterField field) {
-    final SearchFiltersController filtersCtrl = ref.read(
-      searchFiltersControllerProvider.notifier,
-    );
-    final SearchFilterLabelsController labelsCtrl = ref.read(
-      searchFilterLabelsControllerProvider.notifier,
-    );
-
-    SearchFilters next;
-    switch (field) {
-      case AppliedFilterField.region:
-        // Clearing the region tears down the whole locality cascade (region →
-        // city → district), since none of the lower levels is meaningful
-        // without its region.
-        filtersCtrl.selectOblast(oblastId: null);
-        labelsCtrl
-          ..setOblastName(null)
-          ..setCityName(null)
-          ..setDistrictName(null);
-        next = _filters.copyWith(
-          oblastId: null,
-          cityId: null,
-          districtId: null,
-        );
-      case AppliedFilterField.locality:
-        // Clearing the city also clears the district (a district is only
-        // meaningful alongside its city); the region is left intact.
-        filtersCtrl.selectCity(cityId: null);
-        labelsCtrl
-          ..setCityName(null)
-          ..setDistrictName(null);
-        next = _filters.copyWith(cityId: null, districtId: null);
-      case AppliedFilterField.district:
-        filtersCtrl.selectDistrict(districtId: null);
-        labelsCtrl.setDistrictName(null);
-        next = _filters.copyWith(districtId: null);
-      case AppliedFilterField.category:
-        final String? key = _filters.categoryKey;
-        if (key != null) filtersCtrl.toggleServiceType(key);
-        labelsCtrl.setCategoryName(null);
-        // The per-service slugs are scoped to the category — clear them too so a
-        // cleared category never leaves orphaned service constraints on the wire.
-        ref.read(searchServiceSelectionControllerProvider.notifier).clear();
-        next = _filters.copyWith(
-          categoryKey: null,
-          serviceTypeSlugs: const <String>{},
-        );
-      case AppliedFilterField.services:
-        // Drop the whole per-service selection (both the sibling controller, so
-        // a pop back to the filters screen shows no chips selected, and the live
-        // filter set that re-keys the results).
-        ref.read(searchServiceSelectionControllerProvider.notifier).clear();
-        next = _filters.copyWith(serviceTypeSlugs: const <String>{});
-      case AppliedFilterField.price:
-        filtersCtrl.setPriceRange(min: null, max: null);
-        next = _filters.copyWith(minPrice: null, maxPrice: null);
-    }
-    setState(() => _filters = next);
-  }
-
   /// Applies a new sort ordering: updates the keepAlive controller (so the
   /// selection survives a pop back to the filters screen) and re-keys the
   /// results notifier by rebuilding with the amended filter set (fresh page 0).
@@ -188,9 +125,6 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final SearchFilterLabels labels = ref.watch(
-      searchFilterLabelsControllerProvider,
-    );
     final AsyncValue<SearchResultsState> resultsAsync = ref.watch(
       searchResultsProvider(_filters),
     );
@@ -199,6 +133,10 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
     final SearchResultsState? resultsData = resultsAsync.value;
     _hasMore = resultsData?.hasMore ?? false;
     _isLoadingMore = resultsData?.isLoadingMore ?? false;
+
+    // Evaluate the active-filter count once and reuse it for both the badge and
+    // the screen-reader label (the getter walks the filter facets each call).
+    final int activeFilterCount = _filters.activeFilterCount;
 
     return Scaffold(
       key: const Key('client-search-results'),
@@ -218,22 +156,15 @@ class _SearchResultsScreenState extends ConsumerState<SearchResultsScreen> {
                 title: l10n.searchResultsTitle,
                 backLabel: l10n.searchResultsBack,
                 filterLabel: l10n.searchResultsOpenFilters,
+                activeFilterCount: activeFilterCount,
+                activeFiltersSemanticLabel: l10n.searchResultsActiveFilters(
+                  activeFilterCount,
+                ),
                 activeSort: _filters.sort,
                 onSort: _setSort,
                 onBack: _openFilters,
                 onFilter: _openFilters,
               ),
-            ),
-            // The row supplies its OWN top/bottom breathing room when chips are
-            // active and collapses to nothing when empty, so there is no
-            // always-present gap below the top bar on a filterless search.
-            AppliedFiltersRow(
-              filters: _filters,
-              cityLabel: labels.cityName,
-              categoryLabel: labels.categoryName,
-              districtLabel: labels.districtName,
-              oblastLabel: labels.oblastName,
-              onClear: _clearFilter,
             ),
             Expanded(
               child: resultsAsync.when(
@@ -347,6 +278,8 @@ class _ResultsTopBar extends StatelessWidget {
     required this.title,
     required this.backLabel,
     required this.filterLabel,
+    required this.activeFilterCount,
+    required this.activeFiltersSemanticLabel,
     required this.activeSort,
     required this.onSort,
     required this.onBack,
@@ -356,39 +289,80 @@ class _ResultsTopBar extends StatelessWidget {
   final String title;
   final String backLabel;
   final String filterLabel;
+
+  /// Number of active filter facets — drives the «(N)» badge beside the filter
+  /// icon. Hidden entirely when 0.
+  final int activeFilterCount;
+
+  /// Screen-reader label announcing the active-filter count (e.g. «2 активні
+  /// фільтри»). Routed through l10n by the host.
+  final String activeFiltersSemanticLabel;
+
   final SearchSort activeSort;
   final ValueChanged<SearchSort> onSort;
   final VoidCallback onBack;
   final VoidCallback onFilter;
 
+  // Hoisted (perf #109/#114): the SVG tint is constant and the count style is
+  // built once at class-load, so build() allocates neither a Color nor a
+  // TextStyle per frame.
+  static const Color _filterIconColor = BrandColors.textSecondary;
+  static final TextStyle _countStyle = VelvetText.body().copyWith(
+    fontSize: 14,
+    fontWeight: FontWeight.w700,
+    color: BrandColors.accent,
+  );
+
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        NeumorphicIconButton(
-          key: const Key('results_back_button'),
-          icon: Icons.arrow_back_ios_new_rounded,
-          semanticLabel: backLabel,
-          onTap: onBack,
-        ),
-        Expanded(
-          child: Text(
-            title,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: VelvetText.subheading(),
+    // Isolate the top bar's layer: it rebuilds with every searchResultsProvider
+    // emission (incl. isLoadingMore toggles during pagination) although its
+    // visual output is unchanged while paging, so a boundary keeps those frames
+    // from repainting alongside the results list.
+    return RepaintBoundary(
+      child: Row(
+        children: <Widget>[
+          NeumorphicIconButton(
+            key: const Key('results_back_button'),
+            icon: Icons.arrow_back_ios_new_rounded,
+            semanticLabel: backLabel,
+            onTap: onBack,
           ),
-        ),
-        SortPillButton(activeSort: activeSort, onSelected: onSort),
-        const SizedBox(width: VelvetSpacing.sm),
-        NeumorphicIconButton(
-          key: const Key('results_filter_button'),
-          icon: Icons.tune_rounded,
-          semanticLabel: filterLabel,
-          onTap: onFilter,
-        ),
-      ],
+          Expanded(
+            child: Text(
+              title,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: VelvetText.subheading(),
+            ),
+          ),
+          SortPillButton(activeSort: activeSort, onSelected: onSort),
+          const SizedBox(width: VelvetSpacing.sm),
+          if (activeFilterCount > 0) ...<Widget>[
+            Semantics(
+              label: activeFiltersSemanticLabel,
+              child: Text(
+                // Parenthesised digit only — no translatable copy here.
+                '($activeFilterCount)',
+                key: const Key('results_active_filter_count'),
+                style: _countStyle,
+              ),
+            ),
+            const SizedBox(width: VelvetSpacing.xs),
+          ],
+          NeumorphicIconButton(
+            key: const Key('results_filter_button'),
+            iconWidget: const AppIcon(
+              BeauticaAssetIcons.filter,
+              size: 22,
+              color: _filterIconColor,
+            ),
+            semanticLabel: filterLabel,
+            onTap: onFilter,
+          ),
+        ],
+      ),
     );
   }
 }

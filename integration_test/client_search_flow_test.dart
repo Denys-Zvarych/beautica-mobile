@@ -545,8 +545,8 @@ void main() {
 
   // ──────────────────────────────────────────────────────────────────────────
   // Search-page change (items 4, 5, 6, 7) — E2E: a region→city filter scopes
-  // the results, the results screen shows the applied-filter chips, and the
-  // salon card renders its price RANGE + services line + full street address.
+  // the results, the results screen shows the active-filter «(N)» count badge,
+  // and the salon card renders its price RANGE + services line + full address.
   //
   // WHY THIS FLOW EXISTS
   // --------------------
@@ -554,18 +554,18 @@ void main() {
   // the salon card's price/services/address rendering, the mapper's addressLine
   // join). This flow proves they compose end to end: a CLIENT picking «Київська»
   // → «Київ» through the REAL locality cascade, submitting, and seeing the
-  // results screen render the applied-filter chip strip AND a salon card whose
-  // price/services/address all come from the (authenticated) /search/salons
+  // results screen render the active-filter «(N)» count badge AND a salon card
+  // whose price/services/address all come from the (authenticated) /search/salons
   // response. The seeded salon-xyz now carries street/buildingNo (auth-gated)
   // and serviceNames, so the card's `addressLine` + `servicesLine` are live.
   //
   // Step 2.7 Rule 3b: this is the real user journey (locality cascade +
-  // navigation + provider→repository + the rendered result card + chip strip)
+  // navigation + provider→repository + the rendered result card + count badge)
   // the widget tier cannot prove end to end.
   // ──────────────────────────────────────────────────────────────────────────
   testWidgets(
-    'CLIENT region→city filter → results show applied-filter chips + a salon '
-    'card with price range, services line, and full address',
+    'CLIENT region→city filter → results show the «(N)» active-filter badge + a '
+    'salon card with price range, services line, and full address',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -594,19 +594,28 @@ void main() {
       expect(find.byKey(const Key('client-search-results')), findsOneWidget);
       expect(find.byKey(const Key('results_list')), findsOneWidget);
 
-      // ── Item 4 — the city scoped the wire AND the chips reflect it ──────────
+      // ── Item 4 — the city scoped the wire AND the top-bar badge reflects it ─
       expect(fb.lastSearchSalonsCityId, 'city-kyiv');
-      // The applied-filter chip strip renders, with a city chip (the picker set
-      // the city label on the labels controller).
+      // The applied-filters chip ROW was replaced by an SVG funnel filter button
+      // plus an active-filter «(N)» count badge. A single picked facet (the city)
+      // surfaces the badge showing «(1)» beside the filter button.
       expect(
-        find.byKey(const Key('applied_filters_row')),
+        find.byKey(const Key('results_filter_button')),
         findsOneWidget,
-        reason: 'a picked locality must surface the applied-filter chip strip',
+        reason: 'the results top bar carries the SVG funnel filter button',
+      );
+      final Finder activeBadge = find.byKey(
+        const Key('results_active_filter_count'),
       );
       expect(
-        find.byKey(const Key('filter_chip_locality')),
+        activeBadge,
         findsOneWidget,
-        reason: 'the picked city renders a removable locality chip',
+        reason: 'a picked locality (1 facet) must surface the «(N)» count badge',
+      );
+      expect(
+        tester.widget<Text>(activeBadge).data,
+        '(1)',
+        reason: 'exactly one facet (the city) is active → «(1)»',
       );
 
       // ── The seeded salon card rendered (keyed by backend id) ────────────────

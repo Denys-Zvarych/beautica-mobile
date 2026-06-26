@@ -113,6 +113,27 @@ abstract class SearchFilters with _$SearchFilters {
     /// default), so it is always forwarded — never null.
     @Default(SearchSort.ratingDesc) SearchSort sort,
   }) = _SearchFilters;
+
+  const SearchFilters._();
+
+  /// Number of distinct active filter facets, used to render the «(N)» badge
+  /// next to the results top-bar filter icon.
+  ///
+  /// Each facet contributes at most 1: region, city, district, category, the
+  /// per-service selection (any number of slugs counts once), and the price
+  /// band (a min and/or a max counts once). [query] and [sort] are NOT facets —
+  /// they are not surfaced as clearable filters on the results screen — so the
+  /// count maxes out at 6.
+  int get activeFilterCount {
+    var count = 0;
+    if (oblastId != null) count++;
+    if (cityId != null) count++;
+    if (districtId != null) count++;
+    if (categoryKey != null) count++;
+    if (serviceTypeSlugs.isNotEmpty) count++;
+    if (minPrice != null || maxPrice != null) count++;
+    return count;
+  }
 }
 
 /// An immutable, generic page of search results.

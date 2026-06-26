@@ -221,6 +221,24 @@ abstract final class BeauticaAssetIcons {
   static const String star = '$_base/star.svg';
 
   // ---------------------------------------------------------------------------
+  // Discovery — filter / funnel
+  // ---------------------------------------------------------------------------
+
+  /// Solid funnel glyph — the discovery results top-bar filter button (replaces
+  /// the Material `Icons.tune_rounded`). Re-opens the 13.3 filter controls.
+  ///
+  /// Source: https://www.flaticon.com/free-icon-font/filter_3914366
+  /// Author: Flaticon UICONS (free icon font).
+  /// Licence: Flaticon Free (attribution required; same release-gate as above —
+  /// re-download under 1-month Premium before any store build, keep certificate).
+  /// SHA-256: 099791fb4a43ba6d05cdca105e2b9b1bc77898ada7ccc83bf04a3ca5e87ad5fa
+  ///
+  /// Monochrome solid silhouette — render TINTED via
+  /// `AppIcon(BeauticaAssetIcons.filter, color: …, size: …)`; never
+  /// `multicolor: true`. See `assets/icons/filter.svg`.
+  static const String filter = '$_base/filter.svg';
+
+  // ---------------------------------------------------------------------------
   // Add new icons below, grouped by feature / category.
   // Convention: feature_glyph, e.g. booking_calendar, review_star.
   // ---------------------------------------------------------------------------
