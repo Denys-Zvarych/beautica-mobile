@@ -36,6 +36,7 @@
 // Raw find.text(...) is used only for content assertions (city/category names
 // are backend data). See integration_test/support/app_harness.dart.
 
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_results_screen.dart';
@@ -286,12 +287,53 @@ void main() {
         reason: 'the City field is gated on a Region — its tap must be inert',
       );
 
-      // ── Pick Region → City (district skipped — «Київ» has none) ─────────────
-      await pickRegionThenCity(tester);
+      // ── «Require a city» gate (Step 2.7 Rule 3b) — region-only is blocked ────
+      // Pick ONLY a Region (no City). A region without a city is not a
+      // searchable scope (region-only would send no location filter → providers
+      // from EVERY city), so the search CTA must be DISABLED in this state. The
+      // widget tier pins the disabled chrome in isolation; here we prove the
+      // gate holds end to end against the REAL screen + picker + controller.
+      await tester.tap(find.byKey(const Key('search_region_value')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
+      );
+      await tester.pumpAndSettle();
+
+      NeumorphicButton ctaButton() => tester.widget<NeumorphicButton>(
+        find.byKey(const Key('search_show_masters_cta')),
+      );
+      expect(
+        ctaButton().onPressed,
+        isNull,
+        reason: 'region-only (no city) must disable «Показати майстрів»',
+      );
+      // Tapping the disabled CTA is inert — it must NOT navigate to results.
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('client-search-results')),
+        findsNothing,
+        reason: 'a blocked region-only CTA tap must not push the results screen',
+      );
+      expectLocation(router, RouteNames.clientSearch);
+
+      // ── Now pick the City → the gate releases, CTA enables ──────────────────
+      await tester.tap(find.byKey(const Key('search_city_value')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
+      );
+      await tester.pumpAndSettle();
       final Text cityValue = tester.widget<Text>(
         find.byKey(const Key('search_city_value')),
       );
       expect(cityValue.data, 'Київ');
+      expect(
+        ctaButton().onPressed,
+        isNotNull,
+        reason: 'a committed Region + City re-enables the search CTA',
+      );
 
       // ── Submit → the search scopes to the FLAT location.cityId ──────────────
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));

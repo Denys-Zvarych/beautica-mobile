@@ -2899,6 +2899,10 @@
   "@searchCityDisabledHint": {
     "description": "Helper line under the disabled city row prompting the user to pick a region first."
   },
+  "searchCityRequiredHint": "Choose a city to continue",
+  "@searchCityRequiredHint": {
+    "description": "Helper line under the city row when a region is chosen but no city yet; the search CTA is disabled until a city is picked (region alone is not a searchable scope)."
+  },
   "searchDistrictLabel": "District",
   "@searchDistrictLabel": {
     "description": "Label above the optional district select row on the Пошук screen."

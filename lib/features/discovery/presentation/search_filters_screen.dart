@@ -250,7 +250,10 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
                 onClearDistrict: _clearDistrict,
               ),
             ),
-            // Sticky CTA pinned below the scrollable body.
+            // Sticky CTA pinned below the scrollable body. It self-watches only
+            // the locality-id slice (see [_ShowMastersCta]) so an oblast/city
+            // change rebuilds the button alone — never the body's staggered
+            // reveal + ListView above it.
             SafeArea(
               top: false,
               child: Padding(
@@ -260,17 +263,56 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
                   VelvetSpacing.lg,
                   VelvetSpacing.md,
                 ),
-                child: NeumorphicButton(
-                  key: const Key('search_show_masters_cta'),
+                child: _ShowMastersCta(
                   label: l10n.searchCtaShowMasters,
-                  icon: Icons.search_rounded,
-                  onPressed: _onShowMasters,
+                  onShowMasters: _onShowMasters,
                 ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sticky «Показати майстрів» CTA.
+//
+// Self-watches ONLY the locality-id slice (oblastId, cityId) of the filter
+// state, so an oblast/city change rebuilds just this button — never the body's
+// staggered reveal + ListView. A price drag / category tap touches neither slice
+// and so never rebuilds the CTA either.
+// ---------------------------------------------------------------------------
+
+class _ShowMastersCta extends ConsumerWidget {
+  const _ShowMastersCta({required this.label, required this.onShowMasters});
+
+  final String label;
+  final VoidCallback onShowMasters;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // "Require a city" guard: a region chosen WITHOUT a city is not a searchable
+    // scope (region-only would send no location filter, returning providers from
+    // every city — the «phantom filter» bug). Watch only the locality-id slice so
+    // the CTA's enabled state tracks the filter state directly (no setState). The
+    // location-less case (both null) stays allowed — only oblast-set + city-null
+    // is blocked.
+    final ({String? oblastId, String? cityId}) loc = ref.watch(
+      searchFiltersControllerProvider.select(
+        (SearchFilters f) => (oblastId: f.oblastId, cityId: f.cityId),
+      ),
+    );
+    final bool regionWithoutCity = loc.oblastId != null && loc.cityId == null;
+
+    return NeumorphicButton(
+      key: const Key('search_show_masters_cta'),
+      label: label,
+      icon: Icons.search_rounded,
+      // Disabled while a region is chosen but no city — the NeumorphicButton
+      // renders its built-in disabled chrome when onPressed is null.
+      onPressed: regionWithoutCity ? null : onShowMasters,
     );
   }
 }
@@ -507,8 +549,13 @@ class _LocationSection extends ConsumerWidget {
           value: loc.cityName,
           placeholder: l10n.searchCityPlaceholder,
           enabled: hasRegion,
-          // Quiet helper when the field is gated on a region first.
-          helperText: hasRegion ? null : l10n.searchCityDisabledHint,
+          // Quiet helper depends on state: no region yet → «pick a region first»;
+          // region chosen but no city → «pick a city to continue» (the search CTA
+          // is disabled in that state, since region alone is not a searchable
+          // scope). City chosen → no helper.
+          helperText: !hasRegion
+              ? l10n.searchCityDisabledHint
+              : (hasCity ? null : l10n.searchCityRequiredHint),
           onTap: onPickCity,
           onClear: hasCity ? onClearCity : null,
         ),

@@ -1123,4 +1123,122 @@ void main() {
       expect(_pushedFilters!.maxPrice, lessThan(kSearchPriceCeiling));
     });
   });
+
+  // ── «Require a city» CTA gate — region-only is not a searchable scope ───────
+  //
+  // The search CTA is disabled when a Region is chosen but no City (region-only
+  // would send no location filter → providers from EVERY city: the «phantom
+  // filter» bug). The location-less case (both null) stays allowed (category /
+  // price / query-only «search everywhere»), and a full Region + City re-enables
+  // it. The cascade guarantees cityId != null ⇒ oblastId != null, so these three
+  // states are the only reachable ones. All gating is asserted off the CTA's
+  // onPressed nullity (the source disables by passing null) + the keyed city-row
+  // helper, never a raw literal.
+  group('ClientSearchScreen — require-a-city CTA gate', () {
+    /// The CTA's NeumorphicButton — `onPressed == null` is the disabled signal
+    /// (the source renders its built-in disabled chrome from a null callback).
+    NeumorphicButton cta(WidgetTester tester) =>
+        tester.widget<NeumorphicButton>(
+          find.byKey(const Key('search_show_masters_cta')),
+        );
+
+    testWidgets('region picked + NO city → CTA is DISABLED and the city row '
+        'shows the «choose a city» hint; tapping does NOT navigate', (
+      tester,
+    ) async {
+      await _pumpScreen(tester, withRouter: true);
+      await tester.pumpAndSettle();
+      final AppLocalizations l10n = await _uk();
+
+      // Region only — no city. The cascade leaves cityId null.
+      await _pickRegion(tester);
+      expect(_filters(tester).oblastId, _kOblastId);
+      expect(_filters(tester).cityId, isNull);
+
+      // The CTA is disabled (null callback) ...
+      expect(
+        cta(tester).onPressed,
+        isNull,
+        reason: 'a region without a city is not a searchable scope',
+      );
+      // ... and the city row carries the «choose a city to continue» helper.
+      expect(find.text(l10n.searchCityRequiredHint), findsOneWidget);
+
+      // Tapping the disabled CTA is inert — it must NOT push the results screen.
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('test-results-sink')), findsNothing);
+      expect(_pushedFilters, isNull);
+    });
+
+    testWidgets('region + city picked → CTA is ENABLED and tapping pushes '
+        '/search/results with the city carried', (tester) async {
+      await _pumpScreen(tester, withRouter: true);
+      await tester.pumpAndSettle();
+      final AppLocalizations l10n = await _uk();
+
+      await _pickRegion(tester);
+      await _pickCity(tester, _kCityWithDistrictsId);
+      expect(_filters(tester).cityId, _kCityWithDistrictsId);
+
+      // The require-a-city helper is gone once a city is committed.
+      expect(find.text(l10n.searchCityRequiredHint), findsNothing);
+
+      // The CTA is now enabled and navigates, carrying the picked city.
+      expect(cta(tester).onPressed, isNotNull);
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('test-results-sink')), findsOneWidget);
+      expect(_pushedFilters, isNotNull);
+      expect(_pushedFilters!.cityId, _kCityWithDistrictsId);
+      expect(_pushedFilters!.oblastId, _kOblastId);
+    });
+
+    testWidgets('NO location at all (oblast + city null) → CTA is ENABLED and '
+        'tapping pushes a location-less «search everywhere»', (tester) async {
+      await _pumpScreen(tester, withRouter: true);
+      await tester.pumpAndSettle();
+
+      // No region, no city — the location-less browse-all case stays allowed.
+      expect(_filters(tester).oblastId, isNull);
+      expect(_filters(tester).cityId, isNull);
+      expect(
+        cta(tester).onPressed,
+        isNotNull,
+        reason: 'a fully location-less search (browse everywhere) is allowed',
+      );
+
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('test-results-sink')), findsOneWidget);
+      expect(_pushedFilters, isNotNull);
+      expect(_pushedFilters!.oblastId, isNull);
+      expect(_pushedFilters!.cityId, isNull);
+    });
+
+    testWidgets('re-picking the region clears the city and RE-DISABLES the CTA '
+        '(cascade), with the «choose a city» hint back', (tester) async {
+      await _pumpScreen(tester, withRouter: true);
+      await tester.pumpAndSettle();
+      final AppLocalizations l10n = await _uk();
+
+      // Reach the enabled state: region + city.
+      await _pickRegion(tester);
+      await _pickCity(tester, _kCityWithDistrictsId);
+      expect(cta(tester).onPressed, isNotNull);
+
+      // Re-picking the region clears the dependent city (selectOblast cascade),
+      // dropping back to the region-only state → the CTA disables again.
+      await _pickRegion(tester);
+      expect(_filters(tester).cityId, isNull);
+      expect(
+        cta(tester).onPressed,
+        isNull,
+        reason: 'a region re-pick clears the city → region-only → CTA disabled',
+      );
+      expect(find.text(l10n.searchCityRequiredHint), findsOneWidget);
+    });
+  });
 }
