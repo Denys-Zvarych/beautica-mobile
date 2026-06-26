@@ -127,6 +127,16 @@ List<Object> _masterProfileOverrides() => [
   masterProfileProvider.overrideWith(() => _StubMasterProfileNotifier()),
   masterRepositoryProvider.overrideWithValue(_FakeMasterRepository()),
   serviceRepositoryProvider.overrideWithValue(_FakeServiceRepository()),
+  // MasterProfileScreen mounts _ProfileCategoriesSection, which ref.watches
+  // approvedCategoriesProvider. That provider sources its data straight from
+  // the category-request API (it bypasses serviceRepositoryProvider — the
+  // documented "approvedCategoriesProvider override footgun"), so without a
+  // direct override it hits the REAL Dio and leaks a pending Timer, failing
+  // the widget test. Override it with a synchronous empty fixture so the
+  // section resolves with no network call / leaked timer.
+  approvedCategoriesProvider.overrideWith(
+    (ref) async => const <ServiceCategoryOption>[],
+  ),
 ];
 
 /// The shared [ClientTopBar] in its home-branch config — the burger the

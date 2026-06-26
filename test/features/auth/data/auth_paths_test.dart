@@ -37,6 +37,12 @@
 //  12.  /api/v1/independent-masters/me is in kPiiPaths but NOT kAuthPaths.
 //  13.  /api/v1/masters/me is in kPiiPaths but NOT kAuthPaths.
 //  14.  kAuthPaths has exactly 11 entries — no undocumented extras.
+//  14b. kPiiPaths is a strict superset of kAuthPaths.
+//  15.  kPiiPaths has exactly 16 entries = kAuthPaths (11) + 5 authenticated
+//       PII paths: /api/v1/independent-masters/me,
+//       /api/v1/independent-masters/me/profile, /api/v1/masters/me,
+//       /api/v1/search/masters, /api/v1/search/salons (the last two added by
+//       commit b550428 — auth-gated address redaction).
 
 import 'package:beautica_mobile/core/network/auth_paths.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -224,28 +230,32 @@ void main() {
               'or OTPs and must therefore also be redacted in debug logs.',
         );
       }
-      // kPiiPaths must be strictly larger than kAuthPaths (Phase 4.2 added
-      // 3 authenticated PII paths that are NOT in kAuthPaths).
+      // kPiiPaths must be strictly larger than kAuthPaths (Phase 4.2 + the
+      // 2026-06-25 address-redaction fix added 5 authenticated PII paths that
+      // are NOT in kAuthPaths).
       expect(
         kPiiPaths.length,
         greaterThan(kAuthPaths.length),
         reason:
             'kPiiPaths must contain additional entries beyond kAuthPaths '
             '(/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
-            'and /api/v1/masters/me).',
+            '/api/v1/masters/me, /api/v1/search/masters, and /api/v1/search/salons).',
       );
     });
 
     test(
-      '15. kPiiPaths has exactly 14 entries (kAuthPaths union + 3 authenticated PII paths)',
+      '15. kPiiPaths has exactly 16 entries (kAuthPaths union + 5 authenticated PII paths)',
       () {
         expect(
           kPiiPaths.length,
-          equals(14),
+          equals(16),
           reason:
               'kPiiPaths must equal kAuthPaths (11) plus '
               '/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
-              'and /api/v1/masters/me (3 authenticated PII paths = 14 total). '
+              '/api/v1/masters/me, and the two auth-gated discovery search paths '
+              '/api/v1/search/masters + /api/v1/search/salons '
+              '(5 authenticated PII paths = 16 total). The search paths were '
+              'added by commit b550428 (auth-gated address redaction). '
               'Update this count if new PII endpoints are added.',
         );
       },
