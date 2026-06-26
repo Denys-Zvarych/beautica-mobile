@@ -339,27 +339,41 @@ class _ResultsTopBar extends StatelessWidget {
           ),
           SortPillButton(activeSort: activeSort, onSelected: onSort),
           const SizedBox(width: VelvetSpacing.sm),
-          if (activeFilterCount > 0) ...<Widget>[
-            Semantics(
-              label: activeFiltersSemanticLabel,
-              child: Text(
-                // Parenthesised digit only — no translatable copy here.
-                '($activeFilterCount)',
-                key: const Key('results_active_filter_count'),
-                style: _countStyle,
+          // Filter button with the active-filter count as a bottom-right corner
+          // badge. The SVG is wrapped in a Center so it renders at its intended
+          // `size` — NeumorphicIconButton's 48px Container forces tight
+          // constraints on a bare child, which would otherwise stretch the SVG
+          // to fill the whole box.
+          Stack(
+            clipBehavior: Clip.none,
+            children: <Widget>[
+              NeumorphicIconButton(
+                key: const Key('results_filter_button'),
+                iconWidget: const Center(
+                  child: AppIcon(
+                    BeauticaAssetIcons.filter,
+                    size: 20,
+                    color: _filterIconColor,
+                  ),
+                ),
+                semanticLabel: filterLabel,
+                onTap: onFilter,
               ),
-            ),
-            const SizedBox(width: VelvetSpacing.xs),
-          ],
-          NeumorphicIconButton(
-            key: const Key('results_filter_button'),
-            iconWidget: const AppIcon(
-              BeauticaAssetIcons.filter,
-              size: 22,
-              color: _filterIconColor,
-            ),
-            semanticLabel: filterLabel,
-            onTap: onFilter,
+              if (activeFilterCount > 0)
+                Positioned(
+                  right: 3,
+                  bottom: 1,
+                  child: Semantics(
+                    label: activeFiltersSemanticLabel,
+                    child: Text(
+                      // Parenthesised digit only — no translatable copy here.
+                      '($activeFilterCount)',
+                      key: const Key('results_active_filter_count'),
+                      style: _countStyle,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
