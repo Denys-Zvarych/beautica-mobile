@@ -46,7 +46,6 @@
 // KEY-BASED NAVIGATION POLICY (enforced by AppHarness): all TAPS use key-based
 // finders; Ukrainian strings appear only in absence/content assertions.
 
-import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/home/presentation/client_settings_hub_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
@@ -92,11 +91,12 @@ void main() {
       tester,
       fb,
       // Inject OUR storage so we can read the refresh token before/after logout.
-      // boot() lists its own secureStorageProvider override FIRST; this one is
-      // appended LAST, and Riverpod's last-override-wins makes it authoritative.
-      extraOverrides: <Object>[
-        secureStorageProvider.overrideWithValue(storage),
-      ],
+      // We pass it through boot()'s `storage:` param (NOT extraOverrides): the
+      // harness installs the SINGLE secureStorageProvider override from it.
+      // Overriding the same provider twice (one in boot's defaults, one in
+      // extraOverrides) throws under Riverpod 3.x ("Tried to override a provider
+      // twice within the same container").
+      storage: storage,
     );
     await AppHarness.loginAs(tester, fb, UserRole.client);
     // fixed-wait-ok: integration test, real async (auth+redirect); bounded pumpAndSettle is the recommended real-async settle.
