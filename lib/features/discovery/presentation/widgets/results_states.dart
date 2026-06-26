@@ -93,7 +93,7 @@ class ResultsEmpty extends StatelessWidget {
 
   /// Whether the empty result came from an active per-service (`serviceTypeSlugs`)
   /// filter. When true the supporting copy guides the user to broaden the
-  /// SERVICE selection specifically (AND semantics narrow hard), instead of the
+  /// SERVICE selection specifically (a narrower OR / union set still narrows), instead of the
   /// generic "change city / category / price" message.
   final bool serviceFilterActive;
 

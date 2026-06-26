@@ -67,8 +67,8 @@ abstract class SearchFilters with _$SearchFilters {
     /// per-service constraint". Each entry is a `CategoryServiceOption.key`
     /// (a service-type slug) the second-level drawer chips key off.
     ///
-    /// **AND semantics** — a provider is kept only when it offers EVERY slug in
-    /// the set (backend `serviceTypeSlugs` multi-valued param, enforced
+    /// **OR / union semantics** — a provider is kept when it offers ANY of the
+    /// slugs in the set (backend `serviceTypeSlugs` multi-valued param, enforced
     /// server-side; the client just sends the whole set). Emitted as repeated
     /// `serviceTypeSlugs=<slug>` query params by the repository; omitted entirely
     /// when empty.

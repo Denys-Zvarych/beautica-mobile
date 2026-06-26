@@ -307,7 +307,7 @@ class SearchFiltersController extends _$SearchFiltersController {
 /// at "Apply" time by `SearchFiltersScreen._onShowMasters` (the base controller
 /// never stores the slugs itself), and the repository emits each slug as a
 /// repeated `serviceTypeSlugs` query param to `/search/masters` + `/search/salons`
-/// (AND semantics — the provider must offer EVERY selected service). The set is
+/// (OR / union semantics — the provider must offer ANY selected service). The set is
 /// CLEARED on a category change (see the rail's `_toggle`) so a stale
 /// cross-category slug never reaches the wire.
 ///

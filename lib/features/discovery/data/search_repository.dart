@@ -232,8 +232,9 @@ final class HttpSearchRepository implements SearchRepository {
   /// Emits the slug set as a SORTED `List<String>` value: Dio's default
   /// `ListFormat.multi` renders it as repeated bare params
   /// (`serviceTypeSlugs=a&serviceTypeSlugs=b`), which the backend
-  /// `@ModelAttribute List<String> serviceTypeSlugs` binds (AND semantics —
-  /// the provider must offer EVERY slug). Sorting makes the assembled URI
+  /// `@ModelAttribute List<String> serviceTypeSlugs` binds (OR / union
+  /// semantics — the provider must offer ANY of the slugs). Sorting makes the
+  /// assembled URI
   /// deterministic (stable transport tests); order is irrelevant to the
   /// backend. Omitted entirely when the set is empty (no constraint).
   static void _addServiceTypeSlugs(Map<String, dynamic> q, SearchFilters f) {
