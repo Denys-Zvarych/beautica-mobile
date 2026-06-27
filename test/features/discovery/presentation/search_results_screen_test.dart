@@ -6,17 +6,19 @@
 // collapse / hide + NO rating), chip-clear re-query, infinite-scroll loadMore
 // (bottom spinner, no double-fetch, last-page no-op), the optimistic favorite
 // heart (flip / idempotent toggle / revert + snackbar on repo error / per-heart
-// rebuild scope), and the card-tap nav intent (the 13.5/13.6 targets are not
-// registered yet, so we assert the pushed route *constant*, not a destination
-// screen).
+// rebuild scope), and the card-body navigation GUARD (the 13.5/13.6 public-
+// profile routes are NOT registered yet, so the card body must NOT navigate —
+// we assert no /masters/:id or /salons/:id push fires while the heart stays
+// interactive; see `group('card nav guard')`).
 //
 // Pumping notes (mobile-backlog row 236): the screen is pumped under a plain
 // `MaterialApp home:` (NOT `.router`) for the AsyncValue-state tests so the
 // first error frame is captured with a single `pump()`. For the error state the
 // mock throws a `StateError` (an Error, not an Exception) so the build() future
 // surfaces a synchronous pure AsyncError instead of lingering in seamless
-// AsyncLoading under Riverpod. The card-tap nav test uses a real `GoRouter`
-// because asserting `context.push` needs a router.
+// AsyncLoading under Riverpod. The card nav-guard tests use a real `GoRouter`
+// with stub /masters/:id & /salons/:id routes so a re-introduced `context.push`
+// would be observable — the guard asserts those stubs are never reached.
 //
 // House rules honoured: ProviderScope is ALWAYS given overrides (fake search +
 // fake favorite repos); finders are Key-based; UA copy is asserted via l10n
@@ -1095,68 +1097,194 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // 6 — card-tap nav intent (targets not registered yet)
+  // 6 — card-body navigation GUARD (Phase 13.5 / 13.6 routes NOT registered)
+  //
+  // The result-card body used to wrap NeumorphicCard in
+  //   Semantics(button: true, child: GestureDetector(onTap: () => context.push(
+  //     RouteNames.masterPublicProfile/salonPublicProfile(id))))
+  // pushing /masters/:id and /salons/:id — routes that are NOT registered, so a
+  // tap threw GoException → "Page Not Found". The guard removed that onTap: the
+  // card body is now an inert, non-navigating Semantics(label: name) until the
+  // public-profile routes ship.
+  //
+  // These tests FAIL if the dead navigation is re-introduced: a re-added
+  // context.push would reach the stub route below, so `pushedLocation` flips
+  // non-null and the stub Scaffold mounts. The favourite heart stays
+  // interactive — asserted here as the POSITIVE CONTROL so the guard proves the
+  // body is inert WITHOUT the heart being broken.
+  //
+  // TODO(13.5)/TODO(13.6): when /masters/:id and /salons/:id are registered,
+  // flip this group back to asserting the push (the prior revision expected
+  // `find.byKey(Key('master_profile_stub'))` + `pushedLocation == '/masters/m1'`).
   // -------------------------------------------------------------------------
 
-  group('card nav', () {
-    testWidgets('tapping a master card pushes /masters/{id}', (tester) async {
-      final repo = _MockSearchRepository();
-      when(
-        () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
-      ).thenAnswer((_) async => _page<MasterSearchItem>([_master('m1')]));
-      when(
-        () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
-      ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
+  group('card nav guard', () {
+    testWidgets(
+      'tapping the master card body does NOT navigate; the heart still works',
+      (tester) async {
+        final repo = _MockSearchRepository();
+        when(
+          () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        ).thenAnswer((_) async => _page<MasterSearchItem>([_master('m1')]));
+        when(
+          () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        ).thenAnswer((_) async => _page<SalonSearchItem>(const []));
 
-      String? pushedLocation;
-      final router = GoRouter(
-        initialLocation: '/results',
-        routes: <RouteBase>[
-          GoRoute(
-            path: '/results',
-            builder: (_, _) =>
-                const SearchResultsScreen(initialFilters: SearchFilters()),
-          ),
-          // Stand-in destination so the push resolves; records the location.
-          GoRoute(
-            path: '/masters/:id',
-            builder: (BuildContext context, GoRouterState state) {
-              pushedLocation = state.uri.toString();
-              return const Scaffold(key: Key('master_profile_stub'));
-            },
-          ),
-        ],
-      );
+        final favorites = _MockFavoriteRepository();
+        when(() => favorites.add(any())).thenAnswer((_) async {});
 
-      await tester.pumpWidget(
-        ProviderScope(
-          // ignore: avoid_dynamic_calls
-          overrides: <Object>[
-            searchRepositoryProvider.overrideWithValue(repo),
-            favoriteRepositoryProvider.overrideWithValue(
-              _MockFavoriteRepository(),
+        // A stub /masters/:id route records any push. While the guard holds it
+        // is never reached; re-adding the dead context.push reaches it.
+        String? pushedLocation;
+        final router = GoRouter(
+          initialLocation: '/results',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/results',
+              builder: (_, _) =>
+                  const SearchResultsScreen(initialFilters: SearchFilters()),
             ),
-            favoriteToggleProvider.overrideWith(
-              _AuthFreeFavoriteToggleNotifier.new,
+            GoRoute(
+              path: '/masters/:id',
+              builder: (BuildContext context, GoRouterState state) {
+                pushedLocation = state.uri.toString();
+                return const Scaffold(key: Key('master_profile_stub'));
+              },
             ),
-          ].cast(),
-          child: MaterialApp.router(
-            routerConfig: router,
-            localizationsDelegates: _delegates,
-            supportedLocales: _locales,
-            locale: const Locale('uk'),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            // ignore: avoid_dynamic_calls
+            overrides: <Object>[
+              searchRepositoryProvider.overrideWithValue(repo),
+              favoriteRepositoryProvider.overrideWithValue(favorites),
+              favoriteToggleProvider.overrideWith(
+                _AuthFreeFavoriteToggleNotifier.new,
+              ),
+            ].cast(),
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: _delegates,
+              supportedLocales: _locales,
+              locale: const Locale('uk'),
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      // Tap the card body (not the heart) — the GestureDetector wraps the card.
-      await tester.tap(find.byType(MasterResultCard));
-      await tester.pumpAndSettle();
+        // Tap the card body (centre of the card = name/address column, not the
+        // trailing heart). The body has no onTap: nothing should navigate.
+        await tester.tap(find.byType(MasterResultCard));
+        await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('master_profile_stub')), findsOneWidget);
-      expect(pushedLocation, '/masters/m1');
-    });
+        expect(
+          find.byKey(const Key('master_profile_stub')),
+          findsNothing,
+          reason:
+              'the master card body must NOT push /masters/:id — that route is '
+              'unregistered until Phase 13.5 (a tap there throws "Page Not '
+              'Found"). Re-introducing the dead context.push reaches this stub.',
+        );
+        expect(pushedLocation, isNull);
+        // The results screen is still mounted — no push swapped it out.
+        expect(find.byType(MasterResultCard), findsOneWidget);
+
+        // POSITIVE CONTROL: the favourite heart INSIDE the card is still
+        // interactive — proves the body is inert without the heart being broken.
+        await tester.tap(find.byKey(const Key('favorite_master_m1')));
+        await tester.pumpAndSettle();
+        verify(
+          () => favorites.add(
+            const FavoriteTarget(type: FavoriteTargetType.master, id: 'm1'),
+          ),
+        ).called(1);
+        // …and the heart tap still navigated nowhere.
+        expect(find.byKey(const Key('master_profile_stub')), findsNothing);
+        expect(pushedLocation, isNull);
+      },
+    );
+
+    testWidgets(
+      'tapping the salon card body does NOT navigate; the heart still works',
+      (tester) async {
+        final repo = _MockSearchRepository();
+        when(
+          () => repo.searchMasters(filters: any(named: 'filters'), page: 0),
+        ).thenAnswer((_) async => _page<MasterSearchItem>(const []));
+        when(
+          () => repo.searchSalons(filters: any(named: 'filters'), page: 0),
+        ).thenAnswer((_) async => _page<SalonSearchItem>([_salon('s1')]));
+
+        final favorites = _MockFavoriteRepository();
+        when(() => favorites.add(any())).thenAnswer((_) async {});
+
+        String? pushedLocation;
+        final router = GoRouter(
+          initialLocation: '/results',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/results',
+              builder: (_, _) =>
+                  const SearchResultsScreen(initialFilters: SearchFilters()),
+            ),
+            GoRoute(
+              path: '/salons/:id',
+              builder: (BuildContext context, GoRouterState state) {
+                pushedLocation = state.uri.toString();
+                return const Scaffold(key: Key('salon_profile_stub'));
+              },
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            // ignore: avoid_dynamic_calls
+            overrides: <Object>[
+              searchRepositoryProvider.overrideWithValue(repo),
+              favoriteRepositoryProvider.overrideWithValue(favorites),
+              favoriteToggleProvider.overrideWith(
+                _AuthFreeFavoriteToggleNotifier.new,
+              ),
+            ].cast(),
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: _delegates,
+              supportedLocales: _locales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byType(SalonResultCard));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon_profile_stub')),
+          findsNothing,
+          reason:
+              'the salon card body must NOT push /salons/:id — that route is '
+              'unregistered until Phase 13.6. Re-introducing the dead '
+              'context.push reaches this stub.',
+        );
+        expect(pushedLocation, isNull);
+        expect(find.byType(SalonResultCard), findsOneWidget);
+
+        // POSITIVE CONTROL: the salon heart is still interactive.
+        await tester.tap(find.byKey(const Key('favorite_salon_s1')));
+        await tester.pumpAndSettle();
+        verify(
+          () => favorites.add(
+            const FavoriteTarget(type: FavoriteTargetType.salon, id: 's1'),
+          ),
+        ).called(1);
+        expect(find.byKey(const Key('salon_profile_stub')), findsNothing);
+        expect(pushedLocation, isNull);
+      },
+    );
   });
 }
 

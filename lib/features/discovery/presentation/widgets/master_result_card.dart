@@ -11,7 +11,6 @@
 // entirely — no placeholder.
 
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -19,7 +18,8 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
-import 'package:beautica_mobile/routing/route_names.dart';
+// TODO(13.5): re-import go_router + routing/route_names.dart and restore the
+// RouteNames.masterPublicProfile push when /masters/:id is registered.
 
 import '../../../favorites/domain/favorite_target.dart';
 import '../../domain/master_search_item.dart';
@@ -69,68 +69,70 @@ class MasterResultCard extends StatelessWidget {
       master.priceMax,
     );
 
+    // TODO(13.5): re-enable masterPublicProfile push once /masters/:id route is
+    // registered. Until then the card MUST NOT navigate — the route is
+    // unregistered and a tap would throw GoException → "Page Not Found". The card
+    // is therefore a silent non-button (no onTap, no Semantics(button: true));
+    // re-enabling = wrap the NeumorphicCard back in
+    //   Semantics(button: true, label: name, child: GestureDetector(
+    //     onTap: () => context.push(RouteNames.masterPublicProfile(master.masterId)), ...
+    // The favourite heart (FavoriteHeartButton below) stays interactive regardless.
     return Semantics(
-      button: true,
       label: name,
-      child: GestureDetector(
-        onTap: () =>
-            context.push(RouteNames.masterPublicProfile(master.masterId)),
-        behavior: HitTestBehavior.opaque,
-        child: NeumorphicCard(
-          padding: const EdgeInsets.all(VelvetSpacing.md),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              ResultThumbnail(avatarUrl: master.avatarUrl, isSalon: false),
-              const SizedBox(width: VelvetSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
+      child: NeumorphicCard(
+        padding: const EdgeInsets.all(VelvetSpacing.md),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            ResultThumbnail(avatarUrl: master.avatarUrl, isSalon: false),
+            const SizedBox(width: VelvetSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: VelvetText.subheading(),
+                  ),
+                  ResultAddressBlock(
+                    locality: locality,
+                    streetLine: master.addressLine,
+                  ),
+                  if (services != null) ...<Widget>[
+                    const SizedBox(height: 3),
                     Text(
-                      name,
-                      maxLines: 1,
+                      services,
+                      key: const Key('master_card_services'),
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: VelvetText.subheading(),
+                      style: ResultCardText.services,
                     ),
-                    ResultAddressBlock(
-                      locality: locality,
-                      streetLine: master.addressLine,
-                    ),
-                    if (services != null) ...<Widget>[
-                      const SizedBox(height: 3),
-                      Text(
-                        services,
-                        key: const Key('master_card_services'),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: ResultCardText.services,
-                      ),
-                    ],
-                    const SizedBox(height: VelvetSpacing.sm),
-                    _RatingRow(
-                      rating: master.avgRating,
-                      reviewCount: master.reviewCount,
-                    ),
-                    if (priceLabel != null) ...<Widget>[
-                      const SizedBox(height: 3),
-                      Text(priceLabel, style: ResultCardText.price),
-                    ],
                   ],
-                ),
+                  const SizedBox(height: VelvetSpacing.sm),
+                  _RatingRow(
+                    rating: master.avgRating,
+                    reviewCount: master.reviewCount,
+                  ),
+                  if (priceLabel != null) ...<Widget>[
+                    const SizedBox(height: 3),
+                    Text(priceLabel, style: ResultCardText.price),
+                  ],
+                ],
               ),
-              FavoriteHeartButton(
-                key: Key('favorite_master_${master.masterId}'),
-                target: FavoriteTarget(
-                  type: FavoriteTargetType.master,
-                  id: master.masterId,
-                ),
-                semanticAddLabel: l10n.favoriteAddLabel,
-                semanticRemoveLabel: l10n.favoriteRemoveLabel,
-                onError: onFavoriteError,
+            ),
+            FavoriteHeartButton(
+              key: Key('favorite_master_${master.masterId}'),
+              target: FavoriteTarget(
+                type: FavoriteTargetType.master,
+                id: master.masterId,
               ),
-            ],
-          ),
+              semanticAddLabel: l10n.favoriteAddLabel,
+              semanticRemoveLabel: l10n.favoriteRemoveLabel,
+              onError: onFavoriteError,
+            ),
+          ],
         ),
       ),
     );

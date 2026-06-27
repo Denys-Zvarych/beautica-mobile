@@ -90,11 +90,13 @@ class FavoriteMastersCard extends ConsumerWidget {
               itemBuilder: (BuildContext context, int i) => RepaintBoundary(
                 child: _MasterMiniCard(
                   master: masters[i],
-                  onTap: () => context.push(
-                    // TODO(13.3): replace with RouteNames.masterPublicProfile(id)
-                    // when the public master profile route ships.
-                    '/masters/${masters[i].masterId}',
-                  ),
+                  // TODO(13.5): re-enable masterPublicProfile push once
+                  // /masters/:id route is registered. The route is unregistered
+                  // today, so navigating would throw GoException → "Page Not
+                  // Found". Until then onTap is null (silent non-button); restore
+                  //   onTap: () => context.push(
+                  //     RouteNames.masterPublicProfile(masters[i].masterId)),
+                  // The unlike heart below stays interactive regardless.
                   onUnlike: () => ref
                       .read(unlikeFavoriteMasterProvider.notifier)
                       .unlike(masters[i].favoriteId),
@@ -108,14 +110,9 @@ class FavoriteMastersCard extends ConsumerWidget {
 }
 
 class _MasterMiniCard extends StatelessWidget {
-  const _MasterMiniCard({
-    required this.master,
-    required this.onTap,
-    required this.onUnlike,
-  });
+  const _MasterMiniCard({required this.master, required this.onUnlike});
 
   final FavoriteMasterItem master;
-  final VoidCallback onTap;
   final VoidCallback onUnlike;
 
   static final TextStyle _nameStyle = VelvetText.bodyStrong().copyWith(
@@ -131,9 +128,14 @@ class _MasterMiniCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return GestureDetector(
+    // TODO(13.5): re-enable masterPublicProfile push once /masters/:id route is
+    // registered. The card body is intentionally a silent non-button until then
+    // (no GestureDetector / onTap) — the route is unregistered and a tap would
+    // throw GoException → "Page Not Found". The unlike heart below stays
+    // interactive regardless.
+    return Semantics(
       key: Key('favorite_master_${master.masterId}'),
-      onTap: onTap,
+      label: master.name,
       child: SizedBox(
         width: 80,
         child: Column(

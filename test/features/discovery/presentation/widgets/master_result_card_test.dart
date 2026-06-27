@@ -18,6 +18,7 @@
 // card render synchronous and network-free. All assertions key off the l10n
 // value resolved from the pumped tree — never a hardcoded UA string.
 
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/discovery/domain/master_search_item.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/master_result_card.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/result_address_block.dart';
@@ -142,6 +143,52 @@ void main() {
       // No «грн» fragment renders for a priceless master (line omitted).
       expect(find.textContaining('грн'), findsNothing);
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 13.5 navigation guard — the card body is an inert, non-navigating
+  // Semantics(label: name). It USED TO be Semantics(button: true, …) wrapping a
+  // GestureDetector that pushed RouteNames.masterPublicProfile — an unregistered
+  // /masters/:id route → GoException "Page Not Found". This pins the body as a
+  // silent non-button until the route ships.
+  // TODO(13.5): when /masters/:id is registered, flip this to expect
+  // `semantics.properties.button` == true (and restore the body GestureDetector).
+  // -------------------------------------------------------------------------
+  group('MasterResultCard navigation guard (TODO 13.5)', () {
+    testWidgets(
+      'card body is a silent non-button: Semantics carries the name label but '
+      'NO button flag',
+      (tester) async {
+        await _pump(tester, _master());
+
+        // The fixture's display name (firstName + lastName) — the card's own
+        // data label, not a localised UI string.
+        const String name = 'Олена Коваль';
+
+        final Finder cardSemantics = find.ancestor(
+          of: find.byType(NeumorphicCard),
+          matching: find.byWidgetPredicate(
+            (Widget w) => w is Semantics && w.properties.label == name,
+          ),
+        );
+        expect(
+          cardSemantics,
+          findsOneWidget,
+          reason:
+              'the card body wraps NeumorphicCard in Semantics(label: name)',
+        );
+
+        final Semantics semantics = tester.widget<Semantics>(cardSemantics);
+        expect(
+          semantics.properties.button,
+          isNot(true),
+          reason:
+              'the card body must NOT be announced as a button while the '
+              'public-profile route is unregistered — re-adding button: true '
+              'signals the dead tap-navigation is back (the regression guarded).',
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
