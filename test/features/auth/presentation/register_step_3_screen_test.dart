@@ -1483,8 +1483,8 @@ void main() {
     await tester.pump(); // addPostFrameCallback flush
     await tester.pumpAndSettle();
 
-    // The hero tile is the size-22 locationMarker AppIcon inside the 72×72
-    // neumorphic Container; the locality-cascade pins are smaller (size 20), so
+    // The hero tile is the size-16 locationMarker AppIcon inside the 72×72
+    // neumorphic Container; the locality-cascade pins are larger (size 20), so
     // matching on size pins us to the top tile without coupling to any glyph
     // name or locale.
     expect(
@@ -1492,7 +1492,7 @@ void main() {
         (w) =>
             w is AppIcon &&
             w.asset == BeauticaAssetIcons.locationMarker &&
-            w.size == 22,
+            w.size == 16,
       ),
       findsOneWidget,
       reason:

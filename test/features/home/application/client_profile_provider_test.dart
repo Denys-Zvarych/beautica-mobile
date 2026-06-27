@@ -1,14 +1,17 @@
 // Location-fix — clientProfile provider unit tests.
 //
-// The home hub derives [ClientProfileSummary] from the authenticated session's
-// [User] (hydrated via repo.me() → UserMapper.fromProfileDto, which now carries
-// cityName / phoneNumber). These tests pin the city/phone wiring:
+// The home hub derives [ClientProfileSummary] from the FRESH `GET /users/me`
+// profile cached by [clientEditProfileProvider] (the same authoritative source
+// the Settings edit screens read) — NOT from the long-lived `authProvider`
+// session [User]. These tests pin the city/phone wiring against that source:
 //   • cityName="Київ" / phoneNumber set ⇒ summary.city/phone reflect them
 //     (fast path — no taxonomy fetch).
 //   • cityName empty but cityId+oblastId set ⇒ summary.city resolves from the
 //     location taxonomy (cityListProvider) by matching the city id.
 //   • cityName empty AND no cityId/oblastId ⇒ summary.city == '' so the profile
 //     card renders its placeholder path.
+//   • an unauthenticated session ⇒ clientEditProfileProvider throws
+//     [UnauthorizedFailure], which propagates as the card's AsyncError.
 //
 // `clientProfile` now transitively wires `cityListProvider` (a family that
 // fetches via [LocationRepository]) to resolve the display name when the
@@ -18,15 +21,19 @@
 // Without it the still-loading `cityListProvider` leaf would dispose the whole
 // graph mid-load (Riverpod 3.x: "disposed during loading state").
 //
-// Strategy: override authProvider with a fixed authenticated session and read
-// clientProfileProvider.future from a ProviderContainer (no widget tree). A
+// Strategy: override [clientEditProfileProvider] with a stub whose `build()`
+// returns the fixture [User] (i.e. drive the `/users/me` source directly), then
+// read clientProfileProvider.future from a ProviderContainer (no widget tree). A
 // keep-open `container.listen(...)` subscription holds the provider alive until
-// its future settles so teardown never races the in-flight load.
+// its future settles so teardown never races the in-flight load. The
+// unauthenticated path instead keeps the REAL [clientEditProfileProvider] and
+// overrides [authProvider] to an unauthenticated session so the real auth gate
+// fires.
 
-import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
-import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
@@ -36,24 +43,32 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
-// Auth stub
+// /users/me source stub
 // ---------------------------------------------------------------------------
 
-/// Stubs [authProvider] to a settled, authenticated session carrying [user].
-class _FixedAuthNotifier extends AuthNotifier {
-  _FixedAuthNotifier(this._user);
+/// Stubs [clientEditProfileProvider] (the fresh `GET /users/me` source) to a
+/// settled profile carrying [user]. `clientProfile` derives ONLY from this
+/// provider, so driving it here is equivalent to the backend returning [user]
+/// from `/users/me`.
+class _StubClientEditProfile extends ClientEditProfile {
+  _StubClientEditProfile(this._user);
 
   final User _user;
 
   @override
-  Future<AuthSession> build() async {
-    final session = AuthSession.authenticated(
-      user: _user,
-      accessToken: 'token',
-    );
-    state = AsyncData(session);
-    return session;
-  }
+  Future<User> build() async => _user;
+}
+
+/// Stubs [clientEditProfileProvider] (the fresh `/users/me` source) to the same
+/// failure the real provider raises when the session is unauthenticated — its
+/// `build()` throws [UnauthorizedFailure] before ever calling `getMyProfile()`.
+/// `clientProfile` must propagate that as its own AsyncError. (The auth-gate
+/// behaviour itself — Unauthenticated ⇒ UnauthorizedFailure — is owned and
+/// tested by clientEditProfileProvider; here we pin only clientProfile's
+/// error-propagation contract, deterministically.)
+class _UnauthorizedClientEditProfile extends ClientEditProfile {
+  @override
+  Future<User> build() async => throw const UnauthorizedFailure();
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +117,8 @@ typedef _Harness = ({
   _FakeLocationRepository repo,
 });
 
-/// Builds a [ProviderContainer] wired with [user] and a fake location
+/// Builds a [ProviderContainer] wired with [user] (driven through the fresh
+/// `/users/me` source [clientEditProfileProvider]) and a fake location
 /// repository serving [cities] (and optionally [districts]).
 ///
 /// Holds [clientProfileProvider] alive with a no-op [ProviderContainer.listen]
@@ -116,7 +132,9 @@ _Harness _harnessForUser(
   final repo = _FakeLocationRepository(cities, districts: districts);
   final container = ProviderContainer(
     overrides: [
-      authProvider.overrideWith(() => _FixedAuthNotifier(user)),
+      clientEditProfileProvider.overrideWith(
+        () => _StubClientEditProfile(user),
+      ),
       locationRepositoryProvider.overrideWith((_) => repo),
     ],
   );
@@ -354,6 +372,39 @@ void main() {
         expect(summary.phone, '');
       },
     );
+
+    test('unauthenticated session ⇒ clientProfile surfaces UnauthorizedFailure '
+        '(AsyncError from the /users/me source gate)', () async {
+      // Drive the /users/me source (clientEditProfileProvider) to the failure it
+      // raises on an unauthenticated session; clientProfile awaits that future,
+      // so the failure must propagate as the card's AsyncError.
+      //
+      // `retry: (_, _) => null` disables Riverpod 3.x's default error-retry so
+      // the thrown UnauthorizedFailure surfaces on the FIRST build instead of
+      // looping the keepAlive source through endless retries (which would hang
+      // `clientProfileProvider.future` until the test times out).
+      final container = ProviderContainer(
+        retry: (_, _) => null,
+        overrides: [
+          clientEditProfileProvider.overrideWith(
+            _UnauthorizedClientEditProfile.new,
+          ),
+          locationRepositoryProvider.overrideWith(
+            (_) => _FakeLocationRepository(const <City>[]),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await expectLater(
+        container.read(clientProfileProvider.future),
+        throwsA(isA<UnauthorizedFailure>()),
+        reason:
+            'an unauthenticated session must surface as UnauthorizedFailure '
+            'through clientEditProfileProvider → clientProfile, never a hang '
+            'or a blank card',
+      );
+    });
   });
 
   // ── District-display branches (new feature) ───────────────────────────────

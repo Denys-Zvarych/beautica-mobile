@@ -5,7 +5,9 @@
 // blanks the whole screen.
 //
 // Data-wired cards (backend already exists):
-//   • profileAsync  → derived from authProvider (User) — always available.
+//   • profileAsync  → derived from clientEditProfileProvider (fresh GET
+//     /users/me) — the same authoritative source the Settings edit screens read,
+//     so the home card and Settings refresh together.
 //
 // Empty-state-placeholder cards (backend 19.x not yet shipped):
 //   • nextAppointmentAsync  — TODO(19.3) wire GET /bookings/me?status=PENDING,CONFIRMED&sort=startAt&size=1
@@ -21,11 +23,10 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import '../../../features/auth/domain/auth_session.dart';
 import '../../../features/auth/domain/user.dart';
-import '../../../features/auth/presentation/auth_notifier.dart';
 import '../../../features/location/state/location_providers.dart';
 import '../domain/home_hub_models.dart';
+import 'client_edit_profile_notifier.dart';
 
 part 'home_hub_notifier.g.dart';
 
@@ -33,28 +34,35 @@ part 'home_hub_notifier.g.dart';
 // Profile card — data-wired
 // ---------------------------------------------------------------------------
 
-/// Derives the CLIENT's [ClientProfileSummary] from the settled auth session.
-/// Emits AsyncError when the session is unauthenticated (the router guard
-/// should have redirected already, but defensive nonetheless).
+/// Derives the CLIENT's [ClientProfileSummary] from the fresh `GET /users/me`
+/// profile cached by [clientEditProfileProvider] — the SAME authoritative source
+/// the Settings edit screens read. Sharing one source (rather than the
+/// long-lived `authProvider` session [User], which only re-hydrates on cold
+/// start / login / explicit `refreshUser()`) keeps the home card and Settings in
+/// lock-step: every edit-screen save already calls
+/// `ref.invalidate(clientEditProfileProvider)`, which now also refreshes this
+/// card. The locality (city / district) therefore reflects `/users/me` without
+/// waiting for a cold restart.
+///
+/// [clientEditProfileProvider] throws [UnauthorizedFailure] when the session is
+/// unauthenticated (the router guard should have redirected already, but it is
+/// defensive nonetheless), so that error propagates here as the card's
+/// AsyncError.
 @riverpod
 Future<ClientProfileSummary> clientProfile(Ref ref) async {
-  final session = await ref.watch(authProvider.future);
-  return switch (session) {
-    Authenticated(:final user) => ClientProfileSummary(
-      firstName: user.firstName ?? '',
-      lastName: user.lastName ?? '',
-      // phone comes from the User profile hydrated via repo.me() during
-      // cold-start / login (AuthNotifier.build → fromProfileDto); nullable
-      // because CLIENT location is optional — fall back to the empty string
-      // so the profile card renders its placeholder.
-      city: await _resolveLocalityLabel(ref, user),
-      phone: user.phoneNumber ?? '',
-      // TODO(backend): GET /clients/me/rating (two-sided client rating, excludes comments)
-      clientRating: null,
-      memberSinceYear: DateTime.now().year,
-    ),
-    _ => throw StateError('clientProfile: no authenticated session'),
-  };
+  final user = await ref.watch(clientEditProfileProvider.future);
+  return ClientProfileSummary(
+    firstName: user.firstName ?? '',
+    lastName: user.lastName ?? '',
+    // phone comes from the same fresh /users/me profile; nullable because CLIENT
+    // location is optional — fall back to the empty string so the profile card
+    // renders its placeholder.
+    city: await _resolveLocalityLabel(ref, user),
+    phone: user.phoneNumber ?? '',
+    // TODO(backend): GET /clients/me/rating (two-sided client rating, excludes comments)
+    clientRating: null,
+    memberSinceYear: DateTime.now().year,
+  );
 }
 
 /// Resolves the human-readable locality label for the profile card.

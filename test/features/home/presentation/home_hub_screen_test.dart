@@ -34,10 +34,9 @@ import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
-import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
-import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
@@ -74,26 +73,26 @@ class _NoOpScreenProtection extends ScreenProtectionManager {
 }
 
 // ---------------------------------------------------------------------------
-// Auth + location stubs for the city-resolution regression test
+// /users/me + location stubs for the city-resolution regression test
 // ---------------------------------------------------------------------------
 //
-// These drive the REAL clientProfile provider (NOT a stubbed override) so the
-// `_resolveCityName` taxonomy-fallback path actually executes end-to-end:
-//   authProvider(User cityId set, cityName empty) → clientProfile →
+// These drive the REAL clientProfile provider (NOT a stubbed override of it) so
+// the `_resolveCityName` taxonomy-fallback path actually executes end-to-end —
+// only its SOURCE, the fresh `GET /users/me` provider clientEditProfileProvider,
+// is stubbed (clientProfile now derives from it, not from the authProvider
+// session User):
+//   clientEditProfileProvider(User cityId set, cityName empty) → clientProfile →
 //   cityListProvider → LocationRepository.fetchCities → match by id → "Київ".
 
-/// Settled, authenticated session carrying [_user].
-class _FixedAuthNotifier extends AuthNotifier {
-  _FixedAuthNotifier(this._user);
+/// Stubs [clientEditProfileProvider] (the fresh `/users/me` source) to a settled
+/// profile carrying [_user].
+class _StubClientEditProfile extends ClientEditProfile {
+  _StubClientEditProfile(this._user);
 
   final User _user;
 
   @override
-  Future<AuthSession> build() async {
-    final session = AuthSession.authenticated(user: _user, accessToken: 't');
-    state = AsyncData(session);
-    return session;
-  }
+  Future<User> build() async => _user;
 }
 
 /// Fake [LocationRepository] serving a fixed city list for any oblast and a
@@ -333,8 +332,8 @@ void main() {
           const HomeHubScreen(),
           overrides: <Object>[
             screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
-            authProvider.overrideWith(
-              () => _FixedAuthNotifier(_userCityIdNoName),
+            clientEditProfileProvider.overrideWith(
+              () => _StubClientEditProfile(_userCityIdNoName),
             ),
             locationRepositoryProvider.overrideWith(
               (_) => const _FakeLocationRepository(<City>[_kyivCity]),
@@ -383,8 +382,8 @@ void main() {
         const HomeHubScreen(),
         overrides: <Object>[
           screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
-          authProvider.overrideWith(
-            () => _FixedAuthNotifier(_userCityAndDistrictNoNames),
+          clientEditProfileProvider.overrideWith(
+            () => _StubClientEditProfile(_userCityAndDistrictNoNames),
           ),
           locationRepositoryProvider.overrideWith(
             (_) => const _FakeLocationRepository(
