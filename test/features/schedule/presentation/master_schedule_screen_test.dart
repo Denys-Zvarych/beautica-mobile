@@ -759,14 +759,15 @@ class _ContainerListenable extends ChangeNotifier {
 List<RouteBase> _routes() => <RouteBase>[
   GoRoute(
     path: RouteNames.masterSchedule,
-    builder: (context, state) => MasterScheduleScreen(clock: _today),
+    builder: (context, state) => MasterScheduleScreen(clock: () => _today),
   ),
   // The REAL weekly-template editor the CTA now routes to (Phase 15.5).
   // It reads `weeklyScheduleProvider` (overridden per-test) and saves via
   // `WeeklyScheduleNotifier`, so navigating here stays hermetic.
   GoRoute(
     path: RouteNames.scheduleWeeklyEditor,
-    builder: (context, state) => WeeklyTemplateEditorScreen(clock: _today),
+    builder: (context, state) =>
+        WeeklyTemplateEditorScreen(clock: () => _today),
   ),
   // Deprecated legacy editor — kept routable so the auth guard stays exercised,
   // but it is no longer a CTA destination.
@@ -783,7 +784,8 @@ List<RouteBase> _routes() => <RouteBase>[
   // so the retired `SchedulePropagateStubScreen` is no longer wired here.
   GoRoute(
     path: RouteNames.schedulePropagate,
-    builder: (context, state) => WeeklyTemplateEditorScreen(clock: _today),
+    builder: (context, state) =>
+        WeeklyTemplateEditorScreen(clock: () => _today),
   ),
   GoRoute(
     path: RouteNames.masterProfile,
@@ -3656,6 +3658,98 @@ void main() {
 
         // Drain any keepAlive release timers still parked from the final fetches.
         await _drainKeepAliveTimers(tester);
+      },
+    );
+  });
+
+  // ── M6 — live-clock rollover hides the past-day edit affordances ────────────
+  //
+  // `_today` is now a LIVE getter (`_dateOnly(widget._clock?.call() ?? now)`),
+  // so the past-day gate (`_isPast`) follows a midnight rollover instead of
+  // freezing at mount. We mount with the live clock on the test "today" (the
+  // selected cell), then advance the injected clock past that day and drive a
+  // strip rebuild: the mount-time today is now PAST, so its edit pencil must
+  // disappear and its strip cell must render as past.
+  //
+  // RED-ON-PRE-FIX: with a frozen `_today` snapshot the advance is invisible —
+  // the mount-time today stays "today", so the pencil remains and the strip
+  // cell's `past` stays false, failing both assertions below.
+  group('MasterScheduleScreen — M6 live-clock rollover', () {
+    testWidgets(
+      'a rollover makes the mount-time today cell past → its pencil disappears '
+      'and the strip cell reports past',
+      (tester) async {
+        // Live clock starts on _today (2026-06-13, Sat; week Jun 8..14). All
+        // seven days are working so the selected day shows the edit pencil.
+        DateTime now = _today;
+        final List<EffectiveDay> days = _weekWith(
+          todayDay: _working,
+          filler: _working,
+        );
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.masterSchedule,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.masterSchedule,
+              builder: (context, state) =>
+                  MasterScheduleScreen(clock: () => now),
+            ),
+            // Kept routable so the day pencil / CTA have a destination.
+            GoRoute(
+              path: RouteNames.scheduleWeeklyEditor,
+              builder: (context, state) =>
+                  WeeklyTemplateEditorScreen(clock: () => now),
+            ),
+          ],
+        );
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: <Object>[
+              ..._editableData(days),
+              _fakeWorkingHours(),
+            ].cast(),
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Mount: today is selected, editable, NOT past → pencil shown; the
+        // mount-time today strip cell is not yet past.
+        expect(find.byKey(const Key('schedule-day-pencil')), findsOneWidget);
+        expect(
+          _stripCellForDay(tester, _today.day).past,
+          isFalse,
+          reason: 'the mount-time today is not past before the rollover',
+        );
+
+        // ── Cross midnight: the live clock now reads _today + 1 (Jun 14). ──
+        now = _today.add(const Duration(days: 1));
+
+        // Drive a strip + selected-day-panel rebuild through the live getter:
+        // select the NEW today (Jun 14) then re-select the OLD today (Jun 13).
+        await _selectStripDay(tester, now.day);
+        await _selectStripDay(tester, _today.day);
+
+        // The old today is PAST now → its edit pencil is gone (read-only) …
+        expect(
+          find.byKey(const Key('schedule-day-pencil')),
+          findsNothing,
+          reason:
+              'after the rollover the mount-time today is past → its edit '
+              'pencil must disappear (live _today getter, not a frozen snapshot)',
+        );
+        // … and the strip cell for the old today renders as past.
+        expect(
+          _stripCellForDay(tester, _today.day).past,
+          isTrue,
+          reason:
+              '_isPast(oldToday) must flip true once the clock crosses midnight',
+        );
       },
     );
   });

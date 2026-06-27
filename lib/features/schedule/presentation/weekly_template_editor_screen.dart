@@ -51,6 +51,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
+import '../domain/schedule_date_math.dart';
 import '../domain/schedule_model.dart';
 import '../domain/weekly_schedule.dart';
 import 'apply_schedule_sheet.dart';
@@ -91,13 +92,19 @@ enum _SaveGate {
 
 /// The full-screen weekly-template editor.
 class WeeklyTemplateEditorScreen extends ConsumerStatefulWidget {
-  const WeeklyTemplateEditorScreen({super.key, DateTime? clock})
+  const WeeklyTemplateEditorScreen({super.key, DateTime Function()? clock})
     : _clock = clock;
 
-  /// Injectable "now" (M6 / wall-clock decoupling): a fresh create anchors its
-  /// `validFrom` on this date. Defaults to `DateTime.now()` in production; tests
-  /// pass a fixed clock so the saved window is run-day independent.
-  final DateTime? _clock;
+  /// Injectable LIVE "now" source (M6 / wall-clock decoupling): a fresh create
+  /// anchors — and, at submit, re-anchors — its `validFrom` on the value this
+  /// returns. It is a callback (not a frozen snapshot) so `_today` is recomputed
+  /// on every read: a midnight rollover between picking the validity window and
+  /// pressing Save yields a fresh "today", letting the submit-time clamp correct
+  /// a now-stale cached `validFrom` instead of POSTing yesterday's date (which
+  /// the backend rejects with a 400 `@FutureOrPresent`). Defaults to
+  /// `DateTime.now()` in production; tests pass a callback over a mutable clock
+  /// they can advance between pick and Save to exercise the regression.
+  final DateTime Function()? _clock;
 
   @override
   ConsumerState<WeeklyTemplateEditorScreen> createState() =>
@@ -194,7 +201,7 @@ class _WeeklyTemplateEditorScreenState
   }
 
   DateTime get _today {
-    final DateTime c = widget._clock ?? DateTime.now();
+    final DateTime c = widget._clock?.call() ?? DateTime.now();
     return DateTime(c.year, c.month, c.day);
   }
 
@@ -489,6 +496,34 @@ class _WeeklyTemplateEditorScreenState
       return;
     }
 
+    // FIRST-CREATE STALE-DATE RE-ANCHOR (M6): the staged validity window caches
+    // a `validFrom` captured when the «Період дії графіка» preset was picked. If
+    // the master crosses midnight between picking it and pressing Save, that
+    // cached start is now YESTERDAY and the backend's `@FutureOrPresent` guard
+    // rejects the create with a 400. Re-anchor the staged window to a freshly
+    // recomputed today (clamping its end so it never precedes the new start),
+    // make the shift VISIBLE — the active-window card now reads today + a
+    // snackbar explains it — and bail this press rather than silently shifting
+    // the window. The master confirms by pressing Save again, which now persists
+    // a present-or-future `validFrom`.
+    final DateTimeRange? draft = _draftWindow;
+    if (existing == null && draft != null) {
+      final DateTime today = _today;
+      if (ScheduleDateMath(today: today).isPast(draft.start)) {
+        final DateTime end = draft.end.isBefore(today) ? today : draft.end;
+        setState(() => _draftWindow = DateTimeRange(start: today, end: end));
+        _onDayMutated();
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(l10n.weeklyEditorWindowReanchored(_ddmm(today))),
+            ),
+          );
+        return;
+      }
+    }
+
     setState(() => _saving = true);
     _saveGateNotifier.value = _saveGate;
     try {
@@ -630,13 +665,29 @@ class _WeeklyTemplateEditorScreenState
           );
         }(),
     ];
+    // SUBMIT-TIME CLAMP (M6): resolve `validFrom` against a FRESH today, never a
+    // value frozen at preset-pick time. First create draws it from the REQUIRED
+    // draft window; an existing template preserves its persisted start; the
+    // `_today` fallback only covers the throwaway sheet-base build. Whatever the
+    // source, a start that has fallen into the past (a draft cached before a
+    // midnight rollover, or a legacy window whose `validFrom` predates today) is
+    // clamped UP to today so the backend's `@FutureOrPresent` guard never 400s.
+    // `validTo` is then clamped so it never ends before the corrected start
+    // (a no-op for the current presets, but a guard against an inverted window).
+    final ScheduleDateMath dateMath = ScheduleDateMath(today: _today);
+    final DateTime candidateFrom =
+        existing?.validFrom ?? _draftWindow?.start ?? _today;
+    final DateTime validFrom = dateMath.isPast(candidateFrom)
+        ? dateMath.today
+        : candidateFrom;
+    DateTime? validTo = existing != null ? existing.validTo : _draftWindow?.end;
+    if (validTo != null && validTo.isBefore(validFrom)) {
+      validTo = validFrom;
+    }
     return WeeklySchedule(
       id: existing?.id,
-      // First create draws `validFrom`/`validTo` from the REQUIRED draft window
-      // (the [_save] guard guarantees it is set on the persist path). The
-      // `_today` / `null` fallbacks only cover the throwaway sheet-base build.
-      validFrom: existing?.validFrom ?? _draftWindow?.start ?? _today,
-      validTo: existing != null ? existing.validTo : _draftWindow?.end,
+      validFrom: validFrom,
+      validTo: validTo,
       days: templateDays,
     );
   }

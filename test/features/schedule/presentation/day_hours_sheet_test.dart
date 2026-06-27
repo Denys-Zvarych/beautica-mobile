@@ -63,6 +63,11 @@ final ScheduleRange _range = ScheduleRange(
 
 final DateTime _date = DateTime(2026, 6, 21);
 
+/// Fixed "today" injected into the sheet so its submit-time past-date guard is
+/// run-day independent (keeps these tests wall-clock free). Anchored on [_date]
+/// so the override target is today, never past.
+DateTime _testToday() => _date;
+
 WorkInterval _interval(int sh, int sm, int eh, int em) => WorkInterval(
   start: TimeOfDay(hour: sh, minute: sm),
   end: TimeOfDay(hour: eh, minute: em),
@@ -110,6 +115,7 @@ Future<void> _pumpSheet(
                   initialIntervals: initialIntervals ?? _currentIntervals(),
                   hasExistingOverride: hasExistingOverride,
                   initialDayOff: initialDayOff,
+                  clock: _testToday,
                 ),
                 child: const Text('open'),
               ),
@@ -762,6 +768,119 @@ void main() {
       },
     );
   });
+
+  // ── M6 — submit-time past-date guard (midnight rollover while open) ─────────
+  //
+  // The sheet is only ever OPENED for today/future days (the caller hides the
+  // pencil on past ones), but a midnight rollover WHILE the sheet sits open can
+  // turn the target [date] past between open and Save. A past `start` would 400
+  // at the backend (@FutureOrPresent). The fix threads a LIVE
+  // `DateTime Function()? clock` into the sheet and, at submit, re-validates the
+  // target date against a FRESH today: a now-past date shows the
+  // `schedulePastDayBlocked` snackbar and returns BEFORE `putOverride`.
+  //
+  // We advance the injected clock between open and Save (no new production seam —
+  // the dev made the clock live). RED-ON-PRE-FIX: without the submit-time guard
+  // the Save would PUT the override for the now-yesterday date, so
+  // `verifyNever(putOverride)` fails and the block snackbar never shows.
+  group('DayHoursSheet — M6 submit-time past-date guard (rollover)', () {
+    testWidgets(
+      'a rollover that turns the target date past between open and Save BLOCKS '
+      'the put and shows schedulePastDayBlocked — sheet stays open',
+      (tester) async {
+        final repo = _happyRepo();
+        // Live clock starts on the target date (today) and is advanced to the
+        // next day AFTER the sheet is open but BEFORE Save.
+        DateTime now = _date;
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: <Object>[
+              scheduleRepositoryProvider.overrideWithValue(repo),
+            ].cast(),
+            child: MaterialApp(
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+              home: Scaffold(
+                body: Builder(
+                  builder: (BuildContext context) => Center(
+                    child: ElevatedButton(
+                      key: const Key('open-sheet'),
+                      onPressed: () => DayHoursSheet.show(
+                        context,
+                        date: _date,
+                        weekdayFull: 'Неділя',
+                        dateLabel: '21 червня',
+                        range: _range,
+                        initialIntervals: _currentIntervals(),
+                        hasExistingOverride: false,
+                        initialDayOff: false,
+                        clock: () => now,
+                      ),
+                      child: const Text('open'),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.byKey(const Key('open-sheet')));
+        await tester.pumpAndSettle();
+
+        // ── Cross midnight while the sheet is open: today is now _date + 1, so
+        // the target [date] has fallen into the past. ──
+        now = _date.add(const Duration(days: 1));
+
+        // Save — the submit-time guard must block the PUT.
+        await tester.ensureVisible(find.byKey(const Key('override-save')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('override-save')));
+        await tester.pumpAndSettle();
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(DayHoursSheet)),
+        );
+        // The block snackbar is shown …
+        expect(
+          find.text(l10n.schedulePastDayBlocked),
+          findsOneWidget,
+          reason: 'a now-past target date must surface the blocked-day copy',
+        );
+        // … the override was NEVER put (the guard returns before persistence) …
+        verifyNever(() => repo.putOverride(any()));
+        // … and the sheet stays open (no dismiss, no success snackbar).
+        expect(find.byKey(const Key('override-save')), findsOneWidget);
+        expect(find.text(l10n.savedSnackbar), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'NO rollover (target date still today at Save) puts the override normally '
+      '— the guard does not block a still-valid date',
+      (tester) async {
+        // Control case: the clock never advances, so the target stays today and
+        // the put proceeds. Proves the guard is scoped to the rollover, not a
+        // blanket block. (The fixed-clock _pumpSheet already injects _testToday.)
+        final repo = _happyRepo();
+        await _pumpSheet(tester, repo: repo, initialDayOff: true);
+
+        // Resolve l10n while the sheet is still mounted (a successful save
+        // dismisses it).
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(DayHoursSheet)),
+        );
+
+        await tester.ensureVisible(find.byKey(const Key('override-save')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('override-save')));
+        await tester.pumpAndSettle();
+
+        verify(() => repo.putOverride(any())).called(1);
+        expect(find.text(l10n.schedulePastDayBlocked), findsNothing);
+      },
+    );
+  });
 }
 
 /// Pumps the sheet over an externally-built [container] (so the caller can hold
@@ -794,6 +913,7 @@ Future<void> _pumpSheetInContainer(
                   initialIntervals: _currentIntervals(),
                   hasExistingOverride: hasExistingOverride,
                   initialDayOff: initialDayOff,
+                  clock: _testToday,
                 ),
                 child: const Text('open'),
               ),
@@ -866,6 +986,7 @@ Future<void> _pumpSheetWithSink(
                     initialIntervals: initialIntervals ?? _currentIntervals(),
                     hasExistingOverride: hasExistingOverride,
                     initialDayOff: initialDayOff,
+                    clock: _testToday,
                   );
                   onResult(r);
                 },

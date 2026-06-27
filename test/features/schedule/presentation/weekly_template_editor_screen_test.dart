@@ -219,7 +219,7 @@ Future<ProviderContainer> _pump(
       GoRoute(
         path: RouteNames.scheduleWeeklyEditor,
         builder: (BuildContext context, GoRouterState state) =>
-            WeeklyTemplateEditorScreen(clock: _clock),
+            WeeklyTemplateEditorScreen(clock: () => _clock),
       ),
       GoRoute(
         path: RouteNames.masterSchedule,
@@ -1954,6 +1954,214 @@ void main() {
       },
     );
   });
+
+  // ── M6 — FIRST-CREATE midnight-rollover re-anchor (the headline bug) ────────
+  //
+  // THE stale-`validFrom` regression. A first-create POSTed a `validFrom`
+  // captured ONCE when the «Період дії графіка» preset was picked. Crossing
+  // midnight before Save turned that cached start into YESTERDAY, which the
+  // backend's `@FutureOrPresent` guard rejects with a 400. The fix makes the
+  // editor's clock a LIVE `DateTime Function()` (so `_today` recomputes), and at
+  // submit it: (1) re-anchors a now-past `_draftWindow` to a freshly-recomputed
+  // today, surfaces the `weeklyEditorWindowReanchored` snackbar, and BAILS the
+  // press WITHOUT persisting (the master confirms with a second Save); then a
+  // second Save persists a present `validFrom`. `_buildSchedule` additionally
+  // clamps a past `validFrom` up to today on the persist path (covers UPDATE).
+  //
+  // We advance time via the now-live clock seam — `_pumpWithClock` injects a
+  // callback over a mutable `now` the test mutates between the preset pick and
+  // Save. No new production seam is added (the dev made the clock live).
+  //
+  // RED-ON-PRE-FIX: revert the submit-time re-anchor/clamp and the FIRST Save
+  // persists immediately with the STALE picked start (yesterday) — so
+  // `saveCalled` is true after the first press and `savedSchedule.validFrom`
+  // equals the stale D, failing the "nothing persisted on first Save" and
+  // "validFrom == D+1" assertions below (and the reanchored snackbar never
+  // shows). The UPDATE-clamp case fails identically if the `_buildSchedule`
+  // past→today clamp is removed (it would persist the legacy 01.06 validFrom).
+  group('WeeklyTemplateEditorScreen — M6 first-create midnight rollover', () {
+    testWidgets(
+      'crossing midnight between picking a today-anchored window and Save '
+      're-anchors the window to the NEW today, shows the reanchored snackbar, '
+      'and persists NOTHING on that first Save',
+      (tester) async {
+        // D = 2026-06-09; advance to D+1 = 2026-06-10 before Save.
+        DateTime now = DateTime(2026, 6, 9);
+        final _RecordingWeekly weekly = _RecordingWeekly(
+          const <WeeklySchedule>[],
+        );
+        final ProviderContainer c = await _pumpWithClock(
+          tester,
+          overrides: _overridesFor(weekly),
+          clock: () => now,
+        );
+        addTearDown(c.dispose);
+        final AppLocalizations l10n = _l10n(tester);
+
+        // Toggle Monday ON (valid default hours) and pick the «Весь поточний
+        // місяць» preset under clock = D → staged window starts 09.06 (== D).
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+        await _pickThisMonthWindowViaCard(tester);
+
+        // The card reflects the staged window anchored at D (09.06–30.06).
+        expect(
+          find.text(l10n.weeklyEditorActiveWindowRange('09.06', '30.06')),
+          findsOneWidget,
+          reason: 'the staged window is anchored at D before the rollover',
+        );
+
+        // ── Cross midnight: the live clock now reads D+1. ──
+        now = DateTime(2026, 6, 10);
+
+        // FIRST Save — the staged start (09.06) is now past → re-anchor + bail.
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        // (a) NOTHING persisted on this first Save …
+        expect(
+          weekly.saveCalled,
+          isFalse,
+          reason:
+              'a now-past staged window must re-anchor + bail, NOT POST a '
+              'stale yesterday validFrom (the @FutureOrPresent 400 bug)',
+        );
+        expect(weekly.deleteCalled, isFalse);
+        // … the editor stays on screen (no navigation) …
+        expect(find.byType(WeeklyTemplateEditorScreen), findsOneWidget);
+        expect(find.byKey(const Key('schedule-stub')), findsNothing);
+        // … the reanchored snackbar explains the shift (resolved via l10n) …
+        expect(
+          find.text(l10n.weeklyEditorWindowReanchored('10.06')),
+          findsOneWidget,
+          reason: 'the master is told the window moved to the new today',
+        );
+        // … and the active-window card now starts D+1 (10.06), not the stale D.
+        expect(
+          find.text(l10n.weeklyEditorActiveWindowRange('10.06', '30.06')),
+          findsOneWidget,
+          reason: 'the re-anchored window now starts the new today (D+1)',
+        );
+        expect(
+          find.text(l10n.weeklyEditorActiveWindowRange('09.06', '30.06')),
+          findsNothing,
+          reason: 'the stale D-anchored window label is gone after re-anchor',
+        );
+      },
+    );
+
+    testWidgets(
+      'the SECOND Save (after the re-anchor) persists validFrom == the NEW '
+      'today (D+1), never the stale D',
+      (tester) async {
+        DateTime now = DateTime(2026, 6, 9);
+        final _RecordingWeekly weekly = _RecordingWeekly(
+          const <WeeklySchedule>[],
+        );
+        final ProviderContainer c = await _pumpWithClock(
+          tester,
+          overrides: _overridesFor(weekly),
+          clock: () => now,
+        );
+        addTearDown(c.dispose);
+
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+        await _pickThisMonthWindowViaCard(tester);
+
+        // Roll past midnight; the first Save re-anchors (persists nothing).
+        now = DateTime(2026, 6, 10);
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+        expect(
+          weekly.saveCalled,
+          isFalse,
+          reason: 'the first Save after the rollover only re-anchors + bails',
+        );
+
+        // Dismiss the reanchored snackbar so it no longer overlays the Save
+        // button at the bottom of the screen (otherwise the second tap lands on
+        // the snackbar, not the button).
+        ScaffoldMessenger.of(
+          tester.element(find.byType(WeeklyTemplateEditorScreen)),
+        ).hideCurrentSnackBar();
+        await tester.pumpAndSettle();
+
+        // SECOND Save — the re-anchored start (10.06) is present → persists.
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        expect(weekly.saveCalled, isTrue);
+        expect(weekly.savedScheduleId, isNull);
+        expect(
+          weekly.savedSchedule!.validFrom,
+          DateTime(2026, 6, 10),
+          reason:
+              'the persisted validFrom must be the NEW today (D+1), never the '
+              'stale picked D (09.06) that the backend would 400',
+        );
+        expect(weekly.savedSchedule!.validTo, DateTime(2026, 6, 30));
+        expect(
+          weekly.savedSchedule!.days[0].intervals,
+          isNotEmpty,
+          reason: 'the open Monday is carried into the persisted create',
+        );
+        // The create navigated back on success.
+        expect(find.byKey(const Key('schedule-stub')), findsOneWidget);
+        expect(find.byType(WeeklyTemplateEditorScreen), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'UPDATE path: _buildSchedule clamps an EXISTING template whose validFrom '
+      'is already in the past UP to today on save (@FutureOrPresent applies to '
+      'updates too)',
+      (tester) async {
+        // Fixed clock at the suite _clock (09.06); the template's validFrom
+        // (01.06) is already past → it must clamp to today on save.
+        final WeeklySchedule pastWindow = WeeklySchedule(
+          id: 'sched-1',
+          validFrom: DateTime(2026, 6, 1),
+          validTo: null,
+          days: <TemplateDay>[
+            for (int dow = 1; dow <= 7; dow++)
+              TemplateDay(
+                dayOfWeek: dow,
+                label: 'd$dow',
+                intervals: dow <= 5
+                    ? <WorkInterval>[_interval(9, 0, 18, 0)]
+                    : <WorkInterval>[],
+              ),
+          ],
+        );
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          pastWindow,
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        // A dirty edit (close Monday) → Save enables (existing template, no
+        // first-create window gate). Saving must clamp the past validFrom.
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        expect(weekly.saveCalled, isTrue);
+        expect(weekly.savedScheduleId, 'sched-1');
+        expect(
+          weekly.savedSchedule!.validFrom,
+          _clock,
+          reason:
+              'a past validFrom on an UPDATE must clamp UP to today — the '
+              '@FutureOrPresent guard rejects a past validFrom on PUT too',
+        );
+      },
+    );
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -2090,3 +2298,61 @@ IntervalEditorStrings _intervalStrings(AppLocalizations l10n) =>
       errBreaksOverlap: l10n.intervalEditorErrBreaksOverlap,
       errTimeNotAligned: l10n.scheduleErrTimeNotAligned,
     );
+
+/// Pumps the editor under a GoRouter with an ADVANCEABLE [clock] (the now-live
+/// `DateTime Function()` seam) so a test can cross midnight between interactions
+/// by mutating the clock's backing `now`. Mirrors [_pump] but threads the
+/// caller's clock instead of the fixed `_clock`. Returns the container for
+/// `addTearDown(container.dispose)`.
+Future<ProviderContainer> _pumpWithClock(
+  WidgetTester tester, {
+  required List<Object> overrides,
+  required DateTime Function() clock,
+}) async {
+  final ProviderContainer container = ProviderContainer(
+    overrides: overrides.cast(),
+  );
+  final GoRouter router = GoRouter(
+    initialLocation: RouteNames.scheduleWeeklyEditor,
+    routes: <RouteBase>[
+      GoRoute(
+        path: RouteNames.scheduleWeeklyEditor,
+        builder: (BuildContext context, GoRouterState state) =>
+            WeeklyTemplateEditorScreen(clock: clock),
+      ),
+      GoRoute(
+        path: RouteNames.masterSchedule,
+        builder: (BuildContext context, GoRouterState state) =>
+            const Scaffold(key: Key('schedule-stub')),
+      ),
+    ],
+  );
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(
+        routerConfig: router,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('uk'),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return container;
+}
+
+/// Opens the «Період дії графіка» sheet via the active-window card, picks the
+/// «Весь поточний місяць» preset (a TODAY-anchored window), and applies it. On a
+/// first-create this STAGES the chosen window into the editor's `_draftWindow`
+/// (the editor Save is the single commit point) — letting a test stage a window
+/// whose start is the clock's "today" at pick time, then advance the clock to
+/// exercise the submit-time re-anchor.
+Future<void> _pickThisMonthWindowViaCard(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('weekly-active-window-card')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('preset-this-month')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('btn-apply-schedule')));
+  await tester.pumpAndSettle();
+}

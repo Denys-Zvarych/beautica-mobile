@@ -79,11 +79,22 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     required this.initialDayOff,
     this.initialMode = WeekdayMode.interval,
     this.initialTimes = const <TimeOfDay>[],
+    this.clock,
   });
 
   /// The single calendar date this override targets (date-only). `start == end`
   /// for the built [ScheduleOverride].
   final DateTime date;
+
+  /// Injectable LIVE "now" source for the submit-time past-date guard. The sheet
+  /// is opened only for today/future days (the caller hides the pencil on past
+  /// ones), but a midnight rollover WHILE the sheet is open can turn the target
+  /// [date] past between open and Save. At save, [date] is re-validated against
+  /// the value this returns; a now-past date blocks the PUT rather than POSTing
+  /// yesterday (which the backend rejects). A callback (not a snapshot) so it is
+  /// recomputed at submit; `null` → `DateTime.now()` (production). Tests pass a
+  /// callback over a mutable clock to exercise the rollover.
+  final DateTime Function()? clock;
 
   /// Localised full weekday name (e.g. «Вівторок»), resolved by the host.
   final String weekdayFull;
@@ -131,6 +142,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     required bool initialDayOff,
     WeekdayMode initialMode = WeekdayMode.interval,
     List<TimeOfDay> initialTimes = const <TimeOfDay>[],
+    DateTime Function()? clock,
   }) {
     return showModalBottomSheet<DateTime>(
       context: context,
@@ -147,6 +159,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
         initialDayOff: initialDayOff,
         initialMode: initialMode,
         initialTimes: initialTimes,
+        clock: clock,
       ),
     );
   }
@@ -203,6 +216,30 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   Future<void> _save() async {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+
+    // SUBMIT-TIME PAST-DATE GUARD (M6): the sheet opens only for today/future
+    // days, but a midnight rollover WHILE it is open can turn [date] past
+    // between open and Save. Re-validate against a FRESH today and block the PUT
+    // for a now-past date — a past `start` would otherwise 400 at the backend.
+    final DateTime now = widget.clock?.call() ?? DateTime.now();
+    final DateTime today = DateTime(now.year, now.month, now.day);
+    final DateTime targetDate = DateTime(
+      widget.date.year,
+      widget.date.month,
+      widget.date.day,
+    );
+    if (targetDate.isBefore(today)) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            backgroundColor: BrandColors.error,
+            content: Text(l10n.schedulePastDayBlocked),
+          ),
+        );
+      return;
+    }
+
     if (_hasErrors) {
       messenger
         ..hideCurrentSnackBar()

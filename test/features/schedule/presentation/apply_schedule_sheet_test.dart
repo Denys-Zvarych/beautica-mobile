@@ -326,4 +326,113 @@ void main() {
       ),
     );
   });
+
+  // ── M6 — first-create returns the chosen range UNCLAMPED (clamp lives in the
+  //         editor's submit, not here — guards against a future double-clamp) ──
+  //
+  // The stale-`validFrom` fix moved the validFrom→today re-anchor/clamp to the
+  // WEEKLY EDITOR's submit (`_save` / `_buildSchedule`). On a FIRST-CREATE the
+  // Apply-schedule sheet must therefore STAGE the picked window verbatim — it
+  // pops the chosen `DateTimeRange` to the editor WITHOUT pulling `validFrom`
+  // forward to today. If a well-meaning change re-introduced the editor's clamp
+  // HERE too, a window picked to start in the future would come back clamped to
+  // today (a double-clamp) and this test would fail: it pins the start returned
+  // is exactly the picked future start, never `today`.
+  testWidgets(
+    'first-create (id == null): applying a custom FUTURE window pops the chosen '
+    'DateTimeRange UNCLAMPED — start is the picked day, not today',
+    (tester) async {
+      DateTimeRange? popped;
+      bool resolved = false;
+      final router = GoRouter(
+        initialLocation: '/',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/',
+            builder: (context, state) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  key: const Key('open-apply-sheet'),
+                  onPressed: () async {
+                    // id == null → first-create: the sheet returns the chosen
+                    // window as a draft rather than persisting it.
+                    final Object? r = await showApplyScheduleSheet(
+                      context,
+                      baseSchedule: _baseSchedule(id: null),
+                      today: _today,
+                    );
+                    resolved = true;
+                    popped = r is DateTimeRange ? r : null;
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Object>[
+            scheduleRepositoryProvider.overrideWithValue(repo),
+          ].cast(),
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('open-apply-sheet')));
+      await tester.pumpAndSettle();
+
+      // Pick a custom FUTURE window 24→28 May 2024 (both after today 22 May, in
+      // the first rendered month → no scrolling).
+      await tester.tap(find.byKey(const Key('apply-schedule-date-well')));
+      await tester.pumpAndSettle();
+      await tester.tap(_dayCell(24).first);
+      await tester.pumpAndSettle();
+      await tester.tap(_dayCell(28).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-range-picker-save')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-apply-schedule')));
+      await tester.pumpAndSettle();
+
+      // The sheet popped the staged window …
+      expect(resolved, isTrue);
+      expect(popped, isNotNull);
+      // … with the start UNCLAMPED — the picked future day (24 May), NOT today
+      // (22 May). A double-clamp here would pull it back to today.
+      expect(
+        popped!.start,
+        DateTime(2024, 5, 24),
+        reason:
+            'the sheet must return the picked start verbatim — the '
+            'validFrom→today clamp lives in the editor submit, not here',
+      );
+      expect(popped!.end, DateTime(2024, 5, 28));
+
+      // First-create staging never persists from the sheet.
+      verifyNever(
+        () => repo.upsertWeeklySchedule(
+          any(),
+          scheduleId: any(named: 'scheduleId'),
+        ),
+      );
+    },
+  );
 }
+
+/// A tappable day cell in the [PeriodRangePicker] for the given [day] number.
+/// Day cells are `GestureDetector`s wrapped in a button [Semantics] whose
+/// `label` is the day-of-month string; matched by that label (M2 — keyed on the
+/// int, not on a localised string).
+Finder _dayCell(int day) => find.byWidgetPredicate(
+  (Widget w) =>
+      w is Semantics &&
+      (w.properties.button ?? false) &&
+      w.properties.label == '$day',
+);

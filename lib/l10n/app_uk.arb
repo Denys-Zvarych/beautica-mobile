@@ -2090,6 +2090,17 @@
   "@scheduleValidityRangeRequired": {
     "description": "Submit-time inline error under the active-window card on the weekly-template editor when the user presses Save on a first-time create without choosing the (required) validity period. Save stays enabled; this error is the signal of the failed attempt."
   },
+  "weeklyEditorWindowReanchored": "Період графіка оновлено: діє з {from}",
+  "@weeklyEditorWindowReanchored": {
+    "description": "Snackbar shown on the weekly-template editor when the staged validity-window start (picked earlier) has fallen into the past — e.g. the master crossed midnight between picking the period and pressing Save. The window is re-anchored to today so the backend's future-or-present guard never rejects the create; {from} is the corrected DD.MM start date. Save is left for the master to confirm rather than silently shifting the window.",
+    "placeholders": {
+      "from": { "type": "String" }
+    }
+  },
+  "schedulePastDayBlocked": "Ця дата вже минула. Оберіть сьогодні або пізніший день.",
+  "@schedulePastDayBlocked": {
+    "description": "Snackbar shown when the master tries to save a per-date override for a day that has become past (e.g. midnight rolled over while the override sheet was open). The save is blocked so a past date never reaches the backend."
+  },
   "weeklyEditorDayToggleSemantic": "{day} — робочий день",
   "@weeklyEditorDayToggleSemantic": {
     "description": "Accessibility label for the per-weekday open/closed toggle in the weekly-template editor (Phase 15.5).",

@@ -48,15 +48,20 @@ import 'widgets/slot_colors.dart';
 
 /// The calendar-first Master Schedule screen.
 class MasterScheduleScreen extends ConsumerStatefulWidget {
-  const MasterScheduleScreen({super.key, DateTime? clock}) : _clock = clock;
+  const MasterScheduleScreen({super.key, DateTime Function()? clock})
+    : _clock = clock;
 
-  /// Injectable "now" (wall-clock decoupling, mirroring
+  /// Injectable LIVE "now" source (wall-clock decoupling, mirroring
   /// [WeeklyTemplateEditorScreen]): "today" — which day the calendar selects on
   /// mount, anchors its month/week request on, and gates past days against —
-  /// resolves from this. Defaults to `DateTime.now()` in production; tests pass
-  /// a fixed clock so the rendered calendar (and its goldens) are run-day
+  /// resolves from this. It is a callback (not a frozen snapshot) so the
+  /// past-day gate ([_isPast]) and the add-hours affordance stay correct across
+  /// a midnight rollover: the cell that was "today" when the screen mounted
+  /// becomes past (and non-addable) once the day turns over. Defaults to
+  /// `DateTime.now()` in production; tests pass a callback over a mutable clock
+  /// they can advance so the rendered calendar (and its goldens) stay run-day
   /// independent.
-  final DateTime? _clock;
+  final DateTime Function()? _clock;
 
   @override
   ConsumerState<MasterScheduleScreen> createState() =>
@@ -76,9 +81,12 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     'Нд',
   ];
 
-  /// "Today" anchored to the injected clock (or the device date in production),
-  /// date-only. Used for past-day gating and today-selection on mount.
-  late final DateTime _today = _dateOnly(widget._clock ?? DateTime.now());
+  /// "Today" resolved LIVE from the injected clock (or the device date in
+  /// production), date-only — recomputed on every read so the past-day gate
+  /// ([_isPast]) and the add-hours affordance follow a midnight rollover instead
+  /// of freezing the mount-time date. The initial calendar anchors ([_selected],
+  /// [_visibleMonth], [_weekStart]) intentionally capture this once on mount.
+  DateTime get _today => _dateOnly(widget._clock?.call() ?? DateTime.now());
 
   /// Selected date as a notifier (HIGH-1): day selection updates this WITHOUT a
   /// `setState`, so only the listeners — the two affected week-strip pills and
@@ -256,6 +264,9 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
           ? WeekdayMode.explicitTimes
           : WeekdayMode.interval,
       initialTimes: day.times,
+      // Thread the LIVE clock so the sheet's submit-time past-date guard sees a
+      // midnight rollover that happens while the sheet is open.
+      clock: widget._clock,
     );
     // Plain dismiss (close / barrier / validation bail) → nothing changed.
     if (changed == null || !mounted) return;
