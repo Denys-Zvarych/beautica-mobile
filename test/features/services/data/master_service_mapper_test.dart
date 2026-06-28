@@ -807,6 +807,55 @@ void main() {
     });
   });
 
+  // ── J-SDR. fromServiceDefinitionDto broken-contract guard ─────────────────
+  //
+  // Symmetric counterpart to group J: the OTHER mapper entry point
+  // (fromServiceDefinitionDto, used by the PATCH /services/{id} update path)
+  // applies the same guard — a null/empty ServiceDefinitionResponse.id is a
+  // broken backend contract because the serviceDefId is required downstream for
+  // routing future mutations. These cases pin that observable failure so a
+  // refactor of the kDebugMode-gated log cannot silently turn the guard into a
+  // no-op. We assert the failure (and statusCode null for the null-id case),
+  // never any log text.
+  group('J-SDR. fromServiceDefinitionDto broken-contract guard', () {
+    test('J-3. null id throws ServerFailure(statusCode: null)', () {
+      // Built manually (not via buildDef, whose id param is non-null) so the
+      // id is genuinely unset/null on the builder.
+      final def =
+          (ServiceDefinitionResponseBuilder()
+                // id intentionally left unset (null on the builder)
+                ..name = 'Манікюр'
+                ..baseDurationMinutes = 60
+                ..priceType = ServiceDefinitionResponsePriceTypeEnum.FIXED
+                ..priceMin = 500
+                ..priceDisplay = '500 грн'
+                ..isActive = true)
+              .build();
+
+      expect(
+        () => MasterServiceMapper.fromServiceDefinitionDto(
+          def,
+          assignmentId: 'assignment-abc',
+        ),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', null),
+        ),
+      );
+    });
+
+    test('J-3b. empty-string id throws ServerFailure(statusCode: null)', () {
+      final def = buildDef(id: '');
+
+      expect(
+        () => MasterServiceMapper.fromServiceDefinitionDto(
+          def,
+          assignmentId: 'assignment-abc',
+        ),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
+  });
+
   // ── ST. Phase 16.3 — serviceTypeId create wiring + response round-trip ────
 
   group('ST. toCreateRequest — serviceTypeId wiring', () {
