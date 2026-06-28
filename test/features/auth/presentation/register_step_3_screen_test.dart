@@ -42,6 +42,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/register_result.dart';
@@ -1483,22 +1484,46 @@ void main() {
     await tester.pump(); // addPostFrameCallback flush
     await tester.pumpAndSettle();
 
-    // The hero tile is the size-16 locationMarker AppIcon inside the 72×72
-    // neumorphic Container; the locality-cascade pins are larger (size 20), so
-    // matching on size pins us to the top tile without coupling to any glyph
-    // name or locale.
+    // The hero tile and the LocalityCascade pins share the same asset
+    // (locationMarker), so the asset alone is not a stable discriminator.
+    // Anchor on the hero's own Key('register-step3-location-hero') and assert
+    // the AppIcon rendered inside that 72×72 neumorphic Container — the hero
+    // glyph is the larger 30 px accent marker (matching steps 1 & 2), distinct
+    // from the cascade rows' 20 px pins.
+    final heroTile = find.byKey(const Key('register-step3-location-hero'));
     expect(
-      find.byWidgetPredicate(
-        (w) =>
-            w is AppIcon &&
-            w.asset == BeauticaAssetIcons.locationMarker &&
-            w.size == 16,
-      ),
+      heroTile,
       findsOneWidget,
       reason:
-          'RegisterStep3Screen must render the locationMarker AppIcon SVG '
-          '(72×72 neumorphic icon tile) at the top of the screen.',
+          'RegisterStep3Screen must render the 72×72 neumorphic hero icon '
+          'tile keyed register-step3-location-hero at the top of the screen.',
     );
+
+    // The hero Container is a 72×72 box — the icon-tile style (not a
+    // VelvetHeader logo / not a full-width banner).
+    final heroBox = tester.widget<Container>(heroTile);
+    expect(heroBox.constraints?.maxHeight, 72);
+    expect(heroBox.constraints?.maxWidth, 72);
+
+    // …and its single child is the locationMarker AppIcon SVG.
+    final heroIcon = tester.widget<AppIcon>(
+      find.descendant(of: heroTile, matching: find.byType(AppIcon)),
+    );
+    expect(
+      heroIcon.asset,
+      BeauticaAssetIcons.locationMarker,
+      reason: 'Hero tile must render the locationMarker SVG glyph.',
+    );
+    expect(
+      heroIcon.size,
+      30,
+      reason:
+          'Hero glyph must render at the 30 px accent size (matching steps 1 '
+          '& 2 hero tiles), not a full-box or shrunk glyph.',
+    );
+
+    // No VelvetHeader logo on Step 3 — the icon tile replaces it.
+    expect(find.byType(VelvetHeader), findsNothing);
   });
 
   // ── fetchOblasts() throws during initState prefetch ───────────────────────

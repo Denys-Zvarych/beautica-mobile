@@ -481,6 +481,11 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
           // ── Location icon tile (72×72 neumorphic) + wizard chrome ─────────
           Center(
             child: Container(
+              // Stable discriminator for the hero tile. The hero glyph shares
+              // the locationMarker asset with the LocalityCascade pins, so the
+              // key (not the size) is what tests anchor on. The glyph itself is
+              // centred at size 30 to match the steps 1 & 2 hero tiles.
+              key: const Key('register-step3-location-hero'),
               height: 72,
               width: 72,
               decoration: const BoxDecoration(
@@ -490,10 +495,12 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
                 ),
                 boxShadow: VelvetShadows.extrudedSmall,
               ),
-              child: const AppIcon(
-                BeauticaAssetIcons.locationMarker,
-                color: BrandColors.accent,
-                size: 16,
+              child: const Center(
+                child: AppIcon(
+                  BeauticaAssetIcons.locationMarker,
+                  color: BrandColors.accent,
+                  size: 30,
+                ),
               ),
             ),
           ),
