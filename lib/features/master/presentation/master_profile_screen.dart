@@ -307,9 +307,13 @@ class _ProfileBody extends StatelessWidget {
     Animation<Offset> slideAnim,
     Widget child,
   ) {
-    return FadeTransition(
-      opacity: fadeAnim,
-      child: SlideTransition(position: slideAnim, child: child),
+    // PERF: RepaintBoundary isolates each reveal section's per-frame fade/slide
+    // repaint so the entrance animation does not invalidate sibling sections.
+    return RepaintBoundary(
+      child: FadeTransition(
+        opacity: fadeAnim,
+        child: SlideTransition(position: slideAnim, child: child),
+      ),
     );
   }
 

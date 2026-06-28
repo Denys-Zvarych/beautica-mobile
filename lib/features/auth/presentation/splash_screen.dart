@@ -191,7 +191,9 @@ class _SplashScreenState extends State<SplashScreen> {
           children: <Widget>[
             VelvetLogo(compact: true, showWordmark: false),
             SizedBox(height: _bToWordmarkGap),
-            _SplashWordmark(),
+            // PERF: isolate the Lottie wordmark's per-frame repaints so the
+            // reveal animation does not dirty the static B-pillow sibling above.
+            RepaintBoundary(child: _SplashWordmark()),
           ],
         ),
       ),
