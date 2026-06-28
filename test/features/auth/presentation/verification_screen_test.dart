@@ -3126,6 +3126,256 @@ void main() {
         );
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Test 25 — SALON_OWNER POST /salons FAILS with a generic ServerFailure:
+    //           the inline error banner renders, the user is NOT navigated
+    //           away from the verification screen, and the verify button is
+    //           re-enabled so they can retry.
+    //
+    // This is the missing ERROR-state guard for the SALON_OWNER salon-creation
+    // path (Tests 16 + 17 only cover the success path). OTP verification
+    // succeeds (FakeAuthRepository default), then _saveProviderProfile() calls
+    // SalonRepository.create which throws a typed Failure — the catch in
+    // _submit() must surface it via _setInlineError and keep the user on the
+    // screen (never silently land on /done → /home with an un-created salon).
+    //
+    // ServerFailure exercises the `error is Failure` branch of _setInlineError
+    // (the realistic outcome of any 5xx / transport error on POST /salons —
+    // see HttpSalonRepository._mapDioException).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '25. SALON_OWNER POST /salons ServerFailure: inline banner shown, stays on '
+      'verification screen (no /home), verify button re-enabled for retry',
+      (tester) async {
+        final repo = FakeAuthRepository(); // verifyEmail succeeds by default
+        final salonRepo = _MockSalonRepository();
+        // POST /salons rejected by the backend with a 5xx → ServerFailure.
+        when(
+          () => salonRepo.create(dto: any(named: 'dto')),
+        ).thenThrow(const ServerFailure(statusCode: 500));
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            salonRepositoryProvider.overrideWith((_) => salonRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Seed a complete SALON_OWNER draft so _saveProviderProfile reaches the
+        // SalonRepository.create call (city present → no missing-city short-circuit).
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.salonOwner);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Олена',
+          lastName: 'Мороз',
+          phone: '+380671234567',
+          salonName: 'Salon Lumière',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Хрещатик',
+          buildingNo: '12А',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        // Cannot pumpAndSettle: the resend cooldown timer (reset on the post-OTP
+        // save failure) fires setState every second and never settles.
+        await tester.pump(); // begin async (verifyEmail + create)
+        await tester.pump(); // microtasks (create throws → catch fires)
+        await tester.pump(const Duration(milliseconds: 50)); // animations
+
+        // create() was actually invoked (sanity — we tested the real path).
+        verify(() => salonRepo.create(dto: any(named: 'dto'))).called(1);
+
+        // The user must NOT have navigated away — no /home (and the verify
+        // submit button is still in the tree).
+        expect(
+          find.text('home'),
+          findsNothing,
+          reason:
+              'A failed POST /salons must keep the user on the verification '
+              'screen — never silently land on /done → /home with no salon created.',
+        );
+        expect(
+          find.byKey(const ValueKey<String>('verify_submit')),
+          findsOneWidget,
+        );
+
+        // The inline error banner must render with the generic server copy.
+        expect(
+          find.byType(AuthBanner),
+          findsOneWidget,
+          reason:
+              'A ServerFailure from POST /salons must surface an AuthBanner via '
+              '_setInlineError (the `error is Failure` branch).',
+        );
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(AuthBanner)),
+        );
+        expect(
+          tester
+              .widgetList<Text>(find.byType(Text))
+              .any((t) => t.data == l10n.errServer),
+          isTrue,
+          reason:
+              'ServerFailure.userMessage resolves to l10n.errServer — that copy '
+              'must appear in the inline banner. '
+              'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
+        );
+
+        // Retry must be possible: the OTP is still filled and the screen is no
+        // longer loading, so the verify button is re-enabled (onPressed non-null).
+        final btn = tester.widget<NeumorphicButton>(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        expect(
+          btn.onPressed,
+          isNotNull,
+          reason:
+              'After a failed POST /salons the verify button must be re-enabled '
+              'so the user can retry the save (OTP already consumed).',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 26 — SALON_OWNER POST /salons FAILS with a ValidationFailure:
+    //           the server field-rejection message is surfaced inline and the
+    //           user stays on the verification screen.
+    //
+    // Distinct reachable branch of _setInlineError: `error is ValidationFailure`
+    // → buildFieldErrorBanner (empty here) → falls back to the server message.
+    // Backend rejects e.g. a duplicate salon name on POST /salons; the offending
+    // field lives on a previous register step, so the user must see why.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '26. SALON_OWNER POST /salons ValidationFailure: server field message shown '
+      'inline, stays on verification screen',
+      (tester) async {
+        const serverMsg = 'Назва салону вже зайнята';
+        final repo = FakeAuthRepository();
+        final salonRepo = _MockSalonRepository();
+        when(() => salonRepo.create(dto: any(named: 'dto'))).thenThrow(
+          const ValidationFailure(fieldErrors: {}, serverMessage: serverMsg),
+        );
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            salonRepositoryProvider.overrideWith((_) => salonRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final notifier = container.read(registerDraftProvider.notifier)
+          ..start(UserRole.salonOwner);
+        notifier.updateStep1(
+          email: _testEmail,
+          password: 'Password1!',
+          confirmPassword: 'Password1!',
+        );
+        notifier.updateStep2(
+          firstName: 'Олена',
+          lastName: 'Мороз',
+          phone: '+380671234567',
+          salonName: 'Salon Lumière',
+        );
+        notifier.updateStep3(
+          oblastCode: 'oblast-1',
+          cityId: 'city-1',
+          districtId: 'district-1',
+          street: 'вул. Хрещатик',
+          buildingNo: '12А',
+        );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('verify_submit')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey<String>('verify_submit')));
+        await tester.pump(); // begin async
+        await tester.pump(); // microtasks (create throws → catch fires)
+        await tester.pump(const Duration(milliseconds: 50)); // animations
+
+        verify(() => salonRepo.create(dto: any(named: 'dto'))).called(1);
+
+        // Stays on the verification screen — no navigation to /home.
+        expect(
+          find.text('home'),
+          findsNothing,
+          reason:
+              'A ValidationFailure on POST /salons must keep the user on the '
+              'verification screen, not navigate to /home.',
+        );
+
+        // The banner renders the server-supplied field message (empty fieldErrors
+        // → buildFieldErrorBanner returns null → serverMessage fallback).
+        expect(find.byType(AuthBanner), findsOneWidget);
+        expect(
+          tester
+              .widgetList<Text>(find.byType(Text))
+              .any((t) => t.data == serverMsg),
+          isTrue,
+          reason:
+              'The ValidationFailure.serverMessage ("$serverMsg") must surface '
+              'in the inline banner when no field-level errors are present. '
+              'Available texts: ${tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).toList()}',
+        );
+      },
+    );
   });
 }
 
