@@ -461,6 +461,38 @@ void main() {
     });
   });
 
+  // ── transport-type mapping: badCertificate → NetworkFailure ─────────────────
+  //
+  // A TLS / certificate-validation failure (DioExceptionType.badCertificate) is
+  // a transport-layer security problem, NOT a retryable 5xx. The shared
+  // _mapDioException classifies it alongside the connectivity failures
+  // (NetworkFailure) so the UI never invites a "try again" against an untrusted
+  // connection — it must NOT surface as a recoverable ServerFailure. listMyServices()
+  // routes every DioException through that shared mapper, so it pins the contract
+  // every list/get/update/deactivate path inherits.
+
+  group('badCertificate transport mapping', () {
+    DioException badCertificate() => DioException(
+      requestOptions: RequestOptions(path: _listPath),
+      type: DioExceptionType.badCertificate,
+    );
+
+    test('badCertificate → NetworkFailure (NOT ServerFailure)', () async {
+      when(() => serviceApi.getMyServices()).thenThrow(badCertificate());
+
+      await expectLater(
+        repository.listMyServices(),
+        throwsA(
+          isA<NetworkFailure>().having(
+            (f) => f,
+            'is not a ServerFailure',
+            isNot(isA<ServerFailure>()),
+          ),
+        ),
+      );
+    });
+  });
+
   // ── 3. create — happy path ─────────────────────────────────────────────────
 
   group('create', () {

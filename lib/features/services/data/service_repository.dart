@@ -717,8 +717,18 @@ final class HttpServiceRepository implements ServiceRepository {
         }
         if (statusCode == 404) return NotFoundFailure(cause: e);
         return ServerFailure(statusCode: statusCode, cause: e);
-      case DioExceptionType.cancel:
+      // A TLS / certificate-validation failure is a transport-layer security
+      // problem, NOT a transient 5xx. Classifying it as a [ServerFailure] would
+      // make a man-in-the-middle / broken-trust-chain error indistinguishable
+      // from a retryable backend hiccup — the UI would invite the user to
+      // "try again" against a connection that should not be trusted. Map it
+      // alongside the connectivity failures ([NetworkFailure]) so it surfaces as
+      // a connection problem and never looks like a recoverable server error.
+      // (This only changes error CLASSIFICATION; certificate validation itself
+      // is unchanged — it stays enforced by the Dio/HttpClient trust chain.)
       case DioExceptionType.badCertificate:
+        return NetworkFailure(cause: e);
+      case DioExceptionType.cancel:
       case DioExceptionType.unknown:
         return ServerFailure(statusCode: statusCode, cause: e);
     }

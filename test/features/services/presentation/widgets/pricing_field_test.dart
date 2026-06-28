@@ -21,6 +21,7 @@
 //                       whole-well opaque tap target.
 //   TAP-DISABLED-NOP   Tap on a disabled well does NOT grant focus (onTap:null).
 
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -310,6 +311,80 @@ void main() {
       );
       // The error icon must accompany it.
       expect(find.byIcon(Icons.error_outline_rounded), findsWidgets);
+    },
+  );
+
+  // ── errorRing — ring WITHOUT a duplicate inline message (max well) ─────────
+  //
+  // Change under test (errorRing bool replacing the former empty-string ('')
+  // errorText sentinel): in RANGE mode the cross-field "max > min" message is
+  // rendered ONCE beneath the Від/До pair. The "max" well must show the recessed
+  // error RING (NeumorphicInset.hasError == true) WITHOUT rendering its own
+  // duplicate inline message row beneath it.
+  //
+  // The keyed widget for each well is the NeumorphicInset itself (it carries
+  // widget.fieldKey), so we read NeumorphicInset.hasError directly — a structural
+  // assertion that survives any restyle, unlike a golden.
+  //
+  // Three observable facts pin the branch:
+  //   1. max well NeumorphicInset.hasError == true  → the error ring is on.
+  //   2. min well NeumorphicInset.hasError == false → only the offending field
+  //      rings (minError is null; rangeError must NOT bleed onto the min ring).
+  //   3. the error message renders EXACTLY once (findsOneWidget) → the max well
+  //      shows the ring only, with no duplicate message under it (the former ''
+  //      sentinel would have rendered an empty inline row; the new bool must not).
+
+  testWidgets(
+    'B1-RANGE-ERROR-RING: range error rings the max well WITHOUT a duplicate '
+    'inline message; the min well stays unringed and the message renders once',
+    (tester) async {
+      // The form passes l10n.errPriceMaxGtMin as the rangeError on bad input
+      // (max < min); resolve it off-tree so the literal is never hardcoded.
+      final AppLocalizations l10nUk = lookupAppLocalizations(
+        const Locale('uk'),
+      );
+
+      await _pumpField(
+        tester,
+        mode: ServicePriceType.range,
+        rangeError: l10nUk.errPriceMaxGtMin,
+      );
+      await tester.pumpAndSettle();
+
+      // 1. The "max" well carries the error ring.
+      final NeumorphicInset maxWell = tester.widget<NeumorphicInset>(
+        find.byKey(const Key('pricing-range-max')),
+      );
+      expect(
+        maxWell.hasError,
+        isTrue,
+        reason:
+            'errorRing must drive NeumorphicInset.hasError on the max well so '
+            'the offending field shows the recessed error ring',
+      );
+
+      // 2. The "min" well must NOT ring — minError is null and the cross-field
+      //    rangeError only flags the max field.
+      final NeumorphicInset minWell = tester.widget<NeumorphicInset>(
+        find.byKey(const Key('pricing-range-min')),
+      );
+      expect(
+        minWell.hasError,
+        isFalse,
+        reason:
+            'the cross-field range error must ring only the max well, not the '
+            'min well (minError is null)',
+      );
+
+      // 3. The cross-field message renders exactly once — the max well shows the
+      //    ring only, with NO duplicate inline message row beneath it.
+      expect(
+        find.text(l10nUk.errPriceMaxGtMin),
+        findsOneWidget,
+        reason:
+            'the "max > min" message must appear once (beneath the pair); the '
+            'ringed max well must not render its own duplicate inline message',
+      );
     },
   );
 
