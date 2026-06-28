@@ -81,7 +81,7 @@ class SalonResultCard extends StatelessWidget {
                 children: <Widget>[
                   Text(
                     name,
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: VelvetText.subheading(),
                   ),

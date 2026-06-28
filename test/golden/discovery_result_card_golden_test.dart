@@ -9,6 +9,13 @@
 // Captured across the three phone widths {320, 360, 414} at scale 1.0 so the
 // Expanded text column's truncation/wrap is exercised at the narrow end.
 //
+// Capture height: the constraint is width-only (BoxConstraints.tightFor(width:))
+// so each card is goldened at its NATURAL height — exactly as it lays out in the
+// production discovery list, which is an UNCONSTRAINED vertical scroll view. A
+// fixed-height box (the former Size(width, 200)) would clip a 2-line name and
+// bake a RenderFlex-overflow stripe into the master; the unconstrained height
+// lets a long name wrap to its allowed maxLines: 2 with no overflow.
+//
 // The cards watch [favoriteToggleProvider], which itself watches [authProvider];
 // we override auth with a settled authenticated session so the card resolves
 // deterministically and never touches a real Dio/auth path. The heart's
@@ -131,7 +138,7 @@ void main() {
     goldenTest(
       'discovery master card ${w}dp x1.0',
       fileName: 'discovery_master_card_${w}_1x',
-      constraints: BoxConstraints.tight(Size(width, 200)),
+      constraints: BoxConstraints.tightFor(width: width),
       textScaleFactor: 1.0,
       pumpWidget: goldenPumpWidget(overrides: _overrides(), width: width),
       builder: () => _host(width, const MasterResultCard(master: _master)),
@@ -140,7 +147,7 @@ void main() {
     goldenTest(
       'discovery master card (no services) ${w}dp x1.0',
       fileName: 'discovery_master_card_no_services_${w}_1x',
-      constraints: BoxConstraints.tight(Size(width, 200)),
+      constraints: BoxConstraints.tightFor(width: width),
       textScaleFactor: 1.0,
       pumpWidget: goldenPumpWidget(overrides: _overrides(), width: width),
       builder: () =>
@@ -150,7 +157,7 @@ void main() {
     goldenTest(
       'discovery salon card ${w}dp x1.0',
       fileName: 'discovery_salon_card_${w}_1x',
-      constraints: BoxConstraints.tight(Size(width, 200)),
+      constraints: BoxConstraints.tightFor(width: width),
       textScaleFactor: 1.0,
       pumpWidget: goldenPumpWidget(overrides: _overrides(), width: width),
       builder: () => _host(width, const SalonResultCard(salon: _salon)),

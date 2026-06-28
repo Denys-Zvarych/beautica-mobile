@@ -2,13 +2,14 @@
 //
 // A horizontal rail of 80dp-wide master mini-cards. Each shows:
 //   • gradient avatar with initials (HubPhoto)
-//   • name (1 line)
+//   • name (up to 2 lines so full name+surname shows)
 //   • lastServiceName (1 line)
 //   • star rating + count
 //   • heart-filled badge in top-right → unlike (optimistic DELETE via notifier)
 //
 // Ported verbatim from `_FavoriteMastersSection` + `_MasterMiniCard` in the
-// approved preview. Favorites rail height is locked at 140dp (preview value).
+// approved preview. Favorites rail base height was 140dp (preview value),
+// raised to 158dp to fit a 2-line name without overflow.
 //
 // When [masters] is empty, renders the HubEmptyState.
 
@@ -36,15 +37,20 @@ class FavoriteMastersCard extends ConsumerWidget {
   final List<FavoriteMasterItem> masters;
   final int totalCount;
 
-  static const double _railHeight = 140;
+  // Base height: avatar (76) + spacing + last service (1 line) + rating (1 line)
+  // + name (now up to 2 lines so full name+surname shows, e.g. "Олександра
+  // Зварич"). The +18 over the original 140 absorbs one extra wrapped name line
+  // (fontSize 12) so the fixed-height rail never RenderFlex-overflows.
+  static const double _railHeight = 158;
 
-  // Overflow-hardening: the avatar is fixed (76dp) but the three lines below it
-  // (name, last service, rating) grow with the (clamped) text scale. Add the
-  // scaled text headroom on top of the fixed base so the inner Column never
-  // overflows at textScale up to 1.3, without redesigning the rail.
+  // Overflow-hardening: the avatar is fixed (76dp) but the lines below it (name
+  // up to 2 lines, last service, rating) grow with the (clamped) text scale.
+  // Add the scaled text headroom on top of the fixed base so the inner Column
+  // never overflows at textScale up to 1.3, without redesigning the rail.
   static double _scaledTextHeadroom(BuildContext context) {
     final double scale = MediaQuery.textScalerOf(context).scale(1.0);
-    const double textLinesBase = 36; // name (12) + service (10.5) + rating (13)
+    // name (12 ×2 lines) + service (10.5) + rating (13)
+    const double textLinesBase = 48;
     return ((scale - 1.0).clamp(0.0, 0.3)) * textLinesBase + 4;
   }
 
@@ -180,7 +186,7 @@ class _MasterMiniCard extends StatelessWidget {
             const SizedBox(height: VelvetSpacing.xs + 2),
             Text(
               master.name,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: _nameStyle,
             ),

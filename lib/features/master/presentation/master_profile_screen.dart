@@ -361,6 +361,9 @@ class _ProfileBody extends StatelessWidget {
                         displayName,
                         key: const Key('master-profile-name'),
                         style: VelvetText.displayName(),
+                        maxLines: 2,
+                        softWrap: true,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: VelvetSpacing.xs + 2),
                       RoleChip(

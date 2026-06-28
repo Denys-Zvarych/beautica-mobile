@@ -97,6 +97,8 @@ class HomeProfileCard extends StatelessWidget {
                 profile.fullName,
                 key: const Key('home_profile_name'),
                 style: _nameStyle,
+                maxLines: 2,
+                softWrap: true,
                 overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: VelvetSpacing.sm + 2),

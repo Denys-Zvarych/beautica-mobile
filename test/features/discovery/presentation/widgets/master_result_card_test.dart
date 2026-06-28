@@ -26,6 +26,7 @@ import 'package:beautica_mobile/features/favorites/application/favorite_toggle_n
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/pump_app.dart';
@@ -56,10 +57,12 @@ MasterSearchItem _master({
   List<String> serviceNames = const <String>[],
   String? servicesLine,
   String? matchedServicesLine,
+  String firstName = 'Олена',
+  String lastName = 'Коваль',
 }) => MasterSearchItem(
   masterId: 'master-1',
-  firstName: 'Олена',
-  lastName: 'Коваль',
+  firstName: firstName,
+  lastName: lastName,
   avatarUrl: null,
   avgRating: 4.8,
   reviewCount: 12,
@@ -76,13 +79,42 @@ MasterSearchItem _master({
   matchedServicesLine: matchedServicesLine,
 );
 
-Future<void> _pump(WidgetTester tester, MasterSearchItem master) {
+Future<void> _pump(
+  WidgetTester tester,
+  MasterSearchItem master, {
+  double? width,
+  double? textScaleFactor,
+}) {
   return tester.pumpApp(
     Scaffold(body: MasterResultCard(master: master)),
     overrides: <Object>[
       favoriteToggleProvider.overrideWith(_AuthFreeFavoriteToggleNotifier.new),
     ],
+    width: width,
+    textScaleFactor: textScaleFactor,
   );
+}
+
+/// The [RenderParagraph] backing the name [Text] (the card's name has no key,
+/// so it is located by its fixture data — a fixture literal, not a UI string).
+RenderParagraph _nameParagraph(WidgetTester tester, String name) =>
+    tester.renderObject<RenderParagraph>(find.text(name));
+
+/// Number of lines the paragraph actually laid out, reproduced from its own
+/// span + style + the width it was given. [RenderParagraph] exposes no line
+/// count directly, so re-run the layout in a [TextPainter] (which does expose
+/// [TextPainter.computeLineMetrics]) at the paragraph's incoming max width.
+int _lineCount(RenderParagraph p) {
+  final painter = TextPainter(
+    text: p.text,
+    textAlign: p.textAlign,
+    textDirection: p.textDirection,
+    textScaler: p.textScaler,
+    maxLines: p.maxLines,
+  )..layout(maxWidth: p.constraints.maxWidth);
+  final int lines = painter.computeLineMetrics().length;
+  painter.dispose();
+  return lines;
 }
 
 AppLocalizations _l10n(WidgetTester tester) =>
@@ -393,6 +425,62 @@ void main() {
           reason:
               'with no locality and no street the block must not show a '
               'lone place-pin glyph.',
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Long-name wrapping — guards the name `maxLines: 2` fix on a narrow card.
+  //
+  // In the unconstrained production list a long master name must wrap to two
+  // lines rather than be single-line ellipsis-truncated. The card's name has no
+  // key, so it is located by its fixture data and inspected via the backing
+  // [RenderParagraph]: a revert to maxLines: 1 caps the layout at one line and
+  // sets didExceedMaxLines == true.
+  // -------------------------------------------------------------------------
+  group('MasterResultCard long-name wrapping (320dp)', () {
+    const String longName = 'Олександра Зварич-Пономаренко';
+
+    testWidgets('long name wraps to two lines, fully shown, at 320dp x1.0', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        _master(firstName: 'Олександра', lastName: 'Зварич-Пономаренко'),
+        width: 320,
+        textScaleFactor: 1.0,
+      );
+
+      final paragraph = _nameParagraph(tester, longName);
+      expect(
+        _lineCount(paragraph),
+        2,
+        reason:
+            'the long name wraps onto a second line in the narrow card column — '
+            'maxLines: 1 would cap it to a single line. (Two lines hold the full '
+            'name in the production font; the wider test font may need ellipsis '
+            'past two lines, so the deterministic guard is the 2-line layout.)',
+      );
+    });
+
+    testWidgets(
+      'long name still wraps to two lines at 320dp x1.3 (no overflow)',
+      (tester) async {
+        // pumpApp's overflow guard fails the test in tearDown on any RenderFlex
+        // overflow at this stress size, so no explicit overflow assertion needed.
+        await _pump(
+          tester,
+          _master(firstName: 'Олександра', lastName: 'Зварич-Пономаренко'),
+          width: 320,
+          textScaleFactor: 1.3,
+        );
+
+        final paragraph = _nameParagraph(tester, longName);
+        expect(
+          _lineCount(paragraph),
+          2,
+          reason: 'the name uses both allowed lines at the larger text scale.',
         );
       },
     );
