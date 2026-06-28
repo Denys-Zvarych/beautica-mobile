@@ -76,7 +76,7 @@ const _sampleProfile = ClientProfileSummary(
   firstName: 'Тест',
   lastName: 'Клієнт',
   city: 'Київ',
-  phone: '+380501234567',
+  phone: '+380501111111',
   clientRating: null,
   memberSinceYear: 2024,
 );

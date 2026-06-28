@@ -112,7 +112,7 @@ void main() {
     );
     await tester.enterText(
       find.byKey(const ValueKey<String>('step2_phone')),
-      '+380501234567',
+      '+380501111111',
     );
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));

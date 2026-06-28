@@ -621,7 +621,7 @@ void main() {
       tester,
     ) async {
       final masterWithPhone = _stubMaster.copyWith(
-        phoneNumber: '+380501234567',
+        phoneNumber: '+380501111111',
       );
       await tester.pumpApp(
         const MasterProfileScreen(),
@@ -636,7 +636,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('master-contact-phone')),
-          matching: find.text('+380501234567'),
+          matching: find.text('+380501111111'),
         ),
         findsOneWidget,
       );

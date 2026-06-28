@@ -1003,7 +1003,7 @@ void main() {
   // verify:
   //   FORMAT-1 — partial input (2 subscriber digits) → blocked (errPhoneInvalid
   //              shown, no navigation).
-  //   FORMAT-2 — "+380501234567" → proceeds (no error, navigates to step-3).
+  //   FORMAT-2 — "+380501111111" → proceeds (no error, navigates to step-3).
   //
   // Note: "+" alone is now stripped to empty by UaPhoneInputFormatter, so it
   // triggers the required-field guard (registerPhoneRequired), not errPhoneInvalid.
@@ -1107,7 +1107,7 @@ void main() {
     );
 
     testWidgets(
-      'M-REG-PHONE-FORMAT-2: "+380501234567" passes validation and navigates',
+      'M-REG-PHONE-FORMAT-2: "+380501111111" passes validation and navigates',
       (tester) async {
         final container = _containerWithRole(UserRole.client);
         addTearDown(container.dispose);
@@ -1137,7 +1137,7 @@ void main() {
 
         await tester.enterText(
           find.byKey(const ValueKey<String>('step2_phone')),
-          '+380501234567',
+          '+380501111111',
         );
 
         await tester.tap(find.byKey(const ValueKey<String>('step2_submit')));

@@ -68,7 +68,7 @@ Map<String, dynamic> _masterDetailEnvelope() => <String, dynamic>{
     'firstName': 'Оля',
     'lastName': 'Коваль',
     'bio': 'Майстер манікюру',
-    'phoneNumber': '+380501234567',
+    'phoneNumber': '+380501111111',
     'instagram': '@beauty_ua',
     'city': 'Київ',
     'cityId': 'city-99',
@@ -140,7 +140,7 @@ void main() {
             firstName: 'Аня',
             lastName: 'Коваль',
             bio: 'Топ майстер',
-            contactPhone: '+380501234567',
+            contactPhone: '+380501111111',
             instagram: '@beauty_ua',
           ),
         );
@@ -157,7 +157,7 @@ void main() {
           isTrue,
           reason: 'backend field is "phoneNumber", not "contactPhone"',
         );
-        expect(sentBody!['phoneNumber'], '+380501234567');
+        expect(sentBody!['phoneNumber'], '+380501111111');
         expect(
           sentBody!.containsKey('contactPhone'),
           isFalse,
@@ -329,7 +329,7 @@ void main() {
       expect(master.firstName, 'Оля');
       expect(master.lastName, 'Коваль');
       expect(master.bio, 'Майстер манікюру');
-      expect(master.phoneNumber, '+380501234567');
+      expect(master.phoneNumber, '+380501111111');
       expect(master.instagram, '@beauty_ua');
       expect(master.city, 'Київ');
       expect(master.cityId, 'city-99');

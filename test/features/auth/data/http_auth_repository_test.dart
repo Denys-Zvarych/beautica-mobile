@@ -779,7 +779,7 @@ void main() {
         password: 'P@ssw0rd!',
         firstName: 'Іванна',
         lastName: 'Коваль',
-        phoneNumber: '+380501234567',
+        phoneNumber: '+380501111111',
       );
 
       expect(user.id, 'usr-1');

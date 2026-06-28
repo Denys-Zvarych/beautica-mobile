@@ -515,7 +515,7 @@ void main() {
                 ..reviewCount = 10
                 ..masterType =
                     MasterDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
-                ..phoneNumber = '+380501234567')
+                ..phoneNumber = '+380501111111')
               .build();
 
       when(
@@ -526,7 +526,7 @@ void main() {
 
       expect(
         master.phoneNumber,
-        '+380501234567',
+        '+380501111111',
         reason: 'phoneNumber from DTO must be forwarded to the Master entity',
       );
     });
@@ -644,7 +644,7 @@ void main() {
           firstName: 'Аня',
           lastName: 'Коваль',
           bio: '',
-          contactPhone: '+380501234567',
+          contactPhone: '+380501111111',
           instagram: '',
         ),
       );
@@ -671,7 +671,7 @@ void main() {
       );
       expect(
         captured['phoneNumber'],
-        '+380501234567',
+        '+380501111111',
         reason: 'phoneNumber value must match the supplied contactPhone',
       );
     });

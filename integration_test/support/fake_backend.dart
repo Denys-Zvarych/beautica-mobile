@@ -190,7 +190,7 @@ final class FakeBackend {
   String masterFirstName = 'Олена';
   String masterLastName = 'Ковальчук';
   String masterBio = 'Майстер манікюру.';
-  String? masterPhone = '+380501234567';
+  String? masterPhone = '+380501111111';
   String? masterInstagram = '@olena_nails';
 
   // ── Mutable CLIENT profile state (PATCH /users/me round-trip) ──────────────
