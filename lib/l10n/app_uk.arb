@@ -2447,6 +2447,10 @@
   "@locationSubheading": {
     "description": "Subheading on the location edit page."
   },
+  "masterLocationSubheading": "Вкажіть Ваше розташування, щоб клієнтам було зручно Вас знайти у пошуку",
+  "@masterLocationSubheading": {
+    "description": "Subheading on the independent master location edit page, explaining that the location is used for client search."
+  },
   "accountTitle": "Акаунт",
   "@accountTitle": {
     "description": "Top-bar title of the account page."

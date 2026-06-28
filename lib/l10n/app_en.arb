@@ -2447,6 +2447,10 @@
   "@locationSubheading": {
     "description": "Subheading on the location edit page."
   },
+  "masterLocationSubheading": "Set your location so clients can easily find you in search",
+  "@masterLocationSubheading": {
+    "description": "Subheading on the independent master location edit page, explaining that the location is used for client search."
+  },
   "accountTitle": "Account",
   "@accountTitle": {
     "description": "Top-bar title of the account page."

@@ -179,6 +179,31 @@ void main() {
     );
   });
 
+  // ── REGRESSION GUARD: master-scoped subheading key (M2/M11) ────────────────
+  // The master location screen must render the master-scoped
+  // [masterLocationSubheading] copy and NOT the shared [locationSubheading]
+  // used by the CLIENT location screen. A refactor that reverts to the shared
+  // key would silently swap the master copy back — this pins it. Both strings
+  // are resolved via l10n in-test (no hardcoded Cyrillic literal).
+  testWidgets(
+    'renders the master-scoped subheading, not the shared client one',
+    (tester) async {
+      await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+      await tester.pump();
+      await tester.pump();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(LocationEditScreen)),
+      );
+
+      // Sanity: the two keys must be distinct, else the assertion is vacuous.
+      expect(l10n.masterLocationSubheading, isNot(l10n.locationSubheading));
+
+      expect(find.text(l10n.masterLocationSubheading), findsOneWidget);
+      expect(find.text(l10n.locationSubheading), findsNothing);
+    },
+  );
+
   // ── HEADLINE: updateLocality ONLY (never updateMyProfile) ──────────────────
   testWidgets(
     'saving a selected city + address calls updateLocality with the right '

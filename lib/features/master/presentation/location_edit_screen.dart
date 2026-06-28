@@ -505,7 +505,7 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
                     bottom: VelvetSpacing.lg,
                   ),
                   child: Text(
-                    l10n.locationSubheading,
+                    l10n.masterLocationSubheading,
                     style: VelvetText.body(),
                   ),
                 ),
