@@ -76,42 +76,41 @@ List<Object> _overrides(Object profileOverride) {
 
 void main() {
   group('HomeHub rating-pill de-dup (clientProfileProvider .select slice)', () {
-    testWidgets(
-      'data state: rating pill renders the rating sourced from '
-      'clientProfileProvider (and profile card still renders the name)',
-      (tester) async {
-        await tester.pumpApp(
-          const HomeHubScreen(),
-          overrides: _overrides(
-            clientProfileProvider.overrideWith((ref) async => _ratedProfile),
-          ),
-        );
-        // Settle the provider future, then run out the 1100 ms reveal.
-        await tester.pumpAndSettle();
-        await tester.pump(const Duration(milliseconds: 1100));
+    testWidgets('data state: rating pill renders the rating sourced from '
+        'clientProfileProvider (and profile card still renders the name)', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const HomeHubScreen(),
+        overrides: _overrides(
+          clientProfileProvider.overrideWith((ref) async => _ratedProfile),
+        ),
+      );
+      // Settle the provider future, then run out the 1100 ms reveal.
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 1100));
 
-        // The rating pill (leaf .select consumer) shows the rating value.
-        expect(find.byType(MyRatingStatCard), findsOneWidget);
-        expect(
-          find.text('4.7'),
-          findsOneWidget,
-          reason:
-              'the rating pill must render clientRating from the '
-              'clientProfileProvider.select((p) => p.clientRating) slice',
-        );
+      // The rating pill (leaf .select consumer) shows the rating value.
+      expect(find.byType(MyRatingStatCard), findsOneWidget);
+      expect(
+        find.text('4.7'),
+        findsOneWidget,
+        reason:
+            'the rating pill must render clientRating from the '
+            'clientProfileProvider.select((p) => p.clientRating) slice',
+      );
 
-        // The profile leaf (full-provider consumer) still renders the name —
-        // proves the de-dup did not break the sibling profile card.
-        expect(
-          find.byKey(const Key('home_profile_name')),
-          findsOneWidget,
-          reason:
-              'the profile card leaf must still render from the full '
-              'clientProfileProvider after the body stopped watching it',
-        );
-        expect(find.text('Олена Тест'), findsOneWidget);
-      },
-    );
+      // The profile leaf (full-provider consumer) still renders the name —
+      // proves the de-dup did not break the sibling profile card.
+      expect(
+        find.byKey(const Key('home_profile_name')),
+        findsOneWidget,
+        reason:
+            'the profile card leaf must still render from the full '
+            'clientProfileProvider after the body stopped watching it',
+      );
+      expect(find.text('Олена Тест'), findsOneWidget);
+    });
 
     testWidgets(
       'loading state: rating pill shows the skeleton (no MyRatingStatCard) '
@@ -216,8 +215,7 @@ void main() {
         expect(
           find.byKey(const Key('next_appointment_empty')),
           findsOneWidget,
-          reason:
-              'a clientProfileProvider error must not blank sibling cards',
+          reason: 'a clientProfileProvider error must not blank sibling cards',
         );
 
         // The screen handles the failing provider gracefully — no exception

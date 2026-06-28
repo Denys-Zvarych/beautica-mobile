@@ -98,10 +98,7 @@ void main() {
         isPiiPath('/api/v1/services/123e4567-e89b-12d3-a456-426614174000'),
         isTrue,
       );
-      expect(
-        isPiiPath('/api/v1/services/123e4567/photo'),
-        isTrue,
-      );
+      expect(isPiiPath('/api/v1/services/123e4567/photo'), isTrue);
     });
 
     test('matches service create + bulk + service-types/suggest', () {
@@ -161,30 +158,27 @@ void main() {
   });
 
   group('LoggingInterceptor body redaction for dynamic PII routes', () {
-    test(
-      'a dynamic service-update request passes through without mutating data '
-      '(redaction is log-only)',
-      () {
-        final interceptor = LoggingInterceptor();
-        final handler = MockRequestHandler();
-        // This path is NOT in the exact kPiiPaths set — it only matches via the
-        // {serviceDefId} prefix, which the old `kPiiPaths.contains` check missed.
-        final opts = buildOpts(
-          '/api/v1/services/abc-123',
-          data: {'name': 'Стрижка для Олени', 'basePrice': 500},
-        );
+    test('a dynamic service-update request passes through without mutating data '
+        '(redaction is log-only)', () {
+      final interceptor = LoggingInterceptor();
+      final handler = MockRequestHandler();
+      // This path is NOT in the exact kPiiPaths set — it only matches via the
+      // {serviceDefId} prefix, which the old `kPiiPaths.contains` check missed.
+      final opts = buildOpts(
+        '/api/v1/services/abc-123',
+        data: {'name': 'Стрижка для Олени', 'basePrice': 500},
+      );
 
-        interceptor.onRequest(opts, handler);
+      interceptor.onRequest(opts, handler);
 
-        verify(() => handler.next(any())).called(1);
-        // The live request body is never mutated by the logger.
-        expect(
-          (opts.data as Map<String, dynamic>)['name'],
-          equals('Стрижка для Олени'),
-        );
-        // Sanity: the interceptor classifies this dynamic route as PII.
-        expect(isPiiPath(opts.path), isTrue);
-      },
-    );
+      verify(() => handler.next(any())).called(1);
+      // The live request body is never mutated by the logger.
+      expect(
+        (opts.data as Map<String, dynamic>)['name'],
+        equals('Стрижка для Олени'),
+      );
+      // Sanity: the interceptor classifies this dynamic route as PII.
+      expect(isPiiPath(opts.path), isTrue);
+    });
   });
 }

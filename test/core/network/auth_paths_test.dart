@@ -267,19 +267,22 @@ void main() {
 
     test('malformed query strings degrade safely (no throw, sane output)', () {
       // Trailing '?' with empty query → original path returned unchanged.
-      expect(
-        () => redactLogPath('/api/v1/bookings?'),
-        returnsNormally,
-      );
+      expect(() => redactLogPath('/api/v1/bookings?'), returnsNormally);
       expect(redactLogPath('/api/v1/bookings?'), equals('/api/v1/bookings?'));
 
       // Empty pairs from a doubled '&' must not crash.
       expect(() => redactLogPath('/api/v1/bookings?a&&b'), returnsNormally);
-      expect(redactLogPath('/api/v1/bookings?a&&b'), equals('/api/v1/bookings?a&&b'));
+      expect(
+        redactLogPath('/api/v1/bookings?a&&b'),
+        equals('/api/v1/bookings?a&&b'),
+      );
 
       // Key without '=' (no value to leak) is left as-is, no crash.
       expect(() => redactLogPath('/api/v1/bookings?token'), returnsNormally);
-      expect(redactLogPath('/api/v1/bookings?token'), equals('/api/v1/bookings?token'));
+      expect(
+        redactLogPath('/api/v1/bookings?token'),
+        equals('/api/v1/bookings?token'),
+      );
     });
 
     test('path without a query string is returned unchanged', () {
@@ -289,8 +292,7 @@ void main() {
     test('auth/PII token route: whole query redacted (token value absent)', () {
       // /api/v1/auth/verify-email is an exact kPiiPaths member → full mask,
       // including the param NAME, not just its value.
-      const String path =
-          '/api/v1/auth/verify-email?token=secretLinkToken123';
+      const String path = '/api/v1/auth/verify-email?token=secretLinkToken123';
       final String out = redactLogPath(path);
 
       expect(out, equals('/api/v1/auth/verify-email?[REDACTED]'));
