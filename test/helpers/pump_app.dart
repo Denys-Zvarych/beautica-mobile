@@ -34,6 +34,11 @@ extension PumpApp on WidgetTester {
     Locale locale = const Locale('uk'),
     double? width,
     double? textScaleFactor,
+    // Optional Riverpod failed-build retry policy for the ProviderScope. Default
+    // null = Riverpod's default exponential-backoff retry (unchanged behaviour).
+    // Pass `(_, _) => null` to DISABLE retry so an AsyncError stays put through
+    // pumpAndSettle (and leaves no pending backoff Timer at test end).
+    Duration? Function(int retryCount, Object error)? retry,
   }) async {
     installOverflowGuard();
     // Stress width: constrain the whole surface to [width] logical px (default
@@ -54,6 +59,7 @@ extension PumpApp on WidgetTester {
         // can pass a plain list without importing the internal Override type.
         // ignore: avoid_dynamic_calls
         overrides: overrides.cast(),
+        retry: retry,
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,

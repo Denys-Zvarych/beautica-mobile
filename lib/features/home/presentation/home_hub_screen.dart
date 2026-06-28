@@ -120,7 +120,11 @@ class _HomeHubBody extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Watch each card's data independently — one AsyncError must not blank all.
-    final profileAsync = ref.watch(clientProfileProvider);
+    // NOTE: clientProfileProvider is intentionally NOT watched here. The profile
+    // card and the rating stat pill consume it inside their own leaf widgets
+    // (_ProfileSection / _StatPillsRow), so a profile edit rebuilds only those
+    // leaves — not this whole body — and the rating pill uses a `.select` slice
+    // so it only rebuilds when the rating itself changes.
     final nextApptAsync = ref.watch(nextAppointmentProvider);
     final favoritesAsync = ref.watch(favoriteMastersProvider);
     final timelineAsync = ref.watch(beautyTimelineProvider);
@@ -144,38 +148,7 @@ class _HomeHubBody extends ConsumerWidget {
               // (Top bar removed — now persistent chrome owned by ClientShell.)
 
               // 2. Profile block
-              reveal(
-                start: 0.05,
-                end: 0.46,
-                child: profileAsync.when(
-                  data: (ClientProfileSummary p) => HomeProfileCard(
-                    profile: p,
-                    onCamera: () {
-                      if (kDebugMode) {
-                        log(
-                          'change photo tapped — placeholder',
-                          name: 'feature.home',
-                          level: 700,
-                        );
-                      }
-                    },
-                    onLocation: () {
-                      if (kDebugMode) {
-                        log(
-                          'location tapped — placeholder',
-                          name: 'feature.home',
-                          level: 700,
-                        );
-                      }
-                    },
-                  ),
-                  loading: () => const _ProfileSkeleton(),
-                  error: (Object e, _) => _CardErrorState(
-                    message: l10n.homeHubProfileLoadError,
-                    onRetry: () => ref.invalidate(clientProfileProvider),
-                  ),
-                ),
-              ),
+              reveal(start: 0.05, end: 0.46, child: const _ProfileSection()),
               const SizedBox(height: VelvetSpacing.lg),
 
               // 3. Stat pills (IntrinsicHeight — CRITICAL render bug prevention)
@@ -183,7 +156,6 @@ class _HomeHubBody extends ConsumerWidget {
                 start: 0.11,
                 end: 0.52,
                 child: _StatPillsRow(
-                  profileAsync: profileAsync,
                   // Passport is shell branch [kClientPassportBranch]. Hop the
                   // branch (not `context.push`) so the page AND the bottom-nav
                   // selection stay in sync — a plain push stacks Passport on the
@@ -311,22 +283,82 @@ class _HomeHubBody extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
+// Profile block — leaf consumer so a profile edit rebuilds only this card,
+// not the whole _HomeHubBody. Needs the full ClientProfileSummary.
+// ---------------------------------------------------------------------------
+
+class _ProfileSection extends ConsumerWidget {
+  const _ProfileSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final AsyncValue<ClientProfileSummary> profileAsync = ref.watch(
+      clientProfileProvider,
+    );
+    return profileAsync.when(
+      data: (ClientProfileSummary p) => HomeProfileCard(
+        profile: p,
+        onCamera: () {
+          if (kDebugMode) {
+            log(
+              'change photo tapped — placeholder',
+              name: 'feature.home',
+              level: 700,
+            );
+          }
+        },
+        onLocation: () {
+          if (kDebugMode) {
+            log(
+              'location tapped — placeholder',
+              name: 'feature.home',
+              level: 700,
+            );
+          }
+        },
+      ),
+      loading: () => const _ProfileSkeleton(),
+      error: (Object e, _) => _CardErrorState(
+        message: l10n.homeHubProfileLoadError,
+        onRetry: () => ref.invalidate(clientProfileProvider),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Stat pills row — wraps passport + reviews tiles in IntrinsicHeight
 // ---------------------------------------------------------------------------
 
-class _StatPillsRow extends StatelessWidget {
-  const _StatPillsRow({
-    required this.profileAsync,
-    required this.onPassport,
-    required this.onRating,
-  });
+class _StatPillsRow extends ConsumerWidget {
+  const _StatPillsRow({required this.onPassport, required this.onRating});
 
-  final AsyncValue<ClientProfileSummary> profileAsync;
   final VoidCallback onPassport;
   final VoidCallback onRating;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Narrow `.select` — this row only needs the rating slice, so it rebuilds
+    // only when clientRating changes (not on name / photo / city edits). This
+    // de-dupes the previous full-provider watch shared with the profile card.
+    // Project to the rating slice while PRESERVING the error state. `whenData`
+    // would collapse an error into AsyncLoading and leave the `error:` branch
+    // below as dead code (perpetual skeleton on profile-load failure); `map`
+    // keeps all three states distinct so the graceful "—" fallback renders.
+    final AsyncValue<double?> ratingAsync = ref.watch(
+      clientProfileProvider.select(
+        (AsyncValue<ClientProfileSummary> v) => v.map(
+          data: (AsyncData<ClientProfileSummary> d) =>
+              AsyncData<double?>(d.value.clientRating),
+          error: (AsyncError<ClientProfileSummary> e) =>
+              AsyncError<double?>(e.error, e.stackTrace),
+          loading: (AsyncLoading<ClientProfileSummary> l) =>
+              const AsyncLoading<double?>(),
+        ),
+      ),
+    );
+
     // CRITICAL: IntrinsicHeight bounds the stretch Row so CrossAxisAlignment.stretch
     // is well-defined inside the ListView. Without it the cross axis is unbounded
     // and the Row silently produces an unpaintable sliver on Flutter web.
@@ -341,11 +373,9 @@ class _StatPillsRow extends StatelessWidget {
           const SizedBox(width: VelvetSpacing.md - 4),
           Expanded(
             flex: 2,
-            child: profileAsync.when(
-              data: (ClientProfileSummary p) => MyRatingStatCard(
-                clientRating: p.clientRating,
-                onTap: onRating,
-              ),
+            child: ratingAsync.when(
+              data: (double? rating) =>
+                  MyRatingStatCard(clientRating: rating, onTap: onRating),
               loading: () => const _StatPillSkeleton(),
               error: (Object e, StackTrace st) =>
                   MyRatingStatCard(clientRating: null, onTap: onRating),

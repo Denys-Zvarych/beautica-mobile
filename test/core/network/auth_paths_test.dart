@@ -166,4 +166,139 @@ void main() {
       }
     });
   });
+
+  // ── Query-string redaction (security fix 2026-06-28) ─────────────────────
+  //
+  // redactLogPath() now has TWO layers:
+  //   • PII routes (isPiiPath) → the ENTIRE query string is masked
+  //     as `?[REDACTED]` (even the param names can be revealing there).
+  //   • every other route → the VALUE of any kSensitiveQueryKeys param is
+  //     masked as `key=***`, while harmless params (page / size / sort) stay
+  //     visible for debugging.
+  //
+  // These tests assert no sensitive value can survive into the log line, that
+  // debug-useful params are preserved, that key matching is case-insensitive,
+  // and that malformed query strings degrade safely (no throw).
+  group('kSensitiveQueryKeys', () {
+    test('covers the free-text + credential param names (lower-case)', () {
+      for (final String key in <String>[
+        'q',
+        'query',
+        'search',
+        'token',
+        'access_token',
+        'refresh_token',
+        'code',
+        'otp',
+        'password',
+        'secret',
+        'email',
+        'phone',
+      ]) {
+        expect(
+          kSensitiveQueryKeys,
+          contains(key),
+          reason: '"$key" carries PII / credentials and must be value-masked',
+        );
+      }
+    });
+
+    test('does NOT list the harmless pagination/sort keys', () {
+      expect(kSensitiveQueryKeys, isNot(contains('page')));
+      expect(kSensitiveQueryKeys, isNot(contains('size')));
+      expect(kSensitiveQueryKeys, isNot(contains('sort')));
+    });
+  });
+
+  group('redactLogPath', () {
+    test('PII route: search q free-text is fully redacted (value absent)', () {
+      // /api/v1/search/* is a PII prefix → the WHOLE query is masked, so the
+      // typed person/business name can never reach the log.
+      const String path = '/api/v1/search/masters?q=Олена%20Тест&page=2';
+      final String out = redactLogPath(path);
+
+      expect(out, equals('/api/v1/search/masters?[REDACTED]'));
+      expect(
+        out,
+        isNot(contains('Олена')),
+        reason: 'the free-text search term must never appear in the log line',
+      );
+      expect(out, isNot(contains('q=')));
+    });
+
+    test('non-PII route: token value masked; page & sort stay visible', () {
+      // /api/v1/bookings is NOT a PII route, so the per-key value mask applies:
+      // the credential value disappears while debug-useful params survive.
+      const String path = '/api/v1/bookings?token=abc123&page=2&sort=name';
+      final String out = redactLogPath(path);
+
+      expect(out, contains('token=***'));
+      expect(
+        out,
+        isNot(contains('abc123')),
+        reason: 'the token VALUE must be masked even on a non-PII route',
+      );
+      expect(out, contains('page=2'), reason: 'pagination stays visible');
+      expect(out, contains('sort=name'), reason: 'sort stays visible');
+    });
+
+    test('key matching is case-insensitive (TOKEN masked like token)', () {
+      const String path = '/api/v1/bookings?TOKEN=abc123';
+      final String out = redactLogPath(path);
+
+      expect(out, contains('TOKEN=***'));
+      expect(
+        out,
+        isNot(contains('abc123')),
+        reason: 'kSensitiveQueryKeys is matched case-insensitively',
+      );
+    });
+
+    test('repeated sensitive params: every occurrence is masked', () {
+      const String path = '/api/v1/bookings?token=aaa&token=bbb&page=1';
+      final String out = redactLogPath(path);
+
+      expect(out, isNot(contains('aaa')));
+      expect(out, isNot(contains('bbb')));
+      expect(out, contains('page=1'));
+      // Both token pairs present, both masked.
+      expect('token=***'.allMatches(out).length, equals(2));
+    });
+
+    test('malformed query strings degrade safely (no throw, sane output)', () {
+      // Trailing '?' with empty query → original path returned unchanged.
+      expect(
+        () => redactLogPath('/api/v1/bookings?'),
+        returnsNormally,
+      );
+      expect(redactLogPath('/api/v1/bookings?'), equals('/api/v1/bookings?'));
+
+      // Empty pairs from a doubled '&' must not crash.
+      expect(() => redactLogPath('/api/v1/bookings?a&&b'), returnsNormally);
+      expect(redactLogPath('/api/v1/bookings?a&&b'), equals('/api/v1/bookings?a&&b'));
+
+      // Key without '=' (no value to leak) is left as-is, no crash.
+      expect(() => redactLogPath('/api/v1/bookings?token'), returnsNormally);
+      expect(redactLogPath('/api/v1/bookings?token'), equals('/api/v1/bookings?token'));
+    });
+
+    test('path without a query string is returned unchanged', () {
+      expect(redactLogPath('/api/v1/bookings'), equals('/api/v1/bookings'));
+    });
+
+    test('auth/PII token route: whole query redacted (token value absent)', () {
+      // /api/v1/auth/verify-email is an exact kPiiPaths member → full mask,
+      // including the param NAME, not just its value.
+      const String path =
+          '/api/v1/auth/verify-email?token=secretLinkToken123';
+      final String out = redactLogPath(path);
+
+      expect(out, equals('/api/v1/auth/verify-email?[REDACTED]'));
+      expect(
+        out,
+        isNot(contains('secretLinkToken123')),
+        reason: 'the verify-email link token must never reach the log',
+      );
+    });
+  });
 }
