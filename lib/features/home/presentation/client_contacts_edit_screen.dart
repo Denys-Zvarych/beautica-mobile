@@ -68,6 +68,10 @@ class _ClientContactsEditScreenState
 
   String? _errPhone;
 
+  // PERF (P2): drives the Save button's enabled state in isolation so typing
+  // does not setState the whole form (and its reveal animation wrappers).
+  final ValueNotifier<bool> _dirty = ValueNotifier<bool>(false);
+
   static const int _phoneMax = 20;
 
   // Pre-built static RegExp — allocated once, never inside build or validate.
@@ -133,14 +137,17 @@ class _ClientContactsEditScreenState
     _anim1.dispose();
     _animFooter.dispose();
     _controller.dispose();
+    _dirty.dispose();
     super.dispose();
   }
 
   List<TextEditingController> get _editableControllers =>
       <TextEditingController>[_phone];
 
+  // PERF (P2): recompute the dirty flag only — no setState, so the form subtree
+  // and its animation wrappers are not rebuilt on every keystroke.
   void _onFormChanged() {
-    if (mounted) setState(() {});
+    _dirty.value = _isDirty;
   }
 
   bool get _isDirty => _initialized && (_phone.text.trim() != _origPhone);
@@ -304,12 +311,15 @@ class _ClientContactsEditScreenState
       },
       footer: _reveal(
         _animFooter,
-        NeumorphicButton(
-          key: const Key('btn-save-contacts'),
-          label: l10n.masterSaveButton,
-          icon: Icons.check_rounded,
-          loading: _saving,
-          onPressed: (!_saving && _isDirty) ? _save : null,
+        ValueListenableBuilder<bool>(
+          valueListenable: _dirty,
+          builder: (context, dirty, _) => NeumorphicButton(
+            key: const Key('btn-save-contacts'),
+            label: l10n.masterSaveButton,
+            icon: Icons.check_rounded,
+            loading: _saving,
+            onPressed: (!_saving && dirty) ? _save : null,
+          ),
         ),
       ),
       body: Form(
@@ -344,7 +354,7 @@ class _ClientContactsEditScreenState
                     ],
                     hint: '+380 __ ___ __ __',
                     errorText: _errPhone,
-                    helperText: l10n.phonePrivacyNote,
+                    helperText: l10n.clientPhonePrivacyNote,
                     onChanged: (v) {
                       _clearServerError('phoneNumber');
                       field.didChange(v);

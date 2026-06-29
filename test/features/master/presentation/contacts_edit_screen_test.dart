@@ -136,6 +136,34 @@ void main() {
     );
   });
 
+  testWidgets('renders the MASTER phone privacy note (not the client one)', (
+    tester,
+  ) async {
+    await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+    await tester.pump();
+    await tester.pump();
+
+    final BuildContext ctx = tester.element(
+      find.byKey(const Key('field-phone')),
+    );
+    final AppLocalizations l10n = AppLocalizations.of(ctx);
+
+    expect(
+      find.text(l10n.phonePrivacyNote),
+      findsOneWidget,
+      reason:
+          'the master phone field shows the master-context privacy note '
+          '(clients do not see the master number)',
+    );
+    expect(
+      find.text(l10n.clientPhonePrivacyNote),
+      findsNothing,
+      reason:
+          'the client-context privacy note must not appear on the master '
+          'screen',
+    );
+  });
+
   testWidgets('Save is disabled when pristine and enables when dirty', (
     tester,
   ) async {

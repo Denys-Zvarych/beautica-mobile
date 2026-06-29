@@ -1289,6 +1289,10 @@
   "@phonePrivacyNote": {
     "description": "Privacy helper note rendered below the phone field (lock icon + text) on the master edit screen (Phase 4.3)."
   },
+  "clientPhonePrivacyNote": "Masters will not see your number — it is used for internal contact",
+  "@clientPhonePrivacyNote": {
+    "description": "Privacy helper note below the phone field on the CLIENT contacts edit screen — masters do not see the client's number."
+  },
   "changePhotoCaption": "Change photo",
   "@changePhotoCaption": {
     "description": "Muted caption below the avatar editor ring on the master edit screen (Phase 4.3)."

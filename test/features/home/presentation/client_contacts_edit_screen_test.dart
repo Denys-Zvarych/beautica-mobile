@@ -189,4 +189,32 @@ void main() {
       );
     },
   );
+
+  testWidgets('renders the CLIENT phone privacy note (not the master one)', (
+    tester,
+  ) async {
+    await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+    await tester.pump();
+    await tester.pump();
+
+    final BuildContext ctx = tester.element(
+      find.byKey(const Key('field-phone')),
+    );
+    final AppLocalizations l10n = AppLocalizations.of(ctx);
+
+    expect(
+      find.text(l10n.clientPhonePrivacyNote),
+      findsOneWidget,
+      reason:
+          'the client phone field shows the client-appropriate privacy note '
+          '(masters do not see the client number)',
+    );
+    expect(
+      find.text(l10n.phonePrivacyNote),
+      findsNothing,
+      reason:
+          'the master-context privacy note must not appear on the client '
+          'screen',
+    );
+  });
 }
