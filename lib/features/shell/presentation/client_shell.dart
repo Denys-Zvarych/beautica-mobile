@@ -72,51 +72,73 @@ class ClientShell extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final _TopBarConfig config = _configFor(navigationShell.currentIndex, l10n);
 
-    return Scaffold(
-      backgroundColor: BrandColors.base,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          children: <Widget>[
-            // Persistent top chrome — mounted ONCE, byte-identical across every
-            // branch by construction. The single `VelvetSpacing.sm` top inset
-            // the per-screen bars used to carry now lives here, so the wordmark
-            // sits at the SAME dy on every branch.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                VelvetSpacing.lg,
-                VelvetSpacing.sm,
-                VelvetSpacing.lg,
-                0,
+    // System-back / predictive-back handling for the tab roots.
+    //
+    // The shell is the only route on the root navigator, so a system-back on a
+    // branch root has nothing to pop and would EXIT the app from any tab. We
+    // make that the standard behaviour ONLY on the Home branch (back exits, as
+    // users expect on a home screen); on every OTHER tab a blocked back hops
+    // back to the Home branch instead of leaving the app — the conventional
+    // Android multi-tab back contract. No confirm dialog, no Navigator (the hop
+    // is `navigationShell.goBranch`, the same primitive the bottom nav uses).
+    final bool onHomeBranch = navigationShell.currentIndex == kClientHomeBranch;
+
+    return PopScope(
+      canPop: onHomeBranch,
+      onPopInvokedWithResult: (bool didPop, Object? result) {
+        // Pop already happened (Home branch → app exit) — nothing to do.
+        if (didPop) return;
+        // Blocked pop on a non-Home tab → return to the Home tab. Preserve the
+        // Home branch's own stack (initialLocation: false) — we are switching
+        // tabs, not resetting Home.
+        navigationShell.goBranch(kClientHomeBranch, initialLocation: false);
+      },
+      child: Scaffold(
+        backgroundColor: BrandColors.base,
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: <Widget>[
+              // Persistent top chrome — mounted ONCE, byte-identical across every
+              // branch by construction. The single `VelvetSpacing.sm` top inset
+              // the per-screen bars used to carry now lives here, so the wordmark
+              // sits at the SAME dy on every branch.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  VelvetSpacing.lg,
+                  VelvetSpacing.sm,
+                  VelvetSpacing.lg,
+                  0,
+                ),
+                child: ClientTopBar(
+                  // Single STABLE identity across every branch hop — the element
+                  // subtree is reused (updated in place) instead of torn down and
+                  // rebuilt on each `goBranch`. The only per-branch differences
+                  // (showBurger + the bell/burger test keys) flow through props
+                  // below via `_configFor`, none of which need a new bar IDENTITY.
+                  key: const Key('client-top-bar'),
+                  onBell: () => _onBell(context),
+                  onBurger: config.showBurger ? () => _onBurger(context) : null,
+                  bellSemanticLabel: l10n.homeHubNotificationsLabel,
+                  burgerSemanticLabel: l10n.settingsHubMenuButton,
+                  bellKey: config.bellKey,
+                  burgerKey: config.burgerKey,
+                  // hasUnread is pinned false until the Phase 14.9 notification
+                  // provider ships (single call site now).
+                ),
               ),
-              child: ClientTopBar(
-                // Single STABLE identity across every branch hop — the element
-                // subtree is reused (updated in place) instead of torn down and
-                // rebuilt on each `goBranch`. The only per-branch differences
-                // (showBurger + the bell/burger test keys) flow through props
-                // below via `_configFor`, none of which need a new bar IDENTITY.
-                key: const Key('client-top-bar'),
-                onBell: () => _onBell(context),
-                onBurger: config.showBurger ? () => _onBurger(context) : null,
-                bellSemanticLabel: l10n.homeHubNotificationsLabel,
-                burgerSemanticLabel: l10n.settingsHubMenuButton,
-                bellKey: config.bellKey,
-                burgerKey: config.burgerKey,
-                // hasUnread is pinned false until the Phase 14.9 notification
-                // provider ships (single call site now).
-              ),
-            ),
-            Expanded(child: navigationShell),
-          ],
+              Expanded(child: navigationShell),
+            ],
+          ),
         ),
-      ),
-      bottomNavigationBar: ClientBottomNav(
-        activeIndex: navigationShell.currentIndex,
-        onTap: _onTap,
-        homeLabel: l10n.clientNavHome,
-        favoritesLabel: l10n.clientNavFavorites,
-        searchLabel: l10n.clientNavSearch,
-        bookingsLabel: l10n.clientNavBookings,
+        bottomNavigationBar: ClientBottomNav(
+          activeIndex: navigationShell.currentIndex,
+          onTap: _onTap,
+          homeLabel: l10n.clientNavHome,
+          favoritesLabel: l10n.clientNavFavorites,
+          searchLabel: l10n.clientNavSearch,
+          bookingsLabel: l10n.clientNavBookings,
+        ),
       ),
     );
   }

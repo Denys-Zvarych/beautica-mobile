@@ -320,4 +320,72 @@ void main() {
           'the second half of the f929caf dispatch bug',
     );
   }, timeout: const Timeout(Duration(seconds: 45)));
+
+  // ── Test 7 — R1: system/predictive back on a non-Home tab → Home ─────────
+  //
+  // THE FIX UNDER TEST (client_shell.dart PopScope)
+  // -----------------------------------------------
+  // The CLIENT shell is the only route on the root navigator, so a system back
+  // on a non-Home branch root has nothing to pop and pre-fix EXITED the app from
+  // Search / Favorites / Bookings / Passport. The shell's PopScope now hops back
+  // to the Home branch on a blocked pop from any non-Home tab; only the Home tab
+  // lets the back through (standard app-exit).
+  //
+  // This is the END-TO-END counterpart of the widget-tier guard
+  // (test/features/shell/client_shell_back_to_home_test.dart): it drives the
+  // REAL app (real router, real shell, real branches) and dispatches the actual
+  // platform back via tester.binding.handlePopRoute(), then asserts the router
+  // location returned to /home and the shell stayed mounted (the app did NOT
+  // exit). Driven from BOTH a flanking tab (Passport, branch 4) and the elevated
+  // center disc (Search, branch 2) so the PopScope contract is proven from the
+  // two distinct affordance paths.
+  testWidgets('system/predictive back on a non-Home CLIENT tab returns to '
+      '/home instead of exiting the app (R1)', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    expectLocation(router, RouteNames.clientHome);
+
+    // Drive the back contract from a flanking tab (Passport, 4) and then from
+    // the elevated center disc (Search, 2) — both must land back on Home.
+    for (final int nonHomeBranch in <int>[4, 2]) {
+      await tapBranch(tester, nonHomeBranch);
+      expectLocation(router, branchRoute[nonHomeBranch]!);
+
+      // Dispatch the real platform back button (system / predictive back).
+      final bool handled = await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      // The back was HANDLED by the shell's PopScope (not bubbled to the OS to
+      // exit) and the shell hopped back to the Home branch.
+      expect(
+        handled,
+        isTrue,
+        reason:
+            'a non-Home back (branch $nonHomeBranch) must be swallowed by the '
+            'shell PopScope and hop to Home — not bubble to the OS / exit',
+      );
+      expectLocation(router, RouteNames.clientHome);
+      expect(
+        find.byType(ClientShell),
+        findsOneWidget,
+        reason:
+            'the CLIENT shell must remain mounted after a non-Home back from '
+            'branch $nonHomeBranch — the app must NOT have exited',
+      );
+      expect(
+        find.byType(ClientBottomNav),
+        findsOneWidget,
+        reason: 'the 5-tab bar must persist after the back-to-Home hop',
+      );
+      expect(
+        find.byKey(const Key('client-branch-home')),
+        findsOneWidget,
+        reason:
+            'branch 0 (Головна) must be the active IndexedStack child after the '
+            'back-to-Home hop from branch $nonHomeBranch',
+      );
+    }
+  }, timeout: const Timeout(Duration(seconds: 60)));
 }

@@ -81,6 +81,29 @@ part 'app_router.g.dart';
 // the destination is interactive directly hurts the impression the user forms
 // of the app. Switch those routes to a `CustomTransitionPage` with zero
 // duration so the destination renders the instant the framework can build it.
+// Secondary-only parallax tween (iOS-style: the revealed page eases ~1/3 screen
+// to the LEFT as the route above slides in/out). `Animatable.chain` keeps the
+// curve in the tween itself, so we drive it straight off `secondaryAnimation`
+// with no `CurvedAnimation` object to dispose — no leaked ticker (see
+// app_router_no_leaked_timer_test).
+final Animatable<Offset> _instantPageSecondaryParallax = Tween<Offset>(
+  begin: Offset.zero,
+  end: const Offset(-1.0 / 3.0, 0),
+).chain(CurveTween(curve: Curves.fastEaseInToSlowEaseOut));
+
+// PRIMARY (forward/entry) transition stays INSTANT — `transitionDuration:
+// Duration.zero` pins `animation` at 1.0, so the destination paints the instant
+// the framework can build it (the invariant this helper exists for). We
+// deliberately ignore `animation` here: the page's own entry has no motion.
+//
+// SECONDARY transition is now honoured: when a route is pushed ON TOP of this
+// page (e.g. /search/results over the search tab root), `secondaryAnimation`
+// drives a SlideTransition so the revealed page underneath parallaxes instead of
+// sitting static / flashing through during the swipe-back of the page above. At
+// rest (`secondaryAnimation` == 0) the offset is `Offset.zero`, so the page is
+// untransformed and the instant-forward-paint is unchanged. No gesture detector
+// is added (the page above owns its own swipe-back); this is purely the revealed
+// page's reveal motion.
 CustomTransitionPage<void> _instantPage(GoRouterState state, Widget child) =>
     CustomTransitionPage<void>(
       key: state.pageKey,
@@ -88,7 +111,10 @@ CustomTransitionPage<void> _instantPage(GoRouterState state, Widget child) =>
       transitionDuration: Duration.zero,
       reverseTransitionDuration: Duration.zero,
       transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-          child,
+          SlideTransition(
+            position: secondaryAnimation.drive(_instantPageSecondaryParallax),
+            child: child,
+          ),
     );
 
 // ---------------------------------------------------------------------------
