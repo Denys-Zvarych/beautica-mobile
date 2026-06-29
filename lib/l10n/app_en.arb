@@ -3095,7 +3095,7 @@
   "@searchResultsEmptyBody": {
     "description": "Supporting copy under the empty-state title on the results screen."
   },
-  "searchResultsEmptyServiceBody": "No master offers all of the selected services at once. Try removing some services or changing the other filters.",
+  "searchResultsEmptyServiceBody": "We couldn't find a master who offers all the selected services together. Try selecting fewer services or adjusting your filters.",
   "@searchResultsEmptyServiceBody": {
     "description": "Supporting copy under the empty-state title when a per-service (serviceTypeSlugs) filter is active and the AND-narrowed search returns nothing — guides the user to broaden the service selection."
   },
