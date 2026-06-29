@@ -2443,7 +2443,7 @@
   "@locationTitle": {
     "description": "Top-bar title of the location edit page."
   },
-  "locationSubheading": "Де вас знайти клієнтам",
+  "locationSubheading": "Щоб показувати майстрів поруч із вами",
   "@locationSubheading": {
     "description": "Subheading on the location edit page."
   },

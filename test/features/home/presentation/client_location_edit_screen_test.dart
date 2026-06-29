@@ -147,6 +147,24 @@ void main() {
   );
 
   testWidgets(
+    'renders the CLIENT location subheading copy above the locality cascade',
+    (tester) async {
+      await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+      await tester.pump();
+      await tester.pump();
+
+      // Read the expected copy through the l10n getter (NOT a hardcoded literal)
+      // so the assertion survives copy revisions to [locationSubheading] — it
+      // guards that the CLIENT screen wires the key, not a specific wording.
+      final BuildContext ctx = tester.element(
+        find.byKey(const Key('location-cascade')),
+      );
+      final String expected = AppLocalizations.of(ctx).locationSubheading;
+      expect(find.text(expected), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'saving with NO city selected SUCCEEDS (no "city required" error) and sends '
     'touchesLocation true with a null cityId and no address keys',
     (tester) async {
