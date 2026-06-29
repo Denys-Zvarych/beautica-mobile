@@ -833,14 +833,17 @@ class _CategorySection extends ConsumerWidget {
             const SizedBox(height: VelvetSpacing.sm),
 
             // Fixed-height rail — scrolls sideways, never grows the page. Shows
-            // EVERY approved category; each tile sizes to its label so the full
-            // name reads (short or long). Lazy [ListView.builder] so only the
-            // visible tiles build. Height fits a 2-line label without clipping.
+            // EVERY approved category as a clean row of UNIFORM cards (every
+            // tile is a fixed [CategoryRailTile.kTileWidth] ×
+            // [CategoryRailTile.kTileHeight]); 1- and 2-line labels read in
+            // full at identical size. Lazy [ListView.builder] so only the
+            // visible tiles build. Height = tile height + the 4 dp top/bottom
+            // list padding, so the uniform card fills the rail cleanly.
             reveal(
               start: 0.25,
               end: 0.8,
               child: SizedBox(
-                height: 92,
+                height: CategoryRailTile.kTileHeight + 8,
                 child: ListView.separated(
                   key: const Key('search_category_rail'),
                   scrollDirection: Axis.horizontal,
@@ -1020,7 +1023,7 @@ class _RailSkeleton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 92,
+      height: CategoryRailTile.kTileHeight + 8,
       child: ListView(
         scrollDirection: Axis.horizontal,
         clipBehavior: Clip.none,
@@ -1028,7 +1031,11 @@ class _RailSkeleton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         children: <Widget>[
           for (int i = 0; i < 5; i++) ...<Widget>[
-            Container(height: 84, width: 96, decoration: _pill),
+            Container(
+              height: CategoryRailTile.kTileHeight,
+              width: CategoryRailTile.kTileWidth,
+              decoration: _pill,
+            ),
             const SizedBox(width: VelvetSpacing.sm + 2),
           ],
         ],

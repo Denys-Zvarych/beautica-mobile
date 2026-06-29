@@ -1,17 +1,18 @@
 // Phase 13.x (Variant A «Рейка + послуги») — widget tests for [CategoryRailTile]
 // in isolation.
 //
-// The redesign removed the `take(6)` cap and the «Всі категорії» more-tile, and
-// reworked each tile to size to its own label so the FULL category name renders
-// — short («Брови») on one line, long («Перманентний макіяж») wrapped onto a
-// second line — never clipped to an ellipsis. These tests pin that tile-level
-// contract directly (the screen-level «all categories render» count is pinned in
-// search_filters_screen_test.dart):
+// The redesign makes every tile a UNIFORM fixed size — identical width AND
+// height regardless of label length — so the rail reads as a clean row of
+// identical cards. A constant 2-line label area is reserved and the glyph +
+// label are vertically centered, so a 1-line label («Брови») yields a card
+// exactly as tall as a 2-line one («Перманентний макіяж»), which still wraps
+// onto its second line without ellipsis clipping. These tests pin that
+// tile-level contract directly (the screen-level «all categories render» count
+// is pinned in search_filters_screen_test.dart):
 //   • a long label renders in FULL (Text.data == the full label, no truncation);
 //   • the label Text never opts into TextOverflow.ellipsis (softWrap, maxLines:2);
-//   • the tile is width-bounded (minWidth 72 .. maxWidth 132) via a ConstrainedBox
-//     so a short label still reads as a comfortable pill and a long one wraps
-//     instead of stretching the rail.
+//   • every tile is the SAME fixed width and height (short vs long label) via a
+//     tight SizedBox — no IntrinsicWidth, no per-label sizing.
 //
 // All finders are type/widget-based; the label string is fixture data asserted
 // only as rendered content.
@@ -28,8 +29,21 @@ import '../../../../helpers/overflow_guard.dart';
 /// full-label contract.
 const String _longLabel = 'Перманентний макіяж';
 
+/// A const-constructible no-op tap handler so the tiles above can be `const`.
+void _noop() {}
+
 Widget _host(Widget child) => MaterialApp(
   home: Scaffold(body: Center(child: child)),
+);
+
+/// Hosts [child] under a forced [textScale], so the uniform fixed-height tile is
+/// exercised at large-text settings (where a 2-line label is closest to
+/// clipping). Mirrors how accessibility text-scaling reaches the tile in-app.
+Widget _hostScaled(Widget child, double textScale) => MaterialApp(
+  home: MediaQuery(
+    data: MediaQueryData(textScaler: TextScaler.linear(textScale)),
+    child: Scaffold(body: Center(child: child)),
+  ),
 );
 
 /// Finds the tile's caption [Text] (the one carrying the category label),
@@ -107,6 +121,50 @@ void main() {
     },
   );
 
+  // The tile is a FIXED-height box ([kTileHeight]); its real failure mode under
+  // accessibility text-scaling is the 2-line label exceeding the reserved area
+  // and clipping (didExceedMaxLines) or overflowing the box. Pin BOTH the 1.0×
+  // baseline and the 1.3× large-text cell — the latter is the meaningful guard:
+  // a non-uniform / under-reserved tile would clip the long label there.
+  for (final double scale in const <double>[1.0, 1.3]) {
+    testWidgets('long label still fits two lines without clip OR overflow at '
+        '${scale}x text scale', (tester) async {
+      await tester.pumpWidget(
+        _hostScaled(
+          CategoryRailTile(
+            icon: Icons.gesture_outlined,
+            label: _longLabel,
+            selected: false,
+            onTap: () {},
+          ),
+          scale,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The tile keeps its uniform fixed geometry regardless of text scale —
+      // the box never grows to absorb a larger label.
+      final Size size = tester.getSize(find.byType(CategoryRailTile));
+      expect(size.width, CategoryRailTile.kTileWidth);
+      expect(size.height, CategoryRailTile.kTileHeight);
+
+      // Render-layer ground truth: the long label fits within 2 lines (not
+      // truncated) AND lays out without firing a RenderFlex overflow.
+      final RenderParagraph paragraph = tester.renderObject<RenderParagraph>(
+        find.text(_longLabel),
+      );
+      expect(
+        paragraph.didExceedMaxLines,
+        isFalse,
+        reason: 'at ${scale}x the long label must still fit 2 lines, not clip',
+      );
+      expect(paragraph.size.height, lessThanOrEqualTo(size.height));
+      // No RenderFlex overflow (the suite-wide guard also fails on one, but
+      // assert explicitly here so the scale cell pins it directly).
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('a short label renders in full as well (single line)', (
     tester,
   ) async {
@@ -127,37 +185,45 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('tile is width-bounded by a ConstrainedBox (72..132) so it sizes '
-      'to its label', (tester) async {
+  testWidgets('every tile is the SAME fixed width and height regardless of '
+      'label length', (tester) async {
+    // Pump a short-label tile and a long-label tile side by side: a uniform
+    // rail means both occupy an identical fixed box (no per-label sizing).
     await tester.pumpWidget(
       _host(
-        CategoryRailTile(
-          icon: Icons.gesture_outlined,
-          label: _longLabel,
-          selected: false,
-          onTap: () {},
+        const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            CategoryRailTile(
+              key: Key('tile_short'),
+              icon: Icons.remove_red_eye_outlined,
+              label: 'Брови',
+              selected: false,
+              onTap: _noop,
+            ),
+            CategoryRailTile(
+              key: Key('tile_long'),
+              icon: Icons.gesture_outlined,
+              label: _longLabel,
+              selected: true,
+              onTap: _noop,
+            ),
+          ],
         ),
       ),
     );
     await tester.pumpAndSettle();
 
-    // The tile constrains its own width so a long label wraps instead of
-    // stretching the rail; a short label still reads as a comfortable pill.
-    final ConstrainedBox box = tester.widget<ConstrainedBox>(
-      find
-          .descendant(
-            of: find.byType(CategoryRailTile),
-            matching: find.byType(ConstrainedBox),
-          )
-          .first,
-    );
-    expect(box.constraints.minWidth, 72);
-    expect(box.constraints.maxWidth, 132);
+    final Size shortSize = tester.getSize(find.byKey(const Key('tile_short')));
+    final Size longSize = tester.getSize(find.byKey(const Key('tile_long')));
 
-    // And the rendered tile width actually falls inside that band.
-    final double width = tester.getSize(find.byType(CategoryRailTile)).width;
-    expect(width, greaterThanOrEqualTo(72));
-    expect(width, lessThanOrEqualTo(132));
+    // Identical fixed geometry — the core uniform-card contract.
+    expect(shortSize.width, CategoryRailTile.kTileWidth);
+    expect(shortSize.height, CategoryRailTile.kTileHeight);
+    expect(longSize.width, CategoryRailTile.kTileWidth);
+    expect(longSize.height, CategoryRailTile.kTileHeight);
+    // A 1-line label card is exactly as wide AND as tall as a 2-line one.
+    expect(shortSize, longSize);
   });
 
   testWidgets('tapping the tile fires its onTap', (tester) async {

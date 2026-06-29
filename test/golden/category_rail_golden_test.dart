@@ -1,15 +1,18 @@
 // Phase 13.4 — Full-label category-rail golden (FIRST rail golden).
 //
-// The canonical wrap / no-truncation pixel case for [CategoryRailTile]: a row
-// holding a deliberately long label («Перманентний макіяж», which MUST wrap onto
-// a 2nd line within the 132dp ceiling, never ellipsis-clip) beside a short one
-// («Брови»), one tile selected (pressed-in inset well) and one resting (raised
-// pill). A regression that re-introduces single-line truncation, drops the wrap,
-// or swaps the selected/resting treatment reads as a pixel diff here.
+// The canonical uniform-card / wrap / no-truncation pixel case for
+// [CategoryRailTile]: a row holding a deliberately long label
+// («Перманентний макіяж», which MUST wrap onto a 2nd line, never ellipsis-clip)
+// beside a short one («Брови»), one tile selected (pressed-in inset well) and
+// one resting (raised pill). A regression that re-introduces single-line
+// truncation, drops the wrap, swaps the selected/resting treatment, OR breaks
+// the uniform fixed sizing (the two tiles must be identical width AND height)
+// reads as a pixel diff here.
 //
-// Each tile sizes to its own intrinsic width (min 72 / max 132dp), so the row is
-// laid out at its natural width inside a horizontally-scrolling container — we
-// host it in a left-aligned Row on the brand base, matching the rail on screen.
+// Every tile is a fixed [CategoryRailTile.kTileWidth] ×
+// [CategoryRailTile.kTileHeight] box, so the two tiles are identical in size —
+// we host them in a left-aligned Row on the brand base, matching the rail on
+// screen.
 //
 // Captured at {360} dp × {1.0, 1.3} scale — the 1.3 cell is the meaningful one:
 // it proves the long label still wraps (never clips) under large-text settings.

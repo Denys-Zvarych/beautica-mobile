@@ -847,8 +847,10 @@ void main() {
         final Size railSize = tester.getSize(railFinder);
         expect(
           railSize.height,
-          92,
-          reason: 'the rail is pinned to its 92 dp design height',
+          CategoryRailTile.kTileHeight + 8,
+          reason:
+              'the rail is pinned to the uniform tile height plus the '
+              '4 dp top/bottom list padding',
         );
       },
     );
@@ -871,18 +873,36 @@ void main() {
         await tester.pumpAndSettle();
 
         // Every one of the eight categories renders a tile — including the 7th
-        // and 8th, which the old `take(6)` cap would have dropped.
-        expect(find.byType(CategoryRailTile), findsNWidgets(8));
-        expect(
-          find.byKey(const Key('search_service_type_PERMANENT')),
-          findsOneWidget,
-          reason: 'the 7th category must render (proves the 6-cap is gone)',
+        // and 8th, which the old `take(6)` cap would have dropped. The rail is a
+        // LAZY horizontal list of uniform-width tiles, so the trailing tiles
+        // only build once scrolled into view; reaching each key by scrolling
+        // proves there is no cap (and no «Всі категорії» more-tile in between).
+        final Finder railScrollable = find.descendant(
+          of: find.byKey(const Key('search_category_rail')),
+          matching: find.byType(Scrollable),
         );
-        expect(
-          find.byKey(const Key('search_service_type_COSMETOLOGY')),
-          findsOneWidget,
-          reason: 'the 8th category must render (proves the 6-cap is gone)',
-        );
+        for (final String slug in const <String>[
+          'NAILS',
+          'BROWS',
+          'HAIR',
+          'LASH',
+          'MAKEUP',
+          'MASSAGE',
+          'PERMANENT',
+          'COSMETOLOGY',
+        ]) {
+          final Finder tile = find.byKey(Key('search_service_type_$slug'));
+          await tester.scrollUntilVisible(
+            tile,
+            120,
+            scrollable: railScrollable,
+          );
+          expect(
+            tile,
+            findsOneWidget,
+            reason: 'category $slug must render (proves the 6-cap is gone)',
+          );
+        }
 
         // The «Всі категорії» more-tile + its sheet are deleted: no trailing
         // more-tile is laid out anywhere in the rail.
