@@ -32,6 +32,8 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
+import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
@@ -170,6 +172,34 @@ ProviderContainer _authedContainer(UserRole role) {
       // list so no 15s connect-timeout Timer outlives the bounded `pump`.
       approvedCategoriesProvider.overrideWith(
         (ref) async => const <ServiceCategoryOption>[],
+      ),
+      // Settle the CLIENT Home-Hub data path (used only by the client row).
+      //
+      // HomeHubScreen watches four async providers. clientProfileProvider
+      // derives from clientEditProfileProvider, which fires a REAL GET /users/me
+      // on the authenticated Dio. Under this harness that request never resolves,
+      // so Riverpod 3.x schedules a ~200ms `triggerRetry` Timer that outlives the
+      // bounded `pump(100ms)` → `!timersPending`. Override every home-hub data
+      // provider with a settled fake so none enters the error→retry path and no
+      // wall-clock Timer is scheduled (same settle approach as
+      // masterProfileProvider / approvedCategoriesProvider above; NO
+      // `pump(Duration)` wait-out hack — mobile-qa M6).
+      clientProfileProvider.overrideWith(
+        (ref) async => const ClientProfileSummary(
+          firstName: 'Test',
+          lastName: 'Client',
+          city: '',
+          phone: '',
+          clientRating: null,
+          memberSinceYear: 2026,
+        ),
+      ),
+      nextAppointmentProvider.overrideWith((ref) async => null),
+      favoriteMastersProvider.overrideWith(
+        (ref) async => const <FavoriteMasterItem>[],
+      ),
+      beautyTimelineProvider.overrideWith(
+        (ref) async => const <TimelineEntry>[],
       ),
     ],
   );
