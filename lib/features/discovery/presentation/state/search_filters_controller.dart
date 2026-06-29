@@ -20,10 +20,18 @@
 // [SearchFilterLabels] provider so the row chrome can render «Львів» / «Манікюр»
 // without polluting the request model.
 
+import 'dart:developer';
+
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../auth/domain/user.dart';
 import '../../../auth/presentation/auth_notifier.dart';
+import '../../../home/application/client_edit_profile_notifier.dart';
+import '../../../location/domain/city.dart';
+import '../../../location/domain/city_district.dart';
+import '../../../location/domain/oblast.dart';
+import '../../../location/state/location_providers.dart';
 import '../../domain/search_filters.dart';
 
 part 'search_filters_controller.g.dart';
@@ -155,13 +163,141 @@ class SearchFilterLabelsController extends _$SearchFilterLabelsController {
 /// this and the CTA forwards `state` to the results screen.
 @Riverpod(keepAlive: true)
 class SearchFiltersController extends _$SearchFiltersController {
+  /// One-shot guard for [prefillFromProfileIfNeeded]: the saved-profile locality
+  /// is seeded at most ONCE per session. Re-armed in [build] (which re-runs on a
+  /// session flip via the `ref.watch(authProvider)` below), so a fresh login can
+  /// seed again while re-entering `/search` within the same session never does.
+  ///
+  /// An instance field on this keepAlive notifier — it deliberately survives a
+  /// screen rebuild (the search screen's [initState] re-fires the prefill on
+  /// every re-entry), so the guard, not the widget lifecycle, decides one-shot.
+  bool _seededFromProfile = false;
+
   @override
   SearchFilters build() {
     // Reset to an empty filter set whenever the session changes (logout →
     // login) — the same self-clearing pattern every keepAlive per-user provider
     // uses. Without this, one user's last search would leak to the next login.
     ref.watch(authProvider);
+    // Re-arm the one-time profile prefill for the (possibly new) session.
+    _seededFromProfile = false;
     return const SearchFilters();
+  }
+
+  /// Pre-fills the locality filter (oblast → city → district) from the signed-in
+  /// CLIENT's saved profile location — ONCE per session, and NEVER over a manual
+  /// change.
+  ///
+  /// Called when the Пошук screen opens (its `initState`). Designed around the
+  /// keepAlive seamless-reload footgun: this controller never `ref.watch`es
+  /// [clientEditProfileProvider] (a watch would re-run `build()` on every profile
+  /// emission and clobber the user's edits). Instead the profile is read once,
+  /// off the widget lifecycle, behind two guards:
+  ///   1. [_seededFromProfile] — the per-session one-shot (re-armed in [build]);
+  ///   2. an "untouched" check — if the user has already picked any locality this
+  ///      session (`oblastId`/`cityId` set), the seed is abandoned so a manual
+  ///      change is never overwritten (re-checked again AFTER the async resolve,
+  ///      in case the user picked while the taxonomy was loading).
+  ///
+  /// When the profile has no saved location, or any taxonomy lookup fails, the
+  /// filter is left empty (the prior behavior) — the slot is still consumed so a
+  /// failed attempt does not retry on every screen re-entry.
+  ///
+  /// Labels (incl. `cityHasDistricts`, resolved from the taxonomy — never
+  /// hardcoded) are seeded on the sibling [searchFilterLabelsControllerProvider]
+  /// so the locality chips show the saved names and the District row gates
+  /// correctly. Mirrors `ClientLocationEditScreen._prePopulateLocality`.
+  Future<void> prefillFromProfileIfNeeded() async {
+    if (_seededFromProfile) return;
+    // Never overwrite a selection the user already made this session.
+    if (state.oblastId != null || state.cityId != null) {
+      _seededFromProfile = true;
+      return;
+    }
+    // Claim the one-shot up front so a rapid second `initState` (back-nav)
+    // cannot start a concurrent resolve.
+    _seededFromProfile = true;
+
+    try {
+      final User user = await ref.read(clientEditProfileProvider.future);
+      final String? oblastId = user.oblastId;
+      final String? cityId = user.cityId;
+      // No saved location → leave the filter empty (current behavior).
+      if (oblastId == null || cityId == null) return;
+
+      // Resolve the taxonomy objects so the labels + cityHasDistricts are
+      // accurate (a single targeted city fetch for the saved oblast — not a scan
+      // of every oblast). Mirrors _prePopulateLocality.
+      final List<Oblast> oblasts = await ref.read(oblastListProvider.future);
+      Oblast? matchedOblast;
+      for (final Oblast o in oblasts) {
+        if (o.id == oblastId) {
+          matchedOblast = o;
+          break;
+        }
+      }
+      if (matchedOblast == null) return;
+
+      final List<City> cities = await ref.read(
+        cityListProvider(oblastId).future,
+      );
+      City? matchedCity;
+      for (final City c in cities) {
+        if (c.id == cityId) {
+          matchedCity = c;
+          break;
+        }
+      }
+      if (matchedCity == null) return;
+
+      CityDistrict? matchedDistrict;
+      final String? districtId = user.districtId;
+      if (districtId != null && matchedCity.hasDistricts) {
+        final List<CityDistrict> districts = await ref.read(
+          districtListProvider(matchedCity.id).future,
+        );
+        for (final CityDistrict d in districts) {
+          if (d.id == districtId) {
+            matchedDistrict = d;
+            break;
+          }
+        }
+      }
+
+      // Re-check the anti-clobber guard: if the user picked a locality while the
+      // taxonomy was loading, their choice wins — abandon the seed.
+      if (state.oblastId != null || state.cityId != null) return;
+
+      // Commit the cascade-consistent filter ids ...
+      state = state.copyWith(
+        oblastId: matchedOblast.id,
+        cityId: matchedCity.id,
+        districtId: matchedDistrict?.id,
+      );
+      // ... and the display labels (cityHasDistricts comes from the resolved
+      // City, so the District row gates correctly).
+      final City city = matchedCity;
+      final CityDistrict? district = matchedDistrict;
+      ref.read(searchFilterLabelsControllerProvider.notifier)
+        ..setOblastName(matchedOblast.name)
+        ..setCityName(city.name)
+        ..setCityHasDistricts(city.hasDistricts)
+        ..setDistrictName(district?.name);
+    } catch (e, st) {
+      // Graceful: a failed resolve leaves the locality filter empty. The slot is
+      // already consumed, so it will not retry on the next screen re-entry.
+      if (kDebugMode) {
+        // Log only the error's runtime type — never the raw error object, whose
+        // toString() can embed PII (e.g. a DioException carrying the /users/me
+        // request/response: email, phone, saved locality). MS5/MS14 hygiene.
+        log(
+          'search locality prefill failed (${e.runtimeType}) — filter left empty',
+          name: 'feature.discovery.search',
+          level: 800,
+          stackTrace: st,
+        );
+      }
+    }
   }
 
   /// Sets the free-text name / service query.

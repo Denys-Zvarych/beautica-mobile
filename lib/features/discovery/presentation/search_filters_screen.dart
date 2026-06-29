@@ -75,6 +75,18 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
     if (query != null) {
       _searchController.text = query;
     }
+    // One-time, per-session prefill of the locality filter from the signed-in
+    // CLIENT's saved profile location. The controller owns the one-shot +
+    // anti-clobber guards (so a back-nav re-entry never re-seeds and a manual
+    // change is never overwritten); calling it here on every open is safe. Fired
+    // off the build/initState frame (microtask) so it never mutates providers
+    // synchronously during widget construction.
+    Future<void>.microtask(() {
+      if (!mounted) return;
+      ref
+          .read(searchFiltersControllerProvider.notifier)
+          .prefillFromProfileIfNeeded();
+    });
   }
 
   @override

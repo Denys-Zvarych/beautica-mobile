@@ -49,6 +49,7 @@ import 'package:beautica_mobile/features/discovery/domain/category_service_optio
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_filters_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
+import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/category_rail.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/service_chip_drawer.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
@@ -167,6 +168,16 @@ class _FixedAuthNotifier extends AuthNotifier {
   }
 }
 
+// Stub the CLIENT profile the locality prefill reads on screen open. _testUser
+// carries NO saved location, so prefillFromProfileIfNeeded resolves it and bails
+// (filter left empty) WITHOUT touching the real clientProfileRepository / Dio —
+// which would otherwise leak a connect-timeout Timer in the no-settle loading /
+// error tests below.
+class _FixedClientEditProfile extends ClientEditProfile {
+  @override
+  Future<User> build() => Future<User>.value(_testUser);
+}
+
 Future<AppLocalizations> _uk() =>
     AppLocalizations.delegate.load(const Locale('uk'));
 
@@ -272,6 +283,9 @@ Future<_CategoriesController> _pumpScreen(
         authProvider.overrideWith(_FixedAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+        // The locality prefill reads clientEditProfileProvider on screen open;
+        // stub it to a no-location user so it bails without a real Dio call.
+        clientEditProfileProvider.overrideWith(_FixedClientEditProfile.new),
         // Repo override kept for any other repository-backed reads the screen
         // performs; categories now come straight from the provider override.
         serviceRepositoryProvider.overrideWithValue(repo),

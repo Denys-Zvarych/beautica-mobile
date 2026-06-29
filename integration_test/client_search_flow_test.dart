@@ -42,6 +42,7 @@ import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_results_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/service_chip_drawer.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -915,6 +916,136 @@ void main() {
             'serviceTypeSlugs param may reach /search/masters',
       );
       expect(fb.lastSearchSalonsServiceTypeSlugs, isNull);
+
+      expect(fb.getMasterCalls, 0);
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Search-page saved-location PREFILL — E2E: a CLIENT with a saved profile
+  // location lands on Пошук with the locality filter ALREADY pre-filled from
+  // GET /users/me; clearing it then re-entering the tab keeps the edit (no
+  // re-seed).
+  //
+  // WHY THIS FLOW EXISTS
+  // --------------------
+  // The widget tier (search_filters_profile_prefill_test.dart) proves the
+  // controller's prefill + one-shot + anti-clobber guards in isolation with a
+  // STUBBED clientEditProfileProvider. It cannot prove the REAL chain: the CLIENT
+  // logging in, the screen's initState firing prefillFromProfileIfNeeded(), the
+  // real ClientEditProfile → GET /users/me carrying oblastId/cityId, the real
+  // oblastListProvider/cityListProvider resolving the saved ids to names, and the
+  // locality row rendering the saved city on FIRST open. This flow drives exactly
+  // that against the fake backend's seeded taxonomy (oblast-kyiv «Київська» →
+  // city-kyiv «Київ», no districts), with the profile's saved location injected
+  // via the FakeBackend's mutable client state.
+  //
+  // Step 2.7 Rule 3b: this is the real user journey (auth → screen → initState →
+  // provider→repository (/users/me) → taxonomy resolve → rendered locality row +
+  // a branch-switch keepAlive survival) the widget tier cannot prove end to end.
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets(
+    'CLIENT with a saved location opens Пошук → the city filter shows the saved '
+    'city on first open; clearing it then re-entering the tab keeps the edit',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        // Saved profile location: Київська обл. → Київ (no district — city-kyiv
+        // has hasDistricts:false). GET /users/me echoes these so the prefill can
+        // resolve the saved cascade.
+        ..clientOblastId = 'oblast-kyiv'
+        ..clientOblastName = 'Київська'
+        ..clientCityId = 'city-kyiv'
+        ..clientCityName = 'Київ';
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientHome);
+
+      // ── Open the search tab → the prefill fires from initState ──────────────
+      await tester.tap(find.byKey(const Key('client-nav-search-center')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientSearch);
+      expect(find.byKey(const Key('client-branch-search')), findsOneWidget);
+
+      // ── PREFILL ASSERTION — the saved locality is rendered on FIRST open ────
+      // No tap on the picker happened; the city/region rows carry the saved
+      // names because the prefill resolved them through the REAL /users/me +
+      // oblast/city taxonomy chain. A broken prefill would leave the placeholder.
+      final Text cityValue = tester.widget<Text>(
+        find.byKey(const Key('search_city_value')),
+      );
+      expect(
+        cityValue.data,
+        'Київ',
+        reason: 'the saved-profile city must pre-fill the city filter on open',
+      );
+      final Text regionValue = tester.widget<Text>(
+        find.byKey(const Key('search_region_value')),
+      );
+      expect(
+        regionValue.data,
+        'Київська',
+        reason: 'the saved-profile oblast must pre-fill the region filter',
+      );
+      // A pre-filled city is a searchable scope → the CTA is enabled.
+      expect(
+        tester
+            .widget<NeumorphicButton>(
+              find.byKey(const Key('search_show_masters_cta')),
+            )
+            .onPressed,
+        isNotNull,
+        reason: 'a pre-filled city makes the search CTA enabled',
+      );
+      // The saved location came off GET /users/me (the prefill source).
+      expect(
+        fb.getMeCalls,
+        greaterThanOrEqualTo(1),
+        reason: 'the prefill must read the profile via GET /users/me',
+      );
+
+      // ── EDIT — clear the region (cascade-clears the city) ───────────────────
+      await tester.tap(find.byKey(const Key('search_region_value_clear')));
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      Text cityRowText() =>
+          tester.widget<Text>(find.byKey(const Key('search_city_value')));
+      expect(
+        cityRowText().data,
+        l10n.searchCityPlaceholder,
+        reason: 'clearing the region cascade-clears the city back to placeholder',
+      );
+
+      // ── Re-enter the tab (Home → Search) → the edit MUST persist ───────────
+      // The keepAlive filter/labels controllers survive a branch switch, and the
+      // one-shot guard prevents the prefill from re-seeding the profile location
+      // over the user's clear. So the city must STILL be the placeholder — never
+      // re-seeded back to «Київ».
+      await tester.tap(find.byKey(const Key('client-nav-tile-0')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientHome);
+
+      await tester.tap(find.byKey(const Key('client-nav-search-center')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientSearch);
+
+      expect(
+        cityRowText().data,
+        l10n.searchCityPlaceholder,
+        reason:
+            're-entering the search tab must NOT re-seed the saved location '
+            'over a manual clear (one-shot + anti-clobber guard)',
+      );
+      expect(
+        cityRowText().data,
+        isNot('Київ'),
+        reason: "the user's cleared edit must not be reverted to the profile city",
+      );
 
       expect(fb.getMasterCalls, 0);
     },

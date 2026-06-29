@@ -203,9 +203,18 @@ final class FakeBackend {
   String clientFirstName = 'Дмитро';
   String clientLastName = 'Клієнт';
   String? clientPhone;
+  // oblastId/oblastName are emitted on GET /users/me so the search-page
+  // saved-location PREFILL can resolve the saved locality cascade (the prefill
+  // requires BOTH oblastId and cityId non-null). They start null so the profile
+  // edit flows keep seeing a clean, location-less seed; a flow that exercises the
+  // prefill sets them (+ clientCityId/clientCityName) on the FakeBackend instance
+  // BEFORE login.
+  String? clientOblastId;
+  String? clientOblastName;
   String? clientCityId;
   String? clientCityName;
   String? clientDistrictId;
+  String? clientDistrictName;
   String? clientStreet;
   String? clientBuildingNo;
   String? clientLocationNote;
@@ -589,9 +598,12 @@ final class FakeBackend {
     'firstName': clientFirstName,
     'lastName': clientLastName,
     'phoneNumber': clientPhone,
+    'oblastId': clientOblastId,
+    'oblastName': clientOblastName,
     'cityId': clientCityId,
     'cityName': clientCityName,
     'districtId': clientDistrictId,
+    'districtName': clientDistrictName,
     'street': clientStreet,
     'buildingNo': clientBuildingNo,
     'locationNote': clientLocationNote,
