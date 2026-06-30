@@ -83,6 +83,14 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
   String? _errBuildingNo;
   String? _errLocationNote;
 
+  // PERF (P2): drives the Save button's enabled state in isolation. Text
+  // keystrokes update this notifier (via [_onFormChanged]) instead of
+  // setState-ing the whole form and its reveal animation wrappers. Cascade
+  // selection changes still go through setState (they are infrequent and also
+  // mutate other UI), and the footer's builder recomputes [_isDirty] freshly on
+  // both paths.
+  final ValueNotifier<bool> _dirty = ValueNotifier<bool>(false);
+
   // Aligned to the backend address DTO.
   static const int _streetMax = 255;
   static const int _buildingNoMax = 50;
@@ -238,14 +246,19 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
     _anim3.dispose();
     _animFooter.dispose();
     _controller.dispose();
+    _dirty.dispose();
     super.dispose();
   }
 
   List<TextEditingController> get _editableControllers =>
       <TextEditingController>[_street, _buildingNo, _locationNote];
 
+  // PERF (P2): recompute the dirty flag only — no setState, so the form subtree
+  // (locality cascade + address fields + animation wrappers) is not rebuilt on
+  // every address keystroke. The footer's ValueListenableBuilder rebuilds just
+  // the Save button when the flag flips.
   void _onFormChanged() {
-    if (mounted) setState(() {});
+    _dirty.value = _isDirty;
   }
 
   bool get _isDirty =>
@@ -483,12 +496,18 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
       },
       footer: _reveal(
         _animFooter,
-        NeumorphicButton(
-          key: const Key('btn-save-location'),
-          label: l10n.masterSaveButton,
-          icon: Icons.check_rounded,
-          loading: _saving,
-          onPressed: (!_saving && _isDirty) ? _save : null,
+        ValueListenableBuilder<bool>(
+          valueListenable: _dirty,
+          // Recompute [_isDirty] freshly: text keystrokes flip [_dirty] (this
+          // rebuilds the builder), and cascade selections setState the parent
+          // (which also rebuilds the builder) — both paths land here.
+          builder: (context, _, _) => NeumorphicButton(
+            key: const Key('btn-save-location'),
+            label: l10n.masterSaveButton,
+            icon: Icons.check_rounded,
+            loading: _saving,
+            onPressed: (!_saving && _isDirty) ? _save : null,
+          ),
         ),
       ),
       body: Column(

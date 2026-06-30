@@ -19,6 +19,7 @@ import 'package:beautica_mobile/features/home/application/client_edit_profile_no
 import 'package:beautica_mobile/features/home/data/client_profile_repository.dart';
 import 'package:beautica_mobile/features/home/domain/client_profile_update.dart';
 import 'package:beautica_mobile/features/home/presentation/client_personal_info_edit_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/section_scaffold.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -142,6 +143,49 @@ void main() {
           .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
           .onPressed,
       isNotNull,
+    );
+  });
+
+  // ── PERF (P2): typing must NOT re-run the screen-level build ───────────────
+  //
+  // The dirty-state gating Save is driven by a ValueNotifier<bool> +
+  // ValueListenableBuilder around the footer, NOT setState(() {}) on the whole
+  // screen State. A keystroke must therefore leave the SectionScaffold chrome
+  // (app-bar / back-button / footer + reveal-animation wrappers) at the same
+  // widget object identity. Under the OLD setState-per-keystroke code build()
+  // re-ran on every character and produced a brand-new SectionScaffold; this
+  // identity check fails on that old behaviour and passes on the ValueNotifier
+  // fix. (The avatar initials follow input via their own listenable and the
+  // typed field rebuilds via FormState — neither recreates SectionScaffold.)
+  testWidgets('typing a valid name does NOT re-run the screen build '
+      '(SectionScaffold chrome preserved) yet still enables Save', (
+    tester,
+  ) async {
+    await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+    await tester.pumpAndSettle();
+
+    SectionScaffold scaffold() =>
+        tester.widget<SectionScaffold>(find.byType(SectionScaffold));
+
+    final before = scaffold();
+
+    await tester.enterText(_field('field-firstName'), 'Оля');
+    await tester.pump();
+
+    expect(
+      identical(before, scaffold()),
+      isTrue,
+      reason:
+          'a keystroke must not re-run the screen build — the old '
+          'setState(() {}) recreated the whole SectionScaffold (P2 jank).',
+    );
+
+    expect(
+      tester
+          .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
+          .onPressed,
+      isNotNull,
+      reason: 'the ValueListenableBuilder footer must still enable Save',
     );
   });
 

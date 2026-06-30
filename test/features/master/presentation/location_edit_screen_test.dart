@@ -16,6 +16,7 @@
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
@@ -24,6 +25,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:beautica_mobile/features/master/presentation/location_edit_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/section_scaffold.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -185,6 +187,47 @@ void main() {
   // used by the CLIENT location screen. A refactor that reverts to the shared
   // key would silently swap the master copy back — this pins it. Both strings
   // are resolved via l10n in-test (no hardcoded Cyrillic literal).
+  // ── PERF (P2): typing an address must NOT re-run the screen-level build ────
+  //
+  // The dirty-state gating Save is driven by a ValueNotifier<bool> +
+  // ValueListenableBuilder around the footer, NOT setState(() {}) on the whole
+  // screen State. A text keystroke must therefore leave the SectionScaffold
+  // chrome (app-bar / back-button / footer + reveal-animation wrappers) at the
+  // same widget object identity. (Cascade city/district SELECTIONS still go
+  // through setState — infrequent — and are not what this guards; this targets
+  // the per-keystroke address-field path the old `setState(() {})` re-ran on.)
+  testWidgets('typing a valid street does NOT re-run the screen build '
+      '(SectionScaffold chrome preserved) yet still enables Save', (
+    tester,
+  ) async {
+    await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+    await tester.pumpAndSettle();
+
+    SectionScaffold scaffold() =>
+        tester.widget<SectionScaffold>(find.byType(SectionScaffold));
+
+    final before = scaffold();
+
+    await tester.enterText(_field('field-street'), 'вул. Шевченка');
+    await tester.pump();
+
+    expect(
+      identical(before, scaffold()),
+      isTrue,
+      reason:
+          'an address keystroke must not re-run the screen build — the old '
+          'setState(() {}) recreated the whole SectionScaffold (P2 jank).',
+    );
+
+    expect(
+      tester
+          .widget<NeumorphicButton>(find.byKey(const Key('btn-save-location')))
+          .onPressed,
+      isNotNull,
+      reason: 'the ValueListenableBuilder footer must still enable Save',
+    );
+  });
+
   testWidgets(
     'renders the master-scoped subheading, not the shared client one',
     (tester) async {

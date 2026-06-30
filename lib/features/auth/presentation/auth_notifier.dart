@@ -444,7 +444,14 @@ class AuthNotifier extends _$AuthNotifier {
       try {
         fullUser = await repo.me();
       } catch (_) {
+        // Failure-path hygiene: the verify succeeded but the profile load
+        // failed, so this session never settles to Authenticated. Clear BOTH
+        // in-memory token caches so a half-built session leaves no token for
+        // the interceptor to replay, then let the outer catch surface the
+        // failure as AsyncError (mirrors build()'s failure path). Without this,
+        // a real repo.me() failure would leave the UI in a stale state.
         coldStartAccessToken = null;
+        _lastKnownAccessToken = null;
         rethrow;
       }
       // CRITICAL: set the Authenticated state BEFORE clearing coldStartAccessToken.

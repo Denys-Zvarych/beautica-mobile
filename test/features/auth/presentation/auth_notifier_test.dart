@@ -1387,6 +1387,60 @@ void main() {
         expect(await storage.readRefreshToken(), isNull);
       },
     );
+
+    // -----------------------------------------------------------------------
+    // verifyEmail — repo.me() fails AFTER a successful verify (Finding 1).
+    //
+    // The verify call returns a full session (refresh token persisted), but the
+    // follow-up GET /users/me throws. The notifier MUST surface that failure as
+    // AsyncError (with the original error + stack) rather than hang in a stale
+    // state. It also rethrows so the calling screen renders the inline error.
+    // -----------------------------------------------------------------------
+    test('verifyEmail: repo.me() failure after a successful verify → AsyncError '
+        '(not a stale/hung state) and rethrows', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.verifyEmail(
+          email: any(named: 'email'),
+          otp: any(named: 'otp'),
+        ),
+      ).thenAnswer((_) async => (testUser, testTokens));
+      // The profile load fails — this is the path Finding 1 guards.
+      when(() => repo.me()).thenThrow(const ServerFailure(statusCode: 500));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await expectLater(
+        () => container
+            .read(authProvider.notifier)
+            .verifyEmail(email: 'anya@example.com', otp: '123456'),
+        throwsA(isA<ServerFailure>()),
+      );
+
+      // THE REGRESSION GUARD: the failure surfaces as AsyncError, not a stale
+      // AsyncData(Unauthenticated) / hung AsyncLoading.
+      final value = container.read(authProvider);
+      expect(
+        value,
+        isA<AsyncError<AuthSession>>(),
+        reason:
+            'a repo.me() failure after verify must settle the provider into '
+            'AsyncError so the UI can react instead of hanging',
+      );
+      expect((value as AsyncError<AuthSession>).error, isA<ServerFailure>());
+      expect(value.stackTrace, isNotNull);
+
+      // The in-memory cold-start token must NOT linger after the half-built
+      // session failed (security invariant — no replayable token left behind).
+      expect(
+        container.read(authProvider.notifier).lastKnownAccessToken,
+        isNull,
+        reason: 'a failed verify must clear both in-memory access-token caches',
+      );
+    });
   });
 
   // =========================================================================

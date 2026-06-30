@@ -68,6 +68,11 @@ class _ClientPersonalInfoEditScreenState
   String? _errFirstName;
   String? _errLastName;
 
+  // PERF (P2): drives the Save button's enabled state in isolation so typing
+  // does not setState the whole form (and its reveal animation wrappers). Only
+  // the footer (ValueListenableBuilder) and the avatar initials follow input.
+  final ValueNotifier<bool> _dirty = ValueNotifier<bool>(false);
+
   // Animation — pre-built in initState; zero allocations in build().
   late final AnimationController _controller;
   late final CurvedAnimation _anim0; // avatar
@@ -139,14 +144,17 @@ class _ClientPersonalInfoEditScreenState
     _anim2.dispose();
     _animFooter.dispose();
     _controller.dispose();
+    _dirty.dispose();
     super.dispose();
   }
 
   List<TextEditingController> get _editableControllers =>
       <TextEditingController>[_firstName, _lastName];
 
+  // PERF (P2): recompute the dirty flag only — no setState, so the form subtree
+  // and its animation wrappers are not rebuilt on every keystroke.
   void _onFormChanged() {
-    if (mounted) setState(() {});
+    _dirty.value = _isDirty;
   }
 
   bool get _isDirty =>
@@ -352,12 +360,15 @@ class _ClientPersonalInfoEditScreenState
       },
       footer: _reveal(
         _animFooter,
-        NeumorphicButton(
-          key: const Key('btn-save-personal'),
-          label: l10n.masterSaveButton,
-          icon: Icons.check_rounded,
-          loading: _saving,
-          onPressed: (!_saving && _isDirty) ? _save : null,
+        ValueListenableBuilder<bool>(
+          valueListenable: _dirty,
+          builder: (context, dirty, _) => NeumorphicButton(
+            key: const Key('btn-save-personal'),
+            label: l10n.masterSaveButton,
+            icon: Icons.check_rounded,
+            loading: _saving,
+            onPressed: (!_saving && dirty) ? _save : null,
+          ),
         ),
       ),
       body: Form(
@@ -370,10 +381,19 @@ class _ClientPersonalInfoEditScreenState
               Column(
                 children: <Widget>[
                   Center(
-                    child: NeumorphicAvatarEditor(
-                      state: AvatarEditState.pristine,
-                      initials: _buildInitials(),
-                      onTap: _onAvatarTap,
+                    // PERF (P2): only the avatar initials follow the name
+                    // keystrokes — listen to just the two name controllers
+                    // rather than rebuilding the whole form.
+                    child: ListenableBuilder(
+                      listenable: Listenable.merge(<Listenable>[
+                        _firstName,
+                        _lastName,
+                      ]),
+                      builder: (context, _) => NeumorphicAvatarEditor(
+                        state: AvatarEditState.pristine,
+                        initials: _buildInitials(),
+                        onTap: _onAvatarTap,
+                      ),
                     ),
                   ),
                   const SizedBox(height: VelvetSpacing.sm),

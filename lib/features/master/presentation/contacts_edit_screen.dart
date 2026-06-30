@@ -71,6 +71,10 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
   String? _errPhone;
   String? _errInstagram;
 
+  // PERF (P2): drives the Save button's enabled state in isolation so typing
+  // does not setState the whole form (and its reveal animation wrappers).
+  final ValueNotifier<bool> _dirty = ValueNotifier<bool>(false);
+
   static const int _phoneMax = 20;
 
   // Pre-built static RegExps — allocated once, never inside build or validate.
@@ -149,14 +153,17 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
     _anim2.dispose();
     _animFooter.dispose();
     _controller.dispose();
+    _dirty.dispose();
     super.dispose();
   }
 
   List<TextEditingController> get _editableControllers =>
       <TextEditingController>[_phone, _instagram];
 
+  // PERF (P2): recompute the dirty flag only — no setState, so the form subtree
+  // and its animation wrappers are not rebuilt on every keystroke.
   void _onFormChanged() {
-    if (mounted) setState(() {});
+    _dirty.value = _isDirty;
   }
 
   bool get _isDirty =>
@@ -337,12 +344,15 @@ class _ContactsEditScreenState extends ConsumerState<ContactsEditScreen>
       },
       footer: _reveal(
         _animFooter,
-        NeumorphicButton(
-          key: const Key('btn-save-contacts'),
-          label: l10n.masterSaveButton,
-          icon: Icons.check_rounded,
-          loading: _saving,
-          onPressed: (!_saving && _isDirty) ? () => _save(cached) : null,
+        ValueListenableBuilder<bool>(
+          valueListenable: _dirty,
+          builder: (context, dirty, _) => NeumorphicButton(
+            key: const Key('btn-save-contacts'),
+            label: l10n.masterSaveButton,
+            icon: Icons.check_rounded,
+            loading: _saving,
+            onPressed: (!_saving && dirty) ? () => _save(cached) : null,
+          ),
         ),
       ),
       body: Form(
