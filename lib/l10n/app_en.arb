@@ -862,7 +862,7 @@
   "@step3HeadlineOwnerLine2": {
     "description": "Second line (italic Cormorant Garamond accent) of the Step 3 hero headline, SALON_OWNER variant."
   },
-  "step3SubtextClient": "We'll show masters near you. You can skip and choose later.",
+  "step3SubtextClient": "Choose the city where you'd like to find a master and we'll show masters nearby. You can skip and choose later.",
   "@step3SubtextClient": {
     "description": "Muted sub-text below the Step 3 headline for the CLIENT role variant."
   },

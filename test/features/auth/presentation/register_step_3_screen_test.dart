@@ -268,6 +268,16 @@ void main() {
       expect(find.byKey(const Key('locality_row_city')), findsOneWidget);
       expect(find.byKey(const Key('locality_row_district')), findsOneWidget);
 
+      // Role-aware sub-text must resolve via the CLIENT l10n branch
+      // (_subTextFor → step3SubtextClient), NOT a frozen literal. Guards both
+      // the copy itself and the role branch: a regression that swaps the CLIENT
+      // variant for the master/owner string, or freezes stale copy, fails here.
+      final l10n = lookupAppLocalizations(const Locale('uk'));
+      final subtext = tester.widget<Text>(
+        find.byKey(const Key('step3-subtext')),
+      );
+      expect(subtext.data, l10n.step3SubtextClient);
+
       // Phase 2.19 keys: CLIENT split CTA.
       expect(
         find.byKey(const ValueKey<String>('address_skip')),
