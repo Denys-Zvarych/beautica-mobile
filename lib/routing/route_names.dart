@@ -79,6 +79,14 @@ abstract final class RouteNames {
   /// Same lifecycle note as [masterPublicProfile].
   static String salonPublicProfile(String salonId) => '/salons/$salonId';
 
+  /// Phase 14.1 — booking flow entry (service selection + slot picker), opened
+  /// from the public master profile's «Записатись» / «Обрати послугу» CTA with
+  /// the target master id in `GoRouterState.extra`. The real screen ships in
+  /// Phase 14.1; until then the route renders a CLIENT-guarded «Скоро…»
+  /// placeholder so the CTA is non-crashing. This constant is the single source
+  /// of truth for the CTA's nav target.
+  static const String bookingNew = '/booking/new';
+
   // CLIENT settings hub + per-section edit pages. Pushed from the home-hub
   // burger icon (mirrors the master `/master/menu` + `/master/edit/*` block).
   // The three edit pages all PATCH /users/me via ClientProfileRepository,

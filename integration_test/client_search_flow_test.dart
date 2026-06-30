@@ -315,7 +315,8 @@ void main() {
       expect(
         find.byKey(const Key('client-search-results')),
         findsNothing,
-        reason: 'a blocked region-only CTA tap must not push the results screen',
+        reason:
+            'a blocked region-only CTA tap must not push the results screen',
       );
       expectLocation(router, RouteNames.clientSearch);
 
@@ -653,7 +654,8 @@ void main() {
       expect(
         activeBadge,
         findsOneWidget,
-        reason: 'a picked locality (1 facet) must surface the «(N)» count badge',
+        reason:
+            'a picked locality (1 facet) must surface the «(N)» count badge',
       );
       expect(
         tester.widget<Text>(activeBadge).data,
@@ -1018,7 +1020,8 @@ void main() {
       expect(
         cityRowText().data,
         l10n.searchCityPlaceholder,
-        reason: 'clearing the region cascade-clears the city back to placeholder',
+        reason:
+            'clearing the region cascade-clears the city back to placeholder',
       );
 
       // ── Re-enter the tab (Home → Search) → the edit MUST persist ───────────
@@ -1044,7 +1047,8 @@ void main() {
       expect(
         cityRowText().data,
         isNot('Київ'),
-        reason: "the user's cleared edit must not be reverted to the profile city",
+        reason:
+            "the user's cleared edit must not be reverted to the profile city",
       );
 
       expect(fb.getMasterCalls, 0);

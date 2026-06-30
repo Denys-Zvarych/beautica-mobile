@@ -65,6 +65,16 @@ abstract interface class ServiceRepository {
   /// requested [id] is absent from the list.
   Future<MasterService> getMyService(String id);
 
+  /// Returns the active services for an arbitrary [masterId] (public browse).
+  ///
+  /// Wraps the PUBLIC `GET /api/v1/masters/{masterId}/services` endpoint (drafts
+  /// are filtered out server-side). Unlike [listMyServices] this takes the
+  /// target master as a parameter and does NOT require the caller to be that
+  /// master, so it is safe to call from a CLIENT session — it drives the
+  /// services count on the client-facing public master profile (Phase 13.5).
+  /// Returns an empty list when the master has no active services.
+  Future<List<MasterService>> getMasterServices(String masterId);
+
   /// Creates a new service for the authenticated master.
   ///
   /// Wraps `POST /api/v1/independent-masters/me/services`. Returns the
@@ -288,6 +298,42 @@ final class HttpServiceRepository implements ServiceRepository {
       throw const NotFoundFailure();
     }
     return match;
+  }
+
+  @override
+  Future<List<MasterService>> getMasterServices(String masterId) async {
+    // No [_assertAuthenticated] gate: this hits the PUBLIC endpoint keyed on the
+    // [masterId] PATH parameter (not the JWT principal), so it must work even
+    // when [_masterId] is empty (the CLIENT-safe provider passes '').
+    try {
+      final res = await _serviceApi.getMasterServices(masterId: masterId);
+      final list = res.data?.data;
+      if (list == null) {
+        if (kDebugMode) {
+          log(
+            'getMasterServices($masterId): '
+            'ApiResponseListMasterServiceResponse.data is null',
+            name: _tag,
+            level: 1000,
+          );
+        }
+        return const [];
+      }
+      return list.map(MasterServiceMapper.fromDto).toList(growable: false);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getMasterServices($masterId) failed: '
+          '${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
   }
 
   @override
@@ -771,6 +817,28 @@ ServiceRepository serviceRepository(Ref ref) {
     masterId: masterId,
   );
 }
+
+/// Provides a CLIENT-safe [ServiceRepository] for PUBLIC reads only.
+///
+/// Used by the public master profile (Phase 13.5) to fetch the target master's
+/// services count via [ServiceRepository.getMasterServices]. Unlike
+/// [serviceRepositoryProvider] it does NOT `ref.watch(masterProfileProvider)`:
+/// a CLIENT has no master profile, and dragging that master-only provider in
+/// would fire `GET /api/v1/masters/me` (403 for a CLIENT) and trigger Riverpod's
+/// retry storm — the same footgun the [approvedCategories] provider avoids by
+/// sourcing the API directly. The [_masterId] readiness guard is passed empty
+/// (`''`) on purpose: only [getMasterServices] (which hits the public,
+/// path-parameterised endpoint and never calls `_assertAuthenticated`) is used
+/// through this handle; the owner-only methods would correctly throw
+/// [UnauthorizedFailure].
+@Riverpod(keepAlive: true)
+ServiceRepository publicServiceRepository(Ref ref) => HttpServiceRepository(
+  serviceApi: ref.watch(serviceApiProvider),
+  categoryApi: ref.watch(categoryRequestApiProvider),
+  catalogApi: ref.watch(serviceCatalogApiProvider),
+  dio: ref.watch(dioProvider),
+  masterId: '',
+);
 
 /// Provides the generated [ServiceControllerApi] singleton.
 ///

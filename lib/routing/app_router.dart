@@ -37,6 +37,8 @@ import '../features/auth/presentation/register_step_3_screen.dart';
 import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
+import '../features/auth/domain/auth_session.dart';
+import '../features/auth/domain/user_role.dart';
 import '../features/discovery/domain/search_filters.dart';
 import '../features/discovery/presentation/search_filters_screen.dart';
 import '../features/discovery/presentation/search_results_screen.dart';
@@ -44,6 +46,7 @@ import '../features/master/presentation/contacts_edit_screen.dart';
 import '../features/master/presentation/location_edit_screen.dart';
 import '../features/master/presentation/master_profile_screen.dart';
 import '../features/master/presentation/personal_info_edit_screen.dart';
+import '../features/master/presentation/public_master_profile_screen.dart';
 import '../features/master/presentation/settings_hub_screen.dart';
 import '../features/services/presentation/service_create_screen.dart';
 import '../features/services/presentation/service_edit_screen.dart';
@@ -66,6 +69,7 @@ import '../features/schedule/presentation/weekly_template_editor_screen.dart';
 import '../features/services/domain/category_slug.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
+import 'role_home.dart';
 import 'route_names.dart';
 
 part 'app_router.g.dart';
@@ -135,6 +139,21 @@ const int kClientPassportBranch = 4;
 GoRouter appRouter(Ref ref) {
   final refresh = AuthRefreshNotifier(ref);
   ref.onDispose(refresh.dispose);
+
+  // Per-route CLIENT gate for the public discovery surfaces that are NOT covered
+  // by the prefix gates in [authRedirect] (they sit on /masters/* and /booking/*
+  // rather than a client-shell branch). An authenticated non-CLIENT role that
+  // reaches one of these is bounced to its own landing — INDEPENDENT_MASTER back
+  // to /master/profile, every other role to the home shell. Unauthenticated
+  // access is still handled by the global [authRedirect] (→ /login), which runs
+  // alongside this route-level redirect.
+  String? clientOnlyGuard(BuildContext context, GoRouterState state) {
+    final session = ref.read(authProvider).value;
+    if (session is Authenticated && session.user.role != UserRole.client) {
+      return roleHomePath(session.user.role);
+    }
+    return null;
+  }
 
   return GoRouter(
     initialLocation: RouteNames.splash,
@@ -346,6 +365,32 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.myRating,
         builder: (context, state) => const MyRatingScreen(),
+      ),
+      // Phase 13.5 — Public master profile (CLIENT-facing, read-only). A
+      // top-level route (full-screen, over the client bottom nav) pushed from
+      // the search-results / favourites master cards. CLIENT-guarded: an
+      // INDEPENDENT_MASTER that lands here is redirected to /master/profile; any
+      // other non-CLIENT role to its own home. Registered with exported:false so
+      // it is reachable only by an in-app push, never an external deep link.
+      GoRoute(
+        path: '/masters/:masterId',
+        redirect: clientOnlyGuard,
+        pageBuilder: (context, state) => _instantPage(
+          state,
+          PublicMasterProfileScreen(
+            masterId: state.pathParameters['masterId'] ?? '',
+          ),
+        ),
+      ),
+      // Phase 14.1 (placeholder) — booking flow entry. The public master
+      // profile's «Записатись» / «Обрати послугу» CTA pushes here with the
+      // target master id in `extra`. CLIENT-guarded like the profile route. The
+      // real service-selection / slot-picker screen replaces this builder in
+      // Phase 14.1; until then a «Скоро…» panel keeps the CTA non-crashing.
+      GoRoute(
+        path: RouteNames.bookingNew,
+        redirect: clientOnlyGuard,
+        builder: (context, state) => const BookingNewPlaceholderScreen(),
       ),
       // Phase 4.2 — Master profile (read-only).
       GoRoute(

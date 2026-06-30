@@ -3210,5 +3210,37 @@
         "example": "Манікюр · Педикюр"
       }
     }
+  },
+  "publicMasterProfileTitle": "Профіль майстра",
+  "@publicMasterProfileTitle": {
+    "description": "App-bar title on the CLIENT-facing public master profile (Phase 13.5)."
+  },
+  "publicMasterBioLabel": "Про майстра",
+  "@publicMasterBioLabel": {
+    "description": "Section label above the bio on the public master profile (about the master, not self)."
+  },
+  "publicMasterExperienceLabel": "Досвід",
+  "@publicMasterExperienceLabel": {
+    "description": "Caption of the experience/tenure stat tile on the public master profile."
+  },
+  "publicMasterBookingSectionLabel": "Послуги та ціни",
+  "@publicMasterBookingSectionLabel": {
+    "description": "Title of the pinned booking shelf on the public master profile."
+  },
+  "publicMasterBookingEmptyPrompt": "Оберіть послугу",
+  "@publicMasterBookingEmptyPrompt": {
+    "description": "Empty-state prompt inside the booking shelf before any service is chosen."
+  },
+  "publicMasterBookingCta": "Обрати послугу",
+  "@publicMasterBookingCta": {
+    "description": "Primary CTA in the booking shelf empty state; opens the Phase 14.1 booking flow."
+  },
+  "bookingNewPlaceholderTitle": "Бронювання",
+  "@bookingNewPlaceholderTitle": {
+    "description": "Title of the Phase 14.1 booking-flow placeholder screen."
+  },
+  "bookingNewPlaceholderBlurb": "Онлайн-запис до майстра скоро буде доступний.",
+  "@bookingNewPlaceholderBlurb": {
+    "description": "Body copy of the Phase 14.1 booking-flow placeholder screen."
   }
 }

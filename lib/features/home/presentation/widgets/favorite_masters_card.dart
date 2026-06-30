@@ -21,6 +21,7 @@ import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
 import '../../../../l10n/app_localizations.dart';
+import '../../../../routing/route_names.dart';
 import '../../../../shared/widgets/rating_star.dart';
 import '../../application/home_hub_notifier.dart';
 import '../../domain/home_hub_models.dart';
@@ -96,13 +97,11 @@ class FavoriteMastersCard extends ConsumerWidget {
               itemBuilder: (BuildContext context, int i) => RepaintBoundary(
                 child: _MasterMiniCard(
                   master: masters[i],
-                  // TODO(13.5): re-enable masterPublicProfile push once
-                  // /masters/:id route is registered. The route is unregistered
-                  // today, so navigating would throw GoException → "Page Not
-                  // Found". Until then onTap is null (silent non-button); restore
-                  //   onTap: () => context.push(
-                  //     RouteNames.masterPublicProfile(masters[i].masterId)),
-                  // The unlike heart below stays interactive regardless.
+                  // Phase 13.5 — the /masters/:id public-profile route is now
+                  // registered (CLIENT-guarded), so tapping the card opens it.
+                  onTap: () => context.push(
+                    RouteNames.masterPublicProfile(masters[i].masterId),
+                  ),
                   onUnlike: () => ref
                       .read(unlikeFavoriteMasterProvider.notifier)
                       .unlike(masters[i].favoriteId),
@@ -116,9 +115,18 @@ class FavoriteMastersCard extends ConsumerWidget {
 }
 
 class _MasterMiniCard extends StatelessWidget {
-  const _MasterMiniCard({required this.master, required this.onUnlike});
+  const _MasterMiniCard({
+    required this.master,
+    required this.onTap,
+    required this.onUnlike,
+  });
 
   final FavoriteMasterItem master;
+
+  /// Opens the master's public profile (Phase 13.5). The unlike heart sits in a
+  /// nested [GestureDetector] that wins the gesture arena, so tapping the heart
+  /// never also triggers this card-body tap.
+  final VoidCallback onTap;
   final VoidCallback onUnlike;
 
   static final TextStyle _nameStyle = VelvetText.bodyStrong().copyWith(
@@ -134,85 +142,88 @@ class _MasterMiniCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    // TODO(13.5): re-enable masterPublicProfile push once /masters/:id route is
-    // registered. The card body is intentionally a silent non-button until then
-    // (no GestureDetector / onTap) — the route is unregistered and a tap would
-    // throw GoException → "Page Not Found". The unlike heart below stays
-    // interactive regardless.
+    // Phase 13.5 — the card body is now a button that opens the master's public
+    // profile. The unlike heart below stays interactive (its nested
+    // GestureDetector wins the arena over this body tap).
     return Semantics(
       key: Key('favorite_master_${master.masterId}'),
+      button: true,
       label: master.name,
-      child: SizedBox(
-        width: 80,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Stack(
-              clipBehavior: Clip.none,
-              children: <Widget>[
-                HubPhoto(
-                  initials: master.initials,
-                  size: 76,
-                  radius: 14,
-                  fontSize: 20,
-                ),
-                Positioned(
-                  right: 5,
-                  top: 5,
-                  child: Semantics(
-                    button: true,
-                    label: l10n.homeHubUnlikeMasterLabel,
-                    child: GestureDetector(
-                      key: Key('unlike_master_${master.masterId}'),
-                      onTap: onUnlike,
-                      child: Container(
-                        height: 22,
-                        width: 22,
-                        decoration: BoxDecoration(
-                          color: BrandColors.white.withValues(alpha: 0.92),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.favorite_rounded,
-                          size: 13,
-                          color: BrandColors.error,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          width: 80,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Stack(
+                clipBehavior: Clip.none,
+                children: <Widget>[
+                  HubPhoto(
+                    initials: master.initials,
+                    size: 76,
+                    radius: 14,
+                    fontSize: 20,
+                  ),
+                  Positioned(
+                    right: 5,
+                    top: 5,
+                    child: Semantics(
+                      button: true,
+                      label: l10n.homeHubUnlikeMasterLabel,
+                      child: GestureDetector(
+                        key: Key('unlike_master_${master.masterId}'),
+                        onTap: onUnlike,
+                        child: Container(
+                          height: 22,
+                          width: 22,
+                          decoration: BoxDecoration(
+                            color: BrandColors.white.withValues(alpha: 0.92),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.favorite_rounded,
+                            size: 13,
+                            color: BrandColors.error,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: VelvetSpacing.xs + 2),
-            Text(
-              master.name,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: _nameStyle,
-            ),
-            const SizedBox(height: 1),
-            Text(
-              master.lastServiceName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: _serviceStyle,
-            ),
-            const SizedBox(height: 1),
-            Row(
-              children: <Widget>[
-                RatingStar(rating: master.rating, size: 13, showLabel: false),
-                const SizedBox(width: 2),
-                Flexible(
-                  child: Text(
-                    '${master.rating.toStringAsFixed(1)} (${master.reviewCount})',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: _ratingStyle,
+                ],
+              ),
+              const SizedBox(height: VelvetSpacing.xs + 2),
+              Text(
+                master.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: _nameStyle,
+              ),
+              const SizedBox(height: 1),
+              Text(
+                master.lastServiceName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _serviceStyle,
+              ),
+              const SizedBox(height: 1),
+              Row(
+                children: <Widget>[
+                  RatingStar(rating: master.rating, size: 13, showLabel: false),
+                  const SizedBox(width: 2),
+                  Flexible(
+                    child: Text(
+                      '${master.rating.toStringAsFixed(1)} (${master.reviewCount})',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _ratingStyle,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

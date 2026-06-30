@@ -178,18 +178,15 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // Phase 13.5 navigation guard — the card body is an inert, non-navigating
-  // Semantics(label: name). It USED TO be Semantics(button: true, …) wrapping a
-  // GestureDetector that pushed RouteNames.masterPublicProfile — an unregistered
-  // /masters/:id route → GoException "Page Not Found". This pins the body as a
-  // silent non-button until the route ships.
-  // TODO(13.5): when /masters/:id is registered, flip this to expect
-  // `semantics.properties.button` == true (and restore the body GestureDetector).
+  // Phase 13.5 navigation — the card body is a button that navigates to
+  // RouteNames.masterPublicProfile (/masters/:id, registered in Phase 13.5).
+  // It is wrapped in Semantics(button: true, label: name) so screen readers
+  // announce it as a tappable element carrying the master's name.
   // -------------------------------------------------------------------------
-  group('MasterResultCard navigation guard (TODO 13.5)', () {
+  group('MasterResultCard navigation (Phase 13.5)', () {
     testWidgets(
-      'card body is a silent non-button: Semantics carries the name label but '
-      'NO button flag',
+      'card body is a button: Semantics carries the name label AND the button '
+      'flag',
       (tester) async {
         await _pump(tester, _master());
 
@@ -213,11 +210,10 @@ void main() {
         final Semantics semantics = tester.widget<Semantics>(cardSemantics);
         expect(
           semantics.properties.button,
-          isNot(true),
+          isTrue,
           reason:
-              'the card body must NOT be announced as a button while the '
-              'public-profile route is unregistered — re-adding button: true '
-              'signals the dead tap-navigation is back (the regression guarded).',
+              'the card body navigates to /masters/:id on tap (Phase 13.5), so '
+              'it must be announced as a button carrying the master name.',
         );
       },
     );

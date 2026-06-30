@@ -6,10 +6,11 @@
 // collapse / hide + NO rating), chip-clear re-query, infinite-scroll loadMore
 // (bottom spinner, no double-fetch, last-page no-op), the optimistic favorite
 // heart (flip / idempotent toggle / revert + snackbar on repo error / per-heart
-// rebuild scope), and the card-body navigation GUARD (the 13.5/13.6 public-
-// profile routes are NOT registered yet, so the card body must NOT navigate —
-// we assert no /masters/:id or /salons/:id push fires while the heart stays
-// interactive; see `group('card nav guard')`).
+// rebuild scope), and the card-body navigation contract: the MASTER card body
+// now navigates to /masters/:id (Phase 13.5, route registered) while the SALON
+// card body stays inert until /salons/:id lands (TODO 13.6); in both cases the
+// favourite heart stays interactive and navigates nowhere (isolation control);
+// see `group('card nav guard')`.
 //
 // Pumping notes (mobile-backlog row 236): the screen is pumped under a plain
 // `MaterialApp home:` (NOT `.router`) for the AsyncValue-state tests so the
@@ -17,8 +18,9 @@
 // mock throws a `StateError` (an Error, not an Exception) so the build() future
 // surfaces a synchronous pure AsyncError instead of lingering in seamless
 // AsyncLoading under Riverpod. The card nav-guard tests use a real `GoRouter`
-// with stub /masters/:id & /salons/:id routes so a re-introduced `context.push`
-// would be observable — the guard asserts those stubs are never reached.
+// with stub /masters/:id & /salons/:id routes so each `context.push` is
+// observable — the master test asserts its stub IS reached (push lands), the
+// salon test asserts its stub is NOT reached (route still unregistered).
 //
 // House rules honoured: ProviderScope is ALWAYS given overrides (fake search +
 // fake favorite repos); finders are Key-based; UA copy is asserted via l10n
@@ -1107,20 +1109,20 @@ void main() {
   // card body is now an inert, non-navigating Semantics(label: name) until the
   // public-profile routes ship.
   //
-  // These tests FAIL if the dead navigation is re-introduced: a re-added
-  // context.push would reach the stub route below, so `pushedLocation` flips
-  // non-null and the stub Scaffold mounts. The favourite heart stays
-  // interactive — asserted here as the POSITIVE CONTROL so the guard proves the
-  // body is inert WITHOUT the heart being broken.
+  // Master card (Phase 13.5): /masters/:id IS registered, so the card body
+  // navigates on tap — the test asserts the push reaches the stub route and
+  // `pushedLocation == '/masters/m1'`. The favourite heart stays interactive
+  // and navigates nowhere — asserted as the isolation control so body-tap
+  // navigation cannot leak through the heart.
   //
-  // TODO(13.5)/TODO(13.6): when /masters/:id and /salons/:id are registered,
-  // flip this group back to asserting the push (the prior revision expected
-  // `find.byKey(Key('master_profile_stub'))` + `pushedLocation == '/masters/m1'`).
+  // Salon card (TODO 13.6): /salons/:id is NOT yet registered, so the salon
+  // card body must NOT navigate; that test stays guarded until 13.6 flips it.
   // -------------------------------------------------------------------------
 
   group('card nav guard', () {
     testWidgets(
-      'tapping the master card body does NOT navigate; the heart still works',
+      'tapping the master card body navigates to /masters/:id; the heart still '
+      'works independently',
       (tester) async {
         final repo = _MockSearchRepository();
         when(
@@ -1133,8 +1135,8 @@ void main() {
         final favorites = _MockFavoriteRepository();
         when(() => favorites.add(any())).thenAnswer((_) async {});
 
-        // A stub /masters/:id route records any push. While the guard holds it
-        // is never reached; re-adding the dead context.push reaches it.
+        // A stub /masters/:id route records any push. Tapping the card body
+        // pushes the public-profile route (Phase 13.5), reaching this stub.
         String? pushedLocation;
         final router = GoRouter(
           initialLocation: '/results',
@@ -1174,25 +1176,10 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Tap the card body (centre of the card = name/address column, not the
-        // trailing heart). The body has no onTap: nothing should navigate.
-        await tester.tap(find.byType(MasterResultCard));
-        await tester.pumpAndSettle();
-
-        expect(
-          find.byKey(const Key('master_profile_stub')),
-          findsNothing,
-          reason:
-              'the master card body must NOT push /masters/:id — that route is '
-              'unregistered until Phase 13.5 (a tap there throws "Page Not '
-              'Found"). Re-introducing the dead context.push reaches this stub.',
-        );
-        expect(pushedLocation, isNull);
-        // The results screen is still mounted — no push swapped it out.
-        expect(find.byType(MasterResultCard), findsOneWidget);
-
-        // POSITIVE CONTROL: the favourite heart INSIDE the card is still
-        // interactive — proves the body is inert without the heart being broken.
+        // POSITIVE CONTROL FIRST: the favourite heart INSIDE the card is
+        // interactive and navigates nowhere — proving body-tap navigation does
+        // not leak through the heart. Tap the heart before the body so the
+        // results screen is still mounted.
         await tester.tap(find.byKey(const Key('favorite_master_m1')));
         await tester.pumpAndSettle();
         verify(
@@ -1200,9 +1187,24 @@ void main() {
             const FavoriteTarget(type: FavoriteTargetType.master, id: 'm1'),
           ),
         ).called(1);
-        // …and the heart tap still navigated nowhere.
+        // The heart tap did NOT navigate: still on the results screen.
         expect(find.byKey(const Key('master_profile_stub')), findsNothing);
         expect(pushedLocation, isNull);
+        expect(find.byType(MasterResultCard), findsOneWidget);
+
+        // Tap the card body (centre of the card = name/address column, not the
+        // trailing heart). The body onTap pushes the public-profile route.
+        await tester.tap(find.byType(MasterResultCard));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master_profile_stub')),
+          findsOneWidget,
+          reason:
+              'the master card body must push /masters/:id — the public-profile '
+              'route registered in Phase 13.5.',
+        );
+        expect(pushedLocation, '/masters/m1');
       },
     );
 

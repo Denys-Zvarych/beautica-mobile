@@ -14,6 +14,7 @@
 // never repaints the rest of the shell.
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
@@ -22,6 +23,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import 'widgets/client_bottom_nav.dart';
 
@@ -399,4 +401,42 @@ class _StaggeredRevealState extends State<_StaggeredReveal>
 
   @override
   Widget build(BuildContext context) => widget.builder(context, _reveal);
+}
+
+// ---------------------------------------------------------------------------
+// Бронювання — Phase 14.1 placeholder. A standalone (pushed, full-screen)
+// «Скоро…» panel reached from the public master profile's «Записатись» CTA,
+// so the CTA is non-crashing until the real service-selection / slot-picker
+// flow ships. Unlike the branch placeholders above it carries its own top bar
+// (with a back arrow) because it is pushed onto the navigator, not hosted by
+// the client shell.
+// ---------------------------------------------------------------------------
+class BookingNewPlaceholderScreen extends StatelessWidget {
+  const BookingNewPlaceholderScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Scaffold(
+      backgroundColor: BrandColors.base,
+      body: SafeArea(
+        child: Column(
+          children: <Widget>[
+            VelvetTopBar(
+              title: l10n.bookingNewPlaceholderTitle,
+              onBack: () => context.pop(),
+            ),
+            Expanded(
+              child: ClientBranchPlaceholder(
+                key: const Key('booking-new-placeholder'),
+                title: l10n.bookingNewPlaceholderTitle,
+                blurb: l10n.bookingNewPlaceholderBlurb,
+                icon: Icons.event_available_rounded,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

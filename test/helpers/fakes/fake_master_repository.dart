@@ -33,6 +33,9 @@ final class FakeMasterRepository implements MasterRepository {
   Future<Master> getMyProfile(String masterId) async => _profile;
 
   @override
+  Future<Master> getMasterById(String masterId) async => _profile;
+
+  @override
   Future<void> updateLocality({
     required String cityId,
     String? districtId,

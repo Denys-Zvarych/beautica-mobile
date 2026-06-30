@@ -20,10 +20,18 @@
 // widget tree.
 library;
 
-/// Instagram username charset: letters, digits, period, underscore; 1–30 chars.
+/// Instagram username charset: letters, digits, period, underscore; 1–30 chars,
+/// with a leading lookahead that REQUIRES at least one alphanumeric character.
 /// Hoisted to `static`-equivalent top-level `final` so the pattern compiles
 /// exactly once (no per-call allocation).
-final RegExp _instagramHandlePattern = RegExp(r'^[A-Za-z0-9._]{1,30}$');
+///
+/// SECURITY (mobile-security LOW): the `(?=.*[A-Za-z0-9])` lookahead rejects
+/// degenerate dot-/underscore-only handles such as `.` / `..` / `_`. Without it
+/// those pass the charset, reach `Uri.parse`, and normalize to the bare
+/// canonical host `https://instagram.com/` — harmless but never a real profile.
+final RegExp _instagramHandlePattern = RegExp(
+  r'^(?=.*[A-Za-z0-9])[A-Za-z0-9._]{1,30}$',
+);
 
 /// Sentinel rendered in the UI when a contact value is absent.
 const String _emptyPlaceholder = '—';

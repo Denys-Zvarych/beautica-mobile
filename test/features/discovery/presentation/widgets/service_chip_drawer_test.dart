@@ -24,7 +24,10 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../../helpers/pump_app.dart';
 
 const List<CategoryServiceOption> _services = <CategoryServiceOption>[
-  CategoryServiceOption(key: 'CLASSIC_MANICURE', displayName: 'Класичний манікюр'),
+  CategoryServiceOption(
+    key: 'CLASSIC_MANICURE',
+    displayName: 'Класичний манікюр',
+  ),
   CategoryServiceOption(key: 'GEL_MANICURE', displayName: 'Манікюр гель-лак'),
 ];
 
@@ -86,56 +89,57 @@ void main() {
       findsOneWidget,
     );
     // The badge shows the localized «Обрано 2» value (count == set size).
-    expect(find.text(_l10n(tester).searchServicesSelectedCount(2)), findsOneWidget);
-  });
-
-  testWidgets('a single selection shows «Обрано 1» and the selected chip carries '
-      'the check glyph', (tester) async {
-    await _pump(
-      tester,
-      selectedKeys: const <String>{'CLASSIC_MANICURE'},
-      onToggle: (_) {},
-    );
-
-    expect(find.text(_l10n(tester).searchServicesSelectedCount(1)), findsOneWidget);
-    // The selected chip renders the camel/mocha "on" treatment with a check.
     expect(
-      find.descendant(
-        of: find.byKey(const Key('search_service_chip_CLASSIC_MANICURE')),
-        matching: find.byIcon(Icons.check_rounded),
-      ),
+      find.text(_l10n(tester).searchServicesSelectedCount(2)),
       findsOneWidget,
-      reason: 'a selected chip surfaces the check glyph (the "on" state)',
-    );
-    // The unselected chip carries no check.
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('search_service_chip_GEL_MANICURE')),
-        matching: find.byIcon(Icons.check_rounded),
-      ),
-      findsNothing,
     );
   });
+
+  testWidgets(
+    'a single selection shows «Обрано 1» and the selected chip carries '
+    'the check glyph',
+    (tester) async {
+      await _pump(
+        tester,
+        selectedKeys: const <String>{'CLASSIC_MANICURE'},
+        onToggle: (_) {},
+      );
+
+      expect(
+        find.text(_l10n(tester).searchServicesSelectedCount(1)),
+        findsOneWidget,
+      );
+      // The selected chip renders the camel/mocha "on" treatment with a check.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('search_service_chip_CLASSIC_MANICURE')),
+          matching: find.byIcon(Icons.check_rounded),
+        ),
+        findsOneWidget,
+        reason: 'a selected chip surfaces the check glyph (the "on" state)',
+      );
+      // The unselected chip carries no check.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('search_service_chip_GEL_MANICURE')),
+          matching: find.byIcon(Icons.check_rounded),
+        ),
+        findsNothing,
+      );
+    },
+  );
 
   testWidgets('tapping a chip forwards exactly that chip key to onToggle', (
     tester,
   ) async {
     final List<String> toggled = <String>[];
-    await _pump(
-      tester,
-      selectedKeys: const <String>{},
-      onToggle: toggled.add,
-    );
+    await _pump(tester, selectedKeys: const <String>{}, onToggle: toggled.add);
 
-    await tester.tap(
-      find.byKey(const Key('search_service_chip_GEL_MANICURE')),
-    );
+    await tester.tap(find.byKey(const Key('search_service_chip_GEL_MANICURE')));
     await tester.pumpAndSettle();
 
-    expect(
-      toggled,
-      <String>['GEL_MANICURE'],
-      reason: 'the tapped chip must forward its own key, not a sibling',
-    );
+    expect(toggled, <String>[
+      'GEL_MANICURE',
+    ], reason: 'the tapped chip must forward its own key, not a sibling');
   });
 }

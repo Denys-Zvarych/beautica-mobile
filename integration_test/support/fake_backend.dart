@@ -490,6 +490,21 @@ final class FakeBackend {
   Map<String, dynamic>?
   lastPatchMeBody; // body of the most recent PATCH /users/me
   int getMasterCalls = 0;
+
+  /// `GET /api/v1/masters/{masterId}` (PUBLIC detail, Phase 13.5) call count +
+  /// the id requested. Distinct from [getMasterCalls] (the master-only
+  /// `GET /masters/me`): a CLIENT viewing a public profile hits THIS route, never
+  /// `me`. The public-master-profile E2E asserts a non-zero count here AND a zero
+  /// [getMasterCalls] (proving the CLIENT path never touched the 403-only `me`).
+  int getPublicMasterCalls = 0;
+  String? lastGetPublicMasterId;
+
+  /// `GET /api/v1/masters/{masterId}/services` (PUBLIC services, Phase 13.5)
+  /// call count + the id requested. Feeds the public profile's services-count
+  /// stat tile.
+  int getPublicMasterServicesCalls = 0;
+  String? lastGetPublicMasterServicesId;
+
   int patchProfileCalls = 0;
   Map<String, dynamic>? lastPatchBody;
   int getServicesCalls = 0;
@@ -721,6 +736,87 @@ final class FakeBackend {
     'masterType': 'INDEPENDENT_MASTER',
   });
 
+  /// PUBLIC master-detail envelope for the Phase 13.5 client-facing profile.
+  ///
+  /// Keyed on the Master-row UUID `master-aaa` (the same id the search-results
+  /// fixture seeds), so a CLIENT pushing `/masters/master-aaa` resolves a real
+  /// profile: «Софія Бондар», INDEPENDENT_MASTER, an Instagram handle (so the
+  /// validated contact tile renders + launches), and a rating/reviews block.
+  static Map<String, dynamic> _publicMasterDetailEnvelope() =>
+      _ok(<String, dynamic>{
+        'masterId': 'master-aaa',
+        'firstName': 'Софія',
+        'lastName': 'Бондар',
+        'city': 'Київ',
+        'street': 'вул. Хрещатик',
+        'buildingNo': '12',
+        'locationNote': '2 поверх',
+        'bio': 'Майстриня манікюру з 6-річним досвідом.',
+        'instagram': '@sofia_nails',
+        'avgRating': 4.9,
+        'reviewCount': 24,
+        'masterType': 'INDEPENDENT_MASTER',
+      });
+
+  /// PUBLIC active-services list for `master-aaa` — a deterministic TWO-item
+  /// list so the profile's services-count stat tile renders «2». Shapes match
+  /// the generated `MasterServiceResponse` (the same envelope `_services` uses).
+  static const List<Map<String, dynamic>> _publicMasterServices =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'pub-assign-1',
+          'masterId': 'master-aaa',
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 500,
+          'priceMax': null,
+          'priceDisplay': '500 грн',
+          'effectiveDurationMinutes': 90,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'pub-svc-1',
+            'name': 'Манікюр з покриттям',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 90,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'FIXED',
+            'priceMin': 500,
+            'priceMax': null,
+            'priceDisplay': '500 грн',
+            'photoUrl': null,
+          },
+        },
+        <String, dynamic>{
+          'id': 'pub-assign-2',
+          'masterId': 'master-aaa',
+          'isActive': true,
+          'priceType': 'RANGE',
+          'priceMin': 300,
+          'priceMax': 600,
+          'priceDisplay': 'від 300 до 600 грн',
+          'effectiveDurationMinutes': 60,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'pub-svc-2',
+            'name': 'Дизайн нігтів',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 60,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'RANGE',
+            'priceMin': 300,
+            'priceMax': 600,
+            'priceDisplay': 'від 300 до 600 грн',
+            'photoUrl': null,
+          },
+        },
+      ];
+
+  /// Public services count for `master-aaa` — used by the E2E to assert the
+  /// rendered services-count stat without hard-coding the literal in two places.
+  static int get publicMasterServicesCount => _publicMasterServices.length;
+
   // ── Route wiring ───────────────────────────────────────────────────────────
 
   void _wire() {
@@ -881,6 +977,33 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (_) {
         getMasterCalls++;
         return _masterDetailEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/master-aaa — PUBLIC master detail (Phase 13.5). The
+    // client-facing public profile resolves the target master by its Master-row
+    // UUID through the generated MasterControllerApi.getMasterDetail. Wired as a
+    // concrete path (DioAdapter has no path-template matching) for the
+    // search-results fixture id `master-aaa`.
+    _adapter.onRoute(
+      '/api/v1/masters/master-aaa',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterCalls++;
+        lastGetPublicMasterId = 'master-aaa';
+        return _publicMasterDetailEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/master-aaa/services — PUBLIC active services for the
+    // same master. Feeds the public profile's services-count stat tile.
+    _adapter.onRoute(
+      '/api/v1/masters/master-aaa/services',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterServicesCalls++;
+        lastGetPublicMasterServicesId = 'master-aaa';
+        return _okList(_publicMasterServices);
       }),
       request: const Request(method: RequestMethods.get),
     );
