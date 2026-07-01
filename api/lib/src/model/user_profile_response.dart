@@ -19,6 +19,10 @@ part 'user_profile_response.g.dart';
 /// * [phoneNumber]
 /// * [cityId]
 /// * [districtId]
+/// * [oblastId]
+/// * [cityName]
+/// * [oblastName]
+/// * [districtName]
 /// * [street]
 /// * [buildingNo]
 /// * [locationNote]
@@ -53,6 +57,18 @@ abstract class UserProfileResponse
 
   @BuiltValueField(wireName: r'districtId')
   String? get districtId;
+
+  @BuiltValueField(wireName: r'oblastId')
+  String? get oblastId;
+
+  @BuiltValueField(wireName: r'cityName')
+  String? get cityName;
+
+  @BuiltValueField(wireName: r'oblastName')
+  String? get oblastName;
+
+  @BuiltValueField(wireName: r'districtName')
+  String? get districtName;
 
   @BuiltValueField(wireName: r'street')
   String? get street;
@@ -160,6 +176,34 @@ class _$UserProfileResponseSerializer
       yield r'districtId';
       yield serializers.serialize(
         object.districtId,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.oblastId != null) {
+      yield r'oblastId';
+      yield serializers.serialize(
+        object.oblastId,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.cityName != null) {
+      yield r'cityName';
+      yield serializers.serialize(
+        object.cityName,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.oblastName != null) {
+      yield r'oblastName';
+      yield serializers.serialize(
+        object.oblastName,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.districtName != null) {
+      yield r'districtName';
+      yield serializers.serialize(
+        object.districtName,
         specifiedType: const FullType(String),
       );
     }
@@ -299,6 +343,34 @@ class _$UserProfileResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.districtId = valueDes;
+          break;
+        case r'oblastId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.oblastId = valueDes;
+          break;
+        case r'cityName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.cityName = valueDes;
+          break;
+        case r'oblastName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.oblastName = valueDes;
+          break;
+        case r'districtName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.districtName = valueDes;
           break;
         case r'street':
           final valueDes = serializers.deserialize(

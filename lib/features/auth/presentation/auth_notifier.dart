@@ -36,7 +36,6 @@ import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
-import '../../../core/security/screen_protection.dart';
 import '../../../core/time/clock_provider.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../../../shared/util/mask_email.dart';
@@ -46,9 +45,6 @@ import '../domain/register_result.dart';
 import '../domain/user.dart';
 import '../domain/user_role.dart';
 import '../state/register_draft_notifier.dart';
-import '../../master/presentation/master_profile_notifier.dart';
-import '../../services/data/service_repository.dart';
-import '../../services/presentation/services_list_notifier.dart';
 
 part 'auth_notifier.g.dart';
 
@@ -448,7 +444,14 @@ class AuthNotifier extends _$AuthNotifier {
       try {
         fullUser = await repo.me();
       } catch (_) {
+        // Failure-path hygiene: the verify succeeded but the profile load
+        // failed, so this session never settles to Authenticated. Clear BOTH
+        // in-memory token caches so a half-built session leaves no token for
+        // the interceptor to replay, then let the outer catch surface the
+        // failure as AsyncError (mirrors build()'s failure path). Without this,
+        // a real repo.me() failure would leave the UI in a stale state.
         coldStartAccessToken = null;
+        _lastKnownAccessToken = null;
         rethrow;
       }
       // CRITICAL: set the Authenticated state BEFORE clearing coldStartAccessToken.
@@ -654,6 +657,63 @@ class AuthNotifier extends _$AuthNotifier {
     }
   }
 
+  /// Re-fetches the user profile from `GET /users/me` and re-settles the
+  /// [Authenticated] session with the fresh [User], preserving the current
+  /// access token.
+  ///
+  /// Called by the client profile-edit save flows after a successful
+  /// `PATCH /users/me` so that every consumer deriving from [authProvider]
+  /// (e.g. the home-hub profile card via `clientProfile`, and the edit-seed
+  /// providers) re-derives from the updated session User instead of the stale
+  /// snapshot captured at the last [repo.me] call. Without this, the saved
+  /// name / city / phone would only appear after an app restart (cold start).
+  ///
+  /// Only acts when the settled state is [Authenticated] — there is nothing to
+  /// refresh while loading / unauthenticated.
+  ///
+  /// The access token is taken from the settled session and re-applied to the
+  /// new [Authenticated] state, with [_lastKnownAccessToken] kept in lock-step
+  /// exactly as [setAccessToken] does, so the interceptor's session-lifetime
+  /// fallback never replays a stale token.
+  ///
+  /// A transient [repo.me] failure is tolerated: it is logged (kDebugMode) and
+  /// the prior [Authenticated] session is left intact — a refresh hiccup must
+  /// never tear down a valid session.
+  Future<void> refreshUser() async {
+    final s = state.value;
+    if (s is! Authenticated) return;
+    // Preserve the current settled session's access token across the refresh.
+    final accessToken = s.accessToken;
+    try {
+      final freshUser = await ref.read(authRepositoryProvider).me();
+      // Keep the interceptor's session-lifetime fallback in lock-step with the
+      // preserved token (mirrors setAccessToken) so a mid-rebuild window never
+      // replays a stale one.
+      _lastKnownAccessToken = accessToken;
+      state = AsyncData(
+        AuthSession.authenticated(user: freshUser, accessToken: accessToken),
+      );
+      if (kDebugMode) {
+        log(
+          'refreshUser: session user refreshed for ${freshUser.id}',
+          name: 'auth',
+          level: 800,
+        );
+      }
+    } catch (e) {
+      // Tolerated — leave the prior Authenticated session in place so a
+      // transient /users/me failure does not blow away a valid session.
+      if (kDebugMode) {
+        log(
+          'refreshUser failed (tolerated, session preserved): '
+          '${e is Failure ? e.runtimeType.toString() : 'non-Failure error'}',
+          name: 'auth',
+          level: 900,
+        );
+      }
+    }
+  }
+
   /// Clears the session and wipes all tokens from secure storage.
   ///
   /// Makes a best-effort server-side revocation call via the repository before
@@ -692,25 +752,20 @@ class AuthNotifier extends _$AuthNotifier {
     // explicit logout. The draft survives across nav (keepAlive) so without
     // this it would persist until the process is killed.
     ref.read(registerDraftProvider.notifier).reset();
-    // Fix 6 (SEC MEDIUM-1): invalidate the cached master profile so that stale
-    // AsyncData<Master> (holding name/city/bio PII) does not linger in the
-    // Riverpod container after logout. Mirrors the registerDraftProvider.reset()
-    // pattern above.
-    ref.invalidate(masterProfileProvider);
-    // serviceRepositoryProvider is keepAlive and holds the master-row UUID;
-    // invalidate it so the next login gets a fresh repository with the correct ID.
-    ref.invalidate(serviceRepositoryProvider);
-    // keepAlive service list holds the previous user's data — clear on logout.
-    ref.invalidate(servicesListProvider);
     // Wipe the interceptor's session-lifetime token fallback so no request can
     // carry a stale Bearer token after an explicit logout.
     _lastKnownAccessToken = null;
     coldStartAccessToken = null;
-    // SEC (LOW hygiene): force-clear the app-wide screenshot guard so a PII
-    // screen that was never disposed (e.g. logout triggered from a dialog above
-    // a live acquirer) cannot leave native protection latched across the auth
-    // boundary. Resets the ref count to zero and tears down native protection.
-    ref.read(screenProtectionProvider).reset();
+    // NOTE — do NOT `ref.invalidate(...)` the master profile / service repository
+    // / services list here. Each of those providers transitively
+    // `ref.watch(authProvider)` (masterProfileProvider directly; serviceRepository
+    // and servicesList through it), so invalidating them from INSIDE this notifier
+    // records a back-edge that closes a dependency cycle — Riverpod's
+    // CircularDependencyError assert (debug/test only) then throws and escapes the
+    // state transition below, surfacing a false "logout failed". The cascade
+    // already handles teardown: when state flips to Unauthenticated below, those
+    // watchers rebuild and clear their stale PII automatically. The manual
+    // invalidation was both redundant and the cause of the cycle.
     if (kDebugMode) {
       log('Logout: session cleared', name: 'auth', level: 800);
     }

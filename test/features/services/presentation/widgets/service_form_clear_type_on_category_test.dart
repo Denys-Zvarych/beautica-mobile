@@ -155,6 +155,90 @@ void main() {
         );
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Gap-2 regression — slug-safe comparison (categorySlugMatches), NOT raw
+    // `!=`. These FAIL against the pre-fix code (which used `typeCategory !=
+    // newCategory`): trailing-whitespace / case drift between the loaded
+    // service's category slug and the approved-list slug would be seen as a
+    // genuine change, wrongly CLEARING a still-valid type. The fix compares
+    // via categorySlugMatches (trim + upper-case), so drift retains the type.
+    // -----------------------------------------------------------------------
+    group('Gap-2 slug-safe drift (immune to case/whitespace)', () {
+      test('C-10. trailing-whitespace drift on the TYPE category → retain', () {
+        // Loaded type category 'BROWS ' (trailing space) vs new approved-list
+        // slug 'BROWS'. Same category → must KEEP the selection. Raw `!=` would
+        // see 'BROWS ' != 'BROWS' → clear (the bug).
+        expect(
+          ServiceForm.shouldClearServiceTypeOnCategoryChange(
+            previousCategory: 'BROWS ',
+            newCategory: 'BROWS',
+            selectedTypeCategory: 'BROWS ',
+          ),
+          isFalse,
+          reason:
+              'trailing-whitespace drift must not clear a same-category type '
+              '(slug-safe compare, not raw !=)',
+        );
+      });
+
+      test('C-11. trailing-whitespace drift on the NEW category → retain', () {
+        // The drift can also be on the incoming new-category slug.
+        expect(
+          ServiceForm.shouldClearServiceTypeOnCategoryChange(
+            previousCategory: 'BROWS',
+            newCategory: 'BROWS ',
+            selectedTypeCategory: 'BROWS',
+          ),
+          isFalse,
+        );
+      });
+
+      test('C-12. case drift → retain', () {
+        // 'brows' vs 'BROWS' — same category, different case. Slug-safe compare
+        // upper-cases both → equal → retain. Raw `!=` would clear (the bug).
+        expect(
+          ServiceForm.shouldClearServiceTypeOnCategoryChange(
+            previousCategory: 'brows',
+            newCategory: 'BROWS',
+            selectedTypeCategory: 'brows',
+          ),
+          isFalse,
+          reason: 'case drift must not clear a same-category type',
+        );
+      });
+
+      test('C-13. combined case + whitespace drift → retain', () {
+        expect(
+          ServiceForm.shouldClearServiceTypeOnCategoryChange(
+            previousCategory: '  Brows  ',
+            newCategory: 'BROWS',
+            selectedTypeCategory: '  Brows  ',
+          ),
+          isFalse,
+        );
+      });
+
+      test(
+        'C-14. drift must NOT mask a genuine cross-category change → clear',
+        () {
+          // Belt-and-suspenders: the slug-safe compare must still CLEAR when the
+          // categories genuinely differ (so the fix did not over-correct into
+          // "never clear"). 'NAILS' vs 'BROWS ' is a real change → clear.
+          expect(
+            ServiceForm.shouldClearServiceTypeOnCategoryChange(
+              previousCategory: 'NAILS',
+              newCategory: 'BROWS ',
+              selectedTypeCategory: 'NAILS',
+            ),
+            isTrue,
+            reason:
+                'a genuine cross-category change must still clear, even with '
+                'whitespace on the new slug',
+          );
+        },
+      );
+    });
   });
 
   group('ServiceForm.shouldResetNameOnTypeCleared', () {

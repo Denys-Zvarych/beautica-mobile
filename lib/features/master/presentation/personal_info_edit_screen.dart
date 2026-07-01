@@ -79,6 +79,13 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
   String? _errLastName;
   String? _errBio;
 
+  // PERF (P2): drives the Save button's enabled state in isolation. Typing a
+  // keystroke updates this notifier instead of calling setState(() {}) on the
+  // whole form — so the per-field reveal animation wrappers (FadeTransition /
+  // SlideTransition) are NOT rebuilt on every character. Only the footer
+  // (wrapped in a ValueListenableBuilder) reacts to dirty-state flips.
+  final ValueNotifier<bool> _dirty = ValueNotifier<bool>(false);
+
   static const int _bioMax = 2000;
 
   // Animation — pre-built in initState; zero allocations in build().
@@ -160,14 +167,18 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
     _anim3.dispose();
     _animFooter.dispose();
     _controller.dispose();
+    _dirty.dispose();
     super.dispose();
   }
 
   List<TextEditingController> get _editableControllers =>
       <TextEditingController>[_firstName, _lastName, _bio];
 
+  // PERF (P2): recompute the dirty flag only — no setState, so the form subtree
+  // and its animation wrappers are not rebuilt on every keystroke. The footer's
+  // ValueListenableBuilder rebuilds just the Save button when the flag flips.
   void _onFormChanged() {
-    if (mounted) setState(() {});
+    _dirty.value = _isDirty;
   }
 
   bool get _isDirty =>
@@ -291,11 +302,7 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
           content: Text(AppLocalizations.of(context).savedSnackbar),
         ),
       );
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(RouteNames.masterProfile);
-      }
+      context.go(RouteNames.masterProfile);
     } on ValidationFailure catch (f) {
       if (!mounted) return;
       setState(() {
@@ -386,12 +393,15 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
       },
       footer: _reveal(
         _animFooter,
-        NeumorphicButton(
-          key: const Key('btn-save-personal'),
-          label: l10n.masterSaveButton,
-          icon: Icons.check_rounded,
-          loading: _saving,
-          onPressed: (!_saving && _isDirty) ? () => _save(cached) : null,
+        ValueListenableBuilder<bool>(
+          valueListenable: _dirty,
+          builder: (context, dirty, _) => NeumorphicButton(
+            key: const Key('btn-save-personal'),
+            label: l10n.masterSaveButton,
+            icon: Icons.check_rounded,
+            loading: _saving,
+            onPressed: (!_saving && dirty) ? () => _save(cached) : null,
+          ),
         ),
       ),
       body: Form(
@@ -404,10 +414,19 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
               Column(
                 children: <Widget>[
                   Center(
-                    child: NeumorphicAvatarEditor(
-                      state: AvatarEditState.pristine,
-                      initials: _buildInitials(),
-                      onTap: _onAvatarTap,
+                    // PERF (P2): only the avatar initials need to follow the
+                    // name keystrokes, so listen to just the two name
+                    // controllers here instead of rebuilding the whole form.
+                    child: ListenableBuilder(
+                      listenable: Listenable.merge(<Listenable>[
+                        _firstName,
+                        _lastName,
+                      ]),
+                      builder: (context, _) => NeumorphicAvatarEditor(
+                        state: AvatarEditState.pristine,
+                        initials: _buildInitials(),
+                        onTap: _onAvatarTap,
+                      ),
                     ),
                   ),
                   const SizedBox(height: VelvetSpacing.sm),

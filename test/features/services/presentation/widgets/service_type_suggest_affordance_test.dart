@@ -51,9 +51,6 @@ void main() {
 
   setUp(() {
     repo = _MockServiceRepository();
-    when(
-      () => repo.fetchApprovedCategories(),
-    ).thenAnswer((_) async => _categories);
   });
 
   Future<void> pumpForm(
@@ -69,6 +66,7 @@ void main() {
       ProviderScope(
         overrides: [
           serviceRepositoryProvider.overrideWithValue(repo),
+          approvedCategoriesProvider.overrideWith((ref) async => _categories),
           serviceTypesProvider.overrideWith(
             (ref, String categoryName) async => serviceTypes,
           ),

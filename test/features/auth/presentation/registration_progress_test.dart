@@ -310,6 +310,15 @@ void main() {
               'assets/fonts/ and resolves offline. CormorantGaramond is NOT '
               'bundled and throws when allowRuntimeFetching=false.',
         );
+        // Explicit negative guard: a Comfortaa→CormorantGaramond swap would
+        // surface a 'Cormorant'-prefixed family. Fail loudly if it ever does.
+        expect(
+          style.fontFamily,
+          isNot(contains('Cormorant')),
+          reason:
+              'The active label must NOT use CormorantGaramond — it is not '
+              'bundled and crashes release APKs (allowRuntimeFetching=false).',
+        );
       },
     );
   });

@@ -28,6 +28,10 @@ final class FakeServiceRepository implements ServiceRepository {
   Future<List<MasterService>> listMyServices() async => _services;
 
   @override
+  Future<List<MasterService>> getMasterServices(String masterId) async =>
+      _services;
+
+  @override
   Future<List<ServiceCategoryOption>> fetchApprovedCategories() async =>
       _categories;
 

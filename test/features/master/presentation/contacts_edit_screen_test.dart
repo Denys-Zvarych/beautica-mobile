@@ -23,6 +23,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
 import 'package:beautica_mobile/features/master/presentation/contacts_edit_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/section_scaffold.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -136,6 +137,34 @@ void main() {
     );
   });
 
+  testWidgets('renders the MASTER phone privacy note (not the client one)', (
+    tester,
+  ) async {
+    await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+    await tester.pump();
+    await tester.pump();
+
+    final BuildContext ctx = tester.element(
+      find.byKey(const Key('field-phone')),
+    );
+    final AppLocalizations l10n = AppLocalizations.of(ctx);
+
+    expect(
+      find.text(l10n.phonePrivacyNote),
+      findsOneWidget,
+      reason:
+          'the master phone field shows the master-context privacy note '
+          '(clients do not see the master number)',
+    );
+    expect(
+      find.text(l10n.clientPhonePrivacyNote),
+      findsNothing,
+      reason:
+          'the client-context privacy note must not appear on the master '
+          'screen',
+    );
+  });
+
   testWidgets('Save is disabled when pristine and enables when dirty', (
     tester,
   ) async {
@@ -158,6 +187,49 @@ void main() {
           .widget<NeumorphicButton>(find.byKey(const Key('btn-save-contacts')))
           .onPressed,
       isNotNull,
+    );
+  });
+
+  // ── PERF (P2): typing must NOT re-run the screen-level build ───────────────
+  //
+  // The dirty-state gating Save is driven by a ValueNotifier<bool> +
+  // ValueListenableBuilder around the footer, NOT setState(() {}) on the whole
+  // screen State. A keystroke must therefore leave the SectionScaffold chrome
+  // (app-bar / back-button / footer + reveal-animation wrappers) at the same
+  // widget object identity. Under the OLD setState-per-keystroke code build()
+  // re-ran on every character and produced a brand-new SectionScaffold; this
+  // identity check fails on that old behaviour and passes on the ValueNotifier
+  // fix. (The typed field itself still rebuilds via FormState — inherent to
+  // FormField and NOT the jank this guards.)
+  testWidgets('typing a valid instagram does NOT re-run the screen build '
+      '(SectionScaffold chrome preserved) yet still enables Save', (
+    tester,
+  ) async {
+    await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+    await tester.pumpAndSettle();
+
+    SectionScaffold scaffold() =>
+        tester.widget<SectionScaffold>(find.byType(SectionScaffold));
+
+    final before = scaffold();
+
+    await tester.enterText(_field('field-instagram'), '@new_handle');
+    await tester.pump();
+
+    expect(
+      identical(before, scaffold()),
+      isTrue,
+      reason:
+          'a keystroke must not re-run the screen build — the old '
+          'setState(() {}) recreated the whole SectionScaffold (P2 jank).',
+    );
+
+    expect(
+      tester
+          .widget<NeumorphicButton>(find.byKey(const Key('btn-save-contacts')))
+          .onPressed,
+      isNotNull,
+      reason: 'the ValueListenableBuilder footer must still enable Save',
     );
   });
 

@@ -17,6 +17,12 @@ Name | Type | Description | Notes
 **reviewCount** | **int** |  | [optional] 
 **avatarUrl** | **String** |  | [optional] 
 **minEffectivePrice** | **num** |  | [optional] 
+**priceMax** | **num** |  | [optional] 
+**serviceNames** | **BuiltList&lt;String&gt;** |  | [optional] 
+**street** | **String** |  | [optional] 
+**buildingNo** | **String** |  | [optional] 
+**locationNote** | **String** |  | [optional] 
+**matchedServiceNames** | **BuiltList&lt;String&gt;** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

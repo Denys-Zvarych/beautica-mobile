@@ -16,6 +16,7 @@
 
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/delete_service_dialog.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -100,7 +101,17 @@ Future<void> _pumpEditScreen(
 
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        serviceRepositoryProvider.overrideWithValue(repo),
+        // The edit screen mounts a section that watches approvedCategories
+        // Provider (now sourced directly from categoryRequestApiProvider).
+        // Override it so the screen settles without a real API hit.
+        approvedCategoriesProvider.overrideWith(
+          (ref) async => const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+          ],
+        ),
+      ],
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,

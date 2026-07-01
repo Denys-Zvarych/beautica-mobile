@@ -4,6 +4,62 @@
   "@appTitle": {
     "description": "Application name shown in the OS task switcher and on the splash screen."
   },
+  "clientNavHome": "Home",
+  "@clientNavHome": {
+    "description": "Client bottom-nav tab label for the home/landing tab (index 0)."
+  },
+  "clientNavFavorites": "Favorites",
+  "@clientNavFavorites": {
+    "description": "Client bottom-nav tab label for the saved masters/salons tab (index 1)."
+  },
+  "clientNavSearch": "Search",
+  "@clientNavSearch": {
+    "description": "Client bottom-nav accessibility label for the elevated center search disc (index 2). The disc is icon-only — this string is used only for the Semantics label, not a visible caption."
+  },
+  "clientNavBookings": "Bookings",
+  "@clientNavBookings": {
+    "description": "Client bottom-nav tab label for the user's bookings tab (index 3)."
+  },
+  "clientComingSoon": "Coming soon…",
+  "@clientComingSoon": {
+    "description": "Placeholder chip label on client shell branch screens whose real content lands in a later phase."
+  },
+  "clientPlaceholderHomeTitle": "Home",
+  "@clientPlaceholderHomeTitle": {
+    "description": "Title on the placeholder Home client branch screen (real screen lands in Phase 13.7)."
+  },
+  "clientPlaceholderHomeBlurb": "Your client home — curated masters and salons nearby.",
+  "@clientPlaceholderHomeBlurb": {
+    "description": "Supporting blurb on the placeholder Home client branch screen."
+  },
+  "clientPlaceholderFavoritesTitle": "Favorites",
+  "@clientPlaceholderFavoritesTitle": {
+    "description": "Title on the placeholder Favorites client branch screen (real screen lands in Phase 13.11)."
+  },
+  "clientPlaceholderFavoritesBlurb": "Saved masters and salons you keep coming back to.",
+  "@clientPlaceholderFavoritesBlurb": {
+    "description": "Supporting blurb on the placeholder Favorites client branch screen."
+  },
+  "clientPlaceholderSearchTitle": "Search",
+  "@clientPlaceholderSearchTitle": {
+    "description": "Title on the placeholder Search client branch screen (real screen lands in Phase 13.3)."
+  },
+  "clientPlaceholderSearchBlurb": "Find a service, master or salon by city and category.",
+  "@clientPlaceholderSearchBlurb": {
+    "description": "Supporting blurb on the placeholder Search client branch screen."
+  },
+  "clientPlaceholderBookingsTitle": "Bookings",
+  "@clientPlaceholderBookingsTitle": {
+    "description": "Title on the placeholder Bookings client branch screen (real screen lands in Phase 14.3)."
+  },
+  "clientPlaceholderBookingsBlurb": "Your upcoming and past service bookings.",
+  "@clientPlaceholderBookingsBlurb": {
+    "description": "Supporting blurb on the placeholder Bookings client branch screen."
+  },
+  "clientPlaceholderPassportBlurb": "Your beauty profile: procedure history, preferences and reviews.",
+  "@clientPlaceholderPassportBlurb": {
+    "description": "Supporting blurb on the placeholder BEAUTY PASSPORT client branch screen (real screen lands in Phase 13.8). The 'BEAUTY PASSPORT' title itself is an untranslated brand constant and is NOT an l10n key."
+  },
   "loadingLabel": "Loading…",
   "@loadingLabel": {
     "description": "Generic 'Loading…' label shown next to a CircularProgressIndicator while async data resolves."
@@ -806,7 +862,7 @@
   "@step3HeadlineOwnerLine2": {
     "description": "Second line (italic Cormorant Garamond accent) of the Step 3 hero headline, SALON_OWNER variant."
   },
-  "step3SubtextClient": "We'll show masters near you. You can skip and choose later.",
+  "step3SubtextClient": "Choose the city where you'd like to find a master and we'll show masters nearby. You can skip and choose later.",
   "@step3SubtextClient": {
     "description": "Muted sub-text below the Step 3 headline for the CLIENT role variant."
   },
@@ -1233,6 +1289,10 @@
   "@phonePrivacyNote": {
     "description": "Privacy helper note rendered below the phone field (lock icon + text) on the master edit screen (Phase 4.3)."
   },
+  "clientPhonePrivacyNote": "Masters will not see your number — it is used for internal contact",
+  "@clientPhonePrivacyNote": {
+    "description": "Privacy helper note below the phone field on the CLIENT contacts edit screen — masters do not see the client's number."
+  },
   "changePhotoCaption": "Change photo",
   "@changePhotoCaption": {
     "description": "Muted caption below the avatar editor ring on the master edit screen (Phase 4.3)."
@@ -1477,6 +1537,10 @@
   "serviceTypeLoadError": "Could not load service types",
   "@serviceTypeLoadError": {
     "description": "Error text shown inside the service-type dropdown (menu and closed field) when the service-type list fails to load or times out. Accompanied by a retry affordance."
+  },
+  "serviceTypeCategoryMismatch": "The selected type doesn't belong to this category. Please pick a type again.",
+  "@serviceTypeCategoryMismatch": {
+    "description": "Inline error under the service-type field when the backend rejects a save (HTTP 400) because a category change orphaned the previously-selected service type. Prompts the master to re-pick a type that belongs to the new category."
   },
   "serviceTypeLoading": "Loading…",
   "@serviceTypeLoading": {
@@ -2026,6 +2090,21 @@
   "@weeklyEditorWindowUnsetHint": {
     "description": "Hint shown above the Save button on the weekly-template editor for a first-time create when the validity window («Schedule starts…») has not yet been explicitly chosen. Explains why Save is disabled and invites the user to tap the active-window card to pick the effective-from period before the first schedule can be saved."
   },
+  "scheduleValidityRangeRequired": "Select the schedule validity period",
+  "@scheduleValidityRangeRequired": {
+    "description": "Submit-time inline error under the active-window card on the weekly-template editor when the user presses Save on a first-time create without choosing the (required) validity period. Save stays enabled; this error is the signal of the failed attempt."
+  },
+  "weeklyEditorWindowReanchored": "Schedule period updated: now starts {from}",
+  "@weeklyEditorWindowReanchored": {
+    "description": "Snackbar shown on the weekly-template editor when the staged validity-window start (picked earlier) has fallen into the past — e.g. the master crossed midnight between picking the period and pressing Save. The window is re-anchored to today so the backend's future-or-present guard never rejects the create; {from} is the corrected DD.MM start date. Save is left for the master to confirm rather than silently shifting the window.",
+    "placeholders": {
+      "from": { "type": "String" }
+    }
+  },
+  "schedulePastDayBlocked": "This date has already passed. Pick today or a later day.",
+  "@schedulePastDayBlocked": {
+    "description": "Snackbar shown when the master tries to save a per-date override for a day that has become past (e.g. midnight rolled over while the override sheet was open). The save is blocked so a past date never reaches the backend."
+  },
   "weeklyEditorDayToggleSemantic": "{day} — working day",
   "@weeklyEditorDayToggleSemantic": {
     "description": "Accessibility label for the per-weekday open/closed toggle in the weekly-template editor (Phase 15.5).",
@@ -2368,9 +2447,13 @@
   "@locationTitle": {
     "description": "Top-bar title of the location edit page."
   },
-  "locationSubheading": "Where clients can find you",
+  "locationSubheading": "So we can show masters near you",
   "@locationSubheading": {
     "description": "Subheading on the location edit page."
+  },
+  "masterLocationSubheading": "Set your location so clients can easily find you in search",
+  "@masterLocationSubheading": {
+    "description": "Subheading on the independent master location edit page, explaining that the location is used for client search."
   },
   "accountTitle": "Account",
   "@accountTitle": {
@@ -2454,5 +2537,710 @@
         "type": "String"
       }
     }
+  },
+  "settingsHubHelp": "Help / Contact us",
+  "@settingsHubHelp": {
+    "description": "Label for the Help / Contact-us row in the master settings hub; navigates to the support-contact screen."
+  },
+  "contactSupportTitle": "Contact us",
+  "@contactSupportTitle": {
+    "description": "App-bar title of the support / contact-us screen."
+  },
+  "contactSupportBack": "Back",
+  "@contactSupportBack": {
+    "description": "Accessibility label for the back button on the support-contact screen."
+  },
+  "contactSupportIntroTitle": "How can we help?",
+  "@contactSupportIntroTitle": {
+    "description": "Heading of the intro card on the support-contact screen."
+  },
+  "contactSupportIntroBody": "Describe your question or request — our team will reply to your email.",
+  "@contactSupportIntroBody": {
+    "description": "Body text of the intro card on the support-contact screen."
+  },
+  "contactSupportSubjectLabel": "Subject (optional)",
+  "@contactSupportSubjectLabel": {
+    "description": "Label for the optional subject field on the support-contact screen."
+  },
+  "contactSupportSubjectHint": "Briefly, what is this about",
+  "@contactSupportSubjectHint": {
+    "description": "Placeholder hint for the optional subject field on the support-contact screen."
+  },
+  "contactSupportMessageLabel": "Message",
+  "@contactSupportMessageLabel": {
+    "description": "Label for the required message field on the support-contact screen."
+  },
+  "contactSupportMessageHint": "Describe the problem or request in as much detail as you can — what you did, what you expected, and what happened.",
+  "@contactSupportMessageHint": {
+    "description": "Placeholder hint for the required message field on the support-contact screen."
+  },
+  "contactSupportMessageHelper": "At least {min} characters",
+  "@contactSupportMessageHelper": {
+    "description": "Helper text under the message field stating the minimum character count.",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "contactSupportAttachmentsLabel": "Attachments",
+  "@contactSupportAttachmentsLabel": {
+    "description": "Label above the attachment tray on the support-contact screen."
+  },
+  "contactSupportAttachmentsHint": "Up to {max} files · JPEG, PNG, WEBP or PDF · up to 5 MB total",
+  "@contactSupportAttachmentsHint": {
+    "description": "Caption under the attachment tray describing the file count, allowed types, and total size limit.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "contactSupportAddAttachment": "Add a file",
+  "@contactSupportAddAttachment": {
+    "description": "Title of the add-attachment tile and its accessibility label."
+  },
+  "contactSupportAddAttachmentSubtitle": "A screenshot of the problem or a document",
+  "@contactSupportAddAttachmentSubtitle": {
+    "description": "Subtitle of the add-attachment tile when more files can be added."
+  },
+  "contactSupportAttachmentsLimitReached": "File limit of 5 reached",
+  "@contactSupportAttachmentsLimitReached": {
+    "description": "Subtitle of the add-attachment tile when the 5-file limit has been reached (tile disabled)."
+  },
+  "contactSupportRemoveAttachment": "Remove {name}",
+  "@contactSupportRemoveAttachment": {
+    "description": "Accessibility label for the remove control on an attachment chip.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "screen.png"
+      }
+    }
+  },
+  "contactSupportKindImage": "Image",
+  "@contactSupportKindImage": {
+    "description": "Type label shown on an image attachment chip."
+  },
+  "contactSupportKindPdf": "PDF",
+  "@contactSupportKindPdf": {
+    "description": "Type label shown on a PDF attachment chip."
+  },
+  "contactSupportSizeMeterUsed": "{used} / 5 MB used",
+  "@contactSupportSizeMeterUsed": {
+    "description": "Caption under the attachment size meter showing used vs total budget.",
+    "placeholders": {
+      "used": {
+        "type": "String",
+        "example": "1.3 MB"
+      }
+    }
+  },
+  "contactSupportSizeMeterOver": "5 MB limit exceeded — remove a file",
+  "@contactSupportSizeMeterOver": {
+    "description": "Caption under the attachment size meter when the 5 MB total budget is exceeded."
+  },
+  "contactSupportSend": "Send",
+  "@contactSupportSend": {
+    "description": "Primary CTA label on the support-contact screen."
+  },
+  "contactSupportDone": "Done",
+  "@contactSupportDone": {
+    "description": "CTA label on the support-contact success card that dismisses the screen."
+  },
+  "contactSupportSuccessTitle": "Thank you!",
+  "@contactSupportSuccessTitle": {
+    "description": "Headline of the support-contact success card."
+  },
+  "contactSupportSuccessBody": "We received your message and will reply to",
+  "@contactSupportSuccessBody": {
+    "description": "Body of the success card, preceding the user's email address."
+  },
+  "contactSupportSuccessBodyNoEmail": "We received your message and will reply to you soon.",
+  "@contactSupportSuccessBodyNoEmail": {
+    "description": "Body of the success card when no reply email is available to display."
+  },
+  "contactSupportErrMessageEmpty": "Please describe your question",
+  "@contactSupportErrMessageEmpty": {
+    "description": "Inline error under the message field when it is empty on submit."
+  },
+  "contactSupportErrMessageTooShort": "Too short — at least {min} characters",
+  "@contactSupportErrMessageTooShort": {
+    "description": "Inline error under the message field when it is below the minimum length.",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "contactSupportErrTooManyFiles": "You can add at most {max} files",
+  "@contactSupportErrTooManyFiles": {
+    "description": "Error shown when the user tries to add more than the maximum number of attachments.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "contactSupportErrFileTooBig": "File too large — 5 MB max per file",
+  "@contactSupportErrFileTooBig": {
+    "description": "Error shown when a single picked attachment exceeds the 5 MB per-file limit."
+  },
+  "contactSupportErrTotalTooBig": "Attachments too large — 5 MB total max",
+  "@contactSupportErrTotalTooBig": {
+    "description": "Error shown when the combined attachment size exceeds the 5 MB total limit (also mapped from a 413 response)."
+  },
+  "contactSupportErrWrongType": "Unsupported file type — only JPEG, PNG, WEBP or PDF",
+  "@contactSupportErrWrongType": {
+    "description": "Error shown when a picked file is not an allowed type."
+  },
+  "contactSupportErrPickFailed": "Could not select the file. Please try again.",
+  "@contactSupportErrPickFailed": {
+    "description": "Error shown when the file picker fails or returns no data."
+  },
+  "contactSupportErrUnavailable": "Support is temporarily unavailable. Please try again later.",
+  "@contactSupportErrUnavailable": {
+    "description": "Error shown when the backend support channel is not configured (503)."
+  },
+
+  "homeHubChangePhotoLabel": "Change photo",
+  "@homeHubChangePhotoLabel": {
+    "description": "Accessibility label for the camera badge on the client avatar in the Home Hub."
+  },
+  "homeHubLocationPlaceholder": "City not set",
+  "@homeHubLocationPlaceholder": {
+    "description": "Placeholder shown in the profile block when the client has no city set."
+  },
+  "homeHubPhonePlaceholder": "Phone not set",
+  "@homeHubPhonePlaceholder": {
+    "description": "Placeholder shown in the profile block when the client has no phone set."
+  },
+  "homeHubPassportSubtitle": "Your beauty passport in Beautica",
+  "@homeHubPassportSubtitle": {
+    "description": "Subtitle under the BEAUTY PASSPORT tile in the stat pills row."
+  },
+  "homeHubMyRating": "My rating",
+  "@homeHubMyRating": {
+    "description": "Label for the rating stat tile in the Home Hub stat-pills row. Shows the client's aggregate two-sided rating (★ n.n) or an em-dash when no rating yet."
+  },
+  "homeHubQuickSearch": "Search\nmasters",
+  "@homeHubQuickSearch": {
+    "description": "Quick-link tile label for master search."
+  },
+  "homeHubQuickFavorites": "Favourite\nmasters",
+  "@homeHubQuickFavorites": {
+    "description": "Quick-link tile label for favourite masters."
+  },
+  "homeHubQuickBookings": "My\nbookings",
+  "@homeHubQuickBookings": {
+    "description": "Quick-link tile label for my bookings."
+  },
+  "homeHubNextAppointmentTitle": "Next appointment",
+  "@homeHubNextAppointmentTitle": {
+    "description": "Section title for the next upcoming appointment card."
+  },
+  "homeHubNoUpcomingAppointments": "No upcoming appointments.",
+  "@homeHubNoUpcomingAppointments": {
+    "description": "Empty-state message in the next appointment card."
+  },
+  "homeHubFindMaster": "Find a master",
+  "@homeHubFindMaster": {
+    "description": "CTA button in the next appointment empty state."
+  },
+  "homeHubRescheduleAppointment": "Reschedule",
+  "@homeHubRescheduleAppointment": {
+    "description": "Button label to reschedule the next appointment."
+  },
+  "homeHubCancelAppointment": "Cancel",
+  "@homeHubCancelAppointment": {
+    "description": "Button label to cancel the next appointment."
+  },
+  "homeHubAddToGoogleCalendar": "Google Calendar",
+  "@homeHubAddToGoogleCalendar": {
+    "description": "Accessibility label for the Google Calendar button in the next appointment card."
+  },
+  "homeHubAddToAppleCalendar": "Apple Calendar",
+  "@homeHubAddToAppleCalendar": {
+    "description": "Accessibility label for the Apple Calendar button in the next appointment card."
+  },
+  "homeHubFavoriteMastersTitle": "Favourite masters",
+  "@homeHubFavoriteMastersTitle": {
+    "description": "Section title for the favourite masters rail."
+  },
+  "homeHubFavoriteMastersSeeAll": "All ({count})",
+  "@homeHubFavoriteMastersSeeAll": {
+    "description": "See-all link label for the favourite masters section.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "6"
+      }
+    }
+  },
+  "homeHubFavoriteMastersEmpty": "No favourite masters yet.\nTap the heart on a master's profile to save them.",
+  "@homeHubFavoriteMastersEmpty": {
+    "description": "Empty-state message in the favourite masters rail."
+  },
+  "homeHubUnlikeMasterLabel": "Remove from favourites",
+  "@homeHubUnlikeMasterLabel": {
+    "description": "Accessibility label for the unlike (heart) button on a favourite master mini-card."
+  },
+  "homeHubTimelineSeeAll": "Full history",
+  "@homeHubTimelineSeeAll": {
+    "description": "See-all link label for the BEAUTY TIMELINE section."
+  },
+  "homeHubTimelineEmpty": "Your procedure history will appear here.",
+  "@homeHubTimelineEmpty": {
+    "description": "Empty-state message in the BEAUTY TIMELINE rail."
+  },
+  "homeHubNotificationsLabel": "Notifications",
+  "@homeHubNotificationsLabel": {
+    "description": "Accessibility label for the notification bell button in the Home Hub top bar."
+  },
+  "homeHubMenuLabel": "Menu",
+  "@homeHubMenuLabel": {
+    "description": "Accessibility label for the burger menu button in the Home Hub top bar."
+  },
+  "homeHubProfileLoadError": "Could not load profile.",
+  "@homeHubProfileLoadError": {
+    "description": "Error message shown in the profile section when profile loading fails."
+  },
+  "homeHubNextApptLoadError": "Could not load next appointment.",
+  "@homeHubNextApptLoadError": {
+    "description": "Error message shown in the next appointment section when loading fails."
+  },
+  "homeHubFavoritesLoadError": "Could not load favourite masters.",
+  "@homeHubFavoritesLoadError": {
+    "description": "Error message shown in the favourite masters section when loading fails."
+  },
+  "homeHubTimelineLoadError": "Could not load timeline.",
+  "@homeHubTimelineLoadError": {
+    "description": "Error message shown in the BEAUTY TIMELINE section when loading fails."
+  },
+  "myRatingTitle": "MY RATING",
+  "@myRatingTitle": {
+    "description": "AppBar title for the My Rating screen (all-caps brand style). Shows the client's aggregate two-sided rating."
+  },
+  "myRatingEmpty": "You don't have a rating yet. It will appear after completed appointments.",
+  "@myRatingEmpty": {
+    "description": "Empty state message on the My Rating screen when no rating has been assigned yet."
+  },
+  "myRatingExplanation": "Your rating is based on scores from masters and salons after completed procedures.",
+  "@myRatingExplanation": {
+    "description": "Explanation line under the rating number and stars on the My Rating screen. Tells the client who assigns their rating."
+  },
+  "passportColumnProcedures": "Favourite procedures",
+  "@passportColumnProcedures": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's first column (auto-derived top-3 most-booked service types)."
+  },
+  "passportColumnDistricts": "Favourite districts",
+  "@passportColumnDistricts": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's second column (auto-derived top-3 most-visited districts)."
+  },
+  "passportColumnBudget": "Budget",
+  "@passportColumnBudget": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's third column (auto-derived spend band)."
+  },
+  "passportBudgetCeiling": "up to {max} UAH",
+  "@passportBudgetCeiling": {
+    "description": "Budget value chip on the BEAUTY PASSPORT card — the upper bound of the client's derived spend band, in UAH.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "passportBudgetUnknown": "—",
+  "@passportBudgetUnknown": {
+    "description": "Budget value chip placeholder on the BEAUTY PASSPORT card when there is no spend history yet."
+  },
+  "passportReviewsLeft": "{count, plural, =0{No reviews left} =1{1 review left} other{{count} reviews left}}",
+  "@passportReviewsLeft": {
+    "description": "Footer standing line on the BEAUTY PASSPORT card — how many reviews the client has left.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "passportMemberSince": "Member since {year}",
+  "@passportMemberSince": {
+    "description": "Footer subtitle on the BEAUTY PASSPORT card — the year the client joined Beautica.",
+    "placeholders": {
+      "year": {
+        "type": "String",
+        "example": "2024"
+      }
+    }
+  },
+  "passportEmptyTitle": "Your passport is still empty",
+  "@passportEmptyTitle": {
+    "description": "Heading of the empty BEAUTY PASSPORT state, shown when the client has no completed bookings yet."
+  },
+  "passportEmptyBody": "Book your first service — and Beautica will start collecting your favourite services, districts and budget.",
+  "@passportEmptyBody": {
+    "description": "Body copy of the empty BEAUTY PASSPORT state inviting the client to book their first service."
+  },
+  "passportEmptyCta": "Find a master",
+  "@passportEmptyCta": {
+    "description": "Call-to-action button on the empty BEAUTY PASSPORT state — opens discovery search."
+  },
+  "searchTitle": "Search",
+  "@searchTitle": {
+    "description": "Title of the CLIENT Пошук (Search) filters screen — the elevated center bottom-nav tab."
+  },
+  "searchFieldHint": "Search for a master or service",
+  "@searchFieldHint": {
+    "description": "Placeholder text in the free-text search field on the Пошук screen."
+  },
+  "searchCityLabel": "City",
+  "@searchCityLabel": {
+    "description": "Label above the city-select row on the Пошук screen."
+  },
+  "searchCityPlaceholder": "Choose a city",
+  "@searchCityPlaceholder": {
+    "description": "Placeholder shown in the city-select row before a city is chosen."
+  },
+  "searchRegionLabel": "Region",
+  "@searchRegionLabel": {
+    "description": "Label above the region (oblast) select row on the Пошук screen."
+  },
+  "searchRegionPlaceholder": "Choose a region",
+  "@searchRegionPlaceholder": {
+    "description": "Placeholder shown in the region-select row before a region is chosen."
+  },
+  "searchCityDisabledHint": "Choose a region first",
+  "@searchCityDisabledHint": {
+    "description": "Helper line under the disabled city row prompting the user to pick a region first."
+  },
+  "searchCityRequiredHint": "Choose a city to continue",
+  "@searchCityRequiredHint": {
+    "description": "Helper line under the city row when a region is chosen but no city yet; the search CTA is disabled until a city is picked (region alone is not a searchable scope)."
+  },
+  "searchDistrictLabel": "District",
+  "@searchDistrictLabel": {
+    "description": "Label above the optional district select row on the Пошук screen."
+  },
+  "searchDistrictPlaceholder": "Choose a district (optional)",
+  "@searchDistrictPlaceholder": {
+    "description": "Placeholder shown in the district-select row before a district is chosen; signals the field is optional."
+  },
+  "searchDistrictDisabledHint": "Choose a city first",
+  "@searchDistrictDisabledHint": {
+    "description": "Helper line under the disabled district row prompting the user to pick a city first."
+  },
+  "searchDistrictNoneHint": "This city has no districts",
+  "@searchDistrictNoneHint": {
+    "description": "Helper line under the disabled district row when the chosen city has no districts."
+  },
+  "searchServiceTypeLabel": "Service type",
+  "@searchServiceTypeLabel": {
+    "description": "Label above the service-type tile grid on the Пошук screen."
+  },
+  "searchCategoryLabel": "Category",
+  "@searchCategoryLabel": {
+    "description": "Section label above the horizontal category rail on the Пошук screen (Variant A)."
+  },
+  "searchServicesDrawerLabel": "Services · {category}",
+  "@searchServicesDrawerLabel": {
+    "description": "Label above the service-chip drawer, showing the selected category's services.",
+    "placeholders": {
+      "category": {
+        "type": "String",
+        "example": "Hair"
+      }
+    }
+  },
+  "searchServicesSelectedCount": "{count} selected",
+  "@searchServicesSelectedCount": {
+    "description": "Badge beside the service-chip drawer label showing how many services are currently selected.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "searchServicesFilterChip": "{count, plural, =1{{count} service} other{{count} services}}",
+  "@searchServicesFilterChip": {
+    "description": "Applied-filter chip on the results screen summarising how many per-service filters are active (the slugs have no display label there, so a count is shown).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "searchCategoriesLoadError": "Couldn't load categories",
+  "@searchCategoriesLoadError": {
+    "description": "Inline error shown when the service-category list fails to load in the Пошук grid."
+  },
+  "searchServicesLoadError": "Couldn't load services",
+  "@searchServicesLoadError": {
+    "description": "Inline error shown when the per-category service list fails to load in the Пошук service-chip drawer."
+  },
+  "searchCategoriesEmpty": "No categories available yet",
+  "@searchCategoriesEmpty": {
+    "description": "Shown in place of the service-type grid when the backend returns no approved categories."
+  },
+  "searchPriceLabel": "Service price",
+  "@searchPriceLabel": {
+    "description": "Label above the price slider on the Пошук screen."
+  },
+  "searchPriceUpTo": "up to {price} UAH",
+  "@searchPriceUpTo": {
+    "description": "Live readout of the selected price ceiling on the Пошук slider.",
+    "placeholders": {
+      "price": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "searchPriceAny": "any",
+  "@searchPriceAny": {
+    "description": "Price readout when the slider is at the ceiling — no upper price bound."
+  },
+  "searchPriceMin": "0 UAH",
+  "@searchPriceMin": {
+    "description": "Left end label under the price slider (minimum)."
+  },
+  "searchPriceMax": "5000+ UAH",
+  "@searchPriceMax": {
+    "description": "Right end label under the price slider (ceiling and above)."
+  },
+  "searchPriceFrom": "from {price} UAH",
+  "@searchPriceFrom": {
+    "description": "Price readout fragment for the lower bound when only a minimum is set (no upper bound).",
+    "placeholders": {
+      "price": {
+        "type": "int",
+        "example": "300"
+      }
+    }
+  },
+  "searchPriceRange": "from {min} to {max} UAH",
+  "@searchPriceRange": {
+    "description": "Price readout when both a minimum and a maximum bound are set.",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "300"
+      },
+      "max": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "searchPriceMinFieldLabel": "From",
+  "@searchPriceMinFieldLabel": {
+    "description": "Caption above the minimum-price numeric input field."
+  },
+  "searchPriceMaxFieldLabel": "To",
+  "@searchPriceMaxFieldLabel": {
+    "description": "Caption above the maximum-price numeric input field."
+  },
+  "searchPriceMinFieldHint": "0",
+  "@searchPriceMinFieldHint": {
+    "description": "Placeholder hint inside the minimum-price numeric input field (no lower bound)."
+  },
+  "searchPriceMaxFieldHint": "5000",
+  "@searchPriceMaxFieldHint": {
+    "description": "Placeholder hint inside the maximum-price numeric input field (no upper bound)."
+  },
+  "searchPriceCurrencySuffix": "UAH",
+  "@searchPriceCurrencySuffix": {
+    "description": "Inline currency suffix (UAH) shown inside the min/max price input fields."
+  },
+  "searchCtaShowMasters": "Show masters",
+  "@searchCtaShowMasters": {
+    "description": "Primary CTA on the Пошук screen — runs the search and opens the results screen."
+  },
+  "searchResultsTitle": "Results",
+  "@searchResultsTitle": {
+    "description": "App-bar title of the discovery results screen."
+  },
+  "searchResultsComingSoon": "The list of masters will appear here soon.",
+  "@searchResultsComingSoon": {
+    "description": "Placeholder copy on the discovery results screen until the real paged list ships."
+  },
+  "searchResultsBack": "Back",
+  "@searchResultsBack": {
+    "description": "Accessibility label for the back button on the discovery results screen (returns to the filters screen)."
+  },
+  "searchResultsOpenFilters": "Edit filters",
+  "@searchResultsOpenFilters": {
+    "description": "Accessibility label for the filter icon in the results screen top bar — re-opens the search filter controls."
+  },
+  "searchResultsActiveFilters": "{count, plural, =1{{count} active filter} other{{count} active filters}}",
+  "@searchResultsActiveFilters": {
+    "description": "Accessibility label announcing how many filter facets are currently active, read next to the «(N)» badge on the results top-bar filter icon.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "searchResultsEmptyTitle": "Nothing found",
+  "@searchResultsEmptyTitle": {
+    "description": "Title of the empty state on the discovery results screen when no master or salon matches the filters."
+  },
+  "searchResultsEmptyBody": "Try changing the city, category or price range.",
+  "@searchResultsEmptyBody": {
+    "description": "Supporting copy under the empty-state title on the results screen."
+  },
+  "searchResultsEmptyServiceBody": "We couldn't find a master who provides all the services you selected. Try selecting fewer services or changing the filter.",
+  "@searchResultsEmptyServiceBody": {
+    "description": "Supporting copy under the empty-state title when a per-service (serviceTypeSlugs) filter is active and the AND-narrowed search returns nothing — guides the user to broaden the service selection."
+  },
+  "searchResultsEditFilters": "Edit filters",
+  "@searchResultsEditFilters": {
+    "description": "Button on the empty results state that re-opens the search filter controls."
+  },
+  "searchResultPriceRange": "{min}–{max} UAH",
+  "@searchResultPriceRange": {
+    "description": "Price range shown on a salon result card (lower–upper bound).",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "400"
+      },
+      "max": {
+        "type": "int",
+        "example": "1200"
+      }
+    }
+  },
+  "searchResultPriceExact": "{price} UAH",
+  "@searchResultPriceExact": {
+    "description": "Single fixed price on a result card — shown WITHOUT the «from» prefix when the lower and upper price bounds are equal (one fixed price).",
+    "placeholders": {
+      "price": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "searchResultReviewCount": "{count, plural, =1{({count} review)} other{({count} reviews)}}",
+  "@searchResultReviewCount": {
+    "description": "Parenthesised review count beside a master card's star rating.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "128"
+      }
+    }
+  },
+  "searchResultNoReviews": "No reviews",
+  "@searchResultNoReviews": {
+    "description": "Shown in place of the star rating on a master card that has no reviews yet."
+  },
+  "searchResultMasterFallbackName": "Master",
+  "@searchResultMasterFallbackName": {
+    "description": "Fallback name on a master result card when the backend sends neither first nor last name."
+  },
+  "searchResultSalonFallbackName": "Salon",
+  "@searchResultSalonFallbackName": {
+    "description": "Fallback name on a salon result card when the backend sends no salon name."
+  },
+  "searchResultClearFilter": "Clear filter {label}",
+  "@searchResultClearFilter": {
+    "description": "Accessibility label for the «×» on an applied-filter chip (clears that filter).",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Lviv"
+      }
+    }
+  },
+  "favoriteAddLabel": "Add to favourites",
+  "@favoriteAddLabel": {
+    "description": "Accessibility label for the favourite heart when the item is NOT yet favourited (tapping adds it)."
+  },
+  "favoriteRemoveLabel": "Remove from favourites",
+  "@favoriteRemoveLabel": {
+    "description": "Accessibility label for the favourite heart when the item IS favourited (tapping removes it)."
+  },
+  "searchSortButtonLabel": "Sort",
+  "@searchSortButtonLabel": {
+    "description": "Accessibility label for the sort button in the results top bar (opens the sort options sheet)."
+  },
+  "searchSortSheetTitle": "Sort",
+  "@searchSortSheetTitle": {
+    "description": "Title of the bottom sheet listing the result sort options."
+  },
+  "searchSortRatingDesc": "Top rated",
+  "@searchSortRatingDesc": {
+    "description": "Sort option: highest average rating first (the default ordering)."
+  },
+  "searchSortPriceAsc": "Lowest price first",
+  "@searchSortPriceAsc": {
+    "description": "Sort option: cheapest effective price first."
+  },
+  "searchSortPriceDesc": "Highest price first",
+  "@searchSortPriceDesc": {
+    "description": "Sort option: most expensive effective price first."
+  },
+  "searchSortReviewsDesc": "Most reviewed",
+  "@searchSortReviewsDesc": {
+    "description": "Sort option: most-reviewed first."
+  },
+  "searchSortOptionSelected": "{label}, selected",
+  "@searchSortOptionSelected": {
+    "description": "Accessibility label appended to the currently-selected sort row.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Top rated"
+      }
+    }
+  },
+  "searchResultServices": "{names}",
+  "@searchResultServices": {
+    "description": "Joined preview of a master's top service names on the result card. Already joined by the widget; passed through for an a11y-friendly key.",
+    "placeholders": {
+      "names": {
+        "type": "String",
+        "example": "Manicure · Pedicure"
+      }
+    }
+  },
+  "publicMasterProfileTitle": "Master profile",
+  "@publicMasterProfileTitle": {
+    "description": "App-bar title on the CLIENT-facing public master profile (Phase 13.5)."
+  },
+  "publicMasterBioLabel": "About the master",
+  "@publicMasterBioLabel": {
+    "description": "Section label above the bio on the public master profile (about the master, not self)."
+  },
+  "publicMasterExperienceLabel": "Experience",
+  "@publicMasterExperienceLabel": {
+    "description": "Caption of the experience/tenure stat tile on the public master profile."
+  },
+  "publicMasterBookingSectionLabel": "Services & prices",
+  "@publicMasterBookingSectionLabel": {
+    "description": "Title of the pinned booking shelf on the public master profile."
+  },
+  "publicMasterBookingEmptyPrompt": "Choose a service",
+  "@publicMasterBookingEmptyPrompt": {
+    "description": "Empty-state prompt inside the booking shelf before any service is chosen."
+  },
+  "publicMasterBookingCta": "Choose a service",
+  "@publicMasterBookingCta": {
+    "description": "Primary CTA in the booking shelf empty state; opens the Phase 14.1 booking flow."
+  },
+  "bookingNewPlaceholderTitle": "Booking",
+  "@bookingNewPlaceholderTitle": {
+    "description": "Title of the Phase 14.1 booking-flow placeholder screen."
+  },
+  "bookingNewPlaceholderBlurb": "Online booking with a master is coming soon.",
+  "@bookingNewPlaceholderBlurb": {
+    "description": "Body copy of the Phase 14.1 booking-flow placeholder screen."
   }
 }

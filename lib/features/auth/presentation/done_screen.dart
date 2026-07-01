@@ -12,6 +12,7 @@
 //   - Registration draft is reset in a post-frame callback (Phase 2.16 HIGH-1).
 //   - ScreenProtector removed — done screen shows no sensitive data post-auth.
 
+import 'dart:async';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
@@ -24,9 +25,11 @@ import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../routing/role_home.dart';
 import '../../../routing/route_names.dart';
 import '../domain/user.dart';
 import '../domain/user_role.dart';
+import '../state/pending_locality_store.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_selectors.dart';
 import 'user_role_l10n.dart';
@@ -57,9 +60,14 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(registerDraftProvider.notifier).reset();
+      // Silent-data-loss fix — the durable Step 3 locality blob has now served
+      // its purpose (the post-OTP PATCH already ran on the verification screen),
+      // so wipe it. Fire-and-forget: a clear failure must not block the screen,
+      // and the blob is also cleared on logout via SecureStorage.deleteAll().
+      unawaited(ref.read(pendingLocalityStoreProvider).clear());
       if (kDebugMode) {
         log(
-          'Done screen: register draft reset (HIGH-1 contract)',
+          'Done screen: register draft + pending locality reset (HIGH-1)',
           name: 'auth.done',
           level: 800,
         );
@@ -89,10 +97,9 @@ class _DoneScreenState extends ConsumerState<DoneScreen> {
         label: l10n.registerDoneCtaPrimary,
         onPressed: () {
           final role = ref.read(currentUserProvider)?.role;
-          final destination = switch (role) {
-            UserRole.independentMaster => RouteNames.masterProfile,
-            _ => RouteNames.home,
-          };
+          final destination = role == null
+              ? RouteNames.home
+              : roleHomePath(role);
           context.go(destination);
         },
       ),

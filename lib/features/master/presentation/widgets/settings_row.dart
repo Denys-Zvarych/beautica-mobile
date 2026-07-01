@@ -28,12 +28,20 @@ class SettingsRow extends StatefulWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.iconWidget,
     this.value,
     this.showChevron = true,
     this.destructive = false,
   });
 
   final IconData icon;
+
+  /// Optional pre-built glyph widget (e.g. an [AppIcon] SVG) rendered inside the
+  /// inset well in place of the Material [Icon] built from [icon]. Callers must
+  /// size it to 19 px and tint it to match the row state (non-destructive:
+  /// [BrandColors.accentDeep]). The [destructive] recolour only applies to the
+  /// Material fallback, so SVG glyphs should not be used on destructive rows.
+  final Widget? iconWidget;
   final String label;
   final VoidCallback onTap;
 
@@ -99,7 +107,9 @@ class _SettingsRowState extends State<SettingsRow> {
                   child: NeumorphicInset(
                     radius: VelvetRadii.field - 4,
                     child: Center(
-                      child: Icon(widget.icon, size: 19, color: glyph),
+                      child:
+                          widget.iconWidget ??
+                          Icon(widget.icon, size: 19, color: glyph),
                     ),
                   ),
                 ),
@@ -138,11 +148,18 @@ class SettingsToggleRow extends StatefulWidget {
     required this.icon,
     required this.label,
     required this.initialValue,
+    this.iconWidget,
     this.subtitle,
     this.switchKey,
   });
 
   final IconData icon;
+
+  /// Optional pre-built glyph widget (e.g. an [AppIcon] SVG) rendered inside the
+  /// inset well in place of the Material [Icon] built from [icon]. Callers must
+  /// size it to 19 px and tint it to [BrandColors.accentDeep] so it sits
+  /// identically to the Material fallback and the sibling [SettingsRow] glyphs.
+  final Widget? iconWidget;
   final String label;
   final bool initialValue;
   final String? subtitle;
@@ -188,11 +205,13 @@ class _SettingsToggleRowState extends State<SettingsToggleRow> {
                 child: NeumorphicInset(
                   radius: VelvetRadii.field - 4,
                   child: Center(
-                    child: Icon(
-                      widget.icon,
-                      size: 19,
-                      color: BrandColors.accentDeep,
-                    ),
+                    child:
+                        widget.iconWidget ??
+                        Icon(
+                          widget.icon,
+                          size: 19,
+                          color: BrandColors.accentDeep,
+                        ),
                   ),
                 ),
               ),

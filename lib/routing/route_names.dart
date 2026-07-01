@@ -46,6 +46,63 @@ abstract final class RouteNames {
   static const String home = '/';
   static const String settings = '/settings';
 
+  // Phase 13.1 — CLIENT 5-tab shell branches. The CLIENT post-login landing
+  // is [clientHome] (Головна, branch index 0). Each path is the location of one
+  // StatefulShellRoute branch; the elevated center «Пошук» disc routes to
+  // [clientSearch] (branch index 2). The 5th tab «BEAUTY PASSPORT» (an
+  // untranslated brand constant) lands on [clientPassport].
+  //
+  // The MASTER shell keeps its own existing routes (/master/*, /services,
+  // /schedule) — the two shells never share branches; role gating in
+  // [authRedirect] keeps CLIENT and INDEPENDENT_MASTER mutually fenced off.
+  static const String clientHome = '/home';
+  static const String clientFavorites = '/favorites';
+  static const String clientSearch = '/search';
+  static const String clientBookings = '/bookings';
+  static const String clientPassport = '/passport';
+
+  /// Phase 13.3 — discovery results. Reached from the Пошук filters screen's
+  /// «Показати майстрів» CTA via `context.push(..., extra: SearchFilters)`. A
+  /// `push` (not a branch hop) so the swipe-back gesture returns to the filters
+  /// with the keepAlive selection intact. The real paged results list ships in
+  /// a later 13.x phase; for now the route renders a placeholder that echoes the
+  /// received [SearchFilters].
+  static const String clientSearchResults = '/search/results';
+
+  /// Phase 13.5 — public master profile, opened from a master result card tap.
+  /// The screen itself ships in Phase 13.5; until then the route may not be
+  /// registered, but the path constant is the single source of truth for the
+  /// card's nav target. Pushed onto the search branch navigator.
+  static String masterPublicProfile(String masterId) => '/masters/$masterId';
+
+  /// Phase 13.6 — public salon profile, opened from a salon result card tap.
+  /// Same lifecycle note as [masterPublicProfile].
+  static String salonPublicProfile(String salonId) => '/salons/$salonId';
+
+  /// Phase 14.1 — booking flow entry (service selection + slot picker), opened
+  /// from the public master profile's «Записатись» / «Обрати послугу» CTA with
+  /// the target master id in `GoRouterState.extra`. The real screen ships in
+  /// Phase 14.1; until then the route renders a CLIENT-guarded «Скоро…»
+  /// placeholder so the CTA is non-crashing. This constant is the single source
+  /// of truth for the CTA's nav target.
+  static const String bookingNew = '/booking/new';
+
+  // CLIENT settings hub + per-section edit pages. Pushed from the home-hub
+  // burger icon (mirrors the master `/master/menu` + `/master/edit/*` block).
+  // The three edit pages all PATCH /users/me via ClientProfileRepository,
+  // merging only the slice they own onto the cached profile so sibling fields
+  // are never cleared. Role-gated to CLIENT in [authRedirect].
+  static const String clientMenu = '/client/menu';
+  static const String clientEditPersonal = '/client/edit/personal';
+  static const String clientEditContacts = '/client/edit/contacts';
+  static const String clientEditLocation = '/client/edit/location';
+
+  /// Support / contact-us screen («Напишіть нам»). Pushed from the master
+  /// settings hub's "Допомога / Напишіть нам" row. Authenticated users submit a
+  /// free-text message (+ optional subject + attachments) to
+  /// `POST /api/v1/support/contact`.
+  static const String contactSupport = '/support/contact';
+
   // Phase 4.2 — Master profile (read-only).
   static const String masterProfile = '/master/profile';
 
@@ -98,4 +155,10 @@ abstract final class RouteNames {
   //   • 15.5 — copy/propagate range surface
   static const String scheduleDayOverride = '/schedule/day';
   static const String schedulePropagate = '/schedule/copy';
+
+  // Phase 13.7 (revised) — CLIENT rating screen.
+  //   • /rating — CLIENT's aggregate two-sided rating (★ n.n or empty).
+  //     Backend GET /clients/me/rating is not yet shipped; the screen shows
+  //     the empty state. Client comments are never shown (two-sided ratings only).
+  static const String myRating = '/rating';
 }

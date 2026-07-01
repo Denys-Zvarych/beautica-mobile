@@ -80,15 +80,15 @@ void main() {
 
   late _MockServiceRepository repo;
 
+  // The category chip row watches approvedCategoriesProvider, now overridden
+  // directly below (the provider fetches via categoryRequestApi, not the repo).
+  const categories = <ServiceCategoryOption>[
+    ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+    ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+  ];
+
   setUp(() {
     repo = _MockServiceRepository();
-    // The category chip row watches approvedCategoriesProvider → repository.
-    when(() => repo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-      ],
-    );
   });
 
   /// Pump a [ServiceForm] with [onSubmit] inside a fresh ProviderScope.
@@ -108,7 +108,10 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
+        overrides: [
+          serviceRepositoryProvider.overrideWithValue(repo),
+          approvedCategoriesProvider.overrideWith((ref) async => categories),
+        ],
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,

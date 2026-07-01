@@ -97,6 +97,18 @@ dependencies:
   # Android 11+ package visibility.
   url_launcher: ^6.3.2
 
+  # File picking — support "Напишіть нам" attachments (images + PDF). Returns
+  # bytes (withData) so the support repository can build multipart parts without
+  # a second filesystem read. Limits (count/size/type) are enforced client-side
+  # after selection; the backend re-validates by magic-byte sniffing.
+  file_picker: ^8.1.6
+
+  # Multipart MediaType for the support-contact request part (the JSON `request`
+  # part carries Content-Type: application/json; file parts carry their sniffed
+  # type). Dio does not re-export MediaType, so http_parser is a direct dep.
+  http_parser: ^4.1.2
+  flutter_svg: ^2.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -274,3 +286,8 @@ flutter:
     # (belt — alongside network_security_config.xml) and iOS (suspenders —
     # no OS-level equivalent to Android's network_security_config).
     - assets/certs/
+
+    # Monochrome SVG icons — drop free line SVGs here, register a const in
+    # BeauticaAssetIcons (lib/core/icons/beautica_asset_icons.dart), then
+    # use AppIcon(BeauticaAssetIcons.x) anywhere.
+    - assets/icons/

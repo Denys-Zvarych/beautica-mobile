@@ -190,8 +190,34 @@ final class FakeBackend {
   String masterFirstName = 'Олена';
   String masterLastName = 'Ковальчук';
   String masterBio = 'Майстер манікюру.';
-  String? masterPhone = '+380501234567';
+  String? masterPhone = '+380501111111';
   String? masterInstagram = '@olena_nails';
+
+  // ── Mutable CLIENT profile state (PATCH /users/me round-trip) ──────────────
+  //
+  // The CLIENT `GET /users/me` echoes these mutable fields so a save made by the
+  // Contacts / Location edit screens round-trips on the next read (the edit
+  // screens invalidate clientEditProfileProvider → re-fetch /users/me). Phone +
+  // location start empty so the edit screens see a clean seed; the city is
+  // OPTIONAL for a CLIENT, so a null city must persist as a valid save.
+  String clientFirstName = 'Дмитро';
+  String clientLastName = 'Клієнт';
+  String? clientPhone;
+  // oblastId/oblastName are emitted on GET /users/me so the search-page
+  // saved-location PREFILL can resolve the saved locality cascade (the prefill
+  // requires BOTH oblastId and cityId non-null). They start null so the profile
+  // edit flows keep seeing a clean, location-less seed; a flow that exercises the
+  // prefill sets them (+ clientCityId/clientCityName) on the FakeBackend instance
+  // BEFORE login.
+  String? clientOblastId;
+  String? clientOblastName;
+  String? clientCityId;
+  String? clientCityName;
+  String? clientDistrictId;
+  String? clientDistrictName;
+  String? clientStreet;
+  String? clientBuildingNo;
+  String? clientLocationNote;
 
   // ── Service state ─────────────────────────────────────────────────────────
 
@@ -248,7 +274,158 @@ final class FakeBackend {
         'photoUrl': null,
       },
     },
+    // Type-bearing service in NAILS (category A) with a serviceType belonging to
+    // NAILS. Drives the Phase 16.5 edit-flow category-switch regression test: a
+    // valid category↔serviceType pair on load. Its PATCH succeeds (200) so the
+    // positive flow can submit after re-picking a type for the new category.
+    <String, dynamic>{
+      'id': 'assign-typed',
+      'masterId': 'user-master-1',
+      'isActive': true,
+      'priceType': 'FIXED',
+      'priceMin': 500,
+      'priceMax': null,
+      'priceDisplay': '500 грн',
+      'effectiveDurationMinutes': 60,
+      'serviceTypeId': 'type-nails-classic',
+      'serviceTypeNameUk': 'Класичний манікюр',
+      'serviceDefinition': <String, dynamic>{
+        'id': 'svc-typed',
+        'name': 'Класичний манікюр',
+        'description': null,
+        'category': 'NAILS',
+        'baseDurationMinutes': 60,
+        'bufferMinutesAfter': 0,
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 500,
+        'priceMax': null,
+        'priceDisplay': '500 грн',
+        'photoUrl': null,
+        'serviceTypeId': 'type-nails-classic',
+        'serviceTypeNameUk': 'Класичний манікюр',
+      },
+    },
+    // Negative-path service: same valid NAILS + serviceType pair on load, but its
+    // PATCH ALWAYS returns the backend's fieldless 400 mismatch envelope
+    // ({success:false, message:"service type does not belong to the selected
+    // category"} — NO `errors` map). Drives the regression assert that the form
+    // maps that 400 to the localized inline `serviceTypeCategoryMismatch` error
+    // (Phase 16.5 fix #3) rather than a raw English snackbar.
+    <String, dynamic>{
+      'id': 'assign-mismatch',
+      'masterId': 'user-master-1',
+      'isActive': true,
+      'priceType': 'FIXED',
+      'priceMin': 500,
+      'priceMax': null,
+      'priceDisplay': '500 грн',
+      'effectiveDurationMinutes': 60,
+      'serviceTypeId': 'type-nails-classic',
+      'serviceTypeNameUk': 'Класичний манікюр',
+      'serviceDefinition': <String, dynamic>{
+        'id': 'svc-mismatch',
+        'name': 'Класичний манікюр',
+        'description': null,
+        'category': 'NAILS',
+        'baseDurationMinutes': 60,
+        'bufferMinutesAfter': 0,
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 500,
+        'priceMax': null,
+        'priceDisplay': '500 грн',
+        'photoUrl': null,
+        'serviceTypeId': 'type-nails-classic',
+        'serviceTypeNameUk': 'Класичний манікюр',
+      },
+    },
   ];
+
+  /// Service types per platform-category slug (Phase 16.5 picker source). The
+  /// `GET /service-types?categoryName=` route returns the slice for the queried
+  /// category — so a category switch genuinely repopulates the list and a type
+  /// from category A is never offered under category B. Shape matches
+  /// PlatformServiceTypeResponse { id, slug, nameUk, categoryName }.
+  static List<Map<String, dynamic>> _serviceTypesFor(String category) {
+    switch (category) {
+      case 'NAILS':
+        return <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'type-nails-classic',
+            'slug': 'CLASSIC_MANICURE',
+            'nameUk': 'Класичний манікюр',
+            'categoryName': 'NAILS',
+          },
+          // Second NAILS service type (Phase 13.11) — gives the search drawer two
+          // selectable chips so the per-service filter E2E can prove a TWO-slug
+          // selection assembles two repeated `serviceTypeSlugs` params on the wire.
+          <String, dynamic>{
+            'id': 'type-nails-gel',
+            'slug': 'GEL_MANICURE',
+            'nameUk': 'Манікюр гель-лак',
+            'categoryName': 'NAILS',
+          },
+        ];
+      case 'BROWS':
+        return <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'type-brows-correction',
+            'slug': 'BROW_CORRECTION',
+            'nameUk': 'Корекція брів',
+            'categoryName': 'BROWS',
+          },
+        ];
+      default:
+        return const <Map<String, dynamic>>[];
+    }
+  }
+
+  /// Slug → Ukrainian display name, mirroring [_serviceTypesFor]. Used to echo a
+  /// realistic `matchedServiceNames` slice (≤3) for whatever `serviceTypeSlugs`
+  /// the search carried — see [_withMatchedNames].
+  static const Map<String, String> _serviceTypeNameUk = <String, String>{
+    'CLASSIC_MANICURE': 'Класичний манікюр',
+    'GEL_MANICURE': 'Манікюр гель-лак',
+    'BROW_CORRECTION': 'Корекція брів',
+  };
+
+  /// Reads the `serviceTypeSlugs` multi-valued param off the FLAT search query
+  /// map. The repository sends a `List<String>` value (Dio `ListFormat.multi` →
+  /// repeated bare params), so the DioAdapter handler sees the raw list. A single
+  /// value is normalised to a one-element list; absent → null (no constraint).
+  static List<String>? _slugsFrom(Map<String, dynamic> query) {
+    final raw = query['serviceTypeSlugs'];
+    if (raw == null) return null;
+    if (raw is List) {
+      return raw.map((Object? e) => e.toString()).toList(growable: false);
+    }
+    return <String>[raw.toString()];
+  }
+
+  /// Injects a backend-style `matchedServiceNames` (≤3) onto each result row when
+  /// the search carried a `serviceTypeSlugs` filter — mirroring the real backend
+  /// contract (matched names populated ONLY when filtering). Without slugs the
+  /// rows are returned unchanged (no key → null matched line → the card falls
+  /// back to the generic `serviceNames`).
+  static List<Map<String, dynamic>> _withMatchedNames(
+    List<Map<String, dynamic>> rows,
+    List<String>? slugs,
+  ) {
+    if (slugs == null || slugs.isEmpty) return rows;
+    final List<String> matched = slugs
+        .map((String s) => _serviceTypeNameUk[s] ?? s)
+        .take(3)
+        .toList(growable: false);
+    return rows
+        .map(
+          (Map<String, dynamic> r) => <String, dynamic>{
+            ...r,
+            'matchedServiceNames': matched,
+          },
+        )
+        .toList(growable: false);
+  }
 
   int _nextServiceSeq = 3;
 
@@ -294,13 +471,40 @@ final class FakeBackend {
     },
   ];
 
+  /// Clears the seeded weekly schedule so `GET …/weekly-schedules` returns an
+  /// empty list — the NO_SCHEDULE / FIRST-CREATE state. Drives the Bug 2
+  /// first-create flow (back-without-save must not persist; Save creates exactly
+  /// one template). Call BEFORE the editor loads. The POST/PUT counters
+  /// (`postScheduleCalls` / `putScheduleCalls`) keep recording, so a test can
+  /// assert ZERO upserts on a back-without-save and exactly ONE on a Save.
+  void seedNoWeeklySchedule() => _weeklySchedule = <Map<String, dynamic>>[];
+
   // ── Call-count telemetry (for assertions in tests) ────────────────────────
 
   int loginCalls = 0;
+  int logoutCalls = 0; // POST /api/v1/auth/logout counter
   int registerCalls = 0;
   int verifyEmailCalls = 0;
   int getMeCalls = 0; // GET /api/v1/users/me counter
+  int patchMeCalls = 0; // PATCH /api/v1/users/me counter (CLIENT profile edit)
+  Map<String, dynamic>?
+  lastPatchMeBody; // body of the most recent PATCH /users/me
   int getMasterCalls = 0;
+
+  /// `GET /api/v1/masters/{masterId}` (PUBLIC detail, Phase 13.5) call count +
+  /// the id requested. Distinct from [getMasterCalls] (the master-only
+  /// `GET /masters/me`): a CLIENT viewing a public profile hits THIS route, never
+  /// `me`. The public-master-profile E2E asserts a non-zero count here AND a zero
+  /// [getMasterCalls] (proving the CLIENT path never touched the 403-only `me`).
+  int getPublicMasterCalls = 0;
+  String? lastGetPublicMasterId;
+
+  /// `GET /api/v1/masters/{masterId}/services` (PUBLIC services, Phase 13.5)
+  /// call count + the id requested. Feeds the public profile's services-count
+  /// stat tile.
+  int getPublicMasterServicesCalls = 0;
+  String? lastGetPublicMasterServicesId;
+
   int patchProfileCalls = 0;
   Map<String, dynamic>? lastPatchBody;
   int getServicesCalls = 0;
@@ -308,6 +512,16 @@ final class FakeBackend {
   Map<String, dynamic>? lastCreatedService;
   int patchServiceCalls = 0;
   Map<String, dynamic>? lastPatchedService;
+
+  /// Body of the most recent PATCH against the type-bearing service
+  /// (`svc-typed`) — lets the edit-flow regression test assert the EXACT
+  /// `serviceTypeId` / `categoryName` the form submitted after a category switch.
+  Map<String, dynamic>? lastTypedPatchBody;
+
+  /// Count of `GET /service-types` calls + the last `categoryName` queried.
+  /// Proves the picker re-queried the new category after a switch (Phase 16.5).
+  int getServiceTypesCalls = 0;
+  String? lastServiceTypesCategory;
   int getScheduleCalls = 0;
   int postScheduleCalls = 0;
   int putScheduleCalls = 0;
@@ -317,6 +531,67 @@ final class FakeBackend {
   /// assert the EXACT mode + discrete times the editor serialised (Phase 15.8).
   List<dynamic>? lastWeeklyDays;
 
+  /// The `validFrom` / `validTo` strings from the most recent weekly-schedule
+  /// POST/PUT body. Lets a first-create test assert the editor persisted the
+  /// PICKED validity window (not a fabricated open-ended default).
+  String? lastWeeklyValidFrom;
+  String? lastWeeklyValidTo;
+
+  // ── Support-contact telemetry ─────────────────────────────────────────────
+  /// Number of `POST /api/v1/support/contact` calls the fake accepted (202).
+  int supportContactCalls = 0;
+
+  // ── Discovery search telemetry (Phase 13.4) ───────────────────────────────
+  /// `GET /api/v1/search/masters` call count + the last `page` requested.
+  int searchMastersCalls = 0;
+  int? lastSearchMastersPage;
+
+  /// The last `q` (free-text) + `sort` carried on a `/search/masters` request
+  /// (Phase 19.x search wire-up). Null until the first call / when omitted.
+  String? lastSearchMastersQuery;
+  String? lastSearchMastersSort;
+
+  /// The last FLAT `location.cityId` / `location.districtId` the repository sent
+  /// on a `/search/masters` request. Null when the filter was absent. Proves the
+  /// city scope reaches the wire as a FLAT @ModelAttribute key (the city-filter
+  /// wire-format regression) — a bracket-nested `request[location][cityId]` would
+  /// leave these null and an all-regions result would slip through.
+  String? lastSearchMastersCityId;
+  String? lastSearchMastersDistrictId;
+
+  /// The last `serviceTypeSlugs` multi-valued param the repository sent on a
+  /// `/search/masters` request (Phase 13.11 per-service filter). Null when no
+  /// service chip was selected (the param is omitted) — so a non-null list with
+  /// the selected slugs proves the chip selection reached the wire AND a stale
+  /// cross-category slug was dropped on a category switch.
+  List<String>? lastSearchMastersServiceTypeSlugs;
+
+  /// `GET /api/v1/search/salons` call count + the last `page` requested.
+  int searchSalonsCalls = 0;
+  int? lastSearchSalonsPage;
+
+  /// The last `q` (free-text) + `sort` carried on a `/search/salons` request.
+  String? lastSearchSalonsQuery;
+  String? lastSearchSalonsSort;
+
+  /// The last FLAT `location.cityId` / `location.districtId` on a
+  /// `/search/salons` request. See [lastSearchMastersCityId].
+  String? lastSearchSalonsCityId;
+  String? lastSearchSalonsDistrictId;
+
+  /// The last `serviceTypeSlugs` multi-valued param on a `/search/salons`
+  /// request. See [lastSearchMastersServiceTypeSlugs].
+  List<String>? lastSearchSalonsServiceTypeSlugs;
+
+  // ── Favorites telemetry (Phase 13.4) ──────────────────────────────────────
+  /// `POST /api/v1/favorites` (add) call count + the most recent body.
+  int addFavoriteCalls = 0;
+  Map<String, dynamic>? lastAddFavoriteBody;
+
+  /// `DELETE /api/v1/favorites` (remove) call count + the most recent query.
+  int removeFavoriteCalls = 0;
+  Map<String, dynamic>? lastRemoveFavoriteQuery;
+
   // ── Override telemetry (Phase 15.8) ───────────────────────────────────────
   int putOverrideCalls = 0;
 
@@ -325,6 +600,129 @@ final class FakeBackend {
   Map<String, dynamic>? lastOverrideBody;
 
   // ── Internal helpers ───────────────────────────────────────────────────────
+
+  /// The CLIENT `GET /users/me` body, built from the mutable client state so a
+  /// PATCH made by the Contacts / Location edit screen round-trips on re-fetch.
+  /// Shape matches `UserProfileResponse` (the DTO `UserMapper.fromProfileDto`
+  /// consumes): id / email / role / firstName / lastName + the optional
+  /// phone + location enrichment fields.
+  Map<String, dynamic> _clientProfileBody() => <String, dynamic>{
+    'id': 'user-client-1',
+    'email': 'client@beautica.ua',
+    'role': 'CLIENT',
+    'firstName': clientFirstName,
+    'lastName': clientLastName,
+    'phoneNumber': clientPhone,
+    'oblastId': clientOblastId,
+    'oblastName': clientOblastName,
+    'cityId': clientCityId,
+    'cityName': clientCityName,
+    'districtId': clientDistrictId,
+    'districtName': clientDistrictName,
+    'street': clientStreet,
+    'buildingNo': clientBuildingNo,
+    'locationNote': clientLocationNote,
+  };
+
+  // ── Discovery search fixtures (Phase 13.4) ────────────────────────────────
+  //
+  // Two pages of master results + one page of salon results so the E2E can drive
+  // BOTH the first-page render AND a loadMore append. Shapes match the generated
+  // `MasterSearchResult` / `SalonSearchResult` DTOs (camelCase wire keys). The
+  // mapper rejects a null/empty id, so every row carries a non-empty id.
+  static const List<Map<String, dynamic>> _searchMastersPage0 =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'masterId': 'master-aaa',
+          'firstName': 'Софія',
+          'lastName': 'Бондар',
+          'cityLabel': 'Київ',
+          'districtLabel': 'Печерський',
+          'avgRating': 4.9,
+          'reviewCount': 24,
+          'avatarUrl': null,
+          'minEffectivePrice': 450,
+        },
+      ];
+
+  static const List<Map<String, dynamic>> _searchMastersPage1 =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'masterId': 'master-bbb',
+          'firstName': 'Ірина',
+          'lastName': 'Левчук',
+          'cityLabel': 'Київ',
+          'districtLabel': 'Шевченківський',
+          'avgRating': 0,
+          'reviewCount': 0,
+          'avatarUrl': null,
+          'minEffectivePrice': 700,
+        },
+      ];
+
+  static const List<Map<String, dynamic>>
+  _searchSalonsPage0 = <Map<String, dynamic>>[
+    <String, dynamic>{
+      'salonId': 'salon-xyz',
+      'name': 'Студія Краси «Камелія»',
+      'cityLabel': 'Київ',
+      'districtLabel': 'Печерський',
+      'avatarUrl': null,
+      'priceMin': 300,
+      'priceMax': 1200,
+      // Auth-gated address (item 6) — the seeded caller is authenticated, so
+      // the salon row carries street + buildingNo + note; the mapper folds them
+      // into its precomputed addressLine «вул. Хрещатик, 12 · 2 поверх» (the
+      // card renders the locality on line 1 and this street·note line on
+      // line 2).
+      'street': 'вул. Хрещатик',
+      'buildingNo': '12',
+      'locationNote': '2 поверх',
+      // Services preview (item 7) — the card renders the « · »-joined line.
+      'serviceNames': <String>['Манікюр', 'Стрижка'],
+    },
+  ];
+
+  /// Builds the `ApiResponse<PageResponse<…>>` envelope the generated client
+  /// deserializes: `{ success, data: { data: [...], page, size, totalElements,
+  /// totalPages }, message }`.
+  static Map<String, dynamic> _searchEnvelope(
+    List<Map<String, dynamic>> rows, {
+    required int page,
+    required int totalPages,
+    required int totalElements,
+  }) => <String, dynamic>{
+    'success': true,
+    'message': 'ok',
+    'data': <String, dynamic>{
+      'data': rows,
+      'page': page,
+      'size': 20,
+      'totalElements': totalElements,
+      'totalPages': totalPages,
+    },
+  };
+
+  /// Extracts the zero-based `page` from the FLAT search query map.
+  ///
+  /// WIRE-FORMAT FIX: the repository now sends `@ModelAttribute`-bindable FLAT
+  /// params (`page=0&size=20&sort=…&location.cityId=…&q=…`) directly — NOT the
+  /// old `?request=<json>` object-query wrapper the generated client used. The
+  /// `page` arrives as its own top-level query key.
+  static int _pageFromRequest(Map<String, dynamic> query) {
+    final raw = query['page'];
+    if (raw is int) return raw;
+    if (raw is String) return int.tryParse(raw) ?? 0;
+    return 0;
+  }
+
+  /// Reads the FLAT search query map as a plain `{ key: value }` map. Mirrors the
+  /// wire the @ModelAttribute binder reads: `q`, `sort`, `category`,
+  /// `location.cityId`, `location.districtId`, `minPrice`, `maxPrice`,
+  /// `minRating`, `page`, `size`. Used to capture `q` / `sort` / `location.*`
+  /// telemetry. The values are already URL-decoded by DioAdapter.
+  static Map<String, dynamic> _decodeRequest(Map<String, dynamic> query) =>
+      Map<String, dynamic>.from(query);
 
   Map<String, dynamic> _masterDetailEnvelope() => _ok(<String, dynamic>{
     'masterId': 'user-master-1',
@@ -337,6 +735,87 @@ final class FakeBackend {
     'reviewCount': 10,
     'masterType': 'INDEPENDENT_MASTER',
   });
+
+  /// PUBLIC master-detail envelope for the Phase 13.5 client-facing profile.
+  ///
+  /// Keyed on the Master-row UUID `master-aaa` (the same id the search-results
+  /// fixture seeds), so a CLIENT pushing `/masters/master-aaa` resolves a real
+  /// profile: «Софія Бондар», INDEPENDENT_MASTER, an Instagram handle (so the
+  /// validated contact tile renders + launches), and a rating/reviews block.
+  static Map<String, dynamic> _publicMasterDetailEnvelope() =>
+      _ok(<String, dynamic>{
+        'masterId': 'master-aaa',
+        'firstName': 'Софія',
+        'lastName': 'Бондар',
+        'city': 'Київ',
+        'street': 'вул. Хрещатик',
+        'buildingNo': '12',
+        'locationNote': '2 поверх',
+        'bio': 'Майстриня манікюру з 6-річним досвідом.',
+        'instagram': '@sofia_nails',
+        'avgRating': 4.9,
+        'reviewCount': 24,
+        'masterType': 'INDEPENDENT_MASTER',
+      });
+
+  /// PUBLIC active-services list for `master-aaa` — a deterministic TWO-item
+  /// list so the profile's services-count stat tile renders «2». Shapes match
+  /// the generated `MasterServiceResponse` (the same envelope `_services` uses).
+  static const List<Map<String, dynamic>> _publicMasterServices =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'pub-assign-1',
+          'masterId': 'master-aaa',
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 500,
+          'priceMax': null,
+          'priceDisplay': '500 грн',
+          'effectiveDurationMinutes': 90,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'pub-svc-1',
+            'name': 'Манікюр з покриттям',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 90,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'FIXED',
+            'priceMin': 500,
+            'priceMax': null,
+            'priceDisplay': '500 грн',
+            'photoUrl': null,
+          },
+        },
+        <String, dynamic>{
+          'id': 'pub-assign-2',
+          'masterId': 'master-aaa',
+          'isActive': true,
+          'priceType': 'RANGE',
+          'priceMin': 300,
+          'priceMax': 600,
+          'priceDisplay': 'від 300 до 600 грн',
+          'effectiveDurationMinutes': 60,
+          'serviceDefinition': <String, dynamic>{
+            'id': 'pub-svc-2',
+            'name': 'Дизайн нігтів',
+            'description': null,
+            'category': 'NAILS',
+            'baseDurationMinutes': 60,
+            'bufferMinutesAfter': 0,
+            'isActive': true,
+            'priceType': 'RANGE',
+            'priceMin': 300,
+            'priceMax': 600,
+            'priceDisplay': 'від 300 до 600 грн',
+            'photoUrl': null,
+          },
+        },
+      ];
+
+  /// Public services count for `master-aaa` — used by the E2E to assert the
+  /// rendered services-count stat without hard-coding the literal in two places.
+  static int get publicMasterServicesCount => _publicMasterServices.length;
 
   // ── Route wiring ───────────────────────────────────────────────────────────
 
@@ -406,18 +885,90 @@ final class FakeBackend {
     // POST /api/v1/auth/logout
     _adapter.onRoute(
       '/api/v1/auth/logout',
-      (server) => server.reply(200, _okVoid),
+      (server) => server.replyCallback(200, (_) {
+        logoutCalls++;
+        return _okVoid;
+      }),
       request: const Request(method: RequestMethods.post),
     );
 
+    // POST /api/v1/support/contact — multipart contact submission. The body is
+    // FormData (a `request` JSON part + 0..5 `attachments` file parts), so we
+    // do not decode it; the endpoint's contract is a 202 Accepted on success.
+    _adapter.onRoute(
+      '/api/v1/support/contact',
+      (server) => server.replyCallback(202, (_) {
+        supportContactCalls++;
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
     // GET /api/v1/users/me
+    // For the CLIENT role, returns the MUTABLE client body so a PATCH /users/me
+    // round-trips on the next read (the edit screens invalidate
+    // clientEditProfileProvider → re-fetch). Other roles keep the static fixture.
     _adapter.onRoute(
       '/api/v1/users/me',
       (server) => server.replyCallback(200, (_) {
         getMeCalls++;
-        return _ok(userJsonForRole(currentRole));
+        return currentRole == UserRole.client
+            ? _ok(_clientProfileBody())
+            : _ok(userJsonForRole(currentRole));
       }),
       request: const Request(method: RequestMethods.get),
+    );
+
+    // PATCH /api/v1/users/me — CLIENT profile partial update (the shared,
+    // CLIENT-callable profile endpoint the client edit screens hit via
+    // UserControllerApi.updateMe). Merge-onto-cache: each key present in the body
+    // overlays the in-memory state; keys absent from the body are preserved.
+    //
+    // CONTRACT NOTES the flow asserts against:
+    //   • `instagram` is NEVER sent by ClientProfileRepository — if it ever
+    //     appears in the body this would surface it (lastPatchMeBody captured).
+    //   • a null `cityId` in the body is a VALID save (CLIENT location optional)
+    //     and clears the city; the body still carries cityId (built_value emits
+    //     it when the location slice is touched).
+    _adapter.onRoute(
+      '/api/v1/users/me',
+      (server) => server.replyCallback(200, (req) {
+        patchMeCalls++;
+        final body = _decodeBody(req.data);
+        lastPatchMeBody = body;
+        if (body.containsKey('firstName')) {
+          clientFirstName = body['firstName'] as String? ?? clientFirstName;
+        }
+        if (body.containsKey('lastName')) {
+          clientLastName = body['lastName'] as String? ?? clientLastName;
+        }
+        if (body.containsKey('phoneNumber')) {
+          clientPhone = body['phoneNumber'] as String?;
+        }
+        // The location slice is sent only when the Location screen owns it; when
+        // present, cityId/districtId/street/buildingNo/locationNote are applied
+        // exactly as carried (including a null cityId — clears the city).
+        if (body.containsKey('cityId')) {
+          clientCityId = body['cityId'] as String?;
+          clientCityName = clientCityId == null ? null : clientCityName;
+        }
+        if (body.containsKey('districtId')) {
+          clientDistrictId = body['districtId'] as String?;
+        }
+        if (body.containsKey('street')) {
+          clientStreet = body['street'] as String?;
+        }
+        if (body.containsKey('buildingNo')) {
+          clientBuildingNo = body['buildingNo'] as String?;
+        }
+        if (body.containsKey('locationNote')) {
+          clientLocationNote = body['locationNote'] as String?;
+        }
+        // The update response is an ApiResponseUserProfileResponse — return the
+        // updated profile body so the generated client deserializes cleanly.
+        return _ok(_clientProfileBody());
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
     );
 
     // GET /api/v1/masters/me
@@ -426,6 +977,33 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (_) {
         getMasterCalls++;
         return _masterDetailEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/master-aaa — PUBLIC master detail (Phase 13.5). The
+    // client-facing public profile resolves the target master by its Master-row
+    // UUID through the generated MasterControllerApi.getMasterDetail. Wired as a
+    // concrete path (DioAdapter has no path-template matching) for the
+    // search-results fixture id `master-aaa`.
+    _adapter.onRoute(
+      '/api/v1/masters/master-aaa',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterCalls++;
+        lastGetPublicMasterId = 'master-aaa';
+        return _publicMasterDetailEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/master-aaa/services — PUBLIC active services for the
+    // same master. Feeds the public profile's services-count stat tile.
+    _adapter.onRoute(
+      '/api/v1/masters/master-aaa/services',
+      (server) => server.replyCallback(200, (_) {
+        getPublicMasterServicesCalls++;
+        lastGetPublicMasterServicesId = 'master-aaa';
+        return _okList(_publicMasterServices);
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -529,12 +1107,17 @@ final class FakeBackend {
               as String? ??
           '';
       if (defId.isEmpty) continue;
+      // NB: the Phase 16.5 regression services (svc-typed / svc-mismatch) are
+      // PATCHed at the REAL `/api/v1/services/{serviceDefId}` path, wired
+      // separately below — this generic loop uses the (different) legacy path and
+      // is left untouched for the pre-existing svc-1 / svc-2 fixtures.
       _adapter.onRoute(
         '/api/v1/independent-masters/me/services/$defId',
         (server) => server.replyCallback(200, (req) {
           patchServiceCalls++;
           final body = _decodeBody(req.data);
           lastPatchedService = body;
+          if (defId == 'svc-typed') lastTypedPatchBody = body;
           // Mutate the service-definition name/price in-memory.
           final idx = _services.indexWhere(
             (s) =>
@@ -556,6 +1139,42 @@ final class FakeBackend {
         ),
       );
     }
+
+    // PATCH /api/v1/services/{serviceDefId} — the REAL update endpoint
+    // (updateServiceDefinition keys on the service-definition id at this path,
+    // NOT the /independent-masters/me/services/:id path the generic loop above
+    // uses). Wired here for the Phase 16.5 edit-flow regression services so a
+    // real save actually fires:
+    //   • svc-typed    → 200 (positive flow: re-picked type persists)
+    //   • svc-mismatch → fieldless 400 mismatch envelope (negative flow)
+    _adapter.onRoute(
+      '/api/v1/services/svc-typed',
+      (server) => server.replyCallback(200, (req) {
+        patchServiceCalls++;
+        final body = _decodeBody(req.data);
+        lastPatchedService = body;
+        lastTypedPatchBody = body;
+        final idx = _services.indexWhere(
+          (s) =>
+              (s['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+              'svc-typed',
+        );
+        return _ok(_services[idx >= 0 ? idx : 0]);
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+    _adapter.onRoute(
+      '/api/v1/services/svc-mismatch',
+      (server) => server.replyCallback(400, (req) {
+        patchServiceCalls++;
+        return <String, dynamic>{
+          'success': false,
+          'message': 'service type does not belong to the selected category',
+          // NB: intentionally NO `errors` field — the bug class this guards.
+        };
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
 
     // GET /api/v1/masters/{masterId}/weekly-schedules
     // The ScheduleRepository uses the real masterId (from MasterDetailResponse),
@@ -587,6 +1206,8 @@ final class FakeBackend {
           postScheduleCalls++;
           final body = _decodeBody(req.data);
           lastWeeklyDays = body['days'] as List<dynamic>?;
+          lastWeeklyValidFrom = body['validFrom'] as String?;
+          lastWeeklyValidTo = body['validTo'] as String?;
           // Build a WeeklyScheduleResponse-shaped envelope from the request.
           // Use a deterministic counter ID — never wall-clock (MEDIUM-1 fix).
           final newEntry = <String, dynamic>{
@@ -673,10 +1294,46 @@ final class FakeBackend {
       );
     }
 
-    // GET /api/v1/locations/oblasts — returns empty list (locality cascade)
+    // GET /api/v1/locations/oblasts — one seeded oblast so the locality cascade
+    // picker has a selectable row (the CLIENT Location flow drives the REAL
+    // picker sheets to make the form dirty now that the free-text address fields
+    // — the previous "type a street to dirty" mechanism — are gone). Shape:
+    // OblastResponse { id, katotthCode, nameUk, nameEn }.
     _adapter.onRoute(
       '/api/v1/locations/oblasts',
-      (server) => server.reply(200, _okList(const <dynamic>[])),
+      (server) => server.reply(
+        200,
+        _okList(<Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'oblast-kyiv',
+            'katotthCode': 'UA32000000000000000',
+            'nameUk': 'Київська',
+            'nameEn': 'Kyiv Oblast',
+          },
+        ]),
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/locations/oblasts/{oblastId}/cities — one seeded city WITHOUT
+    // districts so a CLIENT can select a city through the real cascade and save
+    // with ONLY the locality slice (no district step, no address fields). Shape:
+    // CityResponse { id, oblastId, katotthCode, nameUk, nameEn, hasDistricts }.
+    _adapter.onRoute(
+      '/api/v1/locations/oblasts/oblast-kyiv/cities',
+      (server) => server.reply(
+        200,
+        _okList(<Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'city-kyiv',
+            'oblastId': 'oblast-kyiv',
+            'katotthCode': 'UA80000000000093317',
+            'nameUk': 'Київ',
+            'nameEn': 'Kyiv',
+            'hasDistricts': false,
+          },
+        ]),
+      ),
       request: const Request(method: RequestMethods.get),
     );
 
@@ -708,17 +1365,37 @@ final class FakeBackend {
       );
     }
 
-    // GET /api/v1/service-categories/approved — one seeded category so the
-    // service-create form can select it (category is required by the form).
-    // Shape: list of ApprovedCategoryResponse { name, displayName }.
+    // GET /api/v1/service-categories/approved — seeded categories so the
+    // service form can select / switch between them (category is required by the
+    // form). NAILS + BROWS are both seeded so the edit-flow category-switch test
+    // (Phase 16.5 regression) can change category A → B. Shape: list of
+    // ApprovedCategoryResponse { name, displayName }.
     _adapter.onRoute(
       '/api/v1/service-categories/approved',
       (server) => server.reply(
         200,
         _okList(<Map<String, dynamic>>[
           <String, dynamic>{'name': 'NAILS', 'displayName': 'Нігті'},
+          <String, dynamic>{'name': 'BROWS', 'displayName': 'Брови'},
         ]),
       ),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/service-types?categoryName=X — second-level picker source
+    // (Phase 16.5 regression). Keyed on the `categoryName` query param so a
+    // category switch genuinely re-queries and the option list repopulates for
+    // the new category. Shape: list of PlatformServiceTypeResponse
+    // { id, slug, nameUk, categoryName }. Unknown categories → empty list.
+    _adapter.onRoute(
+      '/api/v1/service-types',
+      (server) => server.replyCallback(200, (req) {
+        getServiceTypesCalls++;
+        final String category =
+            (req.queryParameters['categoryName'] as String?) ?? '';
+        lastServiceTypesCategory = category;
+        return _okList(_serviceTypesFor(category));
+      }),
       request: const Request(method: RequestMethods.get),
     );
 
@@ -727,6 +1404,123 @@ final class FakeBackend {
       '/api/v1/platform-categories',
       (server) => server.reply(200, _okList(const <dynamic>[])),
       request: const Request(method: RequestMethods.get),
+    );
+
+    // ── Discovery search (Phase 13.4) ─────────────────────────────────────────
+    //
+    // GET /api/v1/search/masters?page=&size=&sort=&location.cityId=&… — paged.
+    // The repository sends FLAT @ModelAttribute-bindable query params (the city
+    // arrives as `location.cityId`, NOT a bracket-nested `request[location]…`).
+    // Page 0 returns one master + signals a second page
+    // (totalPages=2); page 1 returns the second master (last page). This drives
+    // both the first-page render AND the loadMore append in the E2E.
+    _adapter.onRoute(
+      '/api/v1/search/masters',
+      (server) => server.replyCallback(200, (req) {
+        searchMastersCalls++;
+        final int page = _pageFromRequest(req.queryParameters);
+        lastSearchMastersPage = page;
+        final Map<String, dynamic> reqJson = _decodeRequest(
+          req.queryParameters,
+        );
+        lastSearchMastersQuery = reqJson['q'] as String?;
+        lastSearchMastersSort = reqJson['sort'] as String?;
+        lastSearchMastersCityId = reqJson['location.cityId'] as String?;
+        lastSearchMastersDistrictId = reqJson['location.districtId'] as String?;
+        lastSearchMastersServiceTypeSlugs = _slugsFrom(reqJson);
+        if (page <= 0) {
+          return _searchEnvelope(
+            _withMatchedNames(
+              _searchMastersPage0,
+              lastSearchMastersServiceTypeSlugs,
+            ),
+            page: 0,
+            totalPages: 2,
+            totalElements: 2,
+          );
+        }
+        return _searchEnvelope(
+          _withMatchedNames(
+            _searchMastersPage1,
+            lastSearchMastersServiceTypeSlugs,
+          ),
+          page: page,
+          totalPages: 2,
+          totalElements: 2,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/search/salons?page=&size=&sort=&location.cityId=&… — 1 page.
+    _adapter.onRoute(
+      '/api/v1/search/salons',
+      (server) => server.replyCallback(200, (req) {
+        searchSalonsCalls++;
+        final int page = _pageFromRequest(req.queryParameters);
+        lastSearchSalonsPage = page;
+        final Map<String, dynamic> reqJson = _decodeRequest(
+          req.queryParameters,
+        );
+        lastSearchSalonsQuery = reqJson['q'] as String?;
+        lastSearchSalonsSort = reqJson['sort'] as String?;
+        lastSearchSalonsCityId = reqJson['location.cityId'] as String?;
+        lastSearchSalonsDistrictId = reqJson['location.districtId'] as String?;
+        lastSearchSalonsServiceTypeSlugs = _slugsFrom(reqJson);
+        // Salons have a single page: page 0 carries the row, any later page is
+        // empty (the notifier only re-requests salons while salonHasMore).
+        if (page <= 0) {
+          return _searchEnvelope(
+            _withMatchedNames(
+              _searchSalonsPage0,
+              lastSearchSalonsServiceTypeSlugs,
+            ),
+            page: 0,
+            totalPages: 1,
+            totalElements: 1,
+          );
+        }
+        return _searchEnvelope(
+          const <Map<String, dynamic>>[],
+          page: page,
+          totalPages: 1,
+          totalElements: 1,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // ── Favorites (Phase 13.4) ────────────────────────────────────────────────
+    //
+    // POST /api/v1/favorites — add (idempotent 200). Returns a FavoriteResponse
+    // envelope so the generated addFavorite() deserializes cleanly.
+    _adapter.onRoute(
+      '/api/v1/favorites',
+      (server) => server.replyCallback(200, (req) {
+        addFavoriteCalls++;
+        final body = _decodeBody(req.data);
+        lastAddFavoriteBody = body;
+        return _ok(<String, dynamic>{
+          'id': 'fav-1',
+          'targetType': body['targetType'] ?? 'MASTER',
+          'targetId': body['targetId'] ?? '',
+          'createdAt': '2026-06-14T12:00:00Z',
+        });
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // DELETE /api/v1/favorites?targetType&targetId — remove (idempotent 204).
+    _adapter.onRoute(
+      '/api/v1/favorites',
+      (server) => server.replyCallback(204, (req) {
+        removeFavoriteCalls++;
+        lastRemoveFavoriteQuery = Map<String, dynamic>.from(
+          req.queryParameters,
+        );
+        return null;
+      }),
+      request: const Request(method: RequestMethods.delete),
     );
   }
 

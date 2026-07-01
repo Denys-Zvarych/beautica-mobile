@@ -78,14 +78,15 @@ void main() {
 
   late _MockServiceRepository repo;
 
+  // approvedCategoriesProvider is overridden directly below (it fetches via
+  // categoryRequestApi, not the repo).
+  const categories = <ServiceCategoryOption>[
+    ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+    ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+  ];
+
   setUp(() {
     repo = _MockServiceRepository();
-    when(() => repo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-      ],
-    );
   });
 
   /// Pumps a [ServiceForm] inside a fresh ProviderScope. [serviceTypes] feeds
@@ -106,6 +107,7 @@ void main() {
       ProviderScope(
         overrides: [
           serviceRepositoryProvider.overrideWithValue(repo),
+          approvedCategoriesProvider.overrideWith((ref) async => categories),
           serviceTypesProvider.overrideWith(
             (ref, String categoryName) async => serviceTypes,
           ),

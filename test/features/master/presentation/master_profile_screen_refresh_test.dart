@@ -100,6 +100,9 @@ class _CountingFakeMasterRepository implements MasterRepository {
   }
 
   @override
+  Future<Master> getMasterById(String masterId) async => _profile;
+
+  @override
   Future<void> updateMyProfile(MasterUpdate update) async {}
 
   @override

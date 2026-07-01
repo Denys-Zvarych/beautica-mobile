@@ -102,7 +102,20 @@ android {
             // Use the env-var-driven release config when credentials are present;
             // fall back to debug signing for local development (MEDIUM-1 fix).
             val releaseConfig = signingConfigs.findByName("release")
-            signingConfig = releaseConfig ?: signingConfigs.getByName("debug")
+            if (releaseConfig != null) {
+                signingConfig = releaseConfig
+            } else {
+                // No BEAUTICA_* signing env vars → no real release keystore.
+                // Assign the debug-key fallback at CONFIGURATION time (harmless:
+                // it only affects the artifact IF a release is actually built).
+                // The distribution guard itself is deferred to the EXECUTION phase
+                // (taskGraph.whenReady below) so it fires ONLY when a release
+                // artifact is genuinely being assembled — never for debug builds,
+                // unit tests, or `:app:help`, all of which still evaluate this
+                // release buildType block at config time (and would otherwise throw
+                // under CI=true, breaking non-release CI work).
+                signingConfig = signingConfigs.getByName("debug")
+            }
             // R8 shrinking and obfuscation enabled for release builds.
             // ProGuard rules in proguard-rules.pro protect the reflection-based
             // native plugins (flutter_secure_storage, screen_protector, etc.).
@@ -113,6 +126,62 @@ android {
                 "proguard-rules.pro"
             )
         }
+    }
+}
+
+// Distribution guard (mobile-security backlog, build.gradle.kts:74) — EXECUTION phase.
+//
+// A "release" APK/AAB signed with the debug key must NEVER reach a store /
+// distribution. The check below runs in the EXECUTION phase via
+// taskGraph.whenReady so it ONLY triggers when the concrete task graph actually
+// includes a release-artifact task (assemble/bundle/package*Release). Debug
+// builds, unit tests, and `:app:help` configure cleanly even under CI=true,
+// because they never put a release-assembling task in the graph.
+//
+// We HARD-FAIL when ALL of these hold:
+//   1. A release artifact is being assembled (task-graph predicate below), AND
+//   2. The release signingConfig is ABSENT (debug-key fallback is in effect), AND
+//   3. A distribution signal is present:
+//        * CI env var set (`System.getenv("CI")`) — GitHub Actions and most CI
+//          providers export CI=true automatically.
+//        * BEAUTICA_REQUIRE_RELEASE_SIGNING=1 env var — explicit opt-in for
+//          store-bound builds outside CI.
+//        * -Prelease.signing.required Gradle property — explicit opt-in on the
+//          command line (`./gradlew assembleRelease -Prelease.signing.required`).
+// When (1) and (2) hold but NO distribution signal is present, we KEEP the
+// debug-key fallback so local `scripts/deploy_apk.sh release` smoke builds still
+// work — but emit a LOUD warning so a debug-signed "release" can never go
+// unnoticed.
+project.gradle.taskGraph.whenReady {
+    val assemblesRelease = allTasks.any { task ->
+        task.name.contains("Release") &&
+            (task.name.startsWith("assemble") ||
+                task.name.startsWith("bundle") ||
+                task.name.startsWith("package"))
+    }
+    val releaseSigningAbsent =
+        android.signingConfigs.findByName("release") == null
+    if (assemblesRelease && releaseSigningAbsent) {
+        val ciSignal = !System.getenv("CI").isNullOrBlank()
+        val envRequiresSigning =
+            System.getenv("BEAUTICA_REQUIRE_RELEASE_SIGNING") == "1"
+        val propRequiresSigning = project.hasProperty("release.signing.required")
+        if (ciSignal || envRequiresSigning || propRequiresSigning) {
+            throw GradleException(
+                "Release signing is REQUIRED for this build but the BEAUTICA_* " +
+                    "signing env vars are absent (BEAUTICA_KEYSTORE_PATH, " +
+                    "BEAUTICA_KEYSTORE_PASSWORD, BEAUTICA_KEY_ALIAS, " +
+                    "BEAUTICA_KEY_PASSWORD). Refusing to produce a debug-signed " +
+                    "release artifact for distribution. Set the signing env vars, " +
+                    "or drop the distribution signal (unset CI / " +
+                    "BEAUTICA_REQUIRE_RELEASE_SIGNING / -Prelease.signing.required) " +
+                    "for a local-only smoke build."
+            )
+        }
+        logger.warn(
+            "⚠️  RELEASE build is using the DEBUG signing key — NOT for " +
+                "distribution. Set BEAUTICA_* signing env vars for a real release."
+        )
     }
 }
 

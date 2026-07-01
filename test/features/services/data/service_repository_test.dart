@@ -294,6 +294,205 @@ void main() {
     });
   });
 
+  // ── getMyService — list round-trip + filter + failure mapping ───────────────
+  //
+  // getMyService(id) has no single-resource endpoint: it calls listMyServices()
+  // and filters client-side on s.id == id, throwing NotFoundFailure on a miss.
+  // It therefore inherits listMyServices()'s _assertAuthenticated() guard and
+  // its DioException→Failure mapping.
+
+  group('getMyService', () {
+    test(
+      'returns the matching service when present in the owner list',
+      () async {
+        final wanted = _buildMasterServiceDto(
+          id: 'svc-002',
+          serviceDefinition: _buildDef(
+            id: 'def-002',
+            name: 'Педикюр',
+            baseDurationMinutes: 90,
+            priceMin: 700,
+            priceDisplay: '700 грн',
+          ),
+        );
+        when(() => serviceApi.getMyServices()).thenAnswer(
+          (_) async =>
+              _listResponse([_buildMasterServiceDto(id: 'svc-001'), wanted]),
+        );
+
+        final result = await repository.getMyService('svc-002');
+
+        expect(result.id, 'svc-002');
+        expect(result.name, 'Педикюр');
+        expect(result.durationMinutes, 90);
+        expect(result.priceMin, 700.0);
+        // Confirms it goes through the owner list endpoint, not a single-GET.
+        verify(() => serviceApi.getMyServices()).called(1);
+      },
+    );
+
+    test(
+      'throws NotFoundFailure when the id is absent from the list',
+      () async {
+        when(() => serviceApi.getMyServices()).thenAnswer(
+          (_) async => _listResponse([_buildMasterServiceDto(id: 'svc-001')]),
+        );
+
+        await expectLater(
+          repository.getMyService('does-not-exist'),
+          throwsA(isA<NotFoundFailure>()),
+        );
+      },
+    );
+
+    test('throws NotFoundFailure when the owner list is empty', () async {
+      when(
+        () => serviceApi.getMyServices(),
+      ).thenAnswer((_) async => _listResponse([]));
+
+      await expectLater(
+        repository.getMyService('svc-001'),
+        throwsA(isA<NotFoundFailure>()),
+      );
+    });
+
+    test(
+      'propagates NetworkFailure from the underlying list call on connectionError',
+      () async {
+        when(() => serviceApi.getMyServices()).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(path: _listPath),
+            type: DioExceptionType.connectionError,
+          ),
+        );
+
+        await expectLater(
+          repository.getMyService('svc-001'),
+          throwsA(isA<NetworkFailure>()),
+        );
+      },
+    );
+
+    test(
+      'throws UnauthorizedFailure (empty masterId) without any network call',
+      () async {
+        final unauthRepo = HttpServiceRepository(
+          serviceApi: serviceApi,
+          categoryApi: categoryApi,
+          catalogApi: catalogApi,
+          dio: Dio(),
+          masterId: '',
+        );
+
+        await expectLater(
+          unauthRepo.getMyService('svc-001'),
+          throwsA(isA<UnauthorizedFailure>()),
+        );
+
+        verifyNever(() => serviceApi.getMyServices());
+      },
+    );
+  });
+
+  // ── badResponse status → Failure mapping (shared _mapDioException) ───────────
+  //
+  // listMyServices() routes any DioException through the shared _mapDioException.
+  // These pin the badResponse status→Failure contract that every list/get/
+  // update/deactivate path inherits: 400/422 → ValidationFailure, 404 →
+  // NotFoundFailure, 5xx (and any other badResponse) → ServerFailure.
+
+  group('badResponse status mapping', () {
+    DioException badResponse(int status) => DioException(
+      requestOptions: RequestOptions(path: _listPath),
+      response: Response<dynamic>(
+        requestOptions: RequestOptions(path: _listPath),
+        statusCode: status,
+      ),
+      type: DioExceptionType.badResponse,
+    );
+
+    test('400 → ValidationFailure', () async {
+      when(() => serviceApi.getMyServices()).thenThrow(badResponse(400));
+
+      await expectLater(
+        repository.listMyServices(),
+        throwsA(isA<ValidationFailure>()),
+      );
+    });
+
+    test('422 → ValidationFailure', () async {
+      when(() => serviceApi.getMyServices()).thenThrow(badResponse(422));
+
+      await expectLater(
+        repository.listMyServices(),
+        throwsA(isA<ValidationFailure>()),
+      );
+    });
+
+    test('404 → NotFoundFailure', () async {
+      when(() => serviceApi.getMyServices()).thenThrow(badResponse(404));
+
+      await expectLater(
+        repository.listMyServices(),
+        throwsA(isA<NotFoundFailure>()),
+      );
+    });
+
+    test('500 → ServerFailure carrying the status code', () async {
+      when(() => serviceApi.getMyServices()).thenThrow(badResponse(500));
+
+      await expectLater(
+        repository.listMyServices(),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 500),
+        ),
+      );
+    });
+
+    test('503 → ServerFailure carrying the status code', () async {
+      when(() => serviceApi.getMyServices()).thenThrow(badResponse(503));
+
+      await expectLater(
+        repository.listMyServices(),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 503),
+        ),
+      );
+    });
+  });
+
+  // ── transport-type mapping: badCertificate → NetworkFailure ─────────────────
+  //
+  // A TLS / certificate-validation failure (DioExceptionType.badCertificate) is
+  // a transport-layer security problem, NOT a retryable 5xx. The shared
+  // _mapDioException classifies it alongside the connectivity failures
+  // (NetworkFailure) so the UI never invites a "try again" against an untrusted
+  // connection — it must NOT surface as a recoverable ServerFailure. listMyServices()
+  // routes every DioException through that shared mapper, so it pins the contract
+  // every list/get/update/deactivate path inherits.
+
+  group('badCertificate transport mapping', () {
+    DioException badCertificate() => DioException(
+      requestOptions: RequestOptions(path: _listPath),
+      type: DioExceptionType.badCertificate,
+    );
+
+    test('badCertificate → NetworkFailure (NOT ServerFailure)', () async {
+      when(() => serviceApi.getMyServices()).thenThrow(badCertificate());
+
+      await expectLater(
+        repository.listMyServices(),
+        throwsA(
+          isA<NetworkFailure>().having(
+            (f) => f,
+            'is not a ServerFailure',
+            isNot(isA<ServerFailure>()),
+          ),
+        ),
+      );
+    });
+  });
+
   // ── 3. create — happy path ─────────────────────────────────────────────────
 
   group('create', () {
@@ -610,6 +809,67 @@ void main() {
             assignmentId: _serviceId,
           ),
           throwsA(isA<ArgumentError>()),
+        );
+
+        verifyNever(
+          () => serviceApi.updateServiceDefinition(
+            serviceDefId: any(named: 'serviceDefId'),
+            updateServiceDefinitionRequest: any(
+              named: 'updateServiceDefinitionRequest',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'throws NetworkFailure when the PATCH hits a connectionError',
+      () async {
+        when(
+          () => serviceApi.updateServiceDefinition(
+            serviceDefId: _serviceDefId,
+            updateServiceDefinitionRequest: any(
+              named: 'updateServiceDefinitionRequest',
+            ),
+          ),
+        ).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(
+              path: '/api/v1/services/$_serviceDefId',
+            ),
+            type: DioExceptionType.connectionError,
+          ),
+        );
+
+        await expectLater(
+          repository.update(
+            _serviceDefId,
+            const MasterServiceUpdate(name: 'Нова назва'),
+            assignmentId: _serviceId,
+          ),
+          throwsA(isA<NetworkFailure>()),
+        );
+      },
+    );
+
+    test(
+      'throws UnauthorizedFailure (empty masterId) without any network call',
+      () async {
+        final unauthRepo = HttpServiceRepository(
+          serviceApi: serviceApi,
+          categoryApi: categoryApi,
+          catalogApi: catalogApi,
+          dio: Dio(),
+          masterId: '',
+        );
+
+        await expectLater(
+          unauthRepo.update(
+            _serviceDefId,
+            const MasterServiceUpdate(name: 'Нова назва'),
+            assignmentId: _serviceId,
+          ),
+          throwsA(isA<UnauthorizedFailure>()),
         );
 
         verifyNever(

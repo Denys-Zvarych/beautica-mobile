@@ -69,6 +69,12 @@ GoRouter _makeRouter() => GoRouter(
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text('home'))),
     ),
+    // Phase 13.1 — CLIENT post-login landing (the 5-tab client shell root).
+    GoRoute(
+      path: RouteNames.clientHome,
+      builder: (context, state) =>
+          const Scaffold(body: Center(child: Text('client-home'))),
+    ),
     GoRoute(
       path: RouteNames.forgotPassword,
       builder: (context, state) =>
@@ -426,15 +432,16 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
-    // Test 9 — Successful login as CLIENT → navigates to /home
+    // Test 9 — Successful login as CLIENT → navigates to /home (client shell)
     //
     // FakeAuthRepository._defaultUser has role=independentMaster, so we must
     // override meResult to return a client-role user — otherwise the screen
     // dispatches to /master/profile (not /home) and the test router has no
-    // such route.
+    // such route. Phase 13.1: CLIENT now lands on the 5-tab client shell at
+    // RouteNames.clientHome ('/home'), not RouteNames.home ('/').
     // -----------------------------------------------------------------------
     testWidgets(
-      '9. successful login (CLIENT role) → navigates to home screen',
+      '9. successful login (CLIENT role) → navigates to client home shell',
       (tester) async {
         const clientUser = User(
           id: 'u-client',
@@ -479,13 +486,13 @@ void main() {
         await tester.tap(find.byKey(const ValueKey<String>('login_submit')));
         await tester.pumpAndSettle();
 
-        // CLIENT role → LoginScreen must call context.go(RouteNames.home).
+        // CLIENT role → LoginScreen must call context.go(RouteNames.clientHome).
         expect(
-          find.text('home'),
+          find.text('client-home'),
           findsOneWidget,
           reason:
-              'LoginScreen must navigate to /home for a CLIENT role; '
-              'the test router renders "home" text on that route',
+              'LoginScreen must navigate to /home (client shell) for a CLIENT '
+              'role; the test router renders "client-home" text on that route',
         );
       },
     );
@@ -496,6 +503,7 @@ void main() {
     //
     // LoginScreen dispatches post-login navigation based on role:
     //   - INDEPENDENT_MASTER → RouteNames.masterProfile (/master/profile)
+    //   - CLIENT             → RouteNames.clientHome (/home, 5-tab shell)
     //   - all other roles    → RouteNames.home (/)
     //
     // A dedicated router is used here because the shared _makeRouter() does

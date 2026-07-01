@@ -25,6 +25,18 @@ class _$MasterSearchResult extends MasterSearchResult {
   final String? avatarUrl;
   @override
   final num? minEffectivePrice;
+  @override
+  final num? priceMax;
+  @override
+  final BuiltList<String>? serviceNames;
+  @override
+  final String? street;
+  @override
+  final String? buildingNo;
+  @override
+  final String? locationNote;
+  @override
+  final BuiltList<String>? matchedServiceNames;
 
   factory _$MasterSearchResult(
           [void Function(MasterSearchResultBuilder)? updates]) =>
@@ -39,7 +51,13 @@ class _$MasterSearchResult extends MasterSearchResult {
       this.avgRating,
       this.reviewCount,
       this.avatarUrl,
-      this.minEffectivePrice})
+      this.minEffectivePrice,
+      this.priceMax,
+      this.serviceNames,
+      this.street,
+      this.buildingNo,
+      this.locationNote,
+      this.matchedServiceNames})
       : super._();
   @override
   MasterSearchResult rebuild(
@@ -62,7 +80,13 @@ class _$MasterSearchResult extends MasterSearchResult {
         avgRating == other.avgRating &&
         reviewCount == other.reviewCount &&
         avatarUrl == other.avatarUrl &&
-        minEffectivePrice == other.minEffectivePrice;
+        minEffectivePrice == other.minEffectivePrice &&
+        priceMax == other.priceMax &&
+        serviceNames == other.serviceNames &&
+        street == other.street &&
+        buildingNo == other.buildingNo &&
+        locationNote == other.locationNote &&
+        matchedServiceNames == other.matchedServiceNames;
   }
 
   @override
@@ -77,6 +101,12 @@ class _$MasterSearchResult extends MasterSearchResult {
     _$hash = $jc(_$hash, reviewCount.hashCode);
     _$hash = $jc(_$hash, avatarUrl.hashCode);
     _$hash = $jc(_$hash, minEffectivePrice.hashCode);
+    _$hash = $jc(_$hash, priceMax.hashCode);
+    _$hash = $jc(_$hash, serviceNames.hashCode);
+    _$hash = $jc(_$hash, street.hashCode);
+    _$hash = $jc(_$hash, buildingNo.hashCode);
+    _$hash = $jc(_$hash, locationNote.hashCode);
+    _$hash = $jc(_$hash, matchedServiceNames.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -92,7 +122,13 @@ class _$MasterSearchResult extends MasterSearchResult {
           ..add('avgRating', avgRating)
           ..add('reviewCount', reviewCount)
           ..add('avatarUrl', avatarUrl)
-          ..add('minEffectivePrice', minEffectivePrice))
+          ..add('minEffectivePrice', minEffectivePrice)
+          ..add('priceMax', priceMax)
+          ..add('serviceNames', serviceNames)
+          ..add('street', street)
+          ..add('buildingNo', buildingNo)
+          ..add('locationNote', locationNote)
+          ..add('matchedServiceNames', matchedServiceNames))
         .toString();
   }
 }
@@ -139,6 +175,34 @@ class MasterSearchResultBuilder
   set minEffectivePrice(num? minEffectivePrice) =>
       _$this._minEffectivePrice = minEffectivePrice;
 
+  num? _priceMax;
+  num? get priceMax => _$this._priceMax;
+  set priceMax(num? priceMax) => _$this._priceMax = priceMax;
+
+  ListBuilder<String>? _serviceNames;
+  ListBuilder<String> get serviceNames =>
+      _$this._serviceNames ??= ListBuilder<String>();
+  set serviceNames(ListBuilder<String>? serviceNames) =>
+      _$this._serviceNames = serviceNames;
+
+  String? _street;
+  String? get street => _$this._street;
+  set street(String? street) => _$this._street = street;
+
+  String? _buildingNo;
+  String? get buildingNo => _$this._buildingNo;
+  set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
+
+  String? _locationNote;
+  String? get locationNote => _$this._locationNote;
+  set locationNote(String? locationNote) => _$this._locationNote = locationNote;
+
+  ListBuilder<String>? _matchedServiceNames;
+  ListBuilder<String> get matchedServiceNames =>
+      _$this._matchedServiceNames ??= ListBuilder<String>();
+  set matchedServiceNames(ListBuilder<String>? matchedServiceNames) =>
+      _$this._matchedServiceNames = matchedServiceNames;
+
   MasterSearchResultBuilder() {
     MasterSearchResult._defaults(this);
   }
@@ -155,6 +219,12 @@ class MasterSearchResultBuilder
       _reviewCount = $v.reviewCount;
       _avatarUrl = $v.avatarUrl;
       _minEffectivePrice = $v.minEffectivePrice;
+      _priceMax = $v.priceMax;
+      _serviceNames = $v.serviceNames?.toBuilder();
+      _street = $v.street;
+      _buildingNo = $v.buildingNo;
+      _locationNote = $v.locationNote;
+      _matchedServiceNames = $v.matchedServiceNames?.toBuilder();
       _$v = null;
     }
     return this;
@@ -174,18 +244,40 @@ class MasterSearchResultBuilder
   MasterSearchResult build() => _build();
 
   _$MasterSearchResult _build() {
-    final _$result = _$v ??
-        _$MasterSearchResult._(
-          masterId: masterId,
-          firstName: firstName,
-          lastName: lastName,
-          cityLabel: cityLabel,
-          districtLabel: districtLabel,
-          avgRating: avgRating,
-          reviewCount: reviewCount,
-          avatarUrl: avatarUrl,
-          minEffectivePrice: minEffectivePrice,
-        );
+    _$MasterSearchResult _$result;
+    try {
+      _$result = _$v ??
+          _$MasterSearchResult._(
+            masterId: masterId,
+            firstName: firstName,
+            lastName: lastName,
+            cityLabel: cityLabel,
+            districtLabel: districtLabel,
+            avgRating: avgRating,
+            reviewCount: reviewCount,
+            avatarUrl: avatarUrl,
+            minEffectivePrice: minEffectivePrice,
+            priceMax: priceMax,
+            serviceNames: _serviceNames?.build(),
+            street: street,
+            buildingNo: buildingNo,
+            locationNote: locationNote,
+            matchedServiceNames: _matchedServiceNames?.build(),
+          );
+    } catch (_) {
+      late String _$failedField;
+      try {
+        _$failedField = 'serviceNames';
+        _serviceNames?.build();
+
+        _$failedField = 'matchedServiceNames';
+        _matchedServiceNames?.build();
+      } catch (e) {
+        throw BuiltValueNestedFieldError(
+            r'MasterSearchResult', _$failedField, e.toString());
+      }
+      rethrow;
+    }
     replace(_$result);
     return _$result;
   }

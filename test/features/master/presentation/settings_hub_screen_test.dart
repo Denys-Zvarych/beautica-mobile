@@ -194,6 +194,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.byKey(const Key('row-logout')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('row-logout')));
       await tester.pumpAndSettle();
 
@@ -217,6 +219,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.byKey(const Key('row-logout')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('row-logout')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('btn-logout-cancel')));
@@ -241,6 +245,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.byKey(const Key('row-logout')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('row-logout')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('btn-logout-confirm')));
@@ -285,6 +291,8 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        await tester.ensureVisible(find.byKey(const Key('row-logout')));
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('btn-logout-confirm')));
@@ -320,6 +328,8 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        await tester.ensureVisible(find.byKey(const Key('row-logout')));
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('btn-logout-confirm')));
@@ -357,6 +367,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.byKey(const Key('row-logout')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('row-logout')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('btn-logout-confirm')));
@@ -378,5 +390,71 @@ void main() {
 
     final l10n = lookupAppLocalizations(const Locale('uk'));
     expect(find.text(l10n.settingsTitle), findsOneWidget);
+  });
+
+  // ── Scroll / overflow regression (from the debugger) ────────────────────────
+  //
+  // The hub grew a 6th navigational concept (the help / contact-us row) on top
+  // of the original four + the logout terminal action — seven rows in total
+  // counting the hairline + logout. On a short, narrow viewport that pushes the
+  // terminal logout row below the fold. This locks in two invariants so a FUTURE
+  // 8th row can't silently reintroduce the off-screen-tap failure:
+  //   (a) all seven rows lay out with NO RenderFlex overflow (the Phase 17.2
+  //       overflow guard fails the test automatically if one is reported), and
+  //   (b) after ensureVisible(row-logout) the logout row is hit-testable — i.e.
+  //       the hub body stays scrollable and the terminal action is reachable.
+  group('short-viewport scroll regression', () {
+    testWidgets(
+      'all seven rows render with no overflow and logout is reachable on a '
+      'short narrow viewport',
+      (tester) async {
+        // A short, narrow phone surface that cannot fit all rows + the staggered
+        // reveal padding without scrolling.
+        tester.view.physicalSize = const Size(320, 520);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final router = _hubRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router);
+        await tester.pumpAndSettle();
+
+        // (a) Every row is present in the tree (no overflow stripped the column;
+        // the overflow guard's tearDown fails the test if any RenderFlex
+        // overflowed during layout at this size).
+        for (final key in const <String>[
+          'row-personal',
+          'row-contacts',
+          'row-location',
+          'row-account',
+          'row-help',
+          'row-logout',
+        ]) {
+          expect(
+            find.byKey(Key(key)),
+            findsOneWidget,
+            reason: '$key must be present at the short-viewport size',
+          );
+        }
+
+        // (b) The terminal logout row stays reachable: scroll it into view and
+        // confirm it is hit-testable (a tap lands on the real row, opening the
+        // confirm dialog) — proving the hub body remained scrollable.
+        await tester.ensureVisible(find.byKey(const Key('row-logout')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('row-logout')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(AlertDialog),
+          findsOneWidget,
+          reason:
+              'after ensureVisible the logout row must be hit-testable — a tap '
+              'must reach it and raise the confirm dialog',
+        );
+      },
+    );
   });
 }

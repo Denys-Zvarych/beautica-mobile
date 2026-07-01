@@ -40,6 +40,8 @@ import '../../master/data/master_repository.dart';
 import '../../salon/data/salon_repository.dart';
 import '../../user/data/user_repository.dart';
 import '../domain/user_role.dart';
+import '../state/pending_locality.dart';
+import '../state/pending_locality_store.dart';
 import '../state/register_draft_notifier.dart';
 import 'auth_notifier.dart';
 import 'widgets/auth_scaffold.dart';
@@ -218,62 +220,79 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
   /// Rethrows the typed [Failure] on error so [_submit]'s catch surfaces it as
   /// a real inline message (Defect 8 — never silent).
   Future<void> _saveProviderProfile(AppLocalizations l10n) async {
-    final draft = ref.read(registerDraftProvider);
-    // No draft → deep-link edge case (e.g. user tapped the email link on a
-    // different device). Nothing to persist; the backend already has whatever
-    // was submitted at registration time.
-    if (draft == null) return;
+    // Resolve the locality slice. Prefer the in-memory draft, but fall back to
+    // the durable blob that Step 3 stashed in secure storage — the draft is
+    // routinely lost while the user backgrounds the app to read the OTP email
+    // (or is OS-killed under memory pressure), in which case the keepAlive
+    // provider is back to its initial `null`. Without this fallback the locality
+    // PATCH silently never runs (the original silent-data-loss defect).
+    final _ResolvedLocality? locality = await _resolveLocality();
 
-    final cityId = draft.cityId;
+    // No draft AND no durable blob → genuine deep-link edge case (e.g. user
+    // tapped the email link on a different device). Nothing to persist.
+    if (locality == null) return;
+
+    final cityId = locality.cityId;
     final bool isCityMissing = cityId == null || cityId.isEmpty;
 
     if (isCityMissing) {
-      // Fix 3: provider roles (INDEPENDENT_MASTER, SALON_OWNER) require a city
-      // because the Step 3 address wizard is mandatory for them and the PATCH /
-      // POST call cannot succeed without it. If cityId is null here the draft
-      // state was lost — surface a typed failure so the user can go back to
-      // Step 3 and re-enter, instead of silently creating a verified account
-      // with no location in the database.
-      //
-      // CLIENT is intentionally excluded: clients may skip Step 3, so a null
-      // cityId for a CLIENT is a valid "skipped" state, not an error.
-      switch (draft.role) {
+      switch (locality.role) {
         case UserRole.independentMaster:
         case UserRole.salonOwner:
+          // Provider roles require a city — the Step 3 address wizard is
+          // mandatory for them and the PATCH / POST cannot succeed without it.
+          // A missing city here means the state was lost AND the durable blob
+          // could not supply it — surface a typed failure so the user can go
+          // back to Step 3, instead of silently creating a located-less account.
           throw const ProviderMissingCityFailure();
         case UserRole.client:
+          // De-silence the lost-draft case: if the user provably chose a city
+          // (the blob recorded localityProvided == true) but we still cannot
+          // resolve it, the durable blob was unexpectedly missing/corrupt. Do
+          // NOT block /done, but log it (debug-only, ids only) so the loss is
+          // not invisible. A genuine CLIENT skip (localityProvided == false)
+          // stays a silent no-op — the legitimate path.
+          if (locality.localityProvided && kDebugMode) {
+            log(
+              'CLIENT chose a city on Step 3 but locality could not be '
+              'persisted (durable blob missing/corrupt); skipping PATCH',
+              name: 'auth.verification',
+              level: 900,
+            );
+          }
+          return;
         case UserRole.salonAdmin:
         case UserRole.salonMaster:
-          // Clients may skip; invite-flow roles never run Step 3.
+          // Invite-flow roles never run Step 3.
           return;
       }
     }
 
-    final districtId = draft.districtId;
+    final districtId = locality.districtId;
 
-    switch (draft.role) {
+    switch (locality.role) {
       case UserRole.independentMaster:
         await ref
             .read(masterRepositoryProvider)
             .updateLocality(
               cityId: cityId,
               districtId: districtId,
-              street: draft.street,
-              buildingNo: draft.buildingNo,
-              locationNote: draft.locationNote,
+              street: locality.street,
+              buildingNo: locality.buildingNo,
+              locationNote: locality.locationNote,
             );
       case UserRole.salonOwner:
         await ref
             .read(salonRepositoryProvider)
             .create(
               dto: SalonCreateDto(
-                name: draft.salonName,
+                name: locality.salonName,
                 cityId: cityId,
                 districtId: districtId,
-                street: draft.street,
-                buildingNo: draft.buildingNo,
-                locationNote: draft.locationNote,
-                phone: draft.phone,
+                street: locality.street,
+                buildingNo: locality.buildingNo,
+                locationNote: locality.locationNote,
+                phone: locality.phone,
               ),
             );
       case UserRole.client:
@@ -286,14 +305,105 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
             .updateLocality(
               cityId: cityId,
               districtId: districtId,
-              street: draft.street,
-              buildingNo: draft.buildingNo,
-              locationNote: draft.locationNote,
+              street: locality.street,
+              buildingNo: locality.buildingNo,
+              locationNote: locality.locationNote,
             );
       case UserRole.salonAdmin:
       case UserRole.salonMaster:
         // Invite-flow roles never run the Step 3 wizard.
         return;
+    }
+  }
+
+  /// Resolves the locality slice to persist, preferring the in-memory draft and
+  /// falling back to the durable [PendingLocality] blob keyed by [widget.email].
+  ///
+  /// Returns `null` only when BOTH the draft and the durable blob are absent
+  /// (true deep-link edge case). When the draft exists but is missing a city,
+  /// the durable blob is consulted so a partially-lost draft can still recover
+  /// the city the user chose.
+  Future<_ResolvedLocality?> _resolveLocality() async {
+    final draft = ref.read(registerDraftProvider);
+    final bool draftHasCity =
+        draft != null && draft.cityId != null && draft.cityId!.isNotEmpty;
+
+    // Fast path — the draft survived and carries a city.
+    if (draftHasCity) {
+      return _ResolvedLocality(
+        role: draft.role,
+        localityProvided: true,
+        cityId: draft.cityId,
+        districtId: draft.districtId,
+        street: draft.street,
+        buildingNo: draft.buildingNo,
+        locationNote: draft.locationNote,
+        salonName: draft.salonName,
+        phone: draft.phone,
+      );
+    }
+
+    // Either the draft is gone, or it lost its city — consult the durable blob.
+    // The blob is documented as email-keyed: only consume it when its email
+    // matches the address currently being verified, compared trimmed +
+    // case-insensitively. This closes the cross-account PII bleed where a blob
+    // stashed by user A (abandoned before OTP) would otherwise be applied onto
+    // user B, who reached /verification via the login EMAIL_NOT_VERIFIED path.
+    final PendingLocality? pending = await _readPendingLocality();
+    final bool pendingMatchesEmail =
+        pending != null &&
+        pending.email.trim().toLowerCase() == widget.email.trim().toLowerCase();
+    if (pendingMatchesEmail) {
+      return _ResolvedLocality(
+        role: pending.role,
+        localityProvided: pending.localityProvided,
+        cityId: pending.cityId,
+        districtId: pending.districtId,
+        street: pending.street,
+        buildingNo: pending.buildingNo,
+        locationNote: pending.locationNote,
+        salonName: pending.salonName,
+        phone: pending.phone,
+      );
+    }
+
+    // A blob exists but belongs to a DIFFERENT email — best-effort clear it so
+    // stale cross-account PII does not linger in secure storage. We never apply
+    // it to this account.
+    if (pending != null) {
+      unawaited(ref.read(pendingLocalityStoreProvider).clear());
+    }
+
+    // No blob — fall back to whatever the draft holds (may be a genuine CLIENT
+    // skip with no city), or null when there is no draft at all.
+    if (draft == null) return null;
+    return _ResolvedLocality(
+      role: draft.role,
+      // No durable blob recorded a city → treat as a genuine skip, not a loss.
+      localityProvided: false,
+      cityId: draft.cityId,
+      districtId: draft.districtId,
+      street: draft.street,
+      buildingNo: draft.buildingNo,
+      locationNote: draft.locationNote,
+      salonName: draft.salonName,
+      phone: draft.phone,
+    );
+  }
+
+  /// Reads the durable blob, tolerating storage failures (returns `null`).
+  Future<PendingLocality?> _readPendingLocality() async {
+    try {
+      return await ref.read(pendingLocalityStoreProvider).read();
+    } catch (e) {
+      if (kDebugMode) {
+        log(
+          'Failed to read pending locality (tolerated): ${e.runtimeType}',
+          name: 'auth.verification',
+          level: 900,
+        );
+      }
+      return null;
     }
   }
 
@@ -515,6 +625,39 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Resolved locality — the effective slice to persist after OTP, sourced from
+// either the in-memory draft or the durable [PendingLocality] blob.
+// ---------------------------------------------------------------------------
+
+final class _ResolvedLocality {
+  const _ResolvedLocality({
+    required this.role,
+    required this.localityProvided,
+    required this.cityId,
+    required this.districtId,
+    required this.street,
+    required this.buildingNo,
+    required this.locationNote,
+    required this.salonName,
+    required this.phone,
+  });
+
+  final UserRole role;
+
+  /// `true` when the user provably chose a city on Step 3 (de-silences the
+  /// lost-draft case for CLIENT). `false` for a genuine CLIENT skip.
+  final bool localityProvided;
+
+  final String? cityId;
+  final String? districtId;
+  final String street;
+  final String buildingNo;
+  final String locationNote;
+  final String salonName;
+  final String phone;
 }
 
 // ---------------------------------------------------------------------------

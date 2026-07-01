@@ -5,9 +5,14 @@
 //
 // Sensitive data is redacted before logging:
 //   • The `Authorization` header value is replaced with `***REDACTED***`.
-//   • The full request body for paths in [kPiiPaths] is suppressed (shows
-//     "[REDACTED]"). This covers unauthenticated auth endpoints AND
-//     authenticated endpoints that carry PII location data.
+//   • The full request body for PII routes (see [isPiiPath]) is suppressed
+//     (shows "[REDACTED]"). This covers unauthenticated auth endpoints,
+//     authenticated endpoints that carry PII location data, dynamic-segment
+//     routes (service create/update, working-hours / weekly-schedules) and
+//     free-text search input.
+//   • The URL query string for PII routes is masked as `?[REDACTED]` (see
+//     [redactLogPath]) so a typed name (search `q`) or token never lands in
+//     the log.
 //
 // Response timing is measured from [onRequest] to [onResponse] / [onError]
 // using [Stopwatch]. The stopwatch is stored on [RequestOptions.extra] under
@@ -49,14 +54,20 @@ final class LoggingInterceptor extends Interceptor {
     }
 
     // Redact body for sensitive endpoints (auth credentials, OTPs, PII
-    // location fields). Uses [kPiiPaths] — a superset of [kAuthPaths] that
-    // includes authenticated endpoints carrying sensitive location data.
-    final dynamic body = kPiiPaths.contains(options.path)
-        ? '[REDACTED]'
-        : options.data;
+    // location fields, free-text service / search input). Uses [isPiiPath],
+    // which matches exact paths, dynamic-segment prefixes ({serviceDefId}) and
+    // segment substrings ({masterId}/working-hours) — a strict superset of the
+    // old `kPiiPaths.contains` check.
+    final bool pii = isPiiPath(options.path);
+    final dynamic body = pii ? '[REDACTED]' : options.data;
+
+    // Mask the query string for PII routes so a typed name (search `q`) or any
+    // token in the URL never reaches the log. Non-PII routes keep their query
+    // (harmless pagination params stay visible).
+    final String loggedPath = redactLogPath(options.path);
 
     log(
-      '--> ${options.method} ${options.baseUrl}${options.path}\n'
+      '--> ${options.method} ${options.baseUrl}$loggedPath\n'
       '    headers: $headers\n'
       '    body: $body',
       name: 'http',
@@ -80,7 +91,7 @@ final class LoggingInterceptor extends Interceptor {
 
     log(
       '<-- ${response.statusCode} ${response.requestOptions.method} '
-      '${response.requestOptions.path} (${elapsed}ms)',
+      '${redactLogPath(response.requestOptions.path)} (${elapsed}ms)',
       name: 'http',
       level: 700, // FINE
     );
@@ -98,14 +109,15 @@ final class LoggingInterceptor extends Interceptor {
     final elapsed = _stopElapsed(err.requestOptions);
 
     // Redact response body for sensitive endpoints to avoid leaking tokens,
-    // credentials, or PII location data in error logs. Uses [kPiiPaths] to
-    // cover both auth paths and authenticated PII endpoints.
-    final dynamic errBody = kPiiPaths.contains(err.requestOptions.path)
+    // credentials, or PII location data in error logs. Uses [isPiiPath] to
+    // cover auth paths, authenticated PII endpoints AND dynamic-segment routes.
+    final dynamic errBody = isPiiPath(err.requestOptions.path)
         ? '[REDACTED]'
         : err.response?.data;
 
     log(
-      '<-- ERROR ${err.requestOptions.method} ${err.requestOptions.path} '
+      '<-- ERROR ${err.requestOptions.method} '
+      '${redactLogPath(err.requestOptions.path)} '
       '(${elapsed}ms) ${err.type} ${err.response?.statusCode ?? ""}'
       '${errBody != null ? "\n    body: $errBody" : ""}',
       name: 'http',

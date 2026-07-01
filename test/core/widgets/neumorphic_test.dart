@@ -110,6 +110,64 @@ void main() {
       );
       expect(btn.onPressed, isNull);
     });
+
+    // Phase 2.17 fix P1-3 regression — the label Text is wrapped in a
+    // Flexible inside a `Row(mainAxisSize: MainAxisSize.min)`. A long label
+    // rendered inside a narrow horizontal constraint MUST ellipsize, not blow
+    // the Row past its bounds. Before the Flexible fix the bare Text reported
+    // its full intrinsic width into the min-sized Row, overflowing it and
+    // raising a "RenderFlex overflowed by N pixels" FlutterError on layout.
+    //
+    // This test pins that fix: it pumps the button into a deliberately narrow
+    // (120 px) box with an unusually long label and asserts that NO exception
+    // was thrown during layout. Remove the `Flexible` wrapper in the source and
+    // this test fails with a RenderFlex overflow exception captured by
+    // tester.takeException().
+    testWidgets(
+      'long label in a narrow constraint ellipsizes without RenderFlex overflow',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            Center(
+              child: SizedBox(
+                width: 120,
+                child: NeumorphicButton(
+                  key: const Key('btn_overflow'),
+                  // An icon forces a second Row child, leaving even less room
+                  // for the label and tightening the overflow scenario.
+                  icon: Icons.check_rounded,
+                  label:
+                      'Підтвердити та продовжити до наступного кроку реєстрації',
+                  onPressed: () {},
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // No RenderFlex overflow (or any other) exception was raised. Without
+        // the Flexible wrapper, takeException() returns a FlutterError here.
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'NeumorphicButton label must be wrapped in a Flexible so a long '
+              'label ellipsizes instead of overflowing the min-sized Row.',
+        );
+
+        // The button still renders, and the label Text uses ellipsis overflow.
+        expect(find.byKey(const Key('btn_overflow')), findsOneWidget);
+        final Text labelText = tester.widget<Text>(
+          find.text('Підтвердити та продовжити до наступного кроку реєстрації'),
+        );
+        expect(
+          labelText.overflow,
+          TextOverflow.ellipsis,
+          reason: 'The CTA label must ellipsize on overflow.',
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -508,6 +566,44 @@ void main() {
 
         await tester.tap(find.text('Надіслати знову'));
         expect(tapped, isTrue);
+      },
+    );
+
+    // Negative path — when no actionLabel (and no onAction) is supplied, the
+    // banner renders the icon + message only and omits the action affordance
+    // entirely. The action block is gated on `actionLabel != null && onAction
+    // != null`, so its keyed GestureDetector must be absent and the build must
+    // not throw.
+    testWidgets(
+      'omits the action affordance when actionLabel is not provided',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            const AuthBanner(
+              key: Key('banner_no_action'),
+              icon: Icons.info_outline,
+              message: 'Підтвердіть свою електронну пошту',
+              color: BrandColors.accent,
+              // No actionLabel / onAction — action block must not render.
+            ),
+          ),
+        );
+
+        // Banner itself rendered with its icon + message, no exception thrown.
+        expect(find.byKey(const Key('banner_no_action')), findsOneWidget);
+        expect(find.byIcon(Icons.info_outline), findsOneWidget);
+        expect(find.text('Підтвердіть свою електронну пошту'), findsOneWidget);
+
+        // The action affordance carries the stable key 'auth_banner_action';
+        // it must be absent on the no-action path.
+        expect(
+          find.byKey(const ValueKey<String>('auth_banner_action')),
+          findsNothing,
+          reason:
+              'AuthBanner without actionLabel must not render the action '
+              'GestureDetector.',
+        );
+        expect(tester.takeException(), isNull);
       },
     );
   });

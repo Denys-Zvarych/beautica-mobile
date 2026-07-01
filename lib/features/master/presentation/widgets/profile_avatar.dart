@@ -613,6 +613,7 @@ class StatTile extends StatelessWidget {
     required this.caption,
     this.iconColor = BrandColors.accent,
     this.valueKey,
+    this.iconWidget,
   });
 
   final IconData icon;
@@ -622,6 +623,11 @@ class StatTile extends StatelessWidget {
 
   /// Optional [Key] placed on the value [Text] — used by widget tests.
   final Key? valueKey;
+
+  /// Optional widget rendered in place of the [icon] glyph (e.g. a tinted
+  /// SVG [AppIcon] or a [RatingStar]). When non-null, [icon]/[iconColor] are
+  /// ignored. Mirrors the location-marker swap pattern.
+  final Widget? iconWidget;
 
   @override
   Widget build(BuildContext context) {
@@ -638,7 +644,7 @@ class StatTile extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(icon, size: 18, color: iconColor),
+              iconWidget ?? Icon(icon, size: 18, color: iconColor),
               const SizedBox(height: VelvetSpacing.xs),
               Text(value, key: valueKey, style: VelvetText.statValue()),
               const SizedBox(height: 1),

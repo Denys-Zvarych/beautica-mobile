@@ -83,6 +83,14 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
   String? _errBuildingNo;
   String? _errLocationNote;
 
+  // PERF (P2): drives the Save button's enabled state in isolation. Text
+  // keystrokes update this notifier (via [_onFormChanged]) instead of
+  // setState-ing the whole form and its reveal animation wrappers. Cascade
+  // selection changes still go through setState (they are infrequent and also
+  // mutate other UI), and the footer's builder recomputes [_isDirty] freshly on
+  // both paths.
+  final ValueNotifier<bool> _dirty = ValueNotifier<bool>(false);
+
   // Aligned to the backend address DTO.
   static const int _streetMax = 255;
   static const int _buildingNoMax = 50;
@@ -201,13 +209,15 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
         }
       }
     } catch (e, st) {
-      log(
-        'Locality pre-population failed — cascade will be empty',
-        name: 'feature.master.edit.location',
-        level: 800,
-        error: e,
-        stackTrace: st,
-      );
+      if (kDebugMode) {
+        log(
+          'Locality pre-population failed — cascade will be empty',
+          name: 'feature.master.edit.location',
+          level: 800,
+          error: e,
+          stackTrace: st,
+        );
+      }
     }
 
     if (!mounted) return;
@@ -236,14 +246,19 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
     _anim3.dispose();
     _animFooter.dispose();
     _controller.dispose();
+    _dirty.dispose();
     super.dispose();
   }
 
   List<TextEditingController> get _editableControllers =>
       <TextEditingController>[_street, _buildingNo, _locationNote];
 
+  // PERF (P2): recompute the dirty flag only — no setState, so the form subtree
+  // (locality cascade + address fields + animation wrappers) is not rebuilt on
+  // every address keystroke. The footer's ValueListenableBuilder rebuilds just
+  // the Save button when the flag flips.
   void _onFormChanged() {
-    if (mounted) setState(() {});
+    _dirty.value = _isDirty;
   }
 
   bool get _isDirty =>
@@ -378,12 +393,10 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
     final selectedCity = _selectedCity;
     if (selectedCity == null) {
       // Nothing to persist (no city chosen, no address entered). Treat as a
-      // no-op save and pop — mirrors the monolithic form's touched guard.
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(RouteNames.masterProfile);
-      }
+      // no-op save and land on the profile page (the edit nav stack is
+      // Profile → Settings hub → edit, so an explicit go avoids popping back
+      // to the hub instead of the profile).
+      context.go(RouteNames.masterProfile);
       return;
     }
 
@@ -410,11 +423,7 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
           content: Text(AppLocalizations.of(context).savedSnackbar),
         ),
       );
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(RouteNames.masterProfile);
-      }
+      context.go(RouteNames.masterProfile);
     } on ValidationFailure catch (f) {
       if (!mounted) return;
       setState(() {
@@ -487,12 +496,18 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
       },
       footer: _reveal(
         _animFooter,
-        NeumorphicButton(
-          key: const Key('btn-save-location'),
-          label: l10n.masterSaveButton,
-          icon: Icons.check_rounded,
-          loading: _saving,
-          onPressed: (!_saving && _isDirty) ? _save : null,
+        ValueListenableBuilder<bool>(
+          valueListenable: _dirty,
+          // Recompute [_isDirty] freshly: text keystrokes flip [_dirty] (this
+          // rebuilds the builder), and cascade selections setState the parent
+          // (which also rebuilds the builder) — both paths land here.
+          builder: (context, _, _) => NeumorphicButton(
+            key: const Key('btn-save-location'),
+            label: l10n.masterSaveButton,
+            icon: Icons.check_rounded,
+            loading: _saving,
+            onPressed: (!_saving && _isDirty) ? _save : null,
+          ),
         ),
       ),
       body: Column(
@@ -509,7 +524,7 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
                     bottom: VelvetSpacing.lg,
                   ),
                   child: Text(
-                    l10n.locationSubheading,
+                    l10n.masterLocationSubheading,
                     style: VelvetText.body(),
                   ),
                 ),

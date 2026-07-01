@@ -52,12 +52,12 @@ void main() {
 
     // Branch 3 — valid +380 compact
     test('returns null for valid +380 + 9-digit compact number', () {
-      expect(validatePhone('+380501234567', l10n), isNull);
+      expect(validatePhone('+380501111111', l10n), isNull);
     });
 
     // Branch 4 — valid space-formatted +380
     test('returns null for valid +380 XX XXX XXXX format', () {
-      expect(validatePhone('+380 50 123 4567', l10n), isNull);
+      expect(validatePhone('+380 50 111 1111', l10n), isNull);
     });
 
     // Branch 5 — too few digits
@@ -105,17 +105,17 @@ void main() {
 
     // Branch 9 — valid 380-prefix without '+'
     test('returns null for 380-prefixed number without leading +', () {
-      expect(validatePhone('380501234567', l10n), isNull);
+      expect(validatePhone('380501111111', l10n), isNull);
     });
 
     // Branch 10 — valid local 0XX format (10 digits starting with 0)
     test('returns null for local 0XX format (10 digits, leading 0)', () {
-      expect(validatePhone('0501234567', l10n), isNull);
+      expect(validatePhone('0501111111', l10n), isNull);
     });
 
     // Branch 10 cont. — local format with spaces
     test('returns null for local 0XX format with spaces', () {
-      expect(validatePhone('050 123 4567', l10n), isNull);
+      expect(validatePhone('050 111 1111', l10n), isNull);
     });
   });
 }

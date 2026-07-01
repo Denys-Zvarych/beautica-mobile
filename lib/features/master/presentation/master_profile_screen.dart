@@ -32,6 +32,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -46,8 +48,10 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/utils/phone_uri.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
+import 'package:beautica_mobile/core/theme/beautica_icons.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
 import 'master_profile_notifier.dart';
@@ -201,7 +205,7 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
       title: l10n.masterProfileTitle,
       trailing: NeumorphicIconButton(
         key: const Key('btn-menu-master'),
-        icon: Icons.tune_rounded,
+        icon: BeauticaIcons.menuBurger,
         semanticLabel: l10n.settingsHubMenuButton,
         onTap: () => context.push(RouteNames.masterMenu),
       ),
@@ -303,9 +307,13 @@ class _ProfileBody extends StatelessWidget {
     Animation<Offset> slideAnim,
     Widget child,
   ) {
-    return FadeTransition(
-      opacity: fadeAnim,
-      child: SlideTransition(position: slideAnim, child: child),
+    // PERF: RepaintBoundary isolates each reveal section's per-frame fade/slide
+    // repaint so the entrance animation does not invalidate sibling sections.
+    return RepaintBoundary(
+      child: FadeTransition(
+        opacity: fadeAnim,
+        child: SlideTransition(position: slideAnim, child: child),
+      ),
     );
   }
 
@@ -353,6 +361,9 @@ class _ProfileBody extends StatelessWidget {
                         displayName,
                         key: const Key('master-profile-name'),
                         style: VelvetText.displayName(),
+                        maxLines: 2,
+                        softWrap: true,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: VelvetSpacing.xs + 2),
                       RoleChip(
@@ -365,8 +376,8 @@ class _ProfileBody extends StatelessWidget {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: <Widget>[
-                            const Icon(
-                              Icons.location_on_outlined,
+                            const AppIcon(
+                              BeauticaAssetIcons.locationMarker,
                               size: 13,
                               color: BrandColors.muted,
                             ),
@@ -429,6 +440,11 @@ class _ProfileBody extends StatelessWidget {
                 Expanded(
                   child: StatTile(
                     icon: Icons.star_rounded,
+                    iconWidget: RatingStar(
+                      rating: master.reviewCount == 0 ? null : master.avgRating,
+                      size: 18,
+                      showLabel: false,
+                    ),
                     value: master.reviewCount == 0
                         ? '—'
                         : master.avgRating.toStringAsFixed(1),

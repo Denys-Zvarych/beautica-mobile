@@ -4,6 +4,62 @@
   "@appTitle": {
     "description": "Application name shown in the OS task switcher and on the splash screen."
   },
+  "clientNavHome": "Головна",
+  "@clientNavHome": {
+    "description": "Client bottom-nav tab label for the home/landing tab (index 0)."
+  },
+  "clientNavFavorites": "Улюблені",
+  "@clientNavFavorites": {
+    "description": "Client bottom-nav tab label for the saved masters/salons tab (index 1)."
+  },
+  "clientNavSearch": "Пошук",
+  "@clientNavSearch": {
+    "description": "Client bottom-nav accessibility label for the elevated center search disc (index 2). The disc is icon-only — this string is used only for the Semantics label, not a visible caption."
+  },
+  "clientNavBookings": "Записи",
+  "@clientNavBookings": {
+    "description": "Client bottom-nav tab label for the user's bookings tab (index 3)."
+  },
+  "clientComingSoon": "Скоро…",
+  "@clientComingSoon": {
+    "description": "Placeholder chip label on client shell branch screens whose real content lands in a later phase."
+  },
+  "clientPlaceholderHomeTitle": "Головна",
+  "@clientPlaceholderHomeTitle": {
+    "description": "Title on the placeholder Home (Головна) client branch screen (real screen lands in Phase 13.7)."
+  },
+  "clientPlaceholderHomeBlurb": "Стартова сторінка клієнта — підбірки майстрів і салонів поряд.",
+  "@clientPlaceholderHomeBlurb": {
+    "description": "Supporting blurb on the placeholder Home client branch screen."
+  },
+  "clientPlaceholderFavoritesTitle": "Улюблені",
+  "@clientPlaceholderFavoritesTitle": {
+    "description": "Title on the placeholder Favorites (Улюблені) client branch screen (real screen lands in Phase 13.11)."
+  },
+  "clientPlaceholderFavoritesBlurb": "Збережені майстри та салони, до яких ви повертаєтесь.",
+  "@clientPlaceholderFavoritesBlurb": {
+    "description": "Supporting blurb on the placeholder Favorites client branch screen."
+  },
+  "clientPlaceholderSearchTitle": "Пошук",
+  "@clientPlaceholderSearchTitle": {
+    "description": "Title on the placeholder Search (Пошук) client branch screen (real screen lands in Phase 13.3)."
+  },
+  "clientPlaceholderSearchBlurb": "Знайдіть послугу, майстра чи салон за містом і категорією.",
+  "@clientPlaceholderSearchBlurb": {
+    "description": "Supporting blurb on the placeholder Search client branch screen."
+  },
+  "clientPlaceholderBookingsTitle": "Записи",
+  "@clientPlaceholderBookingsTitle": {
+    "description": "Title on the placeholder Bookings (Записи) client branch screen (real screen lands in Phase 14.3)."
+  },
+  "clientPlaceholderBookingsBlurb": "Ваші майбутні та минулі записи на послуги.",
+  "@clientPlaceholderBookingsBlurb": {
+    "description": "Supporting blurb on the placeholder Bookings client branch screen."
+  },
+  "clientPlaceholderPassportBlurb": "Ваш бьюті-профіль: історія процедур, уподобання та відгуки.",
+  "@clientPlaceholderPassportBlurb": {
+    "description": "Supporting blurb on the placeholder BEAUTY PASSPORT client branch screen (real screen lands in Phase 13.8). The 'BEAUTY PASSPORT' title itself is an untranslated brand constant and is NOT an l10n key."
+  },
   "loadingLabel": "Завантаження…",
   "@loadingLabel": {
     "description": "Generic 'Loading…' label shown next to a CircularProgressIndicator while async data resolves."
@@ -806,7 +862,7 @@
   "@step3HeadlineOwnerLine2": {
     "description": "Second line (italic Cormorant Garamond accent) of the Step 3 hero headline, SALON_OWNER variant (sign-up-step-3-address.html .headline em — 'салону')."
   },
-  "step3SubtextClient": "Покажемо майстрів поряд із вами. Можна пропустити та обрати пізніше.",
+  "step3SubtextClient": "Оберіть місто в якому бажаєте знайти для себе майстра і ми покажемо майстрів поруч. Можна пропустити та обрати пізніше.",
   "@step3SubtextClient": {
     "description": "Muted sub-text below the Step 3 headline for the CLIENT role variant (sign-up-step-3-address.html .sub-text — client variant)."
   },
@@ -1233,6 +1289,10 @@
   "@phonePrivacyNote": {
     "description": "Privacy helper note rendered below the phone field (lock icon + text) on the master edit screen (Phase 4.3)."
   },
+  "clientPhonePrivacyNote": "Майстри не бачитимуть Ваш номер — він використовується для внутрішнього зв'язку",
+  "@clientPhonePrivacyNote": {
+    "description": "Privacy helper note below the phone field on the CLIENT contacts edit screen — masters do not see the client's number."
+  },
   "changePhotoCaption": "Змінити фото",
   "@changePhotoCaption": {
     "description": "Muted caption below the avatar editor ring on the master edit screen (Phase 4.3)."
@@ -1477,6 +1537,10 @@
   "serviceTypeLoadError": "Не вдалося завантажити типи послуг",
   "@serviceTypeLoadError": {
     "description": "Error text shown inside the service-type dropdown (menu and closed field) when the service-type list fails to load or times out. Accompanied by a retry affordance."
+  },
+  "serviceTypeCategoryMismatch": "Обраний тип не належить до цієї категорії. Оберіть тип ще раз.",
+  "@serviceTypeCategoryMismatch": {
+    "description": "Inline error under the service-type field when the backend rejects a save (HTTP 400) because a category change orphaned the previously-selected service type. Prompts the master to re-pick a type that belongs to the new category."
   },
   "serviceTypeLoading": "Завантаження…",
   "@serviceTypeLoading": {
@@ -2026,6 +2090,21 @@
   "@weeklyEditorWindowUnsetHint": {
     "description": "Hint shown above the Save button on the weekly-template editor for a first-time create when the validity window («Графік діє з…») has not yet been explicitly chosen. Explains why Save is disabled and invites the user to tap the active-window card to pick the effective-from period before the first schedule can be saved."
   },
+  "scheduleValidityRangeRequired": "Оберіть період дії графіка",
+  "@scheduleValidityRangeRequired": {
+    "description": "Submit-time inline error under the active-window card on the weekly-template editor when the user presses Save on a first-time create without choosing the (required) validity period. Save stays enabled; this error is the signal of the failed attempt."
+  },
+  "weeklyEditorWindowReanchored": "Період графіка оновлено: діє з {from}",
+  "@weeklyEditorWindowReanchored": {
+    "description": "Snackbar shown on the weekly-template editor when the staged validity-window start (picked earlier) has fallen into the past — e.g. the master crossed midnight between picking the period and pressing Save. The window is re-anchored to today so the backend's future-or-present guard never rejects the create; {from} is the corrected DD.MM start date. Save is left for the master to confirm rather than silently shifting the window.",
+    "placeholders": {
+      "from": { "type": "String" }
+    }
+  },
+  "schedulePastDayBlocked": "Ця дата вже минула. Оберіть сьогодні або пізніший день.",
+  "@schedulePastDayBlocked": {
+    "description": "Snackbar shown when the master tries to save a per-date override for a day that has become past (e.g. midnight rolled over while the override sheet was open). The save is blocked so a past date never reaches the backend."
+  },
   "weeklyEditorDayToggleSemantic": "{day} — робочий день",
   "@weeklyEditorDayToggleSemantic": {
     "description": "Accessibility label for the per-weekday open/closed toggle in the weekly-template editor (Phase 15.5).",
@@ -2368,9 +2447,13 @@
   "@locationTitle": {
     "description": "Top-bar title of the location edit page."
   },
-  "locationSubheading": "Де вас знайти клієнтам",
+  "locationSubheading": "Щоб показувати майстрів поруч із вами",
   "@locationSubheading": {
     "description": "Subheading on the location edit page."
+  },
+  "masterLocationSubheading": "Вкажіть Ваше розташування, щоб клієнтам було зручно Вас знайти у пошуку",
+  "@masterLocationSubheading": {
+    "description": "Subheading on the independent master location edit page, explaining that the location is used for client search."
   },
   "accountTitle": "Акаунт",
   "@accountTitle": {
@@ -2454,5 +2537,710 @@
         "type": "String"
       }
     }
+  },
+  "settingsHubHelp": "Допомога / Напишіть нам",
+  "@settingsHubHelp": {
+    "description": "Label for the Help / Contact-us row in the master settings hub; navigates to the support-contact screen."
+  },
+  "contactSupportTitle": "Напишіть нам",
+  "@contactSupportTitle": {
+    "description": "App-bar title of the support / contact-us screen."
+  },
+  "contactSupportBack": "Назад",
+  "@contactSupportBack": {
+    "description": "Accessibility label for the back button on the support-contact screen."
+  },
+  "contactSupportIntroTitle": "Чим можемо допомогти?",
+  "@contactSupportIntroTitle": {
+    "description": "Heading of the intro card on the support-contact screen."
+  },
+  "contactSupportIntroBody": "Опишіть питання або запит — наша команда відповість на вашу електронну пошту.",
+  "@contactSupportIntroBody": {
+    "description": "Body text of the intro card on the support-contact screen."
+  },
+  "contactSupportSubjectLabel": "Тема (необов’язково)",
+  "@contactSupportSubjectLabel": {
+    "description": "Label for the optional subject field on the support-contact screen."
+  },
+  "contactSupportSubjectHint": "Коротко про що звернення",
+  "@contactSupportSubjectHint": {
+    "description": "Placeholder hint for the optional subject field on the support-contact screen."
+  },
+  "contactSupportMessageLabel": "Повідомлення",
+  "@contactSupportMessageLabel": {
+    "description": "Label for the required message field on the support-contact screen."
+  },
+  "contactSupportMessageHint": "Опишіть проблему або запит якомога детальніше — що ви робили, що очікували й що сталося.",
+  "@contactSupportMessageHint": {
+    "description": "Placeholder hint for the required message field on the support-contact screen."
+  },
+  "contactSupportMessageHelper": "Від {min} символів",
+  "@contactSupportMessageHelper": {
+    "description": "Helper text under the message field stating the minimum character count.",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "contactSupportAttachmentsLabel": "Вкладення",
+  "@contactSupportAttachmentsLabel": {
+    "description": "Label above the attachment tray on the support-contact screen."
+  },
+  "contactSupportAttachmentsHint": "До {max} файлів · JPEG, PNG, WEBP або PDF · разом до 5 МБ",
+  "@contactSupportAttachmentsHint": {
+    "description": "Caption under the attachment tray describing the file count, allowed types, and total size limit.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "contactSupportAddAttachment": "Додати файл",
+  "@contactSupportAddAttachment": {
+    "description": "Title of the add-attachment tile and its accessibility label."
+  },
+  "contactSupportAddAttachmentSubtitle": "Фото проблеми або документ",
+  "@contactSupportAddAttachmentSubtitle": {
+    "description": "Subtitle of the add-attachment tile when more files can be added."
+  },
+  "contactSupportAttachmentsLimitReached": "Досягнуто ліміт у 5 файлів",
+  "@contactSupportAttachmentsLimitReached": {
+    "description": "Subtitle of the add-attachment tile when the 5-file limit has been reached (tile disabled)."
+  },
+  "contactSupportRemoveAttachment": "Видалити {name}",
+  "@contactSupportRemoveAttachment": {
+    "description": "Accessibility label for the remove control on an attachment chip.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "скрін.png"
+      }
+    }
+  },
+  "contactSupportKindImage": "Зображення",
+  "@contactSupportKindImage": {
+    "description": "Type label shown on an image attachment chip."
+  },
+  "contactSupportKindPdf": "PDF",
+  "@contactSupportKindPdf": {
+    "description": "Type label shown on a PDF attachment chip."
+  },
+  "contactSupportSizeMeterUsed": "{used} / 5 МБ використано",
+  "@contactSupportSizeMeterUsed": {
+    "description": "Caption under the attachment size meter showing used vs total budget.",
+    "placeholders": {
+      "used": {
+        "type": "String",
+        "example": "1.3 МБ"
+      }
+    }
+  },
+  "contactSupportSizeMeterOver": "Перевищено ліміт 5 МБ — приберіть один файл",
+  "@contactSupportSizeMeterOver": {
+    "description": "Caption under the attachment size meter when the 5 MB total budget is exceeded."
+  },
+  "contactSupportSend": "Надіслати",
+  "@contactSupportSend": {
+    "description": "Primary CTA label on the support-contact screen."
+  },
+  "contactSupportDone": "Готово",
+  "@contactSupportDone": {
+    "description": "CTA label on the support-contact success card that dismisses the screen."
+  },
+  "contactSupportSuccessTitle": "Дякуємо!",
+  "@contactSupportSuccessTitle": {
+    "description": "Headline of the support-contact success card."
+  },
+  "contactSupportSuccessBody": "Ми отримали ваше звернення й відповімо на",
+  "@contactSupportSuccessBody": {
+    "description": "Body of the success card, preceding the user's email address."
+  },
+  "contactSupportSuccessBodyNoEmail": "Ми отримали ваше звернення й невдовзі відповімо вам.",
+  "@contactSupportSuccessBodyNoEmail": {
+    "description": "Body of the success card when no reply email is available to display."
+  },
+  "contactSupportErrMessageEmpty": "Опишіть, будь ласка, ваше питання",
+  "@contactSupportErrMessageEmpty": {
+    "description": "Inline error under the message field when it is empty on submit."
+  },
+  "contactSupportErrMessageTooShort": "Замало символів — мінімум {min}",
+  "@contactSupportErrMessageTooShort": {
+    "description": "Inline error under the message field when it is below the minimum length.",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "10"
+      }
+    }
+  },
+  "contactSupportErrTooManyFiles": "Можна додати щонайбільше {max} файлів",
+  "@contactSupportErrTooManyFiles": {
+    "description": "Error shown when the user tries to add more than the maximum number of attachments.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "contactSupportErrFileTooBig": "Файл завеликий — максимум 5 МБ на файл",
+  "@contactSupportErrFileTooBig": {
+    "description": "Error shown when a single picked attachment exceeds the 5 MB per-file limit."
+  },
+  "contactSupportErrTotalTooBig": "Вкладення завеликі — разом до 5 МБ",
+  "@contactSupportErrTotalTooBig": {
+    "description": "Error shown when the combined attachment size exceeds the 5 MB total limit (also mapped from a 413 response)."
+  },
+  "contactSupportErrWrongType": "Непідтримуваний тип файлу — лише JPEG, PNG, WEBP або PDF",
+  "@contactSupportErrWrongType": {
+    "description": "Error shown when a picked file is not an allowed type."
+  },
+  "contactSupportErrPickFailed": "Не вдалося обрати файл. Спробуйте ще раз.",
+  "@contactSupportErrPickFailed": {
+    "description": "Error shown when the file picker fails or returns no data."
+  },
+  "contactSupportErrUnavailable": "Підтримка тимчасово недоступна. Спробуйте, будь ласка, пізніше.",
+  "@contactSupportErrUnavailable": {
+    "description": "Error shown when the backend support channel is not configured (503)."
+  },
+
+  "homeHubChangePhotoLabel": "Змінити фото",
+  "@homeHubChangePhotoLabel": {
+    "description": "Accessibility label for the camera badge on the client avatar in the Home Hub."
+  },
+  "homeHubLocationPlaceholder": "Місто не вказано",
+  "@homeHubLocationPlaceholder": {
+    "description": "Placeholder shown in the profile block when the client has no city set."
+  },
+  "homeHubPhonePlaceholder": "Телефон не вказано",
+  "@homeHubPhonePlaceholder": {
+    "description": "Placeholder shown in the profile block when the client has no phone set."
+  },
+  "homeHubPassportSubtitle": "Твій б'юті-паспорт у Beautica",
+  "@homeHubPassportSubtitle": {
+    "description": "Subtitle under the BEAUTY PASSPORT tile in the stat pills row."
+  },
+  "homeHubMyRating": "Мій рейтинг",
+  "@homeHubMyRating": {
+    "description": "Label for the rating stat tile in the Home Hub stat-pills row. Shows the client's aggregate two-sided rating (★ n.n) or an em-dash when no rating yet."
+  },
+  "homeHubQuickSearch": "Пошук\nмайстрів",
+  "@homeHubQuickSearch": {
+    "description": "Quick-link tile label for master search."
+  },
+  "homeHubQuickFavorites": "Улюблені\nмайстри",
+  "@homeHubQuickFavorites": {
+    "description": "Quick-link tile label for favourite masters."
+  },
+  "homeHubQuickBookings": "Мої\nзаписи",
+  "@homeHubQuickBookings": {
+    "description": "Quick-link tile label for my bookings."
+  },
+  "homeHubNextAppointmentTitle": "Найближчий запис",
+  "@homeHubNextAppointmentTitle": {
+    "description": "Section title for the next upcoming appointment card."
+  },
+  "homeHubNoUpcomingAppointments": "Немає майбутніх записів.",
+  "@homeHubNoUpcomingAppointments": {
+    "description": "Empty-state message in the next appointment card."
+  },
+  "homeHubFindMaster": "Знайти майстра",
+  "@homeHubFindMaster": {
+    "description": "CTA button in the next appointment empty state."
+  },
+  "homeHubRescheduleAppointment": "Перенести",
+  "@homeHubRescheduleAppointment": {
+    "description": "Button label to reschedule the next appointment."
+  },
+  "homeHubCancelAppointment": "Скасувати",
+  "@homeHubCancelAppointment": {
+    "description": "Button label to cancel the next appointment."
+  },
+  "homeHubAddToGoogleCalendar": "Google Календар",
+  "@homeHubAddToGoogleCalendar": {
+    "description": "Accessibility label for the Google Calendar button in the next appointment card."
+  },
+  "homeHubAddToAppleCalendar": "Apple Календар",
+  "@homeHubAddToAppleCalendar": {
+    "description": "Accessibility label for the Apple Calendar button in the next appointment card."
+  },
+  "homeHubFavoriteMastersTitle": "Улюблені майстри",
+  "@homeHubFavoriteMastersTitle": {
+    "description": "Section title for the favourite masters rail."
+  },
+  "homeHubFavoriteMastersSeeAll": "Всі ({count})",
+  "@homeHubFavoriteMastersSeeAll": {
+    "description": "See-all link label for the favourite masters section.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "6"
+      }
+    }
+  },
+  "homeHubFavoriteMastersEmpty": "Ще немає улюблених майстрів.\nТоркніться серця в профілі майстра, щоб зберегти.",
+  "@homeHubFavoriteMastersEmpty": {
+    "description": "Empty-state message in the favourite masters rail."
+  },
+  "homeHubUnlikeMasterLabel": "Прибрати з улюблених",
+  "@homeHubUnlikeMasterLabel": {
+    "description": "Accessibility label for the unlike (heart) button on a favourite master mini-card."
+  },
+  "homeHubTimelineSeeAll": "Вся історія",
+  "@homeHubTimelineSeeAll": {
+    "description": "See-all link label for the BEAUTY TIMELINE section."
+  },
+  "homeHubTimelineEmpty": "Тут зʼявиться історія ваших процедур.",
+  "@homeHubTimelineEmpty": {
+    "description": "Empty-state message in the BEAUTY TIMELINE rail."
+  },
+  "homeHubNotificationsLabel": "Сповіщення",
+  "@homeHubNotificationsLabel": {
+    "description": "Accessibility label for the notification bell button in the Home Hub top bar."
+  },
+  "homeHubMenuLabel": "Меню",
+  "@homeHubMenuLabel": {
+    "description": "Accessibility label for the burger menu button in the Home Hub top bar."
+  },
+  "homeHubProfileLoadError": "Не вдалося завантажити профіль.",
+  "@homeHubProfileLoadError": {
+    "description": "Error message shown in the profile section when profile loading fails."
+  },
+  "homeHubNextApptLoadError": "Не вдалося завантажити найближчий запис.",
+  "@homeHubNextApptLoadError": {
+    "description": "Error message shown in the next appointment section when loading fails."
+  },
+  "homeHubFavoritesLoadError": "Не вдалося завантажити улюблених майстрів.",
+  "@homeHubFavoritesLoadError": {
+    "description": "Error message shown in the favourite masters section when loading fails."
+  },
+  "homeHubTimelineLoadError": "Не вдалося завантажити часову шкалу.",
+  "@homeHubTimelineLoadError": {
+    "description": "Error message shown in the BEAUTY TIMELINE section when loading fails."
+  },
+  "myRatingTitle": "МІЙ РЕЙТИНГ",
+  "@myRatingTitle": {
+    "description": "AppBar title for the My Rating screen (all-caps brand style). Shows the client's aggregate two-sided rating."
+  },
+  "myRatingEmpty": "У вас ще немає рейтингу. Він зʼявиться після завершених записів.",
+  "@myRatingEmpty": {
+    "description": "Empty state message on the My Rating screen when no rating has been assigned yet."
+  },
+  "myRatingExplanation": "Ваш рейтинг формується на основі оцінок майстрів і салонів після завершених процедур.",
+  "@myRatingExplanation": {
+    "description": "Explanation line under the rating number and stars on the My Rating screen. Tells the client who assigns their rating."
+  },
+  "passportColumnProcedures": "Улюблені процедури",
+  "@passportColumnProcedures": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's first column (auto-derived top-3 most-booked service types)."
+  },
+  "passportColumnDistricts": "Улюблені райони",
+  "@passportColumnDistricts": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's second column (auto-derived top-3 most-visited districts)."
+  },
+  "passportColumnBudget": "Бюджет",
+  "@passportColumnBudget": {
+    "description": "Eyebrow label of the BEAUTY PASSPORT card's third column (auto-derived spend band)."
+  },
+  "passportBudgetCeiling": "до {max} грн",
+  "@passportBudgetCeiling": {
+    "description": "Budget value chip on the BEAUTY PASSPORT card — the upper bound of the client's derived spend band, in UAH.",
+    "placeholders": {
+      "max": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "passportBudgetUnknown": "—",
+  "@passportBudgetUnknown": {
+    "description": "Budget value chip placeholder on the BEAUTY PASSPORT card when there is no spend history yet."
+  },
+  "passportReviewsLeft": "{count, plural, =0{Жодного відгуку залишено} =1{1 відгук залишено} few{{count} відгуки залишено} many{{count} відгуків залишено} other{{count} відгуків залишено}}",
+  "@passportReviewsLeft": {
+    "description": "Footer standing line on the BEAUTY PASSPORT card — how many reviews the client has left.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "passportMemberSince": "Користувач з {year}",
+  "@passportMemberSince": {
+    "description": "Footer subtitle on the BEAUTY PASSPORT card — the year the client joined Beautica.",
+    "placeholders": {
+      "year": {
+        "type": "String",
+        "example": "2024"
+      }
+    }
+  },
+  "passportEmptyTitle": "Твій паспорт ще порожній",
+  "@passportEmptyTitle": {
+    "description": "Heading of the empty BEAUTY PASSPORT state, shown when the client has no completed bookings yet."
+  },
+  "passportEmptyBody": "Запишись на першу процедуру — і Beautica почне збирати твої улюблені послуги, райони та бюджет.",
+  "@passportEmptyBody": {
+    "description": "Body copy of the empty BEAUTY PASSPORT state inviting the client to book their first service."
+  },
+  "passportEmptyCta": "Знайти майстра",
+  "@passportEmptyCta": {
+    "description": "Call-to-action button on the empty BEAUTY PASSPORT state — opens discovery search."
+  },
+  "searchTitle": "Пошук",
+  "@searchTitle": {
+    "description": "Title of the CLIENT Пошук (Search) filters screen — the elevated center bottom-nav tab."
+  },
+  "searchFieldHint": "Пошук майстра або послуги",
+  "@searchFieldHint": {
+    "description": "Placeholder text in the free-text search field on the Пошук screen."
+  },
+  "searchCityLabel": "Місто",
+  "@searchCityLabel": {
+    "description": "Label above the city-select row on the Пошук screen."
+  },
+  "searchCityPlaceholder": "Оберіть місто",
+  "@searchCityPlaceholder": {
+    "description": "Placeholder shown in the city-select row before a city is chosen."
+  },
+  "searchRegionLabel": "Регіон",
+  "@searchRegionLabel": {
+    "description": "Label above the region (oblast) select row on the Пошук screen."
+  },
+  "searchRegionPlaceholder": "Оберіть регіон",
+  "@searchRegionPlaceholder": {
+    "description": "Placeholder shown in the region-select row before a region is chosen."
+  },
+  "searchCityDisabledHint": "Спочатку оберіть регіон",
+  "@searchCityDisabledHint": {
+    "description": "Helper line under the disabled city row prompting the user to pick a region first."
+  },
+  "searchCityRequiredHint": "Оберіть місто, щоб продовжити",
+  "@searchCityRequiredHint": {
+    "description": "Helper line under the city row when a region is chosen but no city yet; the search CTA is disabled until a city is picked (region alone is not a searchable scope)."
+  },
+  "searchDistrictLabel": "Район",
+  "@searchDistrictLabel": {
+    "description": "Label above the optional district select row on the Пошук screen."
+  },
+  "searchDistrictPlaceholder": "Оберіть район (необов'язково)",
+  "@searchDistrictPlaceholder": {
+    "description": "Placeholder shown in the district-select row before a district is chosen; signals the field is optional."
+  },
+  "searchDistrictDisabledHint": "Спочатку оберіть місто",
+  "@searchDistrictDisabledHint": {
+    "description": "Helper line under the disabled district row prompting the user to pick a city first."
+  },
+  "searchDistrictNoneHint": "У цьому місті немає районів",
+  "@searchDistrictNoneHint": {
+    "description": "Helper line under the disabled district row when the chosen city has no districts."
+  },
+  "searchServiceTypeLabel": "Вид послуги",
+  "@searchServiceTypeLabel": {
+    "description": "Label above the service-type tile grid on the Пошук screen."
+  },
+  "searchCategoryLabel": "Категорія",
+  "@searchCategoryLabel": {
+    "description": "Section label above the horizontal category rail on the Пошук screen (Variant A)."
+  },
+  "searchServicesDrawerLabel": "Послуги · {category}",
+  "@searchServicesDrawerLabel": {
+    "description": "Label above the service-chip drawer, showing the selected category's services.",
+    "placeholders": {
+      "category": {
+        "type": "String",
+        "example": "Волосся"
+      }
+    }
+  },
+  "searchServicesSelectedCount": "Обрано {count}",
+  "@searchServicesSelectedCount": {
+    "description": "Badge beside the service-chip drawer label showing how many services are currently selected.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "searchServicesFilterChip": "{count, plural, =1{{count} послуга} few{{count} послуги} many{{count} послуг} other{{count} послуги}}",
+  "@searchServicesFilterChip": {
+    "description": "Applied-filter chip on the results screen summarising how many per-service filters are active (the slugs have no display label there, so a count is shown).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "searchCategoriesLoadError": "Не вдалося завантажити категорії",
+  "@searchCategoriesLoadError": {
+    "description": "Inline error shown when the service-category list fails to load in the Пошук grid."
+  },
+  "searchServicesLoadError": "Не вдалося завантажити послуги",
+  "@searchServicesLoadError": {
+    "description": "Inline error shown when the per-category service list fails to load in the Пошук service-chip drawer."
+  },
+  "searchCategoriesEmpty": "Категорії поки недоступні",
+  "@searchCategoriesEmpty": {
+    "description": "Shown in place of the service-type grid when the backend returns no approved categories."
+  },
+  "searchPriceLabel": "Вартість послуги",
+  "@searchPriceLabel": {
+    "description": "Label above the price slider on the Пошук screen."
+  },
+  "searchPriceUpTo": "до {price} грн",
+  "@searchPriceUpTo": {
+    "description": "Live readout of the selected price ceiling on the Пошук slider.",
+    "placeholders": {
+      "price": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "searchPriceAny": "будь-яка",
+  "@searchPriceAny": {
+    "description": "Price readout when the slider is at the ceiling — no upper price bound."
+  },
+  "searchPriceMin": "0 грн",
+  "@searchPriceMin": {
+    "description": "Left end label under the price slider (minimum)."
+  },
+  "searchPriceMax": "5000+ грн",
+  "@searchPriceMax": {
+    "description": "Right end label under the price slider (ceiling and above)."
+  },
+  "searchPriceFrom": "від {price} грн",
+  "@searchPriceFrom": {
+    "description": "Price readout fragment for the lower bound when only a minimum is set (no upper bound).",
+    "placeholders": {
+      "price": {
+        "type": "int",
+        "example": "300"
+      }
+    }
+  },
+  "searchPriceRange": "від {min} до {max} грн",
+  "@searchPriceRange": {
+    "description": "Price readout when both a minimum and a maximum bound are set.",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "300"
+      },
+      "max": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "searchPriceMinFieldLabel": "Від",
+  "@searchPriceMinFieldLabel": {
+    "description": "Caption above the minimum-price numeric input field."
+  },
+  "searchPriceMaxFieldLabel": "До",
+  "@searchPriceMaxFieldLabel": {
+    "description": "Caption above the maximum-price numeric input field."
+  },
+  "searchPriceMinFieldHint": "0",
+  "@searchPriceMinFieldHint": {
+    "description": "Placeholder hint inside the minimum-price numeric input field (no lower bound)."
+  },
+  "searchPriceMaxFieldHint": "5000",
+  "@searchPriceMaxFieldHint": {
+    "description": "Placeholder hint inside the maximum-price numeric input field (no upper bound)."
+  },
+  "searchPriceCurrencySuffix": "грн",
+  "@searchPriceCurrencySuffix": {
+    "description": "Inline currency suffix (UAH) shown inside the min/max price input fields."
+  },
+  "searchCtaShowMasters": "Показати майстрів",
+  "@searchCtaShowMasters": {
+    "description": "Primary CTA on the Пошук screen — runs the search and opens the results screen."
+  },
+  "searchResultsTitle": "Результати",
+  "@searchResultsTitle": {
+    "description": "App-bar title of the discovery results screen."
+  },
+  "searchResultsComingSoon": "Список майстрів з'явиться тут найближчим часом.",
+  "@searchResultsComingSoon": {
+    "description": "Placeholder copy on the discovery results screen until the real paged list ships."
+  },
+  "searchResultsBack": "Назад",
+  "@searchResultsBack": {
+    "description": "Accessibility label for the back button on the discovery results screen (returns to the filters screen)."
+  },
+  "searchResultsOpenFilters": "Змінити фільтри",
+  "@searchResultsOpenFilters": {
+    "description": "Accessibility label for the filter icon in the results screen top bar — re-opens the search filter controls."
+  },
+  "searchResultsActiveFilters": "{count, plural, =1{{count} активний фільтр} few{{count} активні фільтри} many{{count} активних фільтрів} other{{count} активних фільтри}}",
+  "@searchResultsActiveFilters": {
+    "description": "Accessibility label announcing how many filter facets are currently active, read next to the «(N)» badge on the results top-bar filter icon.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "searchResultsEmptyTitle": "Нічого не знайдено",
+  "@searchResultsEmptyTitle": {
+    "description": "Title of the empty state on the discovery results screen when no master or salon matches the filters."
+  },
+  "searchResultsEmptyBody": "Спробуйте змінити місто, категорію або діапазон цін.",
+  "@searchResultsEmptyBody": {
+    "description": "Supporting copy under the empty-state title on the results screen."
+  },
+  "searchResultsEmptyServiceBody": "На жаль, ми не знайшли майстра, який надає усі обрані Вами послуги. Спробуйте обрати менше послуг або змінити фільтр.",
+  "@searchResultsEmptyServiceBody": {
+    "description": "Supporting copy under the empty-state title when a per-service (serviceTypeSlugs) filter is active and the AND-narrowed search returns nothing — guides the user to broaden the service selection."
+  },
+  "searchResultsEditFilters": "Змінити фільтри",
+  "@searchResultsEditFilters": {
+    "description": "Button on the empty results state that re-opens the search filter controls."
+  },
+  "searchResultPriceRange": "{min}–{max} грн",
+  "@searchResultPriceRange": {
+    "description": "Price range shown on a salon result card (lower–upper bound).",
+    "placeholders": {
+      "min": {
+        "type": "int",
+        "example": "400"
+      },
+      "max": {
+        "type": "int",
+        "example": "1200"
+      }
+    }
+  },
+  "searchResultPriceExact": "{price} грн",
+  "@searchResultPriceExact": {
+    "description": "Single fixed price on a result card — shown WITHOUT the «від» prefix when the lower and upper price bounds are equal (one fixed price).",
+    "placeholders": {
+      "price": {
+        "type": "int",
+        "example": "800"
+      }
+    }
+  },
+  "searchResultReviewCount": "{count, plural, =1{({count} відгук)} few{({count} відгуки)} many{({count} відгуків)} other{({count} відгуків)}}",
+  "@searchResultReviewCount": {
+    "description": "Parenthesised review count beside a master card's star rating.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "128"
+      }
+    }
+  },
+  "searchResultNoReviews": "Без відгуків",
+  "@searchResultNoReviews": {
+    "description": "Shown in place of the star rating on a master card that has no reviews yet."
+  },
+  "searchResultMasterFallbackName": "Майстер",
+  "@searchResultMasterFallbackName": {
+    "description": "Fallback name on a master result card when the backend sends neither first nor last name."
+  },
+  "searchResultSalonFallbackName": "Салон",
+  "@searchResultSalonFallbackName": {
+    "description": "Fallback name on a salon result card when the backend sends no salon name."
+  },
+  "searchResultClearFilter": "Прибрати фільтр {label}",
+  "@searchResultClearFilter": {
+    "description": "Accessibility label for the «×» on an applied-filter chip (clears that filter).",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Львів"
+      }
+    }
+  },
+  "favoriteAddLabel": "Додати в обране",
+  "@favoriteAddLabel": {
+    "description": "Accessibility label for the favourite heart when the item is NOT yet favourited (tapping adds it)."
+  },
+  "favoriteRemoveLabel": "Прибрати з обраного",
+  "@favoriteRemoveLabel": {
+    "description": "Accessibility label for the favourite heart when the item IS favourited (tapping removes it)."
+  },
+  "searchSortButtonLabel": "Сортування",
+  "@searchSortButtonLabel": {
+    "description": "Accessibility label for the sort button in the results top bar (opens the sort options sheet)."
+  },
+  "searchSortSheetTitle": "Сортування",
+  "@searchSortSheetTitle": {
+    "description": "Title of the bottom sheet listing the result sort options."
+  },
+  "searchSortRatingDesc": "За рейтингом",
+  "@searchSortRatingDesc": {
+    "description": "Sort option: highest average rating first (the default ordering)."
+  },
+  "searchSortPriceAsc": "Спочатку дешевші",
+  "@searchSortPriceAsc": {
+    "description": "Sort option: cheapest effective price first."
+  },
+  "searchSortPriceDesc": "Спочатку дорожчі",
+  "@searchSortPriceDesc": {
+    "description": "Sort option: most expensive effective price first."
+  },
+  "searchSortReviewsDesc": "За кількістю відгуків",
+  "@searchSortReviewsDesc": {
+    "description": "Sort option: most-reviewed first."
+  },
+  "searchSortOptionSelected": "{label}, обрано",
+  "@searchSortOptionSelected": {
+    "description": "Accessibility label appended to the currently-selected sort row.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "За рейтингом"
+      }
+    }
+  },
+  "searchResultServices": "{names}",
+  "@searchResultServices": {
+    "description": "Joined preview of a master's top service names on the result card (e.g. «Манікюр · Педикюр»). Already joined by the widget; passed through for an a11y-friendly key.",
+    "placeholders": {
+      "names": {
+        "type": "String",
+        "example": "Манікюр · Педикюр"
+      }
+    }
+  },
+  "publicMasterProfileTitle": "Профіль майстра",
+  "@publicMasterProfileTitle": {
+    "description": "App-bar title on the CLIENT-facing public master profile (Phase 13.5)."
+  },
+  "publicMasterBioLabel": "Про майстра",
+  "@publicMasterBioLabel": {
+    "description": "Section label above the bio on the public master profile (about the master, not self)."
+  },
+  "publicMasterExperienceLabel": "Досвід",
+  "@publicMasterExperienceLabel": {
+    "description": "Caption of the experience/tenure stat tile on the public master profile."
+  },
+  "publicMasterBookingSectionLabel": "Послуги та ціни",
+  "@publicMasterBookingSectionLabel": {
+    "description": "Title of the pinned booking shelf on the public master profile."
+  },
+  "publicMasterBookingEmptyPrompt": "Оберіть послугу",
+  "@publicMasterBookingEmptyPrompt": {
+    "description": "Empty-state prompt inside the booking shelf before any service is chosen."
+  },
+  "publicMasterBookingCta": "Обрати послугу",
+  "@publicMasterBookingCta": {
+    "description": "Primary CTA in the booking shelf empty state; opens the Phase 14.1 booking flow."
+  },
+  "bookingNewPlaceholderTitle": "Бронювання",
+  "@bookingNewPlaceholderTitle": {
+    "description": "Title of the Phase 14.1 booking-flow placeholder screen."
+  },
+  "bookingNewPlaceholderBlurb": "Онлайн-запис до майстра скоро буде доступний.",
+  "@bookingNewPlaceholderBlurb": {
+    "description": "Body copy of the Phase 14.1 booking-flow placeholder screen."
   }
 }

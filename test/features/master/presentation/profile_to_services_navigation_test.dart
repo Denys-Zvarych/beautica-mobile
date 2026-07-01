@@ -159,6 +159,14 @@ ProviderScope _buildApp({
       masterProfileProvider.overrideWith(() => _StubMasterProfileNotifier()),
       masterRepositoryProvider.overrideWithValue(masterRepo),
       serviceRepositoryProvider.overrideWithValue(serviceRepo),
+      // approvedCategoriesProvider now sources categories directly from
+      // categoryRequestApiProvider (not the repository), so override it
+      // directly with the MANICURE category the profile card resolves.
+      approvedCategoriesProvider.overrideWith(
+        (ref) async => const <ServiceCategoryOption>[
+          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+        ],
+      ),
     ],
     child: MaterialApp.router(
       routerConfig: router,
@@ -184,16 +192,10 @@ void main() {
     // Profile screen: one MANICURE service so the category card renders.
     // Services screen (after nav): empty list so the empty-state renders
     // (no stagger timers, no shimmer repeat — pumpAndSettle can drain).
-    // The mock is called twice on the /services screen (once from
-    // servicesListProvider, possibly once from approvedCategoriesProvider).
+    // Categories come from the approvedCategoriesProvider override in _buildApp.
     when(
       () => serviceRepo.listMyServices(),
     ).thenAnswer((_) async => const <MasterService>[_manicureService]);
-    when(() => serviceRepo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-      ],
-    );
     registerFallbackValue('');
   });
 

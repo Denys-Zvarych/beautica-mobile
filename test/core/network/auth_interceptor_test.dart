@@ -409,5 +409,125 @@ void main() {
         verify(() => handler.next(opts)).called(1);
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Test 7 — discovery search carries the Bearer token WHEN authenticated
+    //
+    // SECURITY HIGH / CORRECTNESS regression guard (search-page change, fix
+    // 2026-06-25): this REVERSES the earlier (2026-06-18) behaviour.
+    //
+    // The discovery search endpoints
+    //   GET /api/v1/search/masters
+    //   GET /api/v1/search/salons
+    // are `permitAll` (a logged-out user can browse), BUT the backend
+    // AUTH-GATES the address fields (street, buildingNo) on the authenticated
+    // principal: an anonymous caller gets null addresses, an authenticated one
+    // gets the full address. Listing `/api/v1/search/` in kPublicPathPrefixes
+    // forced AuthInterceptor to STRIP the Bearer token from every search call,
+    // so the app was always anonymous and full addresses were permanently dead.
+    //
+    // The fix REMOVES `/api/v1/search/` from kPublicPathPrefixes, so the
+    // interceptor falls through to the token-injection block and attaches the
+    // Bearer header WHEN a session is present. This test pins both halves of the
+    // contract:
+    //   • authenticated → /search/masters & /salons carry the Bearer token;
+    //   • logged-out    → the same paths proceed tokenless (no force-refresh,
+    //                      so public browse keeps working).
+    //
+    // PRE-FIX (search prefix re-added) expectation: FAILS — the authenticated
+    // search requests carry NO Authorization header and the address feature is
+    // silently dead.
+    // POST-FIX expectation: PASSES.
+    // -----------------------------------------------------------------------
+    test(
+      'AUTHENTICATED discovery search (/search/masters & /salons) DOES carry '
+      'the Authorization header (auth-gated address fix)',
+      () async {
+        const authState = AsyncData<AuthSession>(
+          AuthSession.authenticated(
+            user: _fakeUser,
+            accessToken: _fakeAccessToken,
+          ),
+        );
+
+        final container = _makeContainer(authState);
+        await container.read(authProvider.future);
+
+        final ref = container.read(_refCaptureProvider);
+        final interceptor = AuthInterceptor(ref);
+
+        // GET /api/v1/search/masters — must carry the token so the backend
+        // returns the auth-gated street/buildingNo.
+        final mastersHandler = MockRequestHandler();
+        final mastersOpts = _opts('/api/v1/search/masters');
+        interceptor.onRequest(mastersOpts, mastersHandler);
+
+        expect(
+          mastersOpts.headers['Authorization'],
+          equals('Bearer $_fakeAccessToken'),
+          reason:
+              '/api/v1/search/masters must carry the Bearer token when the '
+              'user is logged in — the backend auth-gates the address fields '
+              "on it. Re-adding '/api/v1/search/' to kPublicPathPrefixes would "
+              'strip the token and silently kill the full-address feature.',
+        );
+        verify(() => mastersHandler.next(mastersOpts)).called(1);
+
+        // GET /api/v1/search/salons — same contract.
+        final salonsHandler = MockRequestHandler();
+        final salonsOpts = _opts('/api/v1/search/salons');
+        interceptor.onRequest(salonsOpts, salonsHandler);
+
+        expect(
+          salonsOpts.headers['Authorization'],
+          equals('Bearer $_fakeAccessToken'),
+          reason:
+              '/api/v1/search/salons must carry the Bearer token when logged '
+              'in (auth-gated salon address).',
+        );
+        verify(() => salonsHandler.next(salonsOpts)).called(1);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 8 — LOGGED-OUT discovery search still proceeds (tokenless)
+    //
+    // The companion half of Test 7: an anonymous user must still be able to
+    // browse. With no session, the interceptor attaches NO header and forwards
+    // the request unchanged (it never blocks / force-refreshes a tokenless
+    // call), so public search keeps working — the backend simply returns null
+    // addresses. This proves the fix did not couple search to a live session.
+    // -----------------------------------------------------------------------
+    test('LOGGED-OUT discovery search proceeds with NO Authorization header '
+        '(public browse stays functional)', () async {
+      const authState = AsyncData<AuthSession>(AuthSession.unauthenticated());
+
+      final container = _makeContainer(authState);
+      await container.read(authProvider.future);
+
+      final ref = container.read(_refCaptureProvider);
+      final interceptor = AuthInterceptor(ref);
+
+      final mastersHandler = MockRequestHandler();
+      final mastersOpts = _opts('/api/v1/search/masters');
+      interceptor.onRequest(mastersOpts, mastersHandler);
+
+      expect(
+        mastersOpts.headers.containsKey('Authorization'),
+        isFalse,
+        reason:
+            'an anonymous user has no token — the search request must be '
+            'forwarded tokenless, never blocked.',
+      );
+      // The request is still forwarded (not short-circuited / failed).
+      verify(() => mastersHandler.next(mastersOpts)).called(1);
+
+      final salonsHandler = MockRequestHandler();
+      final salonsOpts = _opts('/api/v1/search/salons');
+      interceptor.onRequest(salonsOpts, salonsHandler);
+
+      expect(salonsOpts.headers.containsKey('Authorization'), isFalse);
+      verify(() => salonsHandler.next(salonsOpts)).called(1);
+    });
   });
 }

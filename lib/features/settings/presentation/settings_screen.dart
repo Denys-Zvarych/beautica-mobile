@@ -17,12 +17,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/icons/app_icon.dart';
+import '../../../core/icons/beautica_asset_icons.dart';
 import '../../../core/security/screen_protection.dart';
+import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
+import '../../../features/auth/domain/auth_session.dart';
+import '../../../features/auth/presentation/auth_notifier.dart';
 import '../../../features/master/presentation/widgets/section_scaffold.dart';
 import '../../../features/master/presentation/widgets/settings_row.dart';
 import '../../../l10n/app_localizations.dart';
+import '../../../routing/role_home.dart';
 import '../../../routing/route_names.dart';
 
 /// Account settings page — VelvetTouch neumorphic design.
@@ -113,7 +119,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         if (context.canPop()) {
           context.pop();
         } else {
-          context.go(RouteNames.masterMenu);
+          // /settings is reachable by any authenticated role (CLIENT via the
+          // Home Hub burger; INDEPENDENT_MASTER via the master menu). Resolve
+          // the fallback destination from the authenticated session so that a
+          // CLIENT with an empty navigator stack returns to /home rather than
+          // being sent to /master/menu (a master-only surface that the router
+          // gate would immediately redirect away from anyway, causing a flash).
+          final session = ref.read(authProvider);
+          final fallback = session.value is Authenticated
+              ? roleHomePath((session.value! as Authenticated).user.role)
+              : RouteNames.login;
+          context.go(fallback);
         }
       },
       body: Column(
@@ -143,6 +159,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               key: const Key('row-notifications'),
               switchKey: const Key('switch-notifications'),
               icon: Icons.notifications_none_rounded,
+              // Match the top-bar idle bell (BellButton): the dotless
+              // `notificationPlain` SVG, tinted + sized to the settings-row
+              // glyph spec (19 px, accentDeep) so it sits identically.
+              iconWidget: const AppIcon(
+                BeauticaAssetIcons.notificationPlain,
+                size: 19,
+                color: BrandColors.accentDeep,
+              ),
               label: l10n.accountNotificationsLabel,
               subtitle: l10n.accountNotificationsSubtitle,
               initialValue: true,

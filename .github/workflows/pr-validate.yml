@@ -91,6 +91,86 @@ jobs:
         shell: bash
         run: ./scripts/forbid_magic_padding.sh
 
+      # 2026-06-18 cycle-safeguard — forbid un-annotated cross-provider
+      # self-invalidation inside notifiers. A `ref.invalidate(otherProvider)` /
+      # `ref.refresh(otherProvider)` from inside a Notifier can close a watch
+      # cycle (CircularDependencyError, debug-only / stripped in release). The
+      # check lives in scripts/forbid_provider_self_invalidation.sh (regex +
+      # rationale documented there, not in this YAML). Each legitimate call is
+      # unblocked by a `// cycle-safe: <reason>` annotation, never by weakening
+      # the gate. Exits 0 when clean, 1 on the first un-annotated offender.
+      - name: Forbid un-annotated provider self-invalidation
+        shell: bash
+        run: ./scripts/forbid_provider_self_invalidation.sh
+
+      # 2026-06-18 cycle-safeguard — forbid stubbing the cycle-closing providers
+      # in notifier/integration tests. The 2026-06-18 logout regression shipped
+      # because those tests stubbed masterProfile/servicesList/serviceRepository,
+      # breaking the real watch edge so the debug cycle assert had nothing to
+      # fire on. The check lives in scripts/forbid_cycle_stub_in_tests.sh; each
+      # legitimate stub is unblocked by a `// cycle-stub-ok: <reason>` annotation.
+      - name: Forbid cycle-closing-provider stubs in notifier/integration tests
+        shell: bash
+        run: ./scripts/forbid_cycle_stub_in_tests.sh
+
+      # 2026-06-18 — self-test the two cycle-guard gates above. Their awk
+      # comment/multiline detection is load-bearing; this pins it against
+      # fixture snippets (plain offender → flagged, annotated → pass, plus each
+      # former known false-negative from findings 1/2/4 → now flagged). Pure
+      # bash + awk, no extra dependency. See scripts/test/test_cycle_gates.sh.
+      - name: Self-test cycle-guard gates
+        shell: bash
+        run: ./scripts/test/test_cycle_gates.sh
+
+      # 2026-06-24 drift-prevention gate — CLIENT branch-root screens must reuse
+      # the shared ClientTopBar; a per-screen Scaffold(appBar:)/AppBar() re-lays
+      # out the wordmark and makes it jump on tab hop. The check lives in
+      # scripts/forbid_client_branch_appbar.sh (enumerated branch roots +
+      # rationale documented there). Each legitimate bar is unblocked by a
+      # `// client-chrome-ok: <reason>` annotation. Exits 0 clean, 1 on offense.
+      - name: Forbid AppBar in CLIENT branch-root screens
+        shell: bash
+        run: ./scripts/forbid_client_branch_appbar.sh
+
+      # 2026-06-24 drift-prevention gate — forbid Cyrillic find.text('…') finders
+      # in tests; they become findsNothing failures the day EN ships. Locate by
+      # Key / semantics / AppLocalizations instead. Legacy files predating the
+      # gate are grandfathered in scripts/.cyrillic_finder_allow (ratchet — the
+      # baseline only shrinks); new exceptions use `// i18n-finder-ok: <reason>`.
+      - name: Forbid Cyrillic find.text finders in tests
+        shell: bash
+        run: ./scripts/forbid_cyrillic_finder.sh
+
+      # 2026-06-24 drift-prevention gate — forbid fixed pump/pumpAndSettle(const
+      # Duration(...)) sleeps in tests; they are flaky (too short → red on slow
+      # CI, too long → slow suite). Prefer pump-until-condition. Legacy files are
+      # grandfathered in scripts/.fixed_wait_allow (ratchet — baseline only
+      # shrinks); new exceptions use `// fixed-wait-ok: <reason>`.
+      - name: Forbid fixed-duration pump waits in tests
+        shell: bash
+        run: ./scripts/forbid_fixed_wait.sh
+
+      # 2026-06-24 fixture-footgun gate — a test that mounts ServiceForm( must
+      # also override approvedCategoriesProvider. That provider sources from the
+      # REAL Dio (not serviceRepositoryProvider); an un-overridden mount leaks a
+      # 15s connect-timeout Timer AND paints the category field's error ring at
+      # rest (silently-wrong golden). Bit 3 fixtures already. Exceptions use
+      # `// approved-categories-ok: <reason>`.
+      - name: Forbid unmocked approvedCategoriesProvider in ServiceForm tests
+        shell: bash
+        run: ./scripts/forbid_unmocked_approved_categories.sh
+
+      # 2026-06-24 — self-test the four drift gates above. Each gate's
+      # comment/annotation detection is load-bearing; --self-test pins it against
+      # fixture snippets (plain offender → flagged, annotated/commented → pass).
+      - name: Self-test drift-prevention gates
+        shell: bash
+        run: |
+          ./scripts/forbid_client_branch_appbar.sh --self-test
+          ./scripts/forbid_cyrillic_finder.sh --self-test
+          ./scripts/forbid_fixed_wait.sh --self-test
+          ./scripts/forbid_unmocked_approved_categories.sh --self-test
+
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH
       # finding. lib/features/ is currently empty so this always passes, but the
@@ -248,31 +328,164 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Run integration tests on emulator
-        uses: reactivecircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d  # v2
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
           api-level: 34
           arch: x86_64
           profile: pixel_6
-          # Run ALL 5 E2E flows via a single aggregating entrypoint to recover
-          # emulator boot cost (L87). integration_test/all_tests.dart imports
-          # each flow's main() and runs them in ONE `flutter test` process / one
-          # isolate. Each testWidgets still pumps a fresh app via
-          # AppHarness.boot() and resets global state via tearDownHarness BETWEEN
-          # flows — so the app re-launches per-testWidgets (the supported model),
-          # not per-process. This avoids cold-booting the app 5× (the old
-          # per-file loop) while keeping every flow's fresh-launch semantics.
+          # ram-size/heap-size (2026-07-01): harmless baseline bump, kept even
+          # though bisection (below) showed memory pressure was never the
+          # actual cause. cores is left at the action default (2) since
+          # GitHub-hosted ubuntu-latest runners have 2 vCPUs.
+          ram-size: 4096M
+          heap-size: 512M
+          # INCIDENT (2026-07-01) — a job failure with "adb: device
+          # 'emulator-5554' not found" right after the LAST test finished, even
+          # though every flow's own assertions logged ✅. Ruled out by direct
+          # reproduction: (1) memory pressure — bumping ram-size/heap-size
+          # above did not help; (2) "too many aggregated tests degrade the
+          # adb-forwarded VM-service result channel" — the two-way split below
+          # (all_tests_part1.dart/all_tests_part2.dart, kept regardless for
+          # the separate L87 boot-cost-amortization reason) still crashed
+          # identically even with as few as 3 flows in one invocation;
+          # (3) `client_home_hub_flow_test.dart`'s test 8 called
+          # `tester.ensureSemantics()` (activates the real Android
+          # accessibility tree, not a host-only fake) — a legitimate
+          # anti-pattern, fixed regardless (identical coverage already exists
+          # safely at the widget tier — see test/features/shell/
+          # home_inpage_branch_hop_test.dart), but bisection proved it was
+          # NOT the crash cause: the exact same crash still reproduced on a
+          # clean checkout of that fix.
+          #
+          # Commit-bisection (git history, ~7 rounds) narrowed the crash to
+          # commit 7307721 ("Phase 13.7 Home Hub") — its parent never
+          # crashes, it always does. But running the SAME test file directly
+          # against a real (non-headless) connected emulator over adb, with
+          # live logcat monitoring, completed with NO crash — only unrelated
+          # pixel/timing test failures, zero FATAL/AndroidRuntime/ANR
+          # entries. A parallel review of every widget file this commit
+          # introduces (favorite_masters_card, beauty_timeline_section,
+          # home_profile_card, quick_links_card, passport_preview_card,
+          # hub_widgets' CountdownChip) found no unclosed Timer/native
+          # channel/controller anywhere.
+          #
+          # CONCLUSION: this is CI-headless-emulator-specific (`-no-window
+          # -gpu swiftshader_indirect` software rendering), not a Dart-level
+          # app bug — something about this screen's rendering load
+          # (staggered animations, gradients, several cards) interacts badly
+          # with the swiftshader_indirect out-of-process renderer specifically
+          # at IntegrationTestWidgetsFlutterBinding's one-time final teardown.
+          # Tried two mitigations: bumping the pinned action version (kept —
+          # was 2+ years old, v2.33.0-era; native Node 24 + AVD-creation fixes
+          # landed since, unambiguously worth having regardless of this bug),
+          # and switching `swiftshader_indirect` (out-of-process renderer) to
+          # plain `swiftshader` (in-process) — REVERTED: gave zero benefit
+          # (crash reproduced identically) and needlessly diverges from the
+          # action's own tested/recommended default with no upside to show
+          # for it. Real `-gpu host` was never attempted — needs actual GPU
+          # hardware, which standard GitHub-hosted ubuntu-latest runners
+          # don't have.
+          #
+          # The two-way split is kept regardless — it amortizes emulator
+          # boot cost the same way the original single-file design did (L87),
+          # just as two shorter-lived processes. Each half keeps L88 (no
+          # `|| exit 1`): a failing testWidgets doesn't abort its half, and
+          # both halves must succeed for the job to pass.
           #
           # NOTE: directory-mode batching (`flutter test integration_test/`) does
           # NOT work — it launches the app once and cannot relaunch between files
-          # ("Unable to start the app on the device" after the first flow). A
-          # single AGGREGATING FILE does work: one isolate, harness re-launches
-          # per testWidgets. That is the distinction this entrypoint relies on.
+          # ("Unable to start the app on the device" after the first flow). Each
+          # AGGREGATING FILE below works the same way the original single file
+          # did: one isolate per invocation, harness re-launches per testWidgets.
           #
-          # No `|| exit 1` fail-fast wrapper (L88): the single run continues past
-          # a failing testWidgets and reports EVERY failure across all 5 flows at
-          # the end. `flutter test`'s own non-zero exit on any failure is the gate.
+          # The PROFILE-MODE drive leg that used to run here was split into the
+          # separate `integration-profile` job below (2026-06-18, finding 6) so
+          # its slow AOT compile no longer blocks every PR's critical path. This
+          # fast debug pass stays per-PR.
           script: |
-            flutter test integration_test/all_tests.dart
+            flutter test integration_test/all_tests_part1.dart
+            flutter test integration_test/all_tests_part2.dart
+
+  # ---------------------------------------------------------------------------
+  # Profile-mode integration drive (2026-06-18 debug↔release divergence
+  # safeguard; finding 6).
+  #
+  # `flutter test` ALWAYS runs JIT/debug with asserts ON; it has no
+  # `--profile`/`--release` flag (verified: "Could not find an option named
+  # --profile"). So the fast `integration` job above only catches "debug-fails /
+  # release-works" (our logout CircularDependencyError). To ALSO catch the
+  # INVERSE — "release-fails / debug-works", where a STRIPPED assert changes
+  # behaviour on a critical flow — we re-run the logout/auth-cascade flow in
+  # PROFILE mode via `flutter drive` (asserts stripped, AOT, release-like). It is
+  # scoped to logout_flow_test (the critical auth-cascade flow) to keep the AOT
+  # compile bounded.
+  #
+  # WHY THIS JOB IS GATED (not per-PR), matching the `patrol` job idiom exactly:
+  #   The profile AOT compile adds ~1.5–3 min to the critical path on every PR.
+  #   The inverse-divergence class it guards is rare and the auth flow changes
+  #   seldom, so per-PR cost is not justified. It therefore runs only on:
+  #     • the nightly `schedule` trigger,
+  #     • manual `workflow_dispatch`,
+  #     • PRs explicitly labelled `run-patrol` (the same opt-in label the patrol
+  #       native-E2E job uses — both are the heavy emulator-AOT tier).
+  #   It is a SEPARATE job, so it never blocks the fast `validate` /
+  #   `integration` jobs, and the per-PR debug `flutter test integration_test/
+  #   all_tests.dart` pass in `integration` is untouched.
+  integration-profile:
+    name: Integration profile drive (emulator)
+    runs-on: ubuntu-latest
+    # Skip on ordinary push/PR; opt in via schedule, manual dispatch, or label —
+    # mirrors the `patrol` job's gating idiom.
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'run-patrol'))
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
+        with:
+          flutter-version: '3.41.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Codegen (build_runner)
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      # KVM is required for hardware-accelerated emulator boot on the runner.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run logout flow in profile mode on emulator
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          # AOT, asserts stripped, release-like — the inverse of the debug
+          # `flutter test` pass. Uses the standard host driver in
+          # test_driver/integration_test.dart.
+          script: |
+            flutter drive \
+              --profile \
+              --driver=test_driver/integration_test.dart \
+              --target=integration_test/logout_flow_test.dart
 
   # ---------------------------------------------------------------------------
   # Patrol native E2E (Phase 17.5).
@@ -358,7 +571,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Run patrol native tests on emulator
-        uses: reactivecircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d  # v2
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
           api-level: ${{ matrix.api-level }}
           arch: x86_64

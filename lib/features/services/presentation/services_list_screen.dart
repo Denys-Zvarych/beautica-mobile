@@ -822,55 +822,60 @@ class _ServiceCardState extends State<_ServiceCard>
     // P-H1 fix: FadeTransition + SlideTransition replace Opacity +
     // Transform.translate. Both transitions are compositing-friendly and
     // do not force an extra GPU raster layer per card.
-    return FadeTransition(
-      opacity: _curve,
-      child: SlideTransition(
-        position: _slide,
-        child: Semantics(
-          button: true,
-          label: '$primaryLabel. $durationLabel, $priceLabel. Редагувати',
-          // priceLabel renders from priceDisplay (server-formatted) so the
-          // accessibility label always matches what the user sees in the card.
-          child: GestureDetector(
-            onTapDown: (_) => setState(() => _pressed = true),
-            onTapCancel: () => setState(() => _pressed = false),
-            onTapUp: (_) {
-              setState(() => _pressed = false);
-              widget.onEdit();
-            },
-            child: AnimatedScale(
-              scale: _pressed ? 0.99 : 1.0,
-              duration: const Duration(milliseconds: 110),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                decoration: BoxDecoration(
-                  color: BrandColors.base,
-                  borderRadius: BorderRadius.circular(VelvetRadii.card),
-                  boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
-                ),
-                // Compact dense row: tighter vertical padding (~halved height)
-                // versus the original VelvetSpacing.sm + 2 with a stacked pill
-                // Wrap below the title.
-                padding: const EdgeInsets.fromLTRB(
-                  VelvetSpacing.sm + 2,
-                  VelvetSpacing.sm,
-                  VelvetSpacing.sm + 2,
-                  VelvetSpacing.sm,
-                ),
-                child: Row(
-                  children: <Widget>[
-                    _PhotoThumbnail(key: Key('thumb_${s.id}')),
-                    const SizedBox(width: VelvetSpacing.sm + 2),
-                    Expanded(
-                      child: _ServiceInfo(
-                        name: primaryLabel,
-                        durationLabel: durationLabel,
-                        priceLabel: priceLabel,
+    //
+    // PERF: RepaintBoundary isolates this card's staggered entrance repaints so
+    // the per-frame fade/slide does not invalidate sibling cards in the section.
+    return RepaintBoundary(
+      child: FadeTransition(
+        opacity: _curve,
+        child: SlideTransition(
+          position: _slide,
+          child: Semantics(
+            button: true,
+            label: '$primaryLabel. $durationLabel, $priceLabel. Редагувати',
+            // priceLabel renders from priceDisplay (server-formatted) so the
+            // accessibility label always matches what the user sees in the card.
+            child: GestureDetector(
+              onTapDown: (_) => setState(() => _pressed = true),
+              onTapCancel: () => setState(() => _pressed = false),
+              onTapUp: (_) {
+                setState(() => _pressed = false);
+                widget.onEdit();
+              },
+              child: AnimatedScale(
+                scale: _pressed ? 0.99 : 1.0,
+                duration: const Duration(milliseconds: 110),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  decoration: BoxDecoration(
+                    color: BrandColors.base,
+                    borderRadius: BorderRadius.circular(VelvetRadii.card),
+                    boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
+                  ),
+                  // Compact dense row: tighter vertical padding (~halved height)
+                  // versus the original VelvetSpacing.sm + 2 with a stacked pill
+                  // Wrap below the title.
+                  padding: const EdgeInsets.fromLTRB(
+                    VelvetSpacing.sm + 2,
+                    VelvetSpacing.sm,
+                    VelvetSpacing.sm + 2,
+                    VelvetSpacing.sm,
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      _PhotoThumbnail(key: Key('thumb_${s.id}')),
+                      const SizedBox(width: VelvetSpacing.sm + 2),
+                      Expanded(
+                        child: _ServiceInfo(
+                          name: primaryLabel,
+                          durationLabel: durationLabel,
+                          priceLabel: priceLabel,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: VelvetSpacing.sm),
-                    const _EditButton(),
-                  ],
+                      const SizedBox(width: VelvetSpacing.sm),
+                      const _EditButton(),
+                    ],
+                  ),
                 ),
               ),
             ),

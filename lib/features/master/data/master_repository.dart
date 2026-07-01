@@ -59,6 +59,15 @@ abstract interface class MasterRepository {
   /// Throws a typed [Failure] on any transport or server error.
   Future<Master> getMyProfile(String masterId);
 
+  /// Fetches the PUBLIC profile for an arbitrary [masterId].
+  ///
+  /// Wraps `GET /masters/{masterId}` via the generated [MasterControllerApi]'s
+  /// `getMasterDetail`. Unlike [getMyProfile] (which resolves the master from
+  /// the JWT principal), this reads any master by id and is safe to call from a
+  /// CLIENT session — it drives the client-facing public master profile
+  /// (Phase 13.5). Throws a typed [Failure] on any transport or server error.
+  Future<Master> getMasterById(String masterId);
+
   /// Persists the authenticated master's editable profile fields.
   ///
   /// Wraps `PATCH /independent-masters/me/profile`. All [update] fields are
@@ -145,6 +154,41 @@ final class HttpMasterRepository implements MasterRepository {
       if (kDebugMode) {
         log(
           'getMyProfile failed: ${e.type} ${e.response?.statusCode}',
+          name: 'master.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<Master> getMasterById(String masterId) async {
+    try {
+      // GET /masters/{masterId} — the public master-detail endpoint, keyed on
+      // the Master-row UUID (NOT the User UUID). Uses the generated
+      // [MasterControllerApi] so built_value deserialization handles the
+      // ApiResponse<MasterDetailResponse> envelope.
+      final res = await _masterApi.getMasterDetail(masterId: masterId);
+      final dto = res.data?.data;
+      if (dto == null) {
+        if (kDebugMode) {
+          log(
+            'getMasterById: ApiResponseMasterDetailResponse.data is null',
+            name: 'master.repository',
+            level: 1000,
+          );
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      return MasterMapper.fromDto(dto);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getMasterById failed: ${e.type} ${e.response?.statusCode}',
           name: 'master.repository',
           level: 900,
           stackTrace: st,

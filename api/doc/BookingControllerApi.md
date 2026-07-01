@@ -17,6 +17,7 @@ Method | HTTP request | Description
 [**getBooking**](BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 
 [**listMyBookings**](BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
 [**notCompleteBooking**](BookingControllerApi.md#notcompletebooking) | **PATCH** /api/v1/bookings/{bookingId}/not-complete | 
+[**rescheduleBooking**](BookingControllerApi.md#reschedulebooking) | **PATCH** /api/v1/bookings/{bookingId}/reschedule | 
 
 
 # **cancelBooking**
@@ -268,7 +269,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **listMyBookings**
-> ApiResponsePageResponseBookingResponse listMyBookings(pageable, status)
+> ApiResponsePageResponseBookingDetailResponse listMyBookings(pageable, status)
 
 
 
@@ -297,7 +298,7 @@ Name | Type | Description  | Notes
 
 ### Return type
 
-[**ApiResponsePageResponseBookingResponse**](ApiResponsePageResponseBookingResponse.md)
+[**ApiResponsePageResponseBookingDetailResponse**](ApiResponsePageResponseBookingDetailResponse.md)
 
 ### Authorization
 
@@ -349,6 +350,49 @@ No authorization required
 
  - **Content-Type**: application/json
  - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **rescheduleBooking**
+> ApiResponseBookingDetailResponse rescheduleBooking(bookingId, rescheduleBookingRequest)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getBookingControllerApi();
+final String bookingId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final RescheduleBookingRequest rescheduleBookingRequest = ; // RescheduleBookingRequest | 
+
+try {
+    final response = api.rescheduleBooking(bookingId, rescheduleBookingRequest);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling BookingControllerApi->rescheduleBooking: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **bookingId** | **String**|  | 
+ **rescheduleBookingRequest** | [**RescheduleBookingRequest**](RescheduleBookingRequest.md)|  | 
+
+### Return type
+
+[**ApiResponseBookingDetailResponse**](ApiResponseBookingDetailResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: */*
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 

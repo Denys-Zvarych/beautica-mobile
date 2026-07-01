@@ -110,6 +110,39 @@ export 'fake_backend.dart' show FakeBackend, kFixedNow;
 abstract final class AppHarness {
   AppHarness._(); // non-instantiable
 
+  // ── Cascade guard (Fix #2) ─────────────────────────────────────────────────
+
+  /// Bounded settle window for EVERY [pumpAndSettle] on the shared boot/login
+  /// path. The flutter_test default [pumpAndSettle] timeout is 10 MINUTES,
+  /// which is far longer than the per-test [Timeout(Duration(seconds: 45))] used
+  /// by the aggregated suite (integration_test/all_tests.dart, one isolate for
+  /// 17 flows). When a flow hangs in an unbounded pumpAndSettle, the test-level
+  /// Timeout completes the test future WHILE a pump is still in flight, leaving
+  /// the single per-isolate [IntegrationTestWidgetsFlutterBinding] mid-frame —
+  /// corrupting it for EVERY subsequent test (1 hang → ~50 cascade failures).
+  ///
+  /// Capping pumpAndSettle at 20 s (< the 45 s test Timeout) makes a hang throw
+  /// `FlutterError("pumpAndSettle timed out")` SYNCHRONOUSLY inside the test
+  /// body BEFORE the harness-level abort fires: the test fails as exactly ONE
+  /// clean failure, [addTearDown] unmounts normally, and the next test boots
+  /// from a clean tree.
+  static const Duration settleTimeout = Duration(seconds: 20);
+
+  /// [pumpAndSettle] bounded by [settleTimeout]. Preserves the default
+  /// 100 ms interval / [EnginePhase.sendSemanticsUpdate] phase semantics —
+  /// only the timeout is constrained. Use on the shared boot/login path so a
+  /// single hang cannot cascade across the aggregated isolate (see [settleTimeout]).
+  static Future<void> settle(
+    WidgetTester tester, {
+    Duration interval = const Duration(milliseconds: 100),
+  }) {
+    return tester.pumpAndSettle(
+      interval,
+      EnginePhase.sendSemanticsUpdate,
+      settleTimeout,
+    );
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
 
   /// Pumps the REAL app with the fake backend and fixed-clock overrides.
@@ -126,9 +159,18 @@ abstract final class AppHarness {
   /// RC1 fix: sets [AppStartTime] to 5 s ago so the splash-duration gate
   /// (3 000 ms) is already satisfied when the first [pumpAndSettle] runs.
   /// Call [tearDownHarness] in [tearDown] to reset this state between tests.
+  /// [storage] lets a caller inject its OWN [FakeSecureStorage] so it can read
+  /// the refresh token before/after a flow (e.g. the logout-wipe assertion).
+  /// When omitted, boot constructs a fresh one. Either way the harness installs
+  /// EXACTLY ONE [secureStorageProvider] override — passing a storage via
+  /// [extraOverrides] would override the provider twice (Riverpod 3.x throws
+  /// "Tried to override a provider twice within the same container"). The caller
+  /// already holds the instance it passed in, so the storage is reachable for
+  /// assertions without a separate accessor.
   static Future<GoRouter> boot(
     WidgetTester tester,
     FakeBackend fakeBackend, {
+    FakeSecureStorage? storage,
     List<Object> extraOverrides = const <Object>[],
   }) async {
     installOverflowGuard();
@@ -143,7 +185,7 @@ abstract final class AppHarness {
       DateTime.now().subtract(const Duration(seconds: 5)),
     );
 
-    final storage = FakeSecureStorage();
+    final effectiveStorage = storage ?? FakeSecureStorage();
 
     await tester.pumpWidget(
       ProviderScope(
@@ -152,7 +194,7 @@ abstract final class AppHarness {
         // ignore: avoid_dynamic_calls
         overrides: <Object>[
           dioProvider.overrideWithValue(fakeBackend.dio),
-          secureStorageProvider.overrideWithValue(storage),
+          secureStorageProvider.overrideWithValue(effectiveStorage),
           clockProvider.overrideWithValue(() => kFixedNow),
           ...extraOverrides,
         ].cast(),
@@ -162,7 +204,9 @@ abstract final class AppHarness {
 
     // Allow the splash screen to resolve and the auth guard to redirect to
     // /login (unauthenticated cold start) or the role-appropriate home.
-    await tester.pumpAndSettle();
+    // Bounded by [settleTimeout] (Fix #2) so a hang here cannot wedge the
+    // shared aggregated isolate.
+    await settle(tester);
 
     // AGGREGATION FIX (Phase 17.3) — unmount the app tree at tearDown.
     //
@@ -181,8 +225,20 @@ abstract final class AppHarness {
     // MaterialApp.router (Navigator + all overlay entries) and disposes the
     // ProviderScope/keepAlive router container before the next test boots.
     addTearDown(() async {
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
+      // RESILIENT UNMOUNT (Phase 17.3 cascade guard) — when a test TIMES OUT,
+      // its in-flight pump is interrupted and the shared LiveTest binding can be
+      // left mid-frame. An unguarded pumpWidget/pumpAndSettle here then collides
+      // with that interrupted pump and corrupts the binding for EVERY subsequent
+      // test in the isolate — one per-test timeout cascades into 50 failures.
+      // Guarding the unmount localises the blast radius: a single timed-out test
+      // fails exactly ONE test, and the next test still boots from a clean tree.
+      try {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      } catch (_) {
+        // Binding was left in a bad state by an interrupted/timed-out test —
+        // swallow so this teardown cannot turn one failure into a suite wipe.
+      }
     });
 
     // RC2 — read the live GoRouter from the ProviderScope container. The
@@ -231,7 +287,9 @@ abstract final class AppHarness {
     // during a transition lands on the route barrier (RenderAbsorbPointer /
     // RenderOffstage / RenderIgnorePointer in the hit path) and is SWALLOWED, so
     // _submit() never runs (loginCalls stays 0 → "Expected 1, Actual 0").
-    await tester.pumpAndSettle();
+    // Bounded by [settleTimeout] (Fix #2): a hang here fails ONE test cleanly
+    // instead of corrupting the shared isolate's binding mid-frame.
+    await settle(tester);
 
     // We should be on the login screen — fill the fields and submit.
     await tester.enterText(
@@ -242,14 +300,14 @@ abstract final class AppHarness {
       find.byKey(const ValueKey<String>('login_password')),
       'Secret1234',
     );
-    await tester.pumpAndSettle();
+    await settle(tester);
 
     // Ensure the submit button is on-screen + interactive before tapping
     // (best-effort: only scrolls if the form has a Scrollable ancestor).
     final Finder submit = find.byKey(const ValueKey<String>('login_submit'));
     try {
       await tester.ensureVisible(submit);
-      await tester.pumpAndSettle();
+      await settle(tester);
     } catch (_) {
       // No scrollable ancestor / already fully visible — nothing to do.
     }
@@ -264,7 +322,7 @@ abstract final class AppHarness {
     await tester.pump();
     await tester.pump();
     if (fakeBackend.loginCalls == callsBefore) {
-      await tester.pumpAndSettle();
+      await settle(tester);
       await tester.tap(submit);
       await tester.pump();
       await tester.pump();
@@ -292,7 +350,7 @@ abstract final class AppHarness {
     await tester.pump();
     await tester.pump();
     await tester.pump();
-    await tester.pumpAndSettle(const Duration(milliseconds: 100));
+    await settle(tester);
   }
 }
 

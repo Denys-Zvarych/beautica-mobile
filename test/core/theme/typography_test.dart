@@ -140,6 +140,20 @@ void main() {
         expect(s.color, BrandColors.muted);
       },
     );
+
+    testWidgets('feedbackMutedNote overrides base to 11 sp / muted, '
+        'inheriting w700 and height 1.4 from the feedback base', (
+      tester,
+    ) async {
+      // Pre-cached variant for the locationNote sub-row on the identity
+      // card. Verifies the copyWith composition: size + color are overridden
+      // while the base weight (w700) and line-height (1.4) carry through.
+      final s = VelvetText.feedbackMutedNote;
+      expect(s.fontSize, 11.0);
+      expect(s.color, BrandColors.muted);
+      expect(s.fontWeight, FontWeight.w700);
+      expect(s.height, 1.4);
+    });
   });
 
   // ── velvetTheme textTheme fontFamily assertions ──────────────────────────

@@ -91,8 +91,12 @@ ProviderContainer _makeContainer() {
 /// Returns `null` if not found.
 GoRoute? _findRoute(List<RouteBase> routes, String path) {
   for (final route in routes) {
-    if (route is GoRoute && route.path == path) {
-      return route;
+    if (route is GoRoute) {
+      if (route.path == path) return route;
+      // Recurse into a GoRoute's own nested sub-routes (e.g. /search → results)
+      // — the registered path of a nested route is its RELATIVE segment.
+      final found = _findRoute(route.routes, path);
+      if (found != null) return found;
     }
     // Recurse into ShellRoute / StatefulShellRoute sub-routes.
     if (route is ShellRoute) {
@@ -327,6 +331,135 @@ void main() {
                 '$path must NOT use pageBuilder: — a CustomTransitionPage '
                 'returned by _instantPage() overrides the theme builder and '
                 'suppresses the left-edge swipe-back gesture',
+          );
+        });
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // CLIENT pushed pages — must use `builder:` (MaterialPage) so the theme's
+  // CupertinoPageTransitionsBuilder installs the left-edge swipe-back gesture.
+  //
+  // R4 (back-navigation fix, debugger-flagged gap): the original group only
+  // guarded the MASTER pushed routes. Every CLIENT route that is `context.push`-
+  // ed onto a branch navigator (settings hub + its three section edit pages, the
+  // search-results list, the support form, the rating screen, and the shared
+  // settings screen) relies on the SAME builder:/MaterialPage contract for its
+  // edge swipe-back. A future copy-paste reverting any of them to
+  // `pageBuilder: _instantPage(...)` would silently kill swipe-back on that
+  // drill-down — exactly the regression this group catches. The five CLIENT
+  // tab-ROOTS are deliberately `_instantPage` (covered by the separate
+  // instant-roots group below); they are not in this set.
+  // -------------------------------------------------------------------------
+  group(
+    'app_router CLIENT pushed pages use builder: (MaterialPage) — swipe-back enabled',
+    () {
+      late GoRouter router;
+
+      setUp(() {
+        router = _makeContainer().read(appRouterProvider);
+      });
+
+      // clientSearchResults is registered as the RELATIVE nested path 'results'
+      // under /search (RouteNames.clientSearch), so it is located by that
+      // segment, not by the absolute RouteNames.clientSearchResults string.
+      const String clientSearchResultsRelative = 'results';
+
+      const Map<String, String> clientPushedRoutes = <String, String>{
+        'clientMenu (/client/menu)': RouteNames.clientMenu,
+        'clientEditPersonal (/client/edit/personal)':
+            RouteNames.clientEditPersonal,
+        'clientEditContacts (/client/edit/contacts)':
+            RouteNames.clientEditContacts,
+        'clientEditLocation (/client/edit/location)':
+            RouteNames.clientEditLocation,
+        'clientSearchResults (/search/results, nested path \'results\')':
+            clientSearchResultsRelative,
+        'contactSupport (/support/contact)': RouteNames.contactSupport,
+        'myRating (/rating)': RouteNames.myRating,
+        'settings (/settings)': RouteNames.settings,
+      };
+
+      clientPushedRoutes.forEach((String label, String path) {
+        test('CB-1: RouteNames.$label uses builder: not pageBuilder:', () {
+          final route = _findRoute(router.configuration.routes, path);
+          expect(
+            route,
+            isNotNull,
+            reason: 'RouteNames.$label ($path) must be registered in appRouter',
+          );
+          expect(
+            route!.builder,
+            isNotNull,
+            reason:
+                '$path is a CLIENT pushed page — it must use builder: so '
+                'go_router wraps it in a MaterialPage, the only page type that '
+                'honors the theme\'s CupertinoPageTransitionsBuilder and '
+                'installs the left-edge swipe-back gesture on push.',
+          );
+          expect(
+            route.pageBuilder,
+            isNull,
+            reason:
+                '$path must NOT use pageBuilder: — a CustomTransitionPage '
+                'returned by _instantPage() overrides the theme builder and '
+                'silently suppresses the swipe-back gesture on this CLIENT '
+                'drill-down (the R4 regression this guard exists to catch).',
+          );
+        });
+      });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // CLIENT tab-ROOTS — must use `pageBuilder:` (_instantPage). These are the
+  // five StatefulShellRoute branch roots; they are switched via goBranch (never
+  // pushed), so there is nothing to pop and no swipe-back is expected. They
+  // intentionally use the zero-duration _instantPage (instant forward paint +
+  // the secondaryAnimation parallax reveal). If a branch root is converted to
+  // builder:, it gains an unwanted slide-in on every tab hop. This group pins
+  // the tab-root vs pushed-page distinction (R4).
+  // -------------------------------------------------------------------------
+  group(
+    'app_router CLIENT tab-roots use pageBuilder: (_instantPage) — branch hops, no gesture',
+    () {
+      late GoRouter router;
+
+      setUp(() {
+        router = _makeContainer().read(appRouterProvider);
+      });
+
+      const Map<String, String> clientTabRoots = <String, String>{
+        'clientHome (/home)': RouteNames.clientHome,
+        'clientFavorites (/favorites)': RouteNames.clientFavorites,
+        'clientSearch (/search)': RouteNames.clientSearch,
+        'clientBookings (/bookings)': RouteNames.clientBookings,
+        'clientPassport (/passport)': RouteNames.clientPassport,
+      };
+
+      clientTabRoots.forEach((String label, String path) {
+        test('CT-1: RouteNames.$label uses pageBuilder: not builder:', () {
+          final route = _findRoute(router.configuration.routes, path);
+          expect(
+            route,
+            isNotNull,
+            reason: 'RouteNames.$label ($path) must be registered in appRouter',
+          );
+          expect(
+            route!.pageBuilder,
+            isNotNull,
+            reason:
+                '$path is a CLIENT tab-root — it must stay on pageBuilder: '
+                '(_instantPage): branch roots are switched via goBranch, so they '
+                'want the zero-duration instant paint, not a MaterialPage slide.',
+          );
+          expect(
+            route.builder,
+            isNull,
+            reason:
+                '$path must NOT use builder: — converting a branch root to a '
+                'MaterialPage adds an unwanted slide-in on every tab hop.',
           );
         });
       });

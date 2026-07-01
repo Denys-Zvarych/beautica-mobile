@@ -53,9 +53,6 @@ void main() {
 
   setUp(() {
     repo = _MockServiceRepository();
-    when(
-      () => repo.fetchApprovedCategories(),
-    ).thenAnswer((_) async => const <ServiceCategoryOption>[_category]);
   });
 
   testWidgets(
@@ -76,6 +73,9 @@ void main() {
         ProviderScope(
           overrides: [
             serviceRepositoryProvider.overrideWithValue(repo),
+            approvedCategoriesProvider.overrideWith(
+              (ref) async => const <ServiceCategoryOption>[_category],
+            ),
             serviceTypesProvider.overrideWith((ref, String categoryName) async {
               requestedCategoryNames.add(categoryName);
               return const <ServiceTypeOption>[];

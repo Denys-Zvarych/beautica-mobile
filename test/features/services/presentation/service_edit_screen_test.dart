@@ -17,6 +17,8 @@
 //   Item 3 (M4). Changing the service type in the picker and saving sends the
 //      NEW serviceTypeId in MasterServiceUpdate (no silent PATCH drop).
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
@@ -47,6 +49,20 @@ class _FakeMasterServiceUpdate extends Fake implements MasterServiceUpdate {}
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
+/// Records every route pop so a test can assert that [ServiceEditScreen]
+/// popped itself. The screen's [_popServiceEditScreen] falls back to
+/// `Navigator.maybePop` when there is no GoRouter ancestor (the plain
+/// [MaterialApp] used here) — this observer captures that pop.
+class _PopObserver extends NavigatorObserver {
+  int popCount = 0;
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    popCount++;
+    super.didPop(route, previousRoute);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -76,12 +92,27 @@ AppLocalizations _l10n(WidgetTester tester) =>
 /// [includeMasterProfile] — when true also overrides [masterProfileProvider]
 /// with a stub notifier so tests that track its invalidation have an active
 /// subscriber. Defaults to false so existing tests are unaffected.
+/// The default approved-category list used by the edit form's category
+/// dropdown. approvedCategoriesProvider now fetches DIRECTLY (not through the
+/// repository), so it must be overridden in-scope. This mirrors the list the
+/// pre-migration `fetchApprovedCategories` stub returned in setUp.
+const _defaultCategories = <ServiceCategoryOption>[
+  ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+  ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+  ServiceCategoryOption(name: 'EYELASH', displayName: 'Вії'),
+];
+
 List<Object> _overrides(
   _MockServiceRepository repo, {
   bool includeMasterProfile = false,
+  List<ServiceCategoryOption> categories = _defaultCategories,
 }) {
   return <Object>[
     serviceRepositoryProvider.overrideWithValue(repo),
+    // The category dropdown watches approvedCategoriesProvider, which now
+    // fetches DIRECTLY (not through the repository); override it in-scope so the
+    // category row resolves to the data state.
+    approvedCategoriesProvider.overrideWith((ref) async => categories),
     // The seeded service has a category, so _ServiceTypeChips mounts on pump
     // and would drive a real fetchServiceTypes for the seeded category (and any
     // category the test taps). Override with a calm empty list for every
@@ -159,6 +190,7 @@ Future<void> _pumpEdit(
   String id = 'svc-edit-1',
   List<AsyncValue<Object?>>? watcherStates,
   List<AsyncValue<Object?>>? masterProfileStates,
+  List<ServiceCategoryOption> categories = _defaultCategories,
 }) async {
   // The seeded service has a category, so the form mounts the second-level
   // _ServiceTypeChips section and grows taller. Use a roomy viewport so the
@@ -183,6 +215,7 @@ Future<void> _pumpEdit(
       overrides: _overrides(
         repo,
         includeMasterProfile: masterProfileStates != null,
+        categories: categories,
       ).cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -201,6 +234,95 @@ Future<void> _pumpEdit(
   // pending, it would resolve mid-interaction and shift the submit CTA, dropping
   // the tap (hit-test miss).
   await tester.pumpAndSettle();
+}
+
+/// Pumps [ServiceEditScreen] WITHOUT settling, leaving [serviceByIdProvider]
+/// unresolved so the screen renders its loading branch.
+///
+/// [listMyServices] is held on a never-completing future by the caller so the
+/// provider stays in [AsyncLoading]; a single [pump] flushes the initial build
+/// (the spinner) but does not drain microtasks, so the loading scaffold is the
+/// rendered state when control returns.
+Future<void> _pumpEditLoading(
+  WidgetTester tester,
+  _MockServiceRepository repo, {
+  String id = 'svc-edit-1',
+}) async {
+  tester.view.physicalSize = const Size(800, 1600);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: _overrides(repo).cast(),
+      child: MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('uk'),
+        home: ServiceEditScreen(id: id),
+      ),
+    ),
+  );
+  // A single pump flushes the first frame (loading scaffold) without draining
+  // the pending list/getMyService futures, so the spinner is the rendered state.
+  await tester.pump();
+}
+
+/// Pumps [ServiceEditScreen] as a SECOND route pushed onto a Navigator, so the
+/// screen's `Navigator.maybePop` fallback (used when there is no GoRouter
+/// ancestor) has a route beneath it to pop back to. The returned [_PopObserver]
+/// records every pop, letting a test assert that the edit screen popped itself
+/// on cancel / after a confirmed delete.
+///
+/// A starter button on the first route pushes the edit screen; we tap it,
+/// settle, and hand control back with the screen mounted.
+Future<_PopObserver> _pumpEditInNavigator(
+  WidgetTester tester,
+  _MockServiceRepository repo, {
+  String id = 'svc-edit-1',
+}) async {
+  tester.view.physicalSize = const Size(800, 1600);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+
+  final observer = _PopObserver();
+
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: _overrides(repo).cast(),
+      child: MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('uk'),
+        navigatorObservers: <NavigatorObserver>[observer],
+        home: Builder(
+          builder: (BuildContext context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                key: const Key('open-edit'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ServiceEditScreen(id: id),
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pump();
+
+  // Push the edit screen onto the stack.
+  await tester.tap(find.byKey(const Key('open-edit')));
+  await tester.pumpAndSettle();
+  expect(find.byType(ServiceEditScreen), findsOneWidget);
+
+  return observer;
 }
 
 // ---------------------------------------------------------------------------
@@ -238,16 +360,10 @@ void main() {
     when(
       () => repo.deactivate(_stubService.serviceDefId),
     ).thenAnswer((_) async {});
-    // The category chip selector watches approvedCategoriesProvider, which
-    // calls fetchApprovedCategories on the repository. Stub it so the form's
-    // category row resolves to the data state.
-    when(() => repo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-        ServiceCategoryOption(name: 'EYELASH', displayName: 'Вії'),
-      ],
-    );
+    // The category chip selector watches approvedCategoriesProvider, which now
+    // fetches DIRECTLY (not through the repository). It is overridden in-scope
+    // via _overrides(categories: ...) with _defaultCategories, so no repository
+    // stub is needed here.
   });
 
   // ── 1. Form pre-populated from cache ──────────────────────────────────────
@@ -716,14 +832,6 @@ void main() {
       when(
         () => repo.getMyService(manicureService.id),
       ).thenAnswer((_) async => manicureService);
-      // Approved categories must include both MANICURE (baseline) and BROWS
-      // (the new selection) so both chips render.
-      when(() => repo.fetchApprovedCategories()).thenAnswer(
-        (_) async => const <ServiceCategoryOption>[
-          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-          ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
-        ],
-      );
       when(
         () => repo.update(
           manicureService.serviceDefId,
@@ -732,7 +840,17 @@ void main() {
         ),
       ).thenAnswer((_) async => manicureService);
 
-      await _pumpEdit(tester, repo, id: manicureService.id);
+      // Approved categories must include both MANICURE (baseline) and BROWS
+      // (the new selection) so both chips render.
+      await _pumpEdit(
+        tester,
+        repo,
+        id: manicureService.id,
+        categories: const <ServiceCategoryOption>[
+          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+          ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+        ],
+      );
 
       // Switch category MANICURE → BROWS via the dropdown.
       await selectCategoryOption(tester, 'BROWS');
@@ -806,11 +924,6 @@ void main() {
       when(
         () => repo.getMyService(editService.id),
       ).thenAnswer((_) async => editService);
-      when(() => repo.fetchApprovedCategories()).thenAnswer(
-        (_) async => const <ServiceCategoryOption>[
-          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ],
-      );
       when(
         () => repo.update(
           editService.serviceDefId,
@@ -829,6 +942,13 @@ void main() {
         ProviderScope(
           overrides: [
             serviceRepositoryProvider.overrideWithValue(repo),
+            // approvedCategoriesProvider fetches directly now — override it here
+            // with the single MANICURE category this test selects.
+            approvedCategoriesProvider.overrideWith(
+              (ref) async => const <ServiceCategoryOption>[
+                ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+              ],
+            ),
             // The selected MANICURE category surfaces the new type in the
             // second-level picker so it can be tapped.
             serviceTypesProvider.overrideWith(
@@ -931,6 +1051,164 @@ void main() {
         ),
       );
       expect(maxField.controller!.text, equals('800'));
+    },
+  );
+
+  // ── L1. Loading state — spinner shown while serviceByIdProvider resolves ──
+  //
+  // Gap (mobile-qa M3): the loading branch of asyncService.when was never
+  // pumped. Hold the underlying list fetch on a never-completing future so the
+  // provider stays in AsyncLoading, then assert the keyed spinner renders.
+
+  testWidgets(
+    'L1. shows loading spinner while serviceByIdProvider is unresolved',
+    (tester) async {
+      // Both data sources hang so serviceByIdProvider never leaves AsyncLoading.
+      final never = Completer<List<MasterService>>();
+      when(() => repo.listMyServices()).thenAnswer((_) => never.future);
+      final neverOne = Completer<MasterService>();
+      when(
+        () => repo.getMyService(_stubService.id),
+      ).thenAnswer((_) => neverOne.future);
+
+      await _pumpEditLoading(tester, repo);
+
+      // The keyed loading spinner from the screen's loading branch must render,
+      // and the loaded form chrome (cancel/delete buttons) must NOT be present.
+      expect(find.byKey(const Key('edit_service_loading')), findsOneWidget);
+      expect(find.byKey(const Key('btn-cancel-service-edit')), findsNothing);
+      expect(find.byKey(const Key('btn-delete-service')), findsNothing);
+
+      // Complete the futures so no pending-timer leak is reported on teardown.
+      never.complete(const <MasterService>[_stubService]);
+      neverOne.complete(_stubService);
+      await tester.pumpAndSettle();
+    },
+  );
+
+  // ── L2. Cancel-tap pops the screen without saving ────────────────────────
+  //
+  // Gap (mobile-qa): tapping the top-bar cancel icon must pop the route via
+  // the Navigator.maybePop fallback and must NOT call repository.update.
+
+  testWidgets('L2. tapping cancel pops the screen without calling update', (
+    tester,
+  ) async {
+    final observer = await _pumpEditInNavigator(tester, repo);
+
+    // Tap the cancel (close) icon in the top bar.
+    await tester.tap(find.byKey(const Key('btn-cancel-service-edit')));
+    await tester.pumpAndSettle();
+
+    // The edit screen popped back to the launcher route.
+    expect(observer.popCount, 1);
+    expect(find.byType(ServiceEditScreen), findsNothing);
+
+    // No save happened — cancel must never persist anything.
+    verifyNever(
+      () => repo.update(any(), any(), assignmentId: any(named: 'assignmentId')),
+    );
+  });
+
+  // ── L3. Delete-flow: cancel dismisses the dialog, no deactivate call ──────
+  //
+  // Gap (mobile-qa): tapping the real DeleteServiceDialog's cancel button
+  // returns false, so _onDelete short-circuits — the dialog closes, the screen
+  // stays, and repository.deactivate is never invoked.
+
+  testWidgets(
+    'L3. delete dialog cancel dismisses dialog and does not call deactivate',
+    (tester) async {
+      final observer = await _pumpEditInNavigator(tester, repo);
+
+      // Open the real delete dialog.
+      await tester.tap(find.byKey(const Key('btn-delete-service')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('delete-service-dialog')), findsOneWidget);
+
+      final popsBeforeCancel = observer.popCount;
+
+      // Cancel it.
+      await tester.tap(find.byKey(const Key('btn-cancel-delete-service')));
+      await tester.pumpAndSettle();
+
+      // Dialog gone, screen still mounted, nothing deleted. The only pop that
+      // occurred is the dialog route dismissing itself — the edit screen route
+      // must still be mounted (it did not pop).
+      expect(find.byKey(const Key('delete-service-dialog')), findsNothing);
+      expect(find.byType(ServiceEditScreen), findsOneWidget);
+      // Exactly one further pop (the dialog) and no more — the screen stays.
+      expect(observer.popCount, popsBeforeCancel + 1);
+      verifyNever(() => repo.deactivate(any()));
+    },
+  );
+
+  // ── L4. Delete-flow: failure surfaces a snackbar and stays on screen ──────
+  //
+  // Gap (mobile-qa M3): when deactivate throws, _onDelete catches it and shows
+  // a failure snackbar via failure.userMessage(context). The screen must NOT
+  // pop. Asserts the mapped ServerFailure copy (errServer) is the snackbar text.
+
+  testWidgets(
+    'L4. delete failure shows error snackbar and screen is not popped',
+    (tester) async {
+      when(
+        () => repo.deactivate(_stubService.serviceDefId),
+      ).thenThrow(const ServerFailure());
+
+      await _pumpEditInNavigator(tester, repo);
+      final l10n = _l10n(tester);
+
+      // Open the dialog and confirm.
+      await tester.tap(find.byKey(const Key('btn-delete-service')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-confirm-delete-service')));
+      await tester.pumpAndSettle();
+
+      // deactivate was attempted once.
+      verify(() => repo.deactivate(_stubService.serviceDefId)).called(1);
+
+      // A failure snackbar with the mapped ServerFailure copy is shown.
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text(l10n.errServer), findsOneWidget);
+
+      // The screen stays mounted — a failed delete must not pop the route.
+      // (The observer counts the dialog's own dismiss pop; the durable signal
+      // that the SCREEN did not pop is its continued presence in the tree.)
+      expect(find.byType(ServiceEditScreen), findsOneWidget);
+    },
+  );
+
+  // ── L5. Delete-flow: success calls deactivate, pops, and shows NO snackbar ─
+  //
+  // Gap (mobile-qa): the success path calls deactivate(serviceDefId), pops the
+  // screen, and invalidates the providers. Unlike the SAVE path it deliberately
+  // shows NO success snackbar — this test pins that actual behaviour so a future
+  // change that adds/removes the pop is caught.
+
+  testWidgets(
+    'L5. confirmed delete calls deactivate, pops the screen, shows no snackbar',
+    (tester) async {
+      await _pumpEditInNavigator(tester, repo);
+
+      // Open the dialog and confirm.
+      await tester.tap(find.byKey(const Key('btn-delete-service')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-confirm-delete-service')));
+      await tester.pumpAndSettle();
+
+      // deactivate called once on the serviceDefId (not the assignment id).
+      verify(() => repo.deactivate(_stubService.serviceDefId)).called(1);
+      verifyNever(() => repo.deactivate(_stubService.id));
+
+      // The screen popped itself off the stack on success — it is gone from
+      // the tree and the launcher route is back. (The observer also records the
+      // dialog's own pop, so screen-absence is the durable success signal.)
+      expect(find.byType(ServiceEditScreen), findsNothing);
+      expect(find.byKey(const Key('open-edit')), findsOneWidget);
+
+      // The delete success path shows NO snackbar (distinct from the save path).
+      expect(find.byType(SnackBar), findsNothing);
     },
   );
 

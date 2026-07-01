@@ -67,7 +67,7 @@ const _seedMaster = Master(
   lastName: 'Коваль',
   city: 'Київ',
   bio: 'Майстер манікюру та педикюру. Понад 7 років досвіду.',
-  phoneNumber: '+380501234567',
+  phoneNumber: '+380501111111',
   avgRating: 4.8,
   reviewCount: 42,
   type: MasterType.independentMaster,

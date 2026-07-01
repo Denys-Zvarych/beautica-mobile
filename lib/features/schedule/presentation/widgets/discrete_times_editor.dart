@@ -26,6 +26,8 @@
 //     notifier gate; the editor surfaces this inline so the save gate is never
 //     silently dead).
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -134,9 +136,31 @@ class DiscreteTimesEditor extends StatefulWidget {
 }
 
 class _DiscreteTimesEditorState extends State<DiscreteTimesEditor> {
+  /// Hoisted, build-invariant text styles — allocated once instead of on every
+  /// editor build (every chip add/remove). Mirrors [_TimeChip._chipStyle].
+  static final TextStyle _windowLabelStyle = VelvetText.label().copyWith(
+    fontSize: 12,
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w700,
+  );
+  static final TextStyle _addTimeStyle = VelvetText.link().copyWith(
+    fontSize: 13,
+  );
+
   /// Transient message shown when the picked time already exists in [times].
   /// `null` when no duplicate attempt is in progress.
   String? _dupeMessage;
+
+  /// Cancelable auto-dismiss timer for [_dupeMessage]. Re-armed on each duplicate
+  /// attempt (canceling any in-flight dismiss) so rapid taps can't let a stale
+  /// callback clear a newer message; canceled in [dispose].
+  Timer? _dismissTimer;
+
+  @override
+  void dispose() {
+    _dismissTimer?.cancel();
+    super.dispose();
+  }
 
   // ── Add ──────────────────────────────────────────────────────────────────---
   Future<void> _addTime() async {
@@ -164,8 +188,10 @@ class _DiscreteTimesEditorState extends State<DiscreteTimesEditor> {
     );
     if (isDupe) {
       setState(() => _dupeMessage = widget.strings.duplicateMessage);
-      // Auto-dismiss after 2.5 s.
-      Future<void>.delayed(const Duration(milliseconds: 2500), () {
+      // Auto-dismiss after 2.5 s. Cancel any in-flight dismiss first so a stale
+      // callback from an earlier tap can't clear this newer message.
+      _dismissTimer?.cancel();
+      _dismissTimer = Timer(const Duration(milliseconds: 2500), () {
         if (mounted) setState(() => _dupeMessage = null);
       });
       return;
@@ -223,14 +249,7 @@ class _DiscreteTimesEditorState extends State<DiscreteTimesEditor> {
                 color: BrandColors.accentDeep,
               ),
               const SizedBox(width: VelvetSpacing.xs + 2),
-              Text(
-                '${s.windowLabel}  $windowRange',
-                style: VelvetText.label().copyWith(
-                  fontSize: 12,
-                  color: BrandColors.accentDeep,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              Text('${s.windowLabel}  $windowRange', style: _windowLabelStyle),
             ],
           ),
           const SizedBox(height: VelvetSpacing.sm + 2),
@@ -283,10 +302,7 @@ class _DiscreteTimesEditorState extends State<DiscreteTimesEditor> {
                       color: BrandColors.accentDeep,
                     ),
                     const SizedBox(width: VelvetSpacing.sm),
-                    Text(
-                      s.addTimeLabel,
-                      style: VelvetText.link().copyWith(fontSize: 13),
-                    ),
+                    Text(s.addTimeLabel, style: _addTimeStyle),
                   ],
                 ),
               ),

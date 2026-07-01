@@ -91,6 +91,7 @@ void main() {
         fb,
         extraOverrides: [
           authProvider.overrideWith(_StubAuthNotifier.new),
+          // cycle-stub-ok: this flow tests the edit-profile path, not the logout cascade — it never invokes a cyclic teardown entrypoint. The auth-cascade cycle is regression-guarded by logout_flow_test.dart, which keeps the REAL graph. (auth is also stubbed here, so no auth→services cycle exists to hide anyway.)
           servicesListProvider.overrideWith(_StubServicesList.new),
         ],
       );
@@ -118,6 +119,10 @@ void main() {
       );
 
       // Edit firstName ONLY and Save.
+      // Focus the field first — enterText does not replace existing text
+      // unless the field is tapped/focused beforehand.
+      await tester.tap(firstNameField);
+      await tester.pumpAndSettle();
       await tester.enterText(firstNameField, 'Оксана');
       await tester.pump();
       await tester.tap(find.byKey(const Key('btn-save-personal')));

@@ -84,7 +84,7 @@ GoRouter _makeRouter() => GoRouter(
       builder: (context, state) => const DoneScreen(),
     ),
     GoRoute(
-      path: RouteNames.home,
+      path: RouteNames.clientHome,
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text('home-route'))),
     ),
@@ -103,7 +103,7 @@ GoRouter _makeRouterWithMaster() => GoRouter(
       builder: (context, state) => const DoneScreen(),
     ),
     GoRoute(
-      path: RouteNames.home,
+      path: RouteNames.clientHome,
       builder: (context, state) =>
           const Scaffold(body: Center(child: Text('home-route'))),
     ),

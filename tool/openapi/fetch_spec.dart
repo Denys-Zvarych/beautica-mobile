@@ -16,7 +16,14 @@
 //   0 — spec written successfully
 //   1 — local backend unreachable or returned a non-200 status
 
+import 'dart:async';
 import 'dart:io';
+
+/// Hard ceiling on the whole request/response round-trip.  Guards against a
+/// backend that accepts the TCP connection but never sends (or never finishes
+/// sending) the response body — `HttpClient.connectionTimeout` only covers the
+/// initial connect, not a mid-stream hang.
+const Duration _requestTimeout = Duration(seconds: 30);
 
 Future<void> main(List<String> args) async {
   // Reject any --source=prod attempt early with a helpful message.
@@ -38,10 +45,34 @@ Future<void> main(List<String> args) async {
     ..connectionTimeout = const Duration(seconds: 10)
     ..idleTimeout = const Duration(seconds: 10);
 
-  late final HttpClientResponse response;
+  // Read the full response body BEFORE closing the client.  The client is
+  // closed exactly once in `finally`, after the body is consumed (or on error).
+  final List<int> bytes;
   try {
     final request = await client.getUrl(Uri.parse(url));
-    response = await request.close();
+    final response = await request.close().timeout(_requestTimeout);
+
+    if (response.statusCode != 200) {
+      // Drain the body so the connection can be released cleanly.
+      await response.drain<void>();
+      stderr.writeln(
+        'ERROR: Backend returned HTTP ${response.statusCode} for $url.\n'
+        '  Expected 200.  Check that the backend is healthy and api-docs is enabled.',
+      );
+      exit(1);
+    }
+
+    bytes = await response
+        .fold<List<int>>(<int>[], (acc, chunk) => acc..addAll(chunk))
+        .timeout(_requestTimeout);
+  } on TimeoutException catch (e) {
+    stderr.writeln(
+      'ERROR: Timed out after ${_requestTimeout.inSeconds}s waiting for $url.\n'
+      '  The backend accepted the connection but did not respond in time.\n'
+      '  Check that the backend is healthy and not hung.\n'
+      '  Original error: $e',
+    );
+    exit(1);
   } on SocketException catch (e) {
     stderr.writeln(
       'ERROR: Cannot reach local backend at $url.\n'
@@ -57,19 +88,6 @@ Future<void> main(List<String> args) async {
   } finally {
     client.close();
   }
-
-  if (response.statusCode != 200) {
-    stderr.writeln(
-      'ERROR: Backend returned HTTP ${response.statusCode} for $url.\n'
-      '  Expected 200.  Check that the backend is healthy and api-docs is enabled.',
-    );
-    exit(1);
-  }
-
-  final bytes = await response.fold<List<int>>(
-    <int>[],
-    (acc, chunk) => acc..addAll(chunk),
-  );
 
   await File(outPath).writeAsBytes(bytes);
 

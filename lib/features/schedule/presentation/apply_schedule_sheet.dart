@@ -53,18 +53,26 @@ import '../domain/weekly_schedule.dart';
 import 'period_range_picker.dart';
 import 'weekly_schedule_notifier.dart';
 
-/// Opens the «Період дії графіка» sheet. Resolves to `true` when the window was
-/// applied (saved) successfully, `false`/`null` when dismissed without saving.
+/// Opens the «Період дії графіка» sheet. The result depends on whether the
+/// [baseSchedule] is already persisted:
+///
+///   • EXISTING template (`baseSchedule.id != null`) — the live window-change
+///     path: applying PERSISTS the new window immediately and resolves to
+///     `true` on success, `false`/`null` when dismissed without saving.
+///   • FIRST CREATE (`baseSchedule.id == null`) — nothing is persisted here.
+///     The chosen window is returned as a [DateTimeRange] for the editor to
+///     stage as a local draft (its Save button is the single commit point);
+///     resolves to `null` when dismissed without choosing.
 ///
 /// [baseSchedule] is the active weekly template whose window is being set; its
 /// `days` are preserved verbatim — only `validFrom`/`validTo` change. [today]
 /// is the injectable wall-clock anchor for the presets / cap.
-Future<bool?> showApplyScheduleSheet(
+Future<Object?> showApplyScheduleSheet(
   BuildContext context, {
   required WeeklySchedule baseSchedule,
   required DateTime today,
 }) {
-  return showModalBottomSheet<bool>(
+  return showModalBottomSheet<Object?>(
     context: context,
     isScrollControlled: true,
     backgroundColor: BrandColors.base,
@@ -206,9 +214,31 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
 
   /// Builds the active template with the chosen window and saves it, surfacing
   /// an overlap/validation rejection inline (never a silent overwrite).
+  ///
+  /// FIRST CREATE (`baseSchedule.id == null`): does NOT persist. The chosen
+  /// window is returned to the editor as a [DateTimeRange] draft — the editor's
+  /// Save button is the single commit point on first create, so applying a
+  /// window here must not write to the provider or invalidate the calendar.
   Future<void> _apply() async {
     final DateTimeRange? range = _range;
     if (range == null) return;
+
+    // First-create: stage the window as a draft, no persist.
+    if (widget.baseSchedule.id == null) {
+      if (kDebugMode) {
+        log(
+          'apply: first-create → return draft window '
+          '${range.start} → ${range.end} (no persist)',
+          name: _tag,
+          level: 800,
+        );
+      }
+      context.pop<DateTimeRange>(
+        DateTimeRange(start: _dateOnly(range.start), end: _dateOnly(range.end)),
+      );
+      return;
+    }
+
     final AppLocalizations l10n = AppLocalizations.of(context);
 
     setState(() {

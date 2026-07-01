@@ -46,5 +46,15 @@ abstract final class UserMapper {
     role: UserRole.fromWire(dto.role!),
     firstName: dto.firstName,
     lastName: dto.lastName,
+    phoneNumber: dto.phoneNumber,
+    cityId: dto.cityId,
+    districtId: dto.districtId,
+    oblastId: dto.oblastId,
+    cityName: dto.cityName,
+    oblastName: dto.oblastName,
+    districtName: dto.districtName,
+    street: dto.street,
+    buildingNo: dto.buildingNo,
+    locationNote: dto.locationNote,
   );
 }

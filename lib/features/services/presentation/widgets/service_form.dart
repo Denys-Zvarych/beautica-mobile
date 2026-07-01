@@ -142,7 +142,9 @@ class ServiceForm extends StatefulWidget {
         ? selectedTypeCategory
         : previousCategory;
     if (typeCategory == null || typeCategory.isEmpty) return true;
-    return typeCategory != newCategory;
+    // Slug-safe comparison: keep-on-same-category, but immune to case/whitespace
+    // drift (e.g. 'BROWS ' vs 'BROWS'). Clear only on a genuine category change.
+    return !categorySlugMatches(typeCategory, newCategory);
   }
 
   /// Edit-flow hardening rule (Phase 16.5). Decides whether the name field
@@ -330,6 +332,14 @@ class _ServiceFormState extends State<ServiceForm> {
     _baselineServiceTypeId = initial?.serviceTypeId;
     _selectedServiceTypeId = initial?.serviceTypeId;
     _selectedServiceTypeNameUk = initial?.serviceTypeNameUk;
+    // Phase 16.5 pre-seed gap fix: the loaded service's category IS the parent
+    // category of its service type by construction, so carry it from the first
+    // frame. Without this the compatibility check on the very first category
+    // change would fall back to the (then-still-equal) previous category and
+    // never recognise an orphaning change. Null in create mode (no initial).
+    _selectedServiceTypeCategory = initial?.serviceTypeId != null
+        ? initial?.category
+        : null;
     _pricingMode = _baselinePricingMode;
 
     _nameCtrl = TextEditingController(text: _baselineName);
@@ -693,6 +703,29 @@ class _ServiceFormState extends State<ServiceForm> {
       }
       final Map<String, String> mapped = _mapServerFieldErrors(f.fieldErrors);
       if (mapped.isEmpty) {
+        // Phase 16.5 safety net: the backend hardened category-only edits to
+        // return a fieldless 400 ("service type does not belong to the selected
+        // category") when a category change orphans the still-selected type.
+        // That carries NO `errors` map, so it lands here. When we can attribute
+        // it — a type is still selected AND the category was changed (dirty) —
+        // surface a localized inline error on the service-type field instead of
+        // the raw English server message. The gate is structural (not a string
+        // match on the English text), so any OTHER future business 400 still
+        // falls through to the generic snackbar below.
+        final bool typeSelected = _selectedServiceTypeId != null;
+        final bool categoryDirty = _selectedCategory != _baselineCategory;
+        if (typeSelected && categoryDirty) {
+          if (mounted) {
+            setState(() {
+              _serverFieldErrors = Map<String, String>.unmodifiable(
+                <String, String>{
+                  'serviceTypeId': l10n.serviceTypeCategoryMismatch,
+                },
+              );
+            });
+          }
+          return;
+        }
         // No recognised field — surface the backend's generic message (or a
         // localized fallback) as a snackbar so the submit never dies silently.
         if (context.mounted) {

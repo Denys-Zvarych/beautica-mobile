@@ -4,7 +4,7 @@
 // credentials → taps Submit → app navigates to the role-appropriate home.
 //
 // Three cases:
-//   1. CLIENT        → lands on / (placeholder home; this role is post-MVP)
+//   1. CLIENT        → lands on /home (the Phase 13.1 5-tab client shell)
 //   2. SALON_OWNER   → lands on / (placeholder home; this role is post-MVP)
 //   3. INDEPENDENT_MASTER → lands on /master/profile (Phase 4.2)
 //
@@ -69,9 +69,9 @@ void main() {
     expect(fb.loginCalls, equals(1));
   });
 
-  // ── Test 2 — CLIENT → home placeholder ───────────────────────────────────
+  // ── Test 2 — CLIENT → client home shell ──────────────────────────────────
 
-  testWidgets('CLIENT login navigates to / (home placeholder)', (tester) async {
+  testWidgets('CLIENT login navigates to /home (client shell)', (tester) async {
     final fb = FakeBackend()..currentRole = UserRole.client;
     final GoRouter router = await AppHarness.boot(tester, fb);
 
@@ -79,8 +79,16 @@ void main() {
 
     await AppHarness.loginAs(tester, fb, UserRole.client);
 
-    // CLIENT is post-MVP → router lands on the home placeholder.
-    expectLocation(router, RouteNames.home);
+    // Phase 13.1 — a CLIENT lands on the 5-tab client shell at /home (NOT the
+    // legacy `/` home placeholder). Assert the exact landing path.
+    final String current = router.routerDelegate.currentConfiguration.uri
+        .toString();
+    expect(
+      current,
+      equals(RouteNames.clientHome),
+      reason:
+          'CLIENT must land exactly on ${RouteNames.clientHome}, got $current',
+    );
     expect(fb.loginCalls, equals(1));
   });
 

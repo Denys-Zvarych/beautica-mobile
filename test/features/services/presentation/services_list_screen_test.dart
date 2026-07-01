@@ -61,6 +61,20 @@ const _stubService = MasterService(
 
 const _stubServiceList = <MasterService>[_stubService];
 
+/// The default approved-category list. approvedCategoriesProvider now fetches
+/// DIRECTLY (not through the repository), so it must be overridden in-scope;
+/// _LoadedBody watches it to resolve category labels. This mirrors the list the
+/// pre-migration `fetchApprovedCategories` stub returned in setUp.
+const _defaultCategories = <ServiceCategoryOption>[
+  ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+];
+
+/// Builds the [approvedCategoriesProvider] override for [categories]. Pass each
+/// test's specific category list; defaults to [_defaultCategories].
+Object _categoriesOverride([
+  List<ServiceCategoryOption> categories = _defaultCategories,
+]) => approvedCategoriesProvider.overrideWith((ref) async => categories);
+
 /// Minimal [MasterService] factory for generating lists of arbitrary length.
 /// Only the required fields are set; freezed defaults cover the rest.
 MasterService _makeService(int i) => MasterService(
@@ -99,6 +113,51 @@ class _StubServicesList extends ServicesList {
   }
 }
 
+/// A repo-backed stub [ServicesList] that drives BOTH the initial load and the
+/// retry / pull-to-refresh re-fetch off [ServiceRepository.listMyServices].
+///
+/// Why this exists instead of the real notifier: Riverpod surfaces an initial
+/// `build()` failure as an [AsyncError] that STILL carries `isLoading: true`
+/// (the seamless-loading flag). The screen renders its error branch via a plain
+/// `AsyncValue.when`, which treats `isLoading: true` as the loading branch — so
+/// the real notifier never paints the error UI on a first-load failure. This
+/// stub posts PURE states (no retained loading flag), matching how the existing
+/// [_StubServicesList] drives the screen, so the error branch renders exactly
+/// as it does for a real reload failure.
+///
+///   • [build] awaits `listMyServices()`; success → pure [AsyncData],
+///     failure → pure [AsyncError]. The production retry callback
+///     (`ref.invalidate(servicesListProvider)`) re-creates this stub →
+///     `build()` re-runs → the next `listMyServices()` answer is applied.
+///   • [refresh] mirrors the real notifier's contract (used by the
+///     [RefreshIndicator]) but posts a pure result state.
+class _RepoBackedServicesList extends ServicesList {
+  @override
+  Future<List<MasterService>> build() {
+    final repo = ref.watch(serviceRepositoryProvider);
+    Future<void>.microtask(() async {
+      try {
+        state = AsyncData(await repo.listMyServices());
+      } catch (e, st) {
+        state = AsyncError(e, st);
+      }
+    });
+    // Never-completing future — state is posted above as a pure value.
+    return Completer<List<MasterService>>().future;
+  }
+
+  @override
+  Future<void> refresh() async {
+    try {
+      state = AsyncData(
+        await ref.read(serviceRepositoryProvider).listMyServices(),
+      );
+    } catch (e, st) {
+      state = AsyncError(e, st);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
@@ -107,6 +166,11 @@ class _StubServicesList extends ServicesList {
 /// with a stub notifier resolving to [target].
 Object _servicesOverride(AsyncValue<List<MasterService>> target) =>
     servicesListProvider.overrideWith(() => _StubServicesList(target));
+
+/// Returns a [ProviderScope] override that replaces [servicesListProvider]
+/// with the repo-backed stub used by the retry + pull-to-refresh tests.
+Object _repoBackedOverride() =>
+    servicesListProvider.overrideWith(() => _RepoBackedServicesList());
 
 /// Minimal GoRouter that records pushed locations without any actual routing.
 GoRouter _mockRouter({
@@ -165,14 +229,10 @@ void main() {
   setUp(() {
     mockRepo = _MockServiceRepository();
     when(() => mockRepo.listMyServices()).thenAnswer((_) async => const []);
-    // _LoadedBody watches approvedCategoriesProvider to resolve category
-    // labels (FIX 4). Default stub keeps the provider in the data state for
-    // every existing test; FIX 4 tests override it with their own values.
-    when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-      ],
-    );
+    // _LoadedBody watches approvedCategoriesProvider to resolve category labels
+    // (FIX 4). That provider now fetches DIRECTLY (not through the repository),
+    // so it is overridden per-test via _categoriesOverride(...) rather than
+    // stubbed here. Tests that need specific labels pass their own list.
   });
 
   // ── 1. Loading state ───────────────────────────────────────────────────────
@@ -185,6 +245,7 @@ void main() {
       overrides: [
         _servicesOverride(const AsyncLoading()),
         serviceRepositoryProvider.overrideWithValue(mockRepo),
+        _categoriesOverride(),
       ],
     );
     // First pump triggers the loading frame.
@@ -220,6 +281,7 @@ void main() {
         overrides: [
           _servicesOverride(const AsyncLoading()),
           serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
         ],
       );
       // Loading frame — the shimmer controllers are running.
@@ -250,6 +312,7 @@ void main() {
       overrides: [
         _servicesOverride(const AsyncError(NetworkFailure(), StackTrace.empty)),
         serviceRepositoryProvider.overrideWithValue(mockRepo),
+        _categoriesOverride(),
       ],
     );
     // First pump: loading frame. Second pump: microtask delivers error state.
@@ -269,6 +332,7 @@ void main() {
       overrides: [
         _servicesOverride(const AsyncData(<MasterService>[])),
         serviceRepositoryProvider.overrideWithValue(mockRepo),
+        _categoriesOverride(),
       ],
     );
     // Loading frame → microtask → data frame.
@@ -295,6 +359,7 @@ void main() {
         overrides: [
           _servicesOverride(const AsyncData(_stubServiceList)),
           serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
         ],
       );
       // Loading frame → microtask → data frame.
@@ -341,6 +406,7 @@ void main() {
         overrides: [
           _servicesOverride(const AsyncData(_stubServiceList)),
           serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
         ],
       );
       // Loading frame → microtask → data frame → entrance animation.
@@ -398,6 +464,7 @@ void main() {
       overrides: [
         _servicesOverride(const AsyncData(_stubServiceList)),
         serviceRepositoryProvider.overrideWithValue(mockRepo),
+        _categoriesOverride(),
       ],
     );
     await tester.pump();
@@ -420,6 +487,7 @@ void main() {
       overrides: [
         _servicesOverride(const AsyncData(_stubServiceList)),
         serviceRepositoryProvider.overrideWithValue(mockRepo),
+        _categoriesOverride(),
       ],
     );
     await tester.pump();
@@ -462,6 +530,7 @@ void main() {
         overrides: [
           _servicesOverride(AsyncData(services)),
           serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
         ],
       );
       // Loading frame → microtask delivers data → data frame.
@@ -544,17 +613,14 @@ void main() {
     testWidgets(
       'approved slug renders Ukrainian displayName (Брови), not raw BROWS',
       (tester) async {
-        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
-          ],
-        );
-
         await tester.pumpApp(
           const ServicesListScreen(),
           overrides: [
             _servicesOverride(const AsyncData(<MasterService>[browsService])),
             serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(const <ServiceCategoryOption>[
+              ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+            ]),
           ],
         );
         await tester.pump();
@@ -580,17 +646,14 @@ void main() {
       'unapproved slug falls back to humanized label (Brows), not raw BROWS',
       (tester) async {
         // Approved list does NOT contain BROWS (inactive/retired category).
-        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-          ],
-        );
-
         await tester.pumpApp(
           const ServicesListScreen(),
           overrides: [
             _servicesOverride(const AsyncData(<MasterService>[browsService])),
             serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(const <ServiceCategoryOption>[
+              ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+            ]),
           ],
         );
         await tester.pump();
@@ -658,13 +721,15 @@ void main() {
 
     Future<void> pumpList(
       WidgetTester tester,
-      List<MasterService> services,
-    ) async {
+      List<MasterService> services, {
+      List<ServiceCategoryOption> categories = _defaultCategories,
+    }) async {
       await tester.pumpApp(
         const ServicesListScreen(),
         overrides: [
           _servicesOverride(AsyncData(services)),
           serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(categories),
         ],
       );
       // Loading frame → microtask delivers data → data frame.
@@ -678,14 +743,14 @@ void main() {
     testWidgets('B2 — preserves creation order across and within categories '
         '(HAIRCUT before BROWS; A before C in HAIRCUT)', (tester) async {
       // Approved list covers both slugs so labels resolve to Ukrainian.
-      when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-        (_) async => const <ServiceCategoryOption>[
+      await pumpList(
+        tester,
+        const <MasterService>[aHaircut, bBrows, cHaircut],
+        categories: const <ServiceCategoryOption>[
           ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
           ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
         ],
       );
-
-      await pumpList(tester, const <MasterService>[aHaircut, bBrows, cHaircut]);
 
       // Exactly two sections.
       expect(sectionKey('HAIRCUT'), findsOneWidget);
@@ -736,12 +801,6 @@ void main() {
       'B3 — sections default-collapsed; tapping the header expands then '
       're-collapses the cards',
       (tester) async {
-        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-          ],
-        );
-
         await pumpList(tester, const <MasterService>[aHaircut, cHaircut]);
 
         // Default-collapsed: neither card is visible on first build.
@@ -787,12 +846,6 @@ void main() {
       'B4 — the category label appears only in the section header, never '
       'inside a service card',
       (tester) async {
-        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-          ],
-        );
-
         await pumpList(tester, const <MasterService>[aHaircut]);
 
         // The section header is present even when the section is collapsed.
@@ -832,12 +885,6 @@ void main() {
           priceMin: 400,
           priceDisplay: '400 грн',
           // no category → uncategorized bucket
-        );
-
-        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-          ],
         );
 
         await pumpList(tester, const <MasterService>[aHaircut, noCategory]);
@@ -931,13 +978,6 @@ void main() {
     // and the findsNothing assertions would have thrown.
     testWidgets('REGRESSION-1: null initialExpandCategory — all sections collapsed; '
         'no service-card keys present in the widget tree', (tester) async {
-      when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-        (_) async => const <ServiceCategoryOption>[
-          ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
-          ServiceCategoryOption(name: 'BODY', displayName: 'Тіло'),
-        ],
-      );
-
       // ServicesListScreen with the default null initialExpandCategory.
       await tester.pumpApp(
         const ServicesListScreen(),
@@ -946,6 +986,10 @@ void main() {
             const AsyncData(<MasterService>[hairService, bodyService]),
           ),
           serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
+            ServiceCategoryOption(name: 'BODY', displayName: 'Тіло'),
+          ]),
         ],
       );
       // Loading frame → microtask delivers data → data frame.
@@ -1001,13 +1045,6 @@ void main() {
       'REGRESSION-2: specific initialExpandCategory="HAIR" — only HAIR expanded; '
       'BODY section remains collapsed',
       (tester) async {
-        when(() => mockRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
-            ServiceCategoryOption(name: 'BODY', displayName: 'Тіло'),
-          ],
-        );
-
         await tester.pumpApp(
           const ServicesListScreen(initialExpandCategory: 'HAIR'),
           overrides: [
@@ -1015,6 +1052,10 @@ void main() {
               const AsyncData(<MasterService>[hairService, bodyService]),
             ),
             serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(const <ServiceCategoryOption>[
+              ServiceCategoryOption(name: 'HAIR', displayName: 'Волосся'),
+              ServiceCategoryOption(name: 'BODY', displayName: 'Тіло'),
+            ]),
           ],
         );
         await tester.pump();
@@ -1037,6 +1078,272 @@ void main() {
               'BODY was not requested — its section must stay collapsed when a '
               'different category was explicitly targeted',
         );
+      },
+    );
+  });
+
+  // ── 8. Error-state retry interaction (mobile-qa M3 / LOW) ──────────────────
+  //
+  // The error-state test above only asserts the retry button is PRESENT. These
+  // tests close the interaction gap: tapping the retry affordance must
+  // re-trigger the load and surface the now-succeeding data.
+  //
+  // Strategy: drive the REAL [ServicesList] notifier (no stub override) off the
+  // mocked repository. The production retry callback is
+  // `ref.invalidate(servicesListProvider)`, which re-runs `build()` →
+  // `listMyServices()`. By stubbing the repo to throw on the first call and
+  // succeed on the second, a single retry tap must flip error → data.
+
+  group('error-state retry', () {
+    testWidgets(
+      'tapping retry re-fetches and renders the list after the load succeeds',
+      (tester) async {
+        // First listMyServices() throws (error frame); the second returns data.
+        var calls = 0;
+        when(() => mockRepo.listMyServices()).thenAnswer((_) async {
+          calls++;
+          if (calls == 1) throw const NetworkFailure();
+          return _stubServiceList;
+        });
+
+        // Repo-backed stub so the production retry callback
+        // (ref.invalidate(servicesListProvider)) re-runs build() →
+        // listMyServices() and the error → data transition is real.
+        await tester.pumpApp(
+          const ServicesListScreen(),
+          overrides: [
+            _repoBackedOverride(),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(),
+          ],
+        );
+        // Loading frame → microtask delivers the pure error state.
+        await tester.pump();
+        await tester.pump();
+
+        // Error state with the retry button is shown after the first failure.
+        expect(find.byKey(const Key('services_error_state')), findsOneWidget);
+        final retryButton = find.byKey(const Key('error_state_retry_button'));
+        expect(retryButton, findsOneWidget);
+        expect(calls, 1, reason: 'only the initial failing fetch has run');
+
+        // Tap retry → ref.invalidate(servicesListProvider) → build() re-runs →
+        // second (succeeding) listMyServices() call.
+        await tester.tap(retryButton);
+        await tester.pump();
+        await tester.pump();
+        // Advance past the card entrance stagger.
+        await tester.pump(const Duration(milliseconds: 500));
+
+        // The error state is gone and the list rendered.
+        expect(
+          find.byKey(const Key('services_error_state')),
+          findsNothing,
+          reason: 'a successful retry must clear the error state',
+        );
+        expect(
+          calls,
+          2,
+          reason: 'retry must trigger exactly one additional fetch',
+        );
+
+        // _stubService has no category → uncategorized bucket starts collapsed.
+        await tester.tap(find.byKey(const Key('category_section__none')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('service_card_svc-001')),
+          findsOneWidget,
+          reason: 'the re-fetched service card must render after a retry',
+        );
+        expect(find.text('Стрижка'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'a still-failing retry keeps the error state and retry button visible',
+      (tester) async {
+        // Every fetch fails — retry must re-attempt but the error state stays.
+        var calls = 0;
+        when(() => mockRepo.listMyServices()).thenAnswer((_) async {
+          calls++;
+          throw const NetworkFailure();
+        });
+
+        await tester.pumpApp(
+          const ServicesListScreen(),
+          overrides: [
+            _repoBackedOverride(),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(),
+          ],
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byKey(const Key('services_error_state')), findsOneWidget);
+        expect(calls, 1);
+
+        await tester.tap(find.byKey(const Key('error_state_retry_button')));
+        await tester.pump();
+        await tester.pump();
+
+        // The retry re-attempted the load (second call) but it failed again, so
+        // the error state and its retry affordance remain on screen.
+        expect(
+          calls,
+          2,
+          reason: 'retry must re-attempt the fetch even when it fails again',
+        );
+        expect(
+          find.byKey(const Key('services_error_state')),
+          findsOneWidget,
+          reason: 'a failing retry must keep the error state visible',
+        );
+        expect(
+          find.byKey(const Key('error_state_retry_button')),
+          findsOneWidget,
+          reason: 'the retry button must remain tappable after a failed retry',
+        );
+      },
+    );
+  });
+
+  // ── 9. Pull-to-refresh interaction (mobile-qa M6 / LOW) ────────────────────
+  //
+  // A downward fling on the [RefreshIndicator] must invoke
+  // [ServicesListNotifier.refresh], which re-reads
+  // serviceRepositoryProvider.listMyServices(). These tests drive the real
+  // notifier so the fling actually exercises refresh() → a second fetch that
+  // surfaces fresh data.
+
+  group('pull-to-refresh', () {
+    /// Fling the populated list down far enough to arm the [RefreshIndicator],
+    /// then settle so refresh() runs to completion.
+    Future<void> pullToRefresh(WidgetTester tester) async {
+      await tester.fling(find.byType(ListView), const Offset(0, 400), 1000);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a downward fling re-fetches and renders the updated list', (
+      tester,
+    ) async {
+      // First fetch returns one service; the refresh fetch returns a
+      // different service so we can prove fresh data was rendered.
+      const refreshed = MasterService(
+        id: 'svc-002',
+        serviceDefId: 'def-002',
+        name: 'Манікюр',
+        durationMinutes: 60,
+        priceMin: 500,
+        priceDisplay: '500 грн',
+      );
+      var calls = 0;
+      when(() => mockRepo.listMyServices()).thenAnswer((_) async {
+        calls++;
+        return calls == 1 ? _stubServiceList : const <MasterService>[refreshed];
+      });
+
+      // Repo-backed stub so the fling drives refresh() → a real second fetch.
+      await tester.pumpApp(
+        const ServicesListScreen(),
+        overrides: [
+          _repoBackedOverride(),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
+        ],
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // Initial data: the first service is present.
+      expect(calls, 1, reason: 'only the initial build() fetch has run');
+      // Expand the uncategorized section to see the initial card.
+      await tester.tap(find.byKey(const Key('category_section__none')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('service_card_svc-001')), findsOneWidget);
+
+      // Pull down to refresh.
+      await pullToRefresh(tester);
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // refresh() ran exactly one additional fetch.
+      expect(
+        calls,
+        2,
+        reason: 'pull-to-refresh must trigger one additional listMyServices()',
+      );
+
+      // The fresh list replaced the old one. Expand the uncategorized section
+      // again (the rebuilt list reset section expansion).
+      await tester.tap(find.byKey(const Key('category_section__none')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('service_card_svc-002')),
+        findsOneWidget,
+        reason: 'the refreshed service must render after pull-to-refresh',
+      );
+      expect(
+        find.byKey(const Key('service_card_svc-001')),
+        findsNothing,
+        reason: 'the stale service must be gone after a successful refresh',
+      );
+      expect(find.text('Манікюр'), findsOneWidget);
+    });
+
+    testWidgets(
+      'pull-to-refresh on the error state re-fetches and recovers to the list',
+      (tester) async {
+        // First fetch fails (error frame, which is still scrollable via
+        // _errorScrollable); the refresh fetch succeeds.
+        var calls = 0;
+        when(() => mockRepo.listMyServices()).thenAnswer((_) async {
+          calls++;
+          if (calls == 1) throw const NetworkFailure();
+          return _stubServiceList;
+        });
+
+        await tester.pumpApp(
+          const ServicesListScreen(),
+          overrides: [
+            _repoBackedOverride(),
+            serviceRepositoryProvider.overrideWithValue(mockRepo),
+            _categoriesOverride(),
+          ],
+        );
+        await tester.pump();
+        await tester.pump();
+
+        // Error state is shown; it is wrapped in a scrollable so the pull
+        // gesture is detectable.
+        expect(find.byKey(const Key('services_error_state')), findsOneWidget);
+        expect(calls, 1);
+
+        // Fling the error scrollable down to refresh.
+        await tester.fling(
+          find.byKey(const Key('services_error_state')),
+          const Offset(0, 400),
+          1000,
+        );
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(
+          calls,
+          2,
+          reason: 'pull-to-refresh must re-fetch even from the error state',
+        );
+        expect(
+          find.byKey(const Key('services_error_state')),
+          findsNothing,
+          reason: 'a successful pull-to-refresh must clear the error state',
+        );
+
+        await tester.tap(find.byKey(const Key('category_section__none')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('service_card_svc-001')), findsOneWidget);
       },
     );
   });

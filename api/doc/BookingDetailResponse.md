@@ -25,6 +25,15 @@ Name | Type | Description | Notes
 **masterLastName** | **String** |  | [optional] 
 **clientComment** | **String** |  | [optional] 
 **providerComment** | **String** |  | [optional] 
+**masterAvatarUrl** | **String** |  | [optional] 
+**masterType** | **String** |  | [optional] 
+**salonName** | **String** |  | [optional] 
+**cityLabel** | **String** |  | [optional] 
+**districtLabel** | **String** |  | [optional] 
+**street** | **String** |  | [optional] 
+**buildingNo** | **String** |  | [optional] 
+**categoryName** | **String** |  | [optional] 
+**canReview** | **bool** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

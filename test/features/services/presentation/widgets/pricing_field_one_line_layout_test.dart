@@ -133,6 +133,12 @@ _pumpPricingField(
   );
 }
 
+// approvedCategoriesProvider is overridden in _pumpServiceForm (it fetches via
+// categoryRequestApi, not the repo).
+const _kCategories = <ServiceCategoryOption>[
+  ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+];
+
 /// Pumps a [ServiceForm] inside a ProviderScope (needed for category provider).
 Future<void> _pumpServiceForm(
   WidgetTester tester, {
@@ -146,7 +152,10 @@ Future<void> _pumpServiceForm(
 
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [serviceRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        serviceRepositoryProvider.overrideWithValue(repo),
+        approvedCategoriesProvider.overrideWith((ref) async => _kCategories),
+      ],
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
@@ -568,11 +577,6 @@ void main() {
 
     setUp(() {
       repo = _MockServiceRepository();
-      when(() => repo.fetchApprovedCategories()).thenAnswer(
-        (_) async => const <ServiceCategoryOption>[
-          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ],
-      );
       when(() => repo.create(any())).thenAnswer((_) async => _kStubService);
     });
 

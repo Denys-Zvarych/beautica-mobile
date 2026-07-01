@@ -39,6 +39,8 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -65,6 +67,17 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../../../helpers/pump_app.dart';
+
+// ---------------------------------------------------------------------------
+// Finders
+// ---------------------------------------------------------------------------
+
+/// Locale/asset-invariant finder for the location-line pin, now rendered as an
+/// [AppIcon] SVG (`BeauticaAssetIcons.locationMarker`) rather than a Material
+/// `Icons.location_on_outlined`.
+final Finder _locationIcon = find.byWidgetPredicate(
+  (w) => w is AppIcon && w.asset == BeauticaAssetIcons.locationMarker,
+);
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -218,6 +231,7 @@ List<Object> _buildOverrides({
   required AsyncValue<Master> masterState,
   required _MockMasterRepository repo,
   required _MockServiceRepository serviceRepo,
+  List<ServiceCategoryOption> categories = const <ServiceCategoryOption>[],
 }) {
   return <Object>[
     authProvider.overrideWith(() => _StubAuthNotifier(_stubUser)),
@@ -226,6 +240,11 @@ List<Object> _buildOverrides({
     ),
     masterRepositoryProvider.overrideWithValue(repo),
     serviceRepositoryProvider.overrideWithValue(serviceRepo),
+    // The profile's services section watches approvedCategoriesProvider (which
+    // now sources categories straight from categoryRequestApiProvider, not the
+    // repository). Override it directly so the section resolves with no pending
+    // Timer / real API hit.
+    approvedCategoriesProvider.overrideWith((ref) async => categories),
   ];
 }
 
@@ -602,7 +621,7 @@ void main() {
       tester,
     ) async {
       final masterWithPhone = _stubMaster.copyWith(
-        phoneNumber: '+380501234567',
+        phoneNumber: '+380501111111',
       );
       await tester.pumpApp(
         const MasterProfileScreen(),
@@ -617,7 +636,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byKey(const Key('master-contact-phone')),
-          matching: find.text('+380501234567'),
+          matching: find.text('+380501111111'),
         ),
         findsOneWidget,
       );
@@ -735,8 +754,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Location icon must be present (location_on_outlined is in the Row).
-      expect(find.byIcon(Icons.location_on_outlined), findsOneWidget);
+      // Location icon must be present (the locationMarker AppIcon is in the Row).
+      expect(_locationIcon, findsOneWidget);
       // The combined address text must equal just the city.
       expect(find.text('Київ'), findsOneWidget);
     });
@@ -831,7 +850,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byIcon(Icons.location_on_outlined), findsOneWidget);
+      expect(_locationIcon, findsOneWidget);
     });
   });
 
@@ -852,7 +871,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // No location row should appear — the conditional is `if (locationLine != null)`.
-      expect(find.byIcon(Icons.location_on_outlined), findsNothing);
+      expect(_locationIcon, findsNothing);
     });
 
     testWidgets('note row absent when city and street are null', (
@@ -870,7 +889,7 @@ void main() {
 
       // Master name must still render — only the location row is suppressed.
       expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
-      expect(find.byIcon(Icons.location_on_outlined), findsNothing);
+      expect(_locationIcon, findsNothing);
     });
   });
 
@@ -986,9 +1005,6 @@ void main() {
       when(
         () => mockServiceRepo.listMyServices(),
       ).thenAnswer((_) async => stubServices);
-      when(
-        () => mockServiceRepo.fetchApprovedCategories(),
-      ).thenAnswer((_) async => const <ServiceCategoryOption>[]);
 
       await tester.pumpApp(
         const MasterProfileScreen(),
@@ -1218,19 +1234,16 @@ void main() {
           ),
         ],
       );
-      when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
-        (_) async => const <ServiceCategoryOption>[
-          ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-          ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
-        ],
-      );
-
       await tester.pumpApp(
         const MasterProfileScreen(),
         overrides: _buildOverrides(
           masterState: const AsyncData<Master>(_stubMaster),
           repo: repo,
           serviceRepo: mockServiceRepo,
+          categories: const <ServiceCategoryOption>[
+            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+            ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+          ],
         ),
       );
       await tester.pumpAndSettle();
@@ -1267,19 +1280,16 @@ void main() {
             ),
           ],
         );
-        when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-            ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
-          ],
-        );
-
         await tester.pumpApp(
           const MasterProfileScreen(),
           overrides: _buildOverrides(
             masterState: const AsyncData<Master>(_stubMaster),
             repo: repo,
             serviceRepo: mockServiceRepo,
+            categories: const <ServiceCategoryOption>[
+              ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+              ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+            ],
           ),
         );
         await tester.pumpAndSettle();
@@ -1315,10 +1325,6 @@ void main() {
             ),
           ],
         );
-        when(
-          () => mockServiceRepo.fetchApprovedCategories(),
-        ).thenAnswer((_) async => const <ServiceCategoryOption>[]);
-
         await tester.pumpApp(
           const MasterProfileScreen(),
           overrides: _buildOverrides(
@@ -1360,12 +1366,6 @@ void main() {
             ),
           ],
         );
-        when(() => mockServiceRepo.fetchApprovedCategories()).thenAnswer(
-          (_) async => const <ServiceCategoryOption>[
-            ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-          ],
-        );
-
         final pushedRoutes = <String>[];
         final router = buildRouter(pushedRoutes: pushedRoutes);
 
@@ -1383,6 +1383,9 @@ void main() {
             masterState: const AsyncData<Master>(_stubMaster),
             repo: repo,
             serviceRepo: mockServiceRepo,
+            categories: const <ServiceCategoryOption>[
+              ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+            ],
           ),
         );
         // Settle all microtasks (master data, services data, categories data)

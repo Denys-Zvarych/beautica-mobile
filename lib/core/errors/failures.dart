@@ -342,6 +342,37 @@ final class CategoryRequestThrottledFailure extends Failure {
       AppLocalizations.of(ctx).categoryRequestErrThrottled;
 }
 
+/// Emitted when `POST /api/v1/support/contact` returns **503 Service
+/// Unavailable** because the support channel is not configured on the backend
+/// (e.g. the support inbox / forwarding address is unset).
+///
+/// Distinct from [ServerFailure] so the contact screen can show a specific
+/// "support is temporarily unavailable, try later" message rather than the
+/// generic server-error copy.
+final class SupportChannelUnavailableFailure extends Failure {
+  const SupportChannelUnavailableFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).contactSupportErrUnavailable;
+}
+
+/// Emitted when `POST /api/v1/support/contact` returns **413 Payload Too
+/// Large** because the combined attachment size exceeded the 5 MB envelope the
+/// backend enforces at the transport layer.
+///
+/// The client mirrors this limit (see [SupportLimits]) so a well-behaved client
+/// never reaches the server with an over-budget payload — but a 413 is mapped
+/// here as a backstop so the user still gets the right "attachments too large"
+/// message instead of a generic server error.
+final class SupportAttachmentTooLargeFailure extends Failure {
+  const SupportAttachmentTooLargeFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).contactSupportErrTotalTooBig;
+}
+
 /// Emitted when `POST /api/v1/independent-masters/me/services/bulk` returns
 /// **409 Conflict** because the master already has at least one active service.
 ///

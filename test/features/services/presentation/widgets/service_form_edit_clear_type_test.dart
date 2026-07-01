@@ -103,14 +103,15 @@ String _nameText(WidgetTester tester) =>
 void main() {
   late _MockServiceRepository repo;
 
+  // approvedCategoriesProvider is overridden directly below (it fetches via
+  // categoryRequestApi, not the repo).
+  const categories = <ServiceCategoryOption>[
+    ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+    ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+  ];
+
   setUp(() {
     repo = _MockServiceRepository();
-    when(() => repo.fetchApprovedCategories()).thenAnswer(
-      (_) async => const <ServiceCategoryOption>[
-        ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
-        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
-      ],
-    );
   });
 
   Future<void> pumpForm(
@@ -127,6 +128,7 @@ void main() {
       ProviderScope(
         overrides: [
           serviceRepositoryProvider.overrideWithValue(repo),
+          approvedCategoriesProvider.overrideWith((ref) async => categories),
           // Return the slice for whichever category the picker queries, so a
           // category change genuinely repopulates the option list.
           serviceTypesProvider.overrideWith((ref, String categoryName) async {

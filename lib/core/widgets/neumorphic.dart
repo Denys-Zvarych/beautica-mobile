@@ -963,14 +963,32 @@ class VelvetHeader extends StatelessWidget {
 class NeumorphicIconButton extends StatelessWidget {
   const NeumorphicIconButton({
     super.key,
-    required this.icon,
+    this.icon,
+    this.iconWidget,
     required this.onTap,
     required this.semanticLabel,
-  });
+  }) : assert(
+         icon != null || iconWidget != null,
+         'NeumorphicIconButton: supply either an `icon` (IconData) or an '
+         '`iconWidget` (e.g. AppIcon) — both null renders nothing.',
+       );
 
-  final IconData icon;
+  /// Material glyph rendered as the button face. Ignored when [iconWidget] is
+  /// provided. One of [icon] / [iconWidget] must be non-null.
+  final IconData? icon;
+
+  /// Custom child rendered as the button face — e.g. an [AppIcon] SVG. When
+  /// non-null it takes precedence over [icon]; the caller owns its size/tint.
+  final Widget? iconWidget;
+
   final VoidCallback onTap;
   final String semanticLabel;
+
+  /// Fixed square extent of the button (width == height). Exposed so callers
+  /// that lay this button out alongside shorter siblings (e.g. the CLIENT top
+  /// bar's bell) can pin their own cross-axis height to the burger extent and
+  /// avoid a vertical jump when the burger is conditionally absent.
+  static const double extent = 48;
 
   // Hoisted: VelvetRadii.field is a compile-time constant so the BorderRadius
   // can be static const, avoiding an allocation per build.
@@ -986,14 +1004,16 @@ class NeumorphicIconButton extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          height: 48,
-          width: 48,
+          height: extent,
+          width: extent,
           decoration: const BoxDecoration(
             color: BrandColors.base,
             borderRadius: _buttonRadius,
             boxShadow: VelvetShadows.extrudedSmall,
           ),
-          child: Icon(icon, color: BrandColors.textSecondary, size: 22),
+          child:
+              iconWidget ??
+              Icon(icon, color: BrandColors.textSecondary, size: 22),
         ),
       ),
     );

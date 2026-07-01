@@ -244,9 +244,10 @@ class PricingField extends StatelessWidget {
                   hint: '800',
                   suffixText: 'грн',
                   formatters: _priceFormatters,
-                  // Pass empty string to flag the error ring without a
-                  // duplicate message below (mirrors the approved preview).
-                  errorText: hasRangeError ? '' : null,
+                  // Flag the error ring without a duplicate message below: the
+                  // cross-field "max > min" message is rendered once beneath the
+                  // pair (mirrors the approved preview).
+                  errorRing: hasRangeError,
                   hideSuffixWhenActive: true,
                 ),
               ),
@@ -478,9 +479,9 @@ class PricingField extends StatelessWidget {
                   hint: '800',
                   suffixText: 'грн',
                   formatters: _priceFormatters,
-                  // The cross-field error surfaces once below the pair.
-                  // Empty string flags the field ring without a duplicate msg.
-                  errorText: hasRangeError ? '' : null,
+                  // The cross-field error surfaces once below the pair; flag the
+                  // field ring here without a duplicate message.
+                  errorRing: hasRangeError,
                   hideSuffixWhenActive: true,
                 ),
               ),
@@ -717,6 +718,7 @@ class _PricingInputField extends StatefulWidget {
     required this.formatters,
     this.enabled = true,
     this.errorText,
+    this.errorRing = false,
     this.compact = false,
     this.hideSuffixWhenActive = false,
   });
@@ -729,6 +731,19 @@ class _PricingInputField extends StatefulWidget {
   final List<TextInputFormatter> formatters;
   final bool enabled;
   final String? errorText;
+
+  /// Renders the recessed error ring WITHOUT an inline message row.
+  ///
+  /// Replaces the former empty-string ([errorText] == '') sentinel, which
+  /// conflated three states. With a dedicated flag the states are unambiguous:
+  ///   • no error      → [errorText] == null  && [errorRing] == false
+  ///   • ring only      → [errorText] == null  && [errorRing] == true
+  ///   • ring + message → [errorText] non-null/non-empty (message shown below)
+  ///
+  /// Used by the range "max" well: the cross-field "max > min" message is shown
+  /// once beneath the pair, so the well itself only needs the ring, not a
+  /// duplicate message.
+  final bool errorRing;
 
   /// Compact variant used inside the one-line service-setup row: the field
   /// label is suppressed (the [label] is still wired through Semantics for
@@ -837,7 +852,7 @@ class _PricingInputFieldState extends State<_PricingInputField> {
     final Widget well = NeumorphicInset(
       key: widget.fieldKey,
       focused: _focused,
-      hasError: hasError || widget.errorText == '',
+      hasError: hasError || widget.errorRing,
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: wellHPad,

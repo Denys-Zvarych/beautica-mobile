@@ -37,22 +37,39 @@ import '../features/auth/presentation/register_step_3_screen.dart';
 import '../features/auth/presentation/role_selection_screen.dart';
 import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
+import '../features/auth/domain/auth_session.dart';
+import '../features/auth/domain/user_role.dart';
+import '../features/discovery/domain/search_filters.dart';
+import '../features/discovery/presentation/search_filters_screen.dart';
+import '../features/discovery/presentation/search_results_screen.dart';
 import '../features/master/presentation/contacts_edit_screen.dart';
 import '../features/master/presentation/location_edit_screen.dart';
 import '../features/master/presentation/master_profile_screen.dart';
 import '../features/master/presentation/personal_info_edit_screen.dart';
+import '../features/master/presentation/public_master_profile_screen.dart';
 import '../features/master/presentation/settings_hub_screen.dart';
 import '../features/services/presentation/service_create_screen.dart';
 import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/service_setup_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/home/presentation/client_contacts_edit_screen.dart';
+import '../features/home/presentation/client_location_edit_screen.dart';
+import '../features/home/presentation/client_personal_info_edit_screen.dart';
+import '../features/home/presentation/client_settings_hub_screen.dart';
+import '../features/home/presentation/home_hub_screen.dart';
+import '../features/passport/presentation/passport_screen.dart';
+import '../features/rating/presentation/my_rating_screen.dart';
+import '../features/shell/presentation/branch_placeholders.dart';
+import '../features/shell/presentation/client_shell.dart';
+import '../features/support/presentation/contact_support_screen.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
 import '../features/schedule/presentation/schedule_editor_stubs.dart';
 import '../features/schedule/presentation/weekly_template_editor_screen.dart';
 import '../features/services/domain/category_slug.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
+import 'role_home.dart';
 import 'route_names.dart';
 
 part 'app_router.g.dart';
@@ -68,6 +85,29 @@ part 'app_router.g.dart';
 // the destination is interactive directly hurts the impression the user forms
 // of the app. Switch those routes to a `CustomTransitionPage` with zero
 // duration so the destination renders the instant the framework can build it.
+// Secondary-only parallax tween (iOS-style: the revealed page eases ~1/3 screen
+// to the LEFT as the route above slides in/out). `Animatable.chain` keeps the
+// curve in the tween itself, so we drive it straight off `secondaryAnimation`
+// with no `CurvedAnimation` object to dispose — no leaked ticker (see
+// app_router_no_leaked_timer_test).
+final Animatable<Offset> _instantPageSecondaryParallax = Tween<Offset>(
+  begin: Offset.zero,
+  end: const Offset(-1.0 / 3.0, 0),
+).chain(CurveTween(curve: Curves.fastEaseInToSlowEaseOut));
+
+// PRIMARY (forward/entry) transition stays INSTANT — `transitionDuration:
+// Duration.zero` pins `animation` at 1.0, so the destination paints the instant
+// the framework can build it (the invariant this helper exists for). We
+// deliberately ignore `animation` here: the page's own entry has no motion.
+//
+// SECONDARY transition is now honoured: when a route is pushed ON TOP of this
+// page (e.g. /search/results over the search tab root), `secondaryAnimation`
+// drives a SlideTransition so the revealed page underneath parallaxes instead of
+// sitting static / flashing through during the swipe-back of the page above. At
+// rest (`secondaryAnimation` == 0) the offset is `Offset.zero`, so the page is
+// untransformed and the instant-forward-paint is unchanged. No gesture detector
+// is added (the page above owns its own swipe-back); this is purely the revealed
+// page's reveal motion.
 CustomTransitionPage<void> _instantPage(GoRouterState state, Widget child) =>
     CustomTransitionPage<void>(
       key: state.pageKey,
@@ -75,13 +115,45 @@ CustomTransitionPage<void> _instantPage(GoRouterState state, Widget child) =>
       transitionDuration: Duration.zero,
       reverseTransitionDuration: Duration.zero,
       transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-          child,
+          SlideTransition(
+            position: secondaryAnimation.drive(_instantPageSecondaryParallax),
+            child: child,
+          ),
     );
+
+// ---------------------------------------------------------------------------
+// CLIENT shell branch indices (locked — must match the [StatefulShellBranch]
+// order in the [StatefulShellRoute.indexedStack] below). These are the single
+// source of truth for "which tab is which index": the shell hops branches via
+// `navigationShell.goBranch(<index>)`, the bottom nav fills the tile whose
+// `index == navigationShell.currentIndex`, and in-page tiles that target a tab
+// must hop the SAME index (never `context.push`, which stacks on the current
+// branch and leaves the nav selection out of sync).
+const int kClientHomeBranch = 0;
+const int kClientFavoritesBranch = 1;
+const int kClientSearchBranch = 2;
+const int kClientBookingsBranch = 3;
+const int kClientPassportBranch = 4;
 
 @Riverpod(keepAlive: true)
 GoRouter appRouter(Ref ref) {
   final refresh = AuthRefreshNotifier(ref);
   ref.onDispose(refresh.dispose);
+
+  // Per-route CLIENT gate for the public discovery surfaces that are NOT covered
+  // by the prefix gates in [authRedirect] (they sit on /masters/* and /booking/*
+  // rather than a client-shell branch). An authenticated non-CLIENT role that
+  // reaches one of these is bounced to its own landing — INDEPENDENT_MASTER back
+  // to /master/profile, every other role to the home shell. Unauthenticated
+  // access is still handled by the global [authRedirect] (→ /login), which runs
+  // alongside this route-level redirect.
+  String? clientOnlyGuard(BuildContext context, GoRouterState state) {
+    final session = ref.read(authProvider).value;
+    if (session is Authenticated && session.user.role != UserRole.client) {
+      return roleHomePath(session.user.role);
+    }
+    return null;
+  }
 
   return GoRouter(
     initialLocation: RouteNames.splash,
@@ -191,9 +263,134 @@ GoRouter appRouter(Ref ref) {
         pageBuilder: (context, state) =>
             _instantPage(state, const _Placeholder('home')),
       ),
+      // Phase 13.1 — CLIENT 5-tab StatefulShellRoute. Each branch is an
+      // independent navigator with its own stack, so hopping tabs via
+      // `goBranch` (in [ClientShell._onTap]) never grows the parent nav stack
+      // — the fix for the prior `context.push`-retains-shell growth note. The
+      // five branches, in index order:
+      //   0 — Головна  /home     (CLIENT post-login landing)
+      //   1 — Улюблені /favorites
+      //   2 — Пошук    /search   (the elevated center disc)
+      //   3 — Записи   /bookings
+      //   4 — BEAUTY PASSPORT /passport
+      // CLIENT-only gating lives in [authRedirect] (the `/home`,`/favorites`,
+      // `/search`,`/bookings`,`/passport` prefixes redirect any non-CLIENT
+      // role to the home shell), mirroring the `/master/*` and `/services`
+      // gates that fence INDEPENDENT_MASTER in. The MASTER shell keeps its own
+      // standalone routes + 4-tile VelvetBottomNavBar (unchanged).
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) =>
+            ClientShell(navigationShell: navigationShell),
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              // Phase 13.7 — real HomeHubScreen replaces the placeholder.
+              GoRoute(
+                path: RouteNames.clientHome,
+                pageBuilder: (context, state) =>
+                    _instantPage(state, const HomeHubScreen()),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: RouteNames.clientFavorites,
+                pageBuilder: (context, state) => _instantPage(
+                  state,
+                  const ClientFavoritesPlaceholderScreen(),
+                ),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              // Phase 13.3 — real ClientSearchScreen replaces the placeholder.
+              GoRoute(
+                path: RouteNames.clientSearch,
+                pageBuilder: (context, state) =>
+                    _instantPage(state, const ClientSearchScreen()),
+                routes: [
+                  // /search/results — pushed from the Пошук CTA with the
+                  // assembled SearchFilters in `extra`. Nested under the search
+                  // branch so it pushes onto that branch's navigator (swipe-back
+                  // returns to the still-populated filters). Phase 13.4 — real
+                  // paged results list replaces the placeholder.
+                  GoRoute(
+                    path: 'results',
+                    builder: (context, state) => SearchResultsScreen(
+                      initialFilters: state.extra as SearchFilters?,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: RouteNames.clientBookings,
+                pageBuilder: (context, state) => _instantPage(
+                  state,
+                  const ClientBookingsPlaceholderScreen(),
+                ),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              // Phase 13.8 — real PassportScreen replaces the placeholder.
+              GoRoute(
+                path: RouteNames.clientPassport,
+                pageBuilder: (context, state) =>
+                    _instantPage(state, const PassportScreen()),
+              ),
+            ],
+          ),
+        ],
+      ),
       GoRoute(
         path: RouteNames.settings,
         builder: (context, state) => const SettingsScreen(),
+      ),
+      // Support / contact-us («Напишіть нам»). Pushed from the settings hub's
+      // "Допомога" row. MaterialPage (builder:) so the swipe-back gesture works.
+      GoRoute(
+        path: RouteNames.contactSupport,
+        builder: (context, state) => const ContactSupportScreen(),
+      ),
+      // Phase 13.7 (revised) — CLIENT's aggregate rating screen.
+      // Backend GET /clients/me/rating is not yet shipped; the screen shows the
+      // empty state. Client comments are never shown (two-sided ratings only).
+      GoRoute(
+        path: RouteNames.myRating,
+        builder: (context, state) => const MyRatingScreen(),
+      ),
+      // Phase 13.5 — Public master profile (CLIENT-facing, read-only). A
+      // top-level route (full-screen, over the client bottom nav) pushed from
+      // the search-results / favourites master cards. CLIENT-guarded: an
+      // INDEPENDENT_MASTER that lands here is redirected to /master/profile; any
+      // other non-CLIENT role to its own home. Registered with exported:false so
+      // it is reachable only by an in-app push, never an external deep link.
+      GoRoute(
+        path: '/masters/:masterId',
+        redirect: clientOnlyGuard,
+        pageBuilder: (context, state) => _instantPage(
+          state,
+          PublicMasterProfileScreen(
+            masterId: state.pathParameters['masterId'] ?? '',
+          ),
+        ),
+      ),
+      // Phase 14.1 (placeholder) — booking flow entry. The public master
+      // profile's «Записатись» / «Обрати послугу» CTA pushes here with the
+      // target master id in `extra`. CLIENT-guarded like the profile route. The
+      // real service-selection / slot-picker screen replaces this builder in
+      // Phase 14.1; until then a «Скоро…» panel keeps the CTA non-crashing.
+      GoRoute(
+        path: RouteNames.bookingNew,
+        redirect: clientOnlyGuard,
+        builder: (context, state) => const BookingNewPlaceholderScreen(),
       ),
       // Phase 4.2 — Master profile (read-only).
       GoRoute(
@@ -221,6 +418,28 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.masterEditLocation,
         builder: (context, state) => const LocationEditScreen(),
+      ),
+      // CLIENT settings hub + per-section edit pages. Mirror the master
+      // /master/menu + /master/edit/* block above but for the CLIENT role.
+      // Pushed from the home-hub burger icon; all three edit pages PATCH
+      // /users/me via ClientProfileRepository. Role-gated to CLIENT in
+      // [authRedirect] (the /client/* prefix). MaterialPage (builder:) so the
+      // theme's CupertinoPageTransitionsBuilder installs the swipe-back gesture.
+      GoRoute(
+        path: RouteNames.clientMenu,
+        builder: (context, state) => const ClientSettingsHubScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.clientEditPersonal,
+        builder: (context, state) => const ClientPersonalInfoEditScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.clientEditContacts,
+        builder: (context, state) => const ClientContactsEditScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.clientEditLocation,
+        builder: (context, state) => const ClientLocationEditScreen(),
       ),
       // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
       // Phase 6.x — `expandCategory` query param: when present, the matching

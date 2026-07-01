@@ -219,7 +219,7 @@ Future<ProviderContainer> _pump(
       GoRoute(
         path: RouteNames.scheduleWeeklyEditor,
         builder: (BuildContext context, GoRouterState state) =>
-            WeeklyTemplateEditorScreen(clock: _clock),
+            WeeklyTemplateEditorScreen(clock: () => _clock),
       ),
       GoRoute(
         path: RouteNames.masterSchedule,
@@ -441,18 +441,18 @@ void main() {
     );
 
     testWidgets(
-      'fresh create → toggle one day ON with valid hours: the day-shape edit '
-      'is savable, but the FIRST-CREATE window gate holds Save DISABLED behind '
-      'the window-unset hint UNTIL the «Графік діє з…» period is picked; '
-      'picking it persists the create (null id) carrying Monday open',
+      'fresh create → toggle one day ON with valid hours but NO validity '
+      'window: the editor Save ENABLES (submit-time gate, not button-disable) '
+      'but pressing it shows the inline required-window error and persists '
+      'NOTHING — no navigation',
       (tester) async {
-        // RECONCILED (window-gate behaviour change): a populated day still
-        // registers as a savable change, but on a FIRST-CREATE
-        // (`_serverTemplate == null`) the validity-window gate blocks Save until
-        // the effective-from period is chosen via the «Період дії графіка»
-        // sheet — this test preserves the original "a populated day is a real,
-        // persistable change" intent and drives that change through the gated
-        // create path (the period-sheet persist), not the bare editor Save.
+        // NEW MODEL (required-window fix): a FIRST-CREATE with ≥1 valid working
+        // day enables Save (the validity range is NOT in the enable gate), but
+        // the range is REQUIRED to actually persist. Pressing Save with no
+        // range chosen surfaces the inline `error-validity-window` under the
+        // period card and bails — no save/delete, no pop. Reverting the guard
+        // makes the press persist an open-ended create and navigate away, so
+        // the zero-persist + inline-error assertions below fail.
         final _RecordingWeekly weekly = _RecordingWeekly(
           const <WeeklySchedule>[],
         );
@@ -472,16 +472,15 @@ void main() {
         await tester.tap(find.byKey(const Key('weekly-toggle-1')));
         await tester.pumpAndSettle();
 
-        // The dirty edit registered, BUT the first-create window gate now holds
-        // Save disabled and surfaces the window-unset hint instead of the
-        // no-changes hint — Save is not a dead button, it routes to the period
-        // sheet.
+        // Save is ENABLED immediately (the validity range is not in the enable
+        // gate — it is enforced at submit time). No window pick needed for the
+        // button to enable; the windowUnset hint is never shown.
         expect(
           _saveButton(tester).onPressed,
-          isNull,
+          isNotNull,
           reason:
-              'a first-create dirty draft must wait for the validity window '
-              'to be picked before Save enables',
+              'a first-create with one valid working day enables Save — the '
+              'validity range is enforced at submit, not by disabling Save',
         );
         expect(
           find.byKey(const Key('weekly-no-changes-hint')),
@@ -490,33 +489,44 @@ void main() {
         );
         expect(
           find.byKey(const Key('weekly-window-unset-hint')),
+          findsNothing,
+          reason:
+              'the window-unset hint is retired — a dirty first-create no '
+              'longer routes through the Apply-window sheet to enable Save',
+        );
+        // No inline error yet — Save has not been pressed.
+        expect(find.byKey(const Key('error-validity-window')), findsNothing);
+
+        // Press the editor Save with NO validity window chosen.
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        // SUBMIT-TIME GUARD: the inline required-window error is now shown, and
+        // NOTHING was persisted — no create, no delete, no navigation.
+        expect(
+          find.byKey(const Key('error-validity-window')),
           findsOneWidget,
           reason:
-              'a dirty first-create with no window shows the window-unset hint',
+              'pressing Save on a first-create with no validity window must '
+              'surface the inline required-window error',
         );
-
-        // Drive the «Графік дії графіка» sheet to pick a window → this PERSISTS
-        // the create (the sheet calls save with the base draft + chosen window).
-        await _pickWindowViaUnsetHint(tester);
-
-        // The CREATE (null id) carrying Monday open was issued via the period
-        // sheet's persist path.
-        expect(weekly.saveCalled, isTrue);
+        expect(
+          weekly.saveCalled,
+          isFalse,
+          reason: 'the required-window guard must block the create (no POST)',
+        );
         expect(weekly.deleteCalled, isFalse);
         expect(
-          weekly.savedScheduleId,
-          isNull,
-          reason: 'a fresh create must POST with no schedule id',
+          find.byType(WeeklyTemplateEditorScreen),
+          findsOneWidget,
+          reason: 'the guard keeps the editor on screen (no navigation)',
         );
+        expect(find.byKey(const Key('schedule-stub')), findsNothing);
+        // Save stays ENABLED — the gate is submit-time, not button-disable.
         expect(
-          weekly.savedSchedule!.id,
-          isNull,
-          reason: 'a not-yet-persisted draft has no id',
-        );
-        expect(
-          weekly.savedSchedule!.days[0].intervals,
-          isNotEmpty,
-          reason: 'Monday is open in the created shape',
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason: 'Save remains enabled after the blocked submit attempt',
         );
       },
     );
@@ -640,26 +650,28 @@ void main() {
     );
   });
 
-  // ── First-create validity-window gate (the bug fix) ───────────────────────
+  // ── First-create single commit point + REQUIRED validity window ──────────
   //
-  // BUG FIX (DEBUG 3.5): on a FIRST-CREATE (`_serverTemplate == null`) the
-  // editor used to enable Save the moment a day was toggled on, then persist a
-  // fabricated `validFrom = today` the master never chose. FIX: a dirty
-  // first-create with no chosen validity window lands the Save gate at
-  // `_SaveGate.windowUnset` — Save stays DISABLED and a tappable
-  // `Key('weekly-window-unset-hint')` (l10n `weeklyEditorWindowUnsetHint`)
-  // routes to the «Період дії графіка» sheet. Picking a window there PERSISTS
-  // the create with the master's explicit `validFrom`/`validTo` and re-seeds the
-  // editor. `_save` also has a defensive early-return for a create-without-
-  // window so the create branch can never reach the `_today` fallback.
+  // On a FIRST-CREATE (`_serverTemplate == null`) the editor's Save is the
+  // SINGLE commit point, and the validity window is now REQUIRED to persist it.
+  // Two-layer contract:
+  //   • ENABLE GATE — a dirty first-create with ≥1 valid working day ENABLES
+  //     Save immediately (the validity range is NOT in the enable gate; the old
+  //     `_SaveGate.windowUnset` gate is gone).
+  //   • SUBMIT GATE — pressing Save with no window chosen (`_draftWindow ==
+  //     null`) surfaces the inline `error-validity-window` error and persists
+  //     NOTHING. Choosing a window (via the «Період дії графіка» sheet, which
+  //     STAGES the range into `_draftWindow` and returns a `DateTimeRange`)
+  //     clears the error; the subsequent Save persists ONE schedule with
+  //     `validFrom = _draftWindow.start`, `validTo = _draftWindow.end`.
   //
-  // These tests drive the gate purely through observable UI/state (the Save
-  // button's enabled flag, the keyed hint, the recorded save) and resolve the
-  // hint copy through AppLocalizations (M2 / M11 — never a raw UA literal).
-  group('WeeklyTemplateEditorScreen — first-create window gate', () {
+  // These tests drive the behaviour purely through observable UI/state (the
+  // Save button's enabled flag, the inline error key, the recorded save) and
+  // resolve any localised copy through AppLocalizations (M2 / M11).
+  group('WeeklyTemplateEditorScreen — first-create single commit point', () {
     testWidgets(
-      'windowUnset gate: a dirty first-create (a day toggled ON with valid '
-      'hours) keeps Save DISABLED and shows the localised window-unset hint',
+      'a dirty first-create (a day toggled ON with valid hours) enables Save '
+      'immediately and never shows the (retired) window-unset hint',
       (tester) async {
         final _RecordingWeekly weekly = _RecordingWeekly(
           const <WeeklySchedule>[],
@@ -669,41 +681,144 @@ void main() {
           overrides: _overridesFor(weekly),
         );
         addTearDown(c.dispose);
-        final AppLocalizations l10n = _l10n(tester);
 
         // Toggle Monday ON → valid default hours, dirty, error-free.
         await tester.tap(find.byKey(const Key('weekly-toggle-1')));
         await tester.pumpAndSettle();
 
-        // Save stays DISABLED — the first-create window has not been chosen.
+        // NEW: Save is ENABLED — the windowUnset gate is gone (Bug 2 fix).
+        // Reverting the fix re-introduces the gate and this fails.
         expect(
           _saveButton(tester).onPressed,
-          isNull,
+          isNotNull,
           reason:
-              'a dirty first-create with no chosen validity window must keep '
-              'Save disabled (the windowUnset gate)',
+              'a dirty first-create with one valid working day is saveable '
+              'directly — there is no validity-window pre-gate',
         );
-        // The window-unset hint is shown, and it carries the localised copy
-        // (resolved via AppLocalizations — never a raw UA literal).
-        final Finder hint = find.byKey(const Key('weekly-window-unset-hint'));
-        expect(hint, findsOneWidget);
-        expect(
-          find.descendant(
-            of: hint,
-            matching: find.text(l10n.weeklyEditorWindowUnsetHint),
-          ),
-          findsOneWidget,
-          reason: 'the window-unset hint renders its localised explanation',
-        );
-        // It supersedes the no-changes hint (the draft IS dirty).
+        // Neither hint is shown: the draft is dirty (no no-changes hint) and
+        // the windowUnset hint is retired.
         expect(find.byKey(const Key('weekly-no-changes-hint')), findsNothing);
+        expect(
+          find.byKey(const Key('weekly-window-unset-hint')),
+          findsNothing,
+          reason: 'the window-unset hint is no longer rendered on first-create',
+        );
       },
     );
 
     testWidgets(
-      'post-pick: picking the «Графік діє з…» period via the unset hint '
-      'persists the create with the PICKED validFrom (fixed clock proves it is '
-      'not silently DateTime.now())',
+      'the validity range is NOT in the Save ENABLE gate: with one valid '
+      'working day and NO range, Save is ENABLED — but pressing it surfaces '
+      'the inline required-window error (submit-time gate, not button-disable)',
+      (tester) async {
+        // This pins the SEPARATION of the two gates: button-enablement is
+        // unchanged (≥1 valid working day enables Save regardless of the range),
+        // while the range requirement is enforced ONLY when Save is pressed.
+        // If the range were (wrongly) folded back into the enable gate, the
+        // first `isNotNull` assertion fails; if the submit guard were reverted,
+        // the inline-error assertion fails (the press would persist instead).
+        final _RecordingWeekly weekly = _RecordingWeekly(
+          const <WeeklySchedule>[],
+        );
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        // Toggle Monday ON — one valid working day, no range chosen.
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+
+        // ENABLE GATE: Save is enabled with no range — the range is not part of
+        // button enablement.
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason:
+              'Save enablement is unchanged — one valid working day enables it '
+              'with no validity range selected',
+        );
+        // No inline error before the press.
+        expect(find.byKey(const Key('error-validity-window')), findsNothing);
+
+        // SUBMIT GATE: pressing Save with no range shows the inline error.
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('error-validity-window')),
+          findsOneWidget,
+          reason: 'the range requirement is enforced at submit time',
+        );
+        expect(
+          weekly.saveCalled,
+          isFalse,
+          reason: 'the submit guard blocks persistence with no range',
+        );
+        // Save is still enabled after the blocked attempt.
+        expect(_saveButton(tester).onPressed, isNotNull);
+      },
+    );
+
+    testWidgets('first-create Save AFTER picking a validity window persists '
+        'the chosen range (validFrom = pick.start, validTo = pick.end) with no '
+        'inline error — the editor Save is the single commit point', (
+      tester,
+    ) async {
+      final _RecordingWeekly weekly = _RecordingWeekly(
+        const <WeeklySchedule>[],
+      );
+      final ProviderContainer c = await _pump(
+        tester,
+        overrides: _overridesFor(weekly),
+      );
+      addTearDown(c.dispose);
+
+      await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+      await tester.pumpAndSettle();
+      expect(_saveButton(tester).onPressed, isNotNull);
+
+      // The validity window is now REQUIRED on first create: pick a custom
+      // window 15.06 → 20.06 via the active-window card BEFORE pressing Save.
+      // Staging clears any inline error and supplies validFrom/validTo.
+      await _pickCustomWindowViaCard(tester, startDay: 15, endDay: 20);
+
+      // Press the editor Save — the single commit point.
+      await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+      await tester.pumpAndSettle();
+
+      // The create persisted from the editor Save, carrying the PICKED window.
+      // No inline required-window error is shown (a window WAS chosen).
+      expect(weekly.saveCalled, isTrue);
+      expect(weekly.savedScheduleId, isNull);
+      expect(weekly.savedSchedule!.id, isNull);
+      expect(
+        weekly.savedSchedule!.validFrom,
+        DateTime(2026, 6, 15),
+        reason: 'validFrom must equal the picked start',
+      );
+      expect(
+        weekly.savedSchedule!.validTo,
+        DateTime(2026, 6, 20),
+        reason: 'validTo must equal the picked end',
+      );
+      expect(
+        weekly.savedSchedule!.days[0].intervals,
+        isNotEmpty,
+        reason: 'the open Monday is carried into the persisted create',
+      );
+      expect(
+        find.byKey(const Key('error-validity-window')),
+        findsNothing,
+        reason: 'a chosen window clears the required-window inline error',
+      );
+    });
+
+    testWidgets(
+      'first-create: opening the Apply-window sheet and picking a custom period '
+      'STAGES it (no persist) — only the subsequent editor Save commits, '
+      'carrying the PICKED window',
       (tester) async {
         final _RecordingWeekly weekly = _RecordingWeekly(
           const <WeeklySchedule>[],
@@ -716,14 +831,30 @@ void main() {
 
         await tester.tap(find.byKey(const Key('weekly-toggle-1')));
         await tester.pumpAndSettle();
-        expect(_saveButton(tester).onPressed, isNull);
 
-        // Tap the window-unset hint → opens the period sheet; pick a custom
-        // window 2026-06-15 → 2026-06-20 (start ≠ injected today 09.06).
-        await _pickCustomWindowViaUnsetHint(tester, startDay: 15, endDay: 20);
+        // Open the Apply-window sheet via the active-window card and pick a
+        // custom window 2026-06-15 → 2026-06-20 (start ≠ injected today 09.06).
+        await _pickCustomWindowViaCard(tester, startDay: 15, endDay: 20);
 
-        // The create persisted via the sheet, carrying the PICKED window — the
-        // fixed clock (09.06) proves validFrom is the pick (15.06), not now.
+        // The sheet did NOT persist on first-create — it only staged the draft
+        // window. No CRUD has fired yet.
+        expect(
+          weekly.saveCalled,
+          isFalse,
+          reason:
+              'on first-create the Apply-window sheet only STAGES the window — '
+              'it must NOT eagerly persist (Bug 2 fix). Reverting the fix fires '
+              'a save here and this fails.',
+        );
+
+        // Save is enabled (dirty day + a staged window). Commit via the editor
+        // Save — the single commit point.
+        expect(_saveButton(tester).onPressed, isNotNull);
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        // Now exactly one create fired, carrying the PICKED window — the fixed
+        // clock (09.06) proves validFrom is the pick (15.06), not today.
         expect(weekly.saveCalled, isTrue);
         expect(weekly.savedScheduleId, isNull);
         expect(weekly.savedSchedule!.id, isNull);
@@ -740,41 +871,67 @@ void main() {
         );
       },
     );
+  });
 
+  // ── Bug 2(a) — first-create Save-enable gate (focused regression) ─────────
+  //
+  // BUG: `_saveGate` returned `_SaveGate.windowUnset` for a dirty first-create
+  // whose validity window was unset, so `onPressed` stayed null even when the
+  // master had toggled a valid working day on — the Save button looked dead.
+  // FIX: `_saveGate` no longer returns `windowUnset`; a dirty first-create with
+  // ≥1 valid working day is `saveable`. This focused test pins exactly that: ONE
+  // open day, a valid interval, NO second day, and NO Apply-window interaction →
+  // `btn-save-weekly-template` has a non-null `onPressed`. Restoring the
+  // `windowUnset` gate flips this back to null and the test fails.
+  group('WeeklyTemplateEditorScreen — Bug 2(a) first-create Save-enable', () {
     testWidgets(
-      'defensive guard: tapping the disabled Save on a first-create with no '
-      'window picked invokes NO repository create (the _save early-return)',
+      'a first-create with exactly ONE open day (valid interval) ENABLES Save '
+      'with no second day and no Apply-window interaction',
       (tester) async {
-        final _RecordingWeekly weekly = _RecordingWeekly(
-          const <WeeklySchedule>[],
-        );
+        // Empty server list → first create (`_serverTemplate == null`).
         final ProviderContainer c = await _pump(
           tester,
-          overrides: _overridesFor(weekly),
+          overrides: <Object>[
+            weeklyScheduleProvider.overrideWith(
+              () => _RecordingWeekly(const <WeeklySchedule>[]),
+            ),
+            effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+          ],
         );
         addTearDown(c.dispose);
 
+        // Precondition — pristine all-off draft: Save disabled, no-changes hint.
+        expect(_saveButton(tester).onPressed, isNull);
+        expect(find.byKey(const Key('weekly-no-changes-hint')), findsOneWidget);
+
+        // Toggle ONLY Monday on. The stash seeds a valid default interval
+        // (09:00–18:00); no other day is touched, and the Apply-window sheet is
+        // never opened.
         await tester.tap(find.byKey(const Key('weekly-toggle-1')));
         await tester.pumpAndSettle();
 
-        // Save is disabled (windowUnset). Tapping the button must not save —
-        // both the disabled `onPressed: null` and the defensive `_save`
-        // early-return guard the create. Tap the button widget directly.
-        expect(_saveButton(tester).onPressed, isNull);
-        await tester.tap(
-          find.byKey(const Key('btn-save-weekly-template')),
-          warnIfMissed: false,
-        );
-        await tester.pumpAndSettle();
-
+        // Exactly one open day in the summary count — proves a single working
+        // day (the count chip listens to _openCountNotifier).
+        final AppLocalizations l10n = _l10n(tester);
         expect(
-          weekly.saveCalled,
-          isFalse,
-          reason:
-              'a first-create with no chosen window must never invoke the '
-              'repository create (defensive early-return in _save)',
+          find.text(l10n.weeklyEditorOpenCount(1)),
+          findsOneWidget,
+          reason: 'exactly one day is open',
         );
-        expect(weekly.deleteCalled, isFalse);
+
+        // THE BUG-2(a) ASSERTION: Save is ENABLED with one open day, no second
+        // day, no Apply-window pick. If the windowUnset gate were restored this
+        // is null and the test fails.
+        expect(
+          _saveButton(tester).onPressed,
+          isNotNull,
+          reason:
+              'a dirty first-create with one valid working day must enable '
+              'Save directly — the windowUnset gate is removed (Bug 2 fix)',
+        );
+        // And no gate hint of either kind is shown.
+        expect(find.byKey(const Key('weekly-no-changes-hint')), findsNothing);
+        expect(find.byKey(const Key('weekly-window-unset-hint')), findsNothing);
       },
     );
   });
@@ -819,16 +976,15 @@ void main() {
 
     testWidgets(
       'edit with NO existing template → create (save with a null id) is issued '
-      'via the period-sheet persist path, carrying the PICKED validFrom (not '
-      'today)',
+      'by the editor Save itself — carrying the PICKED validFrom when the '
+      'Apply-window sheet staged one (not today)',
       (tester) async {
-        // RECONCILED (window-gate behaviour change): the create no longer fires
-        // from the bare editor Save — a first-create with no chosen window is
-        // gated. The create now happens via the «Період дії графіка» sheet,
-        // which persists the draft with the master's explicitly-picked
-        // validFrom. Original intent preserved: prove the editor issues a CREATE
-        // (null id) carrying the open Monday — now additionally proving the
-        // saved validFrom is the PICKED date, not a fabricated `today`.
+        // NEW MODEL (Bug 2 fix): the create fires from the editor Save (the
+        // single commit point), NOT from the Apply-window sheet. The sheet only
+        // STAGES the chosen window into `_draftWindow`; the editor Save reads it
+        // and persists. Original intent preserved: prove the editor issues a
+        // CREATE (null id) carrying the open Monday, with the saved validFrom
+        // being the PICKED date, not a fabricated `today`.
         final _RecordingWeekly weekly = _RecordingWeekly(
           const <WeeklySchedule>[],
         );
@@ -838,20 +994,28 @@ void main() {
         );
         addTearDown(c.dispose);
 
-        // Open Monday → dirty, but first-create window gate holds Save disabled.
+        // Open Monday → dirty → Save is enabled immediately (no window gate).
         await tester.tap(find.byKey(const Key('weekly-toggle-1')));
         await tester.pumpAndSettle();
         expect(
           _saveButton(tester).onPressed,
-          isNull,
-          reason: 'first-create Save is gated until the window is picked',
+          isNotNull,
+          reason: 'first-create Save is enabled with one valid working day',
         );
 
-        // Pick a CUSTOM window starting 2026-06-15 (≠ injected today 09.06) so
-        // the saved validFrom proves it is the PICKED date, not `DateTime.now()`
-        // nor the `_today` fallback. End at 2026-06-20 (same first month → no
-        // brittle scroll). Picking persists the create.
-        await _pickCustomWindowViaUnsetHint(tester, startDay: 15, endDay: 20);
+        // Stage a CUSTOM window starting 2026-06-15 (≠ injected today 09.06) via
+        // the active-window card. End at 2026-06-20 (same first month → no
+        // brittle scroll). Staging does NOT persist.
+        await _pickCustomWindowViaCard(tester, startDay: 15, endDay: 20);
+        expect(
+          weekly.saveCalled,
+          isFalse,
+          reason: 'staging the window must not persist on first-create',
+        );
+
+        // Commit via the editor Save — the single commit point.
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
 
         expect(weekly.saveCalled, isTrue);
         expect(weekly.deleteCalled, isFalse);
@@ -866,7 +1030,7 @@ void main() {
           reason: 'a not-yet-persisted draft has no id',
         );
         // The saved window carries the PICKED validFrom (15.06), NOT the
-        // injected today (09.06) — proving the window came from the sheet pick.
+        // injected today (09.06) — proving the staged window flowed to Save.
         expect(
           weekly.savedSchedule!.validFrom,
           DateTime(2026, 6, 15),
@@ -1790,6 +1954,214 @@ void main() {
       },
     );
   });
+
+  // ── M6 — FIRST-CREATE midnight-rollover re-anchor (the headline bug) ────────
+  //
+  // THE stale-`validFrom` regression. A first-create POSTed a `validFrom`
+  // captured ONCE when the «Період дії графіка» preset was picked. Crossing
+  // midnight before Save turned that cached start into YESTERDAY, which the
+  // backend's `@FutureOrPresent` guard rejects with a 400. The fix makes the
+  // editor's clock a LIVE `DateTime Function()` (so `_today` recomputes), and at
+  // submit it: (1) re-anchors a now-past `_draftWindow` to a freshly-recomputed
+  // today, surfaces the `weeklyEditorWindowReanchored` snackbar, and BAILS the
+  // press WITHOUT persisting (the master confirms with a second Save); then a
+  // second Save persists a present `validFrom`. `_buildSchedule` additionally
+  // clamps a past `validFrom` up to today on the persist path (covers UPDATE).
+  //
+  // We advance time via the now-live clock seam — `_pumpWithClock` injects a
+  // callback over a mutable `now` the test mutates between the preset pick and
+  // Save. No new production seam is added (the dev made the clock live).
+  //
+  // RED-ON-PRE-FIX: revert the submit-time re-anchor/clamp and the FIRST Save
+  // persists immediately with the STALE picked start (yesterday) — so
+  // `saveCalled` is true after the first press and `savedSchedule.validFrom`
+  // equals the stale D, failing the "nothing persisted on first Save" and
+  // "validFrom == D+1" assertions below (and the reanchored snackbar never
+  // shows). The UPDATE-clamp case fails identically if the `_buildSchedule`
+  // past→today clamp is removed (it would persist the legacy 01.06 validFrom).
+  group('WeeklyTemplateEditorScreen — M6 first-create midnight rollover', () {
+    testWidgets(
+      'crossing midnight between picking a today-anchored window and Save '
+      're-anchors the window to the NEW today, shows the reanchored snackbar, '
+      'and persists NOTHING on that first Save',
+      (tester) async {
+        // D = 2026-06-09; advance to D+1 = 2026-06-10 before Save.
+        DateTime now = DateTime(2026, 6, 9);
+        final _RecordingWeekly weekly = _RecordingWeekly(
+          const <WeeklySchedule>[],
+        );
+        final ProviderContainer c = await _pumpWithClock(
+          tester,
+          overrides: _overridesFor(weekly),
+          clock: () => now,
+        );
+        addTearDown(c.dispose);
+        final AppLocalizations l10n = _l10n(tester);
+
+        // Toggle Monday ON (valid default hours) and pick the «Весь поточний
+        // місяць» preset under clock = D → staged window starts 09.06 (== D).
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+        await _pickThisMonthWindowViaCard(tester);
+
+        // The card reflects the staged window anchored at D (09.06–30.06).
+        expect(
+          find.text(l10n.weeklyEditorActiveWindowRange('09.06', '30.06')),
+          findsOneWidget,
+          reason: 'the staged window is anchored at D before the rollover',
+        );
+
+        // ── Cross midnight: the live clock now reads D+1. ──
+        now = DateTime(2026, 6, 10);
+
+        // FIRST Save — the staged start (09.06) is now past → re-anchor + bail.
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        // (a) NOTHING persisted on this first Save …
+        expect(
+          weekly.saveCalled,
+          isFalse,
+          reason:
+              'a now-past staged window must re-anchor + bail, NOT POST a '
+              'stale yesterday validFrom (the @FutureOrPresent 400 bug)',
+        );
+        expect(weekly.deleteCalled, isFalse);
+        // … the editor stays on screen (no navigation) …
+        expect(find.byType(WeeklyTemplateEditorScreen), findsOneWidget);
+        expect(find.byKey(const Key('schedule-stub')), findsNothing);
+        // … the reanchored snackbar explains the shift (resolved via l10n) …
+        expect(
+          find.text(l10n.weeklyEditorWindowReanchored('10.06')),
+          findsOneWidget,
+          reason: 'the master is told the window moved to the new today',
+        );
+        // … and the active-window card now starts D+1 (10.06), not the stale D.
+        expect(
+          find.text(l10n.weeklyEditorActiveWindowRange('10.06', '30.06')),
+          findsOneWidget,
+          reason: 'the re-anchored window now starts the new today (D+1)',
+        );
+        expect(
+          find.text(l10n.weeklyEditorActiveWindowRange('09.06', '30.06')),
+          findsNothing,
+          reason: 'the stale D-anchored window label is gone after re-anchor',
+        );
+      },
+    );
+
+    testWidgets(
+      'the SECOND Save (after the re-anchor) persists validFrom == the NEW '
+      'today (D+1), never the stale D',
+      (tester) async {
+        DateTime now = DateTime(2026, 6, 9);
+        final _RecordingWeekly weekly = _RecordingWeekly(
+          const <WeeklySchedule>[],
+        );
+        final ProviderContainer c = await _pumpWithClock(
+          tester,
+          overrides: _overridesFor(weekly),
+          clock: () => now,
+        );
+        addTearDown(c.dispose);
+
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+        await _pickThisMonthWindowViaCard(tester);
+
+        // Roll past midnight; the first Save re-anchors (persists nothing).
+        now = DateTime(2026, 6, 10);
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+        expect(
+          weekly.saveCalled,
+          isFalse,
+          reason: 'the first Save after the rollover only re-anchors + bails',
+        );
+
+        // Dismiss the reanchored snackbar so it no longer overlays the Save
+        // button at the bottom of the screen (otherwise the second tap lands on
+        // the snackbar, not the button).
+        ScaffoldMessenger.of(
+          tester.element(find.byType(WeeklyTemplateEditorScreen)),
+        ).hideCurrentSnackBar();
+        await tester.pumpAndSettle();
+
+        // SECOND Save — the re-anchored start (10.06) is present → persists.
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        expect(weekly.saveCalled, isTrue);
+        expect(weekly.savedScheduleId, isNull);
+        expect(
+          weekly.savedSchedule!.validFrom,
+          DateTime(2026, 6, 10),
+          reason:
+              'the persisted validFrom must be the NEW today (D+1), never the '
+              'stale picked D (09.06) that the backend would 400',
+        );
+        expect(weekly.savedSchedule!.validTo, DateTime(2026, 6, 30));
+        expect(
+          weekly.savedSchedule!.days[0].intervals,
+          isNotEmpty,
+          reason: 'the open Monday is carried into the persisted create',
+        );
+        // The create navigated back on success.
+        expect(find.byKey(const Key('schedule-stub')), findsOneWidget);
+        expect(find.byType(WeeklyTemplateEditorScreen), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'UPDATE path: _buildSchedule clamps an EXISTING template whose validFrom '
+      'is already in the past UP to today on save (@FutureOrPresent applies to '
+      'updates too)',
+      (tester) async {
+        // Fixed clock at the suite _clock (09.06); the template's validFrom
+        // (01.06) is already past → it must clamp to today on save.
+        final WeeklySchedule pastWindow = WeeklySchedule(
+          id: 'sched-1',
+          validFrom: DateTime(2026, 6, 1),
+          validTo: null,
+          days: <TemplateDay>[
+            for (int dow = 1; dow <= 7; dow++)
+              TemplateDay(
+                dayOfWeek: dow,
+                label: 'd$dow',
+                intervals: dow <= 5
+                    ? <WorkInterval>[_interval(9, 0, 18, 0)]
+                    : <WorkInterval>[],
+              ),
+          ],
+        );
+        final _RecordingWeekly weekly = _RecordingWeekly(<WeeklySchedule>[
+          pastWindow,
+        ]);
+        final ProviderContainer c = await _pump(
+          tester,
+          overrides: _overridesFor(weekly),
+        );
+        addTearDown(c.dispose);
+
+        // A dirty edit (close Monday) → Save enables (existing template, no
+        // first-create window gate). Saving must clamp the past validFrom.
+        await tester.tap(find.byKey(const Key('weekly-toggle-1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
+        await tester.pumpAndSettle();
+
+        expect(weekly.saveCalled, isTrue);
+        expect(weekly.savedScheduleId, 'sched-1');
+        expect(
+          weekly.savedSchedule!.validFrom,
+          _clock,
+          reason:
+              'a past validFrom on an UPDATE must clamp UP to today — the '
+              '@FutureOrPresent guard rejects a past validFrom on PUT too',
+        );
+      },
+    );
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1810,31 +2182,22 @@ Future<void> _addWeeklyDiscreteTime(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// Opens the «Період дії графіка» sheet via the window-unset hint, picks a
-/// quick-pick preset window («Весь рік» → starts at the injected today), and
-/// taps «Застосувати» so the schedule persists. Used where the EXACT picked
-/// window does not matter — only that the gated create fires via the sheet.
-Future<void> _pickWindowViaUnsetHint(WidgetTester tester) async {
-  await tester.tap(find.byKey(const Key('weekly-window-unset-hint')));
-  await tester.pumpAndSettle();
-  // Choose a preset (deterministic under the fixed clock) then apply.
-  await tester.tap(find.byKey(const Key('preset-whole-year')));
-  await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const Key('btn-apply-schedule')));
-  await tester.pumpAndSettle();
-}
-
-/// Opens the «Період дії графіка» sheet via the window-unset hint, drives the
-/// custom [PeriodRangePicker] to select [startDay]→[endDay] (both in the first
-/// rendered month — June 2026 under the fixed clock, so no scrolling), saves the
-/// range, then taps «Застосувати». Lets a test pick a `validFrom` that differs
-/// from the injected today, proving the saved window is the PICKED one.
-Future<void> _pickCustomWindowViaUnsetHint(
+/// Opens the «Період дії графіка» sheet via the tappable active-window card
+/// (`weekly-active-window-card` — the retired window-unset hint is no longer the
+/// entry point), drives the custom [PeriodRangePicker] to select
+/// [startDay]→[endDay] (both in the first rendered month — June 2026 under the
+/// fixed clock, so no scrolling), saves the range, then taps «Застосувати».
+///
+/// On a FIRST-CREATE the «Застосувати» tap STAGES the window (returns a
+/// [DateTimeRange] to the editor) WITHOUT persisting — the editor's own Save is
+/// the single commit point. Lets a test pick a `validFrom` that differs from the
+/// injected today, proving the staged window flows to the editor Save.
+Future<void> _pickCustomWindowViaCard(
   WidgetTester tester, {
   required int startDay,
   required int endDay,
 }) async {
-  await tester.tap(find.byKey(const Key('weekly-window-unset-hint')));
+  await tester.tap(find.byKey(const Key('weekly-active-window-card')));
   await tester.pumpAndSettle();
   // Open the custom range picker via its date well.
   await tester.tap(find.byKey(const Key('apply-schedule-date-well')));
@@ -1935,3 +2298,61 @@ IntervalEditorStrings _intervalStrings(AppLocalizations l10n) =>
       errBreaksOverlap: l10n.intervalEditorErrBreaksOverlap,
       errTimeNotAligned: l10n.scheduleErrTimeNotAligned,
     );
+
+/// Pumps the editor under a GoRouter with an ADVANCEABLE [clock] (the now-live
+/// `DateTime Function()` seam) so a test can cross midnight between interactions
+/// by mutating the clock's backing `now`. Mirrors [_pump] but threads the
+/// caller's clock instead of the fixed `_clock`. Returns the container for
+/// `addTearDown(container.dispose)`.
+Future<ProviderContainer> _pumpWithClock(
+  WidgetTester tester, {
+  required List<Object> overrides,
+  required DateTime Function() clock,
+}) async {
+  final ProviderContainer container = ProviderContainer(
+    overrides: overrides.cast(),
+  );
+  final GoRouter router = GoRouter(
+    initialLocation: RouteNames.scheduleWeeklyEditor,
+    routes: <RouteBase>[
+      GoRoute(
+        path: RouteNames.scheduleWeeklyEditor,
+        builder: (BuildContext context, GoRouterState state) =>
+            WeeklyTemplateEditorScreen(clock: clock),
+      ),
+      GoRoute(
+        path: RouteNames.masterSchedule,
+        builder: (BuildContext context, GoRouterState state) =>
+            const Scaffold(key: Key('schedule-stub')),
+      ),
+    ],
+  );
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp.router(
+        routerConfig: router,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('uk'),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return container;
+}
+
+/// Opens the «Період дії графіка» sheet via the active-window card, picks the
+/// «Весь поточний місяць» preset (a TODAY-anchored window), and applies it. On a
+/// first-create this STAGES the chosen window into the editor's `_draftWindow`
+/// (the editor Save is the single commit point) — letting a test stage a window
+/// whose start is the clock's "today" at pick time, then advance the clock to
+/// exercise the submit-time re-anchor.
+Future<void> _pickThisMonthWindowViaCard(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('weekly-active-window-card')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('preset-this-month')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('btn-apply-schedule')));
+  await tester.pumpAndSettle();
+}
