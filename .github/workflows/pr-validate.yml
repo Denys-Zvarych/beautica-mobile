@@ -378,8 +378,7 @@ jobs:
           # its slow AOT compile no longer blocks every PR's critical path. This
           # fast debug pass stays per-PR.
           script: |
-            flutter test integration_test/all_tests_part1.dart
-            flutter test integration_test/all_tests_part2.dart
+            flutter test integration_test/all_tests_bisect.dart
 
   # ---------------------------------------------------------------------------
   # Profile-mode integration drive (2026-06-18 debug↔release divergence
