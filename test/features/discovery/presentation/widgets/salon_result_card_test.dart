@@ -258,6 +258,7 @@ void main() {
           find.byKey(const Key('salon_card_services')),
         );
         expect(text.data, 'Стрижка');
+        // i18n-finder-ok: service names are fixture data, not UI copy
         expect(find.text('Манікюр · Стрижка · Брови'), findsNothing);
       },
     );
@@ -306,6 +307,7 @@ void main() {
 
         // Two-line contract: locality PRESENT …
         expect(
+          // i18n-finder-ok: district/city labels are fixture data, not UI copy
           find.text('Печерський, Київ'),
           findsOneWidget,
           reason:
@@ -313,6 +315,7 @@ void main() {
               'auth-gated street line is present.',
         );
         // … AND the full street·note line PRESENT below it.
+        // i18n-finder-ok: street/note address text is fixture data, not UI copy
         expect(find.text('вул. Сагайдачного, 10А · 2 поверх'), findsOneWidget);
       },
     );
@@ -332,7 +335,9 @@ void main() {
           ),
         );
 
+        // i18n-finder-ok: district/city labels are fixture data, not UI copy
         expect(find.text('Печерський, Київ'), findsOneWidget);
+        // i18n-finder-ok: street address text is fixture data, not UI copy
         expect(find.text('вул. Сагайдачного, 10А'), findsOneWidget);
         expect(
           find.textContaining(' · '),
@@ -358,6 +363,7 @@ void main() {
           ),
         );
 
+        // i18n-finder-ok: district/city labels are fixture data, not UI copy
         expect(find.text('Печерський, Київ'), findsOneWidget);
         expect(find.textContaining('вул.'), findsNothing);
         // Region/oblast is NEVER rendered (not in the search contract).

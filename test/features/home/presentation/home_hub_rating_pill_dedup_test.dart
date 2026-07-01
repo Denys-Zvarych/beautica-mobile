@@ -88,6 +88,7 @@ void main() {
       );
       // Settle the provider future, then run out the 1100 ms reveal.
       await tester.pumpAndSettle();
+      // fixed-wait-ok: running out a time-driven CurvedAnimation — no condition to pump-until.
       await tester.pump(const Duration(milliseconds: 1100));
 
       // The rating pill (leaf .select consumer) shows the rating value.
@@ -109,6 +110,7 @@ void main() {
             'the profile card leaf must still render from the full '
             'clientProfileProvider after the body stopped watching it',
       );
+      // i18n-finder-ok: client display name is fixture data, not UI copy
       expect(find.text('Олена Тест'), findsOneWidget);
     });
 
@@ -131,6 +133,7 @@ void main() {
         // Run the reveal animation only; the profile future stays pending so
         // we deliberately do NOT pumpAndSettle (it would hang).
         await tester.pump();
+        // fixed-wait-ok: running out a time-driven CurvedAnimation — no condition to pump-until.
         await tester.pump(const Duration(milliseconds: 1100));
 
         // The rating slice is AsyncLoading → the pill renders its skeleton, so
@@ -179,6 +182,7 @@ void main() {
         // Error is settled synchronously; settle the reveal animation, then run
         // out the 1100 ms reveal exactly like the data case.
         await tester.pumpAndSettle();
+        // fixed-wait-ok: running out a time-driven CurvedAnimation — no condition to pump-until.
         await tester.pump(const Duration(milliseconds: 1100));
 
         // The rating pill now renders the DATA widget in its graceful empty

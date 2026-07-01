@@ -145,6 +145,7 @@ void main() {
         find.byKey(const Key('public-master-profile-name')),
         findsOneWidget,
       );
+      // i18n-finder-ok: master's display name is fixture data, not UI copy
       expect(find.text('Олена Ковальчук'), findsOneWidget);
 
       // Client affordances present.

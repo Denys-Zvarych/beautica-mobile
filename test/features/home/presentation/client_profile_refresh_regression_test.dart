@@ -416,6 +416,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
+        // i18n-finder-ok: city name is fixture data, not UI copy
         find.text('Львів'),
         findsOneWidget,
         reason:

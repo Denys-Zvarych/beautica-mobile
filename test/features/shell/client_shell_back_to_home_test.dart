@@ -101,7 +101,8 @@ Future<void> _pumpShell(WidgetTester tester, GoRouter router) async {
     ),
   );
   await tester.pump();
-  await tester.pump(const Duration(milliseconds: 1200)); // settle the reveal
+  // fixed-wait-ok: running out a time-driven CurvedAnimation reveal — no condition to pump-until.
+  await tester.pump(const Duration(milliseconds: 1200));
 }
 
 int _activeIndex(WidgetTester tester) =>

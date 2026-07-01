@@ -276,6 +276,7 @@ void main() {
         );
         expect(text.data, 'Брови');
         // The generic top-3 line must NOT appear when a match is present.
+        // i18n-finder-ok: service names are fixture data, not UI copy
         expect(find.text('Манікюр · Педикюр · Брови'), findsNothing);
       },
     );
@@ -326,6 +327,7 @@ void main() {
 
         // Two-line contract: the locality line is PRESENT …
         expect(
+          // i18n-finder-ok: district/city labels are fixture data, not UI copy
           find.text('Печерський, Київ'),
           findsOneWidget,
           reason:
@@ -334,6 +336,7 @@ void main() {
         );
         // … AND the full street·note line is PRESENT below it.
         expect(
+          // i18n-finder-ok: street/note address text is fixture data, not UI copy
           find.text('вул. Хрещатик, 22 · вхід з двору'),
           findsOneWidget,
           reason:
@@ -358,7 +361,9 @@ void main() {
           ),
         );
 
+        // i18n-finder-ok: district/city labels are fixture data, not UI copy
         expect(find.text('Печерський, Київ'), findsOneWidget);
+        // i18n-finder-ok: street address text is fixture data, not UI copy
         expect(find.text('вул. Хрещатик, 22'), findsOneWidget);
         // No dangling separator slipped onto the street line.
         expect(
@@ -386,6 +391,7 @@ void main() {
         );
 
         // Anonymous caller → null address → only the locality line shows.
+        // i18n-finder-ok: district/city labels are fixture data, not UI copy
         expect(find.text('Печерський, Київ'), findsOneWidget);
         // No street fragment leaked onto the card …
         expect(find.textContaining('вул.'), findsNothing);

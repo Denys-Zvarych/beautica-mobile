@@ -79,6 +79,7 @@ void main() {
 
       // ── Log in as CLIENT → land on the client shell at /home ──────────────
       await AppHarness.loginAs(tester, fb, UserRole.client);
+      // fixed-wait-ok: settles the real async login/route-transition step; duration is pumpAndSettle's poll interval, not a total-wait guess.
       await tester.pumpAndSettle(const Duration(seconds: 1));
       expectLocation(router, RouteNames.clientHome);
 
@@ -92,6 +93,7 @@ void main() {
       // route + clientOnlyGuard + publicMasterProfile provider stack the card
       // uses, so the journey under test is unchanged.
       unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
+      // fixed-wait-ok: settles the real async route-push + provider-load step; not a total-wait guess.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       expectLocation(router, '/masters/master-aaa');
@@ -119,6 +121,7 @@ void main() {
         find.byKey(const Key('public-master-profile-name')),
         findsOneWidget,
       );
+      // i18n-finder-ok: master's display name is fixture data, not UI copy
       expect(find.text('Софія Бондар'), findsOneWidget);
       final Text servicesValue = tester.widget<Text>(
         find.byKey(const Key('public-master-profile-services-value')),
@@ -149,6 +152,7 @@ void main() {
       final Finder cta = find.byKey(const Key('public-master-book-cta'));
       expect(cta, findsOneWidget);
       await tester.tap(cta);
+      // fixed-wait-ok: settles the real async route-push step after the tap; not a total-wait guess.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       expectLocation(router, RouteNames.bookingNew);
@@ -182,11 +186,13 @@ void main() {
       final GoRouter router = await AppHarness.boot(tester, fb);
 
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      // fixed-wait-ok: settles the real async login/route-transition step; not a total-wait guess.
       await tester.pumpAndSettle(const Duration(seconds: 1));
       expectLocation(router, RouteNames.masterProfile);
 
       // Attempt to reach the CLIENT-facing public profile.
       unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
+      // fixed-wait-ok: settles the real async guard-redirect route-push step; not a total-wait guess.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       // clientOnlyGuard → roleHomePath(independentMaster) → /master/profile.
