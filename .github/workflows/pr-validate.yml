@@ -375,22 +375,22 @@ jobs:
           # (staggered animations, gradients, several cards) interacts badly
           # with the swiftshader_indirect out-of-process renderer specifically
           # at IntegrationTestWidgetsFlutterBinding's one-time final teardown.
-          # Trying two low-risk mitigations below: bumping the pinned action
-          # version (was 2+ years old, v2.33.0-era; native Node 24 + AVD-
-          # creation fixes landed since), and switching `swiftshader_indirect`
-          # (out-of-process renderer, a separate process boundary that could
-          # itself be what's racing at shutdown) to plain `swiftshader`
-          # (in-process) — still fully software-rendered and safe on any
-          # runner (real `-gpu host` needs actual GPU hardware, which
-          # standard GitHub-hosted ubuntu-latest runners don't have, so it's
-          # not attempted here).
+          # Tried two mitigations: bumping the pinned action version (kept —
+          # was 2+ years old, v2.33.0-era; native Node 24 + AVD-creation fixes
+          # landed since, unambiguously worth having regardless of this bug),
+          # and switching `swiftshader_indirect` (out-of-process renderer) to
+          # plain `swiftshader` (in-process) — REVERTED: gave zero benefit
+          # (crash reproduced identically) and needlessly diverges from the
+          # action's own tested/recommended default with no upside to show
+          # for it. Real `-gpu host` was never attempted — needs actual GPU
+          # hardware, which standard GitHub-hosted ubuntu-latest runners
+          # don't have.
           #
           # The two-way split is kept regardless — it amortizes emulator
           # boot cost the same way the original single-file design did (L87),
           # just as two shorter-lived processes. Each half keeps L88 (no
           # `|| exit 1`): a failing testWidgets doesn't abort its half, and
           # both halves must succeed for the job to pass.
-          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim
           #
           # NOTE: directory-mode batching (`flutter test integration_test/`) does
           # NOT work — it launches the app once and cannot relaunch between files
