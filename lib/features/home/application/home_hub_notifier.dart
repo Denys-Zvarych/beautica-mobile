@@ -275,6 +275,7 @@ class UnlikeFavoriteMaster extends _$UnlikeFavoriteMaster {
       );
     }
     // Invalidate so the list re-fetches (will still be empty until wired).
+    // cycle-safe: favoriteMasters' build() has no ref.watch at all (placeholder).
     ref.invalidate(favoriteMastersProvider);
     state = const AsyncData(null);
   }
