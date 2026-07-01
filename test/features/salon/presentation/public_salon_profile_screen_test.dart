@@ -379,6 +379,66 @@ void main() {
 
       expect(find.byKey(const Key('salon-masters-empty')), findsOneWidget);
     });
+
+    // ── Card-shrink regression (mobile-backlog INFO) ───────────────────────
+    //
+    // The rail card was shrunk (width 148->132, height 214->190, avatar
+    // 64->56) alongside the tab-bar font fix. [_stubMasters] only ever
+    // exercised a short name + [MasterType.independentMaster] (whose role
+    // label, "Незалежний майстер", already wraps to 2 lines — the worst case
+    // [kSalonMasterCardHeight]'s doc comment budgets for), never together
+    // with a long name that forces the name's own ellipsis path. This test
+    // stresses both at once against the new, tighter height and asserts:
+    //   (a) no RenderFlex overflow is thrown (takeException == null), and
+    //   (b) the name still renders single-line + ellipsized rather than
+    //       silently wrapping into the role's vertical budget.
+    testWidgets(
+      'long name + 2-line-wrapped role does not overflow the shrunk card',
+      (tester) async {
+        await _pumpTall(tester);
+        const String longName = 'Олександра Верещагіна-Задорожня';
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(
+              masters: () async => const <SalonMasterSummary>[
+                SalonMasterSummary(
+                  masterId: 'master-long',
+                  firstName: 'Олександра',
+                  lastName: 'Верещагіна-Задорожня',
+                  avgRating: 4.8,
+                  reviewCount: 5,
+                  type: MasterType.independentMaster,
+                ),
+              ],
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason:
+              'the shrunk SalonMasterCard must not overflow for a long name '
+              'combined with the worst-case wrapped role label',
+        );
+
+        final card = find.byKey(const Key('salon-master-card-master-long'));
+        expect(card, findsOneWidget);
+
+        final Text nameText = tester.widget<Text>(find.text(longName));
+        expect(nameText.maxLines, 1, reason: 'name must be single-line');
+        expect(
+          nameText.overflow,
+          TextOverflow.ellipsis,
+          reason: 'name must ellipsize, not wrap into the role\'s budget',
+        );
+      },
+    );
   });
 
   group('services tab', () {

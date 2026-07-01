@@ -38,7 +38,12 @@ const List<List<Color>> _kAvatarGradients = <List<Color>>[
 /// height. A single fixed height — generous enough for the worst case (a
 /// 1-line name + a wrapped 2-line role + the rating row) — removes the need
 /// for that second pass entirely while keeping the rail visually uniform.
-const double kSalonMasterCardHeight = 214;
+///
+/// Trimmed 214 -> 190 (~11%) alongside the card width/avatar shrink below —
+/// re-verified against the same worst case (see the long-name/wrapped-role
+/// stress case in `public_salon_profile_screen_test.dart`) so the smaller
+/// card still doesn't reintroduce the overflow this constant exists to avoid.
+const double kSalonMasterCardHeight = 190;
 
 /// One master in the salon's "Майстри салону" horizontal rail. A raised
 /// neumorphic card: circular gradient avatar → master name → role sub-line →
@@ -95,7 +100,7 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
           curve: Curves.easeOut,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
-            width: 148,
+            width: 132,
             height: kSalonMasterCardHeight,
             decoration: BoxDecoration(
               color: BrandColors.base,
@@ -103,16 +108,16 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
               boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
             ),
             padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.md,
-              vertical: VelvetSpacing.md + 2,
+              horizontal: VelvetSpacing.md - 2,
+              vertical: VelvetSpacing.md,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
                 Container(
-                  height: 64,
-                  width: 64,
+                  height: 56,
+                  width: 56,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: LinearGradient(
@@ -126,14 +131,14 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                     child: Icon(
                       Icons.person_rounded,
                       color: BrandColors.white.withValues(alpha: 0.82),
-                      size: 30,
+                      size: 26,
                     ),
                   ),
                 ),
-                const SizedBox(height: VelvetSpacing.md - 2),
+                const SizedBox(height: VelvetSpacing.sm),
                 Text(
                   widget.name,
-                  style: VelvetText.subheading().copyWith(fontSize: 15),
+                  style: VelvetText.subheading().copyWith(fontSize: 14),
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -143,24 +148,24 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                   widget.role,
                   style: VelvetText.feedback(
                     BrandColors.muted,
-                  ).copyWith(fontSize: 12),
+                  ).copyWith(fontSize: 11),
                   textAlign: TextAlign.center,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: VelvetSpacing.sm),
+                const SizedBox(height: VelvetSpacing.xs),
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
                     const Icon(
                       Icons.star_rounded,
-                      size: 15,
+                      size: 13,
                       color: BrandColors.accentDeep,
                     ),
                     const SizedBox(width: 3),
                     Text(
                       widget.ratingLabel,
-                      style: VelvetText.bodyStrong().copyWith(fontSize: 13),
+                      style: VelvetText.bodyStrong().copyWith(fontSize: 12),
                     ),
                   ],
                 ),
