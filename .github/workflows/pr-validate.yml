@@ -328,7 +328,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Run integration tests on emulator
-        uses: reactivecircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d  # v2
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
           api-level: 34
           arch: x86_64
@@ -341,32 +341,56 @@ jobs:
           heap-size: 512M
           # INCIDENT (2026-07-01) — a job failure with "adb: device
           # 'emulator-5554' not found" right after the LAST test finished, even
-          # though every flow's own assertions logged ✅. Two wrong hypotheses
-          # were ruled out by direct reproduction: (1) memory pressure — bumping
-          # ram-size/heap-size above did not help; (2) "too many aggregated
-          # tests degrade the adb-forwarded VM-service result channel" — this
-          # file's two-way split (all_tests_part1.dart/all_tests_part2.dart,
-          # kept below for the real, separate reason: L87 boot-cost
-          # amortization) still crashed identically even with as few as 3
-          # flows in one invocation.
+          # though every flow's own assertions logged ✅. Ruled out by direct
+          # reproduction: (1) memory pressure — bumping ram-size/heap-size
+          # above did not help; (2) "too many aggregated tests degrade the
+          # adb-forwarded VM-service result channel" — the two-way split below
+          # (all_tests_part1.dart/all_tests_part2.dart, kept regardless for
+          # the separate L87 boot-cost-amortization reason) still crashed
+          # identically even with as few as 3 flows in one invocation;
+          # (3) `client_home_hub_flow_test.dart`'s test 8 called
+          # `tester.ensureSemantics()` (activates the real Android
+          # accessibility tree, not a host-only fake) — a legitimate
+          # anti-pattern, fixed regardless (identical coverage already exists
+          # safely at the widget tier — see test/features/shell/
+          # home_inpage_branch_hop_test.dart), but bisection proved it was
+          # NOT the crash cause: the exact same crash still reproduced on a
+          # clean checkout of that fix.
           #
-          # ROOT CAUSE (found by bisection, ~5 CI rounds): client_home_hub_
-          # flow_test.dart's test 8 called `tester.ensureSemantics()`, the
-          # ONLY call of its kind anywhere in integration_test/. On a real
-          # Android device/emulator this activates the REAL accessibility
-          # tree (not a host-only fake), and doing so corrupted
-          # IntegrationTestWidgetsFlutterBinding's one-time final teardown —
-          # crashing the emulator/adb link at the very end of the process.
-          # Fixed by removing that call (the identical assertion is already
-          # covered safely at the widget tier, which uses a fake semantics
-          # binding — see client_home_hub_flow_test.dart's test 8 comment and
-          # test/features/shell/home_inpage_branch_hop_test.dart).
+          # Commit-bisection (git history, ~7 rounds) narrowed the crash to
+          # commit 7307721 ("Phase 13.7 Home Hub") — its parent never
+          # crashes, it always does. But running the SAME test file directly
+          # against a real (non-headless) connected emulator over adb, with
+          # live logcat monitoring, completed with NO crash — only unrelated
+          # pixel/timing test failures, zero FATAL/AndroidRuntime/ANR
+          # entries. A parallel review of every widget file this commit
+          # introduces (favorite_masters_card, beauty_timeline_section,
+          # home_profile_card, quick_links_card, passport_preview_card,
+          # hub_widgets' CountdownChip) found no unclosed Timer/native
+          # channel/controller anywhere.
           #
-          # The two-way split below is kept regardless — it amortizes emulator
+          # CONCLUSION: this is CI-headless-emulator-specific (`-no-window
+          # -gpu swiftshader_indirect` software rendering), not a Dart-level
+          # app bug — something about this screen's rendering load
+          # (staggered animations, gradients, several cards) interacts badly
+          # with the swiftshader_indirect out-of-process renderer specifically
+          # at IntegrationTestWidgetsFlutterBinding's one-time final teardown.
+          # Trying two low-risk mitigations below: bumping the pinned action
+          # version (was 2+ years old, v2.33.0-era; native Node 24 + AVD-
+          # creation fixes landed since), and switching `swiftshader_indirect`
+          # (out-of-process renderer, a separate process boundary that could
+          # itself be what's racing at shutdown) to plain `swiftshader`
+          # (in-process) — still fully software-rendered and safe on any
+          # runner (real `-gpu host` needs actual GPU hardware, which
+          # standard GitHub-hosted ubuntu-latest runners don't have, so it's
+          # not attempted here).
+          #
+          # The two-way split is kept regardless — it amortizes emulator
           # boot cost the same way the original single-file design did (L87),
           # just as two shorter-lived processes. Each half keeps L88 (no
           # `|| exit 1`): a failing testWidgets doesn't abort its half, and
           # both halves must succeed for the job to pass.
+          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim
           #
           # NOTE: directory-mode batching (`flutter test integration_test/`) does
           # NOT work — it launches the app once and cannot relaunch between files
@@ -449,7 +473,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Run logout flow in profile mode on emulator
-        uses: reactivecircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d  # v2
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
           api-level: 34
           arch: x86_64
@@ -547,7 +571,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Run patrol native tests on emulator
-        uses: reactivecircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d  # v2
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
           api-level: ${{ matrix.api-level }}
           arch: x86_64
