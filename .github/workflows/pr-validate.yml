@@ -333,45 +333,53 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
-          # ram-size/heap-size (2026-07-01): all_tests.dart has grown from the
-          # original 5 flows to 22 (client-home-hub/shell/search/etc. merged
-          # in), so the single aggregating run now relaunches the app many
-          # more times in one long-lived emulator session. The default AVD
-          # profile RAM was sized for the original 5-flow run; under the
-          # larger suite the emulator has started dying right as the LAST
-          # test finishes ("adb: device 'emulator-5554' not found" during
-          # flutter test's own post-suite teardown), failing the job despite
-          # every testWidgets passing. Bumping RAM/heap is the documented
-          # fix for emulator memory pressure on reactivecircus/android-
-          # emulator-runner; cores is left at the action default (2) since
+          # ram-size/heap-size (2026-07-01): all_tests.dart had grown from the
+          # original 5 flows to 18 as feature branches merged in. Kept as a
+          # sound baseline even though the real fix (below) was the two-way
+          # split; cores is left at the action default (2) since
           # GitHub-hosted ubuntu-latest runners have 2 vCPUs.
           ram-size: 4096M
           heap-size: 512M
-          # Run ALL 5 E2E flows via a single aggregating entrypoint to recover
-          # emulator boot cost (L87). integration_test/all_tests.dart imports
-          # each flow's main() and runs them in ONE `flutter test` process / one
-          # isolate. Each testWidgets still pumps a fresh app via
-          # AppHarness.boot() and resets global state via tearDownHarness BETWEEN
-          # flows — so the app re-launches per-testWidgets (the supported model),
-          # not per-process. This avoids cold-booting the app 5× (the old
-          # per-file loop) while keeping every flow's fresh-launch semantics.
+          # TWO-WAY SPLIT (2026-07-01, L87/L88 follow-up) — WHY
+          # ----------------------------------------------------
+          # The single-file aggregating entrypoint (integration_test/all_tests.dart)
+          # worked at 5 flows (10 tests: "🎉 10 tests passed") but broke once the
+          # suite grew to 18 flows: the job failed with "adb: device 'emulator-5554'
+          # not found" immediately after the LAST test finished, even though every
+          # flow's own assertions logged ✅ (verified via raw dart:developer log,
+          # which bypasses the formal test-result channel). Crucially, flutter
+          # test's own summary only ever acknowledged "🎉 1 test passed" — the
+          # formal pass/fail round-trip over the adb-forwarded VM-service channel
+          # degrades under too many aggregated tests in one long-lived process,
+          # and the broken channel is what crashes teardown and takes the
+          # emulator/adb link down with it. ram-size/heap-size (above) did NOT
+          # fix this — confirmed by reproducing the identical failure after
+          # bumping them, ruling out memory pressure.
+          #
+          # THE FIX: split the SAME 18 flows across two files (all_tests_part1.dart
+          # / all_tests_part2.dart, 9 each) and run them as two sequential
+          # `flutter test` invocations in this ONE emulator session — same boot-
+          # cost amortization as the original design (L87), just two shorter-lived
+          # processes instead of one that has to survive 18 tests' worth of
+          # round-trips before its own clean shutdown. No test logic changed —
+          # this is a mechanical partition of the existing imports.
+          #
+          # Each half keeps L88 (no `|| exit 1`): a failing testWidgets doesn't
+          # abort its half, and both halves must succeed for the job to pass.
           #
           # NOTE: directory-mode batching (`flutter test integration_test/`) does
           # NOT work — it launches the app once and cannot relaunch between files
-          # ("Unable to start the app on the device" after the first flow). A
-          # single AGGREGATING FILE does work: one isolate, harness re-launches
-          # per testWidgets. That is the distinction this entrypoint relies on.
-          #
-          # No `|| exit 1` fail-fast wrapper (L88): the single run continues past
-          # a failing testWidgets and reports EVERY failure across all 5 flows at
-          # the end. `flutter test`'s own non-zero exit on any failure is the gate.
+          # ("Unable to start the app on the device" after the first flow). Each
+          # AGGREGATING FILE below works the same way the original single file
+          # did: one isolate per invocation, harness re-launches per testWidgets.
           #
           # The PROFILE-MODE drive leg that used to run here was split into the
           # separate `integration-profile` job below (2026-06-18, finding 6) so
           # its slow AOT compile no longer blocks every PR's critical path. This
           # fast debug pass stays per-PR.
           script: |
-            flutter test integration_test/all_tests.dart
+            flutter test integration_test/all_tests_part1.dart
+            flutter test integration_test/all_tests_part2.dart
 
   # ---------------------------------------------------------------------------
   # Profile-mode integration drive (2026-06-18 debug↔release divergence

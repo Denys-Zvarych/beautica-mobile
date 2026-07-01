@@ -1,5 +1,13 @@
 // Phase 17.3 — Aggregating E2E entrypoint (L87 + L88).
 //
+// CI no longer runs this file directly (2026-07-01): at 18 flows, this single
+// long-lived `flutter test` process started crashing the emulator at final
+// teardown (see `all_tests_part1.dart` for the full incident). CI now runs
+// `all_tests_part1.dart` + `all_tests_part2.dart` instead — the same 18 flows,
+// split in two. This file is kept for local convenience (running the FULL
+// suite in one shot against a connected emulator); update all THREE files
+// together when adding/removing a flow.
+//
 // WHY THIS FILE EXISTS
 // --------------------
 // CI used to run the 5 E2E flow files as 5 separate `flutter test` processes
