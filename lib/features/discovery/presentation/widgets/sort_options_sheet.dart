@@ -179,7 +179,7 @@ class SortOptionsSheet extends StatelessWidget {
                   selectedSemanticsLabel: l10n.searchSortOptionSelected(
                     sortLabel(l10n, option),
                   ),
-                  onTap: () => Navigator.of(context).pop(option),
+                  onTap: () => ModalRoute.of(context)?.navigator?.pop(option),
                 ),
                 if (option != SearchSort.values.last)
                   const SizedBox(height: VelvetSpacing.sm),
