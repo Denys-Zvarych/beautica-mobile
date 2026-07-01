@@ -333,39 +333,40 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
-          # ram-size/heap-size (2026-07-01): all_tests.dart had grown from the
-          # original 5 flows to 18 as feature branches merged in. Kept as a
-          # sound baseline even though the real fix (below) was the two-way
-          # split; cores is left at the action default (2) since
+          # ram-size/heap-size (2026-07-01): harmless baseline bump, kept even
+          # though bisection (below) showed memory pressure was never the
+          # actual cause. cores is left at the action default (2) since
           # GitHub-hosted ubuntu-latest runners have 2 vCPUs.
           ram-size: 4096M
           heap-size: 512M
-          # TWO-WAY SPLIT (2026-07-01, L87/L88 follow-up) — WHY
-          # ----------------------------------------------------
-          # The single-file aggregating entrypoint (integration_test/all_tests.dart)
-          # worked at 5 flows (10 tests: "🎉 10 tests passed") but broke once the
-          # suite grew to 18 flows: the job failed with "adb: device 'emulator-5554'
-          # not found" immediately after the LAST test finished, even though every
-          # flow's own assertions logged ✅ (verified via raw dart:developer log,
-          # which bypasses the formal test-result channel). Crucially, flutter
-          # test's own summary only ever acknowledged "🎉 1 test passed" — the
-          # formal pass/fail round-trip over the adb-forwarded VM-service channel
-          # degrades under too many aggregated tests in one long-lived process,
-          # and the broken channel is what crashes teardown and takes the
-          # emulator/adb link down with it. ram-size/heap-size (above) did NOT
-          # fix this — confirmed by reproducing the identical failure after
-          # bumping them, ruling out memory pressure.
+          # INCIDENT (2026-07-01) — a job failure with "adb: device
+          # 'emulator-5554' not found" right after the LAST test finished, even
+          # though every flow's own assertions logged ✅. Two wrong hypotheses
+          # were ruled out by direct reproduction: (1) memory pressure — bumping
+          # ram-size/heap-size above did not help; (2) "too many aggregated
+          # tests degrade the adb-forwarded VM-service result channel" — this
+          # file's two-way split (all_tests_part1.dart/all_tests_part2.dart,
+          # kept below for the real, separate reason: L87 boot-cost
+          # amortization) still crashed identically even with as few as 3
+          # flows in one invocation.
           #
-          # THE FIX: split the SAME 18 flows across two files (all_tests_part1.dart
-          # / all_tests_part2.dart, 9 each) and run them as two sequential
-          # `flutter test` invocations in this ONE emulator session — same boot-
-          # cost amortization as the original design (L87), just two shorter-lived
-          # processes instead of one that has to survive 18 tests' worth of
-          # round-trips before its own clean shutdown. No test logic changed —
-          # this is a mechanical partition of the existing imports.
+          # ROOT CAUSE (found by bisection, ~5 CI rounds): client_home_hub_
+          # flow_test.dart's test 8 called `tester.ensureSemantics()`, the
+          # ONLY call of its kind anywhere in integration_test/. On a real
+          # Android device/emulator this activates the REAL accessibility
+          # tree (not a host-only fake), and doing so corrupted
+          # IntegrationTestWidgetsFlutterBinding's one-time final teardown —
+          # crashing the emulator/adb link at the very end of the process.
+          # Fixed by removing that call (the identical assertion is already
+          # covered safely at the widget tier, which uses a fake semantics
+          # binding — see client_home_hub_flow_test.dart's test 8 comment and
+          # test/features/shell/home_inpage_branch_hop_test.dart).
           #
-          # Each half keeps L88 (no `|| exit 1`): a failing testWidgets doesn't
-          # abort its half, and both halves must succeed for the job to pass.
+          # The two-way split below is kept regardless — it amortizes emulator
+          # boot cost the same way the original single-file design did (L87),
+          # just as two shorter-lived processes. Each half keeps L88 (no
+          # `|| exit 1`): a failing testWidgets doesn't abort its half, and
+          # both halves must succeed for the job to pass.
           #
           # NOTE: directory-mode batching (`flutter test integration_test/`) does
           # NOT work — it launches the app once and cannot relaunch between files
@@ -378,7 +379,8 @@ jobs:
           # its slow AOT compile no longer blocks every PR's critical path. This
           # fast debug pass stays per-PR.
           script: |
-            flutter test integration_test/all_tests_bisect.dart
+            flutter test integration_test/all_tests_part1.dart
+            flutter test integration_test/all_tests_part2.dart
 
   # ---------------------------------------------------------------------------
   # Profile-mode integration drive (2026-06-18 debug↔release divergence

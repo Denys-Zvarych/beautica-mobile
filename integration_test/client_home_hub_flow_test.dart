@@ -47,7 +47,6 @@ import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart'
 import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
@@ -342,34 +341,35 @@ void main() {
   // ── Test 8 — REGRESSION (Rule 3b): in-page Passport tile syncs the navbar ──
   //
   // The widget-tier guard (test/features/shell/home_inpage_branch_hop_test.dart)
-  // proves the page↔navbar sync against a purpose-built shell router. This light
-  // end-to-end assertion confirms the SAME sync survives the full production
-  // stack: real appRouter, real auth session, real ClientShell + ClientBottomNav.
-  // Tapping the in-page BEAUTY PASSPORT preview tile must (a) land on /passport
-  // AND (b) make the Passport nav tile (4) the selected one while the Home tile
-  // (0) deselects. With the pre-fix `context.push` the page would change but
-  // currentIndex would stay 0, so tile-0 would stay selected — this fails then.
+  // ALREADY proves the page↔navbar semantics-selection sync against a
+  // purpose-built shell router (same ensureSemantics()/isSelected pattern) —
+  // safely, because widget tests run against a host-only fake semantics
+  // binding. This flow instead confirms the ROUTE side of the same sync
+  // survives the full production stack: real appRouter, real auth session,
+  // real ClientShell + ClientBottomNav. It does NOT re-assert the nav-tile
+  // semantics-selected state here: `tester.ensureSemantics()` activates the
+  // REAL Android accessibility tree on a device/emulator (not a host-only
+  // fake), and doing so was found to corrupt IntegrationTestWidgetsFlutter-
+  // Binding's one-time final teardown — every assertion in this flow (and
+  // every other flow run alongside it) passed, but the whole test process
+  // then crashed the emulator/adb link right at the very end
+  // ("adb: device offline" immediately after the last test finished).
+  // Bisection isolated the crash to this file, and `ensureSemantics()` is
+  // the only call of its kind anywhere in integration_test/. Since the
+  // widget-tier test already covers the semantics-selection contract, this
+  // flow keeps only the route-based assertions.
   testWidgets(
-    'REGRESSION: tapping the in-page Passport tile lands on /passport AND '
-    'selects nav tile-4 (Home tile-0 deselects) — page↔navbar sync',
+    'REGRESSION: tapping the in-page Passport tile lands on /passport '
+    '(page↔navbar sync — nav-tile semantics-selection is covered at the '
+    'widget tier; see home_inpage_branch_hop_test.dart)',
     (tester) async {
-      final handle = tester.ensureSemantics();
       final fb = FakeBackend()..currentRole = UserRole.client;
       final GoRouter router = await AppHarness.boot(tester, fb);
       await AppHarness.loginAs(tester, fb, UserRole.client);
       await tester.pumpAndSettle(const Duration(seconds: 2));
 
-      bool navTileSelected(int index) {
-        final SemanticsData data = tester
-            .getSemantics(find.byKey(Key('client-nav-tile-$index')))
-            .getSemanticsData();
-        return data.flagsCollection.isSelected.toBoolOrNull() ?? false;
-      }
-
-      // Pre-condition: on Home, the Home tile is selected, Passport is not.
+      // Pre-condition: on Home.
       expectLocation(router, RouteNames.clientHome);
-      expect(navTileSelected(0), isTrue, reason: 'Home tile selected on /home');
-      expect(navTileSelected(4), isFalse, reason: 'Passport tile not selected');
 
       // Tap the in-page Passport preview tile (unique widget type, no localised
       // string — robust finder).
@@ -386,23 +386,6 @@ void main() {
         findsOneWidget,
         reason: 'the Passport page must be shown after the in-page tap',
       );
-
-      // ...AND the bottom-nav selection followed the page (the bug surface).
-      expect(
-        navTileSelected(4),
-        isTrue,
-        reason:
-            'Passport nav tile (4) must be selected after the in-page tap — '
-            'goBranch must sync currentIndex; a context.push would not',
-      );
-      expect(
-        navTileSelected(0),
-        isFalse,
-        reason:
-            'Home nav tile (0) must deselect — the bug left it filled because '
-            'currentIndex never changed',
-      );
-      handle.dispose();
     },
     timeout: const Timeout(Duration(seconds: 45)),
   );
