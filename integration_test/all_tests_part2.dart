@@ -1,7 +1,7 @@
 // Phase 17.3 — Aggregating E2E entrypoint, PART 2 of 2 (2026-07-01 split).
 //
 // See `all_tests_part1.dart` for the full rationale. This file carries the
-// remaining 9 of 18 flows so each `flutter test` process in CI reports a
+// remaining 10 of 19 flows so each `flutter test` process in CI reports a
 // bounded number of tests instead of aggregating all 18 into one long-lived
 // run.
 
@@ -10,6 +10,7 @@ import 'package:integration_test/integration_test.dart';
 
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
+import 'public_salon_profile_flow_test.dart' as public_salon_profile;
 import 'register_flow_test.dart' as register;
 import 'register_locality_persistence_flow_test.dart'
     as register_locality_persistence;
@@ -24,6 +25,7 @@ void main() {
 
   group('passport_flow', passport.main);
   group('public_master_profile_flow', public_master_profile.main);
+  group('public_salon_profile_flow', public_salon_profile.main);
   group('register_flow', register.main);
   group(
     'register_locality_persistence_flow',

@@ -1,0 +1,473 @@
+// Phase 13.6 — Widget tests for PublicSalonProfileScreen.
+//
+// Covers:
+//   1. Loading  — skeleton blocks + back/favourite controls present, name absent.
+//   2. Data     — hero name/rating render; 4-tab bar present; About tab default.
+//   3. Error    — ErrorState renders with a working retry.
+//   4. Favourite toggle — idempotent tap (favorite → unfavorite → favorite).
+//   5. Master card navigation — tapping a rail card pushes /masters/:masterId.
+//   6. Tab switching — Масtери / Послуги / Відгуки tabs render their content.
+//   7. Reviews sort sheet — opening + picking an option re-fetches with the new
+//      sort (asserted via the fake repository's call log).
+//   8. Empty states — no masters / no services / no reviews.
+//
+// Strategy: override [salonRepositoryProvider] with an in-memory fake (covers
+// all 4 independent loaders in one place) and [favoriteRepositoryProvider]
+// with a fake that always succeeds, plus a CLIENT-authenticated [authProvider]
+// stub (mirrors PublicMasterProfileScreen's test harness).
+
+import 'dart:async';
+
+import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/favorites/data/favorite_repository.dart';
+import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
+import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
+import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../../helpers/pump_app.dart';
+
+// ---------------------------------------------------------------------------
+// Stub data
+// ---------------------------------------------------------------------------
+
+const String _kSalonId = 'salon-1';
+
+const _stubUser = User(
+  id: 'client-1',
+  email: 'client@beautica.ua',
+  role: UserRole.client,
+  firstName: 'Клієнт',
+  lastName: 'Тест',
+);
+
+const _stubSalon = Salon(
+  id: _kSalonId,
+  name: 'Салон «Вельвет»',
+  description: 'Затишний салон краси в серці Печерська.',
+  city: 'Київ',
+  address: 'вул. Велика Васильківська, 44',
+  avgRating: 4.9,
+  reviewCount: 128,
+);
+
+const _stubMasters = <SalonMasterSummary>[
+  SalonMasterSummary(
+    masterId: 'master-1',
+    firstName: 'Олена',
+    lastName: 'Ковальчук',
+    avgRating: 4.9,
+    reviewCount: 12,
+    type: MasterType.independentMaster,
+  ),
+];
+
+const _stubCatalog = <SalonServiceCategoryEntry>[
+  SalonServiceCategoryEntry(
+    category: 'Манікюр',
+    count: 1,
+    services: <SalonCatalogService>[
+      SalonCatalogService(
+        id: 'svc-1',
+        name: 'Манікюр з покриттям',
+        durationLabel: '1 год 30 хв',
+        priceDisplay: '500 грн',
+      ),
+    ],
+  ),
+];
+
+const _stubSummary = SalonReviewSummary(
+  avgRating: 4.9,
+  reviewCount: 2,
+  distribution: <int>[1, 1, 0, 0, 0],
+);
+
+final DateTime _fixedNow = DateTime(2026, 7, 1);
+
+List<SalonReviewItem> _stubReviews(SalonReviewSort sort) => <SalonReviewItem>[
+  SalonReviewItem(
+    id: 'review-1',
+    masterId: 'master-1',
+    masterName: 'Олена Ковальчук',
+    clientDisplayName: 'Олена К.',
+    serviceName: 'Манікюр з покриттям',
+    rating: 5,
+    comment: 'Найкращий салон!',
+    createdAt: _fixedNow.subtract(const Duration(days: 3)),
+  ),
+];
+
+/// Stub [AuthNotifier] — always an authenticated CLIENT, no storage/network.
+class _StubAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: _stubUser,
+    accessToken: 'test-token',
+  );
+}
+
+/// Always-succeeding fake [FavoriteRepository].
+class _FakeFavoriteRepository implements FavoriteRepository {
+  final List<String> calls = <String>[];
+
+  @override
+  Future<void> add(FavoriteTarget target) async =>
+      calls.add('add:${target.id}');
+
+  @override
+  Future<void> remove(FavoriteTarget target) async =>
+      calls.add('remove:${target.id}');
+}
+
+/// In-memory fake [SalonRepository] covering all 4 independent tab loaders.
+/// Each field is a factory closure so individual tests can swap in a
+/// never-completing [Completer] (loading) or a throwing closure (error).
+class _FakeSalonRepository implements SalonRepository {
+  _FakeSalonRepository({
+    Future<Salon> Function()? salon,
+    Future<List<SalonMasterSummary>> Function()? masters,
+    Future<List<SalonServiceCategoryEntry>> Function()? catalog,
+    Future<SalonReviewSummary> Function()? summary,
+    Future<List<SalonReviewItem>> Function(SalonReviewSort sort)? reviews,
+  }) : _salon = salon ?? (() async => _stubSalon),
+       _masters = masters ?? (() async => _stubMasters),
+       _catalog = catalog ?? (() async => _stubCatalog),
+       _summary = summary ?? (() async => _stubSummary),
+       _reviews =
+           reviews ?? ((SalonReviewSort sort) async => _stubReviews(sort));
+
+  final Future<Salon> Function() _salon;
+  final Future<List<SalonMasterSummary>> Function() _masters;
+  final Future<List<SalonServiceCategoryEntry>> Function() _catalog;
+  final Future<SalonReviewSummary> Function() _summary;
+  final Future<List<SalonReviewItem>> Function(SalonReviewSort sort) _reviews;
+
+  /// Sort values passed to [getSalonReviews], in call order — asserted by the
+  /// sort-sheet test.
+  final List<SalonReviewSort> reviewSortCalls = <SalonReviewSort>[];
+
+  @override
+  Future<void> create({required SalonCreateDto dto}) async {}
+
+  @override
+  Future<Salon> getSalonById(String salonId) => _salon();
+
+  @override
+  Future<List<SalonMasterSummary>> getSalonMasters(String salonId) =>
+      _masters();
+
+  @override
+  Future<List<SalonServiceCategoryEntry>> getSalonServiceCatalog(
+    String salonId,
+  ) => _catalog();
+
+  @override
+  Future<SalonReviewSummary> getSalonReviewSummary(String salonId) =>
+      _summary();
+
+  @override
+  Future<List<SalonReviewItem>> getSalonReviews({
+    required String salonId,
+    required SalonReviewSort sort,
+    int page = 0,
+    int size = kSalonReviewsPageSize,
+  }) async {
+    reviewSortCalls.add(sort);
+    return _reviews(sort);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Overrides
+// ---------------------------------------------------------------------------
+
+List<Object> _overrides({
+  _FakeSalonRepository? repo,
+  _FakeFavoriteRepository? fav,
+}) => <Object>[
+  authProvider.overrideWith(_StubAuthNotifier.new),
+  salonRepositoryProvider.overrideWithValue(repo ?? _FakeSalonRepository()),
+  favoriteRepositoryProvider.overrideWithValue(
+    fav ?? _FakeFavoriteRepository(),
+  ),
+];
+
+Future<void> _pumpTall(WidgetTester tester) async {
+  tester.view.physicalSize = const Size(800, 2600);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+}
+
+void main() {
+  group('loading state', () {
+    testWidgets('shows skeleton + back/favourite controls, name absent', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      final Completer<Salon> never = Completer<Salon>();
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(salon: () => never.future),
+        ),
+      );
+      await tester.pump();
+
+      // The loading skeleton renders several independent shimmer regions
+      // (hero card / tab bar / tab body placeholders) — assert at least one,
+      // not exactly one.
+      expect(find.byType(SkeletonShimmerScope), findsWidgets);
+      expect(find.byKey(const Key('salon-profile-back')), findsOneWidget);
+      expect(find.byKey(const Key('salon-favorite-toggle')), findsOneWidget);
+      expect(find.byKey(const Key('salon-profile-name')), findsNothing);
+    });
+  });
+
+  group('data state', () {
+    testWidgets('renders hero name/rating, tab bar, and the About tab body', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('salon-profile-name')), findsOneWidget);
+      // i18n-finder-ok: salon name is fixture data, not UI copy
+      expect(find.text('Салон «Вельвет»'), findsOneWidget);
+      expect(find.byKey(const Key('salon-profile-rating')), findsOneWidget);
+      expect(find.byKey(const Key('salon-book-cta')), findsOneWidget);
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      expect(find.text(l10n.salonTabAbout), findsOneWidget);
+      expect(find.text(l10n.salonTabMasters), findsOneWidget);
+      expect(find.text(l10n.salonTabServices), findsOneWidget);
+      expect(find.text(l10n.salonTabReviews), findsOneWidget);
+
+      // About tab default body — the salon description.
+      expect(find.byKey(const Key('salon-about-text')), findsOneWidget);
+    });
+  });
+
+  group('error state', () {
+    testWidgets('renders ErrorState with a working retry', (tester) async {
+      await _pumpTall(tester);
+      var attempt = 0;
+      // Overrides [publicSalonProfileProvider] directly (bypassing
+      // [salonRepositoryProvider]) — mirrors PublicMasterProfileScreen's error-
+      // state test. Routing the failure through the repository fake instead
+      // races [authProvider]'s own async `build()` (Loading → Data), which
+      // rebuilds this family provider mid-flight and disposes the in-flight
+      // read before the widget observes the error.
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: <Object>[
+          authProvider.overrideWith(_StubAuthNotifier.new),
+          favoriteRepositoryProvider.overrideWithValue(
+            _FakeFavoriteRepository(),
+          ),
+          publicSalonProfileProvider(_kSalonId).overrideWith((ref) async {
+            attempt++;
+            if (attempt == 1) throw const NetworkFailure();
+            return (_stubSalon, _stubMasters);
+          }),
+        ],
+        retry: (_, _) => null,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ErrorState), findsOneWidget);
+      expect(find.byKey(const Key('salon-profile-name')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('error_state_retry_button')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('salon-profile-name')), findsOneWidget);
+    });
+  });
+
+  group('favourite toggle', () {
+    testWidgets('idempotent tap: favorite → unfavorite', (tester) async {
+      await _pumpTall(tester);
+      final fav = _FakeFavoriteRepository();
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(fav: fav),
+      );
+      await tester.pumpAndSettle();
+
+      final heart = find.byKey(const Key('salon-favorite-toggle'));
+      expect(heart, findsOneWidget);
+
+      await tester.tap(heart);
+      await tester.pumpAndSettle();
+      expect(fav.calls, <String>['add:$_kSalonId']);
+
+      await tester.tap(heart);
+      await tester.pumpAndSettle();
+      expect(fav.calls, <String>['add:$_kSalonId', 'remove:$_kSalonId']);
+    });
+  });
+
+  group('masters tab', () {
+    testWidgets('master card navigates to /masters/:masterId', (tester) async {
+      await _pumpTall(tester);
+      final router = GoRouter(
+        initialLocation: '/salons/$_kSalonId',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/salons/:salonId',
+            builder: (context, state) => PublicSalonProfileScreen(
+              salonId: state.pathParameters['salonId']!,
+            ),
+          ),
+          GoRoute(
+            path: '/masters/:masterId',
+            builder: (_, state) => Scaffold(
+              body: Text('master-${state.pathParameters['masterId']}'),
+            ),
+          ),
+        ],
+      );
+
+      await tester.pumpRoutedApp(router, overrides: _overrides());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-1')));
+      await tester.pumpAndSettle();
+
+      final card = find.byKey(const Key('salon-master-card-master-1'));
+      expect(card, findsOneWidget);
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+
+      expect(find.text('master-master-1'), findsOneWidget);
+    });
+
+    testWidgets('empty masters list shows the empty state', (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(masters: () async => const []),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-1')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('salon-masters-empty')), findsOneWidget);
+    });
+  });
+
+  group('services tab', () {
+    testWidgets('renders the category accordion', (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-2')));
+      await tester.pumpAndSettle();
+
+      // i18n-finder-ok: category label is fixture data, not UI copy
+      expect(find.text('Манікюр'), findsOneWidget);
+    });
+
+    testWidgets('empty catalogue shows the empty state', (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(catalog: () async => const []),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-2')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('salon-services-empty')), findsOneWidget);
+    });
+  });
+
+  group('reviews tab', () {
+    testWidgets('renders the rating summary + review card, and the sort sheet '
+        're-fetches on a new selection', (tester) async {
+      await _pumpTall(tester);
+      final repo = _FakeSalonRepository();
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(repo: repo),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-3')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-review-summary-average')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('salon-review-review-1')), findsOneWidget);
+      expect(repo.reviewSortCalls, <SalonReviewSort>[SalonReviewSort.newest]);
+
+      await tester.tap(find.byKey(const Key('salon-reviews-sort-button')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(
+          Key('salon-review-sort-option-${SalonReviewSort.highest.name}'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(repo.reviewSortCalls, <SalonReviewSort>[
+        SalonReviewSort.newest,
+        SalonReviewSort.highest,
+      ]);
+    });
+
+    testWidgets('empty reviews shows the empty state', (tester) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            summary: () async => const SalonReviewSummary(),
+            reviews: (_) async => const <SalonReviewItem>[],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-3')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('salon-reviews-empty')), findsOneWidget);
+    });
+  });
+}

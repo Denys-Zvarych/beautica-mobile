@@ -52,6 +52,7 @@ import 'package:beautica_api/src/model/api_response_page_response_master_search_
 import 'package:beautica_api/src/model/api_response_page_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_my_review_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_review_response.dart';
+import 'package:beautica_api/src/model/api_response_page_response_salon_review_response.dart';
 import 'package:beautica_api/src/model/api_response_page_response_salon_search_result.dart';
 import 'package:beautica_api/src/model/api_response_page_response_timeline_item_response.dart';
 import 'package:beautica_api/src/model/api_response_passport_response.dart';
@@ -61,6 +62,8 @@ import 'package:beautica_api/src/model/api_response_registration_response.dart';
 import 'package:beautica_api/src/model/api_response_revenue_response.dart';
 import 'package:beautica_api/src/model/api_response_review_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_response.dart';
+import 'package:beautica_api/src/model/api_response_salon_review_summary_response.dart';
+import 'package:beautica_api/src/model/api_response_salon_service_catalog_response.dart';
 import 'package:beautica_api/src/model/api_response_schedule_override_response.dart';
 import 'package:beautica_api/src/model/api_response_service_definition_response.dart';
 import 'package:beautica_api/src/model/api_response_user_profile_response.dart';
@@ -126,6 +129,7 @@ import 'package:beautica_api/src/model/page_response_master_search_result.dart';
 import 'package:beautica_api/src/model/page_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/page_response_my_review_response.dart';
 import 'package:beautica_api/src/model/page_response_review_response.dart';
+import 'package:beautica_api/src/model/page_response_salon_review_response.dart';
 import 'package:beautica_api/src/model/page_response_salon_search_result.dart';
 import 'package:beautica_api/src/model/page_response_timeline_item_response.dart';
 import 'package:beautica_api/src/model/pageable.dart';
@@ -137,6 +141,7 @@ import 'package:beautica_api/src/model/platform_category_response.dart';
 import 'package:beautica_api/src/model/platform_category_usage_response.dart';
 import 'package:beautica_api/src/model/platform_service_type_response.dart';
 import 'package:beautica_api/src/model/public_salon_response.dart';
+import 'package:beautica_api/src/model/rating_bucket.dart';
 import 'package:beautica_api/src/model/refresh_request.dart';
 import 'package:beautica_api/src/model/register_device_token_request.dart';
 import 'package:beautica_api/src/model/register_independent_master_request.dart';
@@ -151,8 +156,12 @@ import 'package:beautica_api/src/model/revenue_by_service_dto.dart';
 import 'package:beautica_api/src/model/revenue_response.dart';
 import 'package:beautica_api/src/model/review_response.dart';
 import 'package:beautica_api/src/model/salon_response.dart';
+import 'package:beautica_api/src/model/salon_review_response.dart';
+import 'package:beautica_api/src/model/salon_review_summary_response.dart';
 import 'package:beautica_api/src/model/salon_search_request.dart';
 import 'package:beautica_api/src/model/salon_search_result.dart';
+import 'package:beautica_api/src/model/salon_service_catalog_response.dart';
+import 'package:beautica_api/src/model/salon_service_category_group.dart';
 import 'package:beautica_api/src/model/schedule_override_request.dart';
 import 'package:beautica_api/src/model/schedule_override_response.dart';
 import 'package:beautica_api/src/model/service_definition_response.dart';
@@ -218,6 +227,7 @@ part 'serializers.g.dart';
   ApiResponsePageResponseMasterSummaryResponse,
   ApiResponsePageResponseMyReviewResponse,
   ApiResponsePageResponseReviewResponse,
+  ApiResponsePageResponseSalonReviewResponse,
   ApiResponsePageResponseSalonSearchResult,
   ApiResponsePageResponseTimelineItemResponse,
   ApiResponsePassportResponse,
@@ -227,6 +237,8 @@ part 'serializers.g.dart';
   ApiResponseRevenueResponse,
   ApiResponseReviewResponse,
   ApiResponseSalonResponse,
+  ApiResponseSalonReviewSummaryResponse,
+  ApiResponseSalonServiceCatalogResponse,
   ApiResponseScheduleOverrideResponse,
   ApiResponseServiceDefinitionResponse,
   ApiResponseUserProfileResponse,
@@ -292,6 +304,7 @@ part 'serializers.g.dart';
   PageResponseMasterSummaryResponse,
   PageResponseMyReviewResponse,
   PageResponseReviewResponse,
+  PageResponseSalonReviewResponse,
   PageResponseSalonSearchResult,
   PageResponseTimelineItemResponse,
   Pageable,
@@ -303,6 +316,7 @@ part 'serializers.g.dart';
   PlatformCategoryUsageResponse,
   PlatformServiceTypeResponse,
   PublicSalonResponse,
+  RatingBucket,
   RefreshRequest,
   RegisterDeviceTokenRequest,
   RegisterIndependentMasterRequest,
@@ -317,8 +331,12 @@ part 'serializers.g.dart';
   RevenueResponse,
   ReviewResponse,
   SalonResponse,
+  SalonReviewResponse,
+  SalonReviewSummaryResponse,
   SalonSearchRequest,
   SalonSearchResult,
+  SalonServiceCatalogResponse,
+  SalonServiceCategoryGroup,
   ScheduleOverrideRequest,
   ScheduleOverrideResponse,
   ServiceDefinitionResponse,

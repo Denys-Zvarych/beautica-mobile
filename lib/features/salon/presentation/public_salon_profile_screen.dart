@@ -1,0 +1,977 @@
+// Phase 13.6 — Public Salon Profile (CLIENT-facing, read-only).
+//
+// The client's view of a salon, reached by tapping a search-result card. The
+// salon sibling of the Public Master Profile (Phase 13.5): same depth
+// language and widget vocabulary, but a distinct layout — a full-bleed cover
+// photo with an overlapping hero card, a 4-tab switcher (Про салон / Майстри
+// / Послуги / Відгуки), and a pinned "Записатися в салон" CTA — ported
+// verbatim from the approved preview at
+// `docs/signup-designs/PublicSalonProfile/lib/screens/public_salon_profile_screen.dart`.
+//
+// Data sources (each its own AsyncValue so one tab's failure never blanks the
+// others):
+//   • [publicSalonProfileProvider] — salon detail + masters rail (hero card +
+//     "Майстри" tab), loaded in parallel.
+//   • [salonServiceCatalogProvider] — "Послуги" tab.
+//   • [salonReviewSummaryProvider] + [salonReviewsProvider] — "Відгуки" tab
+//     (each independent so changing the sort never re-fetches the summary).
+//
+// The cover + favourite heart render even while the hero data is still
+// loading (the favourite toggle only needs [salonId], not the resolved
+// salon), mirroring the master profile's "top-bar action available before
+// data resolves" pattern.
+
+import 'dart:developer';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
+import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/utils/instagram_url.dart';
+import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
+import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+
+import '../application/public_salon_profile_notifier.dart';
+import '../application/salon_service_catalog_notifier.dart';
+import '../domain/salon.dart';
+import '../domain/salon_master_summary.dart';
+import '../domain/salon_service_catalog.dart';
+import 'widgets/salon_cover_widgets.dart';
+import 'widgets/salon_master_card.dart';
+import 'widgets/salon_reviews_section.dart';
+import 'widgets/salon_services_accordion.dart';
+
+/// CLIENT-facing read-only profile of the salon identified by [salonId].
+class PublicSalonProfileScreen extends ConsumerStatefulWidget {
+  const PublicSalonProfileScreen({super.key, required this.salonId});
+
+  /// Backend Salon-row UUID of the profile being viewed.
+  final String salonId;
+
+  @override
+  ConsumerState<PublicSalonProfileScreen> createState() =>
+      _PublicSalonProfileScreenState();
+}
+
+class _PublicSalonProfileScreenState
+    extends ConsumerState<PublicSalonProfileScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  // Pre-built staggered-entrance animations so build() never allocates a
+  // CurvedAnimation/Tween per frame (mobile-perf pattern, mirrors
+  // PublicMasterProfileScreen). Three sections: cover+hero / tab bar / tab body.
+  late final CurvedAnimation _anim0;
+  late final CurvedAnimation _anim1;
+  late final CurvedAnimation _anim2;
+  late final Animation<Offset> _slide0;
+  late final Animation<Offset> _slide1;
+  late final Animation<Offset> _slide2;
+
+  // Captured in initState so dispose() never touches `ref`.
+  late final ScreenProtectionManager _screenProtection;
+
+  /// Active section tab (0 = Про салон).
+  int _tab = 0;
+
+  static const double _coverHeight = 232;
+  static const double _heroProtrusion = 116;
+
+  @override
+  void initState() {
+    super.initState();
+    // SEC: this screen renders the salon's address (PII) — guard against
+    // screenshots / app-switcher snapshots while it is mounted. Mirrors the
+    // INTENTIONAL PRODUCT DECISION on PublicMasterProfileScreen — do not
+    // remove in a future audit pass.
+    _screenProtection = ref.read(screenProtectionProvider)..acquire();
+
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1100),
+    );
+    _anim0 = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.00, 0.55, curve: Curves.easeOutCubic),
+    );
+    _anim1 = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.18, 0.64, curve: Curves.easeOutCubic),
+    );
+    _anim2 = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.30, 1.0, curve: Curves.easeOutCubic),
+    );
+    const Offset slideBegin = Offset(0, 0.04);
+    _slide0 = Tween<Offset>(
+      begin: slideBegin,
+      end: Offset.zero,
+    ).animate(_anim0);
+    _slide1 = Tween<Offset>(
+      begin: slideBegin,
+      end: Offset.zero,
+    ).animate(_anim1);
+    _slide2 = Tween<Offset>(
+      begin: slideBegin,
+      end: Offset.zero,
+    ).animate(_anim2);
+  }
+
+  @override
+  void dispose() {
+    _screenProtection.release();
+    _anim0.dispose();
+    _anim1.dispose();
+    _anim2.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _startReveal() {
+    if (!_controller.isAnimating && _controller.value == 0) {
+      _controller.forward();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AsyncValue<PublicSalonProfileData> async = ref.watch(
+      publicSalonProfileProvider(widget.salonId),
+    );
+    final double topInset = MediaQuery.of(context).padding.top;
+
+    return Scaffold(
+      backgroundColor: BrandColors.base,
+      bottomNavigationBar: async.maybeWhen(
+        data: (PublicSalonProfileData data) => _BookingShelf(salon: data.$1),
+        orElse: () => null,
+      ),
+      body: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: VelvetSpacing.xxl),
+        child: async.when(
+          loading: () => _LoadingBody(
+            salonId: widget.salonId,
+            topInset: topInset,
+            coverHeight: _coverHeight,
+            heroProtrusion: _heroProtrusion,
+          ),
+          error: (Object e, _) => _ErrorBody(
+            salonId: widget.salonId,
+            topInset: topInset,
+            failure: e is Failure ? e : UnknownFailure(cause: e),
+            onRetry: () =>
+                ref.invalidate(publicSalonProfileProvider(widget.salonId)),
+          ),
+          data: (PublicSalonProfileData data) {
+            _startReveal();
+            return _LoadedBody(
+              salonId: widget.salonId,
+              salon: data.$1,
+              masters: data.$2,
+              topInset: topInset,
+              coverHeight: _coverHeight,
+              heroProtrusion: _heroProtrusion,
+              tab: _tab,
+              onTabSelected: (int i) => setState(() => _tab = i),
+              anim0: _anim0,
+              anim1: _anim1,
+              anim2: _anim2,
+              slide0: _slide0,
+              slide1: _slide1,
+              slide2: _slide2,
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _LoadingBody — cover skeleton + favourite/back controls (already usable)
+// ---------------------------------------------------------------------------
+
+class _LoadingBody extends StatelessWidget {
+  const _LoadingBody({
+    required this.salonId,
+    required this.topInset,
+    required this.coverHeight,
+    required this.heroProtrusion,
+  });
+
+  final String salonId;
+  final double topInset;
+  final double coverHeight;
+  final double heroProtrusion;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Stack(
+          children: <Widget>[
+            Padding(
+              padding: EdgeInsets.only(bottom: heroProtrusion),
+              child: SalonCover(height: coverHeight),
+            ),
+            Positioned(
+              top: topInset + VelvetSpacing.sm,
+              left: VelvetSpacing.lg,
+              child: const _BackButton(),
+            ),
+            Positioned(
+              top: topInset + VelvetSpacing.sm,
+              right: VelvetSpacing.lg,
+              child: _FavoriteToggleButton(salonId: salonId),
+            ),
+            Positioned(
+              left: VelvetSpacing.lg,
+              right: VelvetSpacing.lg,
+              bottom: 0,
+              child: SkeletonShimmerScope(
+                child: SkeletonBlock(
+                  width: double.infinity,
+                  height: heroProtrusion,
+                  radius: VelvetRadii.card,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: VelvetSpacing.lg),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+          child: SkeletonShimmerScope(
+            child: SkeletonBlock(width: double.infinity, height: 44),
+          ),
+        ),
+        const SizedBox(height: VelvetSpacing.lg),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+          child: SkeletonShimmerScope(
+            child: SkeletonBlock(
+              width: double.infinity,
+              height: 220,
+              radius: VelvetRadii.card,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _ErrorBody — back control + centred ErrorState
+// ---------------------------------------------------------------------------
+
+class _ErrorBody extends StatelessWidget {
+  const _ErrorBody({
+    required this.salonId,
+    required this.topInset,
+    required this.failure,
+    required this.onRetry,
+  });
+
+  final String salonId;
+  final double topInset;
+  final Failure failure;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Padding(
+          padding: EdgeInsets.only(
+            top: topInset + VelvetSpacing.sm,
+            left: VelvetSpacing.lg,
+          ),
+          child: const Align(
+            alignment: Alignment.topLeft,
+            child: _BackButton(),
+          ),
+        ),
+        const SizedBox(height: VelvetSpacing.xl),
+        ErrorState(failure: failure, onRetry: onRetry),
+      ],
+    );
+  }
+}
+
+class _BackButton extends StatelessWidget {
+  const _BackButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return CoverCircleButton(
+      key: const Key('salon-profile-back'),
+      icon: Icons.arrow_back_ios_new_rounded,
+      semanticLabel: AppLocalizations.of(context).salonProfileBackLabel,
+      onTap: () => context.pop(),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _LoadedBody — cover + hero + tab bar + tab body
+// ---------------------------------------------------------------------------
+
+class _LoadedBody extends StatelessWidget {
+  const _LoadedBody({
+    required this.salonId,
+    required this.salon,
+    required this.masters,
+    required this.topInset,
+    required this.coverHeight,
+    required this.heroProtrusion,
+    required this.tab,
+    required this.onTabSelected,
+    required this.anim0,
+    required this.anim1,
+    required this.anim2,
+    required this.slide0,
+    required this.slide1,
+    required this.slide2,
+  });
+
+  final String salonId;
+  final Salon salon;
+  final List<SalonMasterSummary> masters;
+  final double topInset;
+  final double coverHeight;
+  final double heroProtrusion;
+  final int tab;
+  final ValueChanged<int> onTabSelected;
+
+  final Animation<double> anim0;
+  final Animation<double> anim1;
+  final Animation<double> anim2;
+  final Animation<Offset> slide0;
+  final Animation<Offset> slide1;
+  final Animation<Offset> slide2;
+
+  static Widget _reveal(
+    Animation<double> fade,
+    Animation<Offset> slide,
+    Widget child,
+  ) => RepaintBoundary(
+    child: FadeTransition(
+      opacity: fade,
+      child: SlideTransition(position: slide, child: child),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final List<String> tabs = <String>[
+      l10n.salonTabAbout,
+      l10n.salonTabMasters,
+      l10n.salonTabServices,
+      l10n.salonTabReviews,
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _CoverAndHero(
+          coverHeight: coverHeight,
+          heroProtrusion: heroProtrusion,
+          topInset: topInset,
+          salon: salon,
+          reveal: _reveal,
+          anim0: anim0,
+          slide0: slide0,
+        ),
+        const SizedBox(height: VelvetSpacing.lg),
+        _reveal(
+          anim1,
+          slide1,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+            child: SalonTabBar(
+              tabs: tabs,
+              selected: tab,
+              onSelect: onTabSelected,
+            ),
+          ),
+        ),
+        const SizedBox(height: VelvetSpacing.lg),
+        _reveal(
+          anim2,
+          slide2,
+          KeyedSubtree(
+            key: ValueKey<String>('salon-tab-body-${_tabKeys[tab]}'),
+            child: switch (tab) {
+              0 => _AboutTab(salon: salon),
+              1 => _MastersTab(masters: masters),
+              2 => _ServicesTab(salonId: salonId),
+              _ => SalonReviewsSection(salonId: salonId),
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  static const List<String> _tabKeys = <String>[
+    'about',
+    'masters',
+    'services',
+    'reviews',
+  ];
+}
+
+/// The cover photo + overlapping hero card region.
+class _CoverAndHero extends StatelessWidget {
+  const _CoverAndHero({
+    required this.coverHeight,
+    required this.heroProtrusion,
+    required this.topInset,
+    required this.salon,
+    required this.reveal,
+    required this.anim0,
+    required this.slide0,
+  });
+
+  final double coverHeight;
+  final double heroProtrusion;
+  final double topInset;
+  final Salon salon;
+  final Widget Function(Animation<double>, Animation<Offset>, Widget) reveal;
+  final Animation<double> anim0;
+  final Animation<Offset> slide0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: <Widget>[
+        Padding(
+          padding: EdgeInsets.only(bottom: heroProtrusion),
+          child: SalonCover(height: coverHeight, imageUrl: salon.coverImageUrl),
+        ),
+        Positioned(
+          top: topInset + VelvetSpacing.sm,
+          left: VelvetSpacing.lg,
+          child: const _BackButton(),
+        ),
+        Positioned(
+          top: topInset + VelvetSpacing.sm,
+          right: VelvetSpacing.lg,
+          child: _FavoriteToggleButton(salonId: salon.id),
+        ),
+        Positioned(
+          left: VelvetSpacing.lg,
+          right: VelvetSpacing.lg,
+          bottom: 0,
+          child: reveal(anim0, slide0, _SalonHeroCard(salon: salon)),
+        ),
+      ],
+    );
+  }
+}
+
+/// The overlapping identity card: logo monogram + name + ★ rating · review
+/// count sub-line, then a locality/address row.
+class _SalonHeroCard extends StatelessWidget {
+  const _SalonHeroCard({required this.salon});
+
+  final Salon salon;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final String? monogram = salon.name.trim().isEmpty
+        ? null
+        : salon.name.trim()[0].toUpperCase();
+    final String ratingLabel = salon.avgRating?.toStringAsFixed(1) ?? '—';
+    final String? locationLine = _buildLocationLine(salon);
+
+    return NeumorphicCard(
+      color: const Color(0xFFEDE4D5),
+      padding: const EdgeInsets.all(VelvetSpacing.md + 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              SalonLogo(diameter: 68, monogram: monogram),
+              const SizedBox(width: VelvetSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      salon.name,
+                      key: const Key('salon-profile-name'),
+                      style: VelvetText.displayName().copyWith(fontSize: 20),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const Icon(
+                          Icons.star_rounded,
+                          size: 16,
+                          color: BrandColors.accentDeep,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          ratingLabel,
+                          key: const Key('salon-profile-rating'),
+                          style: _ratingInlineStyle,
+                        ),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            '·  ${l10n.salonReviewCountLabel(salon.reviewCount)}',
+                            style: VelvetText.feedback(
+                              BrandColors.muted,
+                            ).copyWith(fontSize: 13),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (locationLine != null) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.md),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Padding(
+                  padding: EdgeInsets.only(top: 1),
+                  child: Icon(
+                    Icons.location_on_outlined,
+                    size: 15,
+                    color: BrandColors.accentDeep,
+                  ),
+                ),
+                const SizedBox(width: VelvetSpacing.xs + 1),
+                Expanded(
+                  child: Text(
+                    locationLine,
+                    key: const Key('salon-profile-address-text'),
+                    style: VelvetText.feedback(
+                      BrandColors.textSecondary,
+                    ).copyWith(fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong().copyWith(
+    fontSize: 14,
+  );
+
+  /// Composes the hero card's locality/address line, or `null` when nothing
+  /// is available so the caller hides the row.
+  static String? _buildLocationLine(Salon salon) {
+    final String? city = (salon.city?.isNotEmpty ?? false) ? salon.city : null;
+    final String? address = (salon.address?.isNotEmpty ?? false)
+        ? salon.address
+        : null;
+    if (city == null && address == null) return null;
+    if (address != null && city != null) return '$city, $address';
+    return address ?? city;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _AboutTab — "Про салон": blurb + optional Instagram contact
+// ---------------------------------------------------------------------------
+
+class _AboutTab extends StatelessWidget {
+  const _AboutTab({required this.salon});
+
+  final Salon salon;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final String? description = (salon.description?.trim().isNotEmpty ?? false)
+        ? salon.description!.trim()
+        : null;
+    final String? instagram = (salon.instagramUrl?.isNotEmpty ?? false)
+        ? salon.instagramUrl
+        : null;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            description ?? l10n.salonAboutEmpty,
+            key: const Key('salon-about-text'),
+            style: description == null
+                ? VelvetText.feedback(BrandColors.muted)
+                : VelvetText.bodyStrong(),
+          ),
+          if (instagram != null) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.xl),
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
+              child: Text(
+                l10n.masterContactsLabel,
+                style: VelvetText.sectionLabel(),
+              ),
+            ),
+            ContactTile(
+              key: const Key('salon-contact-instagram'),
+              icon: Icons.alternate_email,
+              label: l10n.masterInstagramLabel,
+              value: instagram,
+              semanticLabel: l10n.masterInstagramLabel,
+              onTap: () => _openInstagram(context, instagram),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Opens the salon's Instagram, sanitising [rawValue] through
+  /// [canonicalInstagramUri] (STRICT https + host/charset allow-list) before
+  /// launch — mirrors [PublicMasterProfileScreen]'s identical guard.
+  static Future<void> _openInstagram(
+    BuildContext context,
+    String? rawValue,
+  ) async {
+    final Uri? uri = canonicalInstagramUri(rawValue);
+    if (uri == null) {
+      _showInstagramError(context);
+      return;
+    }
+    bool launched = false;
+    try {
+      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } on Object catch (error) {
+      if (kDebugMode) {
+        log(
+          'Instagram launch threw',
+          name: 'feature.salon.public',
+          level: 900,
+          error: error,
+        );
+      }
+    }
+    if (!context.mounted) return;
+    if (!launched) _showInstagramError(context);
+  }
+
+  static void _showInstagramError(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(AppLocalizations.of(context).masterInstagramOpenError),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _MastersTab — "Майстри": header + count + horizontal rail
+// ---------------------------------------------------------------------------
+
+class _MastersTab extends StatelessWidget {
+  const _MastersTab({required this.masters});
+
+  final List<SalonMasterSummary> masters;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+
+    if (masters.isEmpty) {
+      return Padding(
+        key: const Key('salon-masters-empty'),
+        padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+        child: Text(
+          l10n.salonMastersEmpty,
+          style: VelvetText.feedback(BrandColors.muted),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            VelvetSpacing.lg,
+            0,
+            VelvetSpacing.lg,
+            VelvetSpacing.sm,
+          ),
+          child: Row(
+            children: <Widget>[
+              Text(
+                l10n.salonMastersSectionLabel,
+                style: VelvetText.sectionLabel(),
+              ),
+              const Spacer(),
+              Text(
+                '${masters.length}',
+                style: VelvetText.feedback(
+                  BrandColors.muted,
+                ).copyWith(fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+        ColoredBox(
+          color: BrandColors.base,
+          child: SizedBox(
+            // The ListView's own top/bottom padding below (VelvetSpacing.sm
+            // each) is subtracted from the SLIVER's cross-axis extent before
+            // it reaches each card, so the wrapper must add it back — the
+            // card's [kSalonMasterCardHeight] is a TIGHT constraint on itself
+            // (AnimatedContainer's `height:`), and a smaller incoming
+            // cross-axis constraint from the sliver would just clamp it back
+            // down and reintroduce the overflow this fixed height exists to
+            // avoid.
+            height: kSalonMasterCardHeight + VelvetSpacing.sm * 2,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(
+                VelvetSpacing.lg,
+                VelvetSpacing.sm,
+                VelvetSpacing.lg,
+                VelvetSpacing.sm,
+              ),
+              // Lazy — up to kSalonMastersPageSize (50) cards can be in the
+              // rail; ListView.builder only builds the ones scrolled into
+              // view instead of eagerly building all of them up front
+              // (mobile-perf HIGH fix, Phase 13.6 audit). Each card carries
+              // a fixed [kSalonMasterCardHeight] so no IntrinsicHeight
+              // second layout pass is needed either.
+              itemCount: masters.length,
+              itemBuilder: (context, i) {
+                final SalonMasterSummary master = masters[i];
+                return Padding(
+                  padding: EdgeInsets.only(
+                    right: i < masters.length - 1 ? VelvetSpacing.md : 0,
+                  ),
+                  child: SalonMasterCard(
+                    key: Key('salon-master-card-${master.masterId}'),
+                    name: '${master.firstName} ${master.lastName}'.trim(),
+                    role: _roleLabel(master.type, l10n),
+                    ratingLabel: master.reviewCount > 0
+                        ? (master.avgRating?.toStringAsFixed(1) ?? '—')
+                        : '—',
+                    avatarIndex: i,
+                    onTap: () => context.push(
+                      RouteNames.masterPublicProfile(master.masterId),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _roleLabel(MasterType type, AppLocalizations l10n) {
+    switch (type) {
+      case MasterType.independentMaster:
+        return l10n.masterRoleIndependent;
+      case MasterType.salonMaster:
+        return l10n.masterRoleSalonMaster;
+      case MasterType.salonOwner:
+        return l10n.masterRoleSalonOwner;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _ServicesTab — "Послуги": own AsyncValue (independent of the hero load)
+// ---------------------------------------------------------------------------
+
+class _ServicesTab extends ConsumerWidget {
+  const _ServicesTab({required this.salonId});
+
+  final String salonId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context);
+    final AsyncValue<List<SalonServiceCategoryEntry>> async = ref.watch(
+      salonServiceCatalogProvider(salonId),
+    );
+
+    return async.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+        child: SkeletonShimmerScope(
+          child: SkeletonBlock(
+            width: double.infinity,
+            height: 160,
+            radius: VelvetRadii.card,
+          ),
+        ),
+      ),
+      error: (Object e, _) => ErrorState(
+        failure: e is Failure ? e : UnknownFailure(cause: e),
+        onRetry: () => ref.invalidate(salonServiceCatalogProvider(salonId)),
+      ),
+      data: (List<SalonServiceCategoryEntry> categories) => categories.isEmpty
+          ? Padding(
+              key: const Key('salon-services-empty'),
+              padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+              child: Text(
+                l10n.salonServicesEmpty,
+                style: VelvetText.feedback(BrandColors.muted),
+              ),
+            )
+          : SalonServicesAccordion(categories: categories),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _FavoriteToggleButton — top-right heart bound to the favorite toggle notifier
+// ---------------------------------------------------------------------------
+
+class _FavoriteToggleButton extends ConsumerStatefulWidget {
+  const _FavoriteToggleButton({required this.salonId});
+
+  final String salonId;
+
+  @override
+  ConsumerState<_FavoriteToggleButton> createState() =>
+      _FavoriteToggleButtonState();
+}
+
+class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
+  FavoriteTarget get _target =>
+      FavoriteTarget(type: FavoriteTargetType.salon, id: widget.salonId);
+
+  Future<void> _onTap() async {
+    final Failure? failure = await ref
+        .read(favoriteToggleProvider.notifier)
+        .toggle(_target);
+    if (failure != null && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(failure.userMessage(context))));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final FavoriteTarget target = _target;
+    final bool isFavorite = ref.watch(
+      favoriteToggleProvider.select(
+        (Map<FavoriteTarget, FavoriteEntry> m) =>
+            m[target]?.isFavorite ?? false,
+      ),
+    );
+
+    return CoverCircleButton(
+      key: const Key('salon-favorite-toggle'),
+      icon: isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+      iconColor: isFavorite ? BrandColors.accentDeep : BrandColors.text,
+      toggled: isFavorite,
+      semanticLabel: isFavorite
+          ? l10n.favoriteRemoveLabel
+          : l10n.favoriteAddLabel,
+      onTap: _onTap,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _BookingShelf — pinned camel-wash «Записатися в салон» booking shelf
+// ---------------------------------------------------------------------------
+
+/// The pinned bottom booking shelf. Booking always happens through a specific
+/// master, but this salon-level CTA is the entry point into the (future)
+/// combined service/master picker; until that ships it opens the same
+/// booking placeholder route the public master profile uses.
+class _BookingShelf extends StatelessWidget {
+  const _BookingShelf({required this.salon});
+
+  final Salon salon;
+
+  static const Color _shelfSurface = Color(0xFFEDE4D5);
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: _shelfSurface,
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(VelvetRadii.card),
+        ),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: BrandColors.shadowDarkCard,
+            offset: Offset(0, -9),
+            blurRadius: 24,
+          ),
+          BoxShadow(
+            color: BrandColors.shadowLightStrong,
+            offset: Offset(0, -1),
+            blurRadius: 3,
+            spreadRadius: -1,
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            VelvetSpacing.lg,
+            VelvetSpacing.md,
+            VelvetSpacing.lg,
+            VelvetSpacing.md,
+          ),
+          child: NeumorphicButton(
+            key: const Key('salon-book-cta'),
+            label: l10n.salonBookingCta,
+            icon: Icons.event_available_rounded,
+            onPressed: () =>
+                context.push(RouteNames.bookingNew, extra: salon.id),
+          ),
+        ),
+      ),
+    );
+  }
+}

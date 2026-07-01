@@ -19,6 +19,9 @@ part 'public_salon_response.g.dart';
 /// * [address]
 /// * [instagramUrl]
 /// * [avatarUrl]
+/// * [coverImageUrl]
+/// * [avgRating]
+/// * [reviewCount]
 @BuiltValue()
 abstract class PublicSalonResponse
     implements Built<PublicSalonResponse, PublicSalonResponseBuilder> {
@@ -45,6 +48,15 @@ abstract class PublicSalonResponse
 
   @BuiltValueField(wireName: r'avatarUrl')
   String? get avatarUrl;
+
+  @BuiltValueField(wireName: r'coverImageUrl')
+  String? get coverImageUrl;
+
+  @BuiltValueField(wireName: r'avgRating')
+  num? get avgRating;
+
+  @BuiltValueField(wireName: r'reviewCount')
+  int? get reviewCount;
 
   PublicSalonResponse._();
 
@@ -131,6 +143,27 @@ class _$PublicSalonResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.coverImageUrl != null) {
+      yield r'coverImageUrl';
+      yield serializers.serialize(
+        object.coverImageUrl,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.avgRating != null) {
+      yield r'avgRating';
+      yield serializers.serialize(
+        object.avgRating,
+        specifiedType: const FullType(num),
+      );
+    }
+    if (object.reviewCount != null) {
+      yield r'reviewCount';
+      yield serializers.serialize(
+        object.reviewCount,
+        specifiedType: const FullType(int),
+      );
+    }
   }
 
   @override
@@ -211,6 +244,27 @@ class _$PublicSalonResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.avatarUrl = valueDes;
+          break;
+        case r'coverImageUrl':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.coverImageUrl = valueDes;
+          break;
+        case r'avgRating':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(num),
+          ) as num;
+          result.avgRating = valueDes;
+          break;
+        case r'reviewCount':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(int),
+          ) as int;
+          result.reviewCount = valueDes;
           break;
         default:
           unhandled.add(key);

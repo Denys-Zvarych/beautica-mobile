@@ -137,6 +137,8 @@ Class | Method | HTTP request | Description
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMyReviews**](doc/ReviewControllerApi.md#getmyreviews) | **GET** /api/v1/reviews/me | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getReview**](doc/ReviewControllerApi.md#getreview) | **GET** /api/v1/reviews/{reviewId} | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getReviewsByMaster**](doc/ReviewControllerApi.md#getreviewsbymaster) | **GET** /api/v1/masters/{masterId}/reviews | 
+[*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getSalonReviewSummary**](doc/ReviewControllerApi.md#getsalonreviewsummary) | **GET** /api/v1/salons/{salonId}/reviews/summary | 
+[*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getSalonReviews**](doc/ReviewControllerApi.md#getsalonreviews) | **GET** /api/v1/salons/{salonId}/reviews | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**createSalon**](doc/SalonControllerApi.md#createsalon) | **POST** /api/v1/salons | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**deactivateSalon**](doc/SalonControllerApi.md#deactivatesalon) | **DELETE** /api/v1/salons/{salonId} | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getMastersBySalon**](doc/SalonControllerApi.md#getmastersbysalon) | **GET** /api/v1/salons/{salonId}/masters | 
@@ -159,6 +161,7 @@ Class | Method | HTTP request | Description
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**deactivateServiceDefinition**](doc/ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMasterServices**](doc/ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMyServices**](doc/ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own active services
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getSalonServiceCatalog**](doc/ServiceControllerApi.md#getsalonservicecatalog) | **GET** /api/v1/salons/{salonId}/services | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServiceDefinition**](doc/ServiceControllerApi.md#updateservicedefinition) | **PATCH** /api/v1/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServicePhoto**](doc/ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
 [*SupportControllerApi*](doc/SupportControllerApi.md) | [**contact**](doc/SupportControllerApi.md#contact) | **POST** /api/v1/support/contact | Send a Help / Contact-us message to support
@@ -206,6 +209,7 @@ Class | Method | HTTP request | Description
  - [ApiResponsePageResponseMasterSummaryResponse](doc/ApiResponsePageResponseMasterSummaryResponse.md)
  - [ApiResponsePageResponseMyReviewResponse](doc/ApiResponsePageResponseMyReviewResponse.md)
  - [ApiResponsePageResponseReviewResponse](doc/ApiResponsePageResponseReviewResponse.md)
+ - [ApiResponsePageResponseSalonReviewResponse](doc/ApiResponsePageResponseSalonReviewResponse.md)
  - [ApiResponsePageResponseSalonSearchResult](doc/ApiResponsePageResponseSalonSearchResult.md)
  - [ApiResponsePageResponseTimelineItemResponse](doc/ApiResponsePageResponseTimelineItemResponse.md)
  - [ApiResponsePassportResponse](doc/ApiResponsePassportResponse.md)
@@ -215,6 +219,8 @@ Class | Method | HTTP request | Description
  - [ApiResponseRevenueResponse](doc/ApiResponseRevenueResponse.md)
  - [ApiResponseReviewResponse](doc/ApiResponseReviewResponse.md)
  - [ApiResponseSalonResponse](doc/ApiResponseSalonResponse.md)
+ - [ApiResponseSalonReviewSummaryResponse](doc/ApiResponseSalonReviewSummaryResponse.md)
+ - [ApiResponseSalonServiceCatalogResponse](doc/ApiResponseSalonServiceCatalogResponse.md)
  - [ApiResponseScheduleOverrideResponse](doc/ApiResponseScheduleOverrideResponse.md)
  - [ApiResponseServiceDefinitionResponse](doc/ApiResponseServiceDefinitionResponse.md)
  - [ApiResponseUserProfileResponse](doc/ApiResponseUserProfileResponse.md)
@@ -280,6 +286,7 @@ Class | Method | HTTP request | Description
  - [PageResponseMasterSummaryResponse](doc/PageResponseMasterSummaryResponse.md)
  - [PageResponseMyReviewResponse](doc/PageResponseMyReviewResponse.md)
  - [PageResponseReviewResponse](doc/PageResponseReviewResponse.md)
+ - [PageResponseSalonReviewResponse](doc/PageResponseSalonReviewResponse.md)
  - [PageResponseSalonSearchResult](doc/PageResponseSalonSearchResult.md)
  - [PageResponseTimelineItemResponse](doc/PageResponseTimelineItemResponse.md)
  - [Pageable](doc/Pageable.md)
@@ -291,6 +298,7 @@ Class | Method | HTTP request | Description
  - [PlatformCategoryUsageResponse](doc/PlatformCategoryUsageResponse.md)
  - [PlatformServiceTypeResponse](doc/PlatformServiceTypeResponse.md)
  - [PublicSalonResponse](doc/PublicSalonResponse.md)
+ - [RatingBucket](doc/RatingBucket.md)
  - [RefreshRequest](doc/RefreshRequest.md)
  - [RegisterDeviceTokenRequest](doc/RegisterDeviceTokenRequest.md)
  - [RegisterIndependentMasterRequest](doc/RegisterIndependentMasterRequest.md)
@@ -305,8 +313,12 @@ Class | Method | HTTP request | Description
  - [RevenueResponse](doc/RevenueResponse.md)
  - [ReviewResponse](doc/ReviewResponse.md)
  - [SalonResponse](doc/SalonResponse.md)
+ - [SalonReviewResponse](doc/SalonReviewResponse.md)
+ - [SalonReviewSummaryResponse](doc/SalonReviewSummaryResponse.md)
  - [SalonSearchRequest](doc/SalonSearchRequest.md)
  - [SalonSearchResult](doc/SalonSearchResult.md)
+ - [SalonServiceCatalogResponse](doc/SalonServiceCatalogResponse.md)
+ - [SalonServiceCategoryGroup](doc/SalonServiceCategoryGroup.md)
  - [ScheduleOverrideRequest](doc/ScheduleOverrideRequest.md)
  - [ScheduleOverrideResponse](doc/ScheduleOverrideResponse.md)
  - [ServiceDefinitionResponse](doc/ServiceDefinitionResponse.md)

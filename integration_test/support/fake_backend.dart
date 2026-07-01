@@ -37,6 +37,11 @@
 //  POST /api/v1/masters/{me|masterId}/weekly-schedules  — create schedule
 //  PUT  /api/v1/masters/{me|masterId}/weekly-schedules/schedule-1 — update schedule
 //  GET  /api/v1/locations/oblasts        — empty list (locality cascade)
+//  GET  /api/v1/salons/salon-xyz                  — public salon detail (Phase 13.6)
+//  GET  /api/v1/salons/salon-xyz/masters          — salon masters rail
+//  GET  /api/v1/salons/salon-xyz/services         — salon service catalogue
+//  GET  /api/v1/salons/salon-xyz/reviews/summary  — salon review-summary header
+//  GET  /api/v1/salons/salon-xyz/reviews          — salon reviews list
 //
 // USAGE
 // -----
@@ -505,6 +510,36 @@ final class FakeBackend {
   int getPublicMasterServicesCalls = 0;
   String? lastGetPublicMasterServicesId;
 
+  // ── Public salon profile telemetry (Phase 13.6) ───────────────────────────
+  //
+  // Five independent read endpoints back the "Про салон" hero + the 4-tab
+  // switcher — each tab loads via its own provider, so a broken tab must not
+  // blank the others. Every counter below is bumped by its own route handler
+  // and paired with the id/sort the request carried, mirroring the public
+  // master profile's [getPublicMasterCalls]/[lastGetPublicMasterId] pattern.
+
+  /// `GET /api/v1/salons/{salonId}` — salon detail (hero card).
+  int getSalonByIdCalls = 0;
+  String? lastGetSalonId;
+
+  /// `GET /api/v1/salons/{salonId}/masters` — masters rail ("Майстри" tab).
+  int getSalonMastersCalls = 0;
+  String? lastGetSalonMastersId;
+
+  /// `GET /api/v1/salons/{salonId}/services` — service catalogue ("Послуги").
+  int getSalonServiceCatalogCalls = 0;
+  String? lastGetSalonServiceCatalogId;
+
+  /// `GET /api/v1/salons/{salonId}/reviews/summary` — rating summary header.
+  int getSalonReviewSummaryCalls = 0;
+  String? lastGetSalonReviewSummaryId;
+
+  /// `GET /api/v1/salons/{salonId}/reviews?sort=` — reviews list. Records the
+  /// last `sort` wire value so a sort-change test can assert the re-fetch
+  /// carried the new value.
+  int getSalonReviewsCalls = 0;
+  String? lastGetSalonReviewsSort;
+
   int patchProfileCalls = 0;
   Map<String, dynamic>? lastPatchBody;
   int getServicesCalls = 0;
@@ -817,6 +852,179 @@ final class FakeBackend {
   /// rendered services-count stat without hard-coding the literal in two places.
   static int get publicMasterServicesCount => _publicMasterServices.length;
 
+  // ---------------------------------------------------------------------------
+  // Public salon profile fixtures (Phase 13.6)
+  // ---------------------------------------------------------------------------
+  //
+  // Keyed on `salon-xyz` — the SAME id the discovery search-results fixture
+  // (`_searchSalonsPage0`) seeds, so tapping the rendered `salon_card_salon-xyz`
+  // in the real results screen lands on a profile backed by a real, coherent
+  // fixture rather than a second unrelated salon id.
+
+  /// PUBLIC salon-detail envelope for `salon-xyz`. Shape matches
+  /// `PublicSalonResponse` (id/name/description/city/region/address/
+  /// instagramUrl/avatarUrl/coverImageUrl/avgRating/reviewCount).
+  static Map<String, dynamic> _publicSalonDetailEnvelope() =>
+      _ok(<String, dynamic>{
+        'id': 'salon-xyz',
+        'name': 'Студія Краси «Камелія»',
+        'description':
+            'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
+            'та стрижки — довірливий сервіс з 2018 року.',
+        'city': 'Київ',
+        'region': 'Київська',
+        'address': 'вул. Хрещатик, 12',
+        'instagramUrl': '@kamelia_salon',
+        'avatarUrl': null,
+        'coverImageUrl': null,
+        // Matches the review-summary aggregate below ((5+4+3)/3 = 4.0) so the
+        // hero card's ★ rating and the "Відгуки" tab's headline average agree.
+        'avgRating': 4.0,
+        'reviewCount': 3,
+      });
+
+  /// PUBLIC masters rail for `salon-xyz` — TWO masters so the "Майстри" tab
+  /// renders a genuine multi-card rail. The first reuses `master-aaa` (the
+  /// SAME master-id the public-master-profile fixture already serves at
+  /// `GET /masters/master-aaa`), so tapping its rail card in the salon flow
+  /// exercises the REAL cross-feature navigation into an already-fixtured
+  /// public master profile without inventing a second detail stub. Shape
+  /// matches `MasterSummaryResponse` (masterId/firstName/lastName/avatarUrl/
+  /// avgRating/reviewCount/masterType).
+  static const List<Map<String, dynamic>> _salonMasters =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'masterId': 'master-aaa',
+          'firstName': 'Софія',
+          'lastName': 'Бондар',
+          'avatarUrl': null,
+          'avgRating': 4.9,
+          'reviewCount': 24,
+          'masterType': 'SALON_MASTER',
+        },
+        <String, dynamic>{
+          'masterId': 'master-ccc',
+          'firstName': 'Марія',
+          'lastName': 'Гриценко',
+          'avatarUrl': null,
+          'avgRating': 4.6,
+          'reviewCount': 9,
+          'masterType': 'SALON_OWNER',
+        },
+      ];
+
+  /// PUBLIC service catalogue for `salon-xyz` — two categories, one service
+  /// each: NAILS carries the salon's SHARED signature service (offered by
+  /// every master on the rail), BROWS carries an EXCLUSIVE service (offered
+  /// by only one master). The category/service split is what the "Послуги"
+  /// tab's accordion groups by; the shared-vs-exclusive distinction is not a
+  /// wire field (the catalogue has no per-master mapping) — it is captured
+  /// here only in naming/comment for fixture realism. Shape matches
+  /// `SalonServiceCatalogResponse` → `SalonServiceCategoryGroup` →
+  /// `ServiceDefinitionResponse`.
+  static const List<Map<String, dynamic>> _salonServiceCategories =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'category': 'NAILS',
+          'count': 1,
+          'services': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'id': 'salon-svc-shared',
+              'name': 'Манікюр класичний',
+              'description': null,
+              'category': 'NAILS',
+              'baseDurationMinutes': 60,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': 'FIXED',
+              'priceMin': 400,
+              'priceMax': null,
+              'priceDisplay': '400 грн',
+              'photoUrl': null,
+            },
+          ],
+        },
+        <String, dynamic>{
+          'category': 'BROWS',
+          'count': 1,
+          'services': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'id': 'salon-svc-exclusive',
+              'name': 'Корекція брів',
+              'description': null,
+              'category': 'BROWS',
+              'baseDurationMinutes': 45,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': 'FIXED',
+              'priceMin': 300,
+              'priceMax': null,
+              'priceDisplay': '300 грн',
+              'photoUrl': null,
+            },
+          ],
+        },
+      ];
+
+  /// PUBLIC review-summary envelope for `salon-xyz` — matches the THREE
+  /// reviews in [_salonReviews] (one 5★, one 4★, one 3★). Shape matches
+  /// `SalonReviewSummaryResponse` → `RatingBucket`.
+  static Map<String, dynamic> _salonReviewSummaryEnvelope() =>
+      _ok(<String, dynamic>{
+        'avgRating': 4.0,
+        'reviewCount': 3,
+        'ratingDistribution': <Map<String, dynamic>>[
+          <String, dynamic>{'rating': 5, 'count': 1},
+          <String, dynamic>{'rating': 4, 'count': 1},
+          <String, dynamic>{'rating': 3, 'count': 1},
+          <String, dynamic>{'rating': 2, 'count': 0},
+          <String, dynamic>{'rating': 1, 'count': 0},
+        ],
+      });
+
+  /// PUBLIC reviews list for `salon-xyz` — three reviews across three
+  /// distinct ratings (5★/4★/3★), split across both seeded masters. The fake
+  /// ignores the `sort` query value and always returns this same fixed list
+  /// (the sort contract is the SERVER's — the fake only needs to prove the
+  /// wire value reaches the backend, via [lastGetSalonReviewsSort]). Shape
+  /// matches `SalonReviewResponse`.
+  static const List<Map<String, dynamic>> _salonReviews =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'salon-review-1',
+          'masterId': 'master-aaa',
+          'masterFirstName': 'Софія',
+          'masterLastName': 'Бондар',
+          'clientDisplayName': 'Олена К.',
+          'serviceName': 'Манікюр класичний',
+          'rating': 5,
+          'comment': 'Чудовий сервіс, дуже задоволена результатом!',
+          'createdAt': '2026-06-10T10:00:00Z',
+        },
+        <String, dynamic>{
+          'id': 'salon-review-2',
+          'masterId': 'master-ccc',
+          'masterFirstName': 'Марія',
+          'masterLastName': 'Гриценко',
+          'clientDisplayName': 'Ірина П.',
+          'serviceName': 'Корекція брів',
+          'rating': 4,
+          'comment': 'Все сподобалось, трохи довго чекала на прийом.',
+          'createdAt': '2026-06-05T14:00:00Z',
+        },
+        <String, dynamic>{
+          'id': 'salon-review-3',
+          'masterId': 'master-aaa',
+          'masterFirstName': 'Софія',
+          'masterLastName': 'Бондар',
+          'clientDisplayName': 'Дарина М.',
+          'serviceName': null,
+          'rating': 3,
+          'comment': 'Непогано, але є куди рости.',
+          'createdAt': '2026-05-20T09:00:00Z',
+        },
+      ];
+
   // ── Route wiring ───────────────────────────────────────────────────────────
 
   void _wire() {
@@ -1004,6 +1212,88 @@ final class FakeBackend {
         getPublicMasterServicesCalls++;
         lastGetPublicMasterServicesId = 'master-aaa';
         return _okList(_publicMasterServices);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // ── Public salon profile (Phase 13.6) ─────────────────────────────────────
+    //
+    // GET /api/v1/salons/salon-xyz — hero card (SalonControllerApi.getSalon,
+    // consumed via HttpSalonRepository.getSalonById). Wired as a concrete path
+    // (DioAdapter has no path-template matching) for the search-results
+    // fixture id `salon-xyz`.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz',
+      (server) => server.replyCallback(200, (_) {
+        getSalonByIdCalls++;
+        lastGetSalonId = 'salon-xyz';
+        return _publicSalonDetailEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-xyz/masters?page=&size= — "Майстри" tab rail.
+    // Query params are not part of the DioAdapter route match (path only), so
+    // one registration covers the fixed page=0&size=50 request the repository
+    // sends.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/masters',
+      (server) => server.replyCallback(200, (_) {
+        getSalonMastersCalls++;
+        lastGetSalonMastersId = 'salon-xyz';
+        return _searchEnvelope(
+          _salonMasters,
+          page: 0,
+          totalPages: 1,
+          totalElements: _salonMasters.length,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-xyz/services — "Послуги" tab catalogue
+    // (ServiceControllerApi.getSalonServiceCatalog).
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/services',
+      (server) => server.replyCallback(200, (_) {
+        getSalonServiceCatalogCalls++;
+        lastGetSalonServiceCatalogId = 'salon-xyz';
+        return _ok(<String, dynamic>{'categories': _salonServiceCategories});
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-xyz/reviews/summary — "Відгуки" tab header
+    // (ReviewControllerApi.getSalonReviewSummary). Registered BEFORE the
+    // sibling `/reviews` route below — both are exact-string DioAdapter routes
+    // (no prefix matching), so registration order does not actually matter
+    // here, but the more-specific path is kept first for readability.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/reviews/summary',
+      (server) => server.replyCallback(200, (_) {
+        getSalonReviewSummaryCalls++;
+        lastGetSalonReviewSummaryId = 'salon-xyz';
+        return _salonReviewSummaryEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-xyz/reviews?sort=&page=&size= — "Відгуки" tab
+    // list. Ignores the sort value for content (always returns the same 3-item
+    // fixture — the fake is not re-implementing the backend's sort), but
+    // records the requested `sort` wire value so a sort-change test can assert
+    // the new value reached the wire.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/reviews',
+      (server) => server.replyCallback(200, (req) {
+        getSalonReviewsCalls++;
+        lastGetSalonReviewsSort = req.queryParameters['sort'] as String?;
+        return _searchEnvelope(
+          _salonReviews,
+          page: 0,
+          totalPages: 1,
+          totalElements: _salonReviews.length,
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );

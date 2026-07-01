@@ -60,6 +60,7 @@ import '../features/home/presentation/client_settings_hub_screen.dart';
 import '../features/home/presentation/home_hub_screen.dart';
 import '../features/passport/presentation/passport_screen.dart';
 import '../features/rating/presentation/my_rating_screen.dart';
+import '../features/salon/presentation/public_salon_profile_screen.dart';
 import '../features/shell/presentation/branch_placeholders.dart';
 import '../features/shell/presentation/client_shell.dart';
 import '../features/support/presentation/contact_support_screen.dart';
@@ -379,6 +380,21 @@ GoRouter appRouter(Ref ref) {
           state,
           PublicMasterProfileScreen(
             masterId: state.pathParameters['masterId'] ?? '',
+          ),
+        ),
+      ),
+      // Phase 13.6 — Public salon profile (CLIENT-facing, read-only). Same
+      // lifecycle/guard as `/masters/:masterId` above: a top-level route
+      // pushed from the search-results / favourites salon cards, CLIENT-
+      // guarded, in-app-push-only (exported:false — never an external deep
+      // link).
+      GoRoute(
+        path: '/salons/:salonId',
+        redirect: clientOnlyGuard,
+        pageBuilder: (context, state) => _instantPage(
+          state,
+          PublicSalonProfileScreen(
+            salonId: state.pathParameters['salonId'] ?? '',
           ),
         ),
       ),

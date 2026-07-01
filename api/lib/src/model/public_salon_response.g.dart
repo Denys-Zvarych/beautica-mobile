@@ -23,6 +23,12 @@ class _$PublicSalonResponse extends PublicSalonResponse {
   final String? instagramUrl;
   @override
   final String? avatarUrl;
+  @override
+  final String? coverImageUrl;
+  @override
+  final num? avgRating;
+  @override
+  final int? reviewCount;
 
   factory _$PublicSalonResponse(
           [void Function(PublicSalonResponseBuilder)? updates]) =>
@@ -36,7 +42,10 @@ class _$PublicSalonResponse extends PublicSalonResponse {
       this.region,
       this.address,
       this.instagramUrl,
-      this.avatarUrl})
+      this.avatarUrl,
+      this.coverImageUrl,
+      this.avgRating,
+      this.reviewCount})
       : super._();
   @override
   PublicSalonResponse rebuild(
@@ -58,7 +67,10 @@ class _$PublicSalonResponse extends PublicSalonResponse {
         region == other.region &&
         address == other.address &&
         instagramUrl == other.instagramUrl &&
-        avatarUrl == other.avatarUrl;
+        avatarUrl == other.avatarUrl &&
+        coverImageUrl == other.coverImageUrl &&
+        avgRating == other.avgRating &&
+        reviewCount == other.reviewCount;
   }
 
   @override
@@ -72,6 +84,9 @@ class _$PublicSalonResponse extends PublicSalonResponse {
     _$hash = $jc(_$hash, address.hashCode);
     _$hash = $jc(_$hash, instagramUrl.hashCode);
     _$hash = $jc(_$hash, avatarUrl.hashCode);
+    _$hash = $jc(_$hash, coverImageUrl.hashCode);
+    _$hash = $jc(_$hash, avgRating.hashCode);
+    _$hash = $jc(_$hash, reviewCount.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -86,7 +101,10 @@ class _$PublicSalonResponse extends PublicSalonResponse {
           ..add('region', region)
           ..add('address', address)
           ..add('instagramUrl', instagramUrl)
-          ..add('avatarUrl', avatarUrl))
+          ..add('avatarUrl', avatarUrl)
+          ..add('coverImageUrl', coverImageUrl)
+          ..add('avgRating', avgRating)
+          ..add('reviewCount', reviewCount))
         .toString();
   }
 }
@@ -127,6 +145,19 @@ class PublicSalonResponseBuilder
   String? get avatarUrl => _$this._avatarUrl;
   set avatarUrl(String? avatarUrl) => _$this._avatarUrl = avatarUrl;
 
+  String? _coverImageUrl;
+  String? get coverImageUrl => _$this._coverImageUrl;
+  set coverImageUrl(String? coverImageUrl) =>
+      _$this._coverImageUrl = coverImageUrl;
+
+  num? _avgRating;
+  num? get avgRating => _$this._avgRating;
+  set avgRating(num? avgRating) => _$this._avgRating = avgRating;
+
+  int? _reviewCount;
+  int? get reviewCount => _$this._reviewCount;
+  set reviewCount(int? reviewCount) => _$this._reviewCount = reviewCount;
+
   PublicSalonResponseBuilder() {
     PublicSalonResponse._defaults(this);
   }
@@ -142,6 +173,9 @@ class PublicSalonResponseBuilder
       _address = $v.address;
       _instagramUrl = $v.instagramUrl;
       _avatarUrl = $v.avatarUrl;
+      _coverImageUrl = $v.coverImageUrl;
+      _avgRating = $v.avgRating;
+      _reviewCount = $v.reviewCount;
       _$v = null;
     }
     return this;
@@ -171,6 +205,9 @@ class PublicSalonResponseBuilder
           address: address,
           instagramUrl: instagramUrl,
           avatarUrl: avatarUrl,
+          coverImageUrl: coverImageUrl,
+          avgRating: avgRating,
+          reviewCount: reviewCount,
         );
     replace(_$result);
     return _$result;

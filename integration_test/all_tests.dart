@@ -1,9 +1,9 @@
 // Phase 17.3 — Aggregating E2E entrypoint (L87 + L88).
 //
-// CI no longer runs this file directly (2026-07-01): at 18 flows, this single
+// CI no longer runs this file directly (2026-07-01): at 19 flows, this single
 // long-lived `flutter test` process started crashing the emulator at final
 // teardown (see `all_tests_part1.dart` for the full incident). CI now runs
-// `all_tests_part1.dart` + `all_tests_part2.dart` instead — the same 18 flows,
+// `all_tests_part1.dart` + `all_tests_part2.dart` instead — the same 19 flows,
 // split in two. This file is kept for local convenience (running the FULL
 // suite in one shot against a connected emulator); update all THREE files
 // together when adding/removing a flow.
@@ -67,6 +67,7 @@ import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
 import 'logout_flow_test.dart' as logout;
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
+import 'public_salon_profile_flow_test.dart' as public_salon_profile;
 import 'register_flow_test.dart' as register;
 import 'register_locality_persistence_flow_test.dart'
     as register_locality_persistence;
@@ -98,6 +99,7 @@ void main() {
   group('logout_flow', logout.main);
   group('passport_flow', passport.main);
   group('public_master_profile_flow', public_master_profile.main);
+  group('public_salon_profile_flow', public_salon_profile.main);
   group('register_flow', register.main);
   group(
     'register_locality_persistence_flow',

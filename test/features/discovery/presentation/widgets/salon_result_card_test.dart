@@ -26,6 +26,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../helpers/pump_app.dart';
 
@@ -161,18 +162,16 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // Phase 13.6 navigation guard — the card body is an inert, non-navigating
-  // Semantics(label: name). It USED TO be Semantics(button: true, …) wrapping a
-  // GestureDetector that pushed RouteNames.salonPublicProfile — an unregistered
-  // /salons/:id route → GoException "Page Not Found". This pins the body as a
-  // silent non-button until the route ships.
-  // TODO(13.6): when /salons/:id is registered, flip this to expect
-  // `semantics.properties.button` == true (and restore the body GestureDetector).
+  // Phase 13.6 navigation — the card body is a button that navigates to
+  // RouteNames.salonPublicProfile (/salons/:id, registered in Phase 13.6). It
+  // is wrapped in Semantics(button: true, label: name) so screen readers
+  // announce it as a tappable element carrying the salon's name — mirrors
+  // MasterResultCard's identical Phase 13.5 navigation contract.
   // -------------------------------------------------------------------------
-  group('SalonResultCard navigation guard (TODO 13.6)', () {
+  group('SalonResultCard navigation (Phase 13.6)', () {
     testWidgets(
-      'card body is a silent non-button: Semantics carries the name label but '
-      'NO button flag',
+      'card body is a button: Semantics carries the name label AND the button '
+      'flag',
       (tester) async {
         await _pump(tester, _salon());
 
@@ -196,14 +195,50 @@ void main() {
         final Semantics semantics = tester.widget<Semantics>(cardSemantics);
         expect(
           semantics.properties.button,
-          isNot(true),
+          isTrue,
           reason:
-              'the card body must NOT be announced as a button while the '
-              'public-profile route is unregistered — re-adding button: true '
-              'signals the dead tap-navigation is back (the regression guarded).',
+              'the card body navigates to /salons/:id on tap (Phase 13.6), so '
+              'it must be announced as a button carrying the salon name.',
         );
       },
     );
+
+    testWidgets('tapping the card pushes RouteNames.salonPublicProfile', (
+      tester,
+    ) async {
+      final router = GoRouter(
+        initialLocation: '/search/results',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/search/results',
+            builder: (context, state) =>
+                Scaffold(body: SalonResultCard(salon: _salon())),
+          ),
+          GoRoute(
+            path: '/salons/:salonId',
+            builder: (context, state) => Scaffold(
+              body: Text('salon-profile-${state.pathParameters['salonId']}'),
+            ),
+          ),
+        ],
+      );
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          favoriteToggleProvider.overrideWith(
+            _AuthFreeFavoriteToggleNotifier.new,
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      // i18n-finder-ok: the salon fixture's own data label, not UI copy.
+      await tester.tap(find.text('Студія Краси «Камелія»'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('salon-profile-salon-1'), findsOneWidget);
+    });
   });
 
   // -------------------------------------------------------------------------
