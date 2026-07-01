@@ -333,6 +333,20 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
+          # ram-size/heap-size (2026-07-01): all_tests.dart has grown from the
+          # original 5 flows to 22 (client-home-hub/shell/search/etc. merged
+          # in), so the single aggregating run now relaunches the app many
+          # more times in one long-lived emulator session. The default AVD
+          # profile RAM was sized for the original 5-flow run; under the
+          # larger suite the emulator has started dying right as the LAST
+          # test finishes ("adb: device 'emulator-5554' not found" during
+          # flutter test's own post-suite teardown), failing the job despite
+          # every testWidgets passing. Bumping RAM/heap is the documented
+          # fix for emulator memory pressure on reactivecircus/android-
+          # emulator-runner; cores is left at the action default (2) since
+          # GitHub-hosted ubuntu-latest runners have 2 vCPUs.
+          ram-size: 4096M
+          heap-size: 512M
           # Run ALL 5 E2E flows via a single aggregating entrypoint to recover
           # emulator boot cost (L87). integration_test/all_tests.dart imports
           # each flow's main() and runs them in ONE `flutter test` process / one
