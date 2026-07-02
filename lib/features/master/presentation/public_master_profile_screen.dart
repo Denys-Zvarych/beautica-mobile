@@ -974,21 +974,6 @@ class _PublicProfileSkeleton extends StatelessWidget {
             height: 92,
             radius: VelvetRadii.card,
           ),
-          SizedBox(height: VelvetSpacing.xl),
-          // Portfolio thumbnails.
-          Padding(
-            padding: EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-            child: SkeletonBlock(width: 90, height: 13),
-          ),
-          Row(
-            children: <Widget>[
-              SkeletonBlock(width: 72, height: 72, radius: VelvetRadii.field),
-              SizedBox(width: VelvetSpacing.md),
-              SkeletonBlock(width: 72, height: 72, radius: VelvetRadii.field),
-              SizedBox(width: VelvetSpacing.md),
-              SkeletonBlock(width: 72, height: 72, radius: VelvetRadii.field),
-            ],
-          ),
         ],
       ),
     );

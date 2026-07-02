@@ -412,6 +412,105 @@ void main() {
     });
   });
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Skeleton portfolio placeholder — regression. The skeleton renders BEFORE
+  // `master.type` is known, so it must never show a portfolio placeholder: for
+  // a salon-affiliated master (whose real body correctly hides the portfolio,
+  // see the salon-affiliation-gating group above) a skeleton placeholder would
+  // "pop out" the instant real data lands. This group pins: the key is absent
+  // during loading regardless of eventual type, stays absent for salon types
+  // (no pop-out), and only appears once independent-master data resolves (the
+  // normal pop-in, unaffected by this fix).
+  // ──────────────────────────────────────────────────────────────────────────
+  group('skeleton portfolio placeholder — no pop-in/pop-out (regression)', () {
+    testWidgets('portfolio key absent during loading (type not yet known)', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides(
+          (ref) => Completer<PublicMasterProfileData>().future,
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const Key('public-master-profile-portfolio')),
+        findsNothing,
+      );
+    });
+
+    testWidgets(
+      'salonMaster — portfolio key absent while loading AND stays absent '
+      'after data resolves (no pop-out)',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final completer = Completer<PublicMasterProfileData>();
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => completer.future),
+        );
+        await tester.pump();
+
+        expect(
+          find.byKey(const Key('public-master-profile-portfolio')),
+          findsNothing,
+          reason: 'the skeleton never renders a portfolio placeholder',
+        );
+
+        completer.complete((
+          _stubMaster.copyWith(type: MasterType.salonMaster),
+          _stubServices,
+        ));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-portfolio')),
+          findsNothing,
+          reason: 'salon-affiliated masters never show a portfolio section',
+        );
+      },
+    );
+
+    testWidgets(
+      'independentMaster — portfolio key absent while loading, PRESENT '
+      'after data resolves (normal pop-in preserved)',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final completer = Completer<PublicMasterProfileData>();
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: _overrides((ref) => completer.future),
+        );
+        await tester.pump();
+
+        expect(
+          find.byKey(const Key('public-master-profile-portfolio')),
+          findsNothing,
+        );
+
+        completer.complete((
+          _stubMaster.copyWith(type: MasterType.independentMaster),
+          _stubServices,
+        ));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('public-master-profile-portfolio')),
+          findsOneWidget,
+        );
+      },
+    );
+  });
+
   group('instagram contact tile — launch behaviour', () {
     late _MockUrlLauncher launcher;
     late UrlLauncherPlatform originalPlatform;
