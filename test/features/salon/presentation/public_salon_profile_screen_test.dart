@@ -1455,10 +1455,23 @@ void main() {
         're-fetches on a new selection', (tester) async {
       await _pumpTall(tester);
       final repo = _FakeSalonRepository();
-      await tester.pumpApp(
-        const PublicSalonProfileScreen(salonId: _kSalonId),
-        overrides: _overrides(repo: repo),
+      // The sort sheet dismisses itself via `context.pop(option)` (go_router),
+      // which resolves `GoRouter.of(context)` — a real router ancestor is
+      // required, unlike the plain-`MaterialApp` `pumpApp` used elsewhere in
+      // this file. Mirrors the `pumpRoutedApp` precedent above (master card →
+      // /masters/:masterId).
+      final router = GoRouter(
+        initialLocation: '/salons/$_kSalonId',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/salons/:salonId',
+            builder: (context, state) => PublicSalonProfileScreen(
+              salonId: state.pathParameters['salonId']!,
+            ),
+          ),
+        ],
       );
+      await tester.pumpRoutedApp(router, overrides: _overrides(repo: repo));
       await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const Key('salon-tab-3')));

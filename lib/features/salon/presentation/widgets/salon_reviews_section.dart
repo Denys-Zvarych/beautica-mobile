@@ -15,6 +15,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -243,7 +244,7 @@ class _SortSheet extends StatelessWidget {
                   option: option,
                   label: salonReviewSortLabel(l10n, option),
                   selected: option == active,
-                  onTap: () => Navigator.of(context).pop(option),
+                  onTap: () => context.pop(option),
                 ),
                 if (option != SalonReviewSort.values.last)
                   const SizedBox(height: VelvetSpacing.sm),

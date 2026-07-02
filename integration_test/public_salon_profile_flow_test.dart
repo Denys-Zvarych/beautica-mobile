@@ -91,15 +91,18 @@ void main() {
 
       // ── Log in as CLIENT → land on the client shell at /home ──────────────
       await AppHarness.loginAs(tester, fb, UserRole.client);
+      // fixed-wait-ok: settles the real async login/route-transition step.
       await tester.pumpAndSettle(const Duration(seconds: 1));
       expectLocation(router, RouteNames.clientHome);
 
       // ── Reach the real search-results screen (browse all, no filters) ─────
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
+      // fixed-wait-ok: settles the real async route-push step after the tap.
       await tester.pumpAndSettle(const Duration(seconds: 1));
       expectLocation(router, RouteNames.clientSearch);
 
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      // fixed-wait-ok: settles the real async route-push step after the tap.
       await tester.pumpAndSettle(const Duration(seconds: 1));
       expectLocation(router, RouteNames.clientSearchResults);
 
@@ -116,6 +119,7 @@ void main() {
 
       // ── Tap the salon card → push /salons/salon-xyz ────────────────────────
       await tester.tap(salonCard);
+      // fixed-wait-ok: settles the real async route-push step after the tap.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       expectLocation(router, '/salons/salon-xyz');
@@ -364,6 +368,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const Key('salon-master-card-master-aaa')));
+      // fixed-wait-ok: settles the real async route-push step after the tap.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       expectLocation(router, '/masters/master-aaa');
@@ -387,6 +392,7 @@ void main() {
       // router directly, mirroring the programmatic-navigation precedent in
       // public_master_profile_flow_test.dart.
       router.pop();
+      // fixed-wait-ok: settles the real async route-pop (back navigation) step.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       expectLocation(router, '/salons/salon-xyz');
@@ -420,6 +426,7 @@ void main() {
 
       expectLocation(router, RouteNames.bookingNew);
       router.pop();
+      // fixed-wait-ok: settles the real async route-pop (back navigation) step.
       await tester.pumpAndSettle(const Duration(seconds: 1));
       expectLocation(router, '/salons/salon-xyz');
 
@@ -441,10 +448,12 @@ void main() {
       final GoRouter router = await AppHarness.boot(tester, fb);
 
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      // fixed-wait-ok: settles the real async login/route-transition step.
       await tester.pumpAndSettle(const Duration(seconds: 1));
       expectLocation(router, RouteNames.masterProfile);
 
       unawaited(router.push(RouteNames.salonPublicProfile('salon-xyz')));
+      // fixed-wait-ok: settles the real async route-push step (programmatic push).
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       // clientOnlyGuard → roleHomePath(independentMaster) → /master/profile.

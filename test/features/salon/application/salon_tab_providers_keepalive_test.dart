@@ -143,7 +143,7 @@ void main() {
         );
         await _unmount(tester, container);
 
-        // Well within the 5-minute TTL.
+        // fixed-wait-ok: within 5-min TTL — asserts cache HIT
         await tester.pump(const Duration(seconds: 30));
         await _mount(
           tester,
@@ -154,7 +154,8 @@ void main() {
         verify(() => repo.getSalonServiceCatalog(_kSalonId)).called(1);
 
         await _unmount(tester, container);
-        await tester.pump(const Duration(minutes: 6)); // drain the timer
+        // fixed-wait-ok: drains release Timer past TTL before dispose
+        await tester.pump(const Duration(minutes: 6));
       },
     );
 
@@ -172,7 +173,8 @@ void main() {
         );
         await _unmount(tester, container);
 
-        await tester.pump(const Duration(minutes: 6)); // > 5-min TTL
+        // fixed-wait-ok: past 5-min TTL — asserts cache MISS
+        await tester.pump(const Duration(minutes: 6));
         await _mount(
           tester,
           container,
@@ -182,6 +184,7 @@ void main() {
         verify(() => repo.getSalonServiceCatalog(_kSalonId)).called(2);
 
         await _unmount(tester, container);
+        // fixed-wait-ok: drains release Timer past TTL before dispose
         await tester.pump(const Duration(minutes: 6));
       },
     );
@@ -203,6 +206,7 @@ void main() {
         );
         await _unmount(tester, container);
 
+        // fixed-wait-ok: within 5-min TTL — asserts cache HIT
         await tester.pump(const Duration(seconds: 30));
         await _mount(
           tester,
@@ -213,6 +217,7 @@ void main() {
         verify(() => repo.getSalonReviewSummary(_kSalonId)).called(1);
 
         await _unmount(tester, container);
+        // fixed-wait-ok: drains release Timer past TTL before dispose
         await tester.pump(const Duration(minutes: 6));
       },
     );
@@ -231,6 +236,7 @@ void main() {
         );
         await _unmount(tester, container);
 
+        // fixed-wait-ok: past 5-min TTL — asserts cache MISS
         await tester.pump(const Duration(minutes: 6));
         await _mount(
           tester,
@@ -241,6 +247,7 @@ void main() {
         verify(() => repo.getSalonReviewSummary(_kSalonId)).called(2);
 
         await _unmount(tester, container);
+        // fixed-wait-ok: drains release Timer past TTL before dispose
         await tester.pump(const Duration(minutes: 6));
       },
     );
@@ -267,6 +274,7 @@ void main() {
         );
         await _unmount(tester, container);
 
+        // fixed-wait-ok: within 5-min TTL — asserts cache HIT
         await tester.pump(const Duration(seconds: 30));
         await _mount(
           tester,
@@ -284,6 +292,7 @@ void main() {
         ).called(1);
 
         await _unmount(tester, container);
+        // fixed-wait-ok: drains release Timer past TTL before dispose
         await tester.pump(const Duration(minutes: 6));
       },
     );
@@ -307,6 +316,7 @@ void main() {
         );
         await _unmount(tester, container);
 
+        // fixed-wait-ok: past 5-min TTL — asserts cache MISS
         await tester.pump(const Duration(minutes: 6));
         await _mount(
           tester,
@@ -324,6 +334,7 @@ void main() {
         ).called(2);
 
         await _unmount(tester, container);
+        // fixed-wait-ok: drains release Timer past TTL before dispose
         await tester.pump(const Duration(minutes: 6));
       },
     );
@@ -374,6 +385,7 @@ void main() {
         ).called(1);
 
         await _unmount(tester, container);
+        // fixed-wait-ok: drains release Timer past TTL before dispose
         await tester.pump(const Duration(minutes: 6));
       },
     );
