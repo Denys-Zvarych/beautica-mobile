@@ -102,6 +102,10 @@
   "@errUnknown": {
     "description": "Fallback error message for unexpected failures."
   },
+  "errConflict": "This time slot is no longer available. Please choose another.",
+  "@errConflict": {
+    "description": "Error message shown when a booking create/reschedule returns HTTP 409 because the requested slot is no longer available (ConflictFailure)."
+  },
   "errEmailAlreadyRegistered": "This email is already registered. Please sign in instead.",
   "@errEmailAlreadyRegistered": {
     "description": "Inline error shown on the registration submit when the backend returns 409 with data.code == EMAIL_ALREADY_REGISTERED (backend disclose-duplicate-registration mode). Surfaced via EmailAlreadyRegisteredFailure.userMessage."

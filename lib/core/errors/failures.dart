@@ -389,3 +389,27 @@ final class MasterAlreadyHasServicesFailure extends Failure {
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).serviceSetupErrAlreadyHasServices;
 }
+
+/// Emitted when a booking write returns HTTP **409 Conflict** because the
+/// requested slot is no longer available.
+///
+/// Two call sites (Phase 14.0):
+///   - `POST /bookings` — another client booked the same slot first (or the
+///     master's schedule changed) between the client fetching available slots
+///     and submitting the request.
+///   - `PATCH /bookings/{id}/reschedule` — the requested new slot is taken, or
+///     the booking is no longer in a reschedulable state (server-side race).
+///
+/// Generic on purpose — unlike [MasterAlreadyHasServicesFailure] or
+/// [EmailAlreadyRegisteredFailure], this is not tied to one specific write; the
+/// booking repository re-maps the interceptor's default
+/// `ServerFailure(statusCode: 409)` to this type by checking
+/// `e.response?.statusCode == 409` BEFORE deferring to `e.error is Failure`
+/// (see `HttpBookingRepository._mapBookingWriteException`, mirroring the
+/// `MasterAlreadyHasServicesFailure` precedent in `service_repository.dart`).
+final class ConflictFailure extends Failure {
+  const ConflictFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errConflict;
+}

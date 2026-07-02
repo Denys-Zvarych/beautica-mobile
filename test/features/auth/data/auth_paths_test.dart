@@ -244,18 +244,21 @@ void main() {
     });
 
     test(
-      '15. kPiiPaths has exactly 16 entries (kAuthPaths union + 5 authenticated PII paths)',
+      '15. kPiiPaths has exactly 17 entries (kAuthPaths union + 6 authenticated PII paths)',
       () {
         expect(
           kPiiPaths.length,
-          equals(16),
+          equals(17),
           reason:
               'kPiiPaths must equal kAuthPaths (11) plus '
               '/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
-              '/api/v1/masters/me, and the two auth-gated discovery search paths '
-              '/api/v1/search/masters + /api/v1/search/salons '
-              '(5 authenticated PII paths = 16 total). The search paths were '
-              'added by commit b550428 (auth-gated address redaction). '
+              '/api/v1/masters/me, the two auth-gated discovery search paths '
+              '/api/v1/search/masters + /api/v1/search/salons, and the '
+              'Phase 14.0 CLIENT booking create endpoint /api/v1/bookings '
+              '(6 authenticated PII paths = 17 total). The search paths were '
+              'added by commit b550428 (auth-gated address redaction); '
+              '/api/v1/bookings was added by the Phase 14.0 security fix '
+              '(POST /bookings carries the free-text clientComment field). '
               'Update this count if new PII endpoints are added.',
         );
       },

@@ -227,9 +227,12 @@ void main() {
     });
 
     test('non-PII route: token value masked; page & sort stay visible', () {
-      // /api/v1/bookings is NOT a PII route, so the per-key value mask applies:
-      // the credential value disappears while debug-useful params survive.
-      const String path = '/api/v1/bookings?token=abc123&page=2&sort=name';
+      // /api/v1/service-categories/approved is NOT a PII route (public
+      // reference-data list, no free-text/PII body), so the per-key value
+      // mask applies: the credential value disappears while debug-useful
+      // params survive.
+      const String path =
+          '/api/v1/service-categories/approved?token=abc123&page=2&sort=name';
       final String out = redactLogPath(path);
 
       expect(out, contains('token=***'));
@@ -243,7 +246,7 @@ void main() {
     });
 
     test('key matching is case-insensitive (TOKEN masked like token)', () {
-      const String path = '/api/v1/bookings?TOKEN=abc123';
+      const String path = '/api/v1/service-categories/approved?TOKEN=abc123';
       final String out = redactLogPath(path);
 
       expect(out, contains('TOKEN=***'));
@@ -255,7 +258,8 @@ void main() {
     });
 
     test('repeated sensitive params: every occurrence is masked', () {
-      const String path = '/api/v1/bookings?token=aaa&token=bbb&page=1';
+      const String path =
+          '/api/v1/service-categories/approved?token=aaa&token=bbb&page=1';
       final String out = redactLogPath(path);
 
       expect(out, isNot(contains('aaa')));
@@ -266,23 +270,19 @@ void main() {
     });
 
     test('malformed query strings degrade safely (no throw, sane output)', () {
+      const String base = '/api/v1/service-categories/approved';
+
       // Trailing '?' with empty query → original path returned unchanged.
-      expect(() => redactLogPath('/api/v1/bookings?'), returnsNormally);
-      expect(redactLogPath('/api/v1/bookings?'), equals('/api/v1/bookings?'));
+      expect(() => redactLogPath('$base?'), returnsNormally);
+      expect(redactLogPath('$base?'), equals('$base?'));
 
       // Empty pairs from a doubled '&' must not crash.
-      expect(() => redactLogPath('/api/v1/bookings?a&&b'), returnsNormally);
-      expect(
-        redactLogPath('/api/v1/bookings?a&&b'),
-        equals('/api/v1/bookings?a&&b'),
-      );
+      expect(() => redactLogPath('$base?a&&b'), returnsNormally);
+      expect(redactLogPath('$base?a&&b'), equals('$base?a&&b'));
 
       // Key without '=' (no value to leak) is left as-is, no crash.
-      expect(() => redactLogPath('/api/v1/bookings?token'), returnsNormally);
-      expect(
-        redactLogPath('/api/v1/bookings?token'),
-        equals('/api/v1/bookings?token'),
-      );
+      expect(() => redactLogPath('$base?token'), returnsNormally);
+      expect(redactLogPath('$base?token'), equals('$base?token'));
     });
 
     test('path without a query string is returned unchanged', () {
