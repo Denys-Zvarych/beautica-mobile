@@ -301,18 +301,24 @@ class _ClientLocationEditScreenState
       ref.invalidate(clientEditProfileProvider);
       ref.invalidate(clientProfileProvider);
       // The Пошук (Search) screen's locality filter is auto-seeded from THIS
-      // profile ([SearchFiltersController.prefillFromProfileIfNeeded]). That
-      // controller already re-reads the profile on every Search screen entry
-      // (see its doc comment), so this invalidate is not strictly required for
-      // correctness — but it forces an immediate, clean reset of both keepAlive
-      // controllers (their `build()` clears state + seed-tracking, same as a
-      // logout/login) rather than relying on the next Search entry to notice the
-      // drift. This is a deliberate full reset: it also forgets any locality the
-      // user had manually picked inside Search earlier this session — acceptable
-      // because the profile save the user JUST performed is the more recent,
-      // more explicit signal of their intended locality.
-      ref.invalidate(searchFiltersControllerProvider);
-      ref.invalidate(searchFilterLabelsControllerProvider);
+      // profile ([SearchFiltersController.prefillFromProfileIfNeeded]) — but that
+      // method only runs from `_ClientSearchScreenState.initState()`, which fires
+      // AT MOST ONCE per app session: the Search tab lives inside `ClientShell`'s
+      // `StatefulShellRoute.indexedStack`, so switching away from (and back to)
+      // the Search branch never disposes/recreates its State. Invalidating the
+      // two keepAlive controllers here would just reset them to blank defaults
+      // with nothing left to re-seed them — the Search tab would come back empty
+      // instead of showing the new locality. Calling the prefill directly closes
+      // that gap without depending on `initState` firing again. It also updates
+      // the sibling [SearchFilterLabelsController] labels inline (see
+      // `prefillFromProfileIfNeeded`'s doc comment), so no separate label refresh
+      // is needed. The anti-clobber guard (`_userTouchedLocality`) is preserved:
+      // if the user already manually picked/cleared a locality inside Search
+      // this session, this call is a no-op and their choice is left intact.
+      await ref
+          .read(searchFiltersControllerProvider.notifier)
+          .prefillFromProfileIfNeeded();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           key: const Key('snackbar-saved'),
