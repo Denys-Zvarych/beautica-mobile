@@ -79,41 +79,38 @@ SalonServiceCatalogResponse _missingDisplayNameDto() =>
 
 void main() {
   group('SalonServiceCatalogMapper.fromDto', () {
-    test(
-      'maps the entry displayName from the DTO displayName field, '
-      'not the raw category slug',
-      () {
-        final List<SalonServiceCategoryEntry> result =
-            SalonServiceCatalogMapper.fromDto(_distinctDisplayNameDto());
+    test('maps the entry displayName from the DTO displayName field, '
+        'not the raw category slug', () {
+      final List<SalonServiceCategoryEntry> result =
+          SalonServiceCatalogMapper.fromDto(_distinctDisplayNameDto());
 
-        expect(result, hasLength(1));
-        final SalonServiceCategoryEntry entry = result.single;
+      expect(result, hasLength(1));
+      final SalonServiceCategoryEntry entry = result.single;
 
-        expect(
-          entry.category,
-          'HARDWARE_COSMETOLOGY',
-          reason: 'the raw slug must still be carried through unchanged',
-        );
-        expect(
-          entry.displayName,
-          'Апаратна косметологія',
-          reason:
-              'displayName must come from the DTO\'s displayName field — '
-              'this is the exact assertion the original raw-slug bug '
-              'violated, and the one a regression back to '
-              '`displayName: category` would fail.',
-        );
-        expect(
-          entry.displayName,
-          isNot(equals(entry.category)),
-          reason:
-              'displayName and category are DISTINCT on this fixture; if a '
-              'future change collapses the mapper back to '
-              '`displayName: category`, this equality would silently start '
-              'passing and must fail instead.',
-        );
-      },
-    );
+      expect(
+        entry.category,
+        'HARDWARE_COSMETOLOGY',
+        reason: 'the raw slug must still be carried through unchanged',
+      );
+      expect(
+        entry.displayName,
+        'Апаратна косметологія',
+        reason:
+            'displayName must come from the DTO\'s displayName field — '
+            'this is the exact assertion the original raw-slug bug '
+            'violated, and the one a regression back to '
+            '`displayName: category` would fail.',
+      );
+      expect(
+        entry.displayName,
+        isNot(equals(entry.category)),
+        reason:
+            'displayName and category are DISTINCT on this fixture; if a '
+            'future change collapses the mapper back to '
+            '`displayName: category`, this equality would silently start '
+            'passing and must fail instead.',
+      );
+    });
 
     test(
       'falls back to the raw category slug when the DTO displayName is null',
