@@ -1055,4 +1055,121 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 90)),
   );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Search-page saved-location PREFILL — E2E REGRESSION: a mid-session profile
+  // locality CHANGE (no logout) reaches Пошук on the very next open.
+  //
+  // WHY THIS FLOW EXISTS
+  // --------------------
+  // The reported bug: a CLIENT who changed their saved locality on the
+  // Location edit screen kept seeing the OLD city on Пошук until a full app
+  // restart. Root cause (search_filters_controller.dart): a one-shot
+  // `_seededFromProfile` latch that seeded the filter at most once per session
+  // and never re-checked the profile again. The fix replaced it with
+  // `_userTouchedLocality` (set ONLY by a manual pick) plus
+  // `_lastSeeded{Oblast,City,District}Id` tracking, so
+  // `prefillFromProfileIfNeeded()` re-reads the profile on EVERY call and
+  // re-seeds whenever it drifts from what was last seeded.
+  //
+  // The prior flow in this file (above) proves the FIRST-open prefill + the
+  // anti-clobber guard when the CLIENT edits the locality through Пошук's OWN
+  // picker. It does NOT prove the actual reported journey: the CLIENT changes
+  // their locality on a DIFFERENT screen (Location edit, reached via the
+  // profile settings hub) and comes back to Пошук — the widget/unit tiers
+  // (search_filters_profile_prefill_test.dart) call
+  // `prefillFromProfileIfNeeded()` directly against a stubbed profile
+  // provider; they cannot prove the real chain: real navigation to the
+  // settings hub, the real Location edit screen's locality cascade + Save
+  // (PATCH /users/me + the screen's own `ref.invalidate(...)` calls), and the
+  // real Пошук screen's `initState` re-firing the prefill against the
+  // now-current profile — all inside ONE authenticated session.
+  //
+  // Step 2.7 Rule 3b: screen + navigation + provider→repository (PATCH + GET
+  // /users/me) + the keepAlive controller's cross-screen re-sync — the
+  // widget/unit tier cannot prove this composes end to end.
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets(
+    'CLIENT changes their saved city on the Location edit screen mid-session '
+    '(no logout) → returning to Пошук shows the NEW city, not the stale one',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        // Saved profile location starts at Київ — the ORIGINAL locality that
+        // must NOT survive the in-session edit below.
+        ..clientOblastId = 'oblast-kyiv'
+        ..clientOblastName = 'Київська'
+        ..clientCityId = 'city-kyiv'
+        ..clientCityName = 'Київ';
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientHome);
+
+      // ── 1. Open Пошук → the prefill shows the ORIGINAL saved city ──────────
+      await tester.tap(find.byKey(const Key('client-nav-search-center')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientSearch);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
+        'Київ',
+        reason: 'the first open must prefill from the saved Київ',
+      );
+
+      // ── 2. Home → burger → settings hub → Location edit ────────────────────
+      await tester.tap(find.byKey(const Key('client-nav-tile-0')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientHome);
+
+      await tester.tap(find.byKey(const Key('btn-menu-client')));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      expectLocation(router, RouteNames.clientMenu);
+
+      await tester.tap(find.byKey(const Key('row-location')));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+      expectLocation(router, RouteNames.clientEditLocation);
+
+      // ── 3. Change the CITY to Львів (same region) → Save ───────────────────
+      await tester.tap(find.byKey(const Key('locality_row_city')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await tester.tap(
+        find.byKey(const ValueKey<String>('locality_picker_tile_city-lviv')),
+      );
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      await tester.ensureVisible(find.byKey(const Key('btn-save-location')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-save-location')));
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      expectLocation(router, RouteNames.clientHome);
+      expect(
+        fb.clientCityId,
+        'city-lviv',
+        reason: 'the location save must persist the new city',
+      );
+
+      // ── 4. Re-enter Пошук in the SAME session (no logout) ──────────────────
+      // THE REGRESSION ASSERTION. Pre-fix, the one-shot `_seededFromProfile`
+      // latch would already be true from step 1 and never re-arm, so this
+      // second open would still render the STALE Київ — exactly the reported
+      // bug (fixed only by a full app restart, which re-creates the provider
+      // graph from scratch).
+      await tester.tap(find.byKey(const Key('client-nav-search-center')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, RouteNames.clientSearch);
+
+      expect(
+        tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
+        'Львів',
+        reason:
+            'a mid-session profile locality change must reach Пошук on the '
+            'very next open — no app restart required',
+      );
+
+      expect(fb.getMasterCalls, 0);
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
 }

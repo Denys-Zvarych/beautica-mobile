@@ -6,11 +6,11 @@
 // collapse / hide + NO rating), chip-clear re-query, infinite-scroll loadMore
 // (bottom spinner, no double-fetch, last-page no-op), the optimistic favorite
 // heart (flip / idempotent toggle / revert + snackbar on repo error / per-heart
-// rebuild scope), and the card-body navigation contract: the MASTER card body
-// now navigates to /masters/:id (Phase 13.5, route registered) while the SALON
-// card body stays inert until /salons/:id lands (TODO 13.6); in both cases the
-// favourite heart stays interactive and navigates nowhere (isolation control);
-// see `group('card nav guard')`.
+// rebuild scope), and the card-body navigation contract: BOTH the MASTER card
+// body (Phase 13.5) and the SALON card body (Phase 13.6) navigate to their
+// public-profile routes (/masters/:id and /salons/:id, both registered); in
+// both cases the favourite heart stays interactive and navigates nowhere
+// (isolation control); see `group('card nav guard')`.
 //
 // Pumping notes (mobile-backlog row 236): the screen is pumped under a plain
 // `MaterialApp home:` (NOT `.router`) for the AsyncValue-state tests so the
@@ -19,8 +19,7 @@
 // surfaces a synchronous pure AsyncError instead of lingering in seamless
 // AsyncLoading under Riverpod. The card nav-guard tests use a real `GoRouter`
 // with stub /masters/:id & /salons/:id routes so each `context.push` is
-// observable — the master test asserts its stub IS reached (push lands), the
-// salon test asserts its stub is NOT reached (route still unregistered).
+// observable — both the master and salon test assert their stub IS reached.
 //
 // House rules honoured: ProviderScope is ALWAYS given overrides (fake search +
 // fake favorite repos); finders are Key-based; UA copy is asserted via l10n
@@ -1209,7 +1208,8 @@ void main() {
     );
 
     testWidgets(
-      'tapping the salon card body does NOT navigate; the heart still works',
+      'tapping the salon card body navigates to /salons/:id; the heart still '
+      'works independently',
       (tester) async {
         final repo = _MockSearchRepository();
         when(
@@ -1261,21 +1261,10 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await tester.tap(find.byType(SalonResultCard));
-        await tester.pumpAndSettle();
-
-        expect(
-          find.byKey(const Key('salon_profile_stub')),
-          findsNothing,
-          reason:
-              'the salon card body must NOT push /salons/:id — that route is '
-              'unregistered until Phase 13.6. Re-introducing the dead '
-              'context.push reaches this stub.',
-        );
-        expect(pushedLocation, isNull);
-        expect(find.byType(SalonResultCard), findsOneWidget);
-
-        // POSITIVE CONTROL: the salon heart is still interactive.
+        // POSITIVE CONTROL FIRST: the favourite heart INSIDE the card is
+        // interactive and navigates nowhere — proving body-tap navigation does
+        // not leak through the heart. Tap the heart before the body so the
+        // results screen is still mounted.
         await tester.tap(find.byKey(const Key('favorite_salon_s1')));
         await tester.pumpAndSettle();
         verify(
@@ -1285,6 +1274,21 @@ void main() {
         ).called(1);
         expect(find.byKey(const Key('salon_profile_stub')), findsNothing);
         expect(pushedLocation, isNull);
+        expect(find.byType(SalonResultCard), findsOneWidget);
+
+        // Tap the card body. The body onTap pushes the public-profile route
+        // (Phase 13.6).
+        await tester.tap(find.byType(SalonResultCard));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon_profile_stub')),
+          findsOneWidget,
+          reason:
+              'the salon card body must push /salons/:id — the public-profile '
+              'route registered in Phase 13.6.',
+        );
+        expect(pushedLocation, '/salons/s1');
       },
     );
   });

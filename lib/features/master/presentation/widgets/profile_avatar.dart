@@ -17,6 +17,11 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+// Phase 13.6 — ContactTile moved to `shared/widgets/` for cross-feature reuse
+// (the salon public profile also renders a contact row). Re-exported here so
+// every existing `import 'widgets/profile_avatar.dart';` call site keeps
+// working unchanged.
+export 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 
 /// The avatar well — a recessed circular well that "sinks" into the surface,
 /// holding a camel [Icons.person_outline] placeholder. The concave look reads
@@ -138,118 +143,6 @@ class RoleChip extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// ContactTile
-// ---------------------------------------------------------------------------
-
-/// A tappable raised contact row (phone / Instagram). A small inset glyph well
-/// on the left, the value in the middle, a chevron on the right. Depresses on
-/// press to confirm the tap.
-///
-/// When [label] is provided (e.g. "Instagram"), it renders as a muted caption
-/// above [value], turning the text column into a two-line block so the platform
-/// is always clear without relying on a branded icon.
-///
-/// Ported verbatim from
-/// `docs/signup-designs/MasterProfileScreen/lib/widgets/profile_widgets.dart`.
-/// `VelvetColors.*` → `BrandColors.*`; all VelvetSpacing/VelvetRadii/VelvetShadows
-/// are identical in production.
-class ContactTile extends StatefulWidget {
-  const ContactTile({
-    super.key,
-    required this.icon,
-    required this.value,
-    required this.onTap,
-    required this.semanticLabel,
-    this.label,
-  });
-
-  final IconData icon;
-  final String value;
-  final VoidCallback onTap;
-  final String semanticLabel;
-
-  /// Optional platform label shown above [value] in muted caption style.
-  final String? label;
-
-  @override
-  State<ContactTile> createState() => _ContactTileState();
-}
-
-class _ContactTileState extends State<ContactTile> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: widget.semanticLabel,
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) {
-          setState(() => _pressed = false);
-          widget.onTap();
-        },
-        child: AnimatedScale(
-          scale: _pressed ? 0.985 : 1,
-          duration: const Duration(milliseconds: 110),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            decoration: BoxDecoration(
-              color: BrandColors.base,
-              borderRadius: BorderRadius.circular(VelvetRadii.field),
-              boxShadow: _pressed ? null : VelvetShadows.extrudedSmall,
-            ),
-            padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-            child: Row(
-              children: <Widget>[
-                SizedBox(
-                  height: 40,
-                  width: 40,
-                  child: NeumorphicInset(
-                    radius: VelvetRadii.field - 4,
-                    child: Center(
-                      child: Icon(
-                        widget.icon,
-                        size: 18,
-                        color: BrandColors.accentDeep,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: VelvetSpacing.md),
-                Expanded(
-                  child: widget.label != null
-                      ? Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            Text(
-                              widget.label!,
-                              // M-2 fix: pre-composed static; zero per-frame
-                              // allocation.
-                              style: VelvetText.contactPlatformLabel,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(widget.value, style: VelvetText.bodyStrong()),
-                          ],
-                        )
-                      : Text(widget.value, style: VelvetText.bodyStrong()),
-                ),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: BrandColors.faint,
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );

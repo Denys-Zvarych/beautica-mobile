@@ -1,0 +1,376 @@
+// Phase 13.6 regression — SalonServicesAccordion price text styling.
+//
+// Bug: `_SalonServiceRow`'s price `Text` used `VelvetText.bodyStrong()`
+// (Nunito 15 sp) instead of the compact metadata scale (12.5 sp) used by the
+// reference screen — the salon's own service-management list
+// (`services_list_screen.dart`'s `_MetaItem._valueStyle`,
+// `VelvetText.pill().copyWith(fontSize: 12.5)`). The 15 sp price rendered
+// visibly larger/bolder than the 12 sp duration label right next to it.
+//
+// This test pins the resolved price style's `fontSize`, `fontWeight`, and
+// `color` to the compact metadata scale so none of the three can silently
+// drift back to `bodyStrong()` (15 sp / w700 / `BrandColors.text` espresso)
+// again — only checking `fontSize` would miss a regression that reverted the
+// base style (e.g. back to `bodyStrong()`) while some other change happened
+// to keep the size at/under 13 sp. It FAILS against the pre-fix style and
+// PASSES against the fix (<= 13 sp / w800 / `BrandColors.accentDeep`,
+// matching the 12.5 sp reference).
+
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
+import 'package:beautica_mobile/features/salon/presentation/widgets/salon_services_accordion.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import '../../../../helpers/pump_app.dart';
+
+const _kCategories = <SalonServiceCategoryEntry>[
+  SalonServiceCategoryEntry(
+    category: 'Манікюр',
+    displayName: 'Манікюр',
+    count: 1,
+    services: <SalonCatalogService>[
+      SalonCatalogService(
+        id: 'svc-1',
+        name: 'Класичний манікюр',
+        durationLabel: '1 год',
+        priceDisplay: '500 грн',
+      ),
+    ],
+  ),
+];
+
+// Phase 13.6 fix regression — raw category slug vs. resolved displayName.
+//
+// `category` and `displayName` are DELIBERATELY DISTINCT here (unlike every
+// other fixture in this file, and in `public_salon_profile_screen_test.dart`
+// / `salon_tab_providers_keepalive_test.dart`, where they were patched to the
+// SAME value just to satisfy the new required constructor arg). Only a
+// fixture with distinct values can prove the header renders `displayName`
+// and not `category` — the original bug rendered the raw platform-category
+// slug ("HARDWARE_COSMETOLOGY") instead of the Ukrainian label ("Апаратна
+// косметологія").
+const _kDistinctLabelCategories = <SalonServiceCategoryEntry>[
+  SalonServiceCategoryEntry(
+    category: 'HARDWARE_COSMETOLOGY',
+    displayName: 'Апаратна косметологія',
+    count: 1,
+    services: <SalonCatalogService>[
+      SalonCatalogService(
+        id: 'svc-hc-1',
+        name: 'Чистка обличчя',
+        durationLabel: '1 год',
+        priceDisplay: '800 грн',
+      ),
+    ],
+  ),
+];
+
+void main() {
+  testWidgets(
+    'price text renders at the compact metadata scale, not bodyStrong()',
+    (tester) async {
+      await tester.pumpApp(
+        const SalonServicesAccordion(categories: _kCategories),
+      );
+      await tester.pumpAndSettle();
+
+      // i18n-finder-ok: fixture price string, not UI copy
+      final priceFinder = find.text('500 грн');
+      expect(priceFinder, findsOneWidget);
+
+      final Text priceText = tester.widget<Text>(priceFinder);
+      final double? resolvedFontSize = priceText.style?.fontSize;
+
+      expect(
+        resolvedFontSize,
+        isNotNull,
+        reason: 'price Text must have an explicit style with a fontSize',
+      );
+      expect(
+        resolvedFontSize! <= 13,
+        isTrue,
+        reason:
+            'price text must use the compact metadata scale (12.5 sp, '
+            'matching services_list_screen._MetaItem._valueStyle) — '
+            'not VelvetText.bodyStrong() (15 sp), which visibly overpowers '
+            'the 12 sp duration label beside it. Resolved size was '
+            '$resolvedFontSize.',
+      );
+
+      // Guard the other two axes of the same regression: `bodyStrong()` is
+      // not just larger, it is also a lighter weight (w700) in the plain
+      // espresso text color (`BrandColors.text`) rather than the camel
+      // "price emphasis" color (`BrandColors.accentDeep`) w/ w800 used by
+      // the compact metadata/pill scale everywhere else in this codebase.
+      // A test that only pinned `fontSize` would miss a regression that
+      // reverted the base style while incidentally keeping the size <= 13.
+      expect(
+        priceText.style?.fontWeight,
+        FontWeight.w800,
+        reason:
+            'price text must keep the pill/metadata emphasis weight (w800), '
+            'not bodyStrong()\'s w700.',
+      );
+      expect(
+        priceText.style?.color,
+        BrandColors.accentDeep,
+        reason:
+            'price text must use the camel price-emphasis color '
+            '(BrandColors.accentDeep), not bodyStrong()\'s plain espresso '
+            'text color (BrandColors.text).',
+      );
+    },
+  );
+
+  testWidgets(
+    'name text renders at the reference cardTitle scale (1.15 line-height), '
+    'not bodyStrong() (1.5 line-height)',
+    (tester) async {
+      await tester.pumpApp(
+        const SalonServicesAccordion(categories: _kCategories),
+      );
+      await tester.pumpAndSettle();
+
+      // Service name below is local fixture data (_kCategories, this file).
+      // i18n-finder-ok: service name is fixture data, not translated UI copy.
+      final nameFinder = find.text('Класичний манікюр');
+      expect(nameFinder, findsOneWidget);
+
+      final Text nameText = tester.widget<Text>(nameFinder);
+      final TextStyle? resolvedStyle = nameText.style;
+
+      expect(
+        resolvedStyle,
+        isNotNull,
+        reason: 'service name Text must have an explicit style',
+      );
+      expect(
+        resolvedStyle!.fontSize,
+        15,
+        reason:
+            'service name must stay at 15 sp, matching the reference '
+            'screen\'s _ServiceInfo._nameStyle (services_list_screen.dart).',
+      );
+
+      // The point size alone (15 sp) coincidentally matches bodyStrong()'s
+      // 15 sp, so fontSize cannot catch this regression on its own — the
+      // actual bug is the 30% looser line-height (1.5 vs 1.15) plus the
+      // wrong font family (Nunito vs Comfortaa), which visibly bulks up
+      // each row even though the size "matches".
+      expect(
+        resolvedStyle.height,
+        1.15,
+        reason:
+            'service name must use the reference screen\'s tight 1.15 '
+            'line-height, not VelvetText.bodyStrong()\'s 1.5 — the looser '
+            'line-height is what makes each row render visibly taller even '
+            'though the fontSize alone matches.',
+      );
+
+      // Guard against the regression reappearing under a different guise:
+      // the resolved style must not equal bodyStrong()'s resolved style.
+      final TextStyle bodyStrongStyle = VelvetText.bodyStrong();
+      expect(
+        resolvedStyle,
+        isNot(equals(bodyStrongStyle)),
+        reason:
+            'service name style must not match VelvetText.bodyStrong() — '
+            'that is the pre-fix regression style (Nunito 15 sp / 1.5 '
+            'line-height).',
+      );
+    },
+  );
+
+  // Regression: the duration label (`_durationStyle`) was re-styled to match
+  // the reference screen's compact metadata scale
+  // (`services_list_screen._MetaItem._valueStyle`,
+  // `VelvetText.pill().copyWith(fontSize: 12.5)`, `BrandColors.accentDeep`,
+  // w800) instead of a muted `feedback()` label — mirroring the price/name
+  // fixes above, which this file already pinned but the duration label was
+  // "missed" per the source doc comment. Pins all three axes (size/weight/
+  // color) plus the icon's size/color so none can silently drift back.
+  testWidgets('duration text renders at the compact pill scale (12.5sp/w800/'
+      'accentDeep), not a muted feedback() label', (tester) async {
+    await tester.pumpApp(
+      const SalonServicesAccordion(categories: _kCategories),
+    );
+    await tester.pumpAndSettle();
+
+    // i18n-finder-ok: fixture duration string, not UI copy
+    final durationFinder = find.text('1 год');
+    expect(durationFinder, findsOneWidget);
+
+    final Text durationText = tester.widget<Text>(durationFinder);
+    final TextStyle? resolvedStyle = durationText.style;
+
+    expect(
+      resolvedStyle,
+      isNotNull,
+      reason: 'duration Text must have an explicit style',
+    );
+    expect(
+      resolvedStyle!.fontSize,
+      12.5,
+      reason:
+          'duration must use the compact pill/metadata scale (12.5 sp), '
+          'matching services_list_screen._MetaItem._valueStyle.',
+    );
+    expect(
+      resolvedStyle.fontWeight,
+      FontWeight.w800,
+      reason:
+          'duration must use the pill scale\'s bold weight (w800), not '
+          'a muted feedback() label\'s w700.',
+    );
+    expect(
+      resolvedStyle.color,
+      BrandColors.accentDeep,
+      reason:
+          'duration must use the camel pill color '
+          '(BrandColors.accentDeep), not a muted/secondary feedback() '
+          'color.',
+    );
+
+    final Icon durationIcon = tester.widget<Icon>(
+      find.byIcon(Icons.schedule_outlined),
+    );
+    expect(
+      durationIcon.size,
+      13,
+      reason:
+          'duration icon must match the reference _MetaItem icon size '
+          '(13), not a larger default.',
+    );
+    expect(
+      durationIcon.color,
+      BrandColors.accent,
+      reason: 'duration icon must use the accent (not accentDeep) tone.',
+    );
+  });
+
+  // Regression guard for the `Flexible(maxLines: 1, overflow: ellipsis)`
+  // wrapper this fix introduced around the duration label: before the wrap,
+  // a long duration string (a service with a note baked into its duration
+  // label) could push the row past its available width. Pumped at a narrow
+  // 320dp width — well below typical-phone — with a deliberately long
+  // duration label to stress the wrap.
+  testWidgets('a long duration label ellipsizes inside its Flexible instead of '
+      'overflowing the row', (tester) async {
+    const String longDuration =
+        '2 год 45 хв (попередній запис за 3 дні до візиту)';
+    const longDurationCategories = <SalonServiceCategoryEntry>[
+      SalonServiceCategoryEntry(
+        category: 'Манікюр',
+        displayName: 'Манікюр',
+        count: 1,
+        services: <SalonCatalogService>[
+          SalonCatalogService(
+            id: 'svc-long',
+            name: 'Класичний манікюр',
+            durationLabel: longDuration,
+            priceDisplay: '500 грн',
+          ),
+        ],
+      ),
+    ];
+
+    await tester.pumpApp(
+      const SalonServicesAccordion(categories: longDurationCategories),
+      width: 320,
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.takeException(),
+      isNull,
+      reason:
+          'a pathologically long duration label must not overflow the '
+          'row — it must be constrained by the Flexible + ellipsis '
+          'wrapper introduced alongside the compact pill restyle.',
+    );
+
+    final durationFinder = find.text(longDuration);
+    expect(durationFinder, findsOneWidget);
+    final Text durationText = tester.widget<Text>(durationFinder);
+    expect(
+      durationText.maxLines,
+      1,
+      reason: 'duration must stay single-line even when very long',
+    );
+    expect(
+      durationText.overflow,
+      TextOverflow.ellipsis,
+      reason: 'duration must ellipsize rather than wrap or overflow',
+    );
+  });
+
+  // Phase 13.6 fix regression guard — the actual user-facing bug: the
+  // category header must render `SalonServiceCategoryEntry.displayName`
+  // ("Апаратна косметологія"), never the raw platform-category slug
+  // ("HARDWARE_COSMETOLOGY") the entity also carries in `.category`. This is
+  // the only test in the suite that uses distinct category/displayName
+  // values, so it is the only one that can actually catch a regression back
+  // to rendering `cat.category`.
+  testWidgets(
+    'category header renders displayName, not the raw category slug',
+    (tester) async {
+      await tester.pumpApp(
+        const SalonServicesAccordion(categories: _kDistinctLabelCategories),
+      );
+      await tester.pumpAndSettle();
+
+      // The header's Key is built from the label the widget renders
+      // (`Key('salon-service-category-$label')` in
+      // `_SalonCategoryHeader`) — keying on the resolved displayName proves
+      // the widget was actually constructed with `label: cat.displayName`.
+      final headerKeyFinder = find.byKey(
+        const Key('salon-service-category-Апаратна косметологія'),
+      );
+      expect(
+        headerKeyFinder,
+        findsOneWidget,
+        reason:
+            'the header GestureDetector key is derived from the label it '
+            'was built with — finding it by the displayName-based key '
+            'proves the widget received cat.displayName, not cat.category.',
+      );
+
+      // Belt-and-braces: assert the rendered Text directly too, so the
+      // guard does not depend solely on the Key derivation staying wired up
+      // to `label`.
+      // displayName below is local fixture data (_kDistinctLabelCategories,
+      // this test file) — asserting the resolved literal is the point of
+      // this regression guard, not translated UI copy.
+      final displayNameFinder = find.descendant(
+        of: headerKeyFinder,
+        // i18n-finder-ok: displayName is fixture data, not translated UI copy.
+        matching: find.text('Апаратна косметологія'),
+      );
+      expect(
+        displayNameFinder,
+        findsOneWidget,
+        reason:
+            'the header must render the resolved Ukrainian displayName '
+            'text.',
+      );
+
+      // The actual regression guard: the raw slug must be absent from the
+      // header entirely. A regression that swapped `cat.displayName` back
+      // to `cat.category` would make this assertion fail.
+      final rawSlugFinder = find.descendant(
+        of: headerKeyFinder,
+        matching: find.text('HARDWARE_COSMETOLOGY'),
+      );
+      expect(
+        rawSlugFinder,
+        findsNothing,
+        reason:
+            'the raw platform-category slug must never be rendered in the '
+            'header — this is the exact pre-fix bug (accordion showing '
+            '"HARDWARE_COSMETOLOGY" instead of "Апаратна косметологія").',
+      );
+    },
+  );
+}

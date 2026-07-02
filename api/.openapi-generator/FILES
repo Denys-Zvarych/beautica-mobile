@@ -39,6 +39,7 @@ doc/ApiResponsePageResponseMasterSearchResult.md
 doc/ApiResponsePageResponseMasterSummaryResponse.md
 doc/ApiResponsePageResponseMyReviewResponse.md
 doc/ApiResponsePageResponseReviewResponse.md
+doc/ApiResponsePageResponseSalonReviewResponse.md
 doc/ApiResponsePageResponseSalonSearchResult.md
 doc/ApiResponsePageResponseTimelineItemResponse.md
 doc/ApiResponsePassportResponse.md
@@ -48,6 +49,8 @@ doc/ApiResponseRegistrationResponse.md
 doc/ApiResponseRevenueResponse.md
 doc/ApiResponseReviewResponse.md
 doc/ApiResponseSalonResponse.md
+doc/ApiResponseSalonReviewSummaryResponse.md
+doc/ApiResponseSalonServiceCatalogResponse.md
 doc/ApiResponseScheduleOverrideResponse.md
 doc/ApiResponseServiceDefinitionResponse.md
 doc/ApiResponseUserProfileResponse.md
@@ -125,6 +128,7 @@ doc/PageResponseMasterSearchResult.md
 doc/PageResponseMasterSummaryResponse.md
 doc/PageResponseMyReviewResponse.md
 doc/PageResponseReviewResponse.md
+doc/PageResponseSalonReviewResponse.md
 doc/PageResponseSalonSearchResult.md
 doc/PageResponseTimelineItemResponse.md
 doc/Pageable.md
@@ -138,6 +142,7 @@ doc/PlatformCategoryUsageResponse.md
 doc/PlatformServiceTypeResponse.md
 doc/PublicBookingControllerApi.md
 doc/PublicSalonResponse.md
+doc/RatingBucket.md
 doc/RefreshRequest.md
 doc/RegisterDeviceTokenRequest.md
 doc/RegisterIndependentMasterRequest.md
@@ -155,8 +160,12 @@ doc/ReviewResponse.md
 doc/SalonControllerApi.md
 doc/SalonMasterControllerApi.md
 doc/SalonResponse.md
+doc/SalonReviewResponse.md
+doc/SalonReviewSummaryResponse.md
 doc/SalonSearchRequest.md
 doc/SalonSearchResult.md
+doc/SalonServiceCatalogResponse.md
+doc/SalonServiceCategoryGroup.md
 doc/ScheduleOverrideRequest.md
 doc/ScheduleOverrideResponse.md
 doc/SearchControllerApi.md
@@ -254,6 +263,7 @@ lib/src/model/api_response_page_response_master_search_result.dart
 lib/src/model/api_response_page_response_master_summary_response.dart
 lib/src/model/api_response_page_response_my_review_response.dart
 lib/src/model/api_response_page_response_review_response.dart
+lib/src/model/api_response_page_response_salon_review_response.dart
 lib/src/model/api_response_page_response_salon_search_result.dart
 lib/src/model/api_response_page_response_timeline_item_response.dart
 lib/src/model/api_response_passport_response.dart
@@ -263,6 +273,8 @@ lib/src/model/api_response_registration_response.dart
 lib/src/model/api_response_revenue_response.dart
 lib/src/model/api_response_review_response.dart
 lib/src/model/api_response_salon_response.dart
+lib/src/model/api_response_salon_review_summary_response.dart
+lib/src/model/api_response_salon_service_catalog_response.dart
 lib/src/model/api_response_schedule_override_response.dart
 lib/src/model/api_response_service_definition_response.dart
 lib/src/model/api_response_user_profile_response.dart
@@ -329,6 +341,7 @@ lib/src/model/page_response_master_search_result.dart
 lib/src/model/page_response_master_summary_response.dart
 lib/src/model/page_response_my_review_response.dart
 lib/src/model/page_response_review_response.dart
+lib/src/model/page_response_salon_review_response.dart
 lib/src/model/page_response_salon_search_result.dart
 lib/src/model/page_response_timeline_item_response.dart
 lib/src/model/pageable.dart
@@ -340,6 +353,7 @@ lib/src/model/platform_category_response.dart
 lib/src/model/platform_category_usage_response.dart
 lib/src/model/platform_service_type_response.dart
 lib/src/model/public_salon_response.dart
+lib/src/model/rating_bucket.dart
 lib/src/model/refresh_request.dart
 lib/src/model/register_device_token_request.dart
 lib/src/model/register_independent_master_request.dart
@@ -354,8 +368,12 @@ lib/src/model/revenue_by_service_dto.dart
 lib/src/model/revenue_response.dart
 lib/src/model/review_response.dart
 lib/src/model/salon_response.dart
+lib/src/model/salon_review_response.dart
+lib/src/model/salon_review_summary_response.dart
 lib/src/model/salon_search_request.dart
 lib/src/model/salon_search_result.dart
+lib/src/model/salon_service_catalog_response.dart
+lib/src/model/salon_service_category_group.dart
 lib/src/model/schedule_override_request.dart
 lib/src/model/schedule_override_response.dart
 lib/src/model/service_definition_response.dart

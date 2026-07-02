@@ -4,7 +4,7 @@
 // --------------------------------------------------------------------
 // `integration_test/all_tests.dart` aggregated every flow into ONE
 // `flutter test` process. That was fine at 5 flows (10 tests), but the suite
-// has since grown to 18 flows. CI started failing with the formal test
+// has since grown to 19 flows. CI started failing with the formal test
 // reporter acknowledging only 1 test ("🎉 1 test passed") while every flow's
 // own assertions still logged ✅ via raw `dart:developer log` — then the
 // process crashed at final teardown, taking the emulator/adb link down with
@@ -14,7 +14,7 @@
 // test; a single process carrying too many tests degrades that channel
 // before its own clean shutdown.
 //
-// This file (+ `all_tests_part2.dart`) splits the SAME 18 flows into two
+// This file (+ `all_tests_part2.dart`) splits the SAME 19 flows into two
 // smaller `flutter test` invocations run sequentially in one emulator
 // session (see pr-validate.yml) — same boot-cost amortization as before,
 // just two shorter-lived processes instead of one very long one.

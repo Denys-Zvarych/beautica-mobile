@@ -73,11 +73,13 @@ abstract final class RouteNames {
   /// The screen itself ships in Phase 13.5; until then the route may not be
   /// registered, but the path constant is the single source of truth for the
   /// card's nav target. Pushed onto the search branch navigator.
-  static String masterPublicProfile(String masterId) => '/masters/$masterId';
+  static String masterPublicProfile(String masterId) =>
+      '/masters/${Uri.encodeComponent(masterId)}';
 
   /// Phase 13.6 — public salon profile, opened from a salon result card tap.
   /// Same lifecycle note as [masterPublicProfile].
-  static String salonPublicProfile(String salonId) => '/salons/$salonId';
+  static String salonPublicProfile(String salonId) =>
+      '/salons/${Uri.encodeComponent(salonId)}';
 
   /// Phase 14.1 — booking flow entry (service selection + slot picker), opened
   /// from the public master profile's «Записатись» / «Обрати послугу» CTA with

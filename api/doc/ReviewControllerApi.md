@@ -13,6 +13,8 @@ Method | HTTP request | Description
 [**getMyReviews**](ReviewControllerApi.md#getmyreviews) | **GET** /api/v1/reviews/me | 
 [**getReview**](ReviewControllerApi.md#getreview) | **GET** /api/v1/reviews/{reviewId} | 
 [**getReviewsByMaster**](ReviewControllerApi.md#getreviewsbymaster) | **GET** /api/v1/masters/{masterId}/reviews | 
+[**getSalonReviewSummary**](ReviewControllerApi.md#getsalonreviewsummary) | **GET** /api/v1/salons/{salonId}/reviews/summary | 
+[**getSalonReviews**](ReviewControllerApi.md#getsalonreviews) | **GET** /api/v1/salons/{salonId}/reviews | 
 
 
 # **createReview**
@@ -169,6 +171,92 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ApiResponsePageResponseReviewResponse**](ApiResponsePageResponseReviewResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getSalonReviewSummary**
+> ApiResponseSalonReviewSummaryResponse getSalonReviewSummary(salonId)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getReviewControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+
+try {
+    final response = api.getSalonReviewSummary(salonId);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling ReviewControllerApi->getSalonReviewSummary: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+
+### Return type
+
+[**ApiResponseSalonReviewSummaryResponse**](ApiResponseSalonReviewSummaryResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getSalonReviews**
+> ApiResponsePageResponseSalonReviewResponse getSalonReviews(salonId, pageable, sort)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getReviewControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final Pageable pageable = ; // Pageable | 
+final String sort = sort_example; // String | 
+
+try {
+    final response = api.getSalonReviews(salonId, pageable, sort);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling ReviewControllerApi->getSalonReviews: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+ **pageable** | [**Pageable**](.md)|  | 
+ **sort** | **String**|  | [optional] [default to 'NEWEST']
+
+### Return type
+
+[**ApiResponsePageResponseSalonReviewResponse**](ApiResponsePageResponseSalonReviewResponse.md)
 
 ### Authorization
 

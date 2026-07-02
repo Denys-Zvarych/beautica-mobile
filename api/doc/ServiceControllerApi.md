@@ -17,6 +17,7 @@ Method | HTTP request | Description
 [**deactivateServiceDefinition**](ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
 [**getMasterServices**](ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
 [**getMyServices**](ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own active services
+[**getSalonServiceCatalog**](ServiceControllerApi.md#getsalonservicecatalog) | **GET** /api/v1/salons/{salonId}/services | 
 [**updateServiceDefinition**](ServiceControllerApi.md#updateservicedefinition) | **PATCH** /api/v1/services/{serviceDefId} | 
 [**updateServicePhoto**](ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
 
@@ -348,6 +349,47 @@ This endpoint does not need any parameter.
 ### Return type
 
 [**ApiResponseListMasterServiceResponse**](ApiResponseListMasterServiceResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getSalonServiceCatalog**
+> ApiResponseSalonServiceCatalogResponse getSalonServiceCatalog(salonId)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getServiceControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+
+try {
+    final response = api.getSalonServiceCatalog(salonId);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling ServiceControllerApi->getSalonServiceCatalog: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+
+### Return type
+
+[**ApiResponseSalonServiceCatalogResponse**](ApiResponseSalonServiceCatalogResponse.md)
 
 ### Authorization
 

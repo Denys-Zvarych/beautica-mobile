@@ -3242,5 +3242,201 @@
   "bookingNewPlaceholderBlurb": "Online booking with a master is coming soon.",
   "@bookingNewPlaceholderBlurb": {
     "description": "Body copy of the Phase 14.1 booking-flow placeholder screen."
+  },
+  "salonProfileBackLabel": "Back",
+  "@salonProfileBackLabel": {
+    "description": "Accessibility label for the back control floating over the salon profile cover photo."
+  },
+  "salonCoverSemanticLabel": "Salon cover photo",
+  "@salonCoverSemanticLabel": {
+    "description": "Accessibility label for the salon profile's cover photo image."
+  },
+  "salonCoverEditPillLabel": "Cover",
+  "@salonCoverEditPillLabel": {
+    "description": "Small pill on the cover photo signalling it is the salon's uploadable cover slot."
+  },
+  "salonLogoSemanticLabel": "Salon logo",
+  "@salonLogoSemanticLabel": {
+    "description": "Accessibility label for the salon logo monogram on the hero card."
+  },
+  "salonTabAbout": "About",
+  "@salonTabAbout": {
+    "description": "Public salon profile tab label — the salon's blurb."
+  },
+  "salonTabMasters": "Masters",
+  "@salonTabMasters": {
+    "description": "Public salon profile tab label — the salon's masters rail."
+  },
+  "salonTabServices": "Services",
+  "@salonTabServices": {
+    "description": "Public salon profile tab label — the salon's service catalogue."
+  },
+  "salonTabReviews": "Reviews",
+  "@salonTabReviews": {
+    "description": "Public salon profile tab label — the salon's reviews."
+  },
+  "salonMastersEmpty": "This salon has no masters yet",
+  "@salonMastersEmpty": {
+    "description": "Empty state on the \"Masters\" tab when the salon has no masters yet."
+  },
+  "salonMastersShowAll": "Show all masters",
+  "@salonMastersShowAll": {
+    "description": "Reveal affordance below the masters grid on the \"Masters\" tab when the roster exceeds the initially-rendered batch (kSalonMastersInitialCount); tapping it expands the grid to show the rest."
+  },
+  "salonPortfolioShowAll": "Show all photos",
+  "@salonPortfolioShowAll": {
+    "description": "Accessibility label for the trailing '+N' reveal tile appended to the salon portfolio photo rail on the \"About\" tab when the gallery exceeds the initially-rendered batch (kSalonPortfolioInitialCount); tapping it expands the rail to show the rest."
+  },
+  "salonAboutEmpty": "No description added yet",
+  "@salonAboutEmpty": {
+    "description": "Empty state on the \"About\" tab when the salon has no description yet."
+  },
+  "salonServicesEmpty": "This salon has no services yet",
+  "@salonServicesEmpty": {
+    "description": "Empty state on the \"Services\" tab when the salon has no active services yet."
+  },
+  "salonReviewsEmpty": "This salon has no reviews yet",
+  "@salonReviewsEmpty": {
+    "description": "Empty state on the \"Reviews\" tab when the salon has no reviews yet."
+  },
+  "salonBookingCta": "Book a service",
+  "@salonBookingCta": {
+    "description": "Pinned bottom CTA on the public salon profile."
+  },
+  "salonMasterCardSemanticLabel": "{name}, {role}, rating {rating}",
+  "@salonMasterCardSemanticLabel": {
+    "description": "Accessibility label for one master card in the salon's masters rail.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Olena Kovalchuk"
+      },
+      "role": {
+        "type": "String",
+        "example": "Independent master"
+      },
+      "rating": {
+        "type": "String",
+        "example": "4.9"
+      }
+    }
+  },
+  "salonReviewCountLabel": "{count, plural, =0{0 reviews} =1{1 review} other{{count} reviews}}",
+  "@salonReviewCountLabel": {
+    "description": "Standalone review-count line under the salon's average rating (no parentheses, unlike searchResultReviewCount).",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "128"
+      }
+    }
+  },
+  "salonReviewSortNewest": "Newest first",
+  "@salonReviewSortNewest": {
+    "description": "Salon reviews sort option — newest first."
+  },
+  "salonReviewSortOldest": "Oldest first",
+  "@salonReviewSortOldest": {
+    "description": "Salon reviews sort option — oldest first."
+  },
+  "salonReviewSortHighest": "Highest rating",
+  "@salonReviewSortHighest": {
+    "description": "Salon reviews sort option — highest rating first."
+  },
+  "salonReviewSortLowest": "Lowest rating",
+  "@salonReviewSortLowest": {
+    "description": "Salon reviews sort option — lowest rating first."
+  },
+  "salonReviewSortButtonLabel": "Sort",
+  "@salonReviewSortButtonLabel": {
+    "description": "Accessibility label for the salon reviews sort icon button."
+  },
+  "salonReviewSortSheetTitle": "Sort",
+  "@salonReviewSortSheetTitle": {
+    "description": "Title of the salon reviews sort-options bottom sheet."
+  },
+  "salonReviewServicePrefix": "service: {service}",
+  "@salonReviewServicePrefix": {
+    "description": "Muted sub-line on a salon review card naming the booked service.",
+    "placeholders": {
+      "service": {
+        "type": "String",
+        "example": "Manicure with polish"
+      }
+    }
+  },
+  "salonServiceCategoryExpanded": "expanded",
+  "@salonServiceCategoryExpanded": {
+    "description": "Accessibility state word appended to a salon service category header when expanded."
+  },
+  "salonServiceCategoryCollapsed": "collapsed",
+  "@salonServiceCategoryCollapsed": {
+    "description": "Accessibility state word appended to a salon service category header when collapsed."
+  },
+  "salonServiceCategoryHeaderSemanticLabel": "{label}, {count} services, {state}",
+  "@salonServiceCategoryHeaderSemanticLabel": {
+    "description": "Accessibility label for a salon service category disclosure header.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Manicure"
+      },
+      "count": {
+        "type": "int",
+        "example": "3"
+      },
+      "state": {
+        "type": "String",
+        "example": "expanded"
+      }
+    }
+  },
+  "relativeDateToday": "Today",
+  "@relativeDateToday": {
+    "description": "Relative-date label for a timestamp from earlier today."
+  },
+  "relativeDateYesterday": "Yesterday",
+  "@relativeDateYesterday": {
+    "description": "Relative-date label for a timestamp from yesterday."
+  },
+  "relativeDateDaysAgo": "{count, plural, =1{1 day ago} other{{count} days ago}}",
+  "@relativeDateDaysAgo": {
+    "description": "Relative-date label for a timestamp 2-6 days ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "relativeDateWeeksAgo": "{count, plural, =1{1 week ago} other{{count} weeks ago}}",
+  "@relativeDateWeeksAgo": {
+    "description": "Relative-date label for a timestamp 1-4 weeks ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "relativeDateMonthsAgo": "{count, plural, =1{1 month ago} other{{count} months ago}}",
+  "@relativeDateMonthsAgo": {
+    "description": "Relative-date label for a timestamp 1-11 months ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "relativeDateYearsAgo": "{count, plural, =1{1 year ago} other{{count} years ago}}",
+  "@relativeDateYearsAgo": {
+    "description": "Relative-date label for a timestamp 1+ years ago.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "1"
+      }
+    }
   }
 }

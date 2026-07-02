@@ -42,6 +42,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/data/client_profile_repository.dart';
@@ -299,6 +300,25 @@ class _ClientLocationEditScreenState
       if (!mounted) return;
       ref.invalidate(clientEditProfileProvider);
       ref.invalidate(clientProfileProvider);
+      // The Пошук (Search) screen's locality filter is auto-seeded from THIS
+      // profile ([SearchFiltersController.prefillFromProfileIfNeeded]) — but that
+      // method only runs from `_ClientSearchScreenState.initState()`, which fires
+      // AT MOST ONCE per app session: the Search tab lives inside `ClientShell`'s
+      // `StatefulShellRoute.indexedStack`, so switching away from (and back to)
+      // the Search branch never disposes/recreates its State. Invalidating the
+      // two keepAlive controllers here would just reset them to blank defaults
+      // with nothing left to re-seed them — the Search tab would come back empty
+      // instead of showing the new locality. Calling the prefill directly closes
+      // that gap without depending on `initState` firing again. It also updates
+      // the sibling [SearchFilterLabelsController] labels inline (see
+      // `prefillFromProfileIfNeeded`'s doc comment), so no separate label refresh
+      // is needed. The anti-clobber guard (`_userTouchedLocality`) is preserved:
+      // if the user already manually picked/cleared a locality inside Search
+      // this session, this call is a no-op and their choice is left intact.
+      await ref
+          .read(searchFiltersControllerProvider.notifier)
+          .prefillFromProfileIfNeeded();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           key: const Key('snackbar-saved'),

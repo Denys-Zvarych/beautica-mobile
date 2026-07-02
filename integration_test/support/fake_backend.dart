@@ -37,6 +37,12 @@
 //  POST /api/v1/masters/{me|masterId}/weekly-schedules  — create schedule
 //  PUT  /api/v1/masters/{me|masterId}/weekly-schedules/schedule-1 — update schedule
 //  GET  /api/v1/locations/oblasts        — empty list (locality cascade)
+//  GET  /api/v1/salons/salon-xyz                  — public salon detail (Phase 13.6)
+//  GET  /api/v1/salons/salon-xyz/masters          — salon masters rail
+//  GET  /api/v1/salons/salon-xyz/services         — salon service catalogue
+//  GET  /api/v1/salons/salon-xyz/reviews/summary  — salon review-summary header
+//  GET  /api/v1/salons/salon-xyz/reviews          — salon reviews list
+//  GET  /api/v1/salons/salon-xyz/portfolio        — salon portfolio photo rail
 //
 // USAGE
 // -----
@@ -505,6 +511,43 @@ final class FakeBackend {
   int getPublicMasterServicesCalls = 0;
   String? lastGetPublicMasterServicesId;
 
+  // ── Public salon profile telemetry (Phase 13.6) ───────────────────────────
+  //
+  // Five independent read endpoints back the "Про салон" hero + the 4-tab
+  // switcher — each tab loads via its own provider, so a broken tab must not
+  // blank the others. Every counter below is bumped by its own route handler
+  // and paired with the id/sort the request carried, mirroring the public
+  // master profile's [getPublicMasterCalls]/[lastGetPublicMasterId] pattern.
+
+  /// `GET /api/v1/salons/{salonId}` — salon detail (hero card).
+  int getSalonByIdCalls = 0;
+  String? lastGetSalonId;
+
+  /// `GET /api/v1/salons/{salonId}/masters` — masters rail ("Майстри" tab).
+  int getSalonMastersCalls = 0;
+  String? lastGetSalonMastersId;
+
+  /// `GET /api/v1/salons/{salonId}/services` — service catalogue ("Послуги").
+  int getSalonServiceCatalogCalls = 0;
+  String? lastGetSalonServiceCatalogId;
+
+  /// `GET /api/v1/salons/{salonId}/reviews/summary` — rating summary header.
+  int getSalonReviewSummaryCalls = 0;
+  String? lastGetSalonReviewSummaryId;
+
+  /// `GET /api/v1/salons/{salonId}/reviews?sort=` — reviews list. Records the
+  /// last `sort` wire value so a sort-change test can assert the re-fetch
+  /// carried the new value.
+  int getSalonReviewsCalls = 0;
+  String? lastGetSalonReviewsSort;
+
+  /// `GET /api/v1/salons/{salonId}/portfolio` — real photo rail on the "Про
+  /// салон" tab (previously an unwired endpoint — see
+  /// `salon_portfolio_notifier.dart`). Goes through the GENERATED
+  /// `MediaControllerApi` client, unlike the hand-rolled Pageable reads above.
+  int getSalonPortfolioCalls = 0;
+  String? lastGetSalonPortfolioId;
+
   int patchProfileCalls = 0;
   Map<String, dynamic>? lastPatchBody;
   int getServicesCalls = 0;
@@ -817,6 +860,316 @@ final class FakeBackend {
   /// rendered services-count stat without hard-coding the literal in two places.
   static int get publicMasterServicesCount => _publicMasterServices.length;
 
+  // ---------------------------------------------------------------------------
+  // Public salon profile fixtures (Phase 13.6)
+  // ---------------------------------------------------------------------------
+  //
+  // Keyed on `salon-xyz` — the SAME id the discovery search-results fixture
+  // (`_searchSalonsPage0`) seeds, so tapping the rendered `salon_card_salon-xyz`
+  // in the real results screen lands on a profile backed by a real, coherent
+  // fixture rather than a second unrelated salon id.
+
+  /// PUBLIC salon-detail envelope for `salon-xyz`. Shape matches
+  /// `PublicSalonResponse` (id/name/description/city/region/address/cityId/
+  /// districtId/street/buildingNo/locationNote/instagramUrl/avatarUrl/
+  /// coverImageUrl/avgRating/reviewCount).
+  ///
+  /// Deliberately carries ONLY the Phase 10.6+ taxonomy locality fields
+  /// (`cityId`/`street`/`buildingNo`/`locationNote`) and leaves the legacy
+  /// `city`/`address` pair null — this is the real shape of every salon
+  /// created/edited since Phase 10.6, and is the exact fixture shape the
+  /// "public salon profile shows no location" regression needed: a fixture
+  /// with the legacy pair populated would pass through the OLD (broken)
+  /// `SalonMapper.fromDto`, which silently dropped the taxonomy fields, just
+  /// as easily as the fixed one. See `salon_mapper_test.dart` for the
+  /// mapper-level unit-test counterpart and
+  /// `public_salon_profile_flow_test.dart` for the assertion that reads the
+  /// rendered address text.
+  static Map<String, dynamic> _publicSalonDetailEnvelope() =>
+      _ok(<String, dynamic>{
+        'id': 'salon-xyz',
+        'name': 'Студія Краси «Камелія»',
+        'description':
+            'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
+            'та стрижки — довірливий сервіс з 2018 року.',
+        'region': 'Київська',
+        'cityId': 'city-uuid-kyiv',
+        'street': 'вул. Хрещатик',
+        'buildingNo': '12',
+        'locationNote': '2 поверх',
+        'instagramUrl': '@kamelia_salon',
+        'avatarUrl': null,
+        'coverImageUrl': null,
+        // Matches the review-summary aggregate below ((5+4+3)/3 = 4.0) so the
+        // hero card's ★ rating and the "Відгуки" tab's headline average agree.
+        'avgRating': 4.0,
+        'reviewCount': 3,
+      });
+
+  /// PUBLIC masters rail for `salon-xyz` — EIGHT masters, deliberately over
+  /// [kSalonMastersInitialCount] (6, see `public_salon_profile_screen.dart`),
+  /// so the "Майстри" tab renders both a genuine multi-card rail AND the
+  /// eager-build-cap "show all" affordance (mobile-perf LOW fix, Phase 13.6
+  /// audit follow-up). The first reuses `master-aaa` (the SAME master-id the
+  /// public-master-profile fixture already serves at `GET /masters/master-aaa`),
+  /// so tapping its rail card in the salon flow exercises the REAL
+  /// cross-feature navigation into an already-fixtured public master profile
+  /// without inventing a second detail stub. The first TWO entries
+  /// (`master-aaa`/`master-ccc`) are load-bearing for other assertions in
+  /// `public_salon_profile_flow_test.dart` (names, ids) — order matters, they
+  /// must stay first so they remain inside the initial (uncapped) batch;
+  /// entries 3–8 exist purely to push the roster over the cap threshold and
+  /// prove the reveal interaction end to end against the REAL wire response
+  /// (the hand-rolled `page=0&size=50` Pageable decode in
+  /// `HttpSalonRepository` — a boundary the widget tier's fake repository
+  /// bypasses entirely, so a silent truncation there would be invisible to
+  /// `public_salon_profile_screen_test.dart`). Shape matches
+  /// `MasterSummaryResponse` (masterId/firstName/lastName/avatarUrl/
+  /// avgRating/reviewCount/masterType).
+  static const List<Map<String, dynamic>> _salonMasters =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'masterId': 'master-aaa',
+          'firstName': 'Софія',
+          'lastName': 'Бондар',
+          'avatarUrl': null,
+          'avgRating': 4.9,
+          'reviewCount': 24,
+          'masterType': 'SALON_MASTER',
+        },
+        <String, dynamic>{
+          'masterId': 'master-ccc',
+          'firstName': 'Марія',
+          'lastName': 'Гриценко',
+          'avatarUrl': null,
+          'avgRating': 4.6,
+          'reviewCount': 9,
+          'masterType': 'SALON_OWNER',
+        },
+        <String, dynamic>{
+          'masterId': 'master-ddd',
+          'firstName': 'Оксана',
+          'lastName': 'Іванова',
+          'avatarUrl': null,
+          'avgRating': 4.8,
+          'reviewCount': 15,
+          'masterType': 'SALON_MASTER',
+        },
+        <String, dynamic>{
+          'masterId': 'master-eee',
+          'firstName': 'Тетяна',
+          'lastName': 'Мельник',
+          'avatarUrl': null,
+          'avgRating': 4.7,
+          'reviewCount': 11,
+          'masterType': 'SALON_MASTER',
+        },
+        <String, dynamic>{
+          'masterId': 'master-fff',
+          'firstName': 'Наталія',
+          'lastName': 'Коваль',
+          'avatarUrl': null,
+          'avgRating': 4.5,
+          'reviewCount': 7,
+          'masterType': 'SALON_MASTER',
+        },
+        <String, dynamic>{
+          'masterId': 'master-ggg',
+          'firstName': 'Юлія',
+          'lastName': 'Шевченко',
+          'avatarUrl': null,
+          'avgRating': 4.9,
+          'reviewCount': 20,
+          'masterType': 'SALON_MASTER',
+        },
+        // 7th entry (index 6) — the FIRST master beyond the 6-item initial
+        // cap. Must NOT render until the "show all" affordance is tapped.
+        <String, dynamic>{
+          'masterId': 'master-hhh',
+          'firstName': 'Катерина',
+          'lastName': 'Бондаренко',
+          'avatarUrl': null,
+          'avgRating': 4.6,
+          'reviewCount': 5,
+          'masterType': 'SALON_MASTER',
+        },
+        <String, dynamic>{
+          'masterId': 'master-iii',
+          'firstName': 'Вікторія',
+          'lastName': 'Пономаренко',
+          'avatarUrl': null,
+          'avgRating': 4.4,
+          'reviewCount': 3,
+          'masterType': 'SALON_MASTER',
+        },
+      ];
+
+  /// PUBLIC service catalogue for `salon-xyz` — two categories, one service
+  /// each: NAILS carries the salon's SHARED signature service (offered by
+  /// every master on the rail), BROWS carries an EXCLUSIVE service (offered
+  /// by only one master). The category/service split is what the "Послуги"
+  /// tab's accordion groups by; the shared-vs-exclusive distinction is not a
+  /// wire field (the catalogue has no per-master mapping) — it is captured
+  /// here only in naming/comment for fixture realism. Shape matches
+  /// `SalonServiceCatalogResponse` → `SalonServiceCategoryGroup` →
+  /// `ServiceDefinitionResponse`.
+  static const List<Map<String, dynamic>> _salonServiceCategories =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'category': 'NAILS',
+          'count': 1,
+          'services': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'id': 'salon-svc-shared',
+              'name': 'Манікюр класичний',
+              'description': null,
+              'category': 'NAILS',
+              'baseDurationMinutes': 60,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': 'FIXED',
+              'priceMin': 400,
+              'priceMax': null,
+              'priceDisplay': '400 грн',
+              'photoUrl': null,
+            },
+          ],
+        },
+        <String, dynamic>{
+          'category': 'BROWS',
+          'count': 1,
+          'services': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'id': 'salon-svc-exclusive',
+              'name': 'Корекція брів',
+              'description': null,
+              'category': 'BROWS',
+              'baseDurationMinutes': 45,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': 'FIXED',
+              'priceMin': 300,
+              'priceMax': null,
+              'priceDisplay': '300 грн',
+              'photoUrl': null,
+            },
+          ],
+        },
+      ];
+
+  /// PUBLIC review-summary envelope for `salon-xyz` — matches the THREE
+  /// reviews in [_salonReviews] (one 5★, one 4★, one 3★). Shape matches
+  /// `SalonReviewSummaryResponse` → `RatingBucket`.
+  static Map<String, dynamic> _salonReviewSummaryEnvelope() =>
+      _ok(<String, dynamic>{
+        'avgRating': 4.0,
+        'reviewCount': 3,
+        'ratingDistribution': <Map<String, dynamic>>[
+          <String, dynamic>{'rating': 5, 'count': 1},
+          <String, dynamic>{'rating': 4, 'count': 1},
+          <String, dynamic>{'rating': 3, 'count': 1},
+          <String, dynamic>{'rating': 2, 'count': 0},
+          <String, dynamic>{'rating': 1, 'count': 0},
+        ],
+      });
+
+  /// PUBLIC reviews list for `salon-xyz` — three reviews across three
+  /// distinct ratings (5★/4★/3★), split across both seeded masters. The fake
+  /// ignores the `sort` query value and always returns this same fixed list
+  /// (the sort contract is the SERVER's — the fake only needs to prove the
+  /// wire value reaches the backend, via [lastGetSalonReviewsSort]). Shape
+  /// matches `SalonReviewResponse`.
+  static const List<Map<String, dynamic>> _salonReviews =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'salon-review-1',
+          'masterId': 'master-aaa',
+          'masterFirstName': 'Софія',
+          'masterLastName': 'Бондар',
+          'clientDisplayName': 'Олена К.',
+          'serviceName': 'Манікюр класичний',
+          'rating': 5,
+          'comment': 'Чудовий сервіс, дуже задоволена результатом!',
+          'createdAt': '2026-06-10T10:00:00Z',
+        },
+        <String, dynamic>{
+          'id': 'salon-review-2',
+          'masterId': 'master-ccc',
+          'masterFirstName': 'Марія',
+          'masterLastName': 'Гриценко',
+          'clientDisplayName': 'Ірина П.',
+          'serviceName': 'Корекція брів',
+          'rating': 4,
+          'comment': 'Все сподобалось, трохи довго чекала на прийом.',
+          'createdAt': '2026-06-05T14:00:00Z',
+        },
+        <String, dynamic>{
+          'id': 'salon-review-3',
+          'masterId': 'master-aaa',
+          'masterFirstName': 'Софія',
+          'masterLastName': 'Бондар',
+          'clientDisplayName': 'Дарина М.',
+          'serviceName': null,
+          'rating': 3,
+          'comment': 'Непогано, але є куди рости.',
+          'createdAt': '2026-05-20T09:00:00Z',
+        },
+      ];
+
+  /// PUBLIC portfolio gallery for `salon-xyz` — THREE photos backing the
+  /// "Про салон" tab's real photo rail (previously an unwired backend
+  /// endpoint — see `salon_portfolio_notifier.dart`). Shape matches
+  /// `MediaFileResponse`. Unlike [_salonMasters]/[_salonReviews] above (the
+  /// custom `PageResponse` shape [_searchEnvelope] builds), this list is
+  /// wrapped in Spring's DEFAULT `Page<T>` envelope by
+  /// [_salonPortfolioEnvelope] below — the read goes through the GENERATED
+  /// `MediaControllerApi.getSalonPortfolio` client (built_value
+  /// deserialization), not the salon repository's raw-Dio Pageable
+  /// workaround the other two rails use.
+  static const List<Map<String, dynamic>> _salonPortfolioPhotos =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'media-1',
+          'entityType': 'SALON',
+          'entityId': 'salon-xyz',
+          'mediaType': 'PORTFOLIO',
+          'url': 'https://cdn.beautica.ua/portfolio/salon-xyz/1.jpg',
+          'createdAt': '2026-05-01T10:00:00Z',
+        },
+        <String, dynamic>{
+          'id': 'media-2',
+          'entityType': 'SALON',
+          'entityId': 'salon-xyz',
+          'mediaType': 'PORTFOLIO',
+          'url': 'https://cdn.beautica.ua/portfolio/salon-xyz/2.jpg',
+          'createdAt': '2026-05-02T10:00:00Z',
+        },
+        <String, dynamic>{
+          'id': 'media-3',
+          'entityType': 'SALON',
+          'entityId': 'salon-xyz',
+          'mediaType': 'PORTFOLIO',
+          'url': 'https://cdn.beautica.ua/portfolio/salon-xyz/3.jpg',
+          'createdAt': '2026-05-03T10:00:00Z',
+        },
+      ];
+
+  /// Builds the `ApiResponse<Page<MediaFileResponse>>` envelope
+  /// `PageMediaFileResponse`'s built_value deserializer expects — Spring's
+  /// default Page shape (`content`/`totalElements`/…), NOT the custom
+  /// `PageResponse` shape [_searchEnvelope] builds.
+  Map<String, dynamic> _salonPortfolioEnvelope() => _ok(<String, dynamic>{
+    'content': _salonPortfolioPhotos,
+    'totalElements': _salonPortfolioPhotos.length,
+    'totalPages': 1,
+    'size': _salonPortfolioPhotos.length,
+    'number': 0,
+    'first': true,
+    'last': true,
+    'numberOfElements': _salonPortfolioPhotos.length,
+    'empty': false,
+  });
+
   // ── Route wiring ───────────────────────────────────────────────────────────
 
   void _wire() {
@@ -1004,6 +1357,100 @@ final class FakeBackend {
         getPublicMasterServicesCalls++;
         lastGetPublicMasterServicesId = 'master-aaa';
         return _okList(_publicMasterServices);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // ── Public salon profile (Phase 13.6) ─────────────────────────────────────
+    //
+    // GET /api/v1/salons/salon-xyz — hero card (SalonControllerApi.getSalon,
+    // consumed via HttpSalonRepository.getSalonById). Wired as a concrete path
+    // (DioAdapter has no path-template matching) for the search-results
+    // fixture id `salon-xyz`.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz',
+      (server) => server.replyCallback(200, (_) {
+        getSalonByIdCalls++;
+        lastGetSalonId = 'salon-xyz';
+        return _publicSalonDetailEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-xyz/masters?page=&size= — "Майстри" tab rail.
+    // Query params are not part of the DioAdapter route match (path only), so
+    // one registration covers the fixed page=0&size=50 request the repository
+    // sends.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/masters',
+      (server) => server.replyCallback(200, (_) {
+        getSalonMastersCalls++;
+        lastGetSalonMastersId = 'salon-xyz';
+        return _searchEnvelope(
+          _salonMasters,
+          page: 0,
+          totalPages: 1,
+          totalElements: _salonMasters.length,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-xyz/services — "Послуги" tab catalogue
+    // (ServiceControllerApi.getSalonServiceCatalog).
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/services',
+      (server) => server.replyCallback(200, (_) {
+        getSalonServiceCatalogCalls++;
+        lastGetSalonServiceCatalogId = 'salon-xyz';
+        return _ok(<String, dynamic>{'categories': _salonServiceCategories});
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-xyz/reviews/summary — "Відгуки" tab header
+    // (ReviewControllerApi.getSalonReviewSummary). Registered BEFORE the
+    // sibling `/reviews` route below — both are exact-string DioAdapter routes
+    // (no prefix matching), so registration order does not actually matter
+    // here, but the more-specific path is kept first for readability.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/reviews/summary',
+      (server) => server.replyCallback(200, (_) {
+        getSalonReviewSummaryCalls++;
+        lastGetSalonReviewSummaryId = 'salon-xyz';
+        return _salonReviewSummaryEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-xyz/reviews?sort=&page=&size= — "Відгуки" tab
+    // list. Ignores the sort value for content (always returns the same 3-item
+    // fixture — the fake is not re-implementing the backend's sort), but
+    // records the requested `sort` wire value so a sort-change test can assert
+    // the new value reached the wire.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/reviews',
+      (server) => server.replyCallback(200, (req) {
+        getSalonReviewsCalls++;
+        lastGetSalonReviewsSort = req.queryParameters['sort'] as String?;
+        return _searchEnvelope(
+          _salonReviews,
+          page: 0,
+          totalPages: 1,
+          totalElements: _salonReviews.length,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-xyz/portfolio — "Про салон" tab real photo
+    // rail (MediaControllerApi.getSalonPortfolio, previously unwired).
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/portfolio',
+      (server) => server.replyCallback(200, (_) {
+        getSalonPortfolioCalls++;
+        lastGetSalonPortfolioId = 'salon-xyz';
+        return _salonPortfolioEnvelope();
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -1315,10 +1762,17 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // GET /api/v1/locations/oblasts/{oblastId}/cities — one seeded city WITHOUT
-    // districts so a CLIENT can select a city through the real cascade and save
-    // with ONLY the locality slice (no district step, no address fields). Shape:
-    // CityResponse { id, oblastId, katotthCode, nameUk, nameEn, hasDistricts }.
+    // GET /api/v1/locations/oblasts/{oblastId}/cities — TWO seeded cities
+    // (both WITHOUT districts) so a CLIENT can select a city through the real
+    // cascade and save with ONLY the locality slice (no district step, no
+    // address fields). Shape: CityResponse { id, oblastId, katotthCode, nameUk,
+    // nameEn, hasDistricts }.
+    //
+    // city-lviv (added alongside city-kyiv) lets a flow drive a REAL
+    // city-to-city locality CHANGE via the Location edit screen — needed by the
+    // mid-session search-prefill regression flow (client_search_flow_test.dart)
+    // which proves a CLIENT switching their saved city reaches Пошук on the very
+    // next open, without a logout/restart.
     _adapter.onRoute(
       '/api/v1/locations/oblasts/oblast-kyiv/cities',
       (server) => server.reply(
@@ -1330,6 +1784,14 @@ final class FakeBackend {
             'katotthCode': 'UA80000000000093317',
             'nameUk': 'Київ',
             'nameEn': 'Kyiv',
+            'hasDistricts': false,
+          },
+          <String, dynamic>{
+            'id': 'city-lviv',
+            'oblastId': 'oblast-kyiv',
+            'katotthCode': 'UA46000000000026870',
+            'nameUk': 'Львів',
+            'nameEn': 'Lviv',
             'hasDistricts': false,
           },
         ]),
