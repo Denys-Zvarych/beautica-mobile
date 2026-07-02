@@ -59,6 +59,17 @@ jobs:
         # Update both locations together to avoid spec-drift between local and CI.
         run: dart pub global activate openapi_generator_cli 6.1.0
 
+      - name: Verify built_value codegen is internally consistent
+        # Named, dependency-free guard for a live incident (2026-07-02): a
+        # build_runner incremental-cache staleness bug let two generated
+        # .g.dart files silently fall behind their .dart sources (a missing
+        # Builder setter broke the compile; a missing @SerializersFor
+        # registration would have caused a silent runtime "Serializer not
+        # found" failure). Runs before the slower JAR-based check below so a
+        # codegen-consistency break fails fast. See scripts/verify_builtvalue_codegen.sh
+        # --self-test and the struck-through row in docs/mobile-phases/mobile-backlog.md.
+        run: ./scripts/verify_builtvalue_codegen.sh
+
       - name: Verify OpenAPI client is up to date
         # Contract-drift gate (Fix 3, 2026-06-02): regenerates the Dart client
         # from the committed spec and fails on any diff vs api/. The companion
