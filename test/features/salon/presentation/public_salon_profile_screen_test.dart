@@ -474,6 +474,68 @@ void main() {
     );
   });
 
+  // Regression (mobile-debugger diagnosis): the "Обкладинка" cover-edit pill
+  // used to be `Positioned(left, bottom: VelvetSpacing.md)` inside the
+  // cover's OWN stack, on the assumption the bottom-left corner sits "clear
+  // of the hero". The hero card's height is variable — a 2-line name plus an
+  // uncapped address line already pushes it past `_heroProtrusion`'s 116px
+  // budget, eating into the cover's bottom edge and overlapping the pill.
+  // This pumps the worst case (2-line name + full street/buildingNo/
+  // locationNote address) and asserts the pill's rendered Rect never
+  // intersects the hero card's Rect, regardless of how tall the hero grows.
+  group('cover edit pill layout', () {
+    testWidgets(
+      'cover edit pill never overlaps the hero card, even at worst-case '
+      'hero height (2-line name + street/buildingNo/locationNote address)',
+      (tester) async {
+        const String longName =
+            'Салон краси «Незабутня Досконалість Стилю та Гармонії»';
+        const worstCaseSalon = Salon(
+          id: _kSalonId,
+          name: longName,
+          description: 'Затишний салон краси в серці Печерська.',
+          cityId: 'city-uuid-1',
+          street: 'вул. Велика Васильківська',
+          buildingNo: '44/2',
+          locationNote: 'вхід з двору, 2 поверх, домофон 12',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => worstCaseSalon),
+          ),
+          width: 390,
+        );
+        await tester.pumpAndSettle();
+
+        final Finder pillFinder = find.byKey(
+          const Key('salon-cover-edit-pill'),
+        );
+        final Finder heroFinder = find.byKey(
+          const Key('salon-profile-hero-card'),
+        );
+        expect(pillFinder, findsOneWidget);
+        expect(heroFinder, findsOneWidget);
+
+        final Rect pillRect = tester.getRect(pillFinder);
+        final Rect heroRect = tester.getRect(heroFinder);
+
+        expect(
+          pillRect.overlaps(heroRect),
+          isFalse,
+          reason:
+              'the "Обкладинка" edit pill must never overlap the hero '
+              'card, even when the hero grows past its 116px protrusion '
+              'budget (2-line name + full street/buildingNo/locationNote '
+              'address)',
+        );
+      },
+    );
+  });
+
   group('error state', () {
     testWidgets('renders ErrorState with a working retry', (tester) async {
       await _pumpTall(tester);

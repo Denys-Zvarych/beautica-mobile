@@ -43,6 +43,13 @@ const List<List<Color>> _kAvatarGradients = <List<Color>>[
 /// re-verified against the same worst case (see the long-name/wrapped-role
 /// stress case in `public_salon_profile_screen_test.dart`) so the smaller
 /// card still doesn't reintroduce the overflow this constant exists to avoid.
+///
+/// The outer card box (this constant, plus the grid's `mainAxisExtent`) is
+/// intentionally NOT reopened for the avatar-enlargement pass below — only
+/// the avatar grows, spending headroom from the same worst-case content
+/// budget this constant was tuned against (measured empirically: the
+/// worst-case stress case starts overflowing once the avatar grows past
+/// diameter 76, i.e. ~20px of slack above the previous 56px avatar).
 const double kSalonMasterCardHeight = 190;
 
 /// One master in the salon's "Майстри салону" 2-column grid. A raised
@@ -123,9 +130,17 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
+                // Enlarged 56 -> 68 (+12) so the avatar reads more prominently
+                // in the grid card. Stays within the ~20px worst-case slack
+                // budget documented on [kSalonMasterCardHeight] above (the
+                // long-name/wrapped-role stress case starts overflowing past
+                // diameter 76) with ~8px still held in reserve for font
+                // rendering variance across platforms. The card's OUTER box
+                // ([kSalonMasterCardHeight], the grid's `mainAxisExtent`)
+                // stays untouched — only this circle grows.
                 Container(
-                  height: 56,
-                  width: 56,
+                  height: 68,
+                  width: 68,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: LinearGradient(
@@ -139,7 +154,7 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                     child: Icon(
                       Icons.person_rounded,
                       color: BrandColors.white.withValues(alpha: 0.82),
-                      size: 26,
+                      size: 32,
                     ),
                   ),
                 ),

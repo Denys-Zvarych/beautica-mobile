@@ -16,6 +16,12 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
+/// Diameter/height of the circular controls that float over the cover photo
+/// (back button, favourite heart) — shared with [_CoverEditPill]'s vertical
+/// band so the pill's row aligns with theirs instead of drifting to its own
+/// spacing (mobile-debugger fix, cover-pill/hero-card overlap).
+const double kCoverControlSize = 44;
+
 /// The salon logo mark — a raised circular surface filled with a camel/mocha
 /// gradient. Mirrors [ProfileAvatar]'s depth and gradient language (the master
 /// photo) so the salon hero and the master hero read as one family. Carries a
@@ -145,6 +151,7 @@ class SalonCover extends StatelessWidget {
   const SalonCover({
     super.key,
     required this.height,
+    required this.topInset,
     this.imageUrl,
     this.coverGradient = const <Color>[
       Color(0xFF8A6840),
@@ -154,6 +161,13 @@ class SalonCover extends StatelessWidget {
   });
 
   final double height;
+
+  /// Top safe-area inset of the enclosing screen — this Stack's own origin
+  /// IS the screen's top edge (only the bottom of the cover is padded out
+  /// for the overlapping hero card), so this must match the offset the
+  /// caller's back/favourite [CoverCircleButton]s use for their own
+  /// `Positioned.top`, or the edit pill drifts out of their row.
+  final double topInset;
 
   /// The salon's uploaded cover photo URL. Null renders the gradient
   /// placeholder (no real photo pipeline wired yet).
@@ -191,11 +205,27 @@ class SalonCover extends StatelessWidget {
                 color: BrandColors.white.withValues(alpha: 0.28),
               ),
             ),
-            // Editable-cover affordance pill (bottom-left, clear of the hero).
-            const Positioned(
-              left: VelvetSpacing.lg,
-              bottom: VelvetSpacing.md,
-              child: _CoverEditPill(),
+            // Editable-cover affordance pill — anchored to the SAME top
+            // control row as the back/favourite [CoverCircleButton]s
+            // (`top: topInset + VelvetSpacing.sm`, `height: kCoverControlSize`,
+            // centred horizontally) rather than the cover's bottom edge.
+            //
+            // Previously this was `Positioned(left, bottom: VelvetSpacing.md)`
+            // on the assumption the bottom-left corner sits "clear of the
+            // hero" — but the hero card's height is variable (2-line name +
+            // an address row with no line cap), and even a single address
+            // line already pushes the hero past the `_heroProtrusion` budget
+            // reserved for it, eating into the cover's bottom edge and
+            // overlapping the pill there. The top row is unaffected by the
+            // hero card's height, so it can't regress the same way.
+            Positioned(
+              top: topInset + VelvetSpacing.sm,
+              left: 0,
+              right: 0,
+              height: kCoverControlSize,
+              child: const Center(
+                child: _CoverEditPill(key: Key('salon-cover-edit-pill')),
+              ),
             ),
           ],
         ),
@@ -207,7 +237,7 @@ class SalonCover extends StatelessWidget {
 /// The small translucent camel pill that marks the cover as the salon's own
 /// uploadable slot ("Обкладинка"). Read-only in the client view.
 class _CoverEditPill extends StatelessWidget {
-  const _CoverEditPill();
+  const _CoverEditPill({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -291,8 +321,8 @@ class _CoverCircleButtonState extends State<CoverCircleButton> {
           duration: const Duration(milliseconds: 120),
           curve: Curves.easeOut,
           child: Container(
-            height: 44,
-            width: 44,
+            height: kCoverControlSize,
+            width: kCoverControlSize,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: BrandColors.white.withValues(alpha: 0.86),

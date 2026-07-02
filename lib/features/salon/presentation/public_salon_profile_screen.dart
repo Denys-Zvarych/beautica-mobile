@@ -228,7 +228,7 @@ class _LoadingBody extends StatelessWidget {
           children: <Widget>[
             Padding(
               padding: EdgeInsets.only(bottom: heroProtrusion),
-              child: SalonCover(height: coverHeight),
+              child: SalonCover(height: coverHeight, topInset: topInset),
             ),
             Positioned(
               top: topInset + VelvetSpacing.sm,
@@ -466,7 +466,11 @@ class _CoverAndHero extends StatelessWidget {
       children: <Widget>[
         Padding(
           padding: EdgeInsets.only(bottom: heroProtrusion),
-          child: SalonCover(height: coverHeight, imageUrl: salon.coverImageUrl),
+          child: SalonCover(
+            height: coverHeight,
+            topInset: topInset,
+            imageUrl: salon.coverImageUrl,
+          ),
         ),
         Positioned(
           top: topInset + VelvetSpacing.sm,
@@ -506,6 +510,7 @@ class _SalonHeroCard extends StatelessWidget {
     final String? locationLine = _buildLocationLine(salon);
 
     return NeumorphicCard(
+      key: const Key('salon-profile-hero-card'),
       color: const Color(0xFFEDE4D5),
       padding: const EdgeInsets.all(VelvetSpacing.md + 2),
       child: Column(
@@ -583,6 +588,14 @@ class _SalonHeroCard extends StatelessWidget {
                     style: VelvetText.feedback(
                       BrandColors.textSecondary,
                     ).copyWith(fontSize: 13),
+                    // Defensive cap (mobile-debugger fix): a pathologically
+                    // long street/buildingNo/locationNote combination must
+                    // not be allowed to keep growing the hero card's height
+                    // unbounded — that's what let it blow past
+                    // `_heroProtrusion`'s budget and overlap the cover's
+                    // controls in the first place.
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
