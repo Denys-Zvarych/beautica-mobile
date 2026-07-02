@@ -54,6 +54,7 @@ void main() {
           masterId: 'master-1',
           serviceId: 'service-1',
           date: any(named: 'date'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer(
         (_) async => Response<ApiResponseAvailableSlotsResponse>(
@@ -85,6 +86,7 @@ void main() {
                   masterId: 'master-1',
                   serviceId: 'service-1',
                   date: captureAny(named: 'date'),
+                  cancelToken: any(named: 'cancelToken'),
                 ),
               ).captured.single
               as Date;
@@ -104,6 +106,7 @@ void main() {
           masterId: 'master-1',
           serviceId: 'service-1',
           date: any(named: 'date'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer(
         (_) async => Response<ApiResponseAvailableSlotsResponse>(
@@ -149,6 +152,7 @@ void main() {
           masterId: 'master-1',
           serviceId: 'service-1',
           date: any(named: 'date'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer(
         (_) async => Response<ApiResponseAvailableSlotsResponse>(
@@ -178,6 +182,7 @@ void main() {
           masterId: 'master-1',
           serviceId: 'service-1',
           date: any(named: 'date'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenThrow(
         DioException(
@@ -202,6 +207,7 @@ void main() {
           masterId: 'master-1',
           serviceId: 'service-1',
           date: any(named: 'date'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenThrow(
         DioException(
@@ -233,6 +239,7 @@ void main() {
           masterId: 'master-1',
           serviceId: 'service-1',
           date: any(named: 'date'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenThrow(
         DioException(

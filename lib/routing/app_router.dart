@@ -39,6 +39,9 @@ import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
 import '../features/auth/domain/auth_session.dart';
 import '../features/auth/domain/user_role.dart';
+import '../features/booking/domain/booking_slot_picker_args.dart';
+import '../features/booking/presentation/service_selector_sheet.dart';
+import '../features/booking/presentation/slot_picker_screen.dart';
 import '../features/discovery/domain/search_filters.dart';
 import '../features/discovery/presentation/search_filters_screen.dart';
 import '../features/discovery/presentation/search_results_screen.dart';
@@ -398,15 +401,75 @@ GoRouter appRouter(Ref ref) {
           ),
         ),
       ),
-      // Phase 14.1 (placeholder) — booking flow entry. The public master
-      // profile's «Записатись» / «Обрати послугу» CTA pushes here with the
-      // target master id in `extra`. CLIENT-guarded like the profile route. The
-      // real service-selection / slot-picker screen replaces this builder in
-      // Phase 14.1; until then a «Скоро…» panel keeps the CTA non-crashing.
+      // Phase 14.1 — booking flow Step 1 (service selection). The public
+      // master profile's «Записатись» / «Обрати послугу» CTA pushes here with
+      // the target master id (a bare String) in `extra`. CLIENT-guarded like
+      // the profile route. Swaps the former `BookingNewPlaceholderScreen`
+      // placeholder for the real `ServiceSelectorSheet`.
+      // A missing/wrong-typed/empty `extra` (e.g. a stray direct navigation)
+      // redirects to the CLIENT home shell instead of rendering the screen
+      // with an empty masterId, matching the fail-safe shape already used by
+      // the nested `bookingSlots`/`bookingSlots/time` routes below.
       GoRoute(
         path: RouteNames.bookingNew,
+        redirect: (context, state) {
+          final roleRedirect = clientOnlyGuard(context, state);
+          if (roleRedirect != null) return roleRedirect;
+          final Object? extra = state.extra;
+          if (extra is! String || extra.isEmpty) {
+            return RouteNames.clientHome;
+          }
+          return null;
+        },
+        builder: (context, state) =>
+            ServiceSelectorSheet(masterId: state.extra! as String),
+      ),
+      // Phase 14.1 — booking flow Step 2 (calendar + time grid), TWO
+      // sequential screens sharing the same `slotPickerProvider` state:
+      //   • bookingSlots      → SlotDateScreen ("Оберіть дату")
+      //   • bookingSlots/time → SlotTimeScreen ("Оберіть час"), nested so the
+      //     date screen stays mounted underneath (keeps the shared autoDispose
+      //     provider alive across the push — see slot_picker_notifier.dart).
+      // Both require a `BookingSlotPickerArgs` in `extra`; a missing/invalid
+      // extra (e.g. a stray direct navigation) redirects back to
+      // [RouteNames.bookingNew] rather than crashing on a bad cast.
+      GoRoute(
+        path: RouteNames.bookingSlots,
+        redirect: (context, state) {
+          final roleRedirect = clientOnlyGuard(context, state);
+          if (roleRedirect != null) return roleRedirect;
+          if (state.extra is! BookingSlotPickerArgs) {
+            return RouteNames.bookingNew;
+          }
+          return null;
+        },
+        builder: (context, state) =>
+            SlotDateScreen(args: state.extra! as BookingSlotPickerArgs),
+        routes: [
+          GoRoute(
+            path: 'time',
+            redirect: (context, state) {
+              final roleRedirect = clientOnlyGuard(context, state);
+              if (roleRedirect != null) return roleRedirect;
+              if (state.extra is! BookingSlotPickerArgs) {
+                return RouteNames.bookingNew;
+              }
+              return null;
+            },
+            builder: (context, state) =>
+                SlotTimeScreen(args: state.extra! as BookingSlotPickerArgs),
+          ),
+        ],
+      ),
+      // Phase 14.1 (stub) — booking confirmation. `SlotTimeScreen`'s
+      // «Підтвердити» CTA pushes here with a `BookingConfirmArgs` in `extra`.
+      // Phase 14.2 replaces this builder with the real confirmation/success
+      // screen at the same path.
+      GoRoute(
+        path: RouteNames.bookingConfirm,
         redirect: clientOnlyGuard,
-        builder: (context, state) => const BookingNewPlaceholderScreen(),
+        builder: (context, state) =>
+            BookingConfirmPlaceholderScreen(args: state.extra),
       ),
       // Phase 4.2 — Master profile (read-only).
       GoRoute(

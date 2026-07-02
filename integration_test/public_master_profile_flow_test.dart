@@ -32,6 +32,19 @@
 // assertions (the master's name is backend data). See
 // integration_test/support/app_harness.dart.
 //
+// PHASE 14.1 EXTENSION (mobile-qa, 2026-07-02): Flow A no longer stops at the
+// «Записатись» push — it continues through the REAL booking flow that phase
+// shipped: ServiceSelectorSheet (select a service from the NAILS category) →
+// SlotDateScreen (pick "today") → SlotTimeScreen (pick the first available
+// chip) → the (still-stubbed, Phase 14.2) `/booking/confirm` placeholder.
+// This is the ONLY E2E coverage of the multi-screen booking journey wired
+// through the real router + real repositories against `FakeBackend` (the
+// widget-level `service_selector_sheet_test.dart` / `slot_picker_test.dart`
+// each cover one screen in isolation with hand-rolled routers). The new
+// `GET /api/v1/masters/master-aaa/slots` fixture lives in
+// `support/fake_backend.dart` (`_availableSlotsEnvelope`,
+// `getMasterSlotsCalls`).
+//
 // LOCAL-EMULATOR CAVEAT: the shared client integration harness drives the real
 // VM-service websocket and may not run green from the VirtualBox VM without the
 // host-only adapter UP (see MEMORY: "Integration tests need host-only adapter to
@@ -41,6 +54,9 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/presentation/service_selector_sheet.dart';
+import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -57,9 +73,28 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
+  // go_router gotcha: `RouteMatchList.uri` is documented to reflect only the
+  // DECLARATIVE (redirect-driven) match chain — it explicitly excludes any
+  // `ImperativeRouteMatch` (the match kind produced by `router.push(...)`).
+  // So after a push, `currentConfiguration.uri` keeps reporting the PRE-push
+  // location even though the push succeeded and the new screen is mounted.
+  // Do NOT "simplify" this back to `currentConfiguration.uri.toString()` —
+  // that regresses every push-based assertion in this file back to
+  // reporting the base location. Instead: if the last top-level match is an
+  // `ImperativeRouteMatch`, resolve the location from its own nested
+  // `matches.uri` (the match list produced by that specific push); otherwise
+  // (a plain redirect outcome, e.g. Flow B's guard redirect) the top-level
+  // `.uri` is already correct.
   void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
+    final RouteMatchList configuration =
+        router.routerDelegate.currentConfiguration;
+    final RouteMatchBase? lastMatch = configuration.matches.isEmpty
+        ? null
+        : configuration.matches.last;
+    final Uri uri = lastMatch is ImperativeRouteMatch
+        ? lastMatch.matches.uri
+        : configuration.uri;
+    final String current = uri.toString();
     expect(
       current,
       startsWith(expected),
@@ -72,7 +107,8 @@ void main() {
   // ──────────────────────────────────────────────────────────────────────────
   testWidgets(
     'CLIENT opens a master public profile → it renders the name/role/services, '
-    'the favourite heart POSTs a favorite, and «Записатись» pushes /booking/new',
+    'the favourite heart POSTs a favorite, and «Записатись» drives the full '
+    'booking flow (service select → date → time → the /booking/confirm stub)',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -165,8 +201,83 @@ void main() {
             'the CLIENT public-profile journey must not hit GET /masters/me '
             '(403 decoupling — the public path is GET /masters/{id})',
       );
+
+      // ── Phase 14.1 Step 1: ServiceSelectorSheet renders master-aaa's real
+      // (public) catalogue — the SAME two NAILS services the identity-card
+      // services-count stat already asserted above. Expand the category and
+      // select the first service. ────────────────────────────────────────
+      expect(find.byType(ServiceSelectorSheet), findsOneWidget);
+
+      final Finder categoryHeader = find.byKey(
+        const Key('booking_category_NAILS'),
+      );
+      expect(categoryHeader, findsOneWidget);
+      await tester.tap(categoryHeader);
+      await tester.pumpAndSettle();
+
+      final Finder serviceTile = find.byKey(
+        const Key('booking_service_tile_pub-assign-1'),
+      );
+      expect(serviceTile, findsOneWidget);
+      await tester.tap(serviceTile);
+      await tester.pumpAndSettle();
+
+      // ── «Далі» pushes /booking/slots (SlotDateScreen — «Оберіть дату») ───
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+
+      expectLocation(router, RouteNames.bookingSlots);
+      expect(find.byType(SlotDateScreen), findsOneWidget);
+
+      // ── Pick "today" — always available regardless of the real-world date
+      // the test runs on (SlotDateScreen._isAvailable admits any day that is
+      // not before "today"). This fires the real
+      // GET /masters/master-aaa/slots request against FakeBackend. ─────────
+      final DateTime today = DateTime.now();
+      final Finder todayCell = find.byKey(
+        Key('booking-calendar-day-${today.day}'),
+      );
+      expect(todayCell, findsOneWidget);
+      await tester.tap(todayCell);
+      await tester.pumpAndSettle();
+
+      expect(
+        fb.getMasterSlotsCalls,
+        greaterThanOrEqualTo(1),
+        reason:
+            'picking a day must fetch that day\'s slots from the real '
+            'GET /masters/{id}/slots endpoint, not a stubbed provider',
+      );
+
+      // ── «Далі» pushes /booking/slots/time (SlotTimeScreen — «Оберіть час»)
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+
+      expectLocation(router, RouteNames.bookingSlotsTime);
+      expect(find.byType(SlotTimeScreen), findsOneWidget);
+
+      // ── Pick the first available chip → «Підтвердити» enables ────────────
+      final Finder availableChip = find.byWidgetPredicate(
+        (Widget w) => w is SlotChip && w.available,
+      );
+      expect(availableChip, findsWidgets);
+      await tester.tap(availableChip.first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+
+      // ── Lands on the (Phase 14.2-stubbed) /booking/confirm placeholder ────
+      expectLocation(router, RouteNames.bookingConfirm);
+      expect(
+        find.byKey(const Key('booking-confirm-placeholder')),
+        findsOneWidget,
+        reason:
+            'the time screen\'s «Підтвердити» CTA must hand off to '
+            '/booking/confirm with a BookingConfirmArgs extra',
+      );
     },
-    timeout: const Timeout(Duration(seconds: 90)),
+    timeout: const Timeout(Duration(seconds: 120)),
   );
 
   // ──────────────────────────────────────────────────────────────────────────

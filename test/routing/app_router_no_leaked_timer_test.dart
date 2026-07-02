@@ -58,6 +58,18 @@ import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
 
+const _fakeClientUser = User(
+  id: 'c1',
+  email: 'client@example.com',
+  role: UserRole.client,
+  firstName: 'Test',
+  lastName: 'Client',
+);
+
+const _authenticatedClientSession = AsyncData<AuthSession>(
+  AuthSession.authenticated(user: _fakeClientUser, accessToken: 'token'),
+);
+
 void main() {
   group('appRouter redirect path leaks no pending timer', () {
     // Park the splash gate in the past so authRedirect does not pin the router
@@ -133,6 +145,71 @@ void main() {
         await tester.pump(const Duration(minutes: 5));
       },
     );
+  });
+
+  // Phase 14.1 addition: `/booking/new` used to render a fully static
+  // `BookingNewPlaceholderScreen` (no data fetching at all). It now renders
+  // `ServiceSelectorSheet`, which watches `publicMasterProfileProvider` —
+  // exactly the same real-Dio-request shape that bit `/master/profile` above.
+  // This guards the SAME regression on the new data-fetching entry point.
+  group('appRouter /booking/new leaks no pending timer', () {
+    setUp(
+      () => AppStartTime.setStartForTest(
+        DateTime.now().subtract(const Duration(seconds: 5)),
+      ),
+    );
+    tearDown(AppStartTime.resetForTest);
+
+    ProviderContainer makeAuthenticatedClientContainer() {
+      final container = ProviderContainer(
+        overrides: [
+          authProvider.overrideWith(
+            () => _FixedAuthNotifier(_authenticatedClientSession),
+          ),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+          // These are the overrides under test. Reverting either would route
+          // ServiceSelectorSheet's publicMasterProfileProvider back to the
+          // real HttpMasterRepository / HttpServiceRepository → real Dio
+          // requests → leaked connection-timeout Timers → tear-down
+          // `!timersPending` failure below.
+          masterRepositoryProvider.overrideWith((_) => FakeMasterRepository()),
+          publicServiceRepositoryProvider.overrideWith(
+            (_) => FakeServiceRepository(),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    String currentLocation(GoRouter router) =>
+        router.routerDelegate.currentConfiguration.uri.toString();
+
+    testWidgets('mounting appRouterProvider under an authenticated CLIENT and '
+        'navigating to /booking/new leaves zero pending timers on disposal', (
+      tester,
+    ) async {
+      final container = makeAuthenticatedClientContainer();
+      final router = container.read(appRouterProvider);
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      router.go(RouteNames.bookingNew, extra: 'master-1');
+      await tester.pump();
+
+      expect(currentLocation(router), equals(RouteNames.bookingNew));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(minutes: 5));
+    });
   });
 }
 

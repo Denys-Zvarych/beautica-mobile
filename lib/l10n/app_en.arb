@@ -3247,6 +3247,63 @@
   "@bookingNewPlaceholderBlurb": {
     "description": "Body copy of the Phase 14.1 booking-flow placeholder screen."
   },
+  "bookingServiceSelectTitle": "Choose services",
+  "bookingServiceSelectIntro": "Choose the services you'd like to book.",
+  "bookingMasterStripLabel": "Booking with",
+  "bookingMasterStripSemantics": "Booking with master: {name}, {role}",
+  "@bookingMasterStripSemantics": {
+    "placeholders": {
+      "name": { "type": "String" },
+      "role": { "type": "String" }
+    }
+  },
+  "bookingCategoryExpandedState": "expanded",
+  "bookingCategoryCollapsedState": "collapsed",
+  "bookingServiceTileSemantics": "{name}, {duration}, {price}",
+  "@bookingServiceTileSemantics": {
+    "placeholders": {
+      "name": { "type": "String" },
+      "duration": { "type": "String" },
+      "price": { "type": "String" }
+    }
+  },
+  "bookingTotalLabel": "Total",
+  "bookingEmptySelectionPrompt": "Choose at least one service",
+  "bookingNextCta": "Next",
+  "bookingConfirmCta": "Confirm",
+  "bookingChosenWindowLabel": "Booking:",
+  "bookingChosenWindowPrompt": "Choose a date and time",
+  "bookingChosenWindowSemantics": "Chosen appointment time: {label}",
+  "@bookingChosenWindowSemantics": {
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "bookingDateScreenTitle": "Choose a date",
+  "bookingDateScreenIntro": "Choose a convenient date — we'll find a free time next.",
+  "bookingCalendarPrevMonth": "Previous month",
+  "bookingCalendarNextMonth": "Next month",
+  "bookingDayAvailableState": "has free slots",
+  "bookingDayUnavailableState": "no free slots",
+  "bookingSelectedState": "selected",
+  "bookingSlotAvailableState": "available",
+  "bookingSlotUnavailableState": "unavailable",
+  "bookingTimeScreenTitle": "Choose a time",
+  "bookingTimeScreenBackSemantics": "Back to date selection",
+  "bookingFreeTimeHeading": "Free time",
+  "bookingMorningLabel": "Morning",
+  "bookingAfternoonLabel": "Afternoon",
+  "bookingEveningLabel": "Evening",
+  "bookingChangeDateCta": "Change",
+  "bookingChangeDateSemantics": "Change date",
+  "bookingDayHeaderSemantics": "Chosen date: {label}. Booking with master: {masterName}, {masterRole}",
+  "@bookingDayHeaderSemantics": {
+    "placeholders": {
+      "label": { "type": "String" },
+      "masterName": { "type": "String" },
+      "masterRole": { "type": "String" }
+    }
+  },
   "salonProfileBackLabel": "Back",
   "@salonProfileBackLabel": {
     "description": "Accessibility label for the back control floating over the salon profile cover photo."

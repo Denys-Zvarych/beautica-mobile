@@ -32,10 +32,15 @@ abstract interface class SlotRepository {
   /// Wraps `GET /masters/{masterId}/slots`. Returns an empty list when the
   /// master has no availability that day (a valid, non-error result — the
   /// slot picker renders an empty-state, not an error).
+  ///
+  /// [cancelToken] lets callers (the slot picker notifier) cancel an
+  /// in-flight request when the client switches days again before this one
+  /// resolves, so rapid day-switching never stacks N concurrent requests.
   Future<List<BookingSlot>> getMasterSlots({
     required String masterId,
     required String serviceId,
     required DateTime date,
+    CancelToken? cancelToken,
   });
 }
 
@@ -53,6 +58,7 @@ final class HttpSlotRepository implements SlotRepository {
     required String masterId,
     required String serviceId,
     required DateTime date,
+    CancelToken? cancelToken,
   }) async {
     try {
       final res = await _masterApi.getAvailableSlots(
@@ -61,6 +67,7 @@ final class HttpSlotRepository implements SlotRepository {
         // Date-only wire param (year-month-day only; time-of-day discarded) —
         // mirrors `ScheduleMapper.dateToWire`.
         date: Date(date.year, date.month, date.day),
+        cancelToken: cancelToken,
       );
       final slots = res.data?.data?.slots ?? const <AvailableSlotResponse>[];
       return BookingSlotMapper.fromDtoList(slots);

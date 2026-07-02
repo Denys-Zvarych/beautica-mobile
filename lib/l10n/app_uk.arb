@@ -3241,11 +3241,156 @@
   },
   "bookingNewPlaceholderTitle": "Бронювання",
   "@bookingNewPlaceholderTitle": {
-    "description": "Title of the Phase 14.1 booking-flow placeholder screen."
+    "description": "Title of the Phase 14.1 booking-confirmation placeholder screen (/booking/confirm, replaced by the real screen in Phase 14.2)."
   },
   "bookingNewPlaceholderBlurb": "Онлайн-запис до майстра скоро буде доступний.",
   "@bookingNewPlaceholderBlurb": {
-    "description": "Body copy of the Phase 14.1 booking-flow placeholder screen."
+    "description": "Body copy of the Phase 14.1 booking-confirmation placeholder screen."
+  },
+  "bookingServiceSelectTitle": "Оберіть послуги",
+  "@bookingServiceSelectTitle": {
+    "description": "Top-bar title of the booking Step 1 service-selection screen."
+  },
+  "bookingServiceSelectIntro": "Оберіть послуги на які бажаєте записатись.",
+  "@bookingServiceSelectIntro": {
+    "description": "One-line intro under the top bar on the booking Step 1 service-selection screen."
+  },
+  "bookingMasterStripLabel": "Запис до майстра",
+  "@bookingMasterStripLabel": {
+    "description": "Small caption line above the master's name on the booking-flow MasterStrip context card."
+  },
+  "bookingMasterStripSemantics": "Запис до майстра: {name}, {role}",
+  "@bookingMasterStripSemantics": {
+    "description": "Accessibility label for the booking-flow MasterStrip context card.",
+    "placeholders": {
+      "name": { "type": "String" },
+      "role": { "type": "String" }
+    }
+  },
+  "bookingCategoryExpandedState": "розгорнуто",
+  "@bookingCategoryExpandedState": {
+    "description": "Accessibility state word appended to a booking service-category header's label when its section is expanded."
+  },
+  "bookingCategoryCollapsedState": "згорнуто",
+  "@bookingCategoryCollapsedState": {
+    "description": "Accessibility state word appended to a booking service-category header's label when its section is collapsed."
+  },
+  "bookingServiceTileSemantics": "{name}, {duration}, {price}",
+  "@bookingServiceTileSemantics": {
+    "description": "Accessibility label for a selectable service row / summary entry on the booking service-selection and slot-picker screens.",
+    "placeholders": {
+      "name": { "type": "String" },
+      "duration": { "type": "String" },
+      "price": { "type": "String" }
+    }
+  },
+  "bookingTotalLabel": "Разом",
+  "@bookingTotalLabel": {
+    "description": "Label of the pinned total-price row on the booking summary shelf."
+  },
+  "bookingEmptySelectionPrompt": "Оберіть хоча б одну послугу",
+  "@bookingEmptySelectionPrompt": {
+    "description": "Muted prompt shown on the booking summary shelf before any service is selected."
+  },
+  "bookingNextCta": "Далі",
+  "@bookingNextCta": {
+    "description": "Primary CTA on the booking service-selection and date-picker screens; advances to the next booking step."
+  },
+  "bookingConfirmCta": "Підтвердити",
+  "@bookingConfirmCta": {
+    "description": "Primary CTA on the booking time-picker screen; advances to the booking-confirmation step."
+  },
+  "bookingChosenWindowLabel": "Запис:",
+  "@bookingChosenWindowLabel": {
+    "description": "Prefix label before the chosen appointment window on the booking time-picker summary shelf."
+  },
+  "bookingChosenWindowPrompt": "Оберіть дату та час",
+  "@bookingChosenWindowPrompt": {
+    "description": "Muted prompt shown in the chosen-window block before a time slot is selected."
+  },
+  "bookingChosenWindowSemantics": "Обраний час запису: {label}",
+  "@bookingChosenWindowSemantics": {
+    "description": "Accessibility label for the chosen appointment-window block once a slot is selected.",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "bookingDateScreenTitle": "Оберіть дату",
+  "@bookingDateScreenTitle": {
+    "description": "Top-bar title of the booking Step 2a date-picker screen."
+  },
+  "bookingDateScreenIntro": "Оберіть зручну дату — далі підберемо вільний час.",
+  "@bookingDateScreenIntro": {
+    "description": "One-line intro under the top bar on the booking Step 2a date-picker screen."
+  },
+  "bookingCalendarPrevMonth": "Попередній місяць",
+  "@bookingCalendarPrevMonth": {
+    "description": "Accessibility label for the calendar's previous-month paging chevron."
+  },
+  "bookingCalendarNextMonth": "Наступний місяць",
+  "@bookingCalendarNextMonth": {
+    "description": "Accessibility label for the calendar's next-month paging chevron."
+  },
+  "bookingDayAvailableState": "є вільні слоти",
+  "@bookingDayAvailableState": {
+    "description": "Accessibility state word for a tappable (available) calendar day cell."
+  },
+  "bookingDayUnavailableState": "немає вільних слотів",
+  "@bookingDayUnavailableState": {
+    "description": "Accessibility state word for an untappable (unavailable) calendar day cell; also shown as the empty-slots message on the time screen."
+  },
+  "bookingSelectedState": "обрано",
+  "@bookingSelectedState": {
+    "description": "Accessibility state word shared by the selected calendar day cell and the selected time-slot chip."
+  },
+  "bookingSlotAvailableState": "доступно",
+  "@bookingSlotAvailableState": {
+    "description": "Accessibility state word for an available (unselected) time-slot chip."
+  },
+  "bookingSlotUnavailableState": "недоступно",
+  "@bookingSlotUnavailableState": {
+    "description": "Accessibility state word for an unavailable (untappable) time-slot chip."
+  },
+  "bookingTimeScreenTitle": "Оберіть час",
+  "@bookingTimeScreenTitle": {
+    "description": "Top-bar title of the booking Step 2b time-picker screen."
+  },
+  "bookingTimeScreenBackSemantics": "Назад до вибору дати",
+  "@bookingTimeScreenBackSemantics": {
+    "description": "Accessibility label for the time-picker screen's back button (returns to the date screen)."
+  },
+  "bookingFreeTimeHeading": "Вільний час",
+  "@bookingFreeTimeHeading": {
+    "description": "Section heading above the Ранок/День/Вечір time-slot clusters."
+  },
+  "bookingMorningLabel": "Ранок",
+  "@bookingMorningLabel": {
+    "description": "Sub-label for the morning time-slot cluster."
+  },
+  "bookingAfternoonLabel": "День",
+  "@bookingAfternoonLabel": {
+    "description": "Sub-label for the afternoon time-slot cluster."
+  },
+  "bookingEveningLabel": "Вечір",
+  "@bookingEveningLabel": {
+    "description": "Sub-label for the evening time-slot cluster."
+  },
+  "bookingChangeDateCta": "Змінити",
+  "@bookingChangeDateCta": {
+    "description": "Compact link on the time screen's day-header chip; returns to the date screen."
+  },
+  "bookingChangeDateSemantics": "Змінити дату",
+  "@bookingChangeDateSemantics": {
+    "description": "Accessibility label for the time screen's «Змінити» change-date link."
+  },
+  "bookingDayHeaderSemantics": "Обрана дата: {label}. Запис до майстра: {masterName}, {masterRole}",
+  "@bookingDayHeaderSemantics": {
+    "description": "Accessibility label for the time screen's day-header chip.",
+    "placeholders": {
+      "label": { "type": "String" },
+      "masterName": { "type": "String" },
+      "masterRole": { "type": "String" }
+    }
   },
   "salonProfileBackLabel": "Назад",
   "@salonProfileBackLabel": {

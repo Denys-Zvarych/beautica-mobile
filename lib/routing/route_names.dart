@@ -81,13 +81,29 @@ abstract final class RouteNames {
   static String salonPublicProfile(String salonId) =>
       '/salons/${Uri.encodeComponent(salonId)}';
 
-  /// Phase 14.1 — booking flow entry (service selection + slot picker), opened
-  /// from the public master profile's «Записатись» / «Обрати послугу» CTA with
-  /// the target master id in `GoRouterState.extra`. The real screen ships in
-  /// Phase 14.1; until then the route renders a CLIENT-guarded «Скоро…»
-  /// placeholder so the CTA is non-crashing. This constant is the single source
-  /// of truth for the CTA's nav target.
+  /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
+  /// public master profile's «Записатись» / «Обрати послугу» CTA with the
+  /// target master id (a bare `String`) in `GoRouterState.extra`. Renders
+  /// `ServiceSelectorSheet`, CLIENT-guarded. This constant is the single
+  /// source of truth for the CTA's nav target.
   static const String bookingNew = '/booking/new';
+
+  /// Phase 14.1 — booking flow Step 2a (date picker). Pushed from
+  /// `ServiceSelectorSheet`'s «Далі» CTA with a `BookingSlotPickerArgs` in
+  /// `extra`. Renders `SlotDateScreen`, CLIENT-guarded.
+  static const String bookingSlots = '/booking/slots';
+
+  /// The time sub-step of [bookingSlots], nested under it. Pushed from
+  /// `SlotDateScreen`'s «Далі» CTA carrying the SAME `BookingSlotPickerArgs`
+  /// — the chosen date lives in the shared `slotPickerProvider`, not in this
+  /// route's extra. Renders `SlotTimeScreen`.
+  static const String bookingSlotsTime = '/booking/slots/time';
+
+  /// Phase 14.1 (stub) — booking confirmation. Pushed from `SlotTimeScreen`'s
+  /// «Підтвердити» CTA with a `BookingConfirmArgs` in `extra`. Renders
+  /// `BookingConfirmPlaceholderScreen` until Phase 14.2 ships the real
+  /// confirmation/success screen at this same path.
+  static const String bookingConfirm = '/booking/confirm';
 
   // CLIENT settings hub + per-section edit pages. Pushed from the home-hub
   // burger icon (mirrors the master `/master/menu` + `/master/edit/*` block).

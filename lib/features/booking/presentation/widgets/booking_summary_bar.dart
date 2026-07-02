@@ -1,0 +1,415 @@
+// Phase 14.1 — BookingSummaryBar: the pinned "Послуги та ціни" shelf.
+//
+// Unifies the approved preview's TWO nearly-identical widgets —
+// `BookingServiceSelection/lib/widgets/booking_summary.dart` (`BookingSummaryBar`,
+// step 1) and `BookingSlotPicker/lib/widgets/booking_summary.dart`
+// (`BookingConfirmBar`, steps 2a/2b) — into one reusable widget, exactly the
+// way the SECOND preview already unified them (`showChosenWindow` /
+// `chosenWindowLabel` flags). Reused verbatim across all three screens of this
+// phase (`ServiceSelectorSheet`, `SlotDateScreen`, `SlotTimeScreen`).
+//
+// Unlike the preview (which formats price/duration by re-parsing display
+// STRINGS with regex — see the preview's `_parsePrice`/`_parseDuration`), this
+// port sums the already-typed [MasterService.priceMin]/[priceMax]/
+// [durationMinutes] fields directly and renders via the existing
+// `ServicePriceDisplay` / `DurationMinutes` shared formatters — no string
+// parsing, no generated-DTO leakage, and it can never desync from a
+// display-string format change.
+
+import 'package:flutter/material.dart';
+
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
+import 'package:beautica_mobile/shared/formatters/service_count_label.dart';
+import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
+
+/// The pinned booking-summary shelf shared by every screen of the booking
+/// flow. Carries the "Послуги та ціни" list + "Разом" total + primary CTA, and
+/// (when [showChosenWindow] is true) a chosen-appointment-window block.
+class BookingSummaryBar extends StatelessWidget {
+  const BookingSummaryBar({
+    super.key,
+    required this.services,
+    required this.ctaLabel,
+    required this.ctaIcon,
+    required this.enabled,
+    required this.onAction,
+    this.chosenWindowLabel,
+    this.showChosenWindow = false,
+  });
+
+  /// The client's selected service(s) (0..n). Empty renders the muted
+  /// empty-state prompt + disabled CTA.
+  final List<MasterService> services;
+
+  /// CTA caption — "Далі" (selector / date screen) or "Підтвердити" (time
+  /// screen).
+  final String ctaLabel;
+  final IconData ctaIcon;
+
+  /// Whether the CTA is tappable. The bar itself also disables the CTA
+  /// whenever [services] is empty, regardless of this flag.
+  final bool enabled;
+
+  /// Fires when the (enabled) CTA is tapped.
+  final VoidCallback onAction;
+
+  /// The chosen booked window, e.g. "вт, 14 лип · 14:00–18:30", or `null`
+  /// when no slot is chosen yet. Only consulted when [showChosenWindow].
+  final String? chosenWindowLabel;
+
+  /// Whether to render the chosen-window block above the CTA (the time
+  /// screen only).
+  final bool showChosenWindow;
+
+  static const double _listMaxHeight = 188;
+  static const Color _shelfSurface = Color(0xFFEDE4D5);
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final bool hasSelection = services.isNotEmpty;
+    return Container(
+      decoration: const BoxDecoration(
+        color: _shelfSurface,
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(VelvetRadii.card),
+        ),
+        boxShadow: <BoxShadow>[
+          BoxShadow(
+            color: BrandColors.shadowDarkCard,
+            offset: Offset(0, -9),
+            blurRadius: 24,
+          ),
+          BoxShadow(
+            color: BrandColors.shadowLightStrong,
+            offset: Offset(0, -1),
+            blurRadius: 3,
+            spreadRadius: -1,
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            VelvetSpacing.lg,
+            VelvetSpacing.lg,
+            VelvetSpacing.lg,
+            VelvetSpacing.md,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: hasSelection
+                ? _populatedChildren(context, l10n)
+                : _emptyChildren(l10n),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _emptyChildren(AppLocalizations l10n) {
+    return <Widget>[
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xs),
+        child: Text(
+          l10n.bookingEmptySelectionPrompt,
+          textAlign: TextAlign.center,
+          style: VelvetText.feedback(BrandColors.muted).copyWith(fontSize: 14),
+        ),
+      ),
+      const SizedBox(height: VelvetSpacing.md),
+      NeumorphicButton(
+        key: const Key('booking-summary-cta'),
+        label: ctaLabel,
+        icon: ctaIcon,
+        onPressed: null,
+      ),
+    ];
+  }
+
+  List<Widget> _populatedChildren(BuildContext context, AppLocalizations l10n) {
+    final _BookingTotals totals = _BookingTotals.from(services);
+    return <Widget>[
+      Padding(
+        padding: const EdgeInsets.only(bottom: VelvetSpacing.sm),
+        child: Row(
+          children: <Widget>[
+            Text(
+              l10n.publicMasterBookingSectionLabel,
+              style: VelvetText.sectionLabel(),
+            ),
+            const Spacer(),
+            Text(
+              formatServiceCountUk(services.length),
+              style: VelvetText.feedback(
+                BrandColors.muted,
+              ).copyWith(fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: _listMaxHeight),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.zero,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              for (int i = 0; i < services.length; i++) ...<Widget>[
+                _SelectionEntry(service: services[i]),
+                if (i < services.length - 1)
+                  const SizedBox(height: VelvetSpacing.md - 4),
+              ],
+            ],
+          ),
+        ),
+      ),
+      const SizedBox(height: VelvetSpacing.md),
+      Container(height: 1, color: BrandColors.faint.withValues(alpha: 0.5)),
+      const SizedBox(height: VelvetSpacing.sm + 2),
+      _TotalRow(
+        l10n: l10n,
+        price: totals.priceLabel,
+        duration: totals.durationLabel,
+      ),
+      const SizedBox(height: VelvetSpacing.md),
+      if (showChosenWindow) ...<Widget>[
+        _ChosenWindow(l10n: l10n, label: chosenWindowLabel),
+        const SizedBox(height: VelvetSpacing.md),
+      ],
+      NeumorphicButton(
+        key: const Key('booking-summary-cta'),
+        label: ctaLabel,
+        icon: ctaIcon,
+        onPressed: enabled ? onAction : null,
+      ),
+    ];
+  }
+}
+
+/// The chosen-appointment-window block on the time screen. Muted prompt
+/// before a slot is chosen; a camel-accented "Запис:" well once one is.
+class _ChosenWindow extends StatelessWidget {
+  const _ChosenWindow({required this.l10n, required this.label});
+
+  final AppLocalizations l10n;
+  final String? label;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool chosen = label != null;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 240),
+      switchInCurve: Curves.easeOutCubic,
+      child: chosen
+          ? Semantics(
+              key: const ValueKey<bool>(true),
+              label: l10n.bookingChosenWindowSemantics(label!),
+              child: NeumorphicInset(
+                radius: VelvetRadii.field,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: VelvetSpacing.md,
+                    vertical: VelvetSpacing.sm + 4,
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      const Icon(
+                        Icons.event_available_rounded,
+                        size: 18,
+                        color: BrandColors.accentDeep,
+                      ),
+                      const SizedBox(width: VelvetSpacing.sm),
+                      Text(
+                        l10n.bookingChosenWindowLabel,
+                        style: VelvetText.feedback(
+                          BrandColors.textSecondary,
+                        ).copyWith(fontSize: 13),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          label!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: VelvetText.bodyStrong().copyWith(
+                            color: BrandColors.accentDeep,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          : Padding(
+              key: const ValueKey<bool>(false),
+              padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xs),
+              child: Text(
+                l10n.bookingChosenWindowPrompt,
+                textAlign: TextAlign.center,
+                style: VelvetText.feedback(
+                  BrandColors.muted,
+                ).copyWith(fontSize: 13),
+              ),
+            ),
+    );
+  }
+}
+
+/// One 2-line selected-service entry: name + price on line one, duration on
+/// line two.
+class _SelectionEntry extends StatelessWidget {
+  const _SelectionEntry({required this.service});
+
+  final MasterService service;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final String name = _serviceLabel(service);
+    final String duration = DurationMinutes.format(service.durationMinutes);
+    final String price = ServicePriceDisplay.format(service);
+    return Semantics(
+      label: l10n.bookingServiceTileSemantics(name, duration, price),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: VelvetText.bodyStrong(),
+                ),
+              ),
+              const SizedBox(width: VelvetSpacing.md),
+              Text(
+                price,
+                style: VelvetText.bodyStrong().copyWith(
+                  color: BrandColors.accentDeep,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Icon(
+                Icons.schedule_outlined,
+                size: 12,
+                color: BrandColors.muted,
+              ),
+              const SizedBox(width: 3),
+              Text(
+                duration,
+                style: VelvetText.feedback(
+                  BrandColors.muted,
+                ).copyWith(fontSize: 12),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The pinned "Разом" total line.
+class _TotalRow extends StatelessWidget {
+  const _TotalRow({required this.l10n, required this.price, this.duration});
+
+  final AppLocalizations l10n;
+  final String price;
+  final String? duration;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: '${l10n.bookingTotalLabel} ${duration ?? ''} $price',
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: <Widget>[
+          Text(l10n.bookingTotalLabel, style: VelvetText.bodyStrong()),
+          if (duration != null) ...<Widget>[
+            const SizedBox(width: VelvetSpacing.sm),
+            Text(
+              duration!,
+              style: VelvetText.feedback(
+                BrandColors.muted,
+              ).copyWith(fontSize: 12),
+            ),
+          ],
+          const Spacer(),
+          Text(
+            price,
+            style: VelvetText.bodyStrong().copyWith(
+              color: BrandColors.accentDeep,
+              fontWeight: FontWeight.w800,
+              fontSize: 17,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Aggregated totals derived from typed [MasterService] fields — a (low, high)
+/// price band (collapsing to a single value when the band is degenerate) plus
+/// the summed duration.
+class _BookingTotals {
+  const _BookingTotals({required this.priceLabel, this.durationLabel});
+
+  final String priceLabel;
+  final String? durationLabel;
+
+  factory _BookingTotals.from(List<MasterService> services) {
+    double minSum = 0;
+    double maxSum = 0;
+    int minutes = 0;
+    for (final MasterService s in services) {
+      minSum += s.priceMin;
+      maxSum += s.priceType == ServicePriceType.range
+          ? (s.priceMax ?? s.priceMin)
+          : s.priceMin;
+      minutes += s.durationMinutes;
+    }
+    final String priceLabel = minSum == maxSum
+        ? '${_amount(minSum)} грн'
+        : '${_amount(minSum)}–${_amount(maxSum)} грн';
+    return _BookingTotals(
+      priceLabel: priceLabel,
+      durationLabel: minutes > 0 ? DurationMinutes.format(minutes) : null,
+    );
+  }
+
+  static String _amount(double value) => value.toStringAsFixed(0);
+}
+
+/// Card label rule mirrored from `services_list_screen.dart`'s `_ServiceCard`:
+/// the master's optional custom [MasterService.name] replaces the platform
+/// service-type name; the two are never shown together.
+String _serviceLabel(MasterService s) {
+  final String typeName = (s.serviceTypeNameUk ?? '').trim();
+  final String customName = s.name.trim();
+  return customName.isNotEmpty ? customName : typeName;
+}

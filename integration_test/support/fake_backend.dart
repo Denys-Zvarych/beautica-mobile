@@ -43,6 +43,7 @@
 //  GET  /api/v1/salons/salon-xyz/reviews/summary  — salon review-summary header
 //  GET  /api/v1/salons/salon-xyz/reviews          — salon reviews list
 //  GET  /api/v1/salons/salon-xyz/portfolio        — salon portfolio photo rail
+//  GET  /api/v1/masters/master-aaa/slots          — Phase 14.1 slot-picker availability
 //
 // USAGE
 // -----
@@ -511,6 +512,13 @@ final class FakeBackend {
   int getPublicMasterServicesCalls = 0;
   String? lastGetPublicMasterServicesId;
 
+  /// `GET /api/v1/masters/{masterId}/slots` (Phase 14.1 slot picker) call
+  /// count. The DioAdapter route match is path-only, so this increments once
+  /// per date the client picks on `SlotDateScreen` — used by the booking-flow
+  /// E2E to assert the day tap actually hit the network instead of rendering
+  /// stale state.
+  int getMasterSlotsCalls = 0;
+
   // ── Public salon profile telemetry (Phase 13.6) ───────────────────────────
   //
   // Five independent read endpoints back the "Про салон" hero + the 4-tab
@@ -859,6 +867,36 @@ final class FakeBackend {
   /// Public services count for `master-aaa` — used by the E2E to assert the
   /// rendered services-count stat without hard-coding the literal in two places.
   static int get publicMasterServicesCount => _publicMasterServices.length;
+
+  /// PUBLIC available-slots envelope for `master-aaa` — answers
+  /// `GET /api/v1/masters/master-aaa/slots?date=&serviceId=` (Phase 14.1
+  /// `SlotRepository.getMasterSlots`). The DioAdapter route match is
+  /// path-only (query params ignored — see the `salon-xyz/masters` comment
+  /// above), so this SAME two-slot fixture answers whichever date/service the
+  /// booking-flow E2E requests. Both slots map to `BookingSlot.available ==
+  /// true` (the wire contract carries no availability flag — see
+  /// `BookingSlotMapper`), which is exactly what the flow needs: at least one
+  /// tappable chip on the time screen.
+  static Map<String, dynamic> _availableSlotsEnvelope() {
+    final DateTime day = DateTime.now();
+    DateTime at(int hour, int minute) =>
+        DateTime(day.year, day.month, day.day, hour, minute);
+    Map<String, dynamic> slot(DateTime start, DateTime end) =>
+        <String, dynamic>{
+          'startsAt': start.toIso8601String(),
+          'endsAt': end.toIso8601String(),
+        };
+    return _ok(<String, dynamic>{
+      'date':
+          '${day.year.toString().padLeft(4, '0')}-'
+          '${day.month.toString().padLeft(2, '0')}-'
+          '${day.day.toString().padLeft(2, '0')}',
+      'slots': <Map<String, dynamic>>[
+        slot(at(10, 0), at(10, 30)),
+        slot(at(14, 0), at(14, 30)),
+      ],
+    });
+  }
 
   // ---------------------------------------------------------------------------
   // Public salon profile fixtures (Phase 13.6)
@@ -1357,6 +1395,20 @@ final class FakeBackend {
         getPublicMasterServicesCalls++;
         lastGetPublicMasterServicesId = 'master-aaa';
         return _okList(_publicMasterServices);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/master-aaa/slots?date=&serviceId= — Phase 14.1 slot
+    // picker (SlotRepository.getMasterSlots). Query params are not part of
+    // the DioAdapter route match (path only — see the salon-xyz/masters
+    // comment below), so one registration answers every date/service the
+    // booking-flow E2E requests.
+    _adapter.onRoute(
+      '/api/v1/masters/master-aaa/slots',
+      (server) => server.replyCallback(200, (_) {
+        getMasterSlotsCalls++;
+        return _availableSlotsEnvelope();
       }),
       request: const Request(method: RequestMethods.get),
     );
