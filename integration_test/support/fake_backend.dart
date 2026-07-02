@@ -1605,10 +1605,17 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // GET /api/v1/locations/oblasts/{oblastId}/cities — one seeded city WITHOUT
-    // districts so a CLIENT can select a city through the real cascade and save
-    // with ONLY the locality slice (no district step, no address fields). Shape:
-    // CityResponse { id, oblastId, katotthCode, nameUk, nameEn, hasDistricts }.
+    // GET /api/v1/locations/oblasts/{oblastId}/cities — TWO seeded cities
+    // (both WITHOUT districts) so a CLIENT can select a city through the real
+    // cascade and save with ONLY the locality slice (no district step, no
+    // address fields). Shape: CityResponse { id, oblastId, katotthCode, nameUk,
+    // nameEn, hasDistricts }.
+    //
+    // city-lviv (added alongside city-kyiv) lets a flow drive a REAL
+    // city-to-city locality CHANGE via the Location edit screen — needed by the
+    // mid-session search-prefill regression flow (client_search_flow_test.dart)
+    // which proves a CLIENT switching their saved city reaches Пошук on the very
+    // next open, without a logout/restart.
     _adapter.onRoute(
       '/api/v1/locations/oblasts/oblast-kyiv/cities',
       (server) => server.reply(
@@ -1620,6 +1627,14 @@ final class FakeBackend {
             'katotthCode': 'UA80000000000093317',
             'nameUk': 'Київ',
             'nameEn': 'Kyiv',
+            'hasDistricts': false,
+          },
+          <String, dynamic>{
+            'id': 'city-lviv',
+            'oblastId': 'oblast-kyiv',
+            'katotthCode': 'UA46000000000026870',
+            'nameUk': 'Львів',
+            'nameEn': 'Lviv',
             'hasDistricts': false,
           },
         ]),

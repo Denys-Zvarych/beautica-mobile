@@ -153,6 +153,26 @@ class _StubClientEditProfile extends ClientEditProfile {
   }
 }
 
+// Mutable pointer read by [_MutableStubClientEditProfile.build] — lets a test
+// simulate a profile locality change reaching `GET /users/me` WITHOUT a
+// session flip (unlike [_StubClientEditProfile], which derives the profile
+// from the watched auth session and is only useful for the cross-session-leak
+// test). Reset per test.
+User _mutableProfile = _userWithLocation;
+
+/// Mirrors production exactly: [ClientEditProfile.build] does NOT watch any
+/// session-carried locality fields — it re-reads the repository
+/// (`ClientProfileRepository.getMyProfile()`) fresh on every rebuild. So
+/// invalidating this provider (as `client_location_edit_screen.dart` does
+/// after a successful save) surfaces whatever [_mutableProfile] currently
+/// holds. Used by the mid-session-profile-change regression tests below —
+/// they flip [_mutableProfile] and call `container.invalidate(...)` to force a
+/// re-read, exactly like a real profile save elsewhere in the app.
+class _MutableStubClientEditProfile extends ClientEditProfile {
+  @override
+  Future<User> build() async => _mutableProfile;
+}
+
 class _StubAuthNotifier extends AuthNotifier {
   @override
   Future<AuthSession> build() async {
@@ -181,12 +201,16 @@ class _StubAuthNotifier extends AuthNotifier {
 // is not exported by this Riverpod version, so the list is built as
 // List<Object> and `.cast()`-ed at the call sites (the house pattern — see
 // test/helpers/pump_app.dart).
-List<Object> _overrides() => <Object>[
+List<Object> _overrides({
+  ClientEditProfile Function()? profileFactory,
+}) => <Object>[
   authProvider.overrideWith(_StubAuthNotifier.new),
   authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
   secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
   serviceRepositoryProvider.overrideWithValue(_MockServiceRepository()),
-  clientEditProfileProvider.overrideWith(_StubClientEditProfile.new),
+  clientEditProfileProvider.overrideWith(
+    profileFactory ?? _StubClientEditProfile.new,
+  ),
   // approvedCategoriesProvider bypasses serviceRepositoryProvider — override it
   // directly so the category rail never reaches the real Dio (fixture footgun).
   approvedCategoriesProvider.overrideWith(
@@ -225,7 +249,10 @@ SearchFilterLabels _labels(WidgetTester tester) => ProviderScope.containerOf(
 ).read(searchFilterLabelsControllerProvider);
 
 void main() {
-  setUp(() => _seededUser = _userWithLocation);
+  setUp(() {
+    _seededUser = _userWithLocation;
+    _mutableProfile = _userWithLocation;
+  });
 
   group('ClientSearchScreen — saved-location prefill', () {
     testWidgets(
@@ -470,6 +497,148 @@ void main() {
           find.byKey(const Key('search_city_value')),
         );
         expect(cityText.data, 'Львів');
+      },
+    );
+
+    // -------------------------------------------------------------------------
+    // Regression — mid-session PROFILE locality change (NO session flip, NO
+    // logout). This is the exact reported bug: the CLIENT changes their saved
+    // locality (e.g. via the Location edit screen elsewhere in the app) while
+    // staying signed in as the SAME user. The old one-shot `_seededFromProfile`
+    // latch seeded at most once per session and never re-checked the profile
+    // again, so Пошук kept showing the STALE locality until a full app restart.
+    //
+    // Unlike the session-FLIP test above (which changes the AUTHENTICATED
+    // USER), this exercises the profile-only mismatch path: same user, same
+    // session, [clientEditProfileProvider] invalidated + re-read (mirroring
+    // `client_location_edit_screen.dart`'s post-save invalidate) between two
+    // `prefillFromProfileIfNeeded()` calls.
+    // -------------------------------------------------------------------------
+    testWidgets(
+      'a mid-session PROFILE locality change (no logout) reaches the filter on '
+      'the very next prefillFromProfileIfNeeded() call — the reported bug: the '
+      'old one-shot latch never re-armed and kept showing the OLD locality '
+      'until a restart',
+      (tester) async {
+        installOverflowGuard();
+        _sizeView(tester);
+        _seededUser = _userWithLocation; // auth session stays fixed — NO flip
+        _mutableProfile = _userWithLocation; // profile starts at Київ
+
+        final ProviderContainer container = ProviderContainer(
+          overrides: _overrides(
+            profileFactory: _MutableStubClientEditProfile.new,
+          ).cast(),
+        );
+        addTearDown(container.dispose);
+
+        // 1. First Пошук open → prefill seeds Київ (+ Печерський) from the
+        //    profile.
+        await tester.pumpWidget(
+          UncontrolledProviderScope(container: container, child: _app()),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          container.read(searchFiltersControllerProvider).cityId,
+          _kCityWithDistrictsId,
+          reason: 'the first open must seed the saved Київ',
+        );
+        expect(
+          container.read(searchFiltersControllerProvider).districtId,
+          _kDistrictId,
+        );
+
+        // 2. The CLIENT edits their locality elsewhere in the app (the real
+        //    Location edit screen): the PATCH succeeds and the repository now
+        //    reports Львів. The screen invalidates clientEditProfileProvider —
+        //    forcing the NEXT read to hit the repository again. Crucially, NO
+        //    auth/session change happens.
+        _mutableProfile = _userWithLocationLviv;
+        container.invalidate(clientEditProfileProvider);
+
+        // 3. Re-entering Пошук re-fires prefillFromProfileIfNeeded() (the
+        //    screen's initState trigger) — simulated directly here.
+        await container
+            .read(searchFiltersControllerProvider.notifier)
+            .prefillFromProfileIfNeeded();
+        await tester.pumpAndSettle();
+
+        // THE REGRESSION ASSERTION — this fails on the pre-fix one-shot latch
+        // (`_seededFromProfile == true` forever after the first seed means this
+        // second call would no-op, leaving cityId at Київ).
+        expect(
+          container.read(searchFiltersControllerProvider).cityId,
+          _kCityNoDistrictsId,
+          reason:
+              'a mid-session profile locality change must reach the filter on '
+              'the very next prefill call — no app restart required',
+        );
+        expect(
+          container.read(searchFiltersControllerProvider).districtId,
+          isNull,
+          reason:
+              'Львів has no district — the stale Печерський must be dropped',
+        );
+        expect(
+          container.read(searchFilterLabelsControllerProvider).cityName,
+          'Львів',
+        );
+      },
+    );
+
+    testWidgets(
+      'a manual pick BEFORE a mid-session profile change still wins — the '
+      'profile-driven reseed must never clobber a genuine user choice, '
+      'regardless of which direction the profile itself later changes',
+      (tester) async {
+        installOverflowGuard();
+        _sizeView(tester);
+        _seededUser = _userWithLocation;
+        _mutableProfile = _userWithLocation; // Київ
+
+        final ProviderContainer container = ProviderContainer(
+          overrides: _overrides(
+            profileFactory: _MutableStubClientEditProfile.new,
+          ).cast(),
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(container: container, child: _app()),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          container.read(searchFiltersControllerProvider).cityId,
+          _kCityWithDistrictsId,
+        );
+
+        // The user manually overrides the seeded locality to Львів through
+        // Пошук's own picker — marks _userTouchedLocality.
+        container.read(searchFiltersControllerProvider.notifier)
+          ..selectOblast(oblastId: _kOblastId)
+          ..selectCity(cityId: _kCityNoDistrictsId);
+        expect(
+          container.read(searchFiltersControllerProvider).cityId,
+          _kCityNoDistrictsId,
+        );
+
+        // Meanwhile (elsewhere) the profile changes AGAIN — back to Київ. This
+        // must NOT win over the manual pick, even though it is a genuinely
+        // DIFFERENT locality from what was last seeded.
+        _mutableProfile = _userWithLocation;
+        container.invalidate(clientEditProfileProvider);
+        await container
+            .read(searchFiltersControllerProvider.notifier)
+            .prefillFromProfileIfNeeded();
+        await tester.pumpAndSettle();
+
+        expect(
+          container.read(searchFiltersControllerProvider).cityId,
+          _kCityNoDistrictsId,
+          reason:
+              'a manual pick must survive ANY subsequent profile-derived seed '
+              'attempt, no matter which direction the profile changes',
+        );
       },
     );
   });

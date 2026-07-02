@@ -42,6 +42,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/data/client_profile_repository.dart';
@@ -299,6 +300,19 @@ class _ClientLocationEditScreenState
       if (!mounted) return;
       ref.invalidate(clientEditProfileProvider);
       ref.invalidate(clientProfileProvider);
+      // The Пошук (Search) screen's locality filter is auto-seeded from THIS
+      // profile ([SearchFiltersController.prefillFromProfileIfNeeded]). That
+      // controller already re-reads the profile on every Search screen entry
+      // (see its doc comment), so this invalidate is not strictly required for
+      // correctness — but it forces an immediate, clean reset of both keepAlive
+      // controllers (their `build()` clears state + seed-tracking, same as a
+      // logout/login) rather than relying on the next Search entry to notice the
+      // drift. This is a deliberate full reset: it also forgets any locality the
+      // user had manually picked inside Search earlier this session — acceptable
+      // because the profile save the user JUST performed is the more recent,
+      // more explicit signal of their intended locality.
+      ref.invalidate(searchFiltersControllerProvider);
+      ref.invalidate(searchFilterLabelsControllerProvider);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           key: const Key('snackbar-saved'),
