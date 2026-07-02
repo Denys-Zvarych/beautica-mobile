@@ -474,6 +474,86 @@ void main() {
     );
   });
 
+  // Regression: the location line used to render on its OWN full-width row
+  // below the name+rating block. It now shares the rating row, to the right
+  // of the star rating + review count. Asserts the two segments are
+  // vertically centered on the same line (not stacked with a big vertical
+  // gap) and that the location sits to the right of the rating — plus that
+  // they share a common `Row` ancestor, which only holds when the location
+  // is laid out as a sibling flex child inside the rating row rather than as
+  // a separate row underneath.
+  group('rating + location row layout', () {
+    testWidgets('rating and location render side-by-side on the same row, not '
+        'stacked as separate rows', (tester) async {
+      await _pumpTall(tester);
+      const salonWithBoth = Salon(
+        id: _kSalonId,
+        name: 'Салон «Вельвет»',
+        description: 'Затишний салон краси в серці Печерська.',
+        cityId: 'city-uuid-1',
+        street: 'вул. Хрещатик',
+        buildingNo: '22',
+        avgRating: 4.9,
+        reviewCount: 128,
+      );
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(salon: () async => salonWithBoth),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final ratingFinder = find.byKey(const Key('salon-profile-rating'));
+      final addressFinder = find.byKey(const Key('salon-profile-address-text'));
+      expect(ratingFinder, findsOneWidget);
+      expect(addressFinder, findsOneWidget);
+
+      final Rect ratingRect = tester.getRect(ratingFinder);
+      final Rect addressRect = tester.getRect(addressFinder);
+
+      // Same visual row: a `Row` centers its children on the cross axis,
+      // so their vertical centers line up — unlike the old layout, where
+      // the location sat a full row height below the name+rating block.
+      expect(
+        (ratingRect.center.dy - addressRect.center.dy).abs(),
+        lessThan(4),
+        reason:
+            'rating and location must share the same visual row — a '
+            'large vertical offset means the location regressed back to '
+            'its own row underneath the name+rating block',
+      );
+      // Same row, to the right: the location segment starts after the
+      // rating ends, rather than below it.
+      expect(
+        addressRect.left,
+        greaterThan(ratingRect.right),
+        reason:
+            'the location segment must sit to the right of the rating, '
+            'on the same line',
+      );
+
+      // Structural check: the two segments share a common `Row` ancestor
+      // — only true when the location is a flex child of the rating row
+      // itself, not a sibling row rendered underneath it.
+      final Finder ratingRowAncestors = find.ancestor(
+        of: ratingFinder,
+        matching: find.byType(Row),
+      );
+      final Finder sharedRowAncestor = find.ancestor(
+        of: addressFinder,
+        matching: ratingRowAncestors,
+      );
+      expect(
+        sharedRowAncestor.evaluate(),
+        isNotEmpty,
+        reason:
+            'rating and location must share a common Row ancestor, '
+            'proving they are laid out in the same flex row',
+      );
+    });
+  });
+
   // Regression (mobile-debugger diagnosis): the "Обкладинка" cover-edit pill
   // used to be `Positioned(left, bottom: VelvetSpacing.md)` inside the
   // cover's OWN stack, on the assumption the bottom-left corner sits "clear
