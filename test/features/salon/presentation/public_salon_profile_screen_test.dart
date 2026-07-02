@@ -1080,8 +1080,9 @@ void main() {
       await tester.tap(find.byKey(const Key('salon-tab-1')));
       await tester.pumpAndSettle();
 
-      // i18n-finder-ok: pinning the exact removed literal is the point of
-      // this regression guard, not a UI-copy assertion.
+      // Regression guard: pinning the exact removed literal is the point of
+      // this assertion (the heading was deleted from the tab).
+      // i18n-finder-ok: pinning the exact removed literal is the point.
       expect(find.text('Майстри салону'), findsNothing);
       expect(
         find.text('${_stubMasters.length}'),

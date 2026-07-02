@@ -230,7 +230,11 @@ void main() {
         find.byKey(const Key('salon-master-card-master-ccc')),
         findsOneWidget,
       );
+      // Master display names below are real-wire fixture data from
+      // FakeBackend (proving the actual roster decode), not translated copy.
+      // i18n-finder-ok: master display name is fixture data, not UI copy.
       expect(find.text('Софія Бондар'), findsOneWidget);
+      // i18n-finder-ok: master display name is fixture data, not UI copy.
       expect(find.text('Марія Гриценко'), findsOneWidget);
 
       // The 7th/8th masters (beyond the initial-6 cap) must stay unbuilt —
@@ -266,6 +270,7 @@ void main() {
             'tapping "show all" must reveal the remaining real masters, not '
             'just a widget-level fixture',
       );
+      // i18n-finder-ok: master display name is real-wire fixture data.
       expect(find.text('Вікторія Пономаренко'), findsOneWidget);
       expect(
         showAllMasters,
@@ -289,7 +294,11 @@ void main() {
         find.byKey(const Key('salon-service-category-NAILS')),
         findsOneWidget,
       );
+      // Service name + price below are real-wire catalogue fixture data
+      // from FakeBackend, not translated UI copy.
+      // i18n-finder-ok: service name is fixture data, not UI copy.
       expect(find.text('Манікюр класичний'), findsOneWidget);
+      // i18n-finder-ok: price string is fixture data (priceDisplay), not UI copy.
       expect(find.text('400 грн'), findsOneWidget);
       // BROWS starts collapsed — expand it to prove its (exclusive) service
       // genuinely came from the real catalogue response, not a stray render.
@@ -297,10 +306,13 @@ void main() {
         find.byKey(const Key('salon-service-category-BROWS')),
         findsOneWidget,
       );
+      // i18n-finder-ok: service name is real-wire catalogue fixture data.
       expect(find.text('Корекція брів'), findsNothing);
       await tester.tap(find.byKey(const Key('salon-service-category-BROWS')));
       await tester.pumpAndSettle();
+      // i18n-finder-ok: service name is real-wire catalogue fixture data.
       expect(find.text('Корекція брів'), findsOneWidget);
+      // i18n-finder-ok: price string is fixture data (priceDisplay), not UI copy.
       expect(find.text('300 грн'), findsOneWidget);
 
       // ── Tab 3 «Відгуки» — summary + 3 reviews across 3 distinct ratings ────

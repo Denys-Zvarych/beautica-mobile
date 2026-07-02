@@ -133,6 +133,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Service name below is local fixture data (_kCategories, this file).
+      // i18n-finder-ok: service name is fixture data, not translated UI copy.
       final nameFinder = find.text('Класичний манікюр');
       expect(nameFinder, findsOneWidget);
 
@@ -338,8 +340,12 @@ void main() {
       // Belt-and-braces: assert the rendered Text directly too, so the
       // guard does not depend solely on the Key derivation staying wired up
       // to `label`.
+      // displayName below is local fixture data (_kDistinctLabelCategories,
+      // this test file) — asserting the resolved literal is the point of
+      // this regression guard, not translated UI copy.
       final displayNameFinder = find.descendant(
         of: headerKeyFinder,
+        // i18n-finder-ok: displayName is fixture data, not translated UI copy.
         matching: find.text('Апаратна косметологія'),
       );
       expect(
