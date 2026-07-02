@@ -598,7 +598,50 @@ class _SalonHeroCard extends StatelessWidget {
 
   /// Composes the hero card's locality/address line, or `null` when nothing
   /// is available so the caller hides the row.
+  ///
+  /// Prefers the structured taxonomy fields (`street` / `buildingNo` /
+  /// `locationNote`, Phase 10.6+) over the legacy free-text `city`/`address`
+  /// pair — the backend stopped writing the legacy fields once a salon
+  /// re-saves its location under the taxonomy, so relying on them alone would
+  /// blank the row for every salon created/edited since then (mobile-side fix
+  /// for `PublicSalonResponse` commit `ef96845`).
+  ///
+  /// Unlike [Master]'s identity card, this never resolves `cityId` to a
+  /// human-readable name: [Salon] carries no `oblastId`, and
+  /// `LocationRepository.fetchCities` requires one to list cities — so a raw
+  /// `cityId` alone cannot be looked up client-side. The taxonomy branch
+  /// below therefore renders only the parts that already arrive as plain
+  /// text (`street`/`buildingNo`/`locationNote`).
+  ///
+  /// Falls back to the legacy `city`/`address` pair only when none of the
+  /// taxonomy fields are set (a salon that predates Phase 10.6, or has never
+  /// been re-saved since).
   static String? _buildLocationLine(Salon salon) {
+    final String? street = (salon.street?.isNotEmpty ?? false)
+        ? salon.street
+        : null;
+    final String? buildingNo = (salon.buildingNo?.isNotEmpty ?? false)
+        ? salon.buildingNo
+        : null;
+    final String? locationNote = (salon.locationNote?.isNotEmpty ?? false)
+        ? salon.locationNote
+        : null;
+
+    if (street != null) {
+      final StringBuffer buf = StringBuffer(street);
+      if (buildingNo != null) {
+        buf
+          ..write(', ')
+          ..write(buildingNo);
+      }
+      if (locationNote != null) {
+        buf
+          ..write(', ')
+          ..write(locationNote);
+      }
+      return buf.toString();
+    }
+
     final String? city = (salon.city?.isNotEmpty ?? false) ? salon.city : null;
     final String? address = (salon.address?.isNotEmpty ?? false)
         ? salon.address

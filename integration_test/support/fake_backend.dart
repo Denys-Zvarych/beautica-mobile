@@ -862,8 +862,21 @@ final class FakeBackend {
   // fixture rather than a second unrelated salon id.
 
   /// PUBLIC salon-detail envelope for `salon-xyz`. Shape matches
-  /// `PublicSalonResponse` (id/name/description/city/region/address/
-  /// instagramUrl/avatarUrl/coverImageUrl/avgRating/reviewCount).
+  /// `PublicSalonResponse` (id/name/description/city/region/address/cityId/
+  /// districtId/street/buildingNo/locationNote/instagramUrl/avatarUrl/
+  /// coverImageUrl/avgRating/reviewCount).
+  ///
+  /// Deliberately carries ONLY the Phase 10.6+ taxonomy locality fields
+  /// (`cityId`/`street`/`buildingNo`/`locationNote`) and leaves the legacy
+  /// `city`/`address` pair null — this is the real shape of every salon
+  /// created/edited since Phase 10.6, and is the exact fixture shape the
+  /// "public salon profile shows no location" regression needed: a fixture
+  /// with the legacy pair populated would pass through the OLD (broken)
+  /// `SalonMapper.fromDto`, which silently dropped the taxonomy fields, just
+  /// as easily as the fixed one. See `salon_mapper_test.dart` for the
+  /// mapper-level unit-test counterpart and
+  /// `public_salon_profile_flow_test.dart` for the assertion that reads the
+  /// rendered address text.
   static Map<String, dynamic> _publicSalonDetailEnvelope() =>
       _ok(<String, dynamic>{
         'id': 'salon-xyz',
@@ -871,9 +884,11 @@ final class FakeBackend {
         'description':
             'Затишна студія краси у центрі Києва. Манікюр, догляд за бровами '
             'та стрижки — довірливий сервіс з 2018 року.',
-        'city': 'Київ',
         'region': 'Київська',
-        'address': 'вул. Хрещатик, 12',
+        'cityId': 'city-uuid-kyiv',
+        'street': 'вул. Хрещатик',
+        'buildingNo': '12',
+        'locationNote': '2 поверх',
         'instagramUrl': '@kamelia_salon',
         'avatarUrl': null,
         'coverImageUrl': null,

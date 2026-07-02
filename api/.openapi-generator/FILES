@@ -399,12 +399,3 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
-test/api_response_page_response_salon_review_response_test.dart
-test/api_response_salon_review_summary_response_test.dart
-test/api_response_salon_service_catalog_response_test.dart
-test/page_response_salon_review_response_test.dart
-test/rating_bucket_test.dart
-test/salon_review_response_test.dart
-test/salon_review_summary_response_test.dart
-test/salon_service_catalog_response_test.dart
-test/salon_service_category_group_test.dart

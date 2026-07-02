@@ -269,6 +269,163 @@ void main() {
     });
   });
 
+  // Regression: `PublicSalonResponse` gained taxonomy locality fields
+  // (backend commit ef96845) alongside the pre-existing legacy `city`/
+  // `address` pair. Every salon created/edited since Phase 10.6 has null
+  // legacy fields, so the address row must render from the taxonomy fields
+  // too — not just the legacy ones — while still supporting salons that
+  // never re-saved location and only ever had the legacy pair.
+  group('location line', () {
+    testWidgets(
+      'taxonomy-only salon (street set, no legacy city/address) renders '
+      'a non-empty location line',
+      (tester) async {
+        await _pumpTall(tester);
+        const taxonomySalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          cityId: 'city-uuid-1',
+          street: 'вул. Хрещатик',
+          buildingNo: '22',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => taxonomySalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final addressFinder = find.byKey(
+          const Key('salon-profile-address-text'),
+        );
+        expect(addressFinder, findsOneWidget);
+        final Text addressWidget = tester.widget<Text>(addressFinder);
+        expect(addressWidget.data, isNotNull);
+        expect(addressWidget.data, isNotEmpty);
+        expect(addressWidget.data, contains('вул. Хрещатик'));
+      },
+    );
+
+    testWidgets(
+      'legacy-only salon (city/address set, no taxonomy fields) still '
+      'renders a location line (backward compat)',
+      (tester) async {
+        await _pumpTall(tester);
+        const legacySalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          city: 'Київ',
+          address: 'вул. Велика Васильківська, 44',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => legacySalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final addressFinder = find.byKey(
+          const Key('salon-profile-address-text'),
+        );
+        expect(addressFinder, findsOneWidget);
+        final Text addressWidget = tester.widget<Text>(addressFinder);
+        expect(addressWidget.data, isNotNull);
+        expect(addressWidget.data, isNotEmpty);
+        expect(addressWidget.data, contains('Київ'));
+      },
+    );
+
+    testWidgets(
+      'salon with BOTH taxonomy and legacy fields set prefers the taxonomy '
+      'street over the legacy city/address (a pre-10.6 salon re-saved after '
+      'Phase 10.3+ keeps stale legacy fields the mapper never clears)',
+      (tester) async {
+        await _pumpTall(tester);
+        const bothSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          city: 'Львів',
+          address: 'вул. Стара, 1',
+          cityId: 'city-uuid-1',
+          street: 'вул. Хрещатик',
+          buildingNo: '22',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => bothSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final addressFinder = find.byKey(
+          const Key('salon-profile-address-text'),
+        );
+        expect(addressFinder, findsOneWidget);
+        final Text addressWidget = tester.widget<Text>(addressFinder);
+        expect(
+          addressWidget.data,
+          contains('вул. Хрещатик'),
+          reason: 'the taxonomy street must win over the legacy pair',
+        );
+        expect(
+          addressWidget.data,
+          isNot(contains('Львів')),
+          reason: 'the stale legacy city must NOT leak into the rendered line',
+        );
+        expect(
+          addressWidget.data,
+          isNot(contains('вул. Стара')),
+          reason:
+              'the stale legacy address must NOT leak into the rendered line',
+        );
+      },
+    );
+
+    testWidgets(
+      'salon with neither taxonomy nor legacy location fields hides the '
+      'address row entirely (no icon, no empty text)',
+      (tester) async {
+        await _pumpTall(tester);
+        const locationlessSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => locationlessSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon-profile-address-text')),
+          findsNothing,
+        );
+        expect(
+          find.byIcon(Icons.location_on_outlined),
+          findsNothing,
+          reason: 'the location pin icon must not render with no data either',
+        );
+      },
+    );
+  });
+
   group('error state', () {
     testWidgets('renders ErrorState with a working retry', (tester) async {
       await _pumpTall(tester);

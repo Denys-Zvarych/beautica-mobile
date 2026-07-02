@@ -145,9 +145,25 @@ void main() {
         '4.0',
         reason: 'the hero ★ rating must reflect PublicSalonResponse.avgRating',
       );
-      expect(
+      // Regression (two-layered, alongside backend commit `ef96845`): the
+      // fixture above carries ONLY the Phase 10.6+ taxonomy locality fields
+      // (no legacy city/address) — the real shape of every salon
+      // created/edited since Phase 10.6. This proves the taxonomy fields
+      // survive the REAL wire round trip (JSON → generated PublicSalonResponse
+      // → SalonMapper.fromDto → Salon → _buildLocationLine), which the widget
+      // tier's hand-built Salon fixtures cannot: a mapper that silently
+      // dropped these fields (the actual pre-fix bug) would leave this text
+      // absent/empty here even though the widget tests already passed.
+      final Text addressText = tester.widget<Text>(
         find.byKey(const Key('salon-profile-address-text')),
-        findsOneWidget,
+      );
+      expect(
+        addressText.data,
+        'вул. Хрещатик, 12, 2 поверх',
+        reason:
+            'the taxonomy street/buildingNo/locationNote must reach the '
+            'rendered address line through the real mapper, not just a '
+            'widget-level Salon fixture',
       );
 
       // ── Tab 0 «Про салон» — default tab, description + Instagram contact ──

@@ -17,6 +17,11 @@ part 'public_salon_response.g.dart';
 /// * [city]
 /// * [region]
 /// * [address]
+/// * [cityId]
+/// * [districtId]
+/// * [street]
+/// * [buildingNo]
+/// * [locationNote]
 /// * [instagramUrl]
 /// * [avatarUrl]
 /// * [coverImageUrl]
@@ -42,6 +47,21 @@ abstract class PublicSalonResponse
 
   @BuiltValueField(wireName: r'address')
   String? get address;
+
+  @BuiltValueField(wireName: r'cityId')
+  String? get cityId;
+
+  @BuiltValueField(wireName: r'districtId')
+  String? get districtId;
+
+  @BuiltValueField(wireName: r'street')
+  String? get street;
+
+  @BuiltValueField(wireName: r'buildingNo')
+  String? get buildingNo;
+
+  @BuiltValueField(wireName: r'locationNote')
+  String? get locationNote;
 
   @BuiltValueField(wireName: r'instagramUrl')
   String? get instagramUrl;
@@ -126,6 +146,41 @@ class _$PublicSalonResponseSerializer
       yield r'address';
       yield serializers.serialize(
         object.address,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.cityId != null) {
+      yield r'cityId';
+      yield serializers.serialize(
+        object.cityId,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.districtId != null) {
+      yield r'districtId';
+      yield serializers.serialize(
+        object.districtId,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.street != null) {
+      yield r'street';
+      yield serializers.serialize(
+        object.street,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.buildingNo != null) {
+      yield r'buildingNo';
+      yield serializers.serialize(
+        object.buildingNo,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.locationNote != null) {
+      yield r'locationNote';
+      yield serializers.serialize(
+        object.locationNote,
         specifiedType: const FullType(String),
       );
     }
@@ -230,6 +285,41 @@ class _$PublicSalonResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.address = valueDes;
+          break;
+        case r'cityId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.cityId = valueDes;
+          break;
+        case r'districtId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.districtId = valueDes;
+          break;
+        case r'street':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.street = valueDes;
+          break;
+        case r'buildingNo':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.buildingNo = valueDes;
+          break;
+        case r'locationNote':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.locationNote = valueDes;
           break;
         case r'instagramUrl':
           final valueDes = serializers.deserialize(
