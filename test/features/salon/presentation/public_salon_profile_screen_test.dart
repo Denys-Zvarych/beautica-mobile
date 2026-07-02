@@ -797,84 +797,69 @@ void main() {
     );
   });
 
-  // Regression: the location line used to render on its OWN full-width row
-  // below the name+rating block. It now shares the rating row, to the right
-  // of the star rating + review count. Asserts the two segments are
-  // vertically centered on the same line (not stacked with a big vertical
-  // gap) and that the location sits to the right of the rating — plus that
-  // they share a common `Row` ancestor, which only holds when the location
-  // is laid out as a sibling flex child inside the rating row rather than as
-  // a separate row underneath.
-  group('rating + location row layout', () {
-    testWidgets('rating and location render side-by-side on the same row, not '
-        'stacked as separate rows', (tester) async {
-      await _pumpTall(tester);
-      const salonWithBoth = Salon(
-        id: _kSalonId,
-        name: 'Салон «Вельвет»',
-        description: 'Затишний салон краси в серці Печерська.',
-        cityId: 'city-uuid-1',
-        street: 'вул. Хрещатик',
-        buildingNo: '22',
-        avgRating: 4.9,
-        reviewCount: 128,
-      );
-      await tester.pumpApp(
-        const PublicSalonProfileScreen(salonId: _kSalonId),
-        overrides: _overrides(
-          repo: _FakeSalonRepository(salon: () async => salonWithBoth),
-        ),
-      );
-      await tester.pumpAndSettle();
+  // Regression: the location line briefly shared the rating row as a
+  // `Flexible` sibling (commit 74e2e16), which removed an entire content
+  // block from the hero card and shrank its natural height below
+  // `_heroProtrusion` (116px) — flipping the hero card from *overlapping*
+  // the cover's bottom border to sitting in a *gap* underneath it. Restored:
+  // the location renders on its own row, tightly stacked under the rating
+  // row (see the `location line` group above for its content/visibility
+  // assertions).
+  //
+  // This group asserts the actual geometric property that silently flipped
+  // sign in 74e2e16 — real pixel overlap between the hero card's top edge
+  // and the cover photo's bottom edge — rather than a structural "shares a
+  // Row" check (which is exactly what let the regression ship unnoticed:
+  // the merged layout could satisfy a structural check while still being
+  // too short to protrude).
+  group('hero card protrudes into the cover', () {
+    testWidgets(
+      'hero card top edge overlaps the cover photo bottom edge (real pixel '
+      'overlap, not just proximity)',
+      (tester) async {
+        await _pumpTall(tester);
+        const salonWithLocation = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          cityId: 'city-uuid-1',
+          street: 'вул. Хрещатик',
+          buildingNo: '22',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => salonWithLocation),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      final ratingFinder = find.byKey(const Key('salon-profile-rating'));
-      final addressFinder = find.byKey(const Key('salon-profile-address-text'));
-      expect(ratingFinder, findsOneWidget);
-      expect(addressFinder, findsOneWidget);
+        final Finder coverFinder = find.byType(SalonCover);
+        final Finder heroFinder = find.byKey(
+          const Key('salon-profile-hero-card'),
+        );
+        expect(coverFinder, findsOneWidget);
+        expect(heroFinder, findsOneWidget);
 
-      final Rect ratingRect = tester.getRect(ratingFinder);
-      final Rect addressRect = tester.getRect(addressFinder);
+        final double coverBottomY = tester.getBottomLeft(coverFinder).dy;
+        final double heroTopY = tester.getTopLeft(heroFinder).dy;
 
-      // Same visual row: a `Row` centers its children on the cross axis,
-      // so their vertical centers line up — unlike the old layout, where
-      // the location sat a full row height below the name+rating block.
-      expect(
-        (ratingRect.center.dy - addressRect.center.dy).abs(),
-        lessThan(4),
-        reason:
-            'rating and location must share the same visual row — a '
-            'large vertical offset means the location regressed back to '
-            'its own row underneath the name+rating block',
-      );
-      // Same row, to the right: the location segment starts after the
-      // rating ends, rather than below it.
-      expect(
-        addressRect.left,
-        greaterThan(ratingRect.right),
-        reason:
-            'the location segment must sit to the right of the rating, '
-            'on the same line',
-      );
-
-      // Structural check: the two segments share a common `Row` ancestor
-      // — only true when the location is a flex child of the rating row
-      // itself, not a sibling row rendered underneath it.
-      final Finder ratingRowAncestors = find.ancestor(
-        of: ratingFinder,
-        matching: find.byType(Row),
-      );
-      final Finder sharedRowAncestor = find.ancestor(
-        of: addressFinder,
-        matching: ratingRowAncestors,
-      );
-      expect(
-        sharedRowAncestor.evaluate(),
-        isNotEmpty,
-        reason:
-            'rating and location must share a common Row ancestor, '
-            'proving they are laid out in the same flex row',
-      );
-    });
+        expect(
+          heroTopY,
+          lessThan(coverBottomY),
+          reason:
+              'the hero card must protrude into the cover photo — its top '
+              'edge must sit ABOVE the cover\'s bottom edge (strict pixel '
+              'overlap). If this fails, the hero card content shrank below '
+              'the `_heroProtrusion` (116px) budget again, the way it did '
+              'when the location line was merged into the rating row '
+              '(commit 74e2e16) and removed an entire content row from the '
+              'card.',
+        );
+      },
+    );
   });
 
   // Regression (mobile-debugger diagnosis): the "Обкладинка" cover-edit pill

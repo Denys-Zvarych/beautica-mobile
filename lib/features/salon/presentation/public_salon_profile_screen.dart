@@ -495,8 +495,9 @@ class _CoverAndHero extends StatelessWidget {
   }
 }
 
-/// The overlapping identity card: logo monogram + name + a single ★ rating ·
-/// review count · locality/address sub-line (all sharing one row).
+/// The overlapping identity card: logo monogram + name + a ★ rating ·
+/// review count row, with the locality/address sub-line tightly stacked
+/// beneath it on its own row.
 class _SalonHeroCard extends StatelessWidget {
   const _SalonHeroCard({required this.salon});
 
@@ -554,52 +555,14 @@ class _SalonHeroCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 4),
                         Flexible(
-                          // Higher flex share than the location segment: the
-                          // review count is the higher-priority piece of
-                          // content on this crowded row, so it keeps more
-                          // room and truncates later than the location does.
-                          flex: 2,
                           child: Text(
                             '·  ${l10n.salonReviewCountLabel(salon.reviewCount)}',
                             style: VelvetText.feedback(
                               BrandColors.muted,
                             ).copyWith(fontSize: 13),
-                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (locationLine != null) ...<Widget>[
-                          const SizedBox(width: VelvetSpacing.sm),
-                          const Icon(
-                            Icons.location_on_outlined,
-                            size: 14,
-                            color: BrandColors.accentDeep,
-                          ),
-                          const SizedBox(width: 3),
-                          Flexible(
-                            // Lower flex share than the review count: the
-                            // location is the lower-priority piece of
-                            // content sharing this row, so it truncates
-                            // first when width is tight.
-                            flex: 1,
-                            child: Text(
-                              locationLine,
-                              key: const Key('salon-profile-address-text'),
-                              style: VelvetText.feedback(
-                                BrandColors.textSecondary,
-                              ).copyWith(fontSize: 13),
-                              // Sharing a single line with the rating/review
-                              // segments now (no longer its own dedicated
-                              // row), so it can only ever afford one line —
-                              // still defensively capped against a
-                              // pathologically long street/buildingNo/
-                              // locationNote combination the way the old
-                              // standalone row was (mobile-debugger fix).
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                   ],
@@ -607,6 +570,46 @@ class _SalonHeroCard extends StatelessWidget {
               ),
             ],
           ),
+          if (locationLine != null) ...<Widget>[
+            // Tight gap (matches the name→rating spacing above) rather than
+            // the old VelvetSpacing.md (16px): the location line is a
+            // tightly-coupled continuation of the rating row, not a loosely
+            // separated address section (mobile-debugger fix — restores the
+            // hero card's natural height past `_heroProtrusion`'s 116px
+            // budget so it protrudes into the cover again).
+            const SizedBox(height: 5),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Padding(
+                  padding: EdgeInsets.only(top: 1),
+                  child: Icon(
+                    Icons.location_on_outlined,
+                    size: 15,
+                    color: BrandColors.accentDeep,
+                  ),
+                ),
+                const SizedBox(width: VelvetSpacing.xs + 1),
+                Expanded(
+                  child: Text(
+                    locationLine,
+                    key: const Key('salon-profile-address-text'),
+                    style: VelvetText.feedback(
+                      BrandColors.textSecondary,
+                    ).copyWith(fontSize: 13),
+                    // Defensive cap (mobile-debugger fix): a pathologically
+                    // long street/buildingNo/locationNote combination must
+                    // not be allowed to keep growing the hero card's height
+                    // unbounded — that's what let it blow past
+                    // `_heroProtrusion`'s budget and overlap the cover's
+                    // controls in the first place.
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
