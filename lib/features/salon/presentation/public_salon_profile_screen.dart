@@ -746,17 +746,34 @@ class _AboutTab extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// _MastersTab — "Майстри": header + count + horizontal rail
+// _MastersTab — "Майстри": header + count + 2-column grid
 // ---------------------------------------------------------------------------
 
-class _MastersTab extends StatelessWidget {
+/// How many masters render up front before the "show all" affordance is
+/// needed (mobile-perf LOW fix, Phase 13.6 audit follow-up). 3 full rows of
+/// the 2-column grid — small enough to bound the eager-build cost described
+/// below regardless of how close a roster gets to [kSalonMastersPageSize].
+const int kSalonMastersInitialCount = 6;
+
+class _MastersTab extends StatefulWidget {
   const _MastersTab({required this.masters});
 
   final List<SalonMasterSummary> masters;
 
   @override
+  State<_MastersTab> createState() => _MastersTabState();
+}
+
+class _MastersTabState extends State<_MastersTab> {
+  // Flips true once the user explicitly taps "show all" — a one-time,
+  // user-triggered build of the remainder is an acceptable cost; it is
+  // ONLY the unconditional first-paint build this guards against.
+  bool _showAll = false;
+
+  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final List<SalonMasterSummary> masters = widget.masters;
 
     if (masters.isEmpty) {
       return Padding(
@@ -768,6 +785,11 @@ class _MastersTab extends StatelessWidget {
         ),
       );
     }
+
+    final bool hasMore = masters.length > kSalonMastersInitialCount;
+    final List<SalonMasterSummary> visible = hasMore && !_showAll
+        ? masters.sublist(0, kSalonMastersInitialCount)
+        : masters;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -795,57 +817,69 @@ class _MastersTab extends StatelessWidget {
             ],
           ),
         ),
-        ColoredBox(
-          color: BrandColors.base,
-          child: SizedBox(
-            // The ListView's own top/bottom padding below (VelvetSpacing.sm
-            // each) is subtracted from the SLIVER's cross-axis extent before
-            // it reaches each card, so the wrapper must add it back — the
-            // card's [kSalonMasterCardHeight] is a TIGHT constraint on itself
-            // (AnimatedContainer's `height:`), and a smaller incoming
-            // cross-axis constraint from the sliver would just clamp it back
-            // down and reintroduce the overflow this fixed height exists to
-            // avoid.
-            height: kSalonMasterCardHeight + VelvetSpacing.sm * 2,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(
-                VelvetSpacing.lg,
-                VelvetSpacing.sm,
-                VelvetSpacing.lg,
-                VelvetSpacing.sm,
-              ),
-              // Lazy — up to kSalonMastersPageSize (50) cards can be in the
-              // rail; ListView.builder only builds the ones scrolled into
-              // view instead of eagerly building all of them up front
-              // (mobile-perf HIGH fix, Phase 13.6 audit). Each card carries
-              // a fixed [kSalonMasterCardHeight] so no IntrinsicHeight
-              // second layout pass is needed either.
-              itemCount: masters.length,
-              itemBuilder: (context, i) {
-                final SalonMasterSummary master = masters[i];
-                return Padding(
-                  padding: EdgeInsets.only(
-                    right: i < masters.length - 1 ? VelvetSpacing.md : 0,
-                  ),
-                  child: SalonMasterCard(
-                    key: Key('salon-master-card-${master.masterId}'),
-                    name: '${master.firstName} ${master.lastName}'.trim(),
-                    role: _roleLabel(master.type, l10n),
-                    ratingLabel: master.reviewCount > 0
-                        ? (master.avgRating?.toStringAsFixed(1) ?? '—')
-                        : '—',
-                    avatarIndex: i,
-                    onTap: () => context.push(
-                      RouteNames.masterPublicProfile(master.masterId),
-                    ),
-                  ),
-                );
-              },
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            VelvetSpacing.lg,
+            VelvetSpacing.sm,
+            VelvetSpacing.lg,
+            VelvetSpacing.sm,
+          ),
+          // Vertical 2-column grid, not a lazy viewport-backed sliver: the
+          // masters tab sits inside the screen's single outer
+          // [SingleChildScrollView] (see `PublicSalonProfileScreen.build`),
+          // not a [CustomScrollView], so `shrinkWrap: true` +
+          // `NeverScrollableScrollPhysics` is the standard way to embed a
+          // grid without a nested scrollable (double-scroll jank / gesture
+          // conflicts). Because shrink-wrapping forces Flutter to eagerly
+          // build every child up front to measure the wrapped height (no
+          // lazy viewport culling), [visible] is capped to
+          // [kSalonMastersInitialCount] on first paint rather than the full
+          // roster (capped at [kSalonMastersPageSize], 50) — see the "show
+          // all" affordance below (mobile-perf LOW fix, Phase 13.6 audit
+          // follow-up). `mainAxisExtent` (not `childAspectRatio`) pins each
+          // row to the exact [kSalonMasterCardHeight] regardless of column
+          // width, so [SalonMasterCard]'s long-name/wrapped-role overflow
+          // budget stays valid at any screen width.
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: VelvetSpacing.md,
+              crossAxisSpacing: VelvetSpacing.md,
+              mainAxisExtent: kSalonMasterCardHeight,
             ),
+            itemCount: visible.length,
+            itemBuilder: (context, i) {
+              final SalonMasterSummary master = visible[i];
+              return SalonMasterCard(
+                key: Key('salon-master-card-${master.masterId}'),
+                name: '${master.firstName} ${master.lastName}'.trim(),
+                role: _roleLabel(master.type, l10n),
+                ratingLabel: master.reviewCount > 0
+                    ? (master.avgRating?.toStringAsFixed(1) ?? '—')
+                    : '—',
+                avatarIndex: i,
+                onTap: () => context.push(
+                  RouteNames.masterPublicProfile(master.masterId),
+                ),
+              );
+            },
           ),
         ),
+        if (hasMore && !_showAll)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              VelvetSpacing.lg,
+              0,
+              VelvetSpacing.lg,
+              VelvetSpacing.sm,
+            ),
+            child: _ShowAllMastersButton(
+              onTap: () => setState(() => _showAll = true),
+            ),
+          ),
       ],
     );
   }
@@ -859,6 +893,53 @@ class _MastersTab extends StatelessWidget {
       case MasterType.salonOwner:
         return l10n.masterRoleSalonOwner;
     }
+  }
+}
+
+/// A full-width, lightweight "show all" affordance rendered below the
+/// masters grid whenever the roster exceeds [kSalonMastersInitialCount].
+/// Reuses the same extruded-tile vocabulary as [_SortIconButton] in the
+/// reviews tab (`BrandColors.base` fill + `VelvetShadows.extrudedSmall`)
+/// rather than the heavy gradient CTA reserved for the pinned "Записатись на
+/// послугу" button — this is a secondary, in-page reveal, not a primary
+/// action.
+class _ShowAllMastersButton extends StatelessWidget {
+  const _ShowAllMastersButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Semantics(
+      button: true,
+      label: l10n.salonMastersShowAll,
+      child: GestureDetector(
+        key: const Key('salon-masters-show-all'),
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          height: 44,
+          decoration: BoxDecoration(
+            color: BrandColors.base,
+            borderRadius: BorderRadius.circular(VelvetRadii.field),
+            boxShadow: VelvetShadows.extrudedSmall,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              Text(l10n.salonMastersShowAll, style: VelvetText.link()),
+              const SizedBox(width: VelvetSpacing.xs),
+              const Icon(
+                Icons.keyboard_arrow_down_rounded,
+                size: 20,
+                color: BrandColors.accentDeep,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

@@ -3283,6 +3283,10 @@
   "@salonMastersEmpty": {
     "description": "Empty state on the \"Майстри\" tab when the salon has no masters yet."
   },
+  "salonMastersShowAll": "Показати всіх майстрів",
+  "@salonMastersShowAll": {
+    "description": "Reveal affordance below the masters grid on the \"Майстри\" tab when the roster exceeds the initially-rendered batch (kSalonMastersInitialCount); tapping it expands the grid to show the rest."
+  },
   "salonAboutEmpty": "Опис салону поки не додано",
   "@salonAboutEmpty": {
     "description": "Empty state on the \"Про салон\" tab when the salon has no description yet."

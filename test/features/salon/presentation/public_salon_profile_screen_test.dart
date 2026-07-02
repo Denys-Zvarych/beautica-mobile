@@ -597,10 +597,19 @@ void main() {
     //   (a) no RenderFlex overflow is thrown (takeException == null), and
     //   (b) the name still renders single-line + ellipsized rather than
     //       silently wrapping into the role's vertical budget.
+    //
+    // Pumped at a narrow 320dp width (below the ~360-430dp typical-phone
+    // range) rather than [_pumpTall]'s 800dp: since the masters tab became a
+    // 2-column grid, each card's column width is now derived from the
+    // available screen width (no more fixed 132dp rail card), so a wide test
+    // viewport would give each card a much ROOMIER column than the original
+    // rail ever had — silently defeating this test's "worst case" (long name
+    // + role wrapped to 2 lines) by giving the role enough room to fit on one
+    // line. 320dp keeps the column at least as tight as the original 132dp
+    // rail card, preserving (and slightly exceeding) the original stress.
     testWidgets(
       'long name + 2-line-wrapped role does not overflow the shrunk card',
       (tester) async {
-        await _pumpTall(tester);
         const String longName = 'Олександра Верещагіна-Задорожня';
         await tester.pumpApp(
           const PublicSalonProfileScreen(salonId: _kSalonId),
@@ -618,6 +627,7 @@ void main() {
               ],
             ),
           ),
+          width: 320,
         );
         await tester.pumpAndSettle();
 
@@ -641,6 +651,204 @@ void main() {
           nameText.overflow,
           TextOverflow.ellipsis,
           reason: 'name must ellipsize, not wrap into the role\'s budget',
+        );
+      },
+    );
+
+    // ── Vertical 2-column grid regression ───────────────────────────────
+    //
+    // The masters tab used to be a single horizontally-scrolling rail (one
+    // row, N columns, scrollDirection: Axis.horizontal). It is now a
+    // vertically-scrolling 2-column grid. Pumped at 390dp — a typical modern
+    // phone width — with 4 fixture masters (2 full rows), this asserts BOTH:
+    //   (a) the grid delegate is genuinely configured for 2 columns, and
+    //   (b) the rendered cards actually land 2-per-row (same top edge for
+    //       A/B, C starting a new row strictly below rather than scrolled
+    //       out to the right, which is what a leftover horizontal rail would
+    //       still produce).
+    testWidgets('masters render as a vertical 2-column grid', (tester) async {
+      const List<SalonMasterSummary> fourMasters = <SalonMasterSummary>[
+        SalonMasterSummary(
+          masterId: 'master-a',
+          firstName: 'Анна',
+          lastName: 'А.',
+          avgRating: 4.9,
+          reviewCount: 3,
+          type: MasterType.independentMaster,
+        ),
+        SalonMasterSummary(
+          masterId: 'master-b',
+          firstName: 'Богдан',
+          lastName: 'Б.',
+          avgRating: 4.8,
+          reviewCount: 5,
+          type: MasterType.independentMaster,
+        ),
+        SalonMasterSummary(
+          masterId: 'master-c',
+          firstName: 'Віра',
+          lastName: 'В.',
+          avgRating: 4.7,
+          reviewCount: 2,
+          type: MasterType.independentMaster,
+        ),
+        SalonMasterSummary(
+          masterId: 'master-d',
+          firstName: 'Дмитро',
+          lastName: 'Д.',
+          avgRating: 4.6,
+          reviewCount: 1,
+          type: MasterType.independentMaster,
+        ),
+      ];
+
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(masters: () async => fourMasters),
+        ),
+        width: 390,
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-1')));
+      await tester.pumpAndSettle();
+
+      final GridView grid = tester.widget<GridView>(find.byType(GridView));
+      final SliverGridDelegateWithFixedCrossAxisCount delegate =
+          grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
+      expect(
+        delegate.crossAxisCount,
+        2,
+        reason:
+            'the grid must be configured for 2 columns, not 1 (which '
+            'would just be a vertical single-column list) or an unbounded '
+            'row count',
+      );
+
+      final Offset topLeftA = tester.getTopLeft(
+        find.byKey(const Key('salon-master-card-master-a')),
+      );
+      final Offset topLeftB = tester.getTopLeft(
+        find.byKey(const Key('salon-master-card-master-b')),
+      );
+      final Offset topLeftC = tester.getTopLeft(
+        find.byKey(const Key('salon-master-card-master-c')),
+      );
+      final Offset topLeftD = tester.getTopLeft(
+        find.byKey(const Key('salon-master-card-master-d')),
+      );
+
+      expect(
+        topLeftA.dy,
+        topLeftB.dy,
+        reason: 'first-row cards A and B must share a top edge',
+      );
+      expect(
+        topLeftA.dx,
+        lessThan(topLeftB.dx),
+        reason: 'B must sit to the right of A in the first row',
+      );
+      expect(
+        topLeftC.dy,
+        greaterThan(topLeftA.dy),
+        reason:
+            'C must start a NEW row strictly below A/B — a leftover '
+            'horizontal rail would instead place C further to the right on '
+            'the same row',
+      );
+      expect(
+        topLeftC.dy,
+        topLeftD.dy,
+        reason: 'second-row cards C and D must share a top edge',
+      );
+      expect(
+        topLeftC.dx,
+        topLeftA.dx,
+        reason: 'the second row must left-align with the first row',
+      );
+    });
+
+    // ── Eager-build cap regression (mobile-perf LOW fix) ────────────────────
+    //
+    // The grid is `shrinkWrap: true` + `NeverScrollableScrollPhysics`
+    // (required to embed a grid inside the screen's outer
+    // `SingleChildScrollView`), which forces Flutter to eagerly build every
+    // child up front to measure the shrink-wrapped height — unlike a lazy
+    // viewport-backed sliver. With 8 fixture masters (over
+    // `kSalonMastersInitialCount`, 6), this asserts the tab renders only the
+    // first 6 cards on first paint plus a "show all" affordance, and that
+    // tapping it reveals the rest.
+    testWidgets(
+      'more than 6 masters renders only the first 6 plus a show-all button, '
+      'which reveals the rest on tap',
+      (tester) async {
+        final List<SalonMasterSummary> eightMasters = List.generate(
+          8,
+          (i) => SalonMasterSummary(
+            masterId: 'master-${i + 1}',
+            firstName: 'Майстер',
+            lastName: '${i + 1}',
+            avgRating: 4.5,
+            reviewCount: 1,
+            type: MasterType.independentMaster,
+          ),
+        );
+
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => eightMasters),
+          ),
+          width: 390,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        for (int i = 1; i <= 6; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-master-$i')),
+            findsOneWidget,
+            reason: 'the first 6 masters must render up front',
+          );
+        }
+        for (int i = 7; i <= 8; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-master-$i')),
+            findsNothing,
+            reason:
+                'masters beyond the initial batch of 6 must NOT be built '
+                'until the user explicitly reveals them',
+          );
+        }
+
+        final Finder showAll = find.byKey(const Key('salon-masters-show-all'));
+        expect(
+          showAll,
+          findsOneWidget,
+          reason:
+              'a show-all affordance must appear when the roster '
+              'exceeds the initial batch',
+        );
+
+        await tester.tap(showAll);
+        await tester.pumpAndSettle();
+
+        for (int i = 1; i <= 8; i++) {
+          expect(
+            find.byKey(Key('salon-master-card-master-$i')),
+            findsOneWidget,
+            reason: 'all 8 masters must render after tapping show-all',
+          );
+        }
+        expect(
+          showAll,
+          findsNothing,
+          reason:
+              'the show-all button must disappear once everything is '
+              'revealed',
         );
       },
     );

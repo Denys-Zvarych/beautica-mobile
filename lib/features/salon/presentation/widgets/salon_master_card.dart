@@ -45,9 +45,16 @@ const List<List<Color>> _kAvatarGradients = <List<Color>>[
 /// card still doesn't reintroduce the overflow this constant exists to avoid.
 const double kSalonMasterCardHeight = 190;
 
-/// One master in the salon's "Майстри салону" horizontal rail. A raised
+/// One master in the salon's "Майстри салону" 2-column grid. A raised
 /// neumorphic card: circular gradient avatar → master name → role sub-line →
 /// camel ★ rating. Depresses on press for tactile feedback.
+///
+/// Width is intentionally NOT fixed here — the enclosing `GridView`'s tile
+/// gives this card a tight width constraint per column (see
+/// `_MastersTab` in `public_salon_profile_screen.dart`), so the card just
+/// fills whatever column width the grid computes. Only [kSalonMasterCardHeight]
+/// stays fixed (via the grid's `mainAxisExtent`), which is what the
+/// long-name/wrapped-role overflow budget below is tuned against.
 class SalonMasterCard extends StatefulWidget {
   const SalonMasterCard({
     super.key,
@@ -100,7 +107,8 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
           curve: Curves.easeOut,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
-            width: 132,
+            // No explicit width: the parent grid tile constrains this
+            // tightly per column (see the class doc comment above).
             height: kSalonMasterCardHeight,
             decoration: BoxDecoration(
               color: BrandColors.base,

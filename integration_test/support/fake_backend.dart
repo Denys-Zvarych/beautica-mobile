@@ -898,13 +898,25 @@ final class FakeBackend {
         'reviewCount': 3,
       });
 
-  /// PUBLIC masters rail for `salon-xyz` — TWO masters so the "Майстри" tab
-  /// renders a genuine multi-card rail. The first reuses `master-aaa` (the
-  /// SAME master-id the public-master-profile fixture already serves at
-  /// `GET /masters/master-aaa`), so tapping its rail card in the salon flow
-  /// exercises the REAL cross-feature navigation into an already-fixtured
-  /// public master profile without inventing a second detail stub. Shape
-  /// matches `MasterSummaryResponse` (masterId/firstName/lastName/avatarUrl/
+  /// PUBLIC masters rail for `salon-xyz` — EIGHT masters, deliberately over
+  /// [kSalonMastersInitialCount] (6, see `public_salon_profile_screen.dart`),
+  /// so the "Майстри" tab renders both a genuine multi-card rail AND the
+  /// eager-build-cap "show all" affordance (mobile-perf LOW fix, Phase 13.6
+  /// audit follow-up). The first reuses `master-aaa` (the SAME master-id the
+  /// public-master-profile fixture already serves at `GET /masters/master-aaa`),
+  /// so tapping its rail card in the salon flow exercises the REAL
+  /// cross-feature navigation into an already-fixtured public master profile
+  /// without inventing a second detail stub. The first TWO entries
+  /// (`master-aaa`/`master-ccc`) are load-bearing for other assertions in
+  /// `public_salon_profile_flow_test.dart` (names, ids) — order matters, they
+  /// must stay first so they remain inside the initial (uncapped) batch;
+  /// entries 3–8 exist purely to push the roster over the cap threshold and
+  /// prove the reveal interaction end to end against the REAL wire response
+  /// (the hand-rolled `page=0&size=50` Pageable decode in
+  /// `HttpSalonRepository` — a boundary the widget tier's fake repository
+  /// bypasses entirely, so a silent truncation there would be invisible to
+  /// `public_salon_profile_screen_test.dart`). Shape matches
+  /// `MasterSummaryResponse` (masterId/firstName/lastName/avatarUrl/
   /// avgRating/reviewCount/masterType).
   static const List<Map<String, dynamic>> _salonMasters =
       <Map<String, dynamic>>[
@@ -925,6 +937,62 @@ final class FakeBackend {
           'avgRating': 4.6,
           'reviewCount': 9,
           'masterType': 'SALON_OWNER',
+        },
+        <String, dynamic>{
+          'masterId': 'master-ddd',
+          'firstName': 'Оксана',
+          'lastName': 'Іванова',
+          'avatarUrl': null,
+          'avgRating': 4.8,
+          'reviewCount': 15,
+          'masterType': 'SALON_MASTER',
+        },
+        <String, dynamic>{
+          'masterId': 'master-eee',
+          'firstName': 'Тетяна',
+          'lastName': 'Мельник',
+          'avatarUrl': null,
+          'avgRating': 4.7,
+          'reviewCount': 11,
+          'masterType': 'SALON_MASTER',
+        },
+        <String, dynamic>{
+          'masterId': 'master-fff',
+          'firstName': 'Наталія',
+          'lastName': 'Коваль',
+          'avatarUrl': null,
+          'avgRating': 4.5,
+          'reviewCount': 7,
+          'masterType': 'SALON_MASTER',
+        },
+        <String, dynamic>{
+          'masterId': 'master-ggg',
+          'firstName': 'Юлія',
+          'lastName': 'Шевченко',
+          'avatarUrl': null,
+          'avgRating': 4.9,
+          'reviewCount': 20,
+          'masterType': 'SALON_MASTER',
+        },
+        // 7th entry (index 6) — the FIRST master beyond the 6-item initial
+        // cap. Must NOT render until the "show all" affordance is tapped.
+        <String, dynamic>{
+          'masterId': 'master-hhh',
+          'firstName': 'Катерина',
+          'lastName': 'Бондаренко',
+          'avatarUrl': null,
+          'avgRating': 4.6,
+          'reviewCount': 5,
+          'masterType': 'SALON_MASTER',
+        },
+        <String, dynamic>{
+          'masterId': 'master-iii',
+          'firstName': 'Вікторія',
+          'lastName': 'Пономаренко',
+          'avatarUrl': null,
+          'avgRating': 4.4,
+          'reviewCount': 3,
+          'masterType': 'SALON_MASTER',
         },
       ];
 

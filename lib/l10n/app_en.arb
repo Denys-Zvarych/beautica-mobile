@@ -3283,6 +3283,10 @@
   "@salonMastersEmpty": {
     "description": "Empty state on the \"Masters\" tab when the salon has no masters yet."
   },
+  "salonMastersShowAll": "Show all masters",
+  "@salonMastersShowAll": {
+    "description": "Reveal affordance below the masters grid on the \"Masters\" tab when the roster exceeds the initially-rendered batch (kSalonMastersInitialCount); tapping it expands the grid to show the rest."
+  },
   "salonAboutEmpty": "No description added yet",
   "@salonAboutEmpty": {
     "description": "Empty state on the \"About\" tab when the salon has no description yet."

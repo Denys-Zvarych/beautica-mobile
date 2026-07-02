@@ -183,7 +183,16 @@ void main() {
         reason: 'a non-empty instagramUrl must render the contact tile',
       );
 
-      // ── Tab 1 «Майстри» — both rail masters render from the real response ─
+      // ── Tab 1 «Майстри» — the real 8-master roster from the wire, capped to
+      // 6 up front (mobile-perf LOW fix, Phase 13.6 audit follow-up), with a
+      // "show all" affordance revealing the rest. The widget tier
+      // (public_salon_profile_screen_test.dart) already proves this cap logic
+      // in isolation against a hand-built fixture list; what it CANNOT prove
+      // is that the cap still holds against the REAL wire response — the
+      // masters rail goes through a hand-rolled `page=0&size=50` Pageable
+      // decode (`HttpSalonRepository`, see file header) that the widget
+      // tier's fake repository bypasses entirely. A silent truncation or
+      // off-by-one in that decode would be invisible there.
       await tester.tap(find.byKey(const Key('salon-tab-1')));
       await tester.pumpAndSettle();
 
@@ -197,6 +206,46 @@ void main() {
       );
       expect(find.text('Софія Бондар'), findsOneWidget);
       expect(find.text('Марія Гриценко'), findsOneWidget);
+
+      // The 7th/8th masters (beyond the initial-6 cap) must stay unbuilt —
+      // even though all 8 arrived in a single real response.
+      expect(
+        find.byKey(const Key('salon-master-card-master-hhh')),
+        findsNothing,
+        reason:
+            'the 7th master must not be built until "show all" is tapped, '
+            'proving the eager-build cap survives the real wire round trip',
+      );
+      expect(
+        find.byKey(const Key('salon-master-card-master-iii')),
+        findsNothing,
+      );
+
+      final Finder showAllMasters = find.byKey(
+        const Key('salon-masters-show-all'),
+      );
+      expect(
+        showAllMasters,
+        findsOneWidget,
+        reason: 'a real 8-master roster must render the reveal affordance',
+      );
+
+      await tester.tap(showAllMasters);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-master-card-master-hhh')),
+        findsOneWidget,
+        reason:
+            'tapping "show all" must reveal the remaining real masters, not '
+            'just a widget-level fixture',
+      );
+      expect(find.text('Вікторія Пономаренко'), findsOneWidget);
+      expect(
+        showAllMasters,
+        findsNothing,
+        reason: 'the affordance must disappear once everything is revealed',
+      );
 
       // ── Tab 2 «Послуги» — the real service catalogue (2 categories) ───────
       await tester.tap(find.byKey(const Key('salon-tab-2')));
