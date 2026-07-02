@@ -253,6 +253,18 @@ class _SalonServiceRow extends StatelessWidget {
   /// Display price — single ("500 грн") or en-dash range ("200–600 грн").
   final String price;
 
+  /// Compact metadata scale (12.5 sp) matching the reference screen's
+  /// `_MetaItem._valueStyle` in `services_list_screen.dart` — NOT the 15 sp
+  /// `bodyStrong()` base, which visibly overpowers the 12 sp duration label
+  /// next to it. Hoisted to a static so build() never allocates a new
+  /// [TextStyle] per frame (matches the perf pattern used throughout
+  /// `VelvetText` call sites in this codebase).
+  static final TextStyle _priceStyle = VelvetText.pill().copyWith(
+    fontSize: 12.5,
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w800,
+  );
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
@@ -302,13 +314,7 @@ class _SalonServiceRow extends StatelessWidget {
               ),
             ),
             const SizedBox(width: VelvetSpacing.sm),
-            Text(
-              price,
-              style: VelvetText.bodyStrong().copyWith(
-                color: BrandColors.accentDeep,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
+            Text(price, style: _priceStyle),
           ],
         ),
       ),
