@@ -46,6 +46,7 @@ const String _kSalonId = 'salon-1';
 const _catalog = <SalonServiceCategoryEntry>[
   SalonServiceCategoryEntry(
     category: 'Манікюр',
+    displayName: 'Манікюр',
     count: 1,
     services: <SalonCatalogService>[
       SalonCatalogService(

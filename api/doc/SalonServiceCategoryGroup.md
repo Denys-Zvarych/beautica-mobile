@@ -9,6 +9,7 @@ import 'package:beautica_api/api.dart';
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **category** | **String** |  | [optional] 
+**displayName** | **String** |  | [optional] 
 **count** | **int** |  | [optional] 
 **services** | [**BuiltList&lt;ServiceDefinitionResponse&gt;**](ServiceDefinitionResponse.md) |  | [optional] 
 

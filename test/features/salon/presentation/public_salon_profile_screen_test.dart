@@ -85,6 +85,7 @@ const _stubMasters = <SalonMasterSummary>[
 const _stubCatalog = <SalonServiceCategoryEntry>[
   SalonServiceCategoryEntry(
     category: 'Манікюр',
+    displayName: 'Манікюр',
     count: 1,
     services: <SalonCatalogService>[
       SalonCatalogService(

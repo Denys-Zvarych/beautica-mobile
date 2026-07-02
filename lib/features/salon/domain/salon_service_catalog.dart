@@ -39,6 +39,13 @@ abstract class SalonCatalogService with _$SalonCatalogService {
 abstract class SalonServiceCategoryEntry with _$SalonServiceCategoryEntry {
   const factory SalonServiceCategoryEntry({
     required String category,
+
+    /// Human-readable category title for display (e.g. «Апаратна
+    /// косметологія» for the `HARDWARE_COSMETOLOGY` slug). The backend always
+    /// sends a non-blank value (falling back to the raw slug server-side when
+    /// no display name is configured) — the mapper defensively falls back to
+    /// [category] only if the generated field is somehow null.
+    required String displayName,
     required int count,
     required List<SalonCatalogService> services,
   }) = _SalonServiceCategoryEntry;

@@ -110,7 +110,7 @@ class _SalonCategoryGroupState extends State<_SalonCategoryGroup> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         _SalonCategoryHeader(
-          label: cat.category,
+          label: cat.displayName,
           count: cat.count,
           expanded: _expanded,
           onTap: _toggleExpand,

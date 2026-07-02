@@ -124,9 +124,11 @@ abstract final class SalonServiceCatalogMapper {
     final List<SalonServiceCategoryEntry> out = <SalonServiceCategoryEntry>[];
     for (final group in categories) {
       final services = group.services ?? const <ServiceDefinitionResponse>[];
+      final category = group.category ?? '';
       out.add(
         SalonServiceCategoryEntry(
-          category: group.category ?? '',
+          category: category,
+          displayName: group.displayName ?? category,
           count: group.count ?? services.length,
           services: <SalonCatalogService>[
             for (final ServiceDefinitionResponse s in services)

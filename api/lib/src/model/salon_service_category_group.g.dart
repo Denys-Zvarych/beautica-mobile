@@ -10,6 +10,8 @@ class _$SalonServiceCategoryGroup extends SalonServiceCategoryGroup {
   @override
   final String? category;
   @override
+  final String? displayName;
+  @override
   final int? count;
   @override
   final BuiltList<ServiceDefinitionResponse>? services;
@@ -18,7 +20,8 @@ class _$SalonServiceCategoryGroup extends SalonServiceCategoryGroup {
           [void Function(SalonServiceCategoryGroupBuilder)? updates]) =>
       (SalonServiceCategoryGroupBuilder()..update(updates))._build();
 
-  _$SalonServiceCategoryGroup._({this.category, this.count, this.services})
+  _$SalonServiceCategoryGroup._(
+      {this.category, this.displayName, this.count, this.services})
       : super._();
   @override
   SalonServiceCategoryGroup rebuild(
@@ -34,6 +37,7 @@ class _$SalonServiceCategoryGroup extends SalonServiceCategoryGroup {
     if (identical(other, this)) return true;
     return other is SalonServiceCategoryGroup &&
         category == other.category &&
+        displayName == other.displayName &&
         count == other.count &&
         services == other.services;
   }
@@ -42,6 +46,7 @@ class _$SalonServiceCategoryGroup extends SalonServiceCategoryGroup {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, category.hashCode);
+    _$hash = $jc(_$hash, displayName.hashCode);
     _$hash = $jc(_$hash, count.hashCode);
     _$hash = $jc(_$hash, services.hashCode);
     _$hash = $jf(_$hash);
@@ -52,6 +57,7 @@ class _$SalonServiceCategoryGroup extends SalonServiceCategoryGroup {
   String toString() {
     return (newBuiltValueToStringHelper(r'SalonServiceCategoryGroup')
           ..add('category', category)
+          ..add('displayName', displayName)
           ..add('count', count)
           ..add('services', services))
         .toString();
@@ -66,6 +72,10 @@ class SalonServiceCategoryGroupBuilder
   String? _category;
   String? get category => _$this._category;
   set category(String? category) => _$this._category = category;
+
+  String? _displayName;
+  String? get displayName => _$this._displayName;
+  set displayName(String? displayName) => _$this._displayName = displayName;
 
   int? _count;
   int? get count => _$this._count;
@@ -85,6 +95,7 @@ class SalonServiceCategoryGroupBuilder
     final $v = _$v;
     if ($v != null) {
       _category = $v.category;
+      _displayName = $v.displayName;
       _count = $v.count;
       _services = $v.services?.toBuilder();
       _$v = null;
@@ -111,6 +122,7 @@ class SalonServiceCategoryGroupBuilder
       _$result = _$v ??
           _$SalonServiceCategoryGroup._(
             category: category,
+            displayName: displayName,
             count: count,
             services: _services?.build(),
           );

@@ -14,6 +14,7 @@ part 'salon_service_category_group.g.dart';
 ///
 /// Properties:
 /// * [category]
+/// * [displayName]
 /// * [count]
 /// * [services]
 @BuiltValue()
@@ -22,6 +23,9 @@ abstract class SalonServiceCategoryGroup
         Built<SalonServiceCategoryGroup, SalonServiceCategoryGroupBuilder> {
   @BuiltValueField(wireName: r'category')
   String? get category;
+
+  @BuiltValueField(wireName: r'displayName')
+  String? get displayName;
 
   @BuiltValueField(wireName: r'count')
   int? get count;
@@ -63,6 +67,13 @@ class _$SalonServiceCategoryGroupSerializer
       yield r'category';
       yield serializers.serialize(
         object.category,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.displayName != null) {
+      yield r'displayName';
+      yield serializers.serialize(
+        object.displayName,
         specifiedType: const FullType(String),
       );
     }
@@ -112,6 +123,13 @@ class _$SalonServiceCategoryGroupSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.category = valueDes;
+          break;
+        case r'displayName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.displayName = valueDes;
           break;
         case r'count':
           final valueDes = serializers.deserialize(
