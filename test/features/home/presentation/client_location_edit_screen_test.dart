@@ -166,9 +166,7 @@ class _MutableStubClientEditProfile extends ClientEditProfile {
 List<Object> _overridesWithSearchSync(_MockClientProfileRepository repo) =>
     <Object>[
       authProvider.overrideWith(_StubAuthNotifier.new),
-      clientEditProfileProvider.overrideWith(
-        _MutableStubClientEditProfile.new,
-      ),
+      clientEditProfileProvider.overrideWith(_MutableStubClientEditProfile.new),
       clientProfileRepositoryProvider.overrideWithValue(repo),
       oblastListProvider.overrideWith((ref) async => const <Oblast>[_oblast]),
       cityListProvider(
