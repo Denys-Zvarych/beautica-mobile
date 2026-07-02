@@ -19,6 +19,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -31,15 +32,18 @@ import 'package:beautica_mobile/features/salon/application/public_salon_profile_
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:network_image_mock/network_image_mock.dart';
 
 import '../../../helpers/pump_app.dart';
 
@@ -146,18 +150,25 @@ class _FakeSalonRepository implements SalonRepository {
     Future<List<SalonServiceCategoryEntry>> Function()? catalog,
     Future<SalonReviewSummary> Function()? summary,
     Future<List<SalonReviewItem>> Function(SalonReviewSort sort)? reviews,
+    Future<List<SalonPortfolioPhoto>> Function()? portfolio,
   }) : _salon = salon ?? (() async => _stubSalon),
        _masters = masters ?? (() async => _stubMasters),
        _catalog = catalog ?? (() async => _stubCatalog),
        _summary = summary ?? (() async => _stubSummary),
        _reviews =
-           reviews ?? ((SalonReviewSort sort) async => _stubReviews(sort));
+           reviews ?? ((SalonReviewSort sort) async => _stubReviews(sort)),
+       // Empty by default so the existing (non-portfolio) tests never trigger
+       // a real Image.network round trip — only the portfolio-specific tests
+       // below opt in with a non-empty fixture (wrapped in
+       // mockNetworkImagesFor).
+       _portfolio = portfolio ?? (() async => const <SalonPortfolioPhoto>[]);
 
   final Future<Salon> Function() _salon;
   final Future<List<SalonMasterSummary>> Function() _masters;
   final Future<List<SalonServiceCategoryEntry>> Function() _catalog;
   final Future<SalonReviewSummary> Function() _summary;
   final Future<List<SalonReviewItem>> Function(SalonReviewSort sort) _reviews;
+  final Future<List<SalonPortfolioPhoto>> Function() _portfolio;
 
   /// Sort values passed to [getSalonReviews], in call order — asserted by the
   /// sort-sheet test.
@@ -192,6 +203,10 @@ class _FakeSalonRepository implements SalonRepository {
     reviewSortCalls.add(sort);
     return _reviews(sort);
   }
+
+  @override
+  Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId) =>
+      _portfolio();
 }
 
 // ---------------------------------------------------------------------------
@@ -315,6 +330,314 @@ void main() {
         );
       },
     );
+  });
+
+  // Regression: the About tab used to carry only the description + optional
+  // Instagram contact — the real portfolio photo rail (previously an unwired
+  // backend endpoint, `GET /salons/{salonId}/portfolio`) now renders between
+  // them. Asserts both the N-photo case (structural ordering + one Image per
+  // fixture photo) and the zero-photo case (section renders nothing at all,
+  // matching how every other optional section on this screen behaves).
+  group('portfolio rail', () {
+    const List<SalonPortfolioPhoto> threePhotos = <SalonPortfolioPhoto>[
+      SalonPortfolioPhoto(
+        id: 'photo-1',
+        url: 'https://cdn.beautica.ua/portfolio/salon-1/1.jpg',
+      ),
+      SalonPortfolioPhoto(
+        id: 'photo-2',
+        url: 'https://cdn.beautica.ua/portfolio/salon-1/2.jpg',
+      ),
+      SalonPortfolioPhoto(
+        id: 'photo-3',
+        url: 'https://cdn.beautica.ua/portfolio/salon-1/3.jpg',
+      ),
+    ];
+
+    // [_stubSalon] carries no `instagramUrl`, so the Instagram contact tile
+    // never renders by default — this test needs it present to prove the
+    // rail's structural ordering relative to it.
+    final Salon salonWithInstagram = _stubSalon.copyWith(
+      instagramUrl: '@kamelia_salon',
+    );
+
+    testWidgets('N photos render as N images between the description and the '
+        'Instagram contact tile', (tester) async {
+      await mockNetworkImagesFor(() async {
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(
+              salon: () async => salonWithInstagram,
+              portfolio: () async => threePhotos,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder railFinder = find.byKey(
+          const Key('salon-about-portfolio'),
+        );
+        expect(railFinder, findsOneWidget);
+
+        // Exactly one Image per fixture photo, all inside the rail.
+        expect(
+          find.descendant(of: railFinder, matching: find.byType(Image)),
+          findsNWidgets(threePhotos.length),
+        );
+        for (final SalonPortfolioPhoto photo in threePhotos) {
+          expect(
+            find.byKey(Key('salon-portfolio-photo-${photo.id}')),
+            findsOneWidget,
+          );
+        }
+
+        // Structural ordering: description → portfolio rail → Instagram
+        // contact tile, top to bottom. Uses the first TILE's rect (not the
+        // rail Column's own outer bounds) for the description comparison —
+        // the Column's top edge sits flush against the description's
+        // bottom edge (its leading section-label gap is internal to the
+        // Column), so comparing against the Column itself would assert a
+        // non-overlapping-but-not-strictly-greater boundary.
+        final Rect descriptionRect = tester.getRect(
+          find.byKey(const Key('salon-about-text')),
+        );
+        final Rect firstTileRect = tester.getRect(
+          find.byKey(Key('salon-portfolio-photo-${threePhotos.first.id}')),
+        );
+        final Rect railRect = tester.getRect(railFinder);
+        final Rect instagramRect = tester.getRect(
+          find.byKey(const Key('salon-contact-instagram')),
+        );
+
+        expect(
+          firstTileRect.top,
+          greaterThan(descriptionRect.bottom),
+          reason: 'the portfolio rail must render BELOW the description',
+        );
+        expect(
+          instagramRect.top,
+          greaterThan(railRect.bottom),
+          reason:
+              'the Instagram contact tile must render BELOW the '
+              'portfolio rail',
+        );
+      });
+    });
+
+    testWidgets('zero photos renders nothing — no heading, no empty rail', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            salon: () async => salonWithInstagram,
+            portfolio: () async => const <SalonPortfolioPhoto>[],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-about-portfolio')),
+        findsNothing,
+        reason:
+            'a salon with no portfolio photos must render no rail '
+            'section at all — matches how the other optional sections '
+            'on this screen behave',
+      );
+      // The description + (when present) Instagram contact must still
+      // render normally — the empty portfolio must not blank the tab.
+      expect(find.byKey(const Key('salon-about-text')), findsOneWidget);
+      expect(find.byKey(const Key('salon-contact-instagram')), findsOneWidget);
+    });
+
+    // SEC (mobile-security LOW follow-up): pins the `isHttps` guard in
+    // [_SalonPortfolioTile.build] — `Image.network` uses its own
+    // `HttpClient`, not the pinned Dio, so a plaintext `http://` photo URL
+    // would leak the request over an unencrypted connection if ever allowed
+    // through. No [mockNetworkImagesFor] wrapper needed here: a correctly
+    // guarded build never attempts a network image load for this fixture in
+    // the first place.
+    testWidgets(
+      'a non-https photo URL renders the fallback tile, never Image.network',
+      (tester) async {
+        const List<SalonPortfolioPhoto> insecurePhoto = <SalonPortfolioPhoto>[
+          SalonPortfolioPhoto(
+            id: 'photo-insecure',
+            url: 'http://insecure.example/x.jpg',
+          ),
+        ];
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(portfolio: () async => insecurePhoto),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder tileFinder = find.byKey(
+          const Key('salon-portfolio-photo-photo-insecure'),
+        );
+        expect(tileFinder, findsOneWidget);
+
+        expect(
+          find.descendant(of: tileFinder, matching: find.byType(Image)),
+          findsNothing,
+          reason: 'a non-https photo URL must never construct Image.network',
+        );
+        expect(
+          find.descendant(
+            of: tileFinder,
+            matching: find.byIcon(Icons.broken_image_outlined),
+          ),
+          findsOneWidget,
+          reason:
+              'the fallback error tile must render instead of attempting '
+              'to load the insecure URL',
+        );
+      },
+    );
+
+    // Eager-build cap regression (mirrors the masters-tab precedent above,
+    // `'more than 6 masters renders only the first 6 plus a show-all
+    // button...'`) — the rail is a plain `Row` inside a horizontal
+    // `SingleChildScrollView`, not a lazily-built viewport, so with more
+    // fixture photos than `kSalonPortfolioInitialCount` (8) this pins that
+    // only the first 8 tiles build up front, a "show all" tile appears with
+    // the correct remaining count, and tapping it reveals the rest while the
+    // affordance itself disappears.
+    testWidgets(
+      'more than 8 photos renders only the first 8 plus a show-all tile, '
+      'which reveals the rest on tap',
+      (tester) async {
+        final List<SalonPortfolioPhoto> tenPhotos = List.generate(
+          10,
+          (i) => SalonPortfolioPhoto(
+            id: 'photo-${i + 1}',
+            url: 'https://cdn.beautica.ua/portfolio/salon-1/${i + 1}.jpg',
+          ),
+        );
+
+        await mockNetworkImagesFor(() async {
+          await _pumpTall(tester);
+          await tester.pumpApp(
+            const PublicSalonProfileScreen(salonId: _kSalonId),
+            overrides: _overrides(
+              repo: _FakeSalonRepository(portfolio: () async => tenPhotos),
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          for (int i = 1; i <= 8; i++) {
+            expect(
+              find.byKey(Key('salon-portfolio-photo-photo-$i')),
+              findsOneWidget,
+              reason: 'the first 8 photos must render up front',
+            );
+          }
+          for (int i = 9; i <= 10; i++) {
+            expect(
+              find.byKey(Key('salon-portfolio-photo-photo-$i')),
+              findsNothing,
+              reason:
+                  'photos beyond the initial batch of 8 must NOT be built '
+                  'until the user explicitly reveals them',
+            );
+          }
+
+          final Finder showAll = find.byKey(
+            const Key('salon-portfolio-show-all'),
+          );
+          expect(
+            showAll,
+            findsOneWidget,
+            reason:
+                'a show-all affordance must appear when the gallery '
+                'exceeds the initial batch',
+          );
+          expect(
+            find.descendant(of: showAll, matching: find.text('+2')),
+            findsOneWidget,
+            reason: 'the show-all tile must report the remaining count',
+          );
+
+          await tester.tap(showAll);
+          await tester.pumpAndSettle();
+
+          for (int i = 1; i <= 10; i++) {
+            expect(
+              find.byKey(Key('salon-portfolio-photo-photo-$i')),
+              findsOneWidget,
+              reason: 'all 10 photos must render after tapping show-all',
+            );
+          }
+          expect(
+            showAll,
+            findsNothing,
+            reason:
+                'the show-all tile must disappear once everything is '
+                'revealed',
+          );
+        });
+      },
+    );
+  });
+
+  // Regression: the top-left back control and the top-right favourite heart
+  // used to be full circles (`CoverCircleButton`, `BoxShape.circle`). They
+  // now match the app-wide rounded-square icon-button shape (see
+  // `NeumorphicIconButton`/`VelvetRadii.field`) used everywhere else in the
+  // app, including the sibling PublicMasterProfileScreen's own favourite
+  // toggle — renamed to `CoverIconButton` to match.
+  group('cover controls shape', () {
+    testWidgets('back + favourite controls are rounded-square, not circular', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(),
+      );
+      await tester.pumpAndSettle();
+
+      for (final Key key in <Key>[
+        const Key('salon-profile-back'),
+        const Key('salon-favorite-toggle'),
+      ]) {
+        final Finder buttonFinder = find.byKey(key);
+        expect(buttonFinder, findsOneWidget);
+        expect(
+          tester.widget<CoverIconButton>(buttonFinder),
+          isA<CoverIconButton>(),
+        );
+
+        final Finder containerFinder = find.descendant(
+          of: buttonFinder,
+          matching: find.byType(Container),
+        );
+        expect(containerFinder, findsOneWidget);
+        final Container container = tester.widget<Container>(containerFinder);
+        final BoxDecoration decoration = container.decoration! as BoxDecoration;
+
+        expect(
+          decoration.shape,
+          isNot(BoxShape.circle),
+          reason: '$key must no longer be a full circle',
+        );
+        expect(
+          decoration.borderRadius,
+          BorderRadius.circular(VelvetRadii.field),
+          reason:
+              '$key must use the app-wide rounded-square radius '
+              '(VelvetRadii.field)',
+        );
+      }
+    });
   });
 
   // Regression: `PublicSalonResponse` gained taxonomy locality fields
@@ -677,6 +1000,39 @@ void main() {
   });
 
   group('masters tab', () {
+    // Regression: the tab used to render a "Майстри салону" heading + a
+    // "(N)" count above the grid. Both were removed — the grid now starts
+    // directly, no label above it.
+    testWidgets('renders no "Майстри салону" heading or count above the grid', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-tab-1')));
+      await tester.pumpAndSettle();
+
+      // i18n-finder-ok: pinning the exact removed literal is the point of
+      // this regression guard, not a UI-copy assertion.
+      expect(find.text('Майстри салону'), findsNothing);
+      expect(
+        find.text('${_stubMasters.length}'),
+        findsNothing,
+        reason:
+            'the roster count that used to sit beside the heading '
+            'must also be gone',
+      );
+      expect(
+        find.byKey(const Key('salon-master-card-master-1')),
+        findsOneWidget,
+        reason: 'the grid itself must still render',
+      );
+    });
+
     testWidgets('master card navigates to /masters/:masterId', (tester) async {
       await _pumpTall(tester);
       final router = GoRouter(

@@ -61,6 +61,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:network_image_mock/network_image_mock.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
@@ -81,11 +82,10 @@ void main() {
     );
   }
 
-  testWidgets(
-    'CLIENT taps a salon result card → the public salon profile renders real '
-    'data across all 4 tabs, tapping a master card navigates to the master '
-    'profile, and the favourite heart POSTs a favorite',
-    (tester) async {
+  testWidgets('CLIENT taps a salon result card → the public salon profile renders real '
+      'data across all 4 tabs, tapping a master card navigates to the master '
+      'profile, and the favourite heart POSTs a favorite', (tester) async {
+    await mockNetworkImagesFor(() async {
       final fb = FakeBackend()..currentRole = UserRole.client;
       final GoRouter router = await AppHarness.boot(tester, fb);
 
@@ -181,6 +181,32 @@ void main() {
         find.byKey(const Key('salon-contact-instagram')),
         findsOneWidget,
         reason: 'a non-empty instagramUrl must render the contact tile',
+      );
+
+      // ── About tab: real portfolio photo rail (previously an unwired
+      // backend endpoint, `GET /salons/{salonId}/portfolio`) — proves the
+      // GENERATED `MediaControllerApi` client + built_value deserialization
+      // of Spring's default `Page<T>` envelope survive a real wire round
+      // trip, a boundary `public_salon_profile_screen_test.dart`'s fake
+      // repository bypasses entirely.
+      expect(fb.getSalonPortfolioCalls, greaterThanOrEqualTo(1));
+      expect(fb.lastGetSalonPortfolioId, 'salon-xyz');
+      expect(
+        find.byKey(const Key('salon-about-portfolio')),
+        findsOneWidget,
+        reason: 'the About tab must render the real portfolio photo rail',
+      );
+      expect(
+        find.byKey(const Key('salon-portfolio-photo-media-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-portfolio-photo-media-2')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-portfolio-photo-media-3')),
+        findsOneWidget,
       );
 
       // ── Tab 1 «Майстри» — the real 8-master roster from the wire, capped to
@@ -387,9 +413,8 @@ void main() {
 
       // ── CLIENT never touched a master-only or salon-owner-only endpoint ────
       expect(fb.getMasterCalls, 0);
-    },
-    timeout: const Timeout(Duration(seconds: 90)),
-  );
+    });
+  }, timeout: const Timeout(Duration(seconds: 90)));
 
   // ──────────────────────────────────────────────────────────────────────────
   // Route guard — a non-CLIENT reaching /salons/:salonId is redirected before

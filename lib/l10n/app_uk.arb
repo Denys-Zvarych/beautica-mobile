@@ -3275,10 +3275,6 @@
   "@salonTabReviews": {
     "description": "Public salon profile tab label — the salon's reviews."
   },
-  "salonMastersSectionLabel": "Майстри салону",
-  "@salonMastersSectionLabel": {
-    "description": "Header above the salon's masters rail on the \"Майстри\" tab."
-  },
   "salonMastersEmpty": "У салоні поки немає майстрів",
   "@salonMastersEmpty": {
     "description": "Empty state on the \"Майстри\" tab when the salon has no masters yet."
@@ -3286,6 +3282,10 @@
   "salonMastersShowAll": "Показати всіх майстрів",
   "@salonMastersShowAll": {
     "description": "Reveal affordance below the masters grid on the \"Майстри\" tab when the roster exceeds the initially-rendered batch (kSalonMastersInitialCount); tapping it expands the grid to show the rest."
+  },
+  "salonPortfolioShowAll": "Показати всі фото",
+  "@salonPortfolioShowAll": {
+    "description": "Accessibility label for the trailing '+N' reveal tile appended to the salon portfolio photo rail on the \"Про салон\" tab when the gallery exceeds the initially-rendered batch (kSalonPortfolioInitialCount); tapping it expands the rail to show the rest."
   },
   "salonAboutEmpty": "Опис салону поки не додано",
   "@salonAboutEmpty": {

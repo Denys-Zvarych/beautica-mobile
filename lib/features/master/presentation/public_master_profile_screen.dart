@@ -258,7 +258,14 @@ class _PublicProfileBody extends StatelessWidget {
         ? master.locationNote
         : null;
     final bool hasReviews = master.reviewCount > 0;
-    final String? instagram = (master.instagram?.isNotEmpty ?? false)
+    // Instagram + portfolio are an INDEPENDENT_MASTER-only affordance — a
+    // salon-affiliated master's public profile hides both, mirroring the
+    // backend's `MasterDetailResponse.fromPublic` address-masking rule for the
+    // same `MasterType` distinction. Purely a display decision: the payload
+    // still carries the raw fields for every type.
+    final bool isIndependent = master.type == MasterType.independentMaster;
+    final String? instagram =
+        (isIndependent && (master.instagram?.isNotEmpty ?? false))
         ? master.instagram
         : null;
     final bool hasBio = master.bio != null && master.bio!.isNotEmpty;
@@ -463,41 +470,44 @@ class _PublicProfileBody extends StatelessWidget {
         ],
 
         // 4 — Portfolio rail (placeholder tiles until the gallery phase).
-        _reveal(
-          anim3,
-          slide3,
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.only(
-                  left: 4,
-                  bottom: VelvetSpacing.xs,
-                ),
-                child: Text(
-                  l10n.masterPortfolioLabel,
-                  style: VelvetText.sectionLabel(),
-                ),
-              ),
-              SizedBox(
-                height: 72,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  padding: EdgeInsets.zero,
-                  child: Row(
-                    children: <Widget>[
-                      for (int i = 0; i < 6; i++) ...<Widget>[
-                        _PortfolioTile(index: i),
-                        if (i < 5) const SizedBox(width: VelvetSpacing.md),
-                      ],
-                    ],
+        // INDEPENDENT_MASTER only — hidden entirely for salon-affiliated masters.
+        if (isIndependent)
+          _reveal(
+            anim3,
+            slide3,
+            Column(
+              key: const Key('public-master-profile-portfolio'),
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: 4,
+                    bottom: VelvetSpacing.xs,
+                  ),
+                  child: Text(
+                    l10n.masterPortfolioLabel,
+                    style: VelvetText.sectionLabel(),
                   ),
                 ),
-              ),
-            ],
+                SizedBox(
+                  height: 72,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    padding: EdgeInsets.zero,
+                    child: Row(
+                      children: <Widget>[
+                        for (int i = 0; i < 6; i++) ...<Widget>[
+                          _PortfolioTile(index: i),
+                          if (i < 5) const SizedBox(width: VelvetSpacing.md),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
 
         // 5 — Contacts (Instagram only; omitted when not set).
         if (instagram != null) ...<Widget>[

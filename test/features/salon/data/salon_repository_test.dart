@@ -25,6 +25,8 @@ class _MockServiceApi extends Mock implements ServiceControllerApi {}
 
 class _MockReviewApi extends Mock implements ReviewControllerApi {}
 
+class _MockMediaApi extends Mock implements MediaControllerApi {}
+
 Response<Map<String, dynamic>> _okEnvelope() => Response<Map<String, dynamic>>(
   requestOptions: RequestOptions(path: '/api/v1/salons'),
   statusCode: 201,
@@ -42,6 +44,7 @@ void main() {
       _MockSalonApi(),
       _MockServiceApi(),
       _MockReviewApi(),
+      _MockMediaApi(),
     );
   });
 

@@ -16,11 +16,15 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
-/// Diameter/height of the circular controls that float over the cover photo
-/// (back button, favourite heart) — shared with [_CoverEditPill]'s vertical
-/// band so the pill's row aligns with theirs instead of drifting to its own
-/// spacing (mobile-debugger fix, cover-pill/hero-card overlap).
-const double kCoverControlSize = 44;
+/// Extent (height == width) of the rounded-square controls that float over
+/// the cover photo (back button, favourite heart) — shared with
+/// [_CoverEditPill]'s vertical band so the pill's row aligns with theirs
+/// instead of drifting to its own spacing (mobile-debugger fix, cover-pill/
+/// hero-card overlap). 48, not 44 — matches the app-wide rounded-square
+/// control size used everywhere else (e.g. [NeumorphicIconButton.extent],
+/// the sibling [PublicMasterProfileScreen]'s favourite toggle), which this
+/// cover control now shares the shape of too (see [CoverIconButton]).
+const double kCoverControlSize = 48;
 
 /// The salon logo mark — a raised circular surface filled with a camel/mocha
 /// gradient. Mirrors [ProfileAvatar]'s depth and gradient language (the master
@@ -206,7 +210,7 @@ class SalonCover extends StatelessWidget {
               ),
             ),
             // Editable-cover affordance pill — anchored to the SAME top
-            // control row as the back/favourite [CoverCircleButton]s
+            // control row as the back/favourite [CoverIconButton]s
             // (`top: topInset + VelvetSpacing.sm`, `height: kCoverControlSize`,
             // centred horizontally) rather than the cover's bottom edge.
             //
@@ -272,12 +276,15 @@ class _CoverEditPill extends StatelessWidget {
   }
 }
 
-/// A circular frosted-cream control that floats over the cover photo (back +
-/// favourite). Unlike the page's base-toned neumorphic chips, these sit on a
-/// dark photographic surface, so they use a translucent cream fill with a
-/// soft drop shadow to stay legible against any cover.
-class CoverCircleButton extends StatefulWidget {
-  const CoverCircleButton({
+/// A rounded-square frosted-cream control that floats over the cover photo
+/// (back + favourite) — matches the app-wide rounded-square icon-button shape
+/// (see [NeumorphicIconButton] / [VelvetRadii.field]) rather than a bespoke
+/// circle, so this control reads as the same family as every other icon
+/// button in the app. Unlike the page's base-toned neumorphic chips, this
+/// sits on a dark photographic surface, so it uses a translucent cream fill
+/// with a soft drop shadow to stay legible against any cover.
+class CoverIconButton extends StatefulWidget {
+  const CoverIconButton({
     super.key,
     required this.icon,
     required this.onTap,
@@ -296,10 +303,10 @@ class CoverCircleButton extends StatefulWidget {
   final bool? toggled;
 
   @override
-  State<CoverCircleButton> createState() => _CoverCircleButtonState();
+  State<CoverIconButton> createState() => _CoverIconButtonState();
 }
 
-class _CoverCircleButtonState extends State<CoverCircleButton> {
+class _CoverIconButtonState extends State<CoverIconButton> {
   bool _pressed = false;
 
   @override
@@ -324,7 +331,7 @@ class _CoverCircleButtonState extends State<CoverCircleButton> {
             height: kCoverControlSize,
             width: kCoverControlSize,
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
+              borderRadius: BorderRadius.circular(VelvetRadii.field),
               color: BrandColors.white.withValues(alpha: 0.86),
               boxShadow: <BoxShadow>[
                 BoxShadow(

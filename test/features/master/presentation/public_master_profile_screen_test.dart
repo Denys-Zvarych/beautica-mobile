@@ -321,6 +321,97 @@ void main() {
   // mocked so no real intent fires and the exact URL string is asserted (M5-ish:
   // an external-launch side effect must be observed, not assumed).
   // ──────────────────────────────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────────────────────
+  // Salon-affiliation gating — Instagram + portfolio are an INDEPENDENT_MASTER
+  // -only affordance. Salon-affiliated masters (salonMaster / salonOwner) must
+  // NOT show either, even when the underlying data (instagram handle) is
+  // populated; independent masters keep the existing behaviour.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('salon affiliation gating — instagram + portfolio', () {
+    Future<void> pumpFor(WidgetTester tester, MasterType type) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final Master master = _stubMaster.copyWith(type: type);
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => (master, _stubServices)),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'salonMaster with instagram set — Instagram tile does NOT render',
+      (tester) async {
+        await pumpFor(tester, MasterType.salonMaster);
+
+        expect(
+          find.byKey(const Key('public-master-contact-instagram')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'salonOwner with instagram set — Instagram tile does NOT render',
+      (tester) async {
+        await pumpFor(tester, MasterType.salonOwner);
+
+        expect(
+          find.byKey(const Key('public-master-contact-instagram')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'independentMaster with instagram set — Instagram tile DOES render',
+      (tester) async {
+        await pumpFor(tester, MasterType.independentMaster);
+
+        expect(
+          find.byKey(const Key('public-master-contact-instagram')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('salonMaster — portfolio section does NOT render', (
+      tester,
+    ) async {
+      await pumpFor(tester, MasterType.salonMaster);
+
+      expect(
+        find.byKey(const Key('public-master-profile-portfolio')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('salonOwner — portfolio section does NOT render', (
+      tester,
+    ) async {
+      await pumpFor(tester, MasterType.salonOwner);
+
+      expect(
+        find.byKey(const Key('public-master-profile-portfolio')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('independentMaster — portfolio section DOES render', (
+      tester,
+    ) async {
+      await pumpFor(tester, MasterType.independentMaster);
+
+      expect(
+        find.byKey(const Key('public-master-profile-portfolio')),
+        findsOneWidget,
+      );
+    });
+  });
+
   group('instagram contact tile — launch behaviour', () {
     late _MockUrlLauncher launcher;
     late UrlLauncherPlatform originalPlatform;

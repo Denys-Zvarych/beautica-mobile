@@ -3275,10 +3275,6 @@
   "@salonTabReviews": {
     "description": "Public salon profile tab label — the salon's reviews."
   },
-  "salonMastersSectionLabel": "Salon masters",
-  "@salonMastersSectionLabel": {
-    "description": "Header above the salon's masters rail on the \"Masters\" tab."
-  },
   "salonMastersEmpty": "This salon has no masters yet",
   "@salonMastersEmpty": {
     "description": "Empty state on the \"Masters\" tab when the salon has no masters yet."
@@ -3286,6 +3282,10 @@
   "salonMastersShowAll": "Show all masters",
   "@salonMastersShowAll": {
     "description": "Reveal affordance below the masters grid on the \"Masters\" tab when the roster exceeds the initially-rendered batch (kSalonMastersInitialCount); tapping it expands the grid to show the rest."
+  },
+  "salonPortfolioShowAll": "Show all photos",
+  "@salonPortfolioShowAll": {
+    "description": "Accessibility label for the trailing '+N' reveal tile appended to the salon portfolio photo rail on the \"About\" tab when the gallery exceeds the initially-rendered batch (kSalonPortfolioInitialCount); tapping it expands the rail to show the rest."
   },
   "salonAboutEmpty": "No description added yet",
   "@salonAboutEmpty": {

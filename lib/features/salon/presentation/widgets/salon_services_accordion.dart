@@ -265,6 +265,16 @@ class _SalonServiceRow extends StatelessWidget {
     fontWeight: FontWeight.w800,
   );
 
+  /// Name scale matching the reference screen's `_ServiceInfo._nameStyle` in
+  /// `services_list_screen.dart` — Comfortaa `cardTitle()` at 15 sp with a
+  /// tight 1.15 line-height (NOT the 1.5 line-height of `bodyStrong()`,
+  /// which visibly bulks up each row). Hoisted to a static so build() never
+  /// allocates a new [TextStyle] per frame.
+  static final TextStyle _nameStyle = VelvetText.cardTitle().copyWith(
+    fontSize: 15,
+    height: 1.15,
+  );
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
@@ -288,7 +298,7 @@ class _SalonServiceRow extends StatelessWidget {
                 children: <Widget>[
                   Text(
                     name,
-                    style: VelvetText.bodyStrong(),
+                    style: _nameStyle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),

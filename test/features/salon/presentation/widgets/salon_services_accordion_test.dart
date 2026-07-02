@@ -17,6 +17,7 @@
 // matching the 12.5 sp reference).
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_services_accordion.dart';
 import 'package:flutter/material.dart';
@@ -92,6 +93,63 @@ void main() {
             'price text must use the camel price-emphasis color '
             '(BrandColors.accentDeep), not bodyStrong()\'s plain espresso '
             'text color (BrandColors.text).',
+      );
+    },
+  );
+
+  testWidgets(
+    'name text renders at the reference cardTitle scale (1.15 line-height), '
+    'not bodyStrong() (1.5 line-height)',
+    (tester) async {
+      await tester.pumpApp(
+        const SalonServicesAccordion(categories: _kCategories),
+      );
+      await tester.pumpAndSettle();
+
+      final nameFinder = find.text('Класичний манікюр');
+      expect(nameFinder, findsOneWidget);
+
+      final Text nameText = tester.widget<Text>(nameFinder);
+      final TextStyle? resolvedStyle = nameText.style;
+
+      expect(
+        resolvedStyle,
+        isNotNull,
+        reason: 'service name Text must have an explicit style',
+      );
+      expect(
+        resolvedStyle!.fontSize,
+        15,
+        reason:
+            'service name must stay at 15 sp, matching the reference '
+            'screen\'s _ServiceInfo._nameStyle (services_list_screen.dart).',
+      );
+
+      // The point size alone (15 sp) coincidentally matches bodyStrong()'s
+      // 15 sp, so fontSize cannot catch this regression on its own — the
+      // actual bug is the 30% looser line-height (1.5 vs 1.15) plus the
+      // wrong font family (Nunito vs Comfortaa), which visibly bulks up
+      // each row even though the size "matches".
+      expect(
+        resolvedStyle.height,
+        1.15,
+        reason:
+            'service name must use the reference screen\'s tight 1.15 '
+            'line-height, not VelvetText.bodyStrong()\'s 1.5 — the looser '
+            'line-height is what makes each row render visibly taller even '
+            'though the fontSize alone matches.',
+      );
+
+      // Guard against the regression reappearing under a different guise:
+      // the resolved style must not equal bodyStrong()'s resolved style.
+      final TextStyle bodyStrongStyle = VelvetText.bodyStrong();
+      expect(
+        resolvedStyle,
+        isNot(equals(bodyStrongStyle)),
+        reason:
+            'service name style must not match VelvetText.bodyStrong() — '
+            'that is the pre-fix regression style (Nunito 15 sp / 1.5 '
+            'line-height).',
       );
     },
   );

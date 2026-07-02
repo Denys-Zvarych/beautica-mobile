@@ -45,11 +45,14 @@ const List<List<Color>> _kAvatarGradients = <List<Color>>[
 /// card still doesn't reintroduce the overflow this constant exists to avoid.
 ///
 /// The outer card box (this constant, plus the grid's `mainAxisExtent`) is
-/// intentionally NOT reopened for the avatar-enlargement pass below — only
+/// intentionally NOT reopened for the avatar-enlargement passes below — only
 /// the avatar grows, spending headroom from the same worst-case content
-/// budget this constant was tuned against (measured empirically: the
-/// worst-case stress case starts overflowing once the avatar grows past
-/// diameter 76, i.e. ~20px of slack above the previous 56px avatar).
+/// budget this constant was tuned against (measured empirically, re-verified
+/// on the second enlargement pass: the worst-case stress case still
+/// overflows once the avatar grows past diameter 76 — 77 is the first
+/// overflowing diameter, at 1.00px, scaling ~1:1 with diameter above that —
+/// i.e. ~28px of slack above the original 56px avatar, of which 73px spends
+/// 17px and leaves a 3px safety margin below the 76px max-safe diameter).
 const double kSalonMasterCardHeight = 190;
 
 /// One master in the salon's "Майстри салону" 2-column grid. A raised
@@ -130,17 +133,21 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                // Enlarged 56 -> 68 (+12) so the avatar reads more prominently
-                // in the grid card. Stays within the ~20px worst-case slack
-                // budget documented on [kSalonMasterCardHeight] above (the
-                // long-name/wrapped-role stress case starts overflowing past
-                // diameter 76) with ~8px still held in reserve for font
-                // rendering variance across platforms. The card's OUTER box
+                // Enlarged 56 -> 68 -> 73 (second pass, +5) so the avatar
+                // reads more prominently in the grid card. Re-verified
+                // empirically against the long-name/wrapped-role stress case
+                // (see `public_salon_profile_screen_test.dart`) starting from
+                // the 68px baseline: diameter 76 still passes (0px
+                // overflow), 77 is the first diameter that overflows (1.00px,
+                // then scaling ~1:1 with diameter — 78 -> 2px, 80 -> 4px, 84
+                // -> 8px), so max-safe is 76 and 73 leaves a 3px safety
+                // margin below that breakeven for font-rendering variance
+                // across platforms. The card's OUTER box
                 // ([kSalonMasterCardHeight], the grid's `mainAxisExtent`)
                 // stays untouched — only this circle grows.
                 Container(
-                  height: 68,
-                  width: 68,
+                  height: 73,
+                  width: 73,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: LinearGradient(
@@ -154,7 +161,7 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                     child: Icon(
                       Icons.person_rounded,
                       color: BrandColors.white.withValues(alpha: 0.82),
-                      size: 32,
+                      size: 34,
                     ),
                   ),
                 ),

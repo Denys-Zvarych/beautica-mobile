@@ -49,6 +49,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
+import '../domain/salon_portfolio_photo.dart';
 import '../domain/salon_review.dart';
 import '../domain/salon_service_catalog.dart';
 import 'salon_mapper.dart';
@@ -174,6 +175,12 @@ abstract interface class SalonRepository {
     int page = 0,
     int size = kSalonReviewsPageSize,
   });
+
+  /// Fetches the salon's public portfolio photo gallery ("Про салон" tab).
+  ///
+  /// Wraps `GET /salons/{salonId}/portfolio` (public, unauthenticated). Returns
+  /// an empty list when the salon has no portfolio photos.
+  Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId);
 }
 
 /// HTTP implementation of [SalonRepository].
@@ -185,12 +192,14 @@ final class HttpSalonRepository implements SalonRepository {
     this._salonApi,
     this._serviceApi,
     this._reviewApi,
+    this._mediaApi,
   );
 
   final Dio _dio;
   final SalonControllerApi _salonApi;
   final ServiceControllerApi _serviceApi;
   final ReviewControllerApi _reviewApi;
+  final MediaControllerApi _mediaApi;
 
   @override
   Future<void> create({required SalonCreateDto dto}) async {
@@ -358,6 +367,33 @@ final class HttpSalonRepository implements SalonRepository {
     }
   }
 
+  @override
+  Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId) async {
+    try {
+      final res = await _mediaApi.getSalonPortfolio(salonId: salonId);
+      // WIRE-FORMAT NOTE: unlike [getSalonMasters]/[getSalonReviews] above
+      // (which decode the hand-rolled custom `PageResponse` shape via
+      // `.data?.data`), this read goes through the GENERATED
+      // [MediaControllerApi] client, whose `PageMediaFileResponse` follows
+      // Spring's DEFAULT `Page<T>` JSON shape — the row list lives under
+      // `content`, not `data`.
+      final content = res.data?.data?.content ?? const <MediaFileResponse>[];
+      return SalonPortfolioMapper.fromDtoList(content);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getSalonPortfolio failed: ${e.type} ${e.response?.statusCode}',
+          name: 'salon.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
   /// Deserializes a raw JSON [data] map via the SAME [standardSerializers]
   /// the generated client uses. Returns `null` when [data] is null (an empty
   /// body); any deserialization failure is wrapped as a [ServerFailure] by the
@@ -398,6 +434,7 @@ SalonRepository salonRepository(Ref ref) => HttpSalonRepository(
   ref.watch(salonApiProvider),
   ref.watch(salonServiceApiProvider),
   ref.watch(salonReviewApiProvider),
+  ref.watch(salonMediaApiProvider),
 );
 
 /// Provides the generated [SalonControllerApi] singleton.
@@ -423,3 +460,9 @@ ServiceControllerApi salonServiceApi(Ref ref) =>
 @Riverpod(keepAlive: true)
 ReviewControllerApi salonReviewApi(Ref ref) =>
     ReviewControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the generated [MediaControllerApi] singleton for the salon
+/// portfolio read (`getSalonPortfolio`).
+@Riverpod(keepAlive: true)
+MediaControllerApi salonMediaApi(Ref ref) =>
+    MediaControllerApi(ref.watch(dioProvider), standardSerializers);

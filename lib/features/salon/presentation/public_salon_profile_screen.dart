@@ -46,9 +46,11 @@ import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../application/public_salon_profile_notifier.dart';
+import '../application/salon_portfolio_notifier.dart';
 import '../application/salon_service_catalog_notifier.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
+import '../domain/salon_portfolio_photo.dart';
 import '../domain/salon_service_catalog.dart';
 import 'widgets/salon_cover_widgets.dart';
 import 'widgets/salon_master_card.dart';
@@ -321,7 +323,7 @@ class _BackButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CoverCircleButton(
+    return CoverIconButton(
       key: const Key('salon-profile-back'),
       icon: Icons.arrow_back_ios_new_rounded,
       semanticLabel: AppLocalizations.of(context).salonProfileBackLabel,
@@ -701,6 +703,7 @@ class _AboutTab extends StatelessWidget {
                 ? VelvetText.feedback(BrandColors.muted)
                 : VelvetText.bodyStrong(),
           ),
+          _SalonPortfolioRail(salonId: salon.id),
           if (instagram != null) ...<Widget>[
             const SizedBox(height: VelvetSpacing.xl),
             Padding(
@@ -763,7 +766,248 @@ class _AboutTab extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// _MastersTab — "Майстри": header + count + 2-column grid
+// _SalonPortfolioRail — "Про салон" tab: real photo rail (Phase 13.6
+// follow-up — GET /salons/{salonId}/portfolio, previously unwired).
+// ---------------------------------------------------------------------------
+
+/// Loads and renders the salon's real portfolio photo rail. Own independent
+/// [AsyncValue] (mirrors [_ServicesTab]/[SalonReviewsSection]) so a broken
+/// gallery read never blanks the description/Instagram sections around it.
+///
+/// Renders NOTHING — no heading, no empty rail, no error chrome — whenever
+/// the salon has zero photos, the read is still loading, or the read fails:
+/// this is fully optional chrome on top of the description, the same way the
+/// hero card's location line hides entirely when absent (see
+/// [_SalonHeroCard._buildLocationLine]).
+/// How many portfolio photos render up front before the "show all"
+/// affordance is needed (mobile-perf MEDIUM fix, mirrors
+/// [kSalonMastersInitialCount]'s "show all" precedent exactly). The rail
+/// sits in a plain `Row` inside a `SingleChildScrollView` (not lazy — no
+/// viewport culling), and `getSalonPortfolio` carries no `page`/`size`
+/// contract to bound the fetch itself the way `getSalonMasters`/
+/// `getSalonReviews` do — so every returned photo would otherwise fire its
+/// `Image.network` request simultaneously on first paint regardless of how
+/// large the salon's full gallery is. Capping the initial render bounds that
+/// burst; the rest builds only once the user explicitly asks for them.
+const int kSalonPortfolioInitialCount = 8;
+
+class _SalonPortfolioRail extends ConsumerStatefulWidget {
+  const _SalonPortfolioRail({required this.salonId});
+
+  final String salonId;
+
+  @override
+  ConsumerState<_SalonPortfolioRail> createState() =>
+      _SalonPortfolioRailState();
+}
+
+class _SalonPortfolioRailState extends ConsumerState<_SalonPortfolioRail> {
+  // Flips true once the user explicitly taps "show all" — mirrors
+  // [_MastersTabState._showAll] exactly: a one-time, user-triggered build of
+  // the remainder is an acceptable cost; only the unconditional first-paint
+  // build is guarded against.
+  bool _showAll = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final AsyncValue<List<SalonPortfolioPhoto>> async = ref.watch(
+      salonPortfolioProvider(widget.salonId),
+    );
+    return async.when(
+      data: (List<SalonPortfolioPhoto> photos) =>
+          photos.isEmpty ? const SizedBox.shrink() : _rail(context, photos),
+      loading: () => const SizedBox.shrink(),
+      error: (Object e, StackTrace st) {
+        if (kDebugMode) {
+          log(
+            'salon portfolio load failed — hiding the optional rail',
+            name: 'feature.salon.public',
+            level: 900,
+            error: e,
+            stackTrace: st,
+          );
+        }
+        return const SizedBox.shrink();
+      },
+    );
+  }
+
+  Widget _rail(BuildContext context, List<SalonPortfolioPhoto> photos) {
+    final l10n = AppLocalizations.of(context);
+    final bool hasMore = photos.length > kSalonPortfolioInitialCount;
+    final List<SalonPortfolioPhoto> visible = hasMore && !_showAll
+        ? photos.sublist(0, kSalonPortfolioInitialCount)
+        : photos;
+
+    return Column(
+      key: const Key('salon-about-portfolio'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SizedBox(height: VelvetSpacing.xl),
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
+          child: Text(
+            l10n.masterPortfolioLabel,
+            style: VelvetText.sectionLabel(),
+          ),
+        ),
+        SizedBox(
+          height: 72,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            padding: EdgeInsets.zero,
+            child: Row(
+              children: <Widget>[
+                for (int i = 0; i < visible.length; i++) ...<Widget>[
+                  _SalonPortfolioTile(photo: visible[i], index: i),
+                  if (i < visible.length - 1 || (hasMore && !_showAll))
+                    const SizedBox(width: VelvetSpacing.md),
+                ],
+                if (hasMore && !_showAll)
+                  _ShowAllPortfolioTile(
+                    remaining: photos.length - kSalonPortfolioInitialCount,
+                    onTap: () => setState(() => _showAll = true),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A trailing 72dp tile appended to the portfolio rail whenever the gallery
+/// exceeds [kSalonPortfolioInitialCount], showing the remaining count.
+/// Tapping it reveals the rest of the gallery in place — the horizontal-rail
+/// equivalent of [_ShowAllMastersButton] below (same reveal-on-tap contract,
+/// different shell: an inline tile rather than a full-width button, to match
+/// this rail's tile-row vocabulary).
+class _ShowAllPortfolioTile extends StatelessWidget {
+  const _ShowAllPortfolioTile({required this.remaining, required this.onTap});
+
+  final int remaining;
+  final VoidCallback onTap;
+
+  static const double _size = 72;
+  static const BorderRadius _radius = BorderRadius.all(
+    Radius.circular(VelvetRadii.field),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Semantics(
+      button: true,
+      label: l10n.salonPortfolioShowAll,
+      child: GestureDetector(
+        key: const Key('salon-portfolio-show-all'),
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: SizedBox(
+          height: _size,
+          width: _size,
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              color: BrandColors.faint,
+              borderRadius: _radius,
+              boxShadow: VelvetShadows.extrudedSmall,
+            ),
+            child: Center(
+              child: Text('+$remaining', style: VelvetText.bodyStrong()),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One 72dp real-photo thumbnail in the salon's portfolio rail. Reuses the
+/// sibling [PublicMasterProfileScreen]'s `_PortfolioTile` visual shell (72dp
+/// square, [VelvetRadii.field] corner, [VelvetShadows.extrudedSmall] raised
+/// shadow) but backs it with a real [Image.network] instead of a gradient
+/// placeholder — mirroring [ResultThumbnail]'s exact network-image
+/// convention (`discovery/presentation/widgets/result_thumbnail.dart`):
+/// https-only scheme guard, decode-resolution-capped `cacheWidth`, and an
+/// [errorBuilder] fallback tile on load failure. Deliberately no
+/// `loadingBuilder`/shimmer — [SkeletonShimmerScope]'s [AnimationController]
+/// repeats forever once mounted (it has no "stop when idle" state), so
+/// wrapping this ALWAYS-VISIBLE rail in one would leave a perpetual ticker
+/// running for the rail's entire lifetime, not just while an image is
+/// actually loading — the same reason [ResultThumbnail] never uses a shimmer
+/// either.
+class _SalonPortfolioTile extends StatelessWidget {
+  const _SalonPortfolioTile({required this.photo, required this.index});
+
+  final SalonPortfolioPhoto photo;
+  final int index;
+
+  static const double _size = 72;
+  static const BorderRadius _radius = BorderRadius.all(
+    Radius.circular(VelvetRadii.field),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    // Image.network uses its own HttpClient (not the pinned Dio), so guard the
+    // scheme here: only https is allowed — mirrors [ResultThumbnail]'s SEC
+    // guard against a malicious/compromised `http://` photo URL leaking the
+    // client IP if ATS/NSC is ever relaxed.
+    final bool isHttps = Uri.tryParse(photo.url)?.scheme == 'https';
+    final Widget tile = !isHttps
+        ? _errorTile()
+        : ClipRRect(
+            borderRadius: _radius,
+            child: Image.network(
+              photo.url,
+              fit: BoxFit.cover,
+              cacheWidth: (_size * MediaQuery.devicePixelRatioOf(context))
+                  .round(),
+              errorBuilder: (_, _, _) => _errorTile(),
+            ),
+          );
+
+    return Semantics(
+      label: AppLocalizations.of(
+        context,
+      ).masterPortfolioTileSemantics(index + 1),
+      image: true,
+      child: SizedBox(
+        key: Key('salon-portfolio-photo-${photo.id}'),
+        height: _size,
+        width: _size,
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            borderRadius: _radius,
+            boxShadow: VelvetShadows.extrudedSmall,
+          ),
+          child: tile,
+        ),
+      ),
+    );
+  }
+
+  Widget _errorTile() {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: BrandColors.faint,
+        borderRadius: _radius,
+      ),
+      child: Center(
+        child: Icon(
+          Icons.broken_image_outlined,
+          color: BrandColors.white.withValues(alpha: 0.85),
+          size: 26,
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _MastersTab — "Майстри": 2-column grid
 // ---------------------------------------------------------------------------
 
 /// How many masters render up front before the "show all" affordance is
@@ -815,29 +1059,6 @@ class _MastersTabState extends State<_MastersTab> {
           padding: const EdgeInsets.fromLTRB(
             VelvetSpacing.lg,
             0,
-            VelvetSpacing.lg,
-            VelvetSpacing.sm,
-          ),
-          child: Row(
-            children: <Widget>[
-              Text(
-                l10n.salonMastersSectionLabel,
-                style: VelvetText.sectionLabel(),
-              ),
-              const Spacer(),
-              Text(
-                '${masters.length}',
-                style: VelvetText.feedback(
-                  BrandColors.muted,
-                ).copyWith(fontSize: 13),
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            VelvetSpacing.lg,
-            VelvetSpacing.sm,
             VelvetSpacing.lg,
             VelvetSpacing.sm,
           ),
@@ -1045,7 +1266,7 @@ class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
       ),
     );
 
-    return CoverCircleButton(
+    return CoverIconButton(
       key: const Key('salon-favorite-toggle'),
       icon: isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
       iconColor: isFavorite ? BrandColors.accentDeep : BrandColors.text,

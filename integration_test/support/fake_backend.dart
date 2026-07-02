@@ -42,6 +42,7 @@
 //  GET  /api/v1/salons/salon-xyz/services         — salon service catalogue
 //  GET  /api/v1/salons/salon-xyz/reviews/summary  — salon review-summary header
 //  GET  /api/v1/salons/salon-xyz/reviews          — salon reviews list
+//  GET  /api/v1/salons/salon-xyz/portfolio        — salon portfolio photo rail
 //
 // USAGE
 // -----
@@ -539,6 +540,13 @@ final class FakeBackend {
   /// carried the new value.
   int getSalonReviewsCalls = 0;
   String? lastGetSalonReviewsSort;
+
+  /// `GET /api/v1/salons/{salonId}/portfolio` — real photo rail on the "Про
+  /// салон" tab (previously an unwired endpoint — see
+  /// `salon_portfolio_notifier.dart`). Goes through the GENERATED
+  /// `MediaControllerApi` client, unlike the hand-rolled Pageable reads above.
+  int getSalonPortfolioCalls = 0;
+  String? lastGetSalonPortfolioId;
 
   int patchProfileCalls = 0;
   Map<String, dynamic>? lastPatchBody;
@@ -1108,6 +1116,60 @@ final class FakeBackend {
         },
       ];
 
+  /// PUBLIC portfolio gallery for `salon-xyz` — THREE photos backing the
+  /// "Про салон" tab's real photo rail (previously an unwired backend
+  /// endpoint — see `salon_portfolio_notifier.dart`). Shape matches
+  /// `MediaFileResponse`. Unlike [_salonMasters]/[_salonReviews] above (the
+  /// custom `PageResponse` shape [_searchEnvelope] builds), this list is
+  /// wrapped in Spring's DEFAULT `Page<T>` envelope by
+  /// [_salonPortfolioEnvelope] below — the read goes through the GENERATED
+  /// `MediaControllerApi.getSalonPortfolio` client (built_value
+  /// deserialization), not the salon repository's raw-Dio Pageable
+  /// workaround the other two rails use.
+  static const List<Map<String, dynamic>> _salonPortfolioPhotos =
+      <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'media-1',
+          'entityType': 'SALON',
+          'entityId': 'salon-xyz',
+          'mediaType': 'PORTFOLIO',
+          'url': 'https://cdn.beautica.ua/portfolio/salon-xyz/1.jpg',
+          'createdAt': '2026-05-01T10:00:00Z',
+        },
+        <String, dynamic>{
+          'id': 'media-2',
+          'entityType': 'SALON',
+          'entityId': 'salon-xyz',
+          'mediaType': 'PORTFOLIO',
+          'url': 'https://cdn.beautica.ua/portfolio/salon-xyz/2.jpg',
+          'createdAt': '2026-05-02T10:00:00Z',
+        },
+        <String, dynamic>{
+          'id': 'media-3',
+          'entityType': 'SALON',
+          'entityId': 'salon-xyz',
+          'mediaType': 'PORTFOLIO',
+          'url': 'https://cdn.beautica.ua/portfolio/salon-xyz/3.jpg',
+          'createdAt': '2026-05-03T10:00:00Z',
+        },
+      ];
+
+  /// Builds the `ApiResponse<Page<MediaFileResponse>>` envelope
+  /// `PageMediaFileResponse`'s built_value deserializer expects — Spring's
+  /// default Page shape (`content`/`totalElements`/…), NOT the custom
+  /// `PageResponse` shape [_searchEnvelope] builds.
+  Map<String, dynamic> _salonPortfolioEnvelope() => _ok(<String, dynamic>{
+    'content': _salonPortfolioPhotos,
+    'totalElements': _salonPortfolioPhotos.length,
+    'totalPages': 1,
+    'size': _salonPortfolioPhotos.length,
+    'number': 0,
+    'first': true,
+    'last': true,
+    'numberOfElements': _salonPortfolioPhotos.length,
+    'empty': false,
+  });
+
   // ── Route wiring ───────────────────────────────────────────────────────────
 
   void _wire() {
@@ -1377,6 +1439,18 @@ final class FakeBackend {
           totalPages: 1,
           totalElements: _salonReviews.length,
         );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/salons/salon-xyz/portfolio — "Про салон" tab real photo
+    // rail (MediaControllerApi.getSalonPortfolio, previously unwired).
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/portfolio',
+      (server) => server.replyCallback(200, (_) {
+        getSalonPortfolioCalls++;
+        lastGetSalonPortfolioId = 'salon-xyz';
+        return _salonPortfolioEnvelope();
       }),
       request: const Request(method: RequestMethods.get),
     );
