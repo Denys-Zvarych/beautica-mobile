@@ -153,4 +153,132 @@ void main() {
       );
     },
   );
+
+  // Regression: the duration label (`_durationStyle`) was re-styled to match
+  // the reference screen's compact metadata scale
+  // (`services_list_screen._MetaItem._valueStyle`,
+  // `VelvetText.pill().copyWith(fontSize: 12.5)`, `BrandColors.accentDeep`,
+  // w800) instead of a muted `feedback()` label — mirroring the price/name
+  // fixes above, which this file already pinned but the duration label was
+  // "missed" per the source doc comment. Pins all three axes (size/weight/
+  // color) plus the icon's size/color so none can silently drift back.
+  testWidgets(
+    'duration text renders at the compact pill scale (12.5sp/w800/'
+    'accentDeep), not a muted feedback() label',
+    (tester) async {
+      await tester.pumpApp(
+        const SalonServicesAccordion(categories: _kCategories),
+      );
+      await tester.pumpAndSettle();
+
+      // i18n-finder-ok: fixture duration string, not UI copy
+      final durationFinder = find.text('1 год');
+      expect(durationFinder, findsOneWidget);
+
+      final Text durationText = tester.widget<Text>(durationFinder);
+      final TextStyle? resolvedStyle = durationText.style;
+
+      expect(
+        resolvedStyle,
+        isNotNull,
+        reason: 'duration Text must have an explicit style',
+      );
+      expect(
+        resolvedStyle!.fontSize,
+        12.5,
+        reason:
+            'duration must use the compact pill/metadata scale (12.5 sp), '
+            'matching services_list_screen._MetaItem._valueStyle.',
+      );
+      expect(
+        resolvedStyle.fontWeight,
+        FontWeight.w800,
+        reason:
+            'duration must use the pill scale\'s bold weight (w800), not '
+            'a muted feedback() label\'s w700.',
+      );
+      expect(
+        resolvedStyle.color,
+        BrandColors.accentDeep,
+        reason:
+            'duration must use the camel pill color '
+            '(BrandColors.accentDeep), not a muted/secondary feedback() '
+            'color.',
+      );
+
+      final Icon durationIcon = tester.widget<Icon>(
+        find.byIcon(Icons.schedule_outlined),
+      );
+      expect(
+        durationIcon.size,
+        13,
+        reason:
+            'duration icon must match the reference _MetaItem icon size '
+            '(13), not a larger default.',
+      );
+      expect(
+        durationIcon.color,
+        BrandColors.accent,
+        reason: 'duration icon must use the accent (not accentDeep) tone.',
+      );
+    },
+  );
+
+  // Regression guard for the `Flexible(maxLines: 1, overflow: ellipsis)`
+  // wrapper this fix introduced around the duration label: before the wrap,
+  // a long duration string (a service with a note baked into its duration
+  // label) could push the row past its available width. Pumped at a narrow
+  // 320dp width — well below typical-phone — with a deliberately long
+  // duration label to stress the wrap.
+  testWidgets(
+    'a long duration label ellipsizes inside its Flexible instead of '
+    'overflowing the row',
+    (tester) async {
+      const String longDuration =
+          '2 год 45 хв (попередній запис за 3 дні до візиту)';
+      const longDurationCategories = <SalonServiceCategoryEntry>[
+        SalonServiceCategoryEntry(
+          category: 'Манікюр',
+          count: 1,
+          services: <SalonCatalogService>[
+            SalonCatalogService(
+              id: 'svc-long',
+              name: 'Класичний манікюр',
+              durationLabel: longDuration,
+              priceDisplay: '500 грн',
+            ),
+          ],
+        ),
+      ];
+
+      await tester.pumpApp(
+        const SalonServicesAccordion(categories: longDurationCategories),
+        width: 320,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'a pathologically long duration label must not overflow the '
+            'row — it must be constrained by the Flexible + ellipsis '
+            'wrapper introduced alongside the compact pill restyle.',
+      );
+
+      final durationFinder = find.text(longDuration);
+      expect(durationFinder, findsOneWidget);
+      final Text durationText = tester.widget<Text>(durationFinder);
+      expect(
+        durationText.maxLines,
+        1,
+        reason: 'duration must stay single-line even when very long',
+      );
+      expect(
+        durationText.overflow,
+        TextOverflow.ellipsis,
+        reason: 'duration must ellipsize rather than wrap or overflow',
+      );
+    },
+  );
 }

@@ -275,6 +275,17 @@ class _SalonServiceRow extends StatelessWidget {
     height: 1.15,
   );
 
+  /// Duration meta scale matching the reference screen's
+  /// `_MetaItem._valueStyle` in `services_list_screen.dart` — `pill()` at
+  /// 12.5 sp (bold, camel `accentDeep`, baked into the `pill()` base) — NOT
+  /// a muted `feedback()` 12 sp label. The name and price scales were
+  /// already migrated to the reference in earlier fixes (9f8011e, 541a71e);
+  /// this one was missed. Hoisted to a static so build() never allocates a
+  /// new [TextStyle] per frame.
+  static final TextStyle _durationStyle = VelvetText.pill().copyWith(
+    fontSize: 12.5,
+  );
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
@@ -308,15 +319,17 @@ class _SalonServiceRow extends StatelessWidget {
                     children: <Widget>[
                       const Icon(
                         Icons.schedule_outlined,
-                        size: 12,
-                        color: BrandColors.muted,
+                        size: 13,
+                        color: BrandColors.accent,
                       ),
-                      const SizedBox(width: 3),
-                      Text(
-                        duration,
-                        style: VelvetText.feedback(
-                          BrandColors.muted,
-                        ).copyWith(fontSize: 12),
+                      const SizedBox(width: VelvetSpacing.xs),
+                      Flexible(
+                        child: Text(
+                          duration,
+                          style: _durationStyle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ),

@@ -503,6 +503,12 @@ class _SalonHeroCard extends StatelessWidget {
 
   final Salon salon;
 
+  /// Diameter of the [SalonLogo] avatar at the card's leading edge. Shared
+  /// with the location row's leading indent below so the two never drift
+  /// apart (the same class of bug that previously bit `_heroProtrusion`/
+  /// `_coverHeight`).
+  static const double _logoDiameter = 68;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -523,7 +529,7 @@ class _SalonHeroCard extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              SalonLogo(diameter: 68, monogram: monogram),
+              SalonLogo(diameter: _logoDiameter, monogram: monogram),
               const SizedBox(width: VelvetSpacing.md),
               Expanded(
                 child: Column(
@@ -581,6 +587,13 @@ class _SalonHeroCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
+                // Indents the icon+text to align with the name/rating text
+                // column above (logo diameter + the gap after it), so the
+                // location line reads as "under the rating", not "under the
+                // logo image". Purely a horizontal offset — it does not
+                // change this row's height, so the hero card's total height
+                // (and its protrusion into the cover) is unaffected.
+                const SizedBox(width: _logoDiameter + VelvetSpacing.md),
                 const Padding(
                   padding: EdgeInsets.only(top: 1),
                   child: Icon(

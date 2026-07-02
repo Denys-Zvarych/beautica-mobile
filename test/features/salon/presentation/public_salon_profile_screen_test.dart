@@ -797,6 +797,84 @@ void main() {
     );
   });
 
+  // Regression (user-reported): the location line used to start flush at
+  // the hero card's left edge, directly under the [SalonLogo] avatar —
+  // reading as "under the image" instead of a continuation of the identity
+  // block. It now carries a leading `SizedBox(width: _logoDiameter +
+  // VelvetSpacing.md)` so its icon lines up with the rating row's icon,
+  // both of which sit in the `Expanded` column to the right of the logo.
+  // The two rows (outer name/rating Row and the location Row) are direct
+  // siblings in the same `crossAxisAlignment: CrossAxisAlignment.start`
+  // Column, so their content starts at the same local x — this asserts
+  // that shared coordinate space actually lines up in the rendered tree,
+  // not just that the indentation constant matches the logo diameter on
+  // paper.
+  group('location line horizontal alignment', () {
+    testWidgets(
+      'address row icon aligns with the rating row icon, clear of the logo',
+      (tester) async {
+        await _pumpTall(tester);
+        const salonWithLocation = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          description: 'Затишний салон краси в серці Печерська.',
+          cityId: 'city-uuid-1',
+          street: 'вул. Хрещатик',
+          buildingNo: '22',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => salonWithLocation),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder heroCard = find.byKey(
+          const Key('salon-profile-hero-card'),
+        );
+        final Finder logoFinder = find.byType(SalonLogo);
+        final Finder ratingIcon = find.descendant(
+          of: heroCard,
+          matching: find.byIcon(Icons.star_rounded),
+        );
+        final Finder locationIcon = find.descendant(
+          of: heroCard,
+          matching: find.byIcon(Icons.location_on_outlined),
+        );
+        expect(logoFinder, findsOneWidget);
+        expect(ratingIcon, findsOneWidget);
+        expect(locationIcon, findsOneWidget);
+
+        final double logoLeft = tester.getTopLeft(logoFinder).dx;
+        final double ratingIconLeft = tester.getTopLeft(ratingIcon).dx;
+        final double locationIconLeft = tester.getTopLeft(locationIcon).dx;
+
+        expect(
+          locationIconLeft,
+          closeTo(ratingIconLeft, 0.5),
+          reason:
+              'the location icon must land at the SAME horizontal offset '
+              'as the rating row\'s star icon — both rows are indented by '
+              'exactly `_logoDiameter + VelvetSpacing.md` from the hero '
+              'card\'s content edge, so their icons must line up pixel-for'
+              '-pixel in the rendered tree.',
+        );
+        expect(
+          locationIconLeft - logoLeft,
+          greaterThan(60),
+          reason:
+              'the location icon must be clearly indented past the logo '
+              '(regression guard: it used to start flush at the logo\'s '
+              'left edge, i.e. locationIconLeft ≈ logoLeft, reading as '
+              '"under the image" instead of "under the rating").',
+        );
+      },
+    );
+  });
+
   // Regression: the location line briefly shared the rating row as a
   // `Flexible` sibling (commit 74e2e16), which removed an entire content
   // block from the hero card and shrank its natural height below
