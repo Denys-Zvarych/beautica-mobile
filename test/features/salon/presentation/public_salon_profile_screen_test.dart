@@ -259,6 +259,7 @@ void main() {
       expect(find.byKey(const Key('salon-book-cta')), findsOneWidget);
 
       final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      expect(find.text(l10n.salonBookingCta), findsOneWidget);
       expect(find.text(l10n.salonTabAbout), findsOneWidget);
       expect(find.text(l10n.salonTabMasters), findsOneWidget);
       expect(find.text(l10n.salonTabServices), findsOneWidget);
@@ -267,6 +268,53 @@ void main() {
       // About tab default body — the salon description.
       expect(find.byKey(const Key('salon-about-text')), findsOneWidget);
     });
+
+    // Regression: the hero name was hard-capped to `maxLines: 1` with
+    // ellipsis, silently truncating any salon name too long to fit — unlike
+    // the independent master profile's hero name, which wraps to 2 lines
+    // (public_master_profile_screen.dart:287-294). Guards against the cap
+    // being reintroduced.
+    testWidgets(
+      'long salon name wraps to 2 lines instead of being ellipsis-truncated',
+      (tester) async {
+        await _pumpTall(tester);
+        const String longName =
+            'Салон краси «Незабутня Досконалість Стилю та Гармонії»';
+        const longNameSalon = Salon(
+          id: _kSalonId,
+          name: longName,
+          description: 'Затишний салон краси в серці Печерська.',
+          city: 'Київ',
+          address: 'вул. Велика Васильківська, 44',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => longNameSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final nameFinder = find.byKey(const Key('salon-profile-name'));
+        expect(nameFinder, findsOneWidget);
+
+        final Text nameWidget = tester.widget<Text>(nameFinder);
+        expect(
+          nameWidget.maxLines,
+          2,
+          reason:
+              'the hero name must allow 2 lines, matching the master '
+              'profile hero card, instead of hard-capping at 1',
+        );
+        expect(
+          nameWidget.data,
+          longName,
+          reason: 'the full name must render, not be silently truncated',
+        );
+      },
+    );
   });
 
   // Regression: `PublicSalonResponse` gained taxonomy locality fields

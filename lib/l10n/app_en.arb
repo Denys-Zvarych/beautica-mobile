@@ -3295,7 +3295,7 @@
   "@salonReviewsEmpty": {
     "description": "Empty state on the \"Reviews\" tab when the salon has no reviews yet."
   },
-  "salonBookingCta": "Book at this salon",
+  "salonBookingCta": "Book a service",
   "@salonBookingCta": {
     "description": "Pinned bottom CTA on the public salon profile."
   },

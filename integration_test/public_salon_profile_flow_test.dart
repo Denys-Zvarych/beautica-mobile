@@ -318,6 +318,24 @@ void main() {
       expect(fb.lastAddFavoriteBody?['targetType'], 'SALON');
       expect(fb.lastAddFavoriteBody?['targetId'], 'salon-xyz');
 
+      // ── Tap the pinned booking-shelf CTA → push the booking-new route ─────
+      // Gap found during Step 2.7 Rule 3b review of the `salonBookingCta`
+      // copy rename (product copy: "Записатися в салон" → "Записатись на
+      // послугу"): the widget tier only proves the CTA *renders* with the
+      // current l10n string; nothing exercised its `onPressed` in a real
+      // navigation stack. Mirrors the existing coverage of the equivalent
+      // master-profile CTA in public_master_profile_flow_test.dart:151-158.
+      final Finder bookCta = find.byKey(const Key('salon-book-cta'));
+      expect(bookCta, findsOneWidget);
+      await tester.tap(bookCta);
+      // fixed-wait-ok: settles the real async route-push step after the tap.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      expectLocation(router, RouteNames.bookingNew);
+      router.pop();
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expectLocation(router, '/salons/salon-xyz');
+
       // ── CLIENT never touched a master-only or salon-owner-only endpoint ────
       expect(fb.getMasterCalls, 0);
     },

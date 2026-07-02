@@ -3295,7 +3295,7 @@
   "@salonReviewsEmpty": {
     "description": "Empty state on the \"Відгуки\" tab when the salon has no reviews yet."
   },
-  "salonBookingCta": "Записатися в салон",
+  "salonBookingCta": "Записатись на послугу",
   "@salonBookingCta": {
     "description": "Pinned bottom CTA on the public salon profile."
   },

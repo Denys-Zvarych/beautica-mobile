@@ -4,7 +4,7 @@
 // salon sibling of the Public Master Profile (Phase 13.5): same depth
 // language and widget vocabulary, but a distinct layout — a full-bleed cover
 // photo with an overlapping hero card, a 4-tab switcher (Про салон / Майстри
-// / Послуги / Відгуки), and a pinned "Записатися в салон" CTA — ported
+// / Послуги / Відгуки), and a pinned "Записатись на послугу" CTA — ported
 // verbatim from the approved preview at
 // `docs/signup-designs/PublicSalonProfile/lib/screens/public_salon_profile_screen.dart`.
 //
@@ -526,7 +526,8 @@ class _SalonHeroCard extends StatelessWidget {
                       salon.name,
                       key: const Key('salon-profile-name'),
                       style: VelvetText.displayName().copyWith(fontSize: 20),
-                      maxLines: 1,
+                      maxLines: 2,
+                      softWrap: true,
                       overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 5),
@@ -960,7 +961,7 @@ class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
 }
 
 // ---------------------------------------------------------------------------
-// _BookingShelf — pinned camel-wash «Записатися в салон» booking shelf
+// _BookingShelf — pinned camel-wash «Записатись на послугу» booking shelf
 // ---------------------------------------------------------------------------
 
 /// The pinned bottom booking shelf. Booking always happens through a specific
