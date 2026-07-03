@@ -3711,32 +3711,6 @@
   "@salonBookingServicesIntro": {
     "description": "Intro line under the top bar on the salon booking service-selection screen."
   },
-  "salonServiceSelectAllLabel": "Обрати всі",
-  "@salonServiceSelectAllLabel": {
-    "description": "Per-category select-all pill label when not every service in the category is selected yet."
-  },
-  "salonServiceClearAllLabel": "Прибрати всі",
-  "@salonServiceClearAllLabel": {
-    "description": "Per-category select-all pill label once every service in the category is selected (tapping clears the category)."
-  },
-  "salonServiceSelectAllSemantics": "{label}, обрано {selected} з {total}",
-  "@salonServiceSelectAllSemantics": {
-    "description": "Accessibility label for the per-category select-all pill.",
-    "placeholders": {
-      "label": {
-        "type": "String",
-        "example": "Обрати всі"
-      },
-      "selected": {
-        "type": "int",
-        "example": "1"
-      },
-      "total": {
-        "type": "int",
-        "example": "3"
-      }
-    }
-  },
   "salonBookingMastersTitle": "Майстри",
   "@salonBookingMastersTitle": {
     "description": "Top bar title on the salon booking flow's master-assignment screen (step 2 of 4)."

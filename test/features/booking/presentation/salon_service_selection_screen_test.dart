@@ -4,10 +4,14 @@
 //   1. Loading / error / empty-catalogue states.
 //   2. Category accordion expand/collapse.
 //   3. Multi-select toggling updates the pinned summary + total.
-//   4. SelectAllPill tri-state (select all / clear all / indeterminate on
-//      partial).
-//   5. "Далі" disabled with 0 selected, enabled ≥1, navigates to
+//   4. "Далі" disabled with 0 selected, enabled ≥1, navigates to
 //      /booking/salon/masters with the correct extra.
+//
+// The per-category tri-state "select all" pill this screen used to render
+// has been DELETED (product decision, part of unifying this screen's
+// catalogue accordion with `ServiceSelectorSheet`'s into
+// `widgets/service_catalogue_accordion.dart` — see that screen's file header
+// for the refactor note). There is no replacement affordance to cover here.
 
 import 'dart:async';
 
@@ -440,45 +444,6 @@ void main() {
         );
       },
     );
-
-    testWidgets('select-all pill: select all / clear all / indeterminate', (
-      tester,
-    ) async {
-      await tester.pumpRoutedApp(
-        _routerFor(),
-        overrides: [
-          salonServiceCatalogProvider(
-            _kSalonId,
-          ).overrideWith((ref) async => _stubCatalog),
-        ],
-      );
-      await tester.pumpAndSettle();
-
-      final selectAllKey = find.byKey(
-        const Key('salon-booking-category-select-all-Манікюр'),
-      );
-      expect(selectAllKey, findsOneWidget);
-
-      // Select all in "Манікюр".
-      await tester.tap(selectAllKey);
-      await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.check_box_rounded), findsOneWidget);
-
-      // Tapping again (now fully selected) clears the category.
-      await tester.tap(selectAllKey);
-      await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.check_box_outline_blank_rounded), findsWidgets);
-
-      // Select ONE of the two services manually -> indeterminate icon shows.
-      await tester.tap(
-        find.byKey(const Key('salon_booking_service_tile_svc-a1')),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        find.byIcon(Icons.indeterminate_check_box_rounded),
-        findsOneWidget,
-      );
-    });
   });
 
   group('Далі CTA', () {

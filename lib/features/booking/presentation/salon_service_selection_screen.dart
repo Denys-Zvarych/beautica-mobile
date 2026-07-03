@@ -20,14 +20,16 @@
 // `docs/signup-designs/SalonBookingServices/lib/screens/salon_services_screen.dart`
 // (2026-06-30). Transcribed 1:1: category accordions (an EXTRUDED header
 // pillow + camel chevron), a selection-as-depth check control (recessed well
-// → raised camel pillow), and the pinned booking-summary shelf. ONE
-// deliberate gap-fill beyond the preview (which the phase doc's acceptance
-// criteria require but the preview's actual widget code never implemented,
-// despite its gallery subtitle mentioning it): a tri-state per-category
-// "Обрати всі" / "Прибрати всі" / indeterminate select-all pill, added within
-// the same VelvetTouch/BrandColors token vocabulary as everything else on
-// this screen (`_SelectAllPill` below) — not a redesign, a gap the preview
-// under-delivered.
+// → raised camel pillow), and the pinned booking-summary shelf.
+//
+// REFACTOR NOTE: this screen originally added its own per-category tri-state
+// "Обрати всі" / "Прибрати всі" / indeterminate select-all pill
+// (`_SelectAllPill`) as a gap-fill beyond the approved preview. That pill has
+// since been DELETED (product decision, not a defect) as part of unifying
+// this screen's catalogue accordion with `ServiceSelectorSheet`'s
+// (independent-master flow) near-identical implementation into the shared
+// `widgets/service_catalogue_accordion.dart`. There is no replacement
+// affordance in that header slot.
 //
 // The staggered fade-up entrance choreography from the preview is
 // intentionally NOT ported, mirroring `ServiceSelectorSheet`'s (Phase 14.1)
@@ -67,6 +69,7 @@ import '../../salon/application/salon_service_catalog_notifier.dart';
 import '../../salon/domain/salon_service_catalog.dart';
 import '../domain/salon_booking_args.dart';
 import 'widgets/booking_summary_bar.dart';
+import 'widgets/service_catalogue_accordion.dart';
 
 /// Salon booking flow step 1 — multi-select service picker, opened by the
 /// "Записатись на послугу" CTA on the public salon profile.
@@ -83,18 +86,19 @@ class SalonServiceSelectionScreen extends ConsumerStatefulWidget {
 
 class _SalonServiceSelectionScreenState
     extends ConsumerState<SalonServiceSelectionScreen> {
-  // ValueNotifier (not a plain Set + setState field) so toggling one checkbox
-  // does not rebuild the whole screen — only the bottom summary bar and the
-  // category section the toggled tile lives in react. Mirrors
-  // ServiceSelectorSheet's mobile-perf pattern exactly.
-  final ValueNotifier<Set<String>> _selectedIdsNotifier =
-      ValueNotifier<Set<String>>(<String>{});
+  // Shared controller (not a plain Set + setState field) so toggling one
+  // checkbox does not rebuild the whole screen — only the bottom summary bar
+  // and the category section the toggled tile lives in react. Mirrors
+  // ServiceSelectorSheet's mobile-perf pattern exactly (both now delegate to
+  // the same `CatalogueSelectionController`).
+  final CatalogueSelectionController _selectionController =
+      CatalogueSelectionController();
   final Set<String> _expandedKeys = <String>{};
   bool _expandedSeeded = false;
 
   @override
   void dispose() {
-    _selectedIdsNotifier.dispose();
+    _selectionController.dispose();
     super.dispose();
   }
 
@@ -108,27 +112,10 @@ class _SalonServiceSelectionScreenState
     }
   }
 
-  void _toggleService(String id) {
-    final Set<String> next = Set<String>.of(_selectedIdsNotifier.value);
-    if (!next.remove(id)) next.add(id);
-    _selectedIdsNotifier.value = next;
-  }
-
   void _toggleExpand(String key) {
     setState(() {
       if (!_expandedKeys.remove(key)) _expandedKeys.add(key);
     });
-  }
-
-  /// Selects/clears every service id in [ids] as one atomic update.
-  void _setCategorySelection(List<String> ids, {required bool selected}) {
-    final Set<String> next = Set<String>.of(_selectedIdsNotifier.value);
-    if (selected) {
-      next.addAll(ids);
-    } else {
-      next.removeAll(ids);
-    }
-    _selectedIdsNotifier.value = next;
   }
 
   void _goNext(List<SalonCatalogService> selected) {
@@ -158,7 +145,7 @@ class _SalonServiceSelectionScreenState
             for (final SalonServiceCategoryEntry c in categories) ...c.services,
           ];
           return ValueListenableBuilder<Set<String>>(
-            valueListenable: _selectedIdsNotifier,
+            valueListenable: _selectionController,
             builder: (BuildContext context, Set<String> selectedIds, _) {
               final List<SalonCatalogService> selected = all
                   .where((SalonCatalogService s) => selectedIds.contains(s.id))
@@ -176,7 +163,8 @@ class _SalonServiceSelectionScreenState
                 // SalonCatalogService.id (see _toMasterService above), so
                 // this is the same toggle the catalogue checkbox uses — both
                 // removal paths converge on identical end-state.
-                onRemove: (MasterService s) => _toggleService(s.id),
+                onRemove: (MasterService s) =>
+                    _selectionController.toggleService(s.id),
               );
             },
           );
@@ -216,10 +204,9 @@ class _SalonServiceSelectionScreenState
                   return _CatalogueBody(
                     categories: categories,
                     expandedKeys: _expandedKeys,
-                    selectedIdsListenable: _selectedIdsNotifier,
-                    onToggleService: _toggleService,
+                    selectedIdsListenable: _selectionController,
+                    onToggleService: _selectionController.toggleService,
                     onToggleExpand: _toggleExpand,
-                    onSetCategorySelection: _setCategorySelection,
                   );
                 },
               ),
@@ -453,14 +440,39 @@ class _EmptyCatalogue extends StatelessWidget {
 // Catalogue body — category accordions (already grouped server-side)
 // ---------------------------------------------------------------------------
 
-class _CatalogueBody extends StatelessWidget {
+/// Pure display projection — [SalonCatalogService] → [CatalogueRow] — so the
+/// shared `widgets/service_catalogue_accordion.dart` widgets never depend on
+/// this feature's domain model.
+CatalogueRow _toCatalogueRow(SalonCatalogService s) => CatalogueRow(
+  id: s.id,
+  name: s.name,
+  categoryLabel: s.category ?? '',
+  durationLabel: s.durationLabel,
+  priceLabel: s.priceDisplay,
+);
+
+CatalogueCategoryGroup _toCatalogueCategoryGroup(
+  SalonServiceCategoryEntry entry,
+) => CatalogueCategoryGroup(
+  key: entry.category,
+  label: entry.displayName,
+  rows: <CatalogueRow>[
+    for (final SalonCatalogService s in entry.services) _toCatalogueRow(s),
+  ],
+);
+
+/// This screen never showed a plain count/selected badge in the header's
+/// trailing slot — that slot used to hold the now-deleted tri-state
+/// "select all" pill instead. See the shared widget's `showCountBadges`.
+Key _salonTileKeyForId(String id) => Key('salon_booking_service_tile_$id');
+
+class _CatalogueBody extends StatefulWidget {
   const _CatalogueBody({
     required this.categories,
     required this.expandedKeys,
     required this.selectedIdsListenable,
     required this.onToggleService,
     required this.onToggleExpand,
-    required this.onSetCategorySelection,
   });
 
   final List<SalonServiceCategoryEntry> categories;
@@ -468,12 +480,57 @@ class _CatalogueBody extends StatelessWidget {
   final ValueListenable<Set<String>> selectedIdsListenable;
   final ValueChanged<String> onToggleService;
   final ValueChanged<String> onToggleExpand;
-  final void Function(List<String> ids, {required bool selected})
-  onSetCategorySelection;
+
+  @override
+  State<_CatalogueBody> createState() => _CatalogueBodyState();
+}
+
+class _CatalogueBodyState extends State<_CatalogueBody> {
+  // Memoized mapping (mobile-perf finding): `_toCatalogueCategoryGroup`
+  // allocates a fresh `CatalogueCategoryGroup`/`CatalogueRow` graph on every
+  // build — including unrelated rebuilds like toggling a *different*
+  // category's expand/collapse, which re-runs this whole widget's build via
+  // the parent `State`'s `setState`. A fresh instance every time defeats
+  // `CatalogueCategorySection.didUpdateWidget`'s
+  // `identical(oldWidget.category, widget.category)` fast path, forcing every
+  // currently-expanded section to recompute its selection set even though its
+  // own underlying data never changed. Cache the mapped groups and only
+  // recompute when the source `categories` list's identity actually changes —
+  // mirrors `ServiceSelectorSheet`'s `_CatalogueBodyState._groupsFor`.
+  List<CatalogueCategoryGroup>? _cachedGroups;
+  List<SalonServiceCategoryEntry>? _cachedCategories;
+
+  List<CatalogueCategoryGroup> _groupsFor(
+    List<SalonServiceCategoryEntry> categories,
+  ) {
+    final List<CatalogueCategoryGroup>? cached = _cachedGroups;
+    if (cached != null && identical(_cachedCategories, categories)) {
+      return cached;
+    }
+    final List<CatalogueCategoryGroup> groups = <CatalogueCategoryGroup>[
+      for (final SalonServiceCategoryEntry entry in categories)
+        _toCatalogueCategoryGroup(entry),
+    ];
+    _cachedGroups = groups;
+    _cachedCategories = categories;
+    return groups;
+  }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final List<CatalogueCategoryGroup> groups = _groupsFor(widget.categories);
+    String headerSemantics({
+      required String label,
+      required int count,
+      required int selectedCount,
+      required bool expanded,
+    }) {
+      final String state = expanded
+          ? l10n.salonServiceCategoryExpanded
+          : l10n.salonServiceCategoryCollapsed;
+      return l10n.salonServiceCategoryHeaderSemanticLabel(label, count, state);
+    }
 
     return CustomScrollView(
       physics: const BouncingScrollPhysics(),
@@ -500,487 +557,26 @@ class _CatalogueBody extends StatelessWidget {
             VelvetSpacing.xxl,
           ),
           sliver: SliverList.separated(
-            itemCount: categories.length,
+            itemCount: groups.length,
             separatorBuilder: (BuildContext context, int i) =>
                 const SizedBox(height: VelvetSpacing.md),
-            itemBuilder: (BuildContext context, int i) => _CategorySection(
-              key: Key('salon_booking_category_${categories[i].category}'),
-              category: categories[i],
-              expanded: expandedKeys.contains(categories[i].category),
-              selectedIdsListenable: selectedIdsListenable,
-              onToggleExpand: () => onToggleExpand(categories[i].category),
-              onToggleService: onToggleService,
-              onSetCategorySelection: onSetCategorySelection,
-            ),
+            itemBuilder: (BuildContext context, int i) =>
+                CatalogueCategorySection(
+                  key: Key('salon_booking_category_${groups[i].key}'),
+                  category: groups[i],
+                  expanded: widget.expandedKeys.contains(groups[i].key),
+                  selectedIdsListenable: widget.selectedIdsListenable,
+                  onToggleExpand: () => widget.onToggleExpand(groups[i].key),
+                  onToggleService: widget.onToggleService,
+                  headerSemanticsLabel: headerSemantics,
+                  tileKeyForId: _salonTileKeyForId,
+                  headerVerticalPadding: VelvetSpacing.sm + 4,
+                  headerKey: Key('salon-booking-category-${groups[i].label}'),
+                  showCountBadges: false,
+                ),
           ),
         ),
       ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Category accordion section
-// ---------------------------------------------------------------------------
-
-class _CategorySection extends StatefulWidget {
-  const _CategorySection({
-    super.key,
-    required this.category,
-    required this.expanded,
-    required this.selectedIdsListenable,
-    required this.onToggleExpand,
-    required this.onToggleService,
-    required this.onSetCategorySelection,
-  });
-
-  final SalonServiceCategoryEntry category;
-  final bool expanded;
-  final ValueListenable<Set<String>> selectedIdsListenable;
-  final VoidCallback onToggleExpand;
-  final ValueChanged<String> onToggleService;
-  final void Function(List<String> ids, {required bool selected})
-  onSetCategorySelection;
-
-  @override
-  State<_CategorySection> createState() => _CategorySectionState();
-}
-
-class _CategorySectionState extends State<_CategorySection> {
-  late Set<String> _selectedInGroup;
-
-  List<String> get _allIds => <String>[
-    for (final SalonCatalogService s in widget.category.services) s.id,
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedInGroup = _computeSelectedInGroup();
-    widget.selectedIdsListenable.addListener(_handleSelectionChanged);
-  }
-
-  @override
-  void didUpdateWidget(covariant _CategorySection oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedIdsListenable != widget.selectedIdsListenable) {
-      oldWidget.selectedIdsListenable.removeListener(_handleSelectionChanged);
-      widget.selectedIdsListenable.addListener(_handleSelectionChanged);
-      _selectedInGroup = _computeSelectedInGroup();
-    } else if (!identical(oldWidget.category, widget.category)) {
-      _selectedInGroup = _computeSelectedInGroup();
-    }
-  }
-
-  @override
-  void dispose() {
-    widget.selectedIdsListenable.removeListener(_handleSelectionChanged);
-    super.dispose();
-  }
-
-  Set<String> _computeSelectedInGroup() {
-    final Set<String> selected = widget.selectedIdsListenable.value;
-    return <String>{
-      for (final SalonCatalogService s in widget.category.services)
-        if (selected.contains(s.id)) s.id,
-    };
-  }
-
-  void _handleSelectionChanged() {
-    final Set<String> next = _computeSelectedInGroup();
-    if (setEquals(next, _selectedInGroup)) return;
-    setState(() => _selectedInGroup = next);
-  }
-
-  void _handleSelectAll() {
-    final bool allSelected =
-        _selectedInGroup.length == widget.category.services.length &&
-        widget.category.services.isNotEmpty;
-    widget.onSetCategorySelection(_allIds, selected: !allSelected);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final SalonServiceCategoryEntry cat = widget.category;
-    final bool expanded = widget.expanded;
-    final int selectedInCat = _selectedInGroup.length;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        _CategoryHeader(
-          label: cat.displayName,
-          count: cat.services.length,
-          selectedCount: selectedInCat,
-          expanded: expanded,
-          onTap: widget.onToggleExpand,
-          onSelectAll: _handleSelectAll,
-        ),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topCenter,
-          child: expanded
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    for (final SalonCatalogService s in cat.services)
-                      Padding(
-                        padding: const EdgeInsets.only(top: VelvetSpacing.md),
-                        child: _ServiceSelectTile(
-                          key: Key('salon_booking_service_tile_${s.id}'),
-                          service: s,
-                          selected: _selectedInGroup.contains(s.id),
-                          onToggle: () => widget.onToggleService(s.id),
-                        ),
-                      ),
-                  ],
-                )
-              : const SizedBox(width: double.infinity, height: 0),
-        ),
-      ],
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Category header + select-all pill + camel chevron
-// ---------------------------------------------------------------------------
-
-class _CategoryHeader extends StatelessWidget {
-  const _CategoryHeader({
-    required this.label,
-    required this.count,
-    required this.selectedCount,
-    required this.expanded,
-    required this.onTap,
-    required this.onSelectAll,
-  });
-
-  final String label;
-  final int count;
-  final int selectedCount;
-  final bool expanded;
-  final VoidCallback onTap;
-  final VoidCallback onSelectAll;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final String state = expanded
-        ? l10n.salonServiceCategoryExpanded
-        : l10n.salonServiceCategoryCollapsed;
-    final String semanticsLabel = l10n.salonServiceCategoryHeaderSemanticLabel(
-      label,
-      count,
-      state,
-    );
-
-    return Semantics(
-      button: true,
-      header: true,
-      expanded: expanded,
-      label: semanticsLabel,
-      child: GestureDetector(
-        key: Key('salon-booking-category-$label'),
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: VelvetSpacing.md,
-            vertical: VelvetSpacing.sm + 4,
-          ),
-          decoration: BoxDecoration(
-            color: BrandColors.base,
-            borderRadius: BorderRadius.circular(VelvetRadii.card),
-            boxShadow: VelvetShadows.extrudedCard,
-          ),
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  label,
-                  style: VelvetText.subheading().copyWith(fontSize: 16),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: VelvetSpacing.sm),
-              _SelectAllPill(
-                categoryLabel: label,
-                selected: selectedCount,
-                total: count,
-                onTap: onSelectAll,
-              ),
-              const SizedBox(width: VelvetSpacing.sm),
-              AnimatedRotation(
-                turns: expanded ? 0.0 : -0.25,
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOutCubic,
-                child: const Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  size: 22,
-                  color: BrandColors.accent,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Per-category tri-state select-all pill — the phase-doc-mandated affordance
-/// the approved preview's gallery blurb promised ("мультивибір + «Обрати
-/// всі»") but its actual widget code never implemented. Added within the same
-/// extruded-pillow vocabulary as the sibling [_CountBadge] it replaces on
-/// this (selectable) screen — the read-only accordion on the public salon
-/// profile keeps its own plain count badge unchanged.
-///
-/// Nested inside [_CategoryHeader]'s outer `GestureDetector` (which toggles
-/// expand/collapse): Flutter's gesture arena resolves nested `GestureDetector`
-/// taps to whichever recognizer was hit-tested first (innermost), so a tap
-/// squarely on this pill fires ONLY [onTap] here, never the header's expand
-/// toggle.
-class _SelectAllPill extends StatelessWidget {
-  const _SelectAllPill({
-    required this.categoryLabel,
-    required this.selected,
-    required this.total,
-    required this.onTap,
-  });
-
-  /// The owning category's display label — used ONLY to key this pill
-  /// uniquely per category (multiple categories render side-by-side in the
-  /// same accordion, so a fixed literal key would duplicate across them).
-  final String categoryLabel;
-  final int selected;
-  final int total;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final bool allSelected = total > 0 && selected == total;
-    final bool none = selected == 0;
-    final IconData icon = allSelected
-        ? Icons.check_box_rounded
-        : none
-        ? Icons.check_box_outline_blank_rounded
-        : Icons.indeterminate_check_box_rounded;
-    final String label = allSelected
-        ? l10n.salonServiceClearAllLabel
-        : l10n.salonServiceSelectAllLabel;
-    final Color tint = none ? BrandColors.muted : BrandColors.accentDeep;
-
-    return Semantics(
-      button: true,
-      label: l10n.salonServiceSelectAllSemantics(label, selected, total),
-      child: GestureDetector(
-        key: Key('salon-booking-category-select-all-$categoryLabel'),
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: VelvetSpacing.sm,
-            vertical: 3,
-          ),
-          decoration: BoxDecoration(
-            color: BrandColors.base,
-            borderRadius: BorderRadius.circular(VelvetRadii.pill),
-            boxShadow: VelvetShadows.extrudedSmall,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(icon, size: 15, color: tint),
-              const SizedBox(width: 3),
-              Text(
-                label,
-                style: VelvetText.feedback(
-                  tint,
-                ).copyWith(fontSize: 11.5, fontWeight: FontWeight.w800),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Selectable service tile + depth check control
-// ---------------------------------------------------------------------------
-
-class _CheckControl extends StatelessWidget {
-  const _CheckControl({required this.selected});
-
-  final bool selected;
-
-  static const double _size = 30;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: _size,
-      width: _size,
-      child: selected
-          ? AnimatedScale(
-              scale: 1,
-              duration: const Duration(milliseconds: 260),
-              curve: Curves.elasticOut,
-              child: Container(
-                key: const ValueKey<bool>(true),
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: <Color>[
-                      BrandColors.accentLatte,
-                      BrandColors.accentDeep,
-                    ],
-                  ),
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: Color(0xFF8C6A44),
-                      offset: Offset(2, 2),
-                      blurRadius: 5,
-                      spreadRadius: -1,
-                    ),
-                    BoxShadow(
-                      color: BrandColors.shadowLightStrong,
-                      offset: Offset(-2, -2),
-                      blurRadius: 5,
-                      spreadRadius: -1,
-                    ),
-                  ],
-                ),
-                child: const Center(
-                  child: Icon(
-                    Icons.check_rounded,
-                    size: 18,
-                    color: BrandColors.white,
-                  ),
-                ),
-              ),
-            )
-          : const NeumorphicInset(
-              radius: 999,
-              child: SizedBox(height: _size, width: _size),
-            ),
-    );
-  }
-}
-
-class _ServiceSelectTile extends StatefulWidget {
-  const _ServiceSelectTile({
-    super.key,
-    required this.service,
-    required this.selected,
-    required this.onToggle,
-  });
-
-  final SalonCatalogService service;
-  final bool selected;
-  final VoidCallback onToggle;
-
-  @override
-  State<_ServiceSelectTile> createState() => _ServiceSelectTileState();
-}
-
-class _ServiceSelectTileState extends State<_ServiceSelectTile> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final SalonCatalogService s = widget.service;
-    final bool sel = widget.selected;
-
-    return Semantics(
-      button: true,
-      checked: sel,
-      label: l10n.bookingServiceTileSemantics(
-        s.name,
-        s.durationLabel,
-        s.priceDisplay,
-      ),
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) {
-          setState(() => _pressed = false);
-          widget.onToggle();
-        },
-        child: AnimatedScale(
-          scale: _pressed ? 0.985 : 1,
-          duration: const Duration(milliseconds: 110),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            decoration: BoxDecoration(
-              color: sel ? const Color(0xFFEDE4D5) : BrandColors.base,
-              borderRadius: BorderRadius.circular(VelvetRadii.field),
-              boxShadow: _pressed ? null : VelvetShadows.extrudedSmall,
-            ),
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.sm + 4,
-              vertical: VelvetSpacing.sm + 2,
-            ),
-            child: Row(
-              children: <Widget>[
-                _CheckControl(selected: sel),
-                const SizedBox(width: VelvetSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text(
-                        s.name,
-                        style: VelvetText.bodyStrong(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 3),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          const Icon(
-                            Icons.schedule_outlined,
-                            size: 12,
-                            color: BrandColors.muted,
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            s.durationLabel,
-                            style: VelvetText.feedback(
-                              BrandColors.muted,
-                            ).copyWith(fontSize: 12),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: VelvetSpacing.sm),
-                Text(
-                  s.priceDisplay,
-                  style: VelvetText.bodyStrong().copyWith(
-                    color: BrandColors.accentDeep,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
