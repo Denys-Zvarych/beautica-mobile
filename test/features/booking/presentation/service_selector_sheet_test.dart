@@ -259,6 +259,12 @@ void main() {
       await tester.tap(find.byKey(const Key('booking_service_tile_svc-mani')));
       await tester.pumpAndSettle();
 
+      // The itemized list is collapsed by default — expand the summary
+      // shelf's toggle before asserting the selected service's name is
+      // rendered there.
+      await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
+      await tester.pumpAndSettle();
+
       // The selected service's name now appears in the pinned summary shelf
       // (in addition to the catalogue tile itself, hence scoping the finder).
       // i18n-finder-ok: _kManicure.name is fixture data, not UI copy.

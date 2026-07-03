@@ -31,7 +31,13 @@ import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 /// The pinned booking-summary shelf shared by every screen of the booking
 /// flow. Carries the "Послуги та ціни" list + "Разом" total + primary CTA, and
 /// (when [showChosenWindow] is true) a chosen-appointment-window block.
-class BookingSummaryBar extends StatelessWidget {
+///
+/// The itemized selected-service list is collapsed by default behind a
+/// tap-to-expand toggle on the label row — with several services selected it
+/// used to always reserve up to [_listMaxHeight] of vertical space, crowding
+/// the screen. The "Разом" total and primary CTA always stay visible
+/// regardless of the toggle state; only the itemized list is gated.
+class BookingSummaryBar extends StatefulWidget {
   const BookingSummaryBar({
     super.key,
     required this.services,
@@ -71,12 +77,41 @@ class BookingSummaryBar extends StatelessWidget {
   static const Color _shelfSurface = Color(0xFFEDE4D5);
 
   @override
+  State<BookingSummaryBar> createState() => _BookingSummaryBarState();
+}
+
+class _BookingSummaryBarState extends State<BookingSummaryBar> {
+  /// Ephemeral UI-only state — purely a display toggle for the itemized
+  /// list, so it does not need a Riverpod provider. Always collapsed on
+  /// first build, regardless of selection size (uniform, predictable
+  /// behaviour across all three host screens).
+  ///
+  /// Held in a [ValueNotifier] + narrow [ValueListenableBuilder] (mobile-perf
+  /// finding) rather than a plain `bool` `State` field driving `setState`:
+  /// an expand/collapse tap used to re-run the ENTIRE `_populatedChildren()`
+  /// method, rebuilding `_TotalRow`/`_ChosenWindow`/the CTA button even
+  /// though none of their inputs changed. Now only the toggle row + itemized
+  /// list rebuild per tap; the rest of `_populatedChildren()` is built once
+  /// per actual widget-config change. Mirrors the same idiom already used in
+  /// `service_selector_sheet.dart` (`_selectedIdsNotifier` /
+  /// `ValueListenableBuilder<Set<String>>`) for its own bottom-shelf rebuild.
+  final ValueNotifier<bool> _expandedNotifier = ValueNotifier<bool>(false);
+
+  void _toggleExpanded() => _expandedNotifier.value = !_expandedNotifier.value;
+
+  @override
+  void dispose() {
+    _expandedNotifier.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final bool hasSelection = services.isNotEmpty;
+    final bool hasSelection = widget.services.isNotEmpty;
     return Container(
       decoration: const BoxDecoration(
-        color: _shelfSurface,
+        color: BookingSummaryBar._shelfSurface,
         borderRadius: BorderRadius.vertical(
           top: Radius.circular(VelvetRadii.card),
         ),
@@ -128,49 +163,106 @@ class BookingSummaryBar extends StatelessWidget {
       const SizedBox(height: VelvetSpacing.md),
       NeumorphicButton(
         key: const Key('booking-summary-cta'),
-        label: ctaLabel,
-        icon: ctaIcon,
+        label: widget.ctaLabel,
+        icon: widget.ctaIcon,
         onPressed: null,
       ),
     ];
   }
 
   List<Widget> _populatedChildren(BuildContext context, AppLocalizations l10n) {
-    final _BookingTotals totals = _BookingTotals.from(services);
+    final _BookingTotals totals = _BookingTotals.from(widget.services);
     return <Widget>[
-      Padding(
-        padding: const EdgeInsets.only(bottom: VelvetSpacing.sm),
-        child: Row(
-          children: <Widget>[
-            Text(
-              l10n.publicMasterBookingSectionLabel,
-              style: VelvetText.sectionLabel(),
-            ),
-            const Spacer(),
-            Text(
-              formatServiceCountUk(services.length),
-              style: VelvetText.feedback(
-                BrandColors.muted,
-              ).copyWith(fontSize: 12),
-            ),
-          ],
-        ),
-      ),
-      ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: _listMaxHeight),
-        child: SingleChildScrollView(
-          padding: EdgeInsets.zero,
-          child: Column(
+      // Narrow ValueListenable watch (mobile-perf finding): only this toggle
+      // row + the itemized list rebuild on an expand/collapse tap. The
+      // `_TotalRow`/`_ChosenWindow`/CTA button below stay out of this
+      // builder, so they are built once per actual widget-config change
+      // rather than on every tap.
+      ValueListenableBuilder<bool>(
+        valueListenable: _expandedNotifier,
+        builder: (BuildContext context, bool expanded, _) {
+          final String toggleSemantics = expanded
+              ? l10n.bookingSummaryCollapseLabel
+              : l10n.bookingSummaryExpandLabel;
+          return Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              for (int i = 0; i < services.length; i++) ...<Widget>[
-                _SelectionEntry(service: services[i]),
-                if (i < services.length - 1)
-                  const SizedBox(height: VelvetSpacing.md - 4),
-              ],
+              Semantics(
+                button: true,
+                expanded: expanded,
+                label: toggleSemantics,
+                child: GestureDetector(
+                  key: const Key('booking-summary-expand-toggle'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _toggleExpanded,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: VelvetSpacing.sm),
+                    child: Row(
+                      children: <Widget>[
+                        Text(
+                          l10n.publicMasterBookingSectionLabel,
+                          style: VelvetText.sectionLabel(),
+                        ),
+                        const Spacer(),
+                        Text(
+                          formatServiceCountUk(widget.services.length),
+                          style: VelvetText.feedback(
+                            BrandColors.muted,
+                          ).copyWith(fontSize: 12),
+                        ),
+                        const SizedBox(width: VelvetSpacing.xs),
+                        AnimatedRotation(
+                          turns: expanded ? 0.5 : 0.0,
+                          duration: const Duration(milliseconds: 200),
+                          curve: Curves.easeOutCubic,
+                          child: const Icon(
+                            Icons.expand_more_rounded,
+                            size: 20,
+                            color: BrandColors.muted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.topCenter,
+                // The itemized list is only built while expanded — collapsed,
+                // it no longer reserves the up-to-`_listMaxHeight` shelf
+                // space that used to crowd the screen once several services
+                // were selected.
+                child: expanded
+                    ? ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxHeight: BookingSummaryBar._listMaxHeight,
+                        ),
+                        child: SingleChildScrollView(
+                          padding: EdgeInsets.zero,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              for (
+                                int i = 0;
+                                i < widget.services.length;
+                                i++
+                              ) ...<Widget>[
+                                _SelectionEntry(service: widget.services[i]),
+                                if (i < widget.services.length - 1)
+                                  const SizedBox(height: VelvetSpacing.md - 4),
+                              ],
+                            ],
+                          ),
+                        ),
+                      )
+                    : const SizedBox(width: double.infinity, height: 0),
+              ),
             ],
-          ),
-        ),
+          );
+        },
       ),
       const SizedBox(height: VelvetSpacing.md),
       Container(height: 1, color: BrandColors.faint.withValues(alpha: 0.5)),
@@ -181,15 +273,15 @@ class BookingSummaryBar extends StatelessWidget {
         duration: totals.durationLabel,
       ),
       const SizedBox(height: VelvetSpacing.md),
-      if (showChosenWindow) ...<Widget>[
-        _ChosenWindow(l10n: l10n, label: chosenWindowLabel),
+      if (widget.showChosenWindow) ...<Widget>[
+        _ChosenWindow(l10n: l10n, label: widget.chosenWindowLabel),
         const SizedBox(height: VelvetSpacing.md),
       ],
       NeumorphicButton(
         key: const Key('booking-summary-cta'),
-        label: ctaLabel,
-        icon: ctaIcon,
-        onPressed: enabled ? onAction : null,
+        label: widget.ctaLabel,
+        icon: widget.ctaIcon,
+        onPressed: widget.enabled ? widget.onAction : null,
       ),
     ];
   }

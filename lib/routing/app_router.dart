@@ -436,7 +436,7 @@ GoRouter appRouter(Ref ref) {
         ),
       ),
       // Phase 14.1 — booking flow Step 1 (service selection). The public
-      // master profile's «Записатись» / «Обрати послугу» CTA pushes here with
+      // master profile's «Записатись до майстра» CTA pushes here with
       // the target master id (a bare String) in `extra`. CLIENT-guarded like
       // the profile route. Swaps the former `BookingNewPlaceholderScreen`
       // placeholder for the real `ServiceSelectorSheet`.

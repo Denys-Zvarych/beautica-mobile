@@ -82,7 +82,7 @@ abstract final class RouteNames {
       '/salons/${Uri.encodeComponent(salonId)}';
 
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
-  /// public master profile's «Записатись» / «Обрати послугу» CTA with the
+  /// public master profile's «Записатись до майстра» CTA with the
   /// target master id (a bare `String`) in `GoRouterState.extra`. Renders
   /// `ServiceSelectorSheet`, CLIENT-guarded. This constant is the single
   /// source of truth for the CTA's nav target.

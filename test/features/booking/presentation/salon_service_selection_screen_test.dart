@@ -261,6 +261,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // The itemized list is collapsed by default — expand the summary
+      // shelf's toggle before asserting the selected service also renders
+      // there (in addition to the catalogue row).
+      await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
+      await tester.pumpAndSettle();
+
       // The selected service's name now also appears in the pinned summary
       // list (in addition to the catalogue row) — at least 2 instances.
       // i18n-finder-ok: fixture service name (test data), not app UI copy.

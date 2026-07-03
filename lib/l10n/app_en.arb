@@ -3235,7 +3235,7 @@
   "@publicMasterBookingEmptyPrompt": {
     "description": "Empty-state prompt inside the booking shelf before any service is chosen."
   },
-  "publicMasterBookingCta": "Choose a service",
+  "publicMasterBookingCta": "Book with master",
   "@publicMasterBookingCta": {
     "description": "Primary CTA in the booking shelf empty state; opens the Phase 14.1 booking flow."
   },
@@ -3269,6 +3269,8 @@
   },
   "bookingTotalLabel": "Total",
   "bookingEmptySelectionPrompt": "Choose at least one service",
+  "bookingSummaryExpandLabel": "Show selected services",
+  "bookingSummaryCollapseLabel": "Hide selected services",
   "bookingNextCta": "Next",
   "bookingConfirmCta": "Confirm",
   "bookingChosenWindowLabel": "Booking:",

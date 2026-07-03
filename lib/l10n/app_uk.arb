@@ -3235,7 +3235,7 @@
   "@publicMasterBookingEmptyPrompt": {
     "description": "Empty-state prompt inside the booking shelf before any service is chosen."
   },
-  "publicMasterBookingCta": "Обрати послугу",
+  "publicMasterBookingCta": "Записатись до майстра",
   "@publicMasterBookingCta": {
     "description": "Primary CTA in the booking shelf empty state; opens the Phase 14.1 booking flow."
   },
@@ -3291,6 +3291,14 @@
   "bookingEmptySelectionPrompt": "Оберіть хоча б одну послугу",
   "@bookingEmptySelectionPrompt": {
     "description": "Muted prompt shown on the booking summary shelf before any service is selected."
+  },
+  "bookingSummaryExpandLabel": "Показати обрані послуги",
+  "@bookingSummaryExpandLabel": {
+    "description": "Accessibility label for the booking summary shelf's expand/collapse toggle when the itemized selected-service list is currently hidden."
+  },
+  "bookingSummaryCollapseLabel": "Приховати обрані послуги",
+  "@bookingSummaryCollapseLabel": {
+    "description": "Accessibility label for the booking summary shelf's expand/collapse toggle when the itemized selected-service list is currently shown."
   },
   "bookingNextCta": "Далі",
   "@bookingNextCta": {
