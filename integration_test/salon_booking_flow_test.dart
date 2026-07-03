@@ -46,8 +46,12 @@
 //
 // Step 2.7 Rule 3b: this is the real user journey (new screens + 3 new
 // routes + a keepAlive provider fanning a real HTTP call out over a real
-// roster) the widget tier cannot prove end to end.
+// roster) the widget tier cannot prove end to end. Also carries the ONLY
+// real-app exercise of `BookingSummaryBar`'s expand toggle + per-item "×"
+// remove affordance (mobile-qa audit, added alongside that feature) — see
+// the "Per-item remove affordance" block below.
 
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_booking_coming_soon_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
@@ -80,12 +84,8 @@ void main() {
     // is what go_router's own `ImperativeRouteMatch` uses internally and is
     // always the full absolute path (see `match.dart`), so it reflects the
     // real current screen regardless of shell nesting.
-    final String current = router
-        .routerDelegate
-        .currentConfiguration
-        .matches
-        .last
-        .matchedLocation;
+    final String current =
+        router.routerDelegate.currentConfiguration.matches.last.matchedLocation;
     expect(
       current,
       startsWith(expected),
@@ -150,7 +150,9 @@ void main() {
       // guaranteed to notify.
       position.jumpTo(position.pixels + 1);
       position.jumpTo(position.maxScrollExtent);
-      await AppHarness.settle(tester); // masters page 1 drains → masterHasMore=false
+      await AppHarness.settle(
+        tester,
+      ); // masters page 1 drains → masterHasMore=false
 
       final Finder salonCard = find.byKey(const Key('salon_card_salon-xyz'));
       expect(salonCard, findsOneWidget);
@@ -194,6 +196,81 @@ void main() {
       expect(exclusiveTile, findsOneWidget);
       await tester.tap(exclusiveTile);
       await AppHarness.settle(tester);
+
+      // ── Per-item "×" remove affordance (mobile-qa Rule 3b follow-up) ────
+      // Widget tests already prove this SECOND deselection path converges to
+      // the same state as unchecking the catalogue tile, but only against
+      // fully-stubbed providers. This is the ONE place in the suite that
+      // drives the real GestureDetector hit-test + Semantics node through a
+      // real routed screen with the real ValueListenableBuilder toggle —
+      // neither `salon_service_selection_screen_test.dart` nor this file
+      // previously tapped the expand toggle or the remove icon at all.
+      await tester.tap(find.byKey(const Key('booking-summary-expand-toggle')));
+      await AppHarness.settle(tester);
+      final Finder removeExclusive = find.byKey(
+        const Key('booking-summary-remove-salon-svc-exclusive'),
+      );
+      expect(removeExclusive, findsOneWidget);
+      await tester.tap(removeExclusive);
+      await AppHarness.settle(tester);
+
+      // The catalogue tile's own selection indicator reflects the removal —
+      // the two paths land on identical state in the real app, not just in
+      // an isolated widget test.
+      expect(
+        find.descendant(
+          of: exclusiveTile,
+          matching: find.byKey(const ValueKey<bool>(true)),
+        ),
+        findsNothing,
+        reason:
+            'removing salon-svc-exclusive via the shelf must deselect its '
+            'catalogue tile too — both paths drive the same _toggleService',
+      );
+
+      // mobile-qa gap: the assertion above only proves the REMOVED tile
+      // deselects — it can't distinguish that from a regression that wipes
+      // the whole selection set (both look identical once only one service
+      // was ever selected at a time). salon-svc-shared was also selected
+      // going into this removal, so re-check it explicitly survives, and
+      // that the CTA is still enabled off that lone survivor — in the REAL
+      // app, not an isolated widget test.
+      expect(
+        find.descendant(
+          of: sharedTile,
+          matching: find.byKey(const ValueKey<bool>(true)),
+        ),
+        findsOneWidget,
+        reason:
+            'removing salon-svc-exclusive via the shelf must NOT deselect '
+            'salon-svc-shared — a regression that clears the whole '
+            'selection instead of just the tapped id would slip past a '
+            'single-survivor-blind check',
+      );
+      expect(
+        tester
+            .widget<NeumorphicButton>(
+              find.byKey(const Key('booking-summary-cta')),
+            )
+            .onPressed,
+        isNotNull,
+        reason:
+            'salon-svc-shared remains selected — the "Далі" CTA must stay '
+            'enabled through the shelf-driven removal of the other service',
+      );
+
+      // Re-select it via the catalogue tile (the flow below needs both
+      // services selected) — this also proves the catalogue tap still works
+      // after a shelf-driven removal, i.e. the two triggers do not desync.
+      await tester.tap(exclusiveTile);
+      await AppHarness.settle(tester);
+      expect(
+        find.descendant(
+          of: exclusiveTile,
+          matching: find.byKey(const ValueKey<bool>(true)),
+        ),
+        findsOneWidget,
+      );
 
       // ── "Далі" → master assignment ──────────────────────────────────────
       final Finder nextCta = find.byKey(const Key('booking-summary-cta'));

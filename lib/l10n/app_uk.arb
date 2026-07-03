@@ -3323,6 +3323,13 @@
       "label": { "type": "String" }
     }
   },
+  "bookingRemoveServiceSemantics": "Прибрати «{serviceName}» зі списку",
+  "@bookingRemoveServiceSemantics": {
+    "description": "Accessibility label for the per-item remove ('x') control on an itemized selected-service entry in the booking summary shelf.",
+    "placeholders": {
+      "serviceName": { "type": "String" }
+    }
+  },
   "bookingDateScreenTitle": "Оберіть дату",
   "@bookingDateScreenTitle": {
     "description": "Top-bar title of the booking Step 2a date-picker screen."

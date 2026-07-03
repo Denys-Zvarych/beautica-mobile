@@ -171,6 +171,9 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
                 ctaIcon: Icons.arrow_forward_rounded,
                 enabled: selected.isNotEmpty,
                 onAction: () => _goNext(master, selected),
+                // Same toggle the catalogue checkbox uses, so both removal
+                // paths converge on identical end-state.
+                onRemove: (MasterService s) => _toggleService(s.id),
               );
             },
           );

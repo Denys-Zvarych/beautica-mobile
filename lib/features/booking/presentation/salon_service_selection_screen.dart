@@ -172,6 +172,11 @@ class _SalonServiceSelectionScreenState
                 ctaIcon: Icons.arrow_forward_rounded,
                 enabled: selected.isNotEmpty,
                 onAction: () => _goNext(selected),
+                // The mapped MasterService.id round-trips to the original
+                // SalonCatalogService.id (see _toMasterService above), so
+                // this is the same toggle the catalogue checkbox uses — both
+                // removal paths converge on identical end-state.
+                onRemove: (MasterService s) => _toggleService(s.id),
               );
             },
           );

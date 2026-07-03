@@ -3281,6 +3281,12 @@
       "label": { "type": "String" }
     }
   },
+  "bookingRemoveServiceSemantics": "Remove \"{serviceName}\" from the list",
+  "@bookingRemoveServiceSemantics": {
+    "placeholders": {
+      "serviceName": { "type": "String" }
+    }
+  },
   "bookingDateScreenTitle": "Choose a date",
   "bookingDateScreenIntro": "Choose a convenient date — we'll find a free time next.",
   "bookingCalendarPrevMonth": "Previous month",

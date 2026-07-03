@@ -11,8 +11,10 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_bar.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -274,6 +276,170 @@ void main() {
       // i18n-finder-ok: fixture price display (test data), not app UI copy.
       expect(find.text('300 грн'), findsWidgets);
     });
+
+    testWidgets(
+      'removing a service via the summary shelf converges to the same '
+      'deselected end-state as unchecking it in the catalogue',
+      (tester) async {
+        await tester.pumpRoutedApp(
+          _routerFor(),
+          overrides: [
+            salonServiceCatalogProvider(
+              _kSalonId,
+            ).overrideWith((ref) async => _stubCatalog),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('salon_booking_service_tile_svc-a1')),
+        );
+        await tester.pumpAndSettle();
+
+        // The catalogue tile now shows the "selected" depth-check face.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('salon_booking_service_tile_svc-a1')),
+            matching: find.byKey(const ValueKey<bool>(true)),
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(
+          find.byKey(const Key('booking-summary-expand-toggle')),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder removeButton = find.byKey(
+          const Key('booking-summary-remove-svc-a1'),
+        );
+        expect(removeButton, findsOneWidget);
+
+        await tester.tap(removeButton);
+        await tester.pumpAndSettle();
+
+        // i18n-finder-ok: fixture service name (test data), not app UI copy.
+        expect(find.text('Класичний манікюр'), findsOneWidget);
+        final NeumorphicButton cta = tester.widget<NeumorphicButton>(
+          find.byKey(const Key('booking-summary-cta')),
+        );
+        expect(cta.onPressed, isNull);
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('salon_booking_service_tile_svc-a1')),
+            matching: find.byKey(const ValueKey<bool>(true)),
+          ),
+          findsNothing,
+        );
+      },
+    );
+
+    // mobile-qa gap: the test above only ever drives selection down to
+    // EMPTY, so it cannot distinguish "remove just this one service" from a
+    // regression that wipes the WHOLE selection set — both produce an empty
+    // list either way. With 2 selected services (from two different
+    // categories), removing ONE via the shelf must leave the OTHER selected,
+    // the catalogue tile for the untouched one still checked, the CTA still
+    // enabled, and the total reflecting only the surviving service.
+    testWidgets(
+      'removing one of two selected services via the shelf leaves the '
+      'other selected, the CTA enabled, and the total updated',
+      (tester) async {
+        // A taller surface (mirrors service_selector_sheet_test.dart's
+        // approach): with 2 categories expanded plus the pinned summary
+        // shelf, the default 800×600 test canvas hides svc-b1's tile behind
+        // the shelf overlay, so a plain tap() misses it.
+        tester.view.physicalSize = const Size(800, 2000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpRoutedApp(
+          _routerFor(),
+          overrides: [
+            salonServiceCatalogProvider(
+              _kSalonId,
+            ).overrideWith((ref) async => _stubCatalog),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('salon_booking_service_tile_svc-a1')),
+        );
+        await tester.pumpAndSettle();
+        // Second category ("Педикюр") starts collapsed — expand it first.
+        await tester.tap(
+          find.byKey(const Key('salon-booking-category-Педикюр')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('salon_booking_service_tile_svc-b1')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('booking-summary-expand-toggle')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('booking-summary-remove-svc-a1')),
+        );
+        await tester.pumpAndSettle();
+
+        // The removed service's catalogue tile is deselected...
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('salon_booking_service_tile_svc-a1')),
+            matching: find.byKey(const ValueKey<bool>(true)),
+          ),
+          findsNothing,
+          reason: 'removing svc-a1 must deselect only svc-a1',
+        );
+        // ...but the OTHER selected service's catalogue tile survives —
+        // this is the assertion that would catch a "clear whole selection"
+        // regression, which the empty-down-to-zero test above cannot.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('salon_booking_service_tile_svc-b1')),
+            matching: find.byKey(const ValueKey<bool>(true)),
+          ),
+          findsOneWidget,
+          reason:
+              'removing svc-a1 via the shelf must NOT deselect svc-b1 — a '
+              'regression that clears the whole selection set instead of '
+              'just the tapped id would slip past a down-to-zero-only test',
+        );
+        // ...the CTA stays enabled (still 1 service selected)...
+        final NeumorphicButton cta = tester.widget<NeumorphicButton>(
+          find.byKey(const Key('booking-summary-cta')),
+        );
+        expect(
+          cta.onPressed,
+          isNotNull,
+          reason:
+              'one service (svc-b1) remains selected — CTA must stay '
+              'enabled',
+        );
+        // ...and the summary total now reflects ONLY the surviving
+        // svc-b1 (800 грн), not the stale sum of both.
+        // i18n-finder-ok: fixture price display (test data), not app UI copy.
+        expect(find.text('800 грн'), findsWidgets);
+        // ...the removed service's name disappears from the SHELF
+        // specifically — it still renders in the catalogue above (that tile
+        // is never removed from the list, only deselected), so the finder
+        // must be scoped to `BookingSummaryBar`, not the whole tree.
+        expect(
+          find.descendant(
+            of: find.byType(BookingSummaryBar),
+            // i18n-finder-ok: fixture service name (test data), not app UI copy.
+            matching: find.text('Класичний манікюр'),
+          ),
+          findsNothing,
+        );
+      },
+    );
 
     testWidgets('select-all pill: select all / clear all / indeterminate', (
       tester,

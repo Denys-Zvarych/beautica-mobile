@@ -47,6 +47,7 @@ class BookingSummaryBar extends StatefulWidget {
     required this.onAction,
     this.chosenWindowLabel,
     this.showChosenWindow = false,
+    this.onRemove,
   });
 
   /// The client's selected service(s) (0..n). Empty renders the muted
@@ -64,6 +65,18 @@ class BookingSummaryBar extends StatefulWidget {
 
   /// Fires when the (enabled) CTA is tapped.
   final VoidCallback onAction;
+
+  /// Fires when the client removes a service from the itemized list via its
+  /// per-item "×" affordance — a SECOND way to deselect a service, alongside
+  /// unchecking it in the catalogue above. Callers wire this to the exact
+  /// same toggle used by the catalogue tile (e.g. `_toggleService(id)`), so
+  /// both removal paths converge on identical end-state.
+  ///
+  /// `null` (the default) renders no remove affordance at all — this keeps
+  /// [SlotDateScreen]/[SlotTimeScreen] (which carry an immutable, already-past
+  /// selection step) visually unchanged, since there is nothing to wire a
+  /// removal to at that point in the flow.
+  final void Function(MasterService service)? onRemove;
 
   /// The chosen booked window, e.g. "вт, 14 лип · 14:00–18:30", or `null`
   /// when no slot is chosen yet. Only consulted when [showChosenWindow].
@@ -250,7 +263,14 @@ class _BookingSummaryBarState extends State<BookingSummaryBar> {
                                 i < widget.services.length;
                                 i++
                               ) ...<Widget>[
-                                _SelectionEntry(service: widget.services[i]),
+                                _SelectionEntry(
+                                  service: widget.services[i],
+                                  onRemove: widget.onRemove == null
+                                      ? null
+                                      : () => widget.onRemove!(
+                                          widget.services[i],
+                                        ),
+                                ),
                                 if (i < widget.services.length - 1)
                                   const SizedBox(height: VelvetSpacing.md - 4),
                               ],
@@ -359,12 +379,17 @@ class _ChosenWindow extends StatelessWidget {
   }
 }
 
-/// One 2-line selected-service entry: name + price on line one, duration on
-/// line two.
+/// One 2-line selected-service entry: name + price (+ optional remove
+/// affordance) on line one, duration on line two.
 class _SelectionEntry extends StatelessWidget {
-  const _SelectionEntry({required this.service});
+  const _SelectionEntry({required this.service, this.onRemove});
 
   final MasterService service;
+
+  /// Fires when the per-item "×" is tapped — `null` renders no remove
+  /// affordance at all, leaving this entry's layout identical to before the
+  /// removal feature existed (see [BookingSummaryBar.onRemove]).
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -379,8 +404,14 @@ class _SelectionEntry extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+            // `center` rather than `baseline`: [name] and [price] share the
+            // exact same `bodyStrong()` font metrics, so this is a no-op for
+            // them (center-aligning same-size text is pixel-identical to
+            // baseline-aligning it), but it also lets the optional
+            // [_RemoveButton] — a non-text child with no baseline of its own —
+            // lay out safely without relying on baseline-alignment's
+            // top-align-and-hope-it-fits fallback for non-text children.
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
               Expanded(
                 child: Text(
@@ -398,6 +429,10 @@ class _SelectionEntry extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                 ),
               ),
+              if (onRemove != null) ...<Widget>[
+                const SizedBox(width: VelvetSpacing.xs),
+                _RemoveButton(service: service, onRemove: onRemove!),
+              ],
             ],
           ),
           const SizedBox(height: 2),
@@ -419,6 +454,71 @@ class _SelectionEntry extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The per-item "×" remove affordance on an expanded [_SelectionEntry] — a
+/// second way to deselect a service, alongside unchecking it in the catalogue
+/// above. Mirrors the small icon-only tappable convention already used for
+/// `attachment_tray.dart`'s per-attachment remove control (`Semantics(button:
+/// true) → GestureDetector(key, opaque hit-test) → icon`), sized down to sit
+/// inline in this narrower row: a plain (undecorated) glyph tinted
+/// [BrandColors.muted] — matching this entry's other secondary element, the
+/// duration icon/text below — rather than that control's raised well, which
+/// would look out of place floating mid-row instead of on its own card face.
+///
+/// Tap target: a fixed 32×32dp `SizedBox` around the 16px glyph (mobile-qa
+/// audit finding) — NOT the `EdgeInsets.all(6)` (~28×28dp) this originally
+/// shipped with. 32×32 matches `attachment_tray.dart`'s per-row remove
+/// control, the established floor this codebase already uses for an inline
+/// per-row remove/close affordance (`interval_editor.dart`/
+/// `day_hours_sheet.dart` go up to 38×38, but those sit in a much roomier
+/// row). Still short of Material's 48dp *recommendation*, but this is a
+/// SECONDARY deselection path — the catalogue checkbox above remains the
+/// primary, larger-target way to deselect — and the entry `Row` auto-sizes
+/// to its tallest child, so bumping this does not encroach on the fixed gap
+/// to neighbouring entries.
+class _RemoveButton extends StatelessWidget {
+  const _RemoveButton({required this.service, required this.onRemove});
+
+  final MasterService service;
+  final VoidCallback onRemove;
+
+  static const double _tapTarget = 32;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final String name = _serviceLabel(service);
+    return Semantics(
+      // `container: true` (mobile-qa audit finding): without it, this
+      // explicit `button`/`label` config merges UPWARD into the ancestor
+      // `_SelectionEntry` Semantics node instead of forming its own — a
+      // screen-reader user would get ONE unreadable node concatenating the
+      // entry's name/duration/price AND "Прибрати «…» зі списку" together,
+      // with the entry's own tap action shadowed by this button's `onTap`.
+      // `container: true` forces this button to stay a distinct, separately
+      // reachable semantics node.
+      container: true,
+      button: true,
+      label: l10n.bookingRemoveServiceSemantics(name),
+      child: GestureDetector(
+        key: Key('booking-summary-remove-${service.id}'),
+        behavior: HitTestBehavior.opaque,
+        onTap: onRemove,
+        child: const SizedBox(
+          height: _tapTarget,
+          width: _tapTarget,
+          child: Center(
+            child: Icon(
+              Icons.close_rounded,
+              size: 16,
+              color: BrandColors.muted,
+            ),
+          ),
+        ),
       ),
     );
   }

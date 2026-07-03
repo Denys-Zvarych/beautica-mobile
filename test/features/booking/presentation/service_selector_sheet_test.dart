@@ -17,6 +17,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
@@ -276,6 +277,166 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets(
+      'removing a service via the summary shelf converges to the same '
+      'deselected end-state as unchecking it in the catalogue',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const ServiceSelectorSheet(masterId: _kMasterId),
+          overrides: _overrides((ref) => _twoCategoryData),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('booking_category_MANICURE')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('booking_service_tile_svc-mani')),
+        );
+        await tester.pumpAndSettle();
+
+        // The catalogue tile now shows the "selected" depth-check face.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('booking_service_tile_svc-mani')),
+            matching: find.byKey(const ValueKey<bool>(true)),
+          ),
+          findsOneWidget,
+        );
+
+        await tester.tap(
+          find.byKey(const Key('booking-summary-expand-toggle')),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder removeButton = find.byKey(
+          const Key('booking-summary-remove-svc-mani'),
+        );
+        expect(removeButton, findsOneWidget);
+
+        await tester.tap(removeButton);
+        await tester.pumpAndSettle();
+
+        // The itemized entry disappears from the summary shelf...
+        expect(
+          find.descendant(
+            of: find.byType(BookingSummaryBar),
+            matching: find.text(_kManicure.name),
+          ),
+          findsNothing,
+        );
+        // ...the CTA disables again, exactly as unchecking would produce...
+        final NeumorphicButton cta = tester.widget<NeumorphicButton>(
+          find.byKey(const Key('booking-summary-cta')),
+        );
+        expect(cta.onPressed, isNull);
+        // ...and the catalogue's own selection-depth control for the same
+        // service reflects the deselection too — both removal paths
+        // converge on identical end-state.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('booking_service_tile_svc-mani')),
+            matching: find.byKey(const ValueKey<bool>(true)),
+          ),
+          findsNothing,
+        );
+      },
+    );
+
+    // mobile-qa gap: the test above only ever drives selection down to
+    // EMPTY, so it cannot distinguish "remove just this one service" from a
+    // regression that wipes the WHOLE selection set — both produce an empty
+    // list either way. With both services selected, removing ONE via the
+    // shelf must leave the OTHER selected, its catalogue tile still checked,
+    // and the CTA still enabled.
+    testWidgets(
+      'removing one of two selected services via the shelf leaves the '
+      'other selected and the CTA enabled',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const ServiceSelectorSheet(masterId: _kMasterId),
+          overrides: _overrides((ref) => _twoCategoryData),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('booking_category_MANICURE')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('booking_service_tile_svc-mani')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('booking_category_PEDICURE')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('booking_service_tile_svc-pedi')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('booking-summary-expand-toggle')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('booking-summary-remove-svc-mani')),
+        );
+        await tester.pumpAndSettle();
+
+        // The removed service's catalogue tile is deselected...
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('booking_service_tile_svc-mani')),
+            matching: find.byKey(const ValueKey<bool>(true)),
+          ),
+          findsNothing,
+          reason: 'removing svc-mani must deselect only svc-mani',
+        );
+        // ...but the OTHER selected service's catalogue tile survives —
+        // this is the assertion that would catch a "clear whole selection"
+        // regression, which the empty-down-to-zero test above cannot.
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('booking_service_tile_svc-pedi')),
+            matching: find.byKey(const ValueKey<bool>(true)),
+          ),
+          findsOneWidget,
+          reason:
+              'removing svc-mani via the shelf must NOT deselect svc-pedi — '
+              'a regression that clears the whole selection set instead of '
+              'just the tapped id would slip past a down-to-zero-only test',
+        );
+        // ...and the itemized shelf still carries the surviving service.
+        expect(
+          find.descendant(
+            of: find.byType(BookingSummaryBar),
+            matching: find.text(_kPedicure.name),
+          ),
+          findsOneWidget,
+        );
+        // ...the CTA stays enabled (still 1 service selected).
+        final NeumorphicButton cta = tester.widget<NeumorphicButton>(
+          find.byKey(const Key('booking-summary-cta')),
+        );
+        expect(
+          cta.onPressed,
+          isNotNull,
+          reason:
+              'one service (svc-pedi) remains selected — CTA must stay '
+              'enabled',
+        );
+      },
+    );
   });
 
   group('navigation', () {
