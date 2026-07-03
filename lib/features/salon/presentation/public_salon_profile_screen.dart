@@ -1299,10 +1299,12 @@ class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
 // _BookingShelf — pinned camel-wash «Записатись на послугу» booking shelf
 // ---------------------------------------------------------------------------
 
-/// The pinned bottom booking shelf. Booking always happens through a specific
-/// master, but this salon-level CTA is the entry point into the (future)
-/// combined service/master picker; until that ships it opens the same
-/// booking placeholder route the public master profile uses.
+/// The pinned bottom booking shelf. A salon booking is fundamentally
+/// different from a single-master booking (multi-service selection against
+/// the salon's FULL catalogue → per-service master assignment → N
+/// appointments across possibly-different masters), so this CTA routes into
+/// the dedicated salon booking flow (Phase 14.12) rather than the
+/// independent-master flow.
 class _BookingShelf extends StatelessWidget {
   const _BookingShelf({required this.salon});
 
@@ -1347,7 +1349,7 @@ class _BookingShelf extends StatelessWidget {
             label: l10n.salonBookingCta,
             icon: Icons.event_available_rounded,
             onPressed: () =>
-                context.push(RouteNames.bookingNew, extra: salon.id),
+                context.push(RouteNames.salonBookingServices, extra: salon.id),
           ),
         ),
       ),

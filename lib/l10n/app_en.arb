@@ -3304,6 +3304,39 @@
       "masterRole": { "type": "String" }
     }
   },
+  "bookingConfirmScreenTitle": "Booking confirmation",
+  "bookingConfirmBackSemantics": "Cancel booking",
+  "bookingAddressLabel": "Address",
+  "bookingAddressUnknown": "Address not specified",
+  "bookingDateLabel": "Date",
+  "bookingTimeLabel": "Time",
+  "bookingServicesRecapLabel": "Services",
+  "bookingTotalSemantics": "Total {duration} {price}",
+  "@bookingTotalSemantics": {
+    "placeholders": {
+      "duration": { "type": "String" },
+      "price": { "type": "String" }
+    }
+  },
+  "bookingCommentLabel": "Note for the specialist",
+  "bookingCommentHint": "Optional",
+  "bookingSubmitCta": "Book now",
+  "bookingSubmitCtaLoading": "Submitting…",
+  "bookingSummaryMasterSemantics": "Booking with master: {name}, {role}. Rating {rating}, {reviews}",
+  "@bookingSummaryMasterSemantics": {
+    "placeholders": {
+      "name": { "type": "String" },
+      "role": { "type": "String" },
+      "rating": { "type": "String" },
+      "reviews": { "type": "String" }
+    }
+  },
+  "bookingSuccessTitle": "Booked!",
+  "bookingSuccessSubline": "The specialist will confirm your booking shortly.\nYou'll get a notification as soon as they respond.",
+  "bookingSuccessAddCalendarCta": "Add to calendar",
+  "bookingAddCalendarSemantics": "Add booking to calendar",
+  "bookingSuccessMyBookingsCta": "My bookings",
+  "bookingSuccessHomeCta": "Home",
   "salonProfileBackLabel": "Back",
   "@salonProfileBackLabel": {
     "description": "Accessibility label for the back control floating over the salon profile cover photo."
@@ -3499,5 +3532,179 @@
         "example": "1"
       }
     }
+  },
+  "salonBookingStepLabel": "Step {current} of {total}",
+  "@salonBookingStepLabel": {
+    "description": "Step-indicator pill on every screen of the salon booking flow (services → masters → time → confirmation).",
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "4"
+      }
+    }
+  },
+  "salonBookingServicesTitle": "Services",
+  "@salonBookingServicesTitle": {
+    "description": "Top bar title on the salon booking flow's service-selection screen (step 1 of 4)."
+  },
+  "salonBookingServicesIntro": "Choose services — pick a few, from different categories, or all of them.",
+  "@salonBookingServicesIntro": {
+    "description": "Intro line under the top bar on the salon booking service-selection screen."
+  },
+  "salonServiceSelectAllLabel": "Select all",
+  "@salonServiceSelectAllLabel": {
+    "description": "Per-category select-all pill label when not every service in the category is selected yet."
+  },
+  "salonServiceClearAllLabel": "Clear all",
+  "@salonServiceClearAllLabel": {
+    "description": "Per-category select-all pill label once every service in the category is selected (tapping clears the category)."
+  },
+  "salonServiceSelectAllSemantics": "{label}, {selected} of {total} selected",
+  "@salonServiceSelectAllSemantics": {
+    "description": "Accessibility label for the per-category select-all pill.",
+    "placeholders": {
+      "label": {
+        "type": "String",
+        "example": "Select all"
+      },
+      "selected": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "salonBookingMastersTitle": "Masters",
+  "@salonBookingMastersTitle": {
+    "description": "Top bar title on the salon booking flow's master-assignment screen (step 2 of 4)."
+  },
+  "salonBookingMastersIntro": "Choose the masters who will perform the selected services. Each master's services become a separate appointment — you'll pick the time next.",
+  "@salonBookingMastersIntro": {
+    "description": "Intro line under the top bar on the salon booking master-assignment screen."
+  },
+  "salonBookingMastersSectionLabel": "Available masters",
+  "@salonBookingMastersSectionLabel": {
+    "description": "Section label above the eligible-masters list on the salon booking master-assignment screen."
+  },
+  "salonBookingMastersSectionHint": "for the selected services",
+  "@salonBookingMastersSectionHint": {
+    "description": "Muted trailing hint next to salonBookingMastersSectionLabel."
+  },
+  "salonMasterCoversLabel": "Performs: {services}",
+  "@salonMasterCoversLabel": {
+    "description": "Camel sub-line on a master pick row naming which of the client's selected services that master covers.",
+    "placeholders": {
+      "services": {
+        "type": "String",
+        "example": "Manicure · Pedicure"
+      }
+    }
+  },
+  "salonMasterPickRowSemantics": "{name}, {role}, rating {rating}, performs {covered}",
+  "@salonMasterPickRowSemantics": {
+    "description": "Accessibility label for one eligible-master row on the salon booking master-assignment screen.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Olena Kovalchuk"
+      },
+      "role": {
+        "type": "String",
+        "example": "Independent master"
+      },
+      "rating": {
+        "type": "String",
+        "example": "4.9"
+      },
+      "covered": {
+        "type": "String",
+        "example": "Manicure · Pedicure"
+      }
+    }
+  },
+  "salonBookingGroupingTitle": "Appointments by master",
+  "@salonBookingGroupingTitle": {
+    "description": "Card title of the live per-master grouped preview on the salon booking master-assignment screen."
+  },
+  "salonBookingGroupingSubtitle": "A separate appointment per master · you'll pick the time next",
+  "@salonBookingGroupingSubtitle": {
+    "description": "Subtitle under salonBookingGroupingTitle."
+  },
+  "salonBookingGroupingEmptyPrompt": "Pick masters — services will group here by master",
+  "@salonBookingGroupingEmptyPrompt": {
+    "description": "Prompt shown in the per-master grouped preview before any master is picked."
+  },
+  "salonBookingResolverHint": "Split the services between masters",
+  "@salonBookingResolverHint": {
+    "description": "Heading above the contested-service resolver rows (services more than one picked master can perform)."
+  },
+  "salonBookingChooseMasterHint": "choose a master",
+  "@salonBookingChooseMasterHint": {
+    "description": "Inline hint on an unresolved contested-service resolver row."
+  },
+  "salonBookingUncoveredSemantics": "Choose a master who performs {service}",
+  "@salonBookingUncoveredSemantics": {
+    "description": "Accessibility label for a selected service no picked master can perform yet.",
+    "placeholders": {
+      "service": {
+        "type": "String",
+        "example": "Pedicure"
+      }
+    }
+  },
+  "salonBookingRecordCount": "{count, plural, =0{0 appointments} =1{1 appointment} other{{count} appointments}}",
+  "@salonBookingRecordCount": {
+    "description": "Appointment-count chip in the per-master grouped preview header.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "salonBookingAllAssignedHint": "Next you'll pick a time for each master.",
+  "@salonBookingAllAssignedHint": {
+    "description": "Footer hint on the salon booking master-assignment screen once every selected service has an assigned master."
+  },
+  "salonBookingPartialAssignedHint": "Several masters — several appointments at the same salon.",
+  "@salonBookingPartialAssignedHint": {
+    "description": "Footer hint on the salon booking master-assignment screen while assignment is still incomplete."
+  },
+  "salonBookingAssignedProgress": "{assigned} of {total} assigned",
+  "@salonBookingAssignedProgress": {
+    "description": "Progress line in the pinned assign-confirm bar.",
+    "placeholders": {
+      "assigned": {
+        "type": "int",
+        "example": "2"
+      },
+      "total": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "salonBookingAllAssignedLabel": "All assigned",
+  "@salonBookingAllAssignedLabel": {
+    "description": "Progress line in the pinned assign-confirm bar once every service is assigned."
+  },
+  "salonBookingComingSoonTitle": "Appointment time",
+  "@salonBookingComingSoonTitle": {
+    "description": "Top bar title of the salon booking flow's step-3 placeholder screen."
+  },
+  "salonBookingComingSoonMessage": "Time selection for salons is coming soon",
+  "@salonBookingComingSoonMessage": {
+    "description": "Body copy of the salon booking flow's step-3 (time picker) placeholder screen — the per-master time picker is deferred."
+  },
+  "salonBookingComingSoonBackCta": "Back to salon profile",
+  "@salonBookingComingSoonBackCta": {
+    "description": "CTA on the salon booking coming-soon placeholder that returns to the salon's public profile."
   }
 }

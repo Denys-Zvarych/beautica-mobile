@@ -99,11 +99,55 @@ abstract final class RouteNames {
   /// route's extra. Renders `SlotTimeScreen`.
   static const String bookingSlotsTime = '/booking/slots/time';
 
-  /// Phase 14.1 (stub) — booking confirmation. Pushed from `SlotTimeScreen`'s
-  /// «Підтвердити» CTA with a `BookingConfirmArgs` in `extra`. Renders
-  /// `BookingConfirmPlaceholderScreen` until Phase 14.2 ships the real
-  /// confirmation/success screen at this same path.
+  /// Phase 14.2 — booking confirmation (final review before submit). Pushed
+  /// from `SlotTimeScreen`'s «Підтвердити» CTA with a `BookingConfirmArgs` in
+  /// `extra`. Renders `BookingConfirmScreen`, CLIENT-guarded; a missing/
+  /// wrong-typed `extra` redirects to [bookingNew] (mirrors [bookingSlots]'s
+  /// guard). Replaced the Phase 14.1 `BookingConfirmPlaceholderScreen` stub
+  /// at this same path.
   static const String bookingConfirm = '/booking/confirm';
+
+  /// Phase 14.2 — booking success celebration screen. Reached ONLY via
+  /// `BookingConfirmScreen`'s «Записатись» CTA `pushReplacement`ing here with
+  /// a `BookingSuccessArgs` in `extra` once `POST /bookings` succeeds —
+  /// REPLACING [bookingConfirm] in the nav stack (not pushing on top of it),
+  /// so the confirmation screen can never be reached again via back/swipe
+  /// from here. `BookingSuccessScreen` additionally wraps itself in
+  /// `PopScope(canPop: false)`, fully blocking any back gesture on this
+  /// screen. Between those two, there is no code path back to
+  /// [bookingConfirm] — see `app_router.dart`'s route registration comment
+  /// for why no extra `redirect` guard is layered on top for that specific
+  /// concern. This route's OWN `redirect` only guards role + a missing/
+  /// invalid `extra` (mirrors every other booking route), bouncing to
+  /// [clientHome] on either.
+  static const String bookingSuccess = '/booking/success';
+
+  // Phase 14.12/14.13 — salon booking flow. A salon booking is fundamentally
+  // different from the single-master flow above: the client multi-selects
+  // services from the salon's FULL catalogue, then assigns each selected
+  // service to one of potentially several masters (never a single
+  // `masterId`), producing N appointments. These three routes are the entry
+  // point for that flow, replacing the old (buggy) CTA that pushed
+  // [bookingNew] with `salon.id` misused as a `masterId`.
+  /// Step 1 — service selection. Pushed from the public salon profile's
+  /// «Записатись на послугу» CTA with the target salon id (a bare `String`)
+  /// in `GoRouterState.extra`. Renders `SalonServiceSelectionScreen`,
+  /// CLIENT-guarded.
+  static const String salonBookingServices = '/booking/salon/services';
+
+  /// Step 2 — master assignment. Pushed from `SalonServiceSelectionScreen`'s
+  /// «Далі» CTA with a `SalonBookingMasterSelectionArgs` in `extra`. Renders
+  /// `SalonMasterSelectionScreen`, CLIENT-guarded.
+  static const String salonBookingMasters = '/booking/salon/masters';
+
+  /// Step 3 placeholder — the per-master time picker
+  /// (`docs/signup-designs/SalonBookingTime/`) is deferred; this minimal
+  /// stub is where «Підтвердити» on `SalonMasterSelectionScreen` routes
+  /// instead, carrying the salon id (a bare `String`) in `extra` so the
+  /// placeholder can offer a "back to profile" action. Never routes into the
+  /// independent-master `SlotPickerScreen` — that flow assumes one master,
+  /// not the salon's N-appointments-per-master model.
+  static const String salonBookingComingSoon = '/booking/salon/coming-soon';
 
   // CLIENT settings hub + per-section edit pages. Pushed from the home-hub
   // burger icon (mirrors the master `/master/menu` + `/master/edit/*` block).

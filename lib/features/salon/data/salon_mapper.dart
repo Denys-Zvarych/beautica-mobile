@@ -16,6 +16,8 @@ import 'dart:developer';
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart'
+    show ServicePriceType;
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 
 import '../domain/salon.dart';
@@ -141,6 +143,13 @@ abstract final class SalonServiceCatalogMapper {
                 priceDisplay: s.priceDisplay ?? '',
                 photoUrl: s.photoUrl,
                 category: s.category,
+                durationMinutes: s.baseDurationMinutes,
+                priceType:
+                    s.priceType == ServiceDefinitionResponsePriceTypeEnum.RANGE
+                    ? ServicePriceType.range
+                    : ServicePriceType.fixed,
+                priceMin: s.priceMin?.toDouble(),
+                priceMax: s.priceMax?.toDouble(),
               ),
           ],
         ),

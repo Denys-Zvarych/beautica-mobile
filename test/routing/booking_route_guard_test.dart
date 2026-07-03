@@ -36,6 +36,11 @@
 //      extra and chain-redirects further to `/home` (clientHome). The FULLY
 //      RESOLVED location is `/home`, not the intermediate `/booking/new` hop
 //      — see the `malformed extra guard` group for why.
+//
+// Phase 14.12/14.13 — EXTENDED with the same 3-part guard coverage
+// (INDEPENDENT_MASTER bounced / CLIENT admitted / malformed extra) for the
+// salon booking flow's three routes: `/booking/salon/services`,
+// `/booking/salon/masters`, `/booking/salon/coming-soon`.
 
 import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -44,14 +49,28 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/slot_picker_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
+import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/salon_booking_coming_soon_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/service_selector_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
@@ -98,6 +117,51 @@ BookingSlotPickerArgs _validArgs() => const BookingSlotPickerArgs(
   master: _kMaster,
   services: <MasterService>[_kService],
 );
+
+/// A valid `BookingConfirmArgs` extra for `/booking/confirm` — Phase 14.2
+/// replaced the placeholder screen with `BookingConfirmScreen`, which reads
+/// `publicMasterProfileProvider(masterId)` (overridden below with `_kMaster`
+/// + `_kService`) and requires `state.extra` to actually resolve `_kService`
+/// by id, or its defensive not-found guard pops the screen.
+BookingConfirmArgs _validConfirmArgs() => BookingConfirmArgs(
+  masterId: _kMasterId,
+  serviceId: _kService.id,
+  startAt: DateTime(2026, 7, 20, 10),
+);
+
+/// A valid `BookingSuccessArgs` extra for `/booking/success`.
+BookingSuccessArgs _validSuccessArgs() => BookingSuccessArgs(
+  master: _kMaster,
+  service: _kService,
+  start: DateTime(2026, 7, 20, 10),
+);
+
+// Phase 14.12/14.13 — salon booking flow fixtures.
+const String _kSalonId = 'salon-1';
+
+const _kSalon = Salon(id: _kSalonId, name: 'Test Salon');
+
+const _kSalonCatalog = <SalonServiceCategoryEntry>[
+  SalonServiceCategoryEntry(
+    category: 'NAILS',
+    displayName: 'Манікюр',
+    count: 1,
+    services: <SalonCatalogService>[
+      SalonCatalogService(
+        id: 'svc-1',
+        name: 'Манікюр з покриттям',
+        durationLabel: '1 год',
+        priceDisplay: '500 грн',
+      ),
+    ],
+  ),
+];
+
+SalonBookingMasterSelectionArgs _validSalonMasterArgs() =>
+    const SalonBookingMasterSelectionArgs(
+      salonId: _kSalonId,
+      selectedServiceIds: <String>['svc-1'],
+    );
 
 const _clientUser = User(
   id: 'c1',
@@ -236,6 +300,18 @@ void main() {
           // not hit SlotTimeScreen's broken-flow self-pop guard — see
           // _SettledSlotPickerNotifier's doc comment.
           slotPickerProvider.overrideWith(_SettledSlotPickerNotifier.new),
+          // Phase 14.12/14.13 — settles the salon booking screens' data
+          // fetches synchronously, same leaked-timer rationale as the master
+          // flow's overrides above.
+          publicSalonProfileProvider(
+            _kSalonId,
+          ).overrideWith((ref) => (_kSalon, const <SalonMasterSummary>[])),
+          salonServiceCatalogProvider(
+            _kSalonId,
+          ).overrideWith((ref) => _kSalonCatalog),
+          salonMasterServiceCoverageProvider(
+            _kSalonId,
+          ).overrideWith((ref) => const <String, Set<String>>{}),
         ],
       );
       addTearDown(container.dispose);
@@ -309,11 +385,65 @@ void main() {
       testWidgets('/booking/confirm → /master/profile', (tester) async {
         final router = await pumpRouterAs(tester, _masterSession);
 
-        router.go(RouteNames.bookingConfirm);
+        router.go(RouteNames.bookingConfirm, extra: _validConfirmArgs());
         await tester.pumpAndSettle();
 
         expect(locationOf(router), equals(RouteNames.masterProfile));
+        expect(find.byType(BookingConfirmScreen), findsNothing);
       });
+
+      testWidgets('/booking/success → /master/profile', (tester) async {
+        final router = await pumpRouterAs(tester, _masterSession);
+
+        router.go(RouteNames.bookingSuccess, extra: _validSuccessArgs());
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.masterProfile));
+        expect(find.byType(BookingSuccessScreen), findsNothing);
+      });
+
+      // Phase 14.12/14.13 — same guard, salon booking flow's 3 routes.
+      testWidgets(
+        '/booking/salon/services (extra: salonId) → /master/profile',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _masterSession);
+
+          router.go(RouteNames.salonBookingServices, extra: _kSalonId);
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.masterProfile));
+          expect(find.byType(SalonServiceSelectionScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        '/booking/salon/masters (extra: valid args) → /master/profile',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _masterSession);
+
+          router.go(
+            RouteNames.salonBookingMasters,
+            extra: _validSalonMasterArgs(),
+          );
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.masterProfile));
+          expect(find.byType(SalonMasterSelectionScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        '/booking/salon/coming-soon (extra: salonId) → /master/profile',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _masterSession);
+
+          router.go(RouteNames.salonBookingComingSoon, extra: _kSalonId);
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.masterProfile));
+          expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
+        },
+      );
     });
 
     group('CLIENT may reach every booking route (no redirect)', () {
@@ -347,13 +477,64 @@ void main() {
         expect(find.byType(SlotTimeScreen), findsOneWidget);
       });
 
-      testWidgets('/booking/confirm', (tester) async {
+      testWidgets('/booking/confirm (extra: valid BookingConfirmArgs)', (
+        tester,
+      ) async {
         final router = await pumpRouterAs(tester, _clientSession);
 
-        router.go(RouteNames.bookingConfirm);
+        router.go(RouteNames.bookingConfirm, extra: _validConfirmArgs());
         await tester.pumpAndSettle();
 
         expect(locationOf(router), equals(RouteNames.bookingConfirm));
+        expect(find.byType(BookingConfirmScreen), findsOneWidget);
+      });
+
+      testWidgets('/booking/success (extra: valid BookingSuccessArgs)', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(tester, _clientSession);
+
+        router.go(RouteNames.bookingSuccess, extra: _validSuccessArgs());
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.bookingSuccess));
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+      });
+
+      // Phase 14.12/14.13 — same coverage, salon booking flow's 3 routes.
+      testWidgets('/booking/salon/services (extra: salonId)', (tester) async {
+        final router = await pumpRouterAs(tester, _clientSession);
+
+        router.go(RouteNames.salonBookingServices, extra: _kSalonId);
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.salonBookingServices));
+        expect(find.byType(SalonServiceSelectionScreen), findsOneWidget);
+      });
+
+      testWidgets('/booking/salon/masters (extra: valid args)', (tester) async {
+        final router = await pumpRouterAs(tester, _clientSession);
+
+        router.go(
+          RouteNames.salonBookingMasters,
+          extra: _validSalonMasterArgs(),
+        );
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.salonBookingMasters));
+        expect(find.byType(SalonMasterSelectionScreen), findsOneWidget);
+      });
+
+      testWidgets('/booking/salon/coming-soon (extra: salonId)', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(tester, _clientSession);
+
+        router.go(RouteNames.salonBookingComingSoon, extra: _kSalonId);
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.salonBookingComingSoon));
+        expect(find.byType(SalonBookingComingSoonScreen), findsOneWidget);
       });
     });
 
@@ -414,6 +595,163 @@ void main() {
 
           expect(locationOf(router), equals(RouteNames.clientHome));
           expect(find.byType(SlotTimeScreen), findsNothing);
+        },
+      );
+
+      // Phase 14.2 — /booking/confirm now renders the real BookingConfirmScreen
+      // (requires a BookingConfirmArgs extra), not the old placeholder. A
+      // missing/wrong-typed extra redirects to [RouteNames.bookingNew] — that
+      // route's OWN guard then sees a missing extra too (no masterId String was
+      // ever carried), chain-redirecting further to /home, exactly like the
+      // /booking/slots case above.
+      testWidgets(
+        '/booking/confirm with a missing extra chain-redirects through '
+        '/booking/new to /home (clientHome)',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(RouteNames.bookingConfirm);
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expect(find.byType(BookingConfirmScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        '/booking/confirm with a wrong-typed extra chain-redirects through '
+        '/booking/new to /home (clientHome)',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(RouteNames.bookingConfirm, extra: 42);
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expect(find.byType(BookingConfirmScreen), findsNothing);
+        },
+      );
+
+      // /booking/success has no upstream flow step to chain-redirect through
+      // (unlike /booking/confirm → /booking/new) — a missing/invalid extra
+      // bounces straight to /home (clientHome), matching every other booking
+      // route's malformed-extra fallback.
+      testWidgets('/booking/success with a missing extra redirects to /home '
+          '(clientHome)', (tester) async {
+        final router = await pumpRouterAs(tester, _clientSession);
+
+        router.go(RouteNames.bookingSuccess);
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.clientHome));
+        expect(find.byType(BookingSuccessScreen), findsNothing);
+      });
+
+      testWidgets(
+        '/booking/success with a wrong-typed extra redirects to /home '
+        '(clientHome)',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(RouteNames.bookingSuccess, extra: 42);
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expect(find.byType(BookingSuccessScreen), findsNothing);
+        },
+      );
+
+      // Phase 14.12 — /booking/salon/services requires a non-empty String
+      // (salonId) extra, mirroring /booking/new's guard shape exactly.
+      testWidgets(
+        '/booking/salon/services with a missing extra redirects to /home '
+        '(clientHome), never rendering SalonServiceSelectionScreen with an '
+        'empty salonId',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(RouteNames.salonBookingServices);
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expect(find.byType(SalonServiceSelectionScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        '/booking/salon/services with a wrong-typed extra redirects to '
+        '/home (clientHome)',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(RouteNames.salonBookingServices, extra: 42);
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expect(find.byType(SalonServiceSelectionScreen), findsNothing);
+        },
+      );
+
+      // Phase 14.13 — /booking/salon/masters has no natural upstream salon id
+      // to chain-redirect through (the preceding step's own route ALSO
+      // requires an extra) — a missing/wrong-typed extra bounces straight to
+      // /home (clientHome), matching /booking/confirm's "no natural upstream"
+      // fallback shape.
+      testWidgets(
+        '/booking/salon/masters with a missing extra redirects to /home '
+        '(clientHome)',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(RouteNames.salonBookingMasters);
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expect(find.byType(SalonMasterSelectionScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        '/booking/salon/masters with a wrong-typed extra redirects to /home '
+        '(clientHome)',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(RouteNames.salonBookingMasters, extra: 42);
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expect(find.byType(SalonMasterSelectionScreen), findsNothing);
+        },
+      );
+
+      // Phase 14.13 — /booking/salon/coming-soon requires a non-empty String
+      // (salonId) extra, mirroring /booking/salon/services' guard shape.
+      testWidgets(
+        '/booking/salon/coming-soon with a missing extra redirects to /home '
+        '(clientHome)',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(RouteNames.salonBookingComingSoon);
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        '/booking/salon/coming-soon with a wrong-typed extra redirects to '
+        '/home (clientHome)',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(RouteNames.salonBookingComingSoon, extra: 42);
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
         },
       );
     });

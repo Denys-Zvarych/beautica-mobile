@@ -39,7 +39,15 @@ import '../features/auth/presentation/splash_screen.dart';
 import '../features/auth/presentation/verification_screen.dart';
 import '../features/auth/domain/auth_session.dart';
 import '../features/auth/domain/user_role.dart';
+import '../features/booking/domain/booking_confirm_args.dart';
 import '../features/booking/domain/booking_slot_picker_args.dart';
+import '../features/booking/domain/booking_success_args.dart';
+import '../features/booking/domain/salon_booking_args.dart';
+import '../features/booking/presentation/booking_confirm_screen.dart';
+import '../features/booking/presentation/booking_success_screen.dart';
+import '../features/booking/presentation/salon_booking_coming_soon_screen.dart';
+import '../features/booking/presentation/salon_master_selection_screen.dart';
+import '../features/booking/presentation/salon_service_selection_screen.dart';
 import '../features/booking/presentation/service_selector_sheet.dart';
 import '../features/booking/presentation/slot_picker_screen.dart';
 import '../features/discovery/domain/search_filters.dart';
@@ -391,14 +399,40 @@ GoRouter appRouter(Ref ref) {
       // pushed from the search-results / favourites salon cards, CLIENT-
       // guarded, in-app-push-only (exported:false — never an external deep
       // link).
+      //
+      // MaterialPage (builder:), NOT `pageBuilder: _instantPage` (mobile-debugger
+      // fix — left-edge swipe-back was dead on this route). `_instantPage` builds
+      // a `CustomTransitionPage`, and go_router's `_CustomTransitionPageRoute`
+      // overrides `buildTransitions` with the page's own `transitionsBuilder`
+      // (go_router's `custom_transition_page.dart`), which completely bypasses
+      // `Theme.of(context).pageTransitionsTheme` — the `CupertinoPageTransitionsBuilder`
+      // wired for every platform in `app_theme.dart` that installs Flutter's
+      // `_CupertinoBackGestureDetector` (the widget actually responsible for the
+      // full-width, drag-to-dismiss swipe-back gesture used everywhere else in
+      // this app; see the `builder:` routes below). With `_instantPage`, the ONLY
+      // thing that ever popped this route on a left-edge swipe was Android's own
+      // `systemGestureInsets` edge interception (Q+ gesture nav) — a narrow ~24dp
+      // OS-reserved strip at the *true* screen edge (confirmed empirically: a
+      // swipe starting past that strip does nothing on this route, with or
+      // without this fix's sibling `/masters/:masterId`, which carries the exact
+      // same defect but is easier to hit by accident because its content sits
+      // behind `ProfileScaffold`'s `SafeArea` + `Padding(horizontal: lg)`, which
+      // visually cues the true edge; `PublicSalonProfileScreen`'s edge-to-edge
+      // `SalonCover` has no such margin, so a natural swipe habitually starts a
+      // few dp further in — just past that OS strip — and is silently swallowed).
+      // Switching to `builder:` matches the established, precedented pattern
+      // already used by every other "needs swipe-back" route in this file
+      // (`SettingsHubScreen`, `ServicesListScreen`, etc. below) and gives this
+      // route the same full-width gesture instead of relying on the OS's
+      // unreliable, content-agnostic edge sliver. `/masters/:masterId` is left on
+      // `_instantPage` here since it was not reported broken and is out of this
+      // fix's scope — it carries the same latent defect and should get the same
+      // treatment in a follow-up.
       GoRoute(
         path: '/salons/:salonId',
         redirect: clientOnlyGuard,
-        pageBuilder: (context, state) => _instantPage(
-          state,
-          PublicSalonProfileScreen(
-            salonId: state.pathParameters['salonId'] ?? '',
-          ),
+        builder: (context, state) => PublicSalonProfileScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
         ),
       ),
       // Phase 14.1 — booking flow Step 1 (service selection). The public
@@ -461,15 +495,115 @@ GoRouter appRouter(Ref ref) {
           ),
         ],
       ),
-      // Phase 14.1 (stub) — booking confirmation. `SlotTimeScreen`'s
-      // «Підтвердити» CTA pushes here with a `BookingConfirmArgs` in `extra`.
-      // Phase 14.2 replaces this builder with the real confirmation/success
-      // screen at the same path.
+      // Phase 14.2 — booking confirmation (final review before submit).
+      // `SlotTimeScreen`'s «Підтвердити» CTA pushes here with a
+      // `BookingConfirmArgs` in `extra`. Replaces the Phase 14.1
+      // `BookingConfirmPlaceholderScreen` stub at this same path. A missing/
+      // wrong-typed `extra` redirects to [RouteNames.bookingNew] — mirrors
+      // the `bookingSlots` guard above rather than crashing on a bad cast.
       GoRoute(
         path: RouteNames.bookingConfirm,
-        redirect: clientOnlyGuard,
+        redirect: (context, state) {
+          final roleRedirect = clientOnlyGuard(context, state);
+          if (roleRedirect != null) return roleRedirect;
+          if (state.extra is! BookingConfirmArgs) {
+            return RouteNames.bookingNew;
+          }
+          return null;
+        },
         builder: (context, state) =>
-            BookingConfirmPlaceholderScreen(args: state.extra),
+            BookingConfirmScreen(args: state.extra! as BookingConfirmArgs),
+      ),
+      // Phase 14.2 — booking success celebration screen.
+      // `BookingConfirmScreen`'s «Записатись» CTA `pushReplacement`s here
+      // with a `BookingSuccessArgs` in `extra` once `POST /bookings`
+      // succeeds — this REPLACES `/booking/confirm` in the nav stack rather
+      // than pushing on top of it, so back/swipe from this screen can never
+      // reach the confirmation screen again (there is nothing left to land
+      // on but whatever was mounted BELOW confirm, and `BookingSuccessScreen`
+      // additionally blocks that via `PopScope(canPop: false)` — see
+      // `route_names.dart`'s doc comment). A `GoRouter.redirect` aimed at
+      // "prevent back navigation to confirm after success" would therefore be
+      // unreachable dead code: `redirect` only runs on a NAVIGATION
+      // transition, and there is no transition left that could land back on
+      // `/booking/confirm` from here for it to intercept. This route's own
+      // `redirect` below only guards role + a missing/invalid `extra` (the
+      // same shape every other booking route uses), same as the others.
+      GoRoute(
+        path: RouteNames.bookingSuccess,
+        redirect: (context, state) {
+          final roleRedirect = clientOnlyGuard(context, state);
+          if (roleRedirect != null) return roleRedirect;
+          if (state.extra is! BookingSuccessArgs) {
+            return RouteNames.clientHome;
+          }
+          return null;
+        },
+        builder: (context, state) =>
+            BookingSuccessScreen(args: state.extra! as BookingSuccessArgs),
+      ),
+      // Phase 14.12 — Salon booking flow step 1 (service selection). The
+      // public salon profile's «Записатись на послугу» CTA pushes here with
+      // the target salon id (a bare String) in `extra` — CLOSES the reported
+      // bug where that CTA pushed [RouteNames.bookingNew] with `salon.id`
+      // misused as a `masterId`, 404ing server-side. CLIENT-guarded like the
+      // profile route. A missing/empty/wrong-typed `extra` redirects to the
+      // CLIENT home shell, mirroring [RouteNames.bookingNew]'s guard.
+      GoRoute(
+        path: RouteNames.salonBookingServices,
+        redirect: (context, state) {
+          final roleRedirect = clientOnlyGuard(context, state);
+          if (roleRedirect != null) return roleRedirect;
+          final Object? extra = state.extra;
+          if (extra is! String || extra.isEmpty) {
+            return RouteNames.clientHome;
+          }
+          return null;
+        },
+        builder: (context, state) =>
+            SalonServiceSelectionScreen(salonId: state.extra! as String),
+      ),
+      // Phase 14.13 — Salon booking flow step 2 (master assignment).
+      // `SalonServiceSelectionScreen`'s «Далі» CTA pushes here with a
+      // `SalonBookingMasterSelectionArgs` in `extra`. A missing/wrong-typed
+      // extra has no natural upstream salon id to chain-redirect through (the
+      // preceding step's own route ALSO requires an extra), so this bounces
+      // straight to the CLIENT home shell rather than the [bookingSlots]-style
+      // upstream hop — mirrors [RouteNames.bookingConfirm]/[bookingSuccess]'s
+      // "no natural upstream" fallback shape.
+      GoRoute(
+        path: RouteNames.salonBookingMasters,
+        redirect: (context, state) {
+          final roleRedirect = clientOnlyGuard(context, state);
+          if (roleRedirect != null) return roleRedirect;
+          if (state.extra is! SalonBookingMasterSelectionArgs) {
+            return RouteNames.clientHome;
+          }
+          return null;
+        },
+        builder: (context, state) => SalonMasterSelectionScreen(
+          args: state.extra! as SalonBookingMasterSelectionArgs,
+        ),
+      ),
+      // Phase 14.13 — Salon booking flow step 3 PLACEHOLDER. The per-master
+      // time picker is deferred; `SalonMasterSelectionScreen`'s «Підтвердити»
+      // CTA routes here instead — carrying the salon id (a bare String) in
+      // `extra` for the "back to profile" action — never into the
+      // independent-master `SlotPickerScreen` (single-master flow, wrong
+      // model for a salon booking).
+      GoRoute(
+        path: RouteNames.salonBookingComingSoon,
+        redirect: (context, state) {
+          final roleRedirect = clientOnlyGuard(context, state);
+          if (roleRedirect != null) return roleRedirect;
+          final Object? extra = state.extra;
+          if (extra is! String || extra.isEmpty) {
+            return RouteNames.clientHome;
+          }
+          return null;
+        },
+        builder: (context, state) =>
+            SalonBookingComingSoonScreen(salonId: state.extra! as String),
       ),
       // Phase 4.2 — Master profile (read-only).
       GoRoute(

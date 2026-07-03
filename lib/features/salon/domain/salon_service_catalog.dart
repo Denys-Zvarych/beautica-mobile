@@ -13,6 +13,8 @@
 
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import '../../services/domain/master_service.dart' show ServicePriceType;
+
 part 'salon_service_catalog.freezed.dart';
 
 /// One service in a salon's public catalogue.
@@ -31,6 +33,26 @@ abstract class SalonCatalogService with _$SalonCatalogService {
     required String priceDisplay,
     String? photoUrl,
     String? category,
+
+    /// Typed duration in minutes — the raw value [durationLabel] is formatted
+    /// from. Added (Phase 14.12) so the salon booking flow's multi-service
+    /// selection can sum an accurate total duration/price instead of
+    /// re-parsing the display strings (the anti-pattern Phase 14.1's
+    /// `BookingSummaryBar` explicitly moved away from — see that file's
+    /// header). Null only for a legacy/never-refreshed cache entry that
+    /// predates this field; the read-only "Послуги" tab never needed it and
+    /// still renders [durationLabel]/[priceDisplay] as-is.
+    int? durationMinutes,
+
+    /// Typed pricing mode mirroring [ServiceDefinitionResponse.priceType].
+    /// See [durationMinutes] for why this was added.
+    ServicePriceType? priceType,
+
+    /// Typed price floor (FIXED price, or RANGE minimum) in UAH.
+    double? priceMin,
+
+    /// Typed RANGE ceiling in UAH; null for FIXED mode or legacy data.
+    double? priceMax,
   }) = _SalonCatalogService;
 }
 
