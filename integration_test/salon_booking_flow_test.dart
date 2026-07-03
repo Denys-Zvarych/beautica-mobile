@@ -70,8 +70,22 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   void expectLocation(GoRouter router, String expected) {
-    final String current = router.routerDelegate.currentConfiguration.uri
-        .toString();
+    // `currentConfiguration.uri` deliberately EXCLUDES `ImperativeRouteMatch`
+    // entries (see go_router's `RouteMatchList.uri` doc comment) — every
+    // route this flow reaches after the initial `/search` tab (the salon
+    // profile + all 3 salon-booking routes) is pushed imperatively via
+    // `context.push`/`context.go` ON TOP OF the CLIENT `StatefulShellRoute`,
+    // so `.uri` would keep reporting the shell branch's root ('/search')
+    // instead of the actually-displayed screen. `matches.last.matchedLocation`
+    // is what go_router's own `ImperativeRouteMatch` uses internally and is
+    // always the full absolute path (see `match.dart`), so it reflects the
+    // real current screen regardless of shell nesting.
+    final String current = router
+        .routerDelegate
+        .currentConfiguration
+        .matches
+        .last
+        .matchedLocation;
     expect(
       current,
       startsWith(expected),
@@ -87,8 +101,7 @@ void main() {
       final GoRouter router = await AppHarness.boot(tester, fb);
 
       await AppHarness.loginAs(tester, fb, UserRole.client);
-      // fixed-wait-ok: settles the real async login/route-transition step.
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await AppHarness.settle(tester);
 
       // Reach the salon profile via the SAME real UI chain
       // `public_salon_profile_flow_test.dart` already proves (discovery →
@@ -97,17 +110,52 @@ void main() {
       // exercises the real ShellRoute/bottom-nav navigation stack instead
       // of a programmatic jump.
       await tester.tap(find.byKey(const Key('client-nav-search-center')));
-      // fixed-wait-ok: settles the real async route-push step after the tap.
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await AppHarness.settle(tester);
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-      // fixed-wait-ok: settles the real async route-push step after the tap.
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      // The shared `/search/masters` fixture unconditionally returns
+      // `totalPages: 2` on page 0, so `masterHasMore` is already `true` the
+      // instant page 0 lands — BEFORE any scroll. The results screen's
+      // trailing `_LoadMoreSpinner` is not scroll-gated (it's laid out
+      // eagerly whenever `hasMore` is true and the short 2-item list
+      // undershoots the viewport), so its indeterminate spinner starts
+      // ticking immediately and no `pumpAndSettle`/`AppHarness.settle` can
+      // ever converge here — settling must wait until AFTER the scroll-drain
+      // below resolves `masterHasMore` to `false`. Use bounded plain pumps to
+      // let the route push + page-0 fetch land instead.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(
+        find.byKey(const Key('results_list')),
+        findsOneWidget,
+        reason: 'must land on the search results screen after the tap',
+      );
+
+      // Drain the shared fixture's forced second page so the trailing
+      // `_LoadMoreSpinner` stops spinning and every subsequent settle can
+      // converge.
+      final ScrollableState scrollable = tester.state<ScrollableState>(
+        find.descendant(
+          of: find.byKey(const Key('results_list')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      final ScrollPosition position = scrollable.position;
+      // The 2-item first page (1 master + 1 salon) undershoots the
+      // viewport, so `maxScrollExtent == pixels == 0` already — a bare
+      // `jumpTo(maxScrollExtent)` is a genuine Flutter no-op (jumpTo only
+      // notifies listeners when the target differs from the current
+      // `pixels`) and would never fire the `_onScroll` listener that calls
+      // `loadMore()`. Force a real pixel delta first so the final jumpTo is
+      // guaranteed to notify.
+      position.jumpTo(position.pixels + 1);
+      position.jumpTo(position.maxScrollExtent);
+      await AppHarness.settle(tester); // masters page 1 drains → masterHasMore=false
 
       final Finder salonCard = find.byKey(const Key('salon_card_salon-xyz'));
       expect(salonCard, findsOneWidget);
       await tester.tap(salonCard);
-      // fixed-wait-ok: settles the real async route-push step after the tap.
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await AppHarness.settle(tester);
       expectLocation(router, '/salons/salon-xyz');
       expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
 
@@ -115,8 +163,7 @@ void main() {
       final Finder bookCta = find.byKey(const Key('salon-book-cta'));
       expect(bookCta, findsOneWidget);
       await tester.tap(bookCta);
-      // fixed-wait-ok: settles the real async route-push step after the tap.
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await AppHarness.settle(tester);
 
       expectLocation(router, RouteNames.salonBookingServices);
       expect(find.byType(SalonServiceSelectionScreen), findsOneWidget);
@@ -136,26 +183,25 @@ void main() {
       );
       expect(sharedTile, findsOneWidget);
       await tester.tap(sharedTile);
-      await tester.pumpAndSettle();
+      await AppHarness.settle(tester);
 
       // BROWS starts collapsed — expand it to reach the exclusive tile.
       await tester.tap(find.byKey(const Key('salon-booking-category-BROWS')));
-      await tester.pumpAndSettle();
+      await AppHarness.settle(tester);
       final Finder exclusiveTile = find.byKey(
         const Key('salon_booking_service_tile_salon-svc-exclusive'),
       );
       expect(exclusiveTile, findsOneWidget);
       await tester.tap(exclusiveTile);
-      await tester.pumpAndSettle();
+      await AppHarness.settle(tester);
 
       // ── "Далі" → master assignment ──────────────────────────────────────
       final Finder nextCta = find.byKey(const Key('booking-summary-cta'));
       expect(nextCta, findsOneWidget);
       await tester.tap(nextCta);
-      // fixed-wait-ok: settles the real async route-push step after the tap
-      // AND the real `salonMasterServiceCoverageProvider` fan-out over the
-      // 8-master roster.
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      // Settles the real async route-push step after the tap AND the real
+      // `salonMasterServiceCoverageProvider` fan-out over the 8-master roster.
+      await AppHarness.settle(tester);
 
       expectLocation(router, RouteNames.salonBookingMasters);
       expect(find.byType(SalonMasterSelectionScreen), findsOneWidget);
@@ -221,19 +267,18 @@ void main() {
       await tester.tap(
         find.byKey(const Key('salon_booking_master_row_master-ccc')),
       );
-      await tester.pumpAndSettle();
+      await AppHarness.settle(tester);
       await tester.tap(
         find.byKey(const Key('salon_booking_master_row_master-ddd')),
       );
-      await tester.pumpAndSettle();
+      await AppHarness.settle(tester);
 
       final Finder confirmCta = find.byKey(
         const Key('salon-assign-confirm-cta'),
       );
       expect(confirmCta, findsOneWidget);
       await tester.tap(confirmCta);
-      // fixed-wait-ok: settles the real async route-push step after the tap.
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await AppHarness.settle(tester);
 
       // ── Lands on the coming-soon placeholder — NEVER the
       // independent-master SlotPickerScreen (that flow assumes a single
