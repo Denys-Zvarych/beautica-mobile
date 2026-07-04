@@ -460,8 +460,8 @@ class _SelectionEntry extends StatelessWidget {
 /// would look out of place floating mid-row instead of on its own card face.
 ///
 /// Tap target: a fixed 32×32dp `SizedBox` around the 16px glyph (mobile-qa
-/// audit finding) — NOT the `EdgeInsets.all(6)` (~28×28dp) this originally
-/// shipped with. 32×32 matches `attachment_tray.dart`'s per-row remove
+/// audit finding) — NOT the 6dp `EdgeInsets.all` padding (~28×28dp) this
+/// originally shipped with. 32×32 matches `attachment_tray.dart`'s per-row remove
 /// control, the established floor this codebase already uses for an inline
 /// per-row remove/close affordance (`interval_editor.dart`/
 /// `day_hours_sheet.dart` go up to 38×38, but those sit in a much roomier
