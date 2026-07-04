@@ -22,15 +22,23 @@
 // the `/booking/confirm` extras are both singular-`serviceId`) and is a
 // deliberate, documented scope boundary for this phase — not an oversight.
 //
-// DEVIATION (calendar day availability): see the file header of
-// `widgets/month_calendar.dart` — there is no month/day-level availability
-// endpoint, so [SlotDateScreen] marks every non-past day as tappable rather
-// than fabricating Sunday/fully-booked heuristics the backend cannot back up.
+// CALENDAR DAY-AVAILABILITY GATING (Phase 14.14): [SlotDateScreen] derives
+// its [MonthCalendar.isAvailable] callback from `workingDaysProvider`
+// (`application/working_days_notifier.dart`), keyed to the currently-visible
+// month for `widget.args.masterId` — see that file and the updated header of
+// `widgets/month_calendar.dart` for the full rationale. A day is tappable iff
+// it is not in the past AND the resolved working-days set marks it working.
+//
+// FULLY-BOOKED EMPTY STATE (Phase 14.15): a working day can still resolve to
+// zero bookable slots once chosen (fully booked) — [_SlotsSection] renders a
+// dedicated empty state for that case, distinct from the calendar's
+// day-level greying above and from a genuine fetch error.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -41,9 +49,12 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
 import '../application/slot_picker_notifier.dart';
+import '../application/working_days_notifier.dart';
 import '../domain/booking_confirm_args.dart';
 import '../domain/booking_slot.dart';
 import '../domain/booking_slot_picker_args.dart';
+import '../domain/working_day.dart';
+import '../domain/working_days_query.dart';
 import 'widgets/booking_summary_bar.dart';
 import 'widgets/master_strip.dart';
 import 'widgets/month_calendar.dart';
@@ -85,7 +96,44 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
     _visibleMonth = _firstMonth;
   }
 
-  bool _isAvailable(DateTime day) => !day.isBefore(_today);
+  /// Loading-flash fix (mirrors `MasterScheduleScreen`'s `_lastDays` visual
+  /// pattern, NOT its keepAlive cache lifetime — see
+  /// `working_days_notifier.dart`'s file header): the last successfully
+  /// resolved working-days list, retained across a month-step so the grid
+  /// does not flash to a full-screen spinner while the new month's fetch is
+  /// still in flight. When it is showing while a DIFFERENT month's fetch is
+  /// pending, its dates simply won't match the new grid's day keys, so
+  /// [_availabilityFrom] conservatively renders every cell as non-working
+  /// (never a false "available") until the fresh month's data lands — the
+  /// thin top progress line (see [_calendarBody]) signals that fetch is
+  /// still in flight. Never explicitly cleared — a stale-but-OK list is
+  /// always preferable to nothing once we have one, and it is naturally
+  /// superseded the next time a fetch resolves.
+  List<WorkingDay>? _lastWorkingDays;
+
+  /// The family key for `workingDaysProvider`, scoped to the master carried
+  /// by [widget.args] and the currently-visible month.
+  WorkingDaysQuery get _workingDaysQuery => WorkingDaysQuery.month(
+    masterId: widget.args.masterId,
+    anyDayInMonth: _visibleMonth,
+  );
+
+  static int _dayKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
+
+  /// Builds the [MonthCalendar.isAvailable] predicate from a resolved
+  /// working-days list: not in the past AND the fetched set marks the day
+  /// `working: true`. A day absent from the set (should not normally happen
+  /// — the query always spans the full visible month) is treated
+  /// conservatively as non-working rather than defaulting to tappable.
+  bool Function(DateTime) _availabilityFrom(List<WorkingDay> days) {
+    final Map<int, bool> workingByDay = <int, bool>{
+      for (final WorkingDay w in days) _dayKey(w.date): w.working,
+    };
+    return (DateTime day) {
+      if (day.isBefore(_today)) return false;
+      return workingByDay[_dayKey(day)] ?? false;
+    };
+  }
 
   void _selectDay(DateTime day) {
     final String serviceId = widget.args.services.first.id;
@@ -125,6 +173,12 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
     // screen never displays.
     final DateTime? selectedDate = ref.watch(
       slotPickerProvider.select((SlotPickerState s) => s.selectedDate),
+    );
+    // Phase 14.14: the per-day working/non-working signal for the currently
+    // visible month, re-derived (and re-watched) whenever `_visibleMonth`
+    // changes — see `_workingDaysQuery`.
+    final AsyncValue<List<WorkingDay>> workingDaysAsync = ref.watch(
+      workingDaysProvider(_workingDaysQuery),
     );
 
     return Scaffold(
@@ -168,23 +222,122 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
               ),
             ),
             Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: MonthCalendar(
-                  key: const Key('booking-month-calendar'),
-                  visibleMonth: _visibleMonth,
-                  today: _today,
-                  selected: selectedDate,
-                  isAvailable: _isAvailable,
-                  onSelectDay: _selectDay,
-                  onPrevMonth: _visibleMonth.isAfter(_firstMonth)
-                      ? _prevMonth
-                      : null,
-                  onNextMonth: _visibleMonth.isBefore(_lastMonth)
-                      ? _nextMonth
-                      : null,
-                ),
-              ),
+              child: _calendarBody(l10n, selectedDate, workingDaysAsync),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Renders the month grid once the current month's working-days fetch has
+  /// SOMETHING to show (fresh or cached-stale), a full-screen spinner on a
+  /// genuine first load with nothing cached yet, or a retry state on error.
+  /// Mirrors `MasterScheduleScreen._body`'s three-way split, simplified for
+  /// this screen's single (unbounded-cache) data source — see
+  /// `working_days_notifier.dart`'s file header for why the full keepAlive
+  /// machinery isn't mirrored too.
+  Widget _calendarBody(
+    AppLocalizations l10n,
+    DateTime? selectedDate,
+    AsyncValue<List<WorkingDay>> workingDaysAsync,
+  ) {
+    if (workingDaysAsync.hasError) {
+      return _WorkingDaysErrorBody(
+        failure: workingDaysAsync.error!,
+        onRetry: () => ref.invalidate(workingDaysProvider(_workingDaysQuery)),
+      );
+    }
+
+    final List<WorkingDay>? resolvedDays = workingDaysAsync.value;
+    if (resolvedDays != null) {
+      _lastWorkingDays = resolvedDays;
+    }
+
+    final bool loading = workingDaysAsync.isLoading;
+    final List<WorkingDay>? daysToRender =
+        resolvedDays ?? (loading ? _lastWorkingDays : null);
+
+    if (daysToRender == null) {
+      // Genuine first load: nothing resolved yet for ANY month this screen
+      // instance has shown.
+      return const Center(
+        child: CircularProgressIndicator(color: BrandColors.accent),
+      );
+    }
+
+    final Widget calendar = SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: MonthCalendar(
+        key: const Key('booking-month-calendar'),
+        visibleMonth: _visibleMonth,
+        today: _today,
+        selected: selectedDate,
+        isAvailable: _availabilityFrom(daysToRender),
+        onSelectDay: _selectDay,
+        onPrevMonth: _visibleMonth.isAfter(_firstMonth) ? _prevMonth : null,
+        onNextMonth: _visibleMonth.isBefore(_lastMonth) ? _nextMonth : null,
+      ),
+    );
+
+    // Loading-flash fix: keep the (possibly stale-month) grid fully visible
+    // and overlay a thin top progress line while a fetch is in flight — no
+    // layout shift, dismissed the instant the fetch resolves. The genuine
+    // first load never reaches here (it returned the spinner above).
+    if (!loading) return calendar;
+    return Stack(
+      children: <Widget>[
+        calendar,
+        const Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: IgnorePointer(
+            child: LinearProgressIndicator(
+              minHeight: 2,
+              color: BrandColors.accent,
+              backgroundColor: Colors.transparent,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Working-days error body — neumorphic retry, mirroring
+// `MasterScheduleScreen`'s `_ErrorBody`.
+// ---------------------------------------------------------------------------
+
+class _WorkingDaysErrorBody extends StatelessWidget {
+  const _WorkingDaysErrorBody({required this.failure, required this.onRetry});
+
+  final Object failure;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final String message = failure is Failure
+        ? (failure as Failure).userMessage(context)
+        : l10n.errUnknown;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(VelvetSpacing.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              message,
+              style: VelvetText.body(),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: VelvetSpacing.md),
+            NeumorphicButton(
+              key: const Key('booking-calendar-retry'),
+              label: l10n.retryLabel,
+              onPressed: onRetry,
             ),
           ],
         ),
@@ -291,6 +444,7 @@ class SlotTimeScreen extends ConsumerWidget {
                       onSelectSlot: (BookingSlot slot) => ref
                           .read(slotPickerProvider.notifier)
                           .selectSlot(slot),
+                      onChangeDate: () => context.pop(),
                     ),
                   ],
                 ),
@@ -472,11 +626,16 @@ class _SlotsSection extends StatefulWidget {
     required this.slotsAsync,
     required this.selectedSlot,
     required this.onSelectSlot,
+    required this.onChangeDate,
   });
 
   final AsyncValue<List<BookingSlot>> slotsAsync;
   final BookingSlot? selectedSlot;
   final ValueChanged<BookingSlot> onSelectSlot;
+
+  /// Phase 14.15 — the "Обрати іншу дату" CTA on the fully-booked-day empty
+  /// state pops back to [SlotDateScreen], mirroring `_DayHeaderChip.onChange`.
+  final VoidCallback onChangeDate;
 
   @override
   State<_SlotsSection> createState() => _SlotsSectionState();
@@ -557,13 +716,12 @@ class _SlotsSectionState extends State<_SlotsSection> {
           ),
           data: (List<BookingSlot> slots) {
             if (slots.isEmpty) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
-                child: Text(
-                  l10n.bookingDayUnavailableState,
-                  style: VelvetText.feedback(BrandColors.muted),
-                ),
-              );
+              // Phase 14.15 — a resolved-but-empty result means the day IS a
+              // working day (it passed the Phase 14.14 calendar gate to get
+              // here) that happens to be fully booked — distinct from the
+              // `error` branch above (a genuine fetch failure), which keeps
+              // the older generic "unavailable" copy.
+              return _NoSlotsEmptyState(onChangeDate: widget.onChangeDate);
             }
             final (
               List<BookingSlot> morning,
@@ -609,6 +767,61 @@ class _SlotsSectionState extends State<_SlotsSection> {
             ),
           ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 14.15 — _NoSlotsEmptyState: the fully-booked-day empty state.
+//
+// Renders when [SlotPickerNotifier.loadSlots] resolves SUCCESSFULLY to an
+// empty list — i.e. the chosen day passed the Phase 14.14 calendar gate (it
+// IS a working day), but every slot on it is already booked out. Mirrors the
+// icon + centered-text composition of
+// `MasterScheduleScreen`'s `_DayOffEmptyState`, plus a "Обрати іншу дату" CTA
+// (the same affordance `_DayHeaderChip.onChange` already exposes above) so
+// the client isn't left at a dead end.
+// ---------------------------------------------------------------------------
+class _NoSlotsEmptyState extends StatelessWidget {
+  const _NoSlotsEmptyState({required this.onChangeDate});
+
+  final VoidCallback onChangeDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return Padding(
+      key: const Key('booking-no-slots-empty-state'),
+      padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          const Icon(
+            Icons.event_busy_rounded,
+            size: 32,
+            color: BrandColors.faint,
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+          Text(
+            l10n.bookingNoSlotsTitle,
+            textAlign: TextAlign.center,
+            style: VelvetText.bodyStrong(),
+          ),
+          const SizedBox(height: VelvetSpacing.xs),
+          Text(
+            l10n.bookingNoSlotsMessage,
+            textAlign: TextAlign.center,
+            style: VelvetText.body().copyWith(color: BrandColors.textSecondary),
+          ),
+          const SizedBox(height: VelvetSpacing.lg),
+          NeumorphicButton(
+            key: const Key('booking-no-slots-change-date'),
+            label: l10n.bookingChangeDateCta,
+            icon: Icons.edit_calendar_outlined,
+            onPressed: onChangeDate,
+          ),
+        ],
+      ),
     );
   }
 }

@@ -35,6 +35,7 @@ import 'package:flutter/foundation.dart';
 import '../domain/booking.dart';
 import '../domain/booking_slot.dart';
 import '../domain/booking_status.dart';
+import '../domain/working_day.dart';
 
 /// Converts generated `beautica_api` booking types into the domain [Booking]
 /// entity.
@@ -164,6 +165,45 @@ abstract final class BookingSlotMapper {
     for (final AvailableSlotResponse dto in dtos) {
       final slot = fromDto(dto);
       if (slot != null) out.add(slot);
+    }
+    return out;
+  }
+}
+
+/// Converts the generated [MasterWorkingDayResponse] DTO (Phase 14.14 —
+/// `GET /masters/{masterId}/working-days`) into the domain [WorkingDay]
+/// entity.
+abstract final class WorkingDayMapper {
+  /// Maps a [MasterWorkingDayResponse] DTO to [WorkingDay].
+  ///
+  /// Returns `null` (rather than throwing) when [dto.date] or [dto.working]
+  /// is absent — a single malformed entry must not blank the whole month's
+  /// calendar gating; the caller ([fromDtoList]) drops it, and
+  /// `SlotDateScreen` treats a day missing from the resolved set as
+  /// conservatively non-working rather than defaulting it to tappable.
+  static WorkingDay? fromDto(MasterWorkingDayResponse dto) {
+    final date = dto.date;
+    final working = dto.working;
+    if (date == null || working == null) {
+      if (kDebugMode) {
+        log(
+          'MasterWorkingDayResponse missing date/working — dropping entry',
+          name: 'feature.booking.mapper',
+          level: 900,
+        );
+      }
+      return null;
+    }
+    return WorkingDay(date: date.toDateTime(), working: working);
+  }
+
+  /// Maps a list of [MasterWorkingDayResponse] DTOs to [WorkingDay]s,
+  /// dropping any malformed entries (see [fromDto]).
+  static List<WorkingDay> fromDtoList(Iterable<MasterWorkingDayResponse> dtos) {
+    final List<WorkingDay> out = <WorkingDay>[];
+    for (final MasterWorkingDayResponse dto in dtos) {
+      final day = fromDto(dto);
+      if (day != null) out.add(day);
     }
     return out;
   }

@@ -1,8 +1,17 @@
 // Phase 14.0 — SlotRepository: interface + HTTP implementation.
+// Phase 14.14 extended this with [getWorkingDays].
 //
 // Wraps `GET /api/v1/masters/{masterId}/slots` (the generated
-// `MasterControllerApi.getAvailableSlots`) — NOT `PublicBookingControllerApi`,
+// `MasterControllerApi.getAvailableSlots`) and, since Phase 14.14,
+// `GET /api/v1/masters/{masterId}/working-days`
+// (`MasterControllerApi.getWorkingDays`) — NOT `PublicBookingControllerApi`,
 // which is the unauthenticated guest-booking flow (a different feature).
+// Deliberately kept in the BOOKING feature's data layer (not
+// `schedule/data/`): `schedule_repository.dart` /
+// `effectiveScheduleProvider` are hard-wired to "my own master only" via
+// `masterProfileProvider`, whereas the client-facing calendar needs an
+// arbitrary master's working days — mixing that into the schedule feature
+// would break that "own profile only" boundary.
 //
 // Kept provider-free on purpose (mirrors `booking_repository.dart` /
 // `schedule_repository.dart`) — see `booking_providers.dart` for the Riverpod
@@ -17,6 +26,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../domain/booking_slot.dart';
+import '../domain/working_day.dart';
 import 'booking_mapper.dart';
 
 const String _tag = 'feature.booking.slot_repository';
@@ -40,6 +50,20 @@ abstract interface class SlotRepository {
     required String masterId,
     required String serviceId,
     required DateTime date,
+    CancelToken? cancelToken,
+  });
+
+  /// Fetches the per-date working/non-working signal for [masterId] across
+  /// [from]..[to] (inclusive, date-only; time-of-day is discarded).
+  ///
+  /// Wraps `GET /masters/{masterId}/working-days`. Callers (the Phase 14.14
+  /// calendar day-availability gate) MUST keep the span bounded — mirrors the
+  /// `/effective-schedule` endpoint's ~365-day cap; the backend rejects an
+  /// over-wide window.
+  Future<List<WorkingDay>> getWorkingDays({
+    required String masterId,
+    required DateTime from,
+    required DateTime to,
     CancelToken? cancelToken,
   });
 }
@@ -77,6 +101,38 @@ final class HttpSlotRepository implements SlotRepository {
       if (kDebugMode) {
         log(
           'getMasterSlots failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<List<WorkingDay>> getWorkingDays({
+    required String masterId,
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) async {
+    try {
+      final res = await _masterApi.getWorkingDays(
+        masterId: masterId,
+        // Date-only wire params — mirrors `getMasterSlots`'s `date` param.
+        from: Date(from.year, from.month, from.day),
+        to: Date(to.year, to.month, to.day),
+        cancelToken: cancelToken,
+      );
+      final days = res.data?.data ?? const <MasterWorkingDayResponse>[];
+      return WorkingDayMapper.fromDtoList(days);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getWorkingDays failed: ${e.type} ${e.response?.statusCode}',
           name: _tag,
           level: 900,
           stackTrace: st,

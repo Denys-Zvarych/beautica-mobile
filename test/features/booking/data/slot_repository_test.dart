@@ -259,4 +259,222 @@ void main() {
       );
     });
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Phase 14.14 — [HttpSlotRepository.getWorkingDays].
+  // ───────────────────────────────────────────────────────────────────────────
+  group('getWorkingDays', () {
+    const workingDaysPath = '/api/v1/masters/master-1/working-days';
+
+    test('success: maps date + working, discarding time-of-day on the '
+        'request params', () async {
+      final day1 =
+          (MasterWorkingDayResponseBuilder()
+                ..date = Date(2026, 7, 1)
+                ..working = true)
+              .build();
+      final day2 =
+          (MasterWorkingDayResponseBuilder()
+                ..date = Date(2026, 7, 2)
+                ..working = false)
+              .build();
+
+      when(
+        () => masterApi.getWorkingDays(
+          masterId: 'master-1',
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<ApiResponseListMasterWorkingDayResponse>(
+          data: ApiResponseListMasterWorkingDayResponse(
+            (b) => b
+              ..data = ListBuilder<MasterWorkingDayResponse>([day1, day2])
+              ..success = true,
+          ),
+          requestOptions: RequestOptions(path: workingDaysPath),
+          statusCode: 200,
+        ),
+      );
+
+      final days = await repository.getWorkingDays(
+        masterId: 'master-1',
+        from: DateTime(2026, 7, 1, 12, 30), // time-of-day must be discarded
+        to: DateTime(2026, 7, 31, 23),
+      );
+
+      expect(days, hasLength(2));
+      expect(days[0].date, DateTime(2026, 7, 1));
+      expect(days[0].working, isTrue);
+      expect(days[1].date, DateTime(2026, 7, 2));
+      expect(days[1].working, isFalse);
+
+      final captured = verify(
+        () => masterApi.getWorkingDays(
+          masterId: 'master-1',
+          from: captureAny(named: 'from'),
+          to: captureAny(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).captured;
+      final capturedFrom = captured[0] as Date;
+      final capturedTo = captured[1] as Date;
+      expect(capturedFrom.year, 2026);
+      expect(capturedFrom.month, 7);
+      expect(capturedFrom.day, 1);
+      expect(capturedTo.day, 31);
+    });
+
+    test('no data returned → empty list (not an error)', () async {
+      when(
+        () => masterApi.getWorkingDays(
+          masterId: 'master-1',
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<ApiResponseListMasterWorkingDayResponse>(
+          data: ApiResponseListMasterWorkingDayResponse(
+            (b) => b
+              ..data = ListBuilder<MasterWorkingDayResponse>([])
+              ..success = true,
+          ),
+          requestOptions: RequestOptions(path: workingDaysPath),
+          statusCode: 200,
+        ),
+      );
+
+      final days = await repository.getWorkingDays(
+        masterId: 'master-1',
+        from: DateTime(2026, 7, 1),
+        to: DateTime(2026, 7, 31),
+      );
+
+      expect(days, isEmpty);
+    });
+
+    test('malformed entry (missing working) is dropped, not thrown', () async {
+      final badDay =
+          (MasterWorkingDayResponseBuilder()..date = Date(2026, 7, 5))
+              .build(); // working intentionally left unset
+      final goodDay =
+          (MasterWorkingDayResponseBuilder()
+                ..date = Date(2026, 7, 6)
+                ..working = true)
+              .build();
+
+      when(
+        () => masterApi.getWorkingDays(
+          masterId: 'master-1',
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => Response<ApiResponseListMasterWorkingDayResponse>(
+          data: ApiResponseListMasterWorkingDayResponse(
+            (b) => b
+              ..data = ListBuilder<MasterWorkingDayResponse>([badDay, goodDay])
+              ..success = true,
+          ),
+          requestOptions: RequestOptions(path: workingDaysPath),
+          statusCode: 200,
+        ),
+      );
+
+      final days = await repository.getWorkingDays(
+        masterId: 'master-1',
+        from: DateTime(2026, 7, 1),
+        to: DateTime(2026, 7, 31),
+      );
+
+      expect(days, hasLength(1));
+      expect(days.single.date, DateTime(2026, 7, 6));
+    });
+
+    test('connectionError → NetworkFailure', () async {
+      when(
+        () => masterApi.getWorkingDays(
+          masterId: 'master-1',
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: workingDaysPath),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+
+      await expectLater(
+        repository.getWorkingDays(
+          masterId: 'master-1',
+          from: DateTime(2026, 7, 1),
+          to: DateTime(2026, 7, 31),
+        ),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+
+    test('bad-response DioException → ServerFailure with status', () async {
+      when(
+        () => masterApi.getWorkingDays(
+          masterId: 'master-1',
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: workingDaysPath),
+          type: DioExceptionType.badResponse,
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(path: workingDaysPath),
+            statusCode: 422,
+          ),
+        ),
+      );
+
+      await expectLater(
+        repository.getWorkingDays(
+          masterId: 'master-1',
+          from: DateTime(2026, 7, 1),
+          to: DateTime(2026, 7, 31),
+        ),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 422),
+        ),
+      );
+    });
+
+    test('pre-mapped Failure on e.error is re-thrown unchanged', () async {
+      const mapped = UnauthorizedFailure();
+      when(
+        () => masterApi.getWorkingDays(
+          masterId: 'master-1',
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: workingDaysPath),
+          type: DioExceptionType.badResponse,
+          error: mapped,
+        ),
+      );
+
+      await expectLater(
+        repository.getWorkingDays(
+          masterId: 'master-1',
+          from: DateTime(2026, 7, 1),
+          to: DateTime(2026, 7, 31),
+        ),
+        throwsA(same(mapped)),
+      );
+    });
+  });
 }

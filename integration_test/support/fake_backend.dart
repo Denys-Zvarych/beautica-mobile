@@ -44,6 +44,7 @@
 //  GET  /api/v1/salons/salon-xyz/reviews          — salon reviews list
 //  GET  /api/v1/salons/salon-xyz/portfolio        — salon portfolio photo rail
 //  GET  /api/v1/masters/master-aaa/slots          — Phase 14.1 slot-picker availability
+//  GET  /api/v1/masters/master-aaa/working-days   — Phase 14.14 calendar day-availability gate
 //  GET  /api/v1/masters/{master-ccc..iii}/services — Phase 14.13 salon-roster per-master coverage
 //
 // USAGE
@@ -520,6 +521,24 @@ final class FakeBackend {
   /// stale state.
   int getMasterSlotsCalls = 0;
 
+  /// `GET /api/v1/masters/{masterId}/working-days` (Phase 14.14 calendar
+  /// day-availability gate) call count — incremented once per distinct
+  /// `WorkingDaysQuery` (masterId + visible-month range) `SlotDateScreen`
+  /// resolves. Used by the booking-flow E2E to assert the gate actually hit
+  /// the real network before the day cell becomes tappable.
+  int getWorkingDaysCalls = 0;
+
+  /// When set, [_workingDaysEnvelope] reports THIS single date-only day as
+  /// `working: false` (every other day in the response window stays
+  /// `working: true`, same as the unconditional default). Lets an E2E test
+  /// force a specific, real-network-resolved day to be non-working WITHOUT
+  /// hand-rolling a whole new envelope — used by the "non-working day is
+  /// inert end-to-end" flow (Phase 14.14 QA gap-fix) to mark "today" itself
+  /// non-working so the negative assertion is 100% real-world-date-safe (no
+  /// month-boundary edge case from picking a relative "tomorrow"/"last day
+  /// of month" day).
+  DateTime? forceNonWorkingDate;
+
   /// `GET /api/v1/masters/{masterId}/services` call count across the REST of
   /// the `salon-xyz` roster (Phase 14.13 salon booking flow) — i.e. every
   /// roster master EXCEPT `master-aaa`, which reuses the pre-existing Phase
@@ -945,6 +964,46 @@ final class FakeBackend {
         slot(at(14, 0), at(14, 30)),
       ],
     });
+  }
+
+  /// PUBLIC working-days envelope for `master-aaa` — answers
+  /// `GET /api/v1/masters/master-aaa/working-days?from=&to=` (Phase 14.14
+  /// `SlotRepository.getWorkingDays`). The DioAdapter route match is
+  /// path-only (query params ignored — see the `salon-xyz/masters` comment
+  /// above), so one registration must answer whichever visible-month range
+  /// `SlotDateScreen` requests. Every day across a WIDE window (5 months
+  /// back to 5 months forward from "now") is marked `working: true` so the
+  /// booking-flow E2E's "tap today" step stays admissible regardless of
+  /// which real-world date the suite runs on, mirroring
+  /// `_availableSlotsEnvelope`'s "at least one tappable target" intent —
+  /// EXCEPT [forceNonWorkingDate], if set, which reports as `working: false`
+  /// so a test can exercise the gate's negative path against the real
+  /// endpoint instead of only wiring the fixture.
+  Map<String, dynamic> _workingDaysEnvelope() {
+    final DateTime now = DateTime.now();
+    final DateTime from = DateTime(now.year, now.month - 5, 1);
+    final DateTime to = DateTime(now.year, now.month + 6, 0);
+    final DateTime? nonWorking = forceNonWorkingDate;
+    final List<Map<String, dynamic>> days = <Map<String, dynamic>>[];
+    for (
+      DateTime d = from;
+      !d.isAfter(to);
+      d = d.add(const Duration(days: 1))
+    ) {
+      final bool isForcedNonWorking =
+          nonWorking != null &&
+          d.year == nonWorking.year &&
+          d.month == nonWorking.month &&
+          d.day == nonWorking.day;
+      days.add(<String, dynamic>{
+        'date':
+            '${d.year.toString().padLeft(4, '0')}-'
+            '${d.month.toString().padLeft(2, '0')}-'
+            '${d.day.toString().padLeft(2, '0')}',
+        'working': !isForcedNonWorking,
+      });
+    }
+    return _okList(days);
   }
 
   // ---------------------------------------------------------------------------
@@ -1560,6 +1619,18 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (_) {
         getMasterSlotsCalls++;
         return _availableSlotsEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/master-aaa/working-days?from=&to= — Phase 14.14
+    // calendar day-availability gate (SlotRepository.getWorkingDays). Same
+    // path-only route-match caveat as the `/slots` registration above.
+    _adapter.onRoute(
+      '/api/v1/masters/master-aaa/working-days',
+      (server) => server.replyCallback(200, (_) {
+        getWorkingDaysCalls++;
+        return _workingDaysEnvelope();
       }),
       request: const Request(method: RequestMethods.get),
     );

@@ -3352,7 +3352,15 @@
   },
   "bookingDayUnavailableState": "немає вільних слотів",
   "@bookingDayUnavailableState": {
-    "description": "Accessibility state word for an untappable (unavailable) calendar day cell; also shown as the empty-slots message on the time screen."
+    "description": "Accessibility state word for an untappable (unavailable) calendar day cell; also shown as the time screen's fallback message when the slots fetch itself fails."
+  },
+  "bookingNoSlotsTitle": "Немає вільного часу",
+  "@bookingNoSlotsTitle": {
+    "description": "Empty-state heading on the time screen when a WORKING day resolves to zero bookable slots (fully booked)."
+  },
+  "bookingNoSlotsMessage": "На цю дату всі години вже заброньовано. Оберіть іншу дату.",
+  "@bookingNoSlotsMessage": {
+    "description": "Empty-state body copy on the time screen when a WORKING day resolves to zero bookable slots (fully booked)."
   },
   "bookingSelectedState": "обрано",
   "@bookingSelectedState": {

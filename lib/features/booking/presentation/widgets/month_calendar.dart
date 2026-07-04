@@ -9,17 +9,27 @@
 //
 // DEVIATION from the preview's placeholder data: the preview additionally
 // greys out Sundays and two hard-coded "fully booked" days to demonstrate the
-// unavailable-day face. The real backend exposes NO month-level (or even
-// day-level) availability signal — `SlotRepository.getMasterSlots` only
-// answers "what slots exist on THIS one day" for a date already chosen, not
-// "which days in this month have any slot at all". Fabricating a
-// day-of-week/fully-booked heuristic here would present the client with
-// invented availability data. [MonthCalendar] itself stays generic (its
-// [isAvailable] callback can express any policy); the caller
-// (`SlotDateScreen`) currently supplies ONLY a past-date check, so every
-// non-past day is tappable — a conservative, honest default until a real
-// per-day/month availability endpoint exists (tracked as a follow-up, not a
-// blocker for this phase's acceptance criteria).
+// unavailable-day face — [MonthCalendar] itself never fabricates that; it
+// stays generic (its [isAvailable] callback can express any policy) and
+// defers entirely to the caller.
+//
+// Phase 14.14 UPDATE (day-availability gating, formerly a documented gap
+// here): the backend now exposes a real per-day signal —
+// `GET /masters/{masterId}/working-days?from=&to=`, wrapped by
+// `SlotRepository.getWorkingDays` and resolved by the family-keyed
+// `workingDaysProvider` (`application/working_days_notifier.dart`, keyed by
+// `WorkingDaysQuery` = masterId + bounded date range). The caller
+// (`SlotDateScreen`) derives its [isAvailable] callback from that provider's
+// resolved data for the currently-visible month, re-deriving it whenever the
+// visible month changes: a day is available iff it is not in the past AND
+// the fetched working-days set marks it `working: true`. A day absent from
+// the resolved set (should not normally happen — the query always spans the
+// full visible month) is treated conservatively as NOT working rather than
+// defaulting to tappable. Fully-booked-but-working days are a SEPARATE
+// signal (Phase 14.15's zero-slots empty state on the time screen) — a
+// `working: true` day can still resolve to zero bookable slots once chosen,
+// and still renders as tappable here; that case is handled one screen later,
+// not by greying out the day cell.
 
 import 'package:flutter/material.dart';
 

@@ -3293,6 +3293,8 @@
   "bookingCalendarNextMonth": "Next month",
   "bookingDayAvailableState": "has free slots",
   "bookingDayUnavailableState": "no free slots",
+  "bookingNoSlotsTitle": "No available times",
+  "bookingNoSlotsMessage": "All times on this date are already booked. Please choose another date.",
   "bookingSelectedState": "selected",
   "bookingSlotAvailableState": "available",
   "bookingSlotUnavailableState": "unavailable",

@@ -116,6 +116,7 @@ Class | Method | HTTP request | Description
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getMyProfile**](doc/MasterControllerApi.md#getmyprofile) | **GET** /api/v1/masters/me | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getOverrides**](doc/MasterControllerApi.md#getoverrides) | **GET** /api/v1/masters/{masterId}/overrides | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**getWeeklySchedules**](doc/MasterControllerApi.md#getweeklyschedules) | **GET** /api/v1/masters/{masterId}/weekly-schedules | 
+[*MasterControllerApi*](doc/MasterControllerApi.md) | [**getWorkingDays**](doc/MasterControllerApi.md#getworkingdays) | **GET** /api/v1/masters/{masterId}/working-days | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**updateMyProfile**](doc/MasterControllerApi.md#updatemyprofile) | **PATCH** /api/v1/masters/me/profile | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**updateWeeklySchedule**](doc/MasterControllerApi.md#updateweeklyschedule) | **PUT** /api/v1/masters/{masterId}/weekly-schedules/{scheduleId} | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**upsertOverride**](doc/MasterControllerApi.md#upsertoverride) | **PUT** /api/v1/masters/{masterId}/overrides/{date} | 
@@ -189,6 +190,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseListCityResponse](doc/ApiResponseListCityResponse.md)
  - [ApiResponseListEffectiveDayResponse](doc/ApiResponseListEffectiveDayResponse.md)
  - [ApiResponseListMasterServiceResponse](doc/ApiResponseListMasterServiceResponse.md)
+ - [ApiResponseListMasterWorkingDayResponse](doc/ApiResponseListMasterWorkingDayResponse.md)
  - [ApiResponseListOblastResponse](doc/ApiResponseListOblastResponse.md)
  - [ApiResponseListPlatformCategoryUsageResponse](doc/ApiResponseListPlatformCategoryUsageResponse.md)
  - [ApiResponseListPlatformServiceTypeResponse](doc/ApiResponseListPlatformServiceTypeResponse.md)
@@ -274,6 +276,7 @@ Class | Method | HTTP request | Description
  - [MasterSearchResult](doc/MasterSearchResult.md)
  - [MasterServiceResponse](doc/MasterServiceResponse.md)
  - [MasterSummaryResponse](doc/MasterSummaryResponse.md)
+ - [MasterWorkingDayResponse](doc/MasterWorkingDayResponse.md)
  - [MediaFileResponse](doc/MediaFileResponse.md)
  - [MyReviewResponse](doc/MyReviewResponse.md)
  - [OblastResponse](doc/OblastResponse.md)
