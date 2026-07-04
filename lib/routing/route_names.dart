@@ -149,6 +149,15 @@ abstract final class RouteNames {
   /// not the salon's N-appointments-per-master model.
   static const String salonBookingComingSoon = '/booking/salon/coming-soon';
 
+  /// Step 3 — per-master date/time picker ("Час"), Phase 14.16/14.17. Pushed
+  /// from `SalonMasterSelectionScreen`'s «Підтвердити» CTA with a
+  /// `SalonBookingTimeArgs` in `extra`. Renders `SalonTimeScreen`,
+  /// CLIENT-guarded. [salonBookingComingSoon] stays in the route tree
+  /// unchanged — it is now THIS screen's own «Підтвердити» hand-off target
+  /// (standing in for the not-yet-scoped step 4), not the direct target of
+  /// step 2's confirm CTA anymore.
+  static const String salonBookingTime = '/booking/salon/time';
+
   // CLIENT settings hub + per-section edit pages. Pushed from the home-hub
   // burger icon (mirrors the master `/master/menu` + `/master/edit/*` block).
   // The three edit pages all PATCH /users/me via ClientProfileRepository,

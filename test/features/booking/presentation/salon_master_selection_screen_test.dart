@@ -109,10 +109,20 @@ const _m3 = SalonMasterSummary(
 
 const _stubMasters = <SalonMasterSummary>[_m1, _m2, _m3];
 
-final _stubCoverage = <String, Set<String>>{
-  'm1': <String>{'svc-1'},
-  'm2': <String>{'svc-1', 'svc-2'},
-  'm3': <String>{},
+// Phase 14.16/14.17 bugfix — coverage values are now `serviceDefId ->
+// assignmentId` maps (the master's OWN `MasterServiceResponse.id`), not a
+// bare `Set<String>` of covered catalog ids. This screen only ever calls
+// `.containsKey` on these maps (never reads the values), so any non-empty
+// String value works here — deliberately kept DIFFERENT from the catalog id
+// to match production (`master_services.id` != `service_definitions.id`),
+// mirroring `salon_time_screen_test.dart`'s identical fixture convention.
+final _stubCoverage = <String, Map<String, String>>{
+  'm1': <String, String>{'svc-1': 'assignment-m1-svc-1'},
+  'm2': <String, String>{
+    'svc-1': 'assignment-m2-svc-1',
+    'svc-2': 'assignment-m2-svc-2',
+  },
+  'm3': <String, String>{},
 };
 
 SalonBookingMasterSelectionArgs _args() =>
@@ -132,8 +142,10 @@ List<Object> _overrides() => <Object>[
 ];
 
 /// [GoRouter] with the screen under test at its initial location, plus a
-/// terminal capture route for `/booking/salon/coming-soon`.
-GoRouter _routerFor({ValueChanged<String>? onReached}) {
+/// terminal capture route for `/booking/salon/time` — Phase 14.16 retargeted
+/// «Підтвердити» from the old direct-to-coming-soon hop to the real step-3
+/// "Час" screen.
+GoRouter _routerFor({ValueChanged<SalonBookingTimeArgs>? onReached}) {
   return GoRouter(
     initialLocation: RouteNames.salonBookingMasters,
     routes: <RouteBase>[
@@ -142,11 +154,11 @@ GoRouter _routerFor({ValueChanged<String>? onReached}) {
         builder: (context, state) => SalonMasterSelectionScreen(args: _args()),
       ),
       GoRoute(
-        path: RouteNames.salonBookingComingSoon,
+        path: RouteNames.salonBookingTime,
         builder: (context, state) {
-          onReached?.call(state.extra! as String);
+          onReached?.call(state.extra! as SalonBookingTimeArgs);
           return const Scaffold(
-            body: Center(child: Text('coming-soon-reached')),
+            body: Center(child: Text('salon-time-reached')),
           );
         },
       ),
@@ -213,12 +225,13 @@ void main() {
 
   testWidgets(
     'tap-to-choose resolves a contested service; Підтвердити enables once '
-    'every service is assigned, then navigates to /booking/salon/coming-soon',
+    'every service is assigned, then navigates to /booking/salon/time with '
+    'the exact resolved per-master assignment',
     (tester) async {
       await _pumpTall(tester);
-      String? capturedSalonId;
+      SalonBookingTimeArgs? capturedArgs;
       await tester.pumpRoutedApp(
-        _routerFor(onReached: (id) => capturedSalonId = id),
+        _routerFor(onReached: (args) => capturedArgs = args),
         overrides: _overrides(),
       );
       await tester.pumpAndSettle();
@@ -252,8 +265,17 @@ void main() {
       await tester.tap(find.byKey(const Key('salon-assign-confirm-cta')));
       await tester.pumpAndSettle();
 
-      expect(find.text('coming-soon-reached'), findsOneWidget);
-      expect(capturedSalonId, _kSalonId);
+      expect(find.text('salon-time-reached'), findsOneWidget);
+      expect(capturedArgs, isNotNull);
+      expect(capturedArgs!.salonId, _kSalonId);
+      expect(capturedArgs!.selectedServiceIds, <String>['svc-1', 'svc-2']);
+      // m1 resolved svc-1 (the contested-chip choice); m2 auto-attached
+      // svc-2 (the only candidate) — exactly the assignment the client made,
+      // not a fresh re-derivation from coverage alone.
+      expect(capturedArgs!.assignedServiceIdsByMaster, <String, List<String>>{
+        'm1': <String>['svc-1'],
+        'm2': <String>['svc-2'],
+      });
     },
   );
 

@@ -3681,14 +3681,98 @@
   },
   "salonBookingComingSoonTitle": "Appointment time",
   "@salonBookingComingSoonTitle": {
-    "description": "Top bar title of the salon booking flow's step-3 placeholder screen."
+    "description": "Top bar title of the salon booking flow's step-4 placeholder screen."
   },
   "salonBookingComingSoonMessage": "Time selection for salons is coming soon",
   "@salonBookingComingSoonMessage": {
-    "description": "Body copy of the salon booking flow's step-3 (time picker) placeholder screen — the per-master time picker is deferred."
+    "description": "Body copy of the salon booking flow's step-4 (confirmation) placeholder screen — step 4 is unscoped."
   },
   "salonBookingComingSoonBackCta": "Back to salon profile",
   "@salonBookingComingSoonBackCta": {
     "description": "CTA on the salon booking coming-soon placeholder that returns to the salon's public profile."
+  },
+  "salonBookingTimeTitle": "Time",
+  "@salonBookingTimeTitle": {
+    "description": "Top bar title of the salon booking flow's step-3 per-master date/time picker screen."
+  },
+  "salonBookingTimeBackSemantics": "Back to master selection",
+  "@salonBookingTimeBackSemantics": {
+    "description": "Accessibility label for the back button on the salon booking flow's step-3 time screen."
+  },
+  "salonSchedulePagerSemantics": "Master {current} of {count}. {done} scheduled.",
+  "@salonSchedulePagerSemantics": {
+    "description": "Accessibility label for the salon booking time screen's master-pager row (arrows + dots + counter).",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" },
+      "done": { "type": "int", "example": "1" }
+    }
+  },
+  "salonSchedulePagerCounterLabel": "Master {current} of {count}",
+  "@salonSchedulePagerCounterLabel": {
+    "description": "Visible counter text under the pager dots on the salon booking time screen.",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "salonSchedulePagerPrevSemantics": "Previous master",
+  "@salonSchedulePagerPrevSemantics": {
+    "description": "Accessibility label for the salon booking time screen's ‹ previous-master arrow."
+  },
+  "salonSchedulePagerNextSemantics": "Next master",
+  "@salonSchedulePagerNextSemantics": {
+    "description": "Accessibility label for the salon booking time screen's › next-master arrow."
+  },
+  "salonSchedulePagerDotLabel": "Master {index}",
+  "@salonSchedulePagerDotLabel": {
+    "description": "Accessibility label for an unscheduled master's pager dot on the salon booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "salonSchedulePagerDotDoneLabel": "Master {index}, scheduled",
+  "@salonSchedulePagerDotDoneLabel": {
+    "description": "Accessibility label for an already-scheduled master's pager dot on the salon booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "salonScheduleDateIntro": "Choose a convenient date for this master — we'll find free time next.",
+  "@salonScheduleDateIntro": {
+    "description": "Intro line above the calendar on each master's slide of the salon booking time screen."
+  },
+  "salonScheduleWindowPrompt": "Choose a time",
+  "@salonScheduleWindowPrompt": {
+    "description": "Muted prompt in the per-master window line before a time slot is chosen on the salon booking time screen."
+  },
+  "salonScheduleMasterStripSemantics": "Booking with: {name}. Services: {services}. Duration: {duration}.",
+  "@salonScheduleMasterStripSemantics": {
+    "description": "Accessibility label for the per-master strip header on each slide of the salon booking time screen.",
+    "placeholders": {
+      "name": { "type": "String", "example": "Olena Kovalchuk" },
+      "services": { "type": "String", "example": "Manicure with coating" },
+      "duration": { "type": "String", "example": "1 h 30 min" }
+    }
+  },
+  "salonScheduleProgress": "{scheduled} of {total} scheduled",
+  "@salonScheduleProgress": {
+    "description": "Progress line in the salon booking time screen's pinned confirm bar.",
+    "placeholders": {
+      "scheduled": { "type": "int", "example": "1" },
+      "total": { "type": "int", "example": "3" }
+    }
+  },
+  "salonScheduleAllScheduledLabel": "All scheduled",
+  "@salonScheduleAllScheduledLabel": {
+    "description": "Progress line in the salon booking time screen's pinned confirm bar once every master is scheduled."
+  },
+  "salonScheduleProgressSemantics": "{scheduled} of {total} masters scheduled",
+  "@salonScheduleProgressSemantics": {
+    "description": "Accessibility label for the progress rail in the salon booking time screen's pinned confirm bar.",
+    "placeholders": {
+      "scheduled": { "type": "int", "example": "1" },
+      "total": { "type": "int", "example": "3" }
+    }
   }
 }

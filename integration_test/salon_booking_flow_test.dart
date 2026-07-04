@@ -1,4 +1,7 @@
 // Phase 14.12/14.13 QA follow-up — E2E: CLIENT salon booking journey.
+// Extended in Phase 14.16/14.17 (mobile-qa Rule 3b) to continue through the
+// real step-3 "Час" time-picker screen instead of stopping at the
+// master-assignment step.
 //
 // WHY THIS FILE EXISTS
 // --------------------
@@ -17,10 +20,23 @@
 //     round-tripping `GET /masters/{id}/services` for the REAL salon roster
 //     (8 masters) over the wire, correctly filtering ineligible masters and
 //     surfacing only the ones who cover a selected service;
-//   • the full click-through chain (services → masters → confirm) landing on
-//     the coming-soon placeholder, never the independent-master
-//     `SlotPickerScreen` (that screen assumes a single `masterId`, which a
-//     salon booking never has).
+//   • the full click-through chain (services → masters → confirm → time
+//     picker → confirm) landing on the coming-soon placeholder, never the
+//     independent-master `SlotPickerScreen` (that screen assumes a single
+//     `masterId`, which a salon booking never has).
+//
+// PHASE 14.16/14.17 EXTENSION: "Підтвердити" on `SalonMasterSelectionScreen`
+// now retargets to the real `SalonTimeScreen` (Phase 14.16 Step 1) instead of
+// jumping straight to the coming-soon placeholder — this test's tail was
+// updated to match, and now ALSO drives the per-master date+time picks (real
+// `GET /masters/{id}/working-days` + `GET /masters/{id}/slots` calls for BOTH
+// eligible roster masters, not just one — see `fake_backend.dart`'s
+// Phase 14.16/14.17 route block, added alongside this extension to avoid
+// repeating the exact Phase 14.13 bug where only `master-aaa` had routes
+// registered and every other roster master 404'd), the auto-advance between
+// slides, and the manual dot-tap pager navigation, before the schedule
+// confirm bar's own "Підтвердити" finally reaches the coming-soon
+// placeholder.
 //
 // FIXTURE COHERENCE: reuses the SAME `salon-xyz` fixture + 8-master roster
 // already seeded for `public_salon_profile_flow_test.dart`
@@ -41,10 +57,12 @@
 // search_show_masters_cta, salon_card_salon-xyz, salon-book-cta,
 // salon-booking-category-BROWS, salon_booking_service_tile_<id>,
 // booking-summary-cta, salon_booking_master_row_<id>,
-// salon-assign-confirm-cta). Raw find.text(...) is used only for content
-// assertions on fixture data, never for tapping.
+// salon-assign-confirm-cta, salon-time-pager-dot-<i>,
+// booking-calendar-day-<n>, salon-slot-chip-<iso>, schedule-confirm-cta).
+// Raw find.text(...) is used only for content assertions on fixture data,
+// never for tapping.
 //
-// Step 2.7 Rule 3b: this is the real user journey (new screens + 3 new
+// Step 2.7 Rule 3b: this is the real user journey (new screens + 4 new
 // routes + a keepAlive provider fanning a real HTTP call out over a real
 // roster) the widget tier cannot prove end to end. Also carries the ONLY
 // real-app exercise of `BookingSummaryBar`'s expand toggle + per-item "×"
@@ -56,6 +74,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_booking_coming_soon_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/salon_time_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -355,6 +374,180 @@ void main() {
       );
       expect(confirmCta, findsOneWidget);
       await tester.tap(confirmCta);
+      await AppHarness.settle(tester);
+
+      // ── Phase 14.16/14.17 — "Підтвердити" now lands on the REAL step-3
+      // "Час" screen (SalonTimeScreen), never the independent-master
+      // SlotPickerScreen (that flow assumes a single masterId, which a salon
+      // booking never has) and never a direct jump to the coming-soon
+      // placeholder — that hand-off only happens once BOTH assigned masters
+      // (master-ccc, master-ddd) are fully scheduled, via the confirm bar
+      // built later in this test. ─────────────────────────────────────────
+      expectLocation(router, RouteNames.salonBookingTime);
+      expect(find.byType(SalonTimeScreen), findsOneWidget);
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'reaching the salon time-picker step must never throw — this '
+            'exercises salonMasterServiceCoverageProvider\'s per-master '
+            'assignment feeding into a REAL PageView.builder over two '
+            'separately-fetched masters',
+      );
+
+      // Two eligible masters (master-ccc, master-ddd) assigned in the
+      // previous step → exactly two slider slides/dots.
+      expect(find.byKey(const Key('salon-time-pager-dot-0')), findsOneWidget);
+      expect(find.byKey(const Key('salon-time-pager-dot-1')), findsOneWidget);
+
+      // Scopes an interaction/assertion to one master's slide — needed
+      // because BOTH slides can be simultaneously mounted (mobile-perf's
+      // current±1 keep-alive bound), so an unscoped `booking-calendar-day-N`/
+      // `salon-slot-chip-<iso>` key could otherwise match either slide.
+      // `skipOffstage: false` so a kept-alive-but-currently-scrolled-off
+      // slide is still reachable, mirroring
+      // `salon_time_screen_test.dart`'s identical `withinSlide` helper.
+      Finder withinSlide(String masterId, Finder matching) => find.descendant(
+        of: find.byKey(
+          Key('salon-schedule-page-$masterId'),
+          skipOffstage: false,
+        ),
+        matching: matching,
+        skipOffstage: false,
+      );
+
+      final DateTime today = DateTime.now();
+      final int workingDaysCallsBeforeTime = fb.getWorkingDaysCalls;
+      final int slotsCallsBeforeTime = fb.getMasterSlotsCalls;
+      final String todaysMorningSlotIso = DateTime(
+        today.year,
+        today.month,
+        today.day,
+        10,
+      ).toIso8601String();
+
+      // ── Master-ccc's slide (current, index 0) — pick today's date over
+      // the REAL `GET /masters/master-ccc/working-days` route, then the
+      // fetched 10:00 slot over the REAL
+      // `GET /masters/master-ccc/slots` route ─────────────────────────────
+      await tester.tap(
+        withinSlide(
+          'master-ccc',
+          find.byKey(Key('booking-calendar-day-${today.day}')),
+        ),
+      );
+      await AppHarness.settle(tester);
+      expect(
+        fb.getWorkingDaysCalls,
+        greaterThan(workingDaysCallsBeforeTime),
+        reason:
+            'picking a date on master-ccc\'s slide must hit the real '
+            'working-days endpoint, not render from stale/absent state',
+      );
+
+      final Finder ccdMorningSlot = withinSlide(
+        'master-ccc',
+        find.byKey(Key('salon-slot-chip-$todaysMorningSlotIso')),
+      );
+      expect(ccdMorningSlot, findsOneWidget);
+      await tester.tap(ccdMorningSlot);
+      await AppHarness.settle(tester);
+      expect(
+        fb.getMasterSlotsCalls,
+        greaterThan(slotsCallsBeforeTime),
+        reason:
+            'picking master-ccc\'s date must hit the real slots endpoint '
+            'for master-ccc specifically, not a stale/shared fixture',
+      );
+      // ── Phase 14.16/14.17 bugfix regression guard ───────────────────────
+      // The REAL request's `serviceId` query param must be master-ccc's own
+      // per-master ASSIGNMENT id (`assign-master-ccc-salon-svc-shared`,
+      // `MasterServiceResponse.id`), never the salon-wide CATALOG id
+      // (`salon-svc-shared`, `ServiceDefinitionResponse.id`) that
+      // `salon-svc-shared` itself is. Sending the catalog id is exactly the
+      // bug that made the real backend 404 with "masterService not found" —
+      // the widget tier (`salon_time_screen_test.dart`) proves this against
+      // a hand-written fake; this is the ONE place it is proven against a
+      // real end-to-end request/response round trip.
+      expect(
+        fb.lastMasterCccSlotsServiceId,
+        'assign-master-ccc-salon-svc-shared',
+        reason:
+            'the slots request must carry master-ccc\'s own service-'
+            'ASSIGNMENT id, not the salon-wide catalog id',
+      );
+      expect(fb.lastMasterCccSlotsServiceId, isNot('salon-svc-shared'));
+
+      // ── Auto-advance: completing master-ccc's date+time slides the
+      // PageView onto the next unscheduled master (master-ddd) with NO
+      // manual tap — proving `nextUnscheduledIndex` genuinely drives the
+      // REAL PageController over two independently-fetched masters, not
+      // just the one hardcoded roster master a prior Phase 14.13 bug would
+      // have left this untested against. ──────────────────────────────────
+      final Finder dddCalendarDay = withinSlide(
+        'master-ddd',
+        find.byKey(Key('booking-calendar-day-${today.day}')),
+      );
+      expect(
+        dddCalendarDay,
+        findsOneWidget,
+        reason:
+            'the slider must auto-advance onto master-ddd\'s date phase '
+            'once master-ccc is fully scheduled',
+      );
+
+      await tester.tap(dddCalendarDay);
+      await AppHarness.settle(tester);
+
+      final Finder dddMorningSlot = withinSlide(
+        'master-ddd',
+        find.byKey(Key('salon-slot-chip-$todaysMorningSlotIso')),
+      );
+      expect(dddMorningSlot, findsOneWidget);
+      await tester.tap(dddMorningSlot);
+      await AppHarness.settle(tester);
+      // Same regression guard as master-ccc above, for the SECOND slide —
+      // proves the fix resolves each master's OWN assignment id
+      // independently, not a coincidentally-correct single-master case.
+      expect(
+        fb.lastMasterDddSlotsServiceId,
+        'assign-master-ddd-salon-svc-exclusive',
+        reason:
+            'the slots request must carry master-ddd\'s own service-'
+            'ASSIGNMENT id, not the salon-wide catalog id',
+      );
+      expect(fb.lastMasterDddSlotsServiceId, isNot('salon-svc-exclusive'));
+
+      // ── Manual pager navigation (dot-tap) also works in the real app —
+      // complements the auto-advance proof above with the OTHER way a
+      // client can move between slides. ───────────────────────────────────
+      await tester.tap(find.byKey(const Key('salon-time-pager-dot-0')));
+      await AppHarness.settle(tester);
+      expect(
+        find.byKey(const Key('salon-schedule-page-master-ccc')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('salon-time-pager-dot-1')));
+      await AppHarness.settle(tester);
+
+      // ── Both masters fully scheduled — the confirm bar's "Підтвердити"
+      // enables, and tapping it is PURE forward navigation to the existing
+      // coming-soon placeholder, NEVER a `POST /bookings` call ────────────
+      final Finder scheduleConfirmCta = find.byKey(
+        const Key('schedule-confirm-cta'),
+      );
+      final NeumorphicButton scheduleCta = tester.widget<NeumorphicButton>(
+        scheduleConfirmCta,
+      );
+      expect(
+        scheduleCta.onPressed,
+        isNotNull,
+        reason:
+            'both master-ccc and master-ddd have a date+time now — the '
+            'confirm bar must enable',
+      );
+
+      await tester.tap(scheduleConfirmCta);
       await AppHarness.settle(tester);
 
       // ── Lands on the coming-soon placeholder — NEVER the

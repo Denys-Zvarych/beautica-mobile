@@ -22,9 +22,15 @@
 // Phase 13.5 public master profile). This provider fans that call out over
 // every master in the salon's roster (small N — a salon's masters rail, not
 // an unbounded list) and reduces each master's returned [MasterService] list
-// to the set of `serviceDefId`s they cover, which is directly comparable
-// against [SalonCatalogService.id] / the `selectedServiceIds` carried in
-// [SalonBookingMasterSelectionArgs].
+// to a `serviceDefId -> assignmentId` map, which is directly comparable
+// (via its keys) against [SalonCatalogService.id] / the `selectedServiceIds`
+// carried in [SalonBookingMasterSelectionArgs] — AND (via its values) carries
+// forward each service's own `MasterServiceResponse.id`, the per-master
+// assignment id the slot-availability endpoint actually requires (see
+// `salon_master_schedule.dart`'s `primaryServiceAssignmentId` field —
+// resolving that id was the whole reason this map keeps the assignment id
+// instead of collapsing to a bare `Set<String>` of covered service ids, which
+// is all a pre-fix version of this file computed).
 //
 // No new repository method was added — both reads are calls the codebase
 // already makes elsewhere ([publicSalonProfileProvider] for the roster,
@@ -66,13 +72,18 @@ part 'salon_master_coverage_notifier.g.dart';
 /// Max concurrent `GET /masters/{id}/services` calls in flight at once.
 const int _kFetchChunkSize = 8;
 
-/// Maps each of [salonId]'s master ids to the set of `serviceDefId`s they
-/// currently perform (their active `MasterService.serviceDefId` set).
+/// Maps each of [salonId]'s master ids to a `serviceDefId -> assignmentId`
+/// map of the services they currently perform: the key is the catalog id
+/// (comparable against [SalonCatalogService.id]), the value is that master's
+/// OWN `MasterServiceResponse.id` for the same service — the id the slot-
+/// availability endpoint actually requires (see `salon_master_schedule.dart`'s
+/// `primaryServiceAssignmentId`). "Does master X cover service Y" is still a
+/// simple `coverage[x]?.containsKey(y) ?? false` check.
 ///
 /// Generated provider name: `salonMasterServiceCoverageProvider` — a family,
 /// call it with the target salon id.
 @riverpod
-Future<Map<String, Set<String>>> salonMasterServiceCoverage(
+Future<Map<String, Map<String, String>>> salonMasterServiceCoverage(
   Ref ref,
   String salonId,
 ) async {
@@ -87,7 +98,8 @@ Future<Map<String, Set<String>>> salonMasterServiceCoverage(
   );
   final ServiceRepository repo = ref.watch(publicServiceRepositoryProvider);
 
-  final Map<String, Set<String>> coverage = <String, Set<String>>{};
+  final Map<String, Map<String, String>> coverage =
+      <String, Map<String, String>>{};
   for (int start = 0; start < masters.length; start += _kFetchChunkSize) {
     final int end = start + _kFetchChunkSize < masters.length
         ? start + _kFetchChunkSize
@@ -97,8 +109,8 @@ Future<Map<String, Set<String>>> salonMasterServiceCoverage(
       batch.map((SalonMasterSummary m) => repo.getMasterServices(m.masterId)),
     );
     for (int i = 0; i < batch.length; i++) {
-      coverage[batch[i].masterId] = <String>{
-        for (final MasterService s in results[i]) s.serviceDefId,
+      coverage[batch[i].masterId] = <String, String>{
+        for (final MasterService s in results[i]) s.serviceDefId: s.id,
       };
     }
   }

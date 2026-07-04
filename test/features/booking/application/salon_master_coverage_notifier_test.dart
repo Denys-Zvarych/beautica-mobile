@@ -100,9 +100,8 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      final Future<Map<String, Set<String>>> resultFuture = container.read(
-        salonMasterServiceCoverageProvider(_kSalonId).future,
-      );
+      final Future<Map<String, Map<String, String>>> resultFuture = container
+          .read(salonMasterServiceCoverageProvider(_kSalonId).future);
 
       // Let the microtask queue drain enough for `publicSalonProfileProvider`
       // to resolve and the first chunk's calls to be dispatched, WITHOUT
@@ -159,7 +158,7 @@ void main() {
         pending[id]!.complete(<MasterService>[_serviceFor(id)]);
       }
 
-      final Map<String, Set<String>> coverage = await resultFuture;
+      final Map<String, Map<String, String>> coverage = await resultFuture;
 
       expect(
         coverage.keys.toSet(),
@@ -169,13 +168,22 @@ void main() {
             'roster, not just the first chunk',
       );
       for (final SalonMasterSummary m in roster) {
+        // Phase 14.16/14.17 bugfix regression guard: asserts the FULL
+        // `serviceDefId -> assignmentId` map, not just which serviceDefIds
+        // are present — a regression that keyed the map correctly but
+        // discarded/overwrote `MasterService.id` (e.g. reverted to
+        // collapsing into a bare `Set<String>` of serviceDefIds) would pass
+        // a presence-only check but fail this value-level assertion.
         expect(
           coverage[m.masterId],
-          <String>{'svc-${m.masterId}'},
+          <String, String>{'svc-${m.masterId}': 'assignment-${m.masterId}'},
           reason:
-              'each master\'s coverage set must be the exact serviceDefIds '
-              'from its OWN getMasterServices response — a chunk-index '
-              'mix-up would cross-assign another master\'s services',
+              'each master\'s coverage map must carry the exact '
+              'serviceDefId -> assignmentId pairs from its OWN '
+              'getMasterServices response (MasterService.serviceDefId -> '
+              'MasterService.id) — a chunk-index mix-up would cross-assign '
+              'another master\'s services, and dropping the assignment id '
+              'would reintroduce the masterService-not-found bug',
         );
       }
     });
@@ -209,9 +217,8 @@ void main() {
       );
       addTearDown(container.dispose);
 
-      final Future<Map<String, Set<String>>> resultFuture = container.read(
-        salonMasterServiceCoverageProvider(_kSalonId).future,
-      );
+      final Future<Map<String, Map<String, String>>> resultFuture = container
+          .read(salonMasterServiceCoverageProvider(_kSalonId).future);
 
       await pumpEventQueue();
       expect(totalDispatched, 8);
@@ -230,7 +237,7 @@ void main() {
         if (pending[id]!.isCompleted) continue;
         pending[id]!.complete(<MasterService>[_serviceFor(id)]);
       }
-      final Map<String, Set<String>> coverage = await resultFuture;
+      final Map<String, Map<String, String>> coverage = await resultFuture;
       expect(coverage.length, 16);
       // No third chunk was ever dispatched (would have bumped this past 16).
       expect(totalDispatched, 16);

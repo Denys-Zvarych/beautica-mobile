@@ -345,4 +345,132 @@ abstract final class VelvetText {
   /// Pill content (duration / price chips) — Nunito 13/800, accentDeep with
   /// mild tracking so the short strings sit evenly inside the inset chip.
   static TextStyle pill() => _pillStyle;
+
+  // ---------------------------------------------------------------------------
+  // mobile-perf Finding C (Phase 14.16/14.17 salon booking time-picker audit)
+  // — pre-composed statics replacing per-`build()` `.copyWith()` allocations
+  // across salon_time_screen.dart, salon_master_strip.dart,
+  // schedule_confirm_bar.dart, and master_schedule_page.dart. Each field is
+  // computed exactly once at class-load time (zero per-frame cost).
+  // ---------------------------------------------------------------------------
+
+  /// `_StepIndicator`'s step-pill label ("Крок 3 з 4") on `SalonTimeScreen`'s
+  /// top bar — feedback base, textSecondary, 12 sp, w800.
+  static final TextStyle stepPillLabel = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 12,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// `_MasterPager`'s "N / M" counter under the dots — same shape as
+  /// [stepPillLabel]; named separately since the two call sites are
+  /// independent and may diverge later.
+  static final TextStyle schedulePagerCounter = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 12,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// `SalonMasterStrip`'s small "Ви записуєтесь до" prefix label — feedback
+  /// base, textSecondary, 11 sp.
+  static final TextStyle masterStripLabel = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 11,
+  );
+
+  /// `SalonMasterStrip`'s master display name — subheading at 16 sp.
+  static final TextStyle masterStripName = _subheadingStyle.copyWith(
+    fontSize: 16,
+  );
+
+  /// `SalonMasterStrip`'s assigned-services line — feedback base,
+  /// accentDeep, 12 sp, w800.
+  static final TextStyle masterStripServiceLabel = _feedbackBase.copyWith(
+    color: BrandColors.accentDeep,
+    fontSize: 12,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// `SalonMasterStrip`'s summed-duration pill label — bodyStrong at 12 sp,
+  /// w800, accentDeep.
+  static final TextStyle masterStripDurationLabel = _bodyStrongStyle.copyWith(
+    fontSize: 12,
+    fontWeight: FontWeight.w800,
+    color: BrandColors.accentDeep,
+  );
+
+  /// `ScheduleConfirmBar`'s summed-duration caption beside the "Разом"
+  /// label — feedback base, muted, 12 sp.
+  static final TextStyle scheduleConfirmDurationLabel = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+    fontSize: 12,
+  );
+
+  /// `ScheduleConfirmBar`'s total price figure — bodyStrong at 18 sp, w800,
+  /// accentDeep.
+  static final TextStyle scheduleConfirmPriceLabel = _bodyStrongStyle.copyWith(
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w800,
+    fontSize: 18,
+  );
+
+  /// `_ProgressHint`'s "X з Y заплановано" label — feedback base,
+  /// textSecondary, w800 (13 sp, unchanged from the base).
+  static final TextStyle scheduleProgressHintLabel = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// `MasterSchedulePage`'s date-phase intro copy — body at 14 sp.
+  static final TextStyle scheduleDateIntro = _bodyStyle.copyWith(fontSize: 14);
+
+  /// `MasterSchedulePage`'s "Вільний час" section heading — subheading at
+  /// 16 sp.
+  static final TextStyle scheduleTimeHeading = _subheadingStyle.copyWith(
+    fontSize: 16,
+  );
+
+  /// `MasterSchedulePage`'s day-unavailable error copy — feedback base,
+  /// muted (13 sp, unchanged from the base) — pre-cached so the per-build
+  /// `VelvetText.feedback(...)` call is avoided entirely.
+  static final TextStyle dayUnavailableLabel = _feedbackBase.copyWith(
+    color: BrandColors.muted,
+  );
+
+  /// `_DayHeaderChip`'s formatted-day title ("Пн, 5 липня") — subheading at
+  /// 16 sp, accentDeep.
+  static final TextStyle dayHeaderTitle = _subheadingStyle.copyWith(
+    fontSize: 16,
+    color: BrandColors.accentDeep,
+  );
+
+  /// `_DayHeaderChip`'s "masterName · role" subtitle — feedback base,
+  /// textSecondary, 11 sp.
+  static final TextStyle dayHeaderSubtitle = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 11,
+  );
+
+  /// `_DayHeaderChip`'s «Змінити» change-date CTA label — feedback base,
+  /// accentDeep, 13 sp, w800.
+  static final TextStyle changeDateCta = _feedbackBase.copyWith(
+    color: BrandColors.accentDeep,
+    fontSize: 13,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// `_WindowLine`'s unchosen-slot prompt ("Оберіть час…") — feedback base,
+  /// textSecondary, 13 sp.
+  static final TextStyle windowLinePrompt = _feedbackBase.copyWith(
+    color: BrandColors.textSecondary,
+    fontSize: 13,
+  );
+
+  /// `_WindowLine`'s chosen-window value label — bodyStrong at 14 sp, w800,
+  /// accentDeep.
+  static final TextStyle windowLineAccent = _bodyStrongStyle.copyWith(
+    color: BrandColors.accentDeep,
+    fontWeight: FontWeight.w800,
+    fontSize: 14,
+  );
 }

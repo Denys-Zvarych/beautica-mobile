@@ -60,6 +60,7 @@ import 'package:beautica_mobile/features/booking/presentation/booking_success_sc
 import 'package:beautica_mobile/features/booking/presentation/salon_booking_coming_soon_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/salon_time_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/service_selector_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
@@ -162,6 +163,26 @@ SalonBookingMasterSelectionArgs _validSalonMasterArgs() =>
       salonId: _kSalonId,
       selectedServiceIds: <String>['svc-1'],
     );
+
+// Phase 14.16/14.17 — the salon booking flow's step-3 "Час" route fixture.
+const String _kSalonMasterId = 'salon-master-1';
+
+const _kSalonMaster = SalonMasterSummary(
+  masterId: _kSalonMasterId,
+  firstName: 'Salon',
+  lastName: 'Master',
+  avgRating: 0,
+  reviewCount: 0,
+  type: MasterType.salonMaster,
+);
+
+SalonBookingTimeArgs _validSalonTimeArgs() => const SalonBookingTimeArgs(
+  salonId: _kSalonId,
+  selectedServiceIds: <String>['svc-1'],
+  assignedServiceIdsByMaster: <String, List<String>>{
+    _kSalonMasterId: <String>['svc-1'],
+  },
+);
 
 const _clientUser = User(
   id: 'c1',
@@ -303,15 +324,26 @@ void main() {
           // Phase 14.12/14.13 — settles the salon booking screens' data
           // fetches synchronously, same leaked-timer rationale as the master
           // flow's overrides above.
-          publicSalonProfileProvider(
-            _kSalonId,
-          ).overrideWith((ref) => (_kSalon, const <SalonMasterSummary>[])),
+          publicSalonProfileProvider(_kSalonId).overrideWith(
+            (ref) => (_kSalon, const <SalonMasterSummary>[_kSalonMaster]),
+          ),
           salonServiceCatalogProvider(
             _kSalonId,
           ).overrideWith((ref) => _kSalonCatalog),
-          salonMasterServiceCoverageProvider(
-            _kSalonId,
-          ).overrideWith((ref) => const <String, Set<String>>{}),
+          // Phase 14.16/14.17 bugfix — coverage values are now
+          // `serviceDefId -> assignmentId` maps, not a bare `Set<String>`.
+          // MUST resolve `_kSalonMasterId -> 'svc-1'` to a real assignment
+          // id here (not an empty map): `SalonTimeScreen._resolveSchedule`
+          // now consults this map to build `SalonMasterSchedule
+          // .primaryServiceAssignmentId`, and drops any master it can't
+          // resolve — an empty map would silently empty out the schedule
+          // list and self-pop the `/booking/salon/time` route this file's
+          // "CLIENT may reach every booking route" group asserts renders.
+          salonMasterServiceCoverageProvider(_kSalonId).overrideWith(
+            (ref) => const <String, Map<String, String>>{
+              _kSalonMasterId: <String, String>{'svc-1': 'svc-1'},
+            },
+          ),
         ],
       );
       addTearDown(container.dispose);
@@ -444,6 +476,18 @@ void main() {
           expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
         },
       );
+
+      testWidgets('/booking/salon/time (extra: valid args) → /master/profile', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(tester, _masterSession);
+
+        router.go(RouteNames.salonBookingTime, extra: _validSalonTimeArgs());
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.masterProfile));
+        expect(find.byType(SalonTimeScreen), findsNothing);
+      });
     });
 
     group('CLIENT may reach every booking route (no redirect)', () {
@@ -535,6 +579,16 @@ void main() {
 
         expect(locationOf(router), equals(RouteNames.salonBookingComingSoon));
         expect(find.byType(SalonBookingComingSoonScreen), findsOneWidget);
+      });
+
+      testWidgets('/booking/salon/time (extra: valid args)', (tester) async {
+        final router = await pumpRouterAs(tester, _clientSession);
+
+        router.go(RouteNames.salonBookingTime, extra: _validSalonTimeArgs());
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.salonBookingTime));
+        expect(find.byType(SalonTimeScreen), findsOneWidget);
       });
     });
 
@@ -752,6 +806,34 @@ void main() {
 
           expect(locationOf(router), equals(RouteNames.clientHome));
           expect(find.byType(SalonBookingComingSoonScreen), findsNothing);
+        },
+      );
+
+      // Phase 14.16 — /booking/salon/time has no natural upstream salon id
+      // to chain-redirect through either — same "no natural upstream"
+      // fallback shape as /booking/salon/masters above.
+      testWidgets('/booking/salon/time with a missing extra redirects to /home '
+          '(clientHome)', (tester) async {
+        final router = await pumpRouterAs(tester, _clientSession);
+
+        router.go(RouteNames.salonBookingTime);
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.clientHome));
+        expect(find.byType(SalonTimeScreen), findsNothing);
+      });
+
+      testWidgets(
+        '/booking/salon/time with a wrong-typed extra redirects to /home '
+        '(clientHome)',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _clientSession);
+
+          router.go(RouteNames.salonBookingTime, extra: 42);
+          await tester.pumpAndSettle();
+
+          expect(locationOf(router), equals(RouteNames.clientHome));
+          expect(find.byType(SalonTimeScreen), findsNothing);
         },
       );
     });

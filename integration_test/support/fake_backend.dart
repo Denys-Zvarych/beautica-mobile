@@ -46,6 +46,8 @@
 //  GET  /api/v1/masters/master-aaa/slots          — Phase 14.1 slot-picker availability
 //  GET  /api/v1/masters/master-aaa/working-days   — Phase 14.14 calendar day-availability gate
 //  GET  /api/v1/masters/{master-ccc..iii}/services — Phase 14.13 salon-roster per-master coverage
+//  GET  /api/v1/masters/{master-ccc,master-ddd}/working-days — Phase 14.16 salon time-picker (per assigned master)
+//  GET  /api/v1/masters/{master-ccc,master-ddd}/slots        — Phase 14.17 salon time-picker (per assigned master)
 //
 // USAGE
 // -----
@@ -550,6 +552,20 @@ final class FakeBackend {
   /// chunk.
   int getSalonRosterMasterServicesCalls = 0;
   final Set<String> requestedSalonRosterMasterIds = <String>{};
+
+  /// The `serviceId` query param the salon time-picker's real
+  /// `GET /masters/{masterId}/slots` request carried for `master-ccc` /
+  /// `master-ddd` respectively — bugfix regression guard (Phase 14.16/14.17
+  /// masterService-not-found fix). [_masterServiceEnvelope]'s fixture `id`
+  /// (`assign-<masterId>-<serviceDefId>`, the per-master ASSIGNMENT id) is
+  /// deliberately DIFFERENT from its `serviceDefinition.id` (the salon-wide
+  /// CATALOG id, e.g. `salon-svc-shared`) — exactly like production, where
+  /// `master_services.id` is never equal to `service_definitions.id`. The
+  /// original bug sent the catalog id here, 404ing server-side with
+  /// "masterService not found"; the salon-booking E2E below asserts this
+  /// equals the ASSIGNMENT id, never the catalog id.
+  String? lastMasterCccSlotsServiceId;
+  String? lastMasterDddSlotsServiceId;
 
   // ── Public salon profile telemetry (Phase 13.6) ───────────────────────────
   //
@@ -1631,6 +1647,57 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (_) {
         getWorkingDaysCalls++;
         return _workingDaysEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // Phase 14.16/14.17 salon booking time-picker (SalonTimeScreen /
+    // salon_booking_schedule_notifier.dart's workingDaysProvider /
+    // salonMasterDaySlotsProvider). The salon-booking E2E's TWO eligible
+    // roster masters (`master-ccc` — covers `salon-svc-shared`, `master-ddd`
+    // — covers `salon-svc-exclusive`, per the coverage split above) each need
+    // their OWN `/working-days` + `/slots` routes: the time screen renders
+    // one `PageView` slide per assigned master and fetches EACH slide's
+    // calendar/slots independently. Registering these for only ONE of the two
+    // (mirroring the exact Phase 14.13 bug this session's phase docs warn
+    // against — where only `master-aaa` had `/services` wired and every other
+    // roster master 404'd) would 404 the second slide's provider the moment
+    // the flow reaches it. Reuses the same shared counters/envelopes
+    // `master-aaa` uses above — this file has only one `FakeBackend` instance
+    // per test, so the counts stay scoped to whichever test exercises them.
+    _adapter.onRoute(
+      '/api/v1/masters/master-ccc/working-days',
+      (server) => server.replyCallback(200, (_) {
+        getWorkingDaysCalls++;
+        return _workingDaysEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-ccc/slots',
+      (server) => server.replyCallback(200, (req) {
+        getMasterSlotsCalls++;
+        lastMasterCccSlotsServiceId =
+            req.queryParameters['serviceId'] as String?;
+        return _availableSlotsEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-ddd/working-days',
+      (server) => server.replyCallback(200, (_) {
+        getWorkingDaysCalls++;
+        return _workingDaysEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-ddd/slots',
+      (server) => server.replyCallback(200, (req) {
+        getMasterSlotsCalls++;
+        lastMasterDddSlotsServiceId =
+            req.queryParameters['serviceId'] as String?;
+        return _availableSlotsEnvelope();
       }),
       request: const Request(method: RequestMethods.get),
     );

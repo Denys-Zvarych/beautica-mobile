@@ -143,8 +143,34 @@ class _SalonMasterSelectionScreenState
     );
   }
 
-  void _confirm() {
-    context.push(RouteNames.salonBookingComingSoon, extra: widget.args.salonId);
+  // Phase 14.16 — retargeted from the `salonBookingComingSoon` placeholder to
+  // the real step-3 "Час" screen. Builds the EXACT per-master assignment the
+  // client just resolved (including any contested-service resolver-chip
+  // choice) — see `SalonBookingTimeArgs`'s file header for why this can't be
+  // safely re-derived from `salonMasterServiceCoverageProvider` alone on the
+  // next screen.
+  void _confirm(
+    _MasterSelectionStatic staticModel,
+    _MasterSelectionDerived derived,
+  ) {
+    final Map<String, List<String>> assignments = <String, List<String>>{};
+    for (final SalonMasterSummary m in staticModel.eligible) {
+      final List<String> ids = staticModel.selected
+          .where(
+            (SalonCatalogService s) => derived.effective(s.id) == m.masterId,
+          )
+          .map((SalonCatalogService s) => s.id)
+          .toList(growable: false);
+      if (ids.isNotEmpty) assignments[m.masterId] = ids;
+    }
+    context.push(
+      RouteNames.salonBookingTime,
+      extra: SalonBookingTimeArgs(
+        salonId: widget.args.salonId,
+        selectedServiceIds: widget.args.selectedServiceIds,
+        assignedServiceIdsByMaster: assignments,
+      ),
+    );
   }
 
   @override
@@ -162,7 +188,7 @@ class _SalonMasterSelectionScreenState
         salonAsync.error ?? catalogAsync.error ?? coverageAsync.error;
     final PublicSalonProfileData? salonData = salonAsync.value;
     final List<SalonServiceCategoryEntry>? catalog = catalogAsync.value;
-    final Map<String, Set<String>>? coverage = coverageAsync.value;
+    final Map<String, Map<String, String>>? coverage = coverageAsync.value;
 
     Widget body;
     Widget? bottomBar;
@@ -229,7 +255,9 @@ class _SalonMasterSelectionScreenState
             selected: selected,
             assignedCount: derived.assignedCount,
             totalCount: selected.length,
-            onNext: derived.allAssigned ? _confirm : null,
+            onNext: derived.allAssigned
+                ? () => _confirm(staticModel, derived)
+                : null,
           );
         },
       );
@@ -290,7 +318,7 @@ class _MasterSelectionStatic {
            .where(
              (SalonMasterSummary m) => selected.any(
                (SalonCatalogService s) =>
-                   coverage[m.masterId]?.contains(s.id) ?? false,
+                   coverage[m.masterId]?.containsKey(s.id) ?? false,
              ),
            )
            .toList(growable: false),
@@ -302,7 +330,7 @@ class _MasterSelectionStatic {
 
   final List<SalonMasterSummary> masters;
   final List<SalonCatalogService> selected;
-  final Map<String, Set<String>> coverage;
+  final Map<String, Map<String, String>> coverage;
 
   /// Masters who perform ≥1 selected service — the only ones rendered.
   final List<SalonMasterSummary> eligible;
@@ -324,7 +352,7 @@ class _MasterSelectionStatic {
   String coveredLabel(SalonMasterSummary m) => selected
       .where(
         (SalonCatalogService s) =>
-            coverage[m.masterId]?.contains(s.id) ?? false,
+            coverage[m.masterId]?.containsKey(s.id) ?? false,
       )
       .map((SalonCatalogService s) => s.name)
       .join(' · ');
@@ -345,7 +373,7 @@ class _MasterSelectionDerived {
       .where(
         (SalonMasterSummary m) =>
             pick.picked.contains(m.masterId) &&
-            (staticModel.coverage[m.masterId]?.contains(serviceId) ?? false),
+            (staticModel.coverage[m.masterId]?.containsKey(serviceId) ?? false),
       )
       .map((SalonMasterSummary m) => m.masterId)
       .toList(growable: false);
