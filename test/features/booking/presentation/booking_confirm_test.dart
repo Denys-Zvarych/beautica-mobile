@@ -505,7 +505,7 @@ void main() {
     });
 
     // mobile-qa Part 4 — the 112dp gradient-circle `_SuccessCheckBadge` was
-    // replaced by a real 56dp `Lottie.asset('assets/lottie/success.json')`
+    // replaced by a real 80dp `Lottie.asset('assets/lottie/success.json')`
     // animation (`_SuccessLottieBadge`), with a `frameBuilder` placeholder
     // shown while the composition decodes asynchronously
     // (`_SuccessBadgePlaceholder`). Both new private classes are
@@ -568,6 +568,20 @@ void main() {
             'BookingSuccessScreen must mount a real Lottie widget for its '
             'success badge — not the old gradient-circle '
             '`_SuccessCheckBadge` shape it replaced',
+      );
+
+      // The 80dp badge size is a locked, deliberate deviation from the
+      // approved preview's 112dp slot (see the screen's file header) — not
+      // an arbitrary implementation detail. Pin the rendered size so a
+      // future accidental edit to `_SuccessLottieBadge._size` (which is
+      // library-private and can't be asserted on directly) doesn't silently
+      // drift this product decision without any test noticing.
+      expect(
+        tester.getSize(find.byType(Lottie)),
+        const Size(80, 80),
+        reason:
+            'the success badge must render at the locked 80dp size, not '
+            'the approved preview\'s 112dp slot',
       );
     });
 

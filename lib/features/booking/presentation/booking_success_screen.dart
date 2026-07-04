@@ -13,8 +13,9 @@
 // in from `docs/signup-designs/BookingConfirmSuccess/assets/lottie/` — the
 // asset this screen originally shipped without (see git history for the
 // prior in-code `_SuccessCheckBadge` gradient-circle fallback it replaced).
-// Rendered at 56 dp — HALF the preview's 112 dp slot, a deliberate
-// deviation from the approved design at the user's explicit request — with
+// Rendered at 80 dp — smaller than the preview's 112 dp slot (not a
+// straight half), a deliberate deviation from the approved design at the
+// user's explicit request — with
 // its own [_lottieController] (duration set from the loaded composition,
 // `forward(from: 0)` once), independent of [_controller] below (which still
 // drives the headline/subline/summary/CTA staggered reveal exactly as
@@ -244,8 +245,9 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
 // ---------------------------------------------------------------------------
 
 /// The real designed success animation (`assets/lottie/success.json`),
-/// rendered at 56 dp — half the approved preview's 112 dp slot, per explicit
-/// request. Plays once, driven by [controller] (see the state class'
+/// rendered at 80 dp — smaller than the approved preview's 112 dp slot (not
+/// a straight half), per explicit request. Plays once, driven by
+/// [controller] (see the state class'
 /// `_lottieController` doc for the wiring rationale); excluded from the
 /// semantics tree since it is purely decorative — the "Записано!" headline
 /// right below it already conveys the success state to screen readers.
@@ -254,7 +256,7 @@ class _SuccessLottieBadge extends StatelessWidget {
 
   final AnimationController controller;
 
-  static const double _size = 56;
+  static const double _size = 80;
 
   @override
   Widget build(BuildContext context) {
@@ -270,7 +272,7 @@ class _SuccessLottieBadge extends StatelessWidget {
           repeat: false,
           fit: BoxFit.contain,
           // PERF: the composition decodes asynchronously; without this the
-          // 56 dp slot renders blank for a frame or two before `onLoaded`
+          // 80 dp slot renders blank for a frame or two before `onLoaded`
           // fires. Swap in a static version of the same circular badge so
           // there's never a blank box, then hand off to the real animation
           // the instant the composition is ready.
@@ -301,7 +303,7 @@ class _SuccessLottieBadge extends StatelessWidget {
 
 /// Static stand-in for [_SuccessLottieBadge] shown for the brief window
 /// before the Lottie composition finishes its async decode. A plain filled
-/// circle with a check glyph — same 56 dp footprint and the same success
+/// circle with a check glyph — same 80 dp footprint and the same success
 /// colour the finished animation lands on, so the swap to the real
 /// animation is not a visible jump.
 class _SuccessBadgePlaceholder extends StatelessWidget {
