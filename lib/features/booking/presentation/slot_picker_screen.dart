@@ -372,8 +372,27 @@ class SlotTimeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context);
-    final SlotPickerState state = ref.watch(slotPickerProvider);
-    final DateTime? selectedDate = state.selectedDate;
+    // Narrow watch (mobile-perf finding): mirrors `SlotDateScreen`'s own fix
+    // above. `SlotPickerState` has no `==` override, so a raw
+    // `ref.watch(slotPickerProvider)` treats EVERY `state = state.copyWith(…)`
+    // assignment as "changed" — including a no-op re-tap of the
+    // already-selected slot — and rebuilds the whole tree (`MasterStrip`,
+    // `_DayHeaderChip`, `_SlotsSection`) every time, even though this screen's
+    // three field reads below (`selectedDate`, `selectedSlot`, `slots`) each
+    // have proper value equality (`DateTime`, freezed `BookingSlot`,
+    // `AsyncValue`). Selecting them individually means an unchanged field
+    // never re-triggers this build, while a genuinely changed one still does
+    // (`selectSlot()` → `selectedSlot`; a still-in-flight `loadSlots()` fetch
+    // resolving after "Далі" was tapped early → `slots`).
+    final DateTime? selectedDate = ref.watch(
+      slotPickerProvider.select((SlotPickerState s) => s.selectedDate),
+    );
+    final BookingSlot? selectedSlot = ref.watch(
+      slotPickerProvider.select((SlotPickerState s) => s.selectedSlot),
+    );
+    final AsyncValue<List<BookingSlot>> slotsAsync = ref.watch(
+      slotPickerProvider.select((SlotPickerState s) => s.slots),
+    );
 
     if (selectedDate == null) {
       // Defensive: this route is only reachable via SlotDateScreen's "Далі",
@@ -389,7 +408,6 @@ class SlotTimeScreen extends ConsumerWidget {
       0,
       (int sum, service) => sum + service.durationMinutes,
     );
-    final BookingSlot? selectedSlot = state.selectedSlot;
     final String? windowLabel = selectedSlot == null
         ? null
         : formatBookingWindow(
@@ -431,6 +449,21 @@ class SlotTimeScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
+                    // Phase 14.1 follow-up: mirrors `SlotDateScreen`'s own
+                    // `MasterStrip` placement (and `master_schedule_page.dart`'s
+                    // persistent-strip pattern for the salon-booking flow) so
+                    // the "who you're booking with" context survives the
+                    // date → time step, not just the date screen. No extra
+                    // horizontal `Padding` wrapper here (unlike
+                    // `SlotDateScreen`'s) — this screen's enclosing
+                    // `SingleChildScrollView` already applies
+                    // `VelvetSpacing.lg` horizontal padding to every child.
+                    // Safe to render simultaneously with `SlotDateScreen`'s own
+                    // `MasterStrip` further down the navigation stack: the
+                    // widget carries no `Hero`/shared-element tag or
+                    // `GlobalKey` (see `widgets/master_strip.dart`).
+                    MasterStrip(master: args.master),
+                    const SizedBox(height: VelvetSpacing.lg),
                     _DayHeaderChip(
                       label: formatBookingDayHeader(selectedDate),
                       master: args.master,
@@ -438,7 +471,7 @@ class SlotTimeScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: VelvetSpacing.lg),
                     _SlotsSection(
-                      slotsAsync: state.slots,
+                      slotsAsync: slotsAsync,
                       selectedSlot: selectedSlot,
                       onSelectSlot: (BookingSlot slot) => ref
                           .read(slotPickerProvider.notifier)

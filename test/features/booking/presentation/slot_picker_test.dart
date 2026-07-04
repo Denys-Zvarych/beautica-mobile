@@ -24,11 +24,13 @@ import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -520,6 +522,72 @@ void main() {
 
       return router;
     }
+
+    // Regression test (feature addition): `MasterStrip` now renders at the
+    // top of `SlotTimeScreen` too, mirroring `SlotDateScreen`'s and
+    // `master_schedule_page.dart`'s persistent-strip pattern — before this
+    // change, the "who you're booking with" card was visible on the date
+    // step but disappeared once the client advanced to the time step.
+    testWidgets(
+      'shows MasterStrip above the day header chip, so the "who you\'re '
+      'booking with" context persists onto the time step too',
+      (tester) async {
+        await pumpTimeScreen(tester, args: _args());
+
+        final Finder timeScreen = find.byType(SlotTimeScreen);
+        expect(timeScreen, findsOneWidget);
+
+        final Finder masterStrip = find.descendant(
+          of: timeScreen,
+          matching: find.byType(MasterStrip),
+        );
+        expect(
+          masterStrip,
+          findsOneWidget,
+          reason:
+              'MasterStrip was NOT rendered on SlotTimeScreen before this '
+              'change — it must appear exactly once now',
+        );
+
+        // The master's name must render INSIDE MasterStrip itself, not just
+        // somewhere on screen — `_DayHeaderChip` already renders a
+        // DIFFERENT string ('$masterName · $masterRole') as its own
+        // subtitle, so a bare `find.text(name)` anywhere on screen would be
+        // a false positive even before this change.
+        final String masterName = '${_kMaster.firstName} ${_kMaster.lastName}'
+            .trim();
+        expect(
+          find.descendant(of: masterStrip, matching: find.text(masterName)),
+          findsOneWidget,
+        );
+
+        // Ordering: MasterStrip must render ABOVE (higher on screen than)
+        // the day header chip. The chip itself is a private
+        // `_DayHeaderChip`, not importable from this test file, so it's
+        // located via its own day-label text instead.
+        final DateTime today = DateTime.now();
+        final DateTime todayDateOnly = DateTime(
+          today.year,
+          today.month,
+          today.day,
+        );
+        final Finder dayHeaderLabel = find.descendant(
+          of: timeScreen,
+          matching: find.text(formatBookingDayHeader(todayDateOnly)),
+        );
+        expect(dayHeaderLabel, findsOneWidget);
+
+        final double masterStripTop = tester.getTopLeft(masterStrip).dy;
+        final double dayHeaderTop = tester.getTopLeft(dayHeaderLabel).dy;
+        expect(
+          masterStripTop,
+          lessThan(dayHeaderTop),
+          reason:
+              'MasterStrip must render above the day header chip, matching '
+              'SlotDateScreen\'s own MasterStrip-first layout',
+        );
+      },
+    );
 
     // mobile-qa M3 / coverage gap closed 2026-07-02: neither this file nor
     // any prior QA pass exercised `SlotRepository.getMasterSlots` FAILING —
