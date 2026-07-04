@@ -3407,7 +3407,7 @@
       "masterRole": { "type": "String" }
     }
   },
-  "bookingConfirmScreenTitle": "Підтвердження запису",
+  "bookingConfirmScreenTitle": "Підтвердження",
   "@bookingConfirmScreenTitle": {
     "description": "Title of the booking confirmation screen's top bar (Phase 14.2)."
   },

@@ -293,10 +293,10 @@ class _BookingSummaryBarState extends State<BookingSummaryBar> {
         duration: totals.durationLabel,
       ),
       const SizedBox(height: VelvetSpacing.md),
-      if (widget.showChosenWindow) ...<Widget>[
+      if (widget.showChosenWindow)
         _ChosenWindow(l10n: l10n, label: widget.chosenWindowLabel),
+      if (widget.showChosenWindow && widget.chosenWindowLabel != null)
         const SizedBox(height: VelvetSpacing.md),
-      ],
       NeumorphicButton(
         key: const Key('booking-summary-cta'),
         label: widget.ctaLabel,

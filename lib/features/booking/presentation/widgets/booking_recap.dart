@@ -183,8 +183,6 @@ class _ServiceRow extends StatelessWidget {
                 children: <Widget>[
                   Text(
                     selection.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: VelvetText.bodyStrong().copyWith(
                       fontSize: compactText ? 13 : 14.5,
                     ),

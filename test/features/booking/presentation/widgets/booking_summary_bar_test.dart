@@ -542,4 +542,98 @@ void main() {
       },
     );
   });
+
+  // mobile-qa regression — the trailing `SizedBox(height: md)` spacer before
+  // the CTA used to render whenever `showChosenWindow: true`, REGARDLESS of
+  // whether a slot was actually chosen yet. On `SlotTimeScreen` before a slot
+  // is picked (`showChosenWindow: true, chosenWindowLabel: null`) that
+  // spacer stacked on top of the zero-height `_ChosenWindow` placeholder
+  // (see the group above), doubling the visual gap to the CTA versus
+  // `SlotDateScreen`/`ServiceSelectorSheet` (which never set
+  // `showChosenWindow` at all). Fixed: the spacer now only renders when
+  // `showChosenWindow && chosenWindowLabel != null`.
+  group('total-to-CTA gap (mobile-qa doubled-gap regression)', () {
+    Future<double> gapAboveCta(
+      WidgetTester tester, {
+      required bool showChosenWindow,
+      String? chosenWindowLabel,
+    }) async {
+      await tester.pumpApp(
+        _bar(
+          showChosenWindow: showChosenWindow,
+          chosenWindowLabel: chosenWindowLabel,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingSummaryBar)),
+      );
+      // The "Разом" total-row label — same widget/style/row layout in every
+      // config below (same services fixture, so the row's own internal
+      // offsets never change), so its bottom edge is a stable anchor to
+      // measure the gap to the CTA from.
+      final double totalRowBottom = tester
+          .getBottomLeft(find.text(l10n.bookingTotalLabel))
+          .dy;
+      final double ctaTop = tester.getTopLeft(find.byKey(_ctaKey)).dy;
+      return ctaTop - totalRowBottom;
+    }
+
+    testWidgets(
+      'the gap between the "Разом" total row and the CTA is IDENTICAL for '
+      'showChosenWindow:false (SlotDateScreen) and showChosenWindow:true '
+      'with chosenWindowLabel:null (SlotTimeScreen before a slot is picked)',
+      (tester) async {
+        final double gapWithoutChosenWindow = await gapAboveCta(
+          tester,
+          showChosenWindow: false,
+        );
+        final double gapWithChosenWindowUnselected = await gapAboveCta(
+          tester,
+          showChosenWindow: true,
+        );
+
+        expect(
+          gapWithChosenWindowUnselected,
+          closeTo(gapWithoutChosenWindow, 0.5),
+          reason:
+              'a regression back to an unconditional `if (showChosenWindow) '
+              'SizedBox(height: md)` spacer would stack on top of the '
+              'zero-height `_ChosenWindow` placeholder and DOUBLE this gap '
+              "versus SlotDateScreen's bar, which never sets "
+              'showChosenWindow at all.',
+        );
+      },
+    );
+
+    testWidgets(
+      'the slot-chosen case still renders the window label with its own '
+      'trailing spacer before the CTA, unchanged',
+      (tester) async {
+        const String label = 'вт, 14 лип · 14:00–18:30';
+        final double baselineGap = await gapAboveCta(
+          tester,
+          showChosenWindow: false,
+        );
+        final double gapWithChosenSlot = await gapAboveCta(
+          tester,
+          showChosenWindow: true,
+          chosenWindowLabel: label,
+        );
+
+        // i18n-finder-ok: `label` is test fixture data, not app UI copy.
+        expect(find.text(label), findsOneWidget);
+        expect(
+          gapWithChosenSlot,
+          greaterThan(baselineGap),
+          reason:
+              'once a slot is chosen, the window well (with its own '
+              'trailing spacer) must still add real height above the CTA — '
+              'this must stay true independently of the doubled-gap fix '
+              'above.',
+        );
+      },
+    );
+  });
 }

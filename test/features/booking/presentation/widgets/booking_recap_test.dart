@@ -9,6 +9,7 @@
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_recap.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/pump_app.dart';
@@ -138,4 +139,92 @@ void main() {
       },
     );
   });
+
+  // mobile-qa regression — `_ServiceRow`'s service-name `Text` used to carry
+  // `maxLines: 1` / `TextOverflow.ellipsis`, silently truncating long
+  // service names on BOTH `BookingConfirmScreen` and `BookingSuccessScreen`
+  // (this widget is shared by both — see the file header SCOPE NOTE). The
+  // cap is now removed so a long name wraps onto additional lines instead.
+  group('BookingRecap long service-name wrapping (mobile-qa regression)', () {
+    // 89 Cyrillic characters — well past what fits on a single line at a
+    // realistic phone width, forcing real wrapping (not just "doesn't
+    // crash").
+    const String longName =
+        'Комплексний догляд за руками та нігтями з європейським '
+        'манікюром і гель-лаковим покриттям';
+
+    const _kLongSelection = BookingSelection(
+      name: longName,
+      price: '500 грн',
+      duration: '1 год 30 хв',
+    );
+
+    testWidgets(
+      'a long service name wraps onto multiple lines instead of being '
+      'ellipsis-truncated, with no overflow error',
+      (tester) async {
+        await tester.pumpApp(
+          const Scaffold(
+            body: BookingRecap(
+              selections: <BookingSelection>[_kLongSelection],
+            ),
+          ),
+          // Narrow, realistic phone width — forces the long name to
+          // actually need more than one line. pumpApp's overflow guard fails
+          // the test in tearDown on any RenderFlex overflow at this width,
+          // so no separate overflow assertion is needed.
+          width: 320,
+        );
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+
+        final Text nameText = tester.widget<Text>(find.text(longName));
+        expect(
+          nameText.maxLines,
+          isNull,
+          reason:
+              'a regression back to `maxLines: 1` would re-cap the service '
+              'name to a single line and silently ellipsis-truncate long '
+              "names — see this widget's SCOPE NOTE: it is shared by both "
+              'BookingConfirmScreen and BookingSuccessScreen.',
+        );
+        expect(
+          nameText.overflow,
+          isNot(TextOverflow.ellipsis),
+          reason:
+              'the ellipsis overflow mode must not be reintroduced '
+              'alongside maxLines',
+        );
+
+        final RenderParagraph paragraph = tester
+            .renderObject<RenderParagraph>(find.text(longName));
+        expect(
+          _lineCount(paragraph),
+          greaterThan(1),
+          reason:
+              'proves the name actually WRAPPED (not merely "didn\'t '
+              'throw") — an 89-char Cyrillic name cannot fit on one line at '
+              '320dp without wrapping onto a second line.',
+        );
+      },
+    );
+  });
+}
+
+/// Number of lines the paragraph actually laid out — [RenderParagraph]
+/// exposes no line count directly, so re-run the layout in a [TextPainter]
+/// (mirrors the same technique already established in
+/// `master_result_card_test.dart`'s long-name-wrapping tests).
+int _lineCount(RenderParagraph p) {
+  final TextPainter painter = TextPainter(
+    text: p.text,
+    textAlign: p.textAlign,
+    textDirection: p.textDirection,
+    textScaler: p.textScaler,
+    maxLines: p.maxLines,
+  )..layout(maxWidth: p.constraints.maxWidth);
+  final int lines = painter.computeLineMetrics().length;
+  painter.dispose();
+  return lines;
 }

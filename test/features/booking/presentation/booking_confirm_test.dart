@@ -319,6 +319,29 @@ void main() {
       expect(find.text('Манікюр з покриттям'), findsOneWidget);
     });
 
+    // mobile-qa regression — `bookingConfirmScreenTitle`'s Ukrainian ARB
+    // value has flip-flopped between "Підтвердження запису" and
+    // "Підтвердження" (`lib/l10n/app_uk.arb`); either variant looks like a
+    // superficially reasonable Ukrainian title, so a change here would
+    // otherwise slip past review unnoticed. Pins the EXACT locked literal —
+    // a deliberate, narrow exception to the "find by Key, not translated
+    // string" convention (mobile-qa's own M2 guidance), because the whole
+    // point of this test is to catch the ARB value itself silently
+    // reverting: asserting via `l10n.bookingConfirmScreenTitle` would just
+    // re-read whatever the ARB currently says and could never fail.
+    testWidgets(
+      'renders the exact locked Ukrainian title "Підтвердження" in the top '
+      'bar',
+      (tester) async {
+        final fake = _FakeBookingRepository(bookingToReturn: _bookingFixture());
+        await pump(tester, fake);
+
+        // i18n-finder-ok(intentional ARB-lock exception — see comment
+        // above): literal ARB value under test, not a fixture.
+        expect(find.text('Підтвердження'), findsOneWidget);
+      },
+    );
+
     // mobile-qa Part 1 — `BookingSummaryCards`'s master card was migrated
     // from a deleted bespoke `_MasterHeader` to the SAME `MasterStrip(
     // showRole: true, showRating: true)` used by the Step 2a/2b slot-picker
