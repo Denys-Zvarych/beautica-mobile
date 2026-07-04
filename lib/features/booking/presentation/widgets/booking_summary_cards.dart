@@ -106,7 +106,23 @@ class BookingSummaryCards extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         if (showMasterCard) ...<Widget>[
-          MasterStrip(master: master, showRole: true, showRating: true),
+          // Hero (jank fix): continues the SAME `master-strip-<id>` shared-
+          // element transition `SlotDateScreen`/`SlotTimeScreen` already fly
+          // (`slot_picker_screen.dart`) — this card is the exact `MasterStrip`
+          // instance those two screens' `Hero`-wrapped cards land on when the
+          // client reaches `BookingConfirmScreen`. Without this wrapper the
+          // card used to just swap in unanimated the instant the push
+          // transition settled, at a slightly different y-offset (see
+          // `BookingConfirmScreen`'s own top-bar/scroll-padding normalization
+          // in the same pass).
+          Hero(
+            tag: 'master-strip-${master.id}',
+            child: MasterStrip(
+              master: master,
+              showRole: true,
+              showRating: true,
+            ),
+          ),
           const SizedBox(height: VelvetSpacing.md),
         ],
         NeumorphicCard(

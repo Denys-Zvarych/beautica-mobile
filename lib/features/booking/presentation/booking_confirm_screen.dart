@@ -58,6 +58,7 @@ import '../domain/booking_confirm_args.dart';
 import '../domain/booking_success_args.dart';
 import '../domain/create_booking_request.dart';
 import 'widgets/booking_summary_cards.dart';
+import 'widgets/booking_top_bar.dart';
 
 const String _tag = 'feature.booking.confirm';
 
@@ -187,10 +188,11 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
         bottom: false,
         child: Column(
           children: <Widget>[
-            _TopBar(
+            BookingTopBar(
               title: l10n.bookingConfirmScreenTitle,
               backSemantics: l10n.bookingConfirmBackSemantics,
               onBack: () => context.pop(),
+              backKey: const Key('booking-confirm-back'),
             ),
             Expanded(
               child: asyncData.when(
@@ -210,7 +212,15 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                     physics: const BouncingScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(
                       VelvetSpacing.lg,
-                      VelvetSpacing.sm,
+                      // Jank fix: matches `SlotTimeScreen`'s established
+                      // top-bar-bottom(`sm`) + own-top-inset(`md`) = 24dp
+                      // total gap above `MasterStrip` — see
+                      // `BookingTopBar`'s file header. Was `VelvetSpacing.sm`
+                      // (12dp total, since this screen's old `_TopBar` also
+                      // used a tighter `xs` bottom inset), which visibly
+                      // hopped the shared-`Hero` master card the instant the
+                      // push transition from `SlotTimeScreen` settled.
+                      VelvetSpacing.md,
                       VelvetSpacing.lg,
                       VelvetSpacing.md,
                     ),
@@ -221,6 +231,19 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                           master: master,
                           service: service,
                           start: widget.args.startAt,
+                          // Compact spacing (mobile-dev, booking submit-page
+                          // polish pass): the confirm screen previously left
+                          // this at its roomy default (32dp section gaps),
+                          // meaningfully taller than it needs to be for a
+                          // single-service booking. `dense: true` is the
+                          // SAME compact mode `BookingSuccessScreen` already
+                          // ships (`booking_success_screen.dart`) — reusing
+                          // it here (rather than inventing new spacing
+                          // constants) keeps the two screens' card rhythm
+                          // consistent; it only tightens padding/gaps, never
+                          // text or icon sizes (see
+                          // `booking_summary_cards.dart` / `booking_recap.dart`).
+                          dense: true,
                         ),
                         const SizedBox(height: VelvetSpacing.md),
                         _CommentField(
@@ -272,56 +295,6 @@ class _LoadingBody extends StatelessWidget {
             radius: VelvetRadii.card,
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Top bar
-// ---------------------------------------------------------------------------
-
-class _TopBar extends StatelessWidget {
-  const _TopBar({
-    required this.title,
-    required this.backSemantics,
-    required this.onBack,
-  });
-
-  final String title;
-  final String backSemantics;
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        VelvetSpacing.lg,
-        VelvetSpacing.sm,
-        VelvetSpacing.lg,
-        VelvetSpacing.xs,
-      ),
-      child: SizedBox(
-        height: 48,
-        child: Stack(
-          alignment: Alignment.center,
-          children: <Widget>[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: NeumorphicIconButton(
-                key: const Key('booking-confirm-back'),
-                icon: Icons.arrow_back_ios_new_rounded,
-                semanticLabel: backSemantics,
-                onTap: onBack,
-              ),
-            ),
-            Text(
-              title,
-              style: VelvetText.subheading(),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
       ),
     );
   }

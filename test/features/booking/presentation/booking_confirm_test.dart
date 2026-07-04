@@ -27,22 +27,30 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
+import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lottie/lottie.dart';
 
 import '../../../helpers/pump_app.dart';
 
@@ -131,6 +139,93 @@ class _FakeBookingRepository implements BookingRepository {
   Future<Booking> rescheduleBooking(String id, DateTime newStartAt) =>
       throw UnimplementedError();
 }
+
+/// mobile-qa Part 2 — minimal fake [SlotRepository] for the real
+/// Date→Time→Confirm push-chain test below. Always resolves every requested
+/// day as working (mirrors `slot_picker_test.dart`'s `_FakeSlotRepository`
+/// default), and always returns the SAME fixed [slotsToReturn] list
+/// regardless of which date was tapped — this test only cares about the
+/// navigation/Hero chain, not slot-fetch fixture variety, so it deliberately
+/// skips that file's richer gating/error knobs.
+class _FakeChainSlotRepository implements SlotRepository {
+  _FakeChainSlotRepository(this.slotsToReturn);
+
+  final List<BookingSlot> slotsToReturn;
+
+  @override
+  Future<List<BookingSlot>> getMasterSlots({
+    required String masterId,
+    required String serviceId,
+    required DateTime date,
+    CancelToken? cancelToken,
+  }) async => slotsToReturn;
+
+  @override
+  Future<List<WorkingDay>> getWorkingDays({
+    required String masterId,
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) async {
+    final List<WorkingDay> days = <WorkingDay>[];
+    for (
+      DateTime d = from;
+      !d.isAfter(to);
+      d = d.add(const Duration(days: 1))
+    ) {
+      days.add(WorkingDay(date: d, working: true));
+    }
+    return days;
+  }
+}
+
+/// mobile-qa Part 2 — router mirroring `app_router.dart`'s REAL nesting for
+/// the full booking flow: `bookingSlots` → nested `time` → (pushed)
+/// `bookingConfirm` → (pushed) `bookingSuccess`, all rendering the REAL
+/// production screens (unlike `slot_picker_test.dart`'s `_router()`, which
+/// stubs `bookingConfirm` as plain text). Closes the gap the build-verifier
+/// flagged: every existing test either drives Date→Time (real push, stub
+/// confirm) or mounts `BookingConfirmScreen` directly at the router's initial
+/// location (no real push from Time) — this router lets a single test drive
+/// the REAL push all the way from Date through to Confirm, exercising the
+/// 3rd leg of the `master-strip-<id>` Hero chain end-to-end.
+GoRouter _slotToConfirmRouter() => GoRouter(
+  // A dummy `/root` initial location — mirrors `_router()` above (and
+  // production, where `bookingSlots` is always PUSHED with a
+  // `BookingSlotPickerArgs` extra, never used as the router's own initial
+  // location). Building `bookingSlots` as the initial location would
+  // null-check-crash on `state.extra!` before the test ever gets to call
+  // `router.push(...)` with real args.
+  initialLocation: '/root',
+  routes: <RouteBase>[
+    GoRoute(
+      path: '/root',
+      builder: (context, state) => const SizedBox.shrink(),
+    ),
+    GoRoute(
+      path: RouteNames.bookingSlots,
+      builder: (context, state) =>
+          SlotDateScreen(args: state.extra! as BookingSlotPickerArgs),
+      routes: <RouteBase>[
+        GoRoute(
+          path: 'time',
+          builder: (context, state) =>
+              SlotTimeScreen(args: state.extra! as BookingSlotPickerArgs),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: RouteNames.bookingConfirm,
+      builder: (context, state) =>
+          BookingConfirmScreen(args: state.extra! as BookingConfirmArgs),
+    ),
+    GoRoute(
+      path: RouteNames.bookingSuccess,
+      builder: (context, state) =>
+          BookingSuccessScreen(args: state.extra! as BookingSuccessArgs),
+    ),
+  ],
+);
 
 /// Test-local router mirroring `app_router.dart`'s bookingConfirm →
 /// bookingSuccess shape, rendering the REAL production screens.
@@ -409,6 +504,73 @@ void main() {
       expect(find.byType(MasterStrip), findsNothing);
     });
 
+    // mobile-qa Part 4 — the 112dp gradient-circle `_SuccessCheckBadge` was
+    // replaced by a real 56dp `Lottie.asset('assets/lottie/success.json')`
+    // animation (`_SuccessLottieBadge`), with a `frameBuilder` placeholder
+    // shown while the composition decodes asynchronously
+    // (`_SuccessBadgePlaceholder`). Both new private classes are
+    // library-private (can't be `find.byType`'d directly from this test
+    // file), so this asserts via the PUBLIC `Lottie` widget type instead —
+    // proving the real animation is mounted, not merely "something renders
+    // where the old badge used to be".
+    //
+    // The existing tests in this group already pump this screen via
+    // `pumpAndSettle()` only, which would already fail on an uncaught
+    // exception from a broken `frameBuilder` — but none of them ever
+    // advances by a SINGLE frame first, so the `frameBuilder(composition:
+    // null)` branch (the actual placeholder path, before the async decode
+    // resolves) was never explicitly exercised or asserted on. This closes
+    // that gap: pump exactly once (guaranteed to land before the
+    // asset-decode microtask can possibly resolve), assert nothing throws,
+    // then let `pumpAndSettle` finish the load and assert the real `Lottie`
+    // widget is what's mounted at rest.
+    testWidgets('renders the real Lottie success badge, and the frameBuilder '
+        'placeholder path does not crash before the composition loads', (
+      tester,
+    ) async {
+      final GoRouter router = _router();
+      await tester.pumpRoutedApp(router);
+      router.go(RouteNames.bookingSuccess, extra: successArgs());
+      // One frame to let go_router's redirect/rebuild actually mount
+      // BookingSuccessScreen (mirrors this file's other tests, which all
+      // use pumpAndSettle for the same `.go()` call).
+      await tester.pump();
+
+      // A SECOND, immediate frame — still before the asset's async JSON
+      // decode has any real chance to resolve — is the earliest point the
+      // `frameBuilder(composition: null)` placeholder branch is guaranteed
+      // to have rendered at least once.
+      await tester.pump();
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'the frameBuilder placeholder path (composition still null) '
+            'must not throw or crash the widget tree',
+      );
+      expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+      // Let the composition finish loading and every staggered reveal
+      // animation settle.
+      await tester.pumpAndSettle();
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'the swap from placeholder to the real animation must not '
+            'hang or throw once the composition resolves',
+      );
+
+      expect(
+        find.byType(Lottie),
+        findsOneWidget,
+        reason:
+            'BookingSuccessScreen must mount a real Lottie widget for its '
+            'success badge — not the old gradient-circle '
+            '`_SuccessCheckBadge` shape it replaced',
+      );
+    });
+
     testWidgets('blocks back navigation (PopScope canPop: false)', (
       tester,
     ) async {
@@ -437,5 +599,138 @@ void main() {
 
       expect(locationOf(router), equals(RouteNames.clientHome));
     });
+  });
+
+  // mobile-qa Part 2 — build-verifier gap-fix: no existing test drove a REAL
+  // Navigator push all the way from `SlotTimeScreen` into
+  // `BookingConfirmScreen` (`slot_picker_test.dart`'s Date→Time push always
+  // lands on a plain-text confirm STUB; this file's own confirm-screen tests
+  // above mount `BookingConfirmScreen` directly at the router's initial
+  // location, never via a push from Time). That gap matters here because
+  // `BookingSummaryCards`'s master card is now wrapped in
+  // `Hero(tag: 'master-strip-${master.id}')` on all THREE screens
+  // (`SlotDateScreen`/`SlotTimeScreen` already were; `BookingConfirmScreen` is
+  // the new 3rd leg) — safe by tag-adjacency reasoning (each push transition
+  // only involves the two ROUTES actually participating in that flight, so a
+  // 3-screen chain is no different from the already-covered 2-screen one),
+  // but never exercised end-to-end. This test drives the real push chain and
+  // pins BOTH halves of the acceptance bar: no Hero-tag-collision error
+  // surfaces, and `MasterStrip` lands at the identical vertical offset on
+  // all three screens (extending `slot_picker_test.dart`'s existing 2-screen
+  // offset-parity test to the 3rd leg).
+  group('Date → Time → Confirm real push chain (mobile-qa Part 2)', () {
+    testWidgets(
+      'pushing all the way from SlotDateScreen through SlotTimeScreen to a '
+      'REAL BookingConfirmScreen renders the 3rd Hero leg with no '
+      'tag-collision error, and MasterStrip stays at the same vertical '
+      'offset on all three screens',
+      (tester) async {
+        final BookingSlot slot = BookingSlot(
+          startAt: DateTime(2026, 7, 20, 10),
+          endAt: DateTime(2026, 7, 20, 11),
+          available: true,
+        );
+        final fakeSlots = _FakeChainSlotRepository(<BookingSlot>[slot]);
+        const fakeProfile = (_kMaster, <MasterService>[_kService]);
+        final router = _slotToConfirmRouter();
+        final args = BookingSlotPickerArgs(
+          masterId: _kMaster.id,
+          master: _kMaster,
+          services: const <MasterService>[_kService],
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            slotRepositoryProvider.overrideWith((_) => fakeSlots),
+            publicMasterProfileProvider(
+              _kMaster.id,
+            ).overrideWith((ref) => fakeProfile),
+          ],
+        );
+        unawaited(router.push(RouteNames.bookingSlots, extra: args));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SlotDateScreen), findsOneWidget);
+        final double dateOffset = tester
+            .getTopLeft(
+              find.descendant(
+                of: find.byType(SlotDateScreen),
+                matching: find.byType(MasterStrip),
+              ),
+            )
+            .dy;
+
+        // Leg 1: Date → Time (real push, mirrors `pumpTimeScreen` in
+        // `slot_picker_test.dart`).
+        final DateTime today = DateTime.now();
+        await tester.tap(find.byKey(Key('booking-calendar-day-${today.day}')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('booking-summary-cta')));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.byType(SlotTimeScreen), findsOneWidget);
+        final double timeOffset = tester
+            .getTopLeft(
+              find.descendant(
+                of: find.byType(SlotTimeScreen),
+                matching: find.byType(MasterStrip),
+              ),
+            )
+            .dy;
+
+        // Leg 2: Time → Confirm — the NEW 3rd leg under test. Real push (via
+        // the time screen's «Підтвердити» CTA), landing on the REAL
+        // `BookingConfirmScreen` (not a stub).
+        final Finder availableChip = find.byWidgetPredicate(
+          (Widget w) => w is SlotChip && w.available,
+        );
+        expect(availableChip, findsOneWidget);
+        await tester.tap(availableChip);
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('booking-summary-cta')));
+        await tester.pumpAndSettle();
+
+        // No Hero-tag-collision (or any other) exception was thrown by the
+        // push/flight — `pumpAndSettle` alone would already fail the test on
+        // an unhandled `FlutterError`, but asserting `takeException()`
+        // directly makes the "no collision" acceptance criterion explicit
+        // rather than incidental.
+        expect(tester.takeException(), isNull);
+
+        expect(
+          find.byType(BookingConfirmScreen),
+          findsOneWidget,
+          reason:
+              'the CTA must have performed a REAL push to the real '
+              'BookingConfirmScreen, not a stub',
+        );
+        final Finder confirmMasterStrip = find.descendant(
+          of: find.byType(BookingConfirmScreen),
+          matching: find.byType(MasterStrip),
+        );
+        expect(
+          confirmMasterStrip,
+          findsOneWidget,
+          reason:
+              'BookingConfirmScreen must render its own Hero-wrapped '
+              'MasterStrip — the 3rd leg of the master-strip-<id> chain',
+        );
+        final double confirmOffset = tester.getTopLeft(confirmMasterStrip).dy;
+
+        expect(
+          confirmOffset,
+          closeTo(timeOffset, 0.5),
+          reason:
+              'MasterStrip must land at the identical vertical offset on '
+              'SlotTimeScreen and BookingConfirmScreen so the shared Hero '
+              'never visibly jumps once the 2nd push transition settles — '
+              'mirrors slot_picker_test.dart\'s Date/Time offset-parity '
+              'assertion, extended to the 3rd screen.',
+        );
+        expect(confirmOffset, closeTo(dateOffset, 0.5));
+      },
+    );
   });
 }

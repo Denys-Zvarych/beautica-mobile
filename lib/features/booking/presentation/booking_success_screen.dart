@@ -8,18 +8,19 @@
 // master card, `dense: true`) → a calm "Додати в календар" link → two pinned
 // onward actions ("Мої записи" / "На головну").
 //
-// DEVIATION — success animation: the approved preview plays
-// `assets/lottie/success.json` (`Lottie.asset(..., repeat: false)`). That
-// asset does NOT exist in `beautica-mobile` today — `assets/lottie/` only
-// ships `splash_wordmark.json` (checked before writing this file; the
-// preview app's README claim that "beautica-mobile already has ... the
-// success Lottie asset bundled" does not hold for this repo). Rather than
-// commit an unreviewed binary/JSON animation asset as part of this phase,
-// this screen renders a graceful in-code fallback — [_SuccessCheckBadge], a
-// scale+fade-in camel/mocha gradient circle with a check glyph, sized and
-// positioned identically to the preview's Lottie slot (112 dp, centered,
-// plays once, honours `MediaQuery.disableAnimations`). Swapping in the real
-// Lottie asset later is a drop-in replacement of this one widget.
+// SUCCESS ANIMATION: plays the approved preview's real
+// `assets/lottie/success.json` (`Lottie.asset(..., repeat: false)`), copied
+// in from `docs/signup-designs/BookingConfirmSuccess/assets/lottie/` — the
+// asset this screen originally shipped without (see git history for the
+// prior in-code `_SuccessCheckBadge` gradient-circle fallback it replaced).
+// Rendered at 56 dp — HALF the preview's 112 dp slot, a deliberate
+// deviation from the approved design at the user's explicit request — with
+// its own [_lottieController] (duration set from the loaded composition,
+// `forward(from: 0)` once), independent of [_controller] below (which still
+// drives the headline/subline/summary/CTA staggered reveal exactly as
+// before). Honours `MediaQuery.disableAnimations` by jumping the Lottie
+// controller straight to its last frame instead of playing it, mirroring
+// how [_controller] itself is pinned to `1` under reduced motion.
 //
 // DEVIATION — "Додати в календар": the preview's production notes call for
 // `add_2_calendar`/ICS wiring. That package is not in `pubspec.yaml` (checked
@@ -45,6 +46,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:lottie/lottie.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -67,10 +69,20 @@ class BookingSuccessScreen extends StatefulWidget {
 }
 
 class _BookingSuccessScreenState extends State<BookingSuccessScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   // Drives the staggered fade/slide reveal of the headline, summary and
-  // actions, plus the check badge's own scale+fade-in.
+  // actions.
   late final AnimationController _controller;
+
+  // Drives the Lottie success animation; its duration is set from the
+  // loaded composition in `Lottie.asset`'s `onLoaded` callback, mirroring
+  // the approved preview's own wiring
+  // (`docs/signup-designs/BookingConfirmSuccess/lib/screens/
+  // booking_success_screen.dart`) — independent of [_controller] above, so
+  // the badge always plays its full designed animation regardless of how
+  // the rest of the screen's staggered reveal is timed.
+  late final AnimationController _lottieController;
+
   bool _started = false;
 
   @override
@@ -80,6 +92,7 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1350),
     );
+    _lottieController = AnimationController(vsync: this);
   }
 
   @override
@@ -87,9 +100,11 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
     super.didChangeDependencies();
     if (_started) return;
     _started = true;
-    // Respect reduced-motion: jump straight to the resting state.
+    // Respect reduced-motion: jump straight to the resting state and hold
+    // the Lottie on its final frame (mirrors the preview's own guard).
     if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
       _controller.value = 1;
+      _lottieController.value = 1;
     } else {
       _controller.forward();
     }
@@ -98,6 +113,7 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
   @override
   void dispose() {
     _controller.dispose();
+    _lottieController.dispose();
     super.dispose();
   }
 
@@ -142,7 +158,9 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Center(child: _SuccessCheckBadge(controller: _controller)),
+                Center(
+                  child: _SuccessLottieBadge(controller: _lottieController),
+                ),
                 const SizedBox(height: VelvetSpacing.xs),
                 _reveal(
                   start: 0.45,
@@ -222,53 +240,90 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
 }
 
 // ---------------------------------------------------------------------------
-// Success check badge (Lottie fallback — see file header DEVIATION note)
+// Success Lottie badge
 // ---------------------------------------------------------------------------
 
-/// A camel/mocha gradient circle with a check glyph, scaling + fading in once
-/// over the first third of [controller]. Occupies the exact 112 dp slot the
-/// approved design reserves for the Lottie success animation.
-class _SuccessCheckBadge extends StatelessWidget {
-  const _SuccessCheckBadge({required this.controller});
+/// The real designed success animation (`assets/lottie/success.json`),
+/// rendered at 56 dp — half the approved preview's 112 dp slot, per explicit
+/// request. Plays once, driven by [controller] (see the state class'
+/// `_lottieController` doc for the wiring rationale); excluded from the
+/// semantics tree since it is purely decorative — the "Записано!" headline
+/// right below it already conveys the success state to screen readers.
+class _SuccessLottieBadge extends StatelessWidget {
+  const _SuccessLottieBadge({required this.controller});
 
   final AnimationController controller;
 
-  static const double _size = 112;
+  static const double _size = 56;
 
   @override
   Widget build(BuildContext context) {
-    final Animation<double> curved = CurvedAnimation(
-      parent: controller,
-      curve: const Interval(0.0, 0.45, curve: Curves.elasticOut),
-    );
     return Semantics(
       label: '',
       excludeSemantics: true,
-      child: AnimatedBuilder(
-        animation: curved,
-        builder: (BuildContext context, Widget? child) => Opacity(
-          opacity: curved.value.clamp(0.0, 1.0),
-          child: Transform.scale(
-            scale: curved.value.clamp(0.0, 1.0),
-            child: child,
-          ),
+      child: SizedBox(
+        width: _size,
+        height: _size,
+        child: Lottie.asset(
+          'assets/lottie/success.json',
+          controller: controller,
+          repeat: false,
+          fit: BoxFit.contain,
+          // PERF: the composition decodes asynchronously; without this the
+          // 56 dp slot renders blank for a frame or two before `onLoaded`
+          // fires. Swap in a static version of the same circular badge so
+          // there's never a blank box, then hand off to the real animation
+          // the instant the composition is ready.
+          frameBuilder:
+              (
+                BuildContext context,
+                Widget child,
+                LottieComposition? composition,
+              ) {
+                if (composition == null) {
+                  return const _SuccessBadgePlaceholder(size: _size);
+                }
+                return child;
+              },
+          onLoaded: (LottieComposition composition) {
+            controller.duration = composition.duration;
+            // Reduced-motion already pinned the controller to the last
+            // frame in `didChangeDependencies`; only play otherwise.
+            if (!(MediaQuery.maybeOf(context)?.disableAnimations ?? false)) {
+              controller.forward(from: 0);
+            }
+          },
         ),
-        child: Container(
-          height: _size,
-          width: _size,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: <Color>[BrandColors.accentLatte, BrandColors.accentDeep],
-            ),
-            boxShadow: VelvetShadows.extrudedButtonAccent,
-          ),
-          child: const Icon(
+      ),
+    );
+  }
+}
+
+/// Static stand-in for [_SuccessLottieBadge] shown for the brief window
+/// before the Lottie composition finishes its async decode. A plain filled
+/// circle with a check glyph — same 56 dp footprint and the same success
+/// colour the finished animation lands on, so the swap to the real
+/// animation is not a visible jump.
+class _SuccessBadgePlaceholder extends StatelessWidget {
+  const _SuccessBadgePlaceholder({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        color: BrandColors.success,
+        shape: BoxShape.circle,
+      ),
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: Center(
+          child: Icon(
             Icons.check_rounded,
             color: BrandColors.white,
-            size: _size * 0.5,
+            size: size * 0.55,
           ),
         ),
       ),

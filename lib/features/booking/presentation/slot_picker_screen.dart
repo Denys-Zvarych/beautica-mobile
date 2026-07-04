@@ -55,6 +55,7 @@ import '../domain/booking_slot_picker_args.dart';
 import '../domain/working_day.dart';
 import '../domain/working_days_query.dart';
 import 'widgets/booking_summary_bar.dart';
+import 'widgets/booking_top_bar.dart';
 import 'widgets/master_strip.dart';
 import 'widgets/month_calendar.dart';
 import 'widgets/slot_chip.dart';
@@ -193,10 +194,11 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
         bottom: false,
         child: Column(
           children: <Widget>[
-            _BookingTopBar(
+            BookingTopBar(
               title: l10n.bookingDateScreenTitle,
               backSemantics: l10n.registerBackStep,
               onBack: () => context.pop(),
+              backKey: const Key('slot-picker-back'),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(
@@ -446,10 +448,11 @@ class SlotTimeScreen extends ConsumerWidget {
         bottom: false,
         child: Column(
           children: <Widget>[
-            _BookingTopBar(
+            BookingTopBar(
               title: l10n.bookingTimeScreenTitle,
               backSemantics: l10n.bookingTimeScreenBackSemantics,
               onBack: () => context.pop(),
+              backKey: const Key('slot-picker-back'),
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -462,7 +465,7 @@ class SlotTimeScreen extends ConsumerWidget {
                   // one — `MasterStrip` was only added here afterwards, see
                   // below). Was `VelvetSpacing.sm` (16dp total), which put the
                   // incoming card 8dp higher than the outgoing one relative to
-                  // the shared `_BookingTopBar`, visibly hopping the card the
+                  // the shared `BookingTopBar`, visibly hopping the card the
                   // instant the push transition settled.
                   VelvetSpacing.md,
                   VelvetSpacing.lg,
@@ -499,7 +502,7 @@ class SlotTimeScreen extends ConsumerWidget {
                     // content, so the chip was removed outright rather than
                     // kept as a second card — this screen shows exactly ONE
                     // card at the top. Its "change date" affordance is not
-                    // lost: `_BookingTopBar`'s back button (`onBack: () =>
+                    // lost: `BookingTopBar`'s back button (`onBack: () =>
                     // context.pop()`) already pops back to `SlotDateScreen`,
                     // which is the exact same action the removed chip's
                     // `onChange` performed.
@@ -532,56 +535,6 @@ class SlotTimeScreen extends ConsumerWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Shared top bar
-// ---------------------------------------------------------------------------
-
-class _BookingTopBar extends StatelessWidget {
-  const _BookingTopBar({
-    required this.title,
-    required this.backSemantics,
-    required this.onBack,
-  });
-
-  final String title;
-  final String backSemantics;
-  final VoidCallback onBack;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        VelvetSpacing.lg,
-        VelvetSpacing.md,
-        VelvetSpacing.lg,
-        VelvetSpacing.sm,
-      ),
-      child: SizedBox(
-        height: 48,
-        child: Stack(
-          alignment: Alignment.center,
-          children: <Widget>[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: NeumorphicIconButton(
-                key: const Key('slot-picker-back'),
-                icon: Icons.arrow_back_ios_new_rounded,
-                semanticLabel: backSemantics,
-                onTap: onBack,
-              ),
-            ),
-            Text(
-              title,
-              style: VelvetText.subheading(),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Slots section (Ранок / День / Вечір clusters)
 // ---------------------------------------------------------------------------
 
@@ -598,7 +551,7 @@ class _SlotsSection extends StatefulWidget {
   final ValueChanged<BookingSlot> onSelectSlot;
 
   /// Phase 14.15 — the "Обрати іншу дату" CTA on the fully-booked-day empty
-  /// state pops back to [SlotDateScreen], mirroring `_BookingTopBar`'s own
+  /// state pops back to [SlotDateScreen], mirroring `BookingTopBar`'s own
   /// back-button action on this screen.
   final VoidCallback onChangeDate;
 
@@ -744,7 +697,7 @@ class _SlotsSectionState extends State<_SlotsSection> {
 // IS a working day), but every slot on it is already booked out. Mirrors the
 // icon + centered-text composition of
 // `MasterScheduleScreen`'s `_DayOffEmptyState`, plus a "Обрати іншу дату" CTA
-// (the same back-to-`SlotDateScreen` affordance `_BookingTopBar`'s back
+// (the same back-to-`SlotDateScreen` affordance `BookingTopBar`'s back
 // button already exposes above) so the client isn't left at a dead end.
 // ---------------------------------------------------------------------------
 class _NoSlotsEmptyState extends StatelessWidget {
