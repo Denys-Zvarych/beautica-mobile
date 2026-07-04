@@ -311,17 +311,13 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
         const SizedBox(height: VelvetSpacing.md),
         // `CalendarWeekdayBar` and `calendarBody` (which wraps the shared
         // `MonthCalendar`) are deliberately left UNWRAPPED here — both
-        // already self-pad horizontally (`CalendarWeekdayBar` by
-        // `VelvetSpacing.md + 2`, `MonthCalendar` by `VelvetSpacing.lg`),
+        // already self-pad horizontally by the same `VelvetSpacing.lg`
+        // (`CalendarWeekdayBar`'s self-pad and `MonthCalendar`'s own outer
+        // inset match exactly as of the month_calendar.dart alignment fix),
         // exactly matching `SlotDateScreen`. Adding another horizontal
         // Padding around either is the double-padding bug this file is
         // fixed for — see the outer `SingleChildScrollView`'s comment in
         // `build()`.
-        //
-        // Known pre-existing cosmetic nit (not introduced or fixed here):
-        // `CalendarWeekdayBar`'s weekday labels don't perfectly align with
-        // the day-grid columns below — identical in both booking flows,
-        // a product/design call, not a padding bug.
         const CalendarWeekdayBar(),
         const SizedBox(height: VelvetSpacing.xs),
         calendarBody,

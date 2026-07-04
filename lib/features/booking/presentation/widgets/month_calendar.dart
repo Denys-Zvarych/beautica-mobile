@@ -48,7 +48,15 @@ class CalendarWeekdayBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.md + 2),
+      // Matches `MonthCalendar.build()`'s own horizontal inset
+      // (`VelvetSpacing.lg`) exactly, so the 7 weekday labels line up with
+      // the 7 day-grid columns beneath them. Was `VelvetSpacing.md + 2`
+      // (18dp/side, copied from `period_range_picker.dart`'s
+      // `_weekdayHeaderBar()`, whose sibling grid uses `VelvetSpacing.md` —
+      // a different, smaller inset than this widget's own grid) — that
+      // mismatched `MonthCalendar`'s `VelvetSpacing.lg` (24dp/side) inset by
+      // 6dp/side, visibly drifting the header off the grid columns.
+      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
       child: Row(
         children: <Widget>[
           for (final String w in kWeekdaysUkShort)

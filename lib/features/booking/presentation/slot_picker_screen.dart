@@ -206,16 +206,20 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
                 VelvetSpacing.lg,
                 0,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  MasterStrip(master: widget.args.master),
-                  const SizedBox(height: VelvetSpacing.lg),
-                  const CalendarWeekdayBar(),
-                  const SizedBox(height: VelvetSpacing.xs),
-                ],
-              ),
+              child: MasterStrip(master: widget.args.master),
             ),
+            const SizedBox(height: VelvetSpacing.lg),
+            // `CalendarWeekdayBar` (and `_calendarBody`'s `MonthCalendar`) are
+            // deliberately left UNWRAPPED here — both already self-pad
+            // horizontally by the same `VelvetSpacing.lg`, matching
+            // `master_schedule_page.dart`'s pattern (see its comment at the
+            // `CalendarWeekdayBar` usage there). Nesting either inside this
+            // screen's own `Padding(horizontal: VelvetSpacing.lg)` — as
+            // `MasterStrip` above still needs, since it does NOT self-pad —
+            // would stack insets and misalign the weekday labels from the
+            // day-grid columns beneath them.
+            const CalendarWeekdayBar(),
+            const SizedBox(height: VelvetSpacing.xs),
             Expanded(
               child: _calendarBody(l10n, selectedDate, workingDaysAsync),
             ),

@@ -93,4 +93,99 @@ void main() {
       expect(tapped, isFalse);
     },
   );
+
+  group('CalendarWeekdayBar / day-grid column alignment (regression)', () {
+    // BUG: `CalendarWeekdayBar` used to self-pad at `VelvetSpacing.md + 2`
+    // (18dp/side, copied from `period_range_picker.dart`'s
+    // `_weekdayHeaderBar()`) while `MonthCalendar.build()`'s own outer
+    // `Padding` — the effective inset for `_MonthGrid` beneath it — uses
+    // `VelvetSpacing.lg` (24dp/side). A 6dp/side mismatch doesn't move the
+    // MIDDLE weekday column at all (its center sits on the shared midline
+    // regardless of inset), but drifts the two EDGE columns (Monday/Sunday)
+    // increasingly as width grows — a golden test of the widget alone would
+    // just re-bless whatever the current render is, so this asserts the
+    // actual geometric invariant: each header label's horizontal center must
+    // coincide with its day-grid column's horizontal center.
+    //
+    // Pumps `CalendarWeekdayBar` directly above `MonthCalendar` in a bare
+    // `Column`, mirroring `slot_picker_screen.dart`'s real (unwrapped)
+    // composition of the two widgets — see that file's `build()` comment at
+    // its `CalendarWeekdayBar` usage.
+    Future<void> expectHeaderAlignsWithGrid(
+      WidgetTester tester, {
+      required double width,
+    }) async {
+      final DateTime visibleMonth = DateTime(2026, 7);
+      final int leadingBlanks =
+          DateTime(visibleMonth.year, visibleMonth.month, 1).weekday - 1;
+      // Grid-cell index 7 starts the SECOND week row, which is guaranteed to
+      // be fully populated (no blank leading cells) no matter which weekday
+      // the 1st falls on (`leadingBlanks` is at most 6) — so column 0
+      // (Monday) and column 6 (Sunday) of this row always resolve to real,
+      // in-month day numbers. See `_MonthGrid.build()`'s `cellDays` list.
+      final int mondayDay = 8 - leadingBlanks;
+      final int sundayDay = 14 - leadingBlanks;
+
+      await tester.pumpApp(
+        Scaffold(
+          body: Column(
+            children: <Widget>[
+              const CalendarWeekdayBar(),
+              MonthCalendar(
+                visibleMonth: visibleMonth,
+                today: visibleMonth,
+                selected: null,
+                isAvailable: (_) => true,
+                onSelectDay: (_) {},
+                onPrevMonth: null,
+                onNextMonth: null,
+              ),
+            ],
+          ),
+        ),
+        width: width,
+      );
+      await tester.pumpAndSettle();
+
+      final double mondayHeaderX = tester.getCenter(find.text('пн')).dx;
+      final double sundayHeaderX = tester.getCenter(find.text('нд')).dx;
+      final double mondayGridX = tester
+          .getCenter(find.byKey(Key('booking-calendar-day-$mondayDay')))
+          .dx;
+      final double sundayGridX = tester
+          .getCenter(find.byKey(Key('booking-calendar-day-$sundayDay')))
+          .dx;
+
+      expect(
+        mondayHeaderX,
+        closeTo(mondayGridX, 1.5),
+        reason:
+            'Monday ("пн") weekday label must sit directly above the '
+            'Monday day-number column at width=$width — a header/grid '
+            'inset mismatch drifts the label off the column, worst at the '
+            'edge columns',
+      );
+      expect(
+        sundayHeaderX,
+        closeTo(sundayGridX, 1.5),
+        reason:
+            'Sunday ("нд") weekday label must sit directly above the '
+            'Sunday day-number column at width=$width',
+      );
+    }
+
+    testWidgets(
+      'weekday header aligns with day-grid edge columns at width=360',
+      (tester) async {
+        await expectHeaderAlignsWithGrid(tester, width: 360);
+      },
+    );
+
+    testWidgets(
+      'weekday header aligns with day-grid edge columns at width=414',
+      (tester) async {
+        await expectHeaderAlignsWithGrid(tester, width: 414);
+      },
+    );
+  });
 }
