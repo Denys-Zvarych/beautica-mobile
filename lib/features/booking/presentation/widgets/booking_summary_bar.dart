@@ -307,7 +307,7 @@ class _BookingSummaryBarState extends State<BookingSummaryBar> {
   }
 }
 
-/// The chosen-appointment-window block on the time screen. Muted prompt
+/// The chosen-appointment-window block on the time screen. Renders nothing
 /// before a slot is chosen; a camel-accented "Запис:" well once one is.
 class _ChosenWindow extends StatelessWidget {
   const _ChosenWindow({required this.l10n, required this.label});
@@ -364,17 +364,7 @@ class _ChosenWindow extends StatelessWidget {
                 ),
               ),
             )
-          : Padding(
-              key: const ValueKey<bool>(false),
-              padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xs),
-              child: Text(
-                l10n.bookingChosenWindowPrompt,
-                textAlign: TextAlign.center,
-                style: VelvetText.feedback(
-                  BrandColors.muted,
-                ).copyWith(fontSize: 13),
-              ),
-            ),
+          : const SizedBox.shrink(key: ValueKey<bool>(false)),
     );
   }
 }

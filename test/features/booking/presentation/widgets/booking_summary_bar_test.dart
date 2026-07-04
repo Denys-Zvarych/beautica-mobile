@@ -51,6 +51,8 @@ Widget _bar({
   bool enabled = true,
   VoidCallback? onAction,
   void Function(MasterService service)? onRemove,
+  bool showChosenWindow = false,
+  String? chosenWindowLabel,
 }) {
   return Scaffold(
     body: Align(
@@ -62,6 +64,8 @@ Widget _bar({
         enabled: enabled,
         onAction: onAction ?? () {},
         onRemove: onRemove,
+        showChosenWindow: showChosenWindow,
+        chosenWindowLabel: chosenWindowLabel,
       ),
     ),
   );
@@ -470,6 +474,71 @@ void main() {
         );
 
         await tester.pumpAndSettle();
+      },
+    );
+  });
+
+  // mobile-qa regression (widget removal) — `_ChosenWindow`'s "not chosen
+  // yet" branch used to render a muted «Оберіть дату та час» placeholder
+  // prompt; that branch was replaced with `SizedBox.shrink()` (the time
+  // screen's own empty/gating states already communicate "pick a slot" —
+  // see `slot_picker_screen.dart` — so the shelf no longer needs to repeat
+  // it). Neither branch of `showChosenWindow`/`chosenWindowLabel` had any
+  // coverage in this file before this change (confirmed: no prior reference
+  // to `_ChosenWindow`/`showChosenWindow` anywhere under `test/`), so this
+  // locks in BOTH states of the ONLY screen that ever sets
+  // `showChosenWindow: true` (`SlotTimeScreen`, via `slot_picker_screen.dart`
+  // — `SlotDateScreen`/`ServiceSelectorSheet` never set it and must keep
+  // rendering nothing here regardless).
+  group('chosen-window block (mobile-qa regression)', () {
+    testWidgets(
+      'showChosenWindow: false (SlotDateScreen / ServiceSelectorSheet) '
+      'renders no chosen-window block at all',
+      (tester) async {
+        await tester.pumpApp(_bar());
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingSummaryBar)),
+        );
+        expect(find.text(l10n.bookingChosenWindowLabel), findsNothing);
+        expect(find.byIcon(Icons.event_available_rounded), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'showChosenWindow: true with no slot chosen yet renders nothing — '
+      'the removed «Оберіть дату та час» placeholder must not reappear',
+      (tester) async {
+        await tester.pumpApp(_bar(showChosenWindow: true));
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingSummaryBar)),
+        );
+        expect(find.text(l10n.bookingChosenWindowLabel), findsNothing);
+        expect(find.byIcon(Icons.event_available_rounded), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'showChosenWindow: true with a chosen slot renders the «Запис:» well '
+      'with the formatted window label',
+      (tester) async {
+        const String label = 'вт, 14 лип · 14:00–18:30';
+        await tester.pumpApp(
+          _bar(showChosenWindow: true, chosenWindowLabel: label),
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingSummaryBar)),
+        );
+        expect(find.text(l10n.bookingChosenWindowLabel), findsOneWidget);
+        // i18n-finder-ok: `label` is test fixture data (a formatted window
+        // string this test constructs), not translated UI copy.
+        expect(find.text(label), findsOneWidget);
+        expect(find.byIcon(Icons.event_available_rounded), findsOneWidget);
       },
     );
   });

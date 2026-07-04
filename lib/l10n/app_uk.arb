@@ -3312,10 +3312,6 @@
   "@bookingChosenWindowLabel": {
     "description": "Prefix label before the chosen appointment window on the booking time-picker summary shelf."
   },
-  "bookingChosenWindowPrompt": "Оберіть дату та час",
-  "@bookingChosenWindowPrompt": {
-    "description": "Muted prompt shown in the chosen-window block before a time slot is selected."
-  },
   "bookingChosenWindowSemantics": "Обраний час запису: {label}",
   "@bookingChosenWindowSemantics": {
     "description": "Accessibility label for the chosen appointment-window block once a slot is selected.",
@@ -3489,13 +3485,9 @@
   "@bookingAddCalendarSemantics": {
     "description": "Accessibility label for the booking success screen's «Додати в календар» link."
   },
-  "bookingSuccessMyBookingsCta": "Мої записи",
-  "@bookingSuccessMyBookingsCta": {
-    "description": "Primary onward action on the booking success screen; navigates to the client's bookings list."
-  },
   "bookingSuccessHomeCta": "На головну",
   "@bookingSuccessHomeCta": {
-    "description": "Secondary onward action on the booking success screen; navigates to the client home."
+    "description": "Sole onward action on the booking success screen; navigates to the client home."
   },
   "salonProfileBackLabel": "Назад",
   "@salonProfileBackLabel": {

@@ -240,10 +240,14 @@ GoRouter _slotToConfirmRouter() => GoRouter(
 /// somewhere to land, and so the initial pump never has to build a booking
 /// route's `state.extra!` before a test has supplied one — both booking
 /// routes are only ever reached via an explicit `router.push(...)` call.
-/// [RouteNames.clientBookings] / [RouteNames.clientHome] are registered as
-/// bare stub destinations so the success screen's «Мої записи» / «На
-/// головну» `context.go(...)` calls resolve to a real route instead of
-/// throwing (go_router has no matching-route fallback).
+/// [RouteNames.clientHome] is registered as a bare stub destination so the
+/// success screen's «На головну» `context.go(...)` call resolves to a real
+/// route instead of throwing (go_router has no matching-route fallback).
+/// [RouteNames.clientBookings] is also registered — the success screen no
+/// longer navigates there itself (its «Мої записи» CTA was removed, see
+/// `booking_success_screen.dart`'s file header DEVIATION note), but the
+/// stub is kept anyway since the route mirrors `app_router.dart`'s real
+/// shape and stays harmless dead weight rather than a thing worth pruning.
 GoRouter _router() => GoRouter(
   initialLocation: '/root',
   routes: <RouteBase>[
@@ -763,16 +767,30 @@ void main() {
       expect(popScope.canPop, isFalse);
     });
 
-    testWidgets('«Мої записи» navigates to /bookings', (tester) async {
-      final router = await pump(tester);
+    // mobile-qa regression (widget removal) — the preview shipped a second
+    // pinned action («Мої записи» → RouteNames.clientBookings) alongside «На
+    // головну»; it was removed at explicit user request (see
+    // `booking_success_screen.dart`'s file header DEVIATION note).
+    // `RouteNames.clientBookings` itself stays reachable from other entry
+    // points (bottom nav / QuickLinksCard), so this only pins THIS screen's
+    // surface: the old key is gone for good, and «На головну» is now the
+    // screen's sole CTA — not just "no test happens to tap the old button
+    // anymore."
+    testWidgets(
+      '«Мої записи» CTA was removed — «На головну» is the sole pinned CTA',
+      (tester) async {
+        await pump(tester);
 
-      await tester.tap(
-        find.byKey(const Key('booking-success-my-bookings-cta')),
-      );
-      await tester.pumpAndSettle();
-
-      expect(locationOf(router), equals(RouteNames.clientBookings));
-    });
+        expect(
+          find.byKey(const Key('booking-success-my-bookings-cta')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('booking-success-home-cta')),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets('«На головну» navigates to /home', (tester) async {
       final router = await pump(tester);

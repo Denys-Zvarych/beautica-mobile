@@ -3274,7 +3274,6 @@
   "bookingNextCta": "Next",
   "bookingConfirmCta": "Confirm",
   "bookingChosenWindowLabel": "Booking:",
-  "bookingChosenWindowPrompt": "Choose a date and time",
   "bookingChosenWindowSemantics": "Chosen appointment time: {label}",
   "@bookingChosenWindowSemantics": {
     "placeholders": {
@@ -3344,7 +3343,6 @@
   "bookingSuccessSubline": "The specialist will confirm your booking shortly.\nYou'll get a notification as soon as they respond.",
   "bookingSuccessAddCalendarCta": "Add to calendar",
   "bookingAddCalendarSemantics": "Add booking to calendar",
-  "bookingSuccessMyBookingsCta": "My bookings",
   "bookingSuccessHomeCta": "Home",
   "salonProfileBackLabel": "Back",
   "@salonProfileBackLabel": {

@@ -5,8 +5,16 @@
 // booking_success_screen.dart` (approved 2026-06-30) — transcribed literally:
 // an animated check medallion → "Записано!" headline → reassuring subline →
 // the SAME `BookingSummaryCards` recap the confirm screen showed (WITHOUT the
-// master card, `dense: true`) → a calm "Додати в календар" link → two pinned
-// onward actions ("Мої записи" / "На головну").
+// master card, `dense: true`) → a calm "Додати в календар" link → a single
+// pinned onward action ("На головну").
+//
+// DEVIATION — "Мої записи" CTA removed: the preview shipped a second pinned
+// action ("Мої записи" → `RouteNames.clientBookings`) alongside "На
+// головну". Removed at explicit user request; `RouteNames.clientBookings`
+// itself is untouched (still a real, CLIENT-gated route reachable from the
+// bottom nav / `QuickLinksCard` — see those call sites) — only this screen's
+// button and its l10n key (`bookingSuccessMyBookingsCta`, which had no other
+// callers) went away.
 //
 // SUCCESS ANIMATION: plays the approved preview's real
 // `assets/lottie/success.json` (`Lottie.asset(..., repeat: false)`), copied
@@ -32,20 +40,18 @@
 // tappable but its action is a documented `// TODO` no-op (see
 // `_CalendarLink`).
 //
-// NAVIGATION: `RouteNames.clientBookings` ("/bookings") and
-// `RouteNames.clientHome` ("/home") are both ALREADY registered routes (the
-// CLIENT shell's «Записи» / «Головна» branches — «Записи» currently renders
-// `ClientBookingsPlaceholderScreen` until Phase 14.3 ships the real My
-// Bookings screen, but the route itself is real and CLIENT-gated) — no
-// TODO/no-op needed for either button.
+// NAVIGATION: `RouteNames.clientHome` ("/home") is an ALREADY registered
+// route (the CLIENT shell's «Головна» branch) — no TODO/no-op needed for the
+// button.
 //
 // NO BACK AFFORDANCE: wrapped in `PopScope(canPop: false)` so hardware
-// back / iOS edge-swipe is fully blocked on this screen — the two pinned
-// buttons are the only ways forward. Combined with `BookingConfirmScreen`'s
-// `pushReplacement` (which REMOVES `/booking/confirm` from the nav stack
-// rather than pushing on top of it), there is no in-app path back to confirm
-// from here at all; see `app_router.dart`'s `bookingSuccess` route comment
-// for why no additional `redirect` guard is layered on top of these two.
+// back / iOS edge-swipe is fully blocked on this screen — the pinned "На
+// головну" button is the only way forward. Combined with
+// `BookingConfirmScreen`'s `pushReplacement` (which REMOVES
+// `/booking/confirm` from the nav stack rather than pushing on top of it),
+// there is no in-app path back to confirm from here at all; see
+// `app_router.dart`'s `bookingSuccess` route comment for why no additional
+// `redirect` guard is layered on top of this.
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -54,7 +60,6 @@ import 'package:lottie/lottie.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
@@ -230,17 +235,6 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
                   ),
                 ),
                 const SizedBox(height: VelvetSpacing.md),
-                _reveal(
-                  start: 0.72,
-                  end: 0.95,
-                  child: NeumorphicButton(
-                    key: const Key('booking-success-my-bookings-cta'),
-                    label: l10n.bookingSuccessMyBookingsCta,
-                    icon: Icons.event_note_rounded,
-                    onPressed: () => context.go(RouteNames.clientBookings),
-                  ),
-                ),
-                const SizedBox(height: VelvetSpacing.sm),
                 _reveal(
                   start: 0.8,
                   end: 1.0,
@@ -432,9 +426,10 @@ class _CalendarLinkState extends State<_CalendarLink> {
 // Secondary button ("На головну")
 // ---------------------------------------------------------------------------
 
-/// The secondary onward action — a raised base-tone neumorphic pill with
-/// camel text (no gradient fill), the quieter sibling of the primary "Мої
-/// записи" CTA above it.
+/// The sole onward action on this screen — a raised base-tone neumorphic
+/// pill with camel text (no gradient fill). Originally the quieter sibling
+/// of a primary "Мої записи" CTA; that CTA was removed (see file header
+/// DEVIATION note) leaving this as the only pinned button.
 class _SecondaryButton extends StatefulWidget {
   const _SecondaryButton({
     required this.label,
