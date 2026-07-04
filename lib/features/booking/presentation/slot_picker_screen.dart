@@ -215,7 +215,11 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
               // at mismatched y-offsets the instant the push settles.
               child: Hero(
                 tag: 'master-strip-${widget.args.master.id}',
-                child: MasterStrip(master: widget.args.master),
+                child: MasterStrip(
+                  master: widget.args.master,
+                  showRole: true,
+                  showRating: true,
+                ),
               ),
             ),
             const SizedBox(height: VelvetSpacing.lg),
@@ -501,7 +505,11 @@ class SlotTimeScreen extends ConsumerWidget {
                     // `onChange` performed.
                     Hero(
                       tag: 'master-strip-${args.master.id}',
-                      child: MasterStrip(master: args.master),
+                      child: MasterStrip(
+                        master: args.master,
+                        showRole: true,
+                        showRating: true,
+                      ),
                     ),
                     const SizedBox(height: VelvetSpacing.lg),
                     _SlotsSection(

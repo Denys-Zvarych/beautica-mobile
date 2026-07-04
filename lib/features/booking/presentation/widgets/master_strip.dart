@@ -10,6 +10,17 @@
 // Takes the domain [Master] directly (rather than separate name/role strings)
 // so every call site derives the display name + role label the exact same
 // way.
+//
+// Unification follow-up: [showRole]/[showRating] extend this SAME card
+// (rather than forking a parallel widget) to also cover the "who you're
+// booking with" identity across Step 2a/2b (`SlotDateScreen`/`SlotTimeScreen`
+// in `slot_picker_screen.dart`) AND Step 3a (`BookingConfirmScreen`, via
+// `BookingSummaryCards`'s master card) — replacing that screen's previous
+// bespoke `_MasterHeader` (60x60 avatar, no top label) so all three booking
+// screens render the identical `#EDE4D5` card rather than two visually
+// different "who" cards. `showRole`/`showRating` default to `false` so
+// `ServiceSelectorSheet` (Step 1, not part of this unification) keeps its
+// exact original look with zero changes at its call site.
 
 import 'package:flutter/material.dart';
 
@@ -36,10 +47,30 @@ String masterRoleLabel(MasterType type, AppLocalizations l10n) {
 
 /// A compact "who you're booking with" strip — a camel-wash card with a small
 /// raised avatar glyph + the master's name and role.
+///
+/// [showRole] adds a muted role sub-line right under the name (independent
+/// master / salon master / salon owner, via [masterRoleLabel]); [showRating]
+/// adds a trailing camel-★ + [Master.avgRating] readout (plus a muted
+/// `(reviewCount)` suffix when there is at least one review), matching the
+/// rating treatment previously shipped on the confirmation screen's
+/// (now-removed) `_MasterHeader`. Both default to `false` so the Step 1
+/// service-selector call site — out of scope for this unification — keeps
+/// rendering the original label+name-only card unchanged.
 class MasterStrip extends StatelessWidget {
-  const MasterStrip({super.key, required this.master});
+  const MasterStrip({
+    super.key,
+    required this.master,
+    this.showRole = false,
+    this.showRating = false,
+  });
 
   final Master master;
+
+  /// Adds the muted role sub-line under the name.
+  final bool showRole;
+
+  /// Adds the trailing ★ rating (+ review count) readout.
+  final bool showRating;
 
   /// Camel-wash surface — the same lighter taupe used by the pinned booking
   /// summary shelf, so the strip reads as sitting on its own elevated card.
@@ -50,9 +81,19 @@ class MasterStrip extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final String name = '${master.firstName} ${master.lastName}'.trim();
     final String role = masterRoleLabel(master.type, l10n);
+    final String ratingLabel = master.avgRating.toStringAsFixed(1);
+
+    final String semanticsLabel = showRating
+        ? l10n.bookingSummaryMasterSemantics(
+            name,
+            role,
+            ratingLabel,
+            l10n.salonReviewCountLabel(master.reviewCount),
+          )
+        : l10n.bookingMasterStripSemantics(name, role);
 
     return Semantics(
-      label: l10n.bookingMasterStripSemantics(name, role),
+      label: semanticsLabel,
       child: NeumorphicCard(
         color: _stripSurface,
         padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
@@ -97,9 +138,51 @@ class MasterStrip extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
+                  if (showRole) ...<Widget>[
+                    const SizedBox(height: 2),
+                    Text(
+                      role,
+                      style: VelvetText.feedback(
+                        BrandColors.muted,
+                      ).copyWith(fontSize: 12),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ],
               ),
             ),
+            if (showRating) ...<Widget>[
+              const SizedBox(width: VelvetSpacing.sm),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  const Icon(
+                    Icons.star_rounded,
+                    size: 16,
+                    color: BrandColors.accent,
+                  ),
+                  const SizedBox(width: 2),
+                  Text(
+                    ratingLabel,
+                    style: VelvetText.bodyStrong().copyWith(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (master.reviewCount > 0) ...<Widget>[
+                    const SizedBox(width: 3),
+                    Text(
+                      '(${master.reviewCount})',
+                      style: VelvetText.feedback(
+                        BrandColors.muted,
+                      ).copyWith(fontSize: 11.5),
+                    ),
+                  ],
+                ],
+              ),
+            ],
           ],
         ),
       ),

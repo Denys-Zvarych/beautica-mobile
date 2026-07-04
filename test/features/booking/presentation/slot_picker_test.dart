@@ -451,6 +451,61 @@ void main() {
       },
     );
 
+    // mobile-qa Part 1 — the unified MasterStrip (`showRole: true,
+    // showRating: true`) is now live on this screen, but no test asserted the
+    // actual role/rating CONTENT ever rendered — only its presence via the
+    // master's name (see `SlotTimeScreen`'s sibling test below). Locks in the
+    // role label (via the shared `masterRoleLabel` helper, never a hardcoded
+    // string — mobile-qa M2) and the "★4.8 (12)" rating readout, both scoped
+    // to the MasterStrip descendant so a coincidental match elsewhere on
+    // screen can't false-pass this.
+    testWidgets(
+      'shows the master\'s role label and ★rating(reviewCount) inside '
+      'MasterStrip',
+      (tester) async {
+        final fake = _FakeSlotRepository(const <BookingSlot>[]);
+        final router = _router(dateScreen: SlotDateScreen(args: _args()));
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[slotRepositoryProvider.overrideWith((_) => fake)],
+        );
+        await tester.pumpAndSettle();
+
+        final Finder masterStrip = find.byType(MasterStrip);
+        expect(masterStrip, findsOneWidget);
+
+        final l10n = AppLocalizations.of(tester.element(masterStrip));
+        final String roleLabel = masterRoleLabel(_kMaster.type, l10n);
+        expect(
+          find.descendant(of: masterStrip, matching: find.text(roleLabel)),
+          findsOneWidget,
+          reason:
+              'showRole:true must render masterRoleLabel(type, l10n) — for '
+              'this fixture (independentMaster) that is '
+              'l10n.masterRoleIndependent',
+        );
+
+        final String ratingLabel = _kMaster.avgRating.toStringAsFixed(1);
+        expect(
+          find.descendant(of: masterStrip, matching: find.text(ratingLabel)),
+          findsOneWidget,
+          reason: 'showRating:true must render avgRating.toStringAsFixed(1)',
+        );
+
+        expect(
+          find.descendant(
+            of: masterStrip,
+            matching: find.text('(${_kMaster.reviewCount})'),
+          ),
+          findsOneWidget,
+          reason:
+              'reviewCount (12) is > 0 for this fixture, so the parenthetical '
+              'review-count suffix must render alongside the rating',
+        );
+      },
+    );
+
     testWidgets('«Далі» does not advance before a day is selected, and '
         'advances to the time screen once one is', (tester) async {
       final fake = _FakeSlotRepository(const <BookingSlot>[]);
@@ -605,6 +660,46 @@ void main() {
       },
     );
 
+    // mobile-qa Part 1 — mirrors the SlotDateScreen test above: the same
+    // MasterStrip flags (`showRole: true, showRating: true`) are also live on
+    // this screen, so its rendered role/rating content needs its own
+    // assertion rather than assuming it matches SlotDateScreen's coverage.
+    testWidgets(
+      'shows the master\'s role label and ★rating(reviewCount) inside '
+      'MasterStrip on SlotTimeScreen',
+      (tester) async {
+        await pumpTimeScreen(tester, args: _args());
+
+        final Finder timeScreen = find.byType(SlotTimeScreen);
+        final Finder masterStrip = find.descendant(
+          of: timeScreen,
+          matching: find.byType(MasterStrip),
+        );
+        expect(masterStrip, findsOneWidget);
+
+        final l10n = AppLocalizations.of(tester.element(timeScreen));
+        final String roleLabel = masterRoleLabel(_kMaster.type, l10n);
+        expect(
+          find.descendant(of: masterStrip, matching: find.text(roleLabel)),
+          findsOneWidget,
+        );
+
+        final String ratingLabel = _kMaster.avgRating.toStringAsFixed(1);
+        expect(
+          find.descendant(of: masterStrip, matching: find.text(ratingLabel)),
+          findsOneWidget,
+        );
+
+        expect(
+          find.descendant(
+            of: masterStrip,
+            matching: find.text('(${_kMaster.reviewCount})'),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
     // Jump-fix regression test (debugger-recommended): `SlotDateScreen` and
     // `SlotTimeScreen` are nested `go_router` routes co-mounted on the SAME
     // Navigator during a real `CupertinoPageTransitionsBuilder` push (see
@@ -616,6 +711,17 @@ void main() {
     // `MasterStrip` must land at the IDENTICAL vertical offset on both
     // screens, independent of navigation, so nothing hops when the `Hero`
     // flight ends.
+    //
+    // mobile-qa Part 2 re-verification (unified-card follow-up): both
+    // `SlotDateScreen` and `SlotTimeScreen` now pass the SAME
+    // `showRole: true, showRating: true` flags (they did not when this test
+    // was first written), so `MasterStrip`'s intrinsic height grew on BOTH
+    // sides by the same amount — the top-left `dy` this test reads is
+    // unaffected by the card growing TALLER (that only pushes content below
+    // it down, never the card's own top edge), so the offset-parity
+    // assertion below is still measuring exactly what it always measured and
+    // still holds. Confirmed by re-running this test after the flags were
+    // enabled — not just assumed from the reasoning above.
     testWidgets(
       'MasterStrip renders at the identical vertical offset on SlotDateScreen '
       'and SlotTimeScreen, so the shared Hero never visibly jumps once the '

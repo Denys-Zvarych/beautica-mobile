@@ -34,6 +34,7 @@ import 'package:beautica_mobile/features/booking/domain/booking_success_args.dar
 import 'package:beautica_mobile/features/booking/domain/create_booking_request.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -216,6 +217,54 @@ void main() {
       expect(find.text('Манікюр з покриттям'), findsOneWidget);
     });
 
+    // mobile-qa Part 1 — `BookingSummaryCards`'s master card was migrated
+    // from a deleted bespoke `_MasterHeader` to the SAME `MasterStrip(
+    // showRole: true, showRating: true)` used by the Step 2a/2b slot-picker
+    // screens (`booking_summary_cards.dart`), but nothing asserted the actual
+    // role/rating CONTENT rendered by this screen's card — only the master's
+    // name (see the test above). Scoped to the `MasterStrip` descendant so a
+    // coincidental match elsewhere on screen can't false-pass this.
+    testWidgets(
+      'shows the master\'s role label and ★rating(reviewCount) inside the '
+      'master card',
+      (tester) async {
+        final fake = _FakeBookingRepository(bookingToReturn: _bookingFixture());
+        await pump(tester, fake);
+
+        final Finder masterStrip = find.byType(MasterStrip);
+        expect(masterStrip, findsOneWidget);
+
+        final l10n = AppLocalizations.of(tester.element(masterStrip));
+        final String roleLabel = masterRoleLabel(_kMaster.type, l10n);
+        expect(
+          find.descendant(of: masterStrip, matching: find.text(roleLabel)),
+          findsOneWidget,
+          reason:
+              'showRole:true must render masterRoleLabel(type, l10n) — for '
+              'this fixture (independentMaster) that is '
+              'l10n.masterRoleIndependent',
+        );
+
+        final String ratingLabel = _kMaster.avgRating.toStringAsFixed(1);
+        expect(
+          find.descendant(of: masterStrip, matching: find.text(ratingLabel)),
+          findsOneWidget,
+          reason: 'showRating:true must render avgRating.toStringAsFixed(1)',
+        );
+
+        expect(
+          find.descendant(
+            of: masterStrip,
+            matching: find.text('(${_kMaster.reviewCount})'),
+          ),
+          findsOneWidget,
+          reason:
+              'reviewCount (47) is > 0 for this fixture, so the parenthetical '
+              'review-count suffix must render alongside the rating',
+        );
+      },
+    );
+
     testWidgets(
       '«Записатись» calls createBooking with a fresh UUID v4 idempotency key '
       'and navigates to /booking/success on success',
@@ -352,6 +401,12 @@ void main() {
       // `showMasterCard: false` per the design.
       // i18n-finder-ok: master name is fixture data (_kMaster), not translated UI copy.
       expect(find.text('Олена Ковальчук'), findsNothing);
+
+      // mobile-qa Part 3 — explicit widget-type assertion (not just the
+      // absent-name proxy above): `BookingSummaryCards(showMasterCard:
+      // false)` must render NO `MasterStrip` at all on this screen, unaffected
+      // by the confirm screen's card now sharing the exact same widget.
+      expect(find.byType(MasterStrip), findsNothing);
     });
 
     testWidgets('blocks back navigation (PopScope canPop: false)', (

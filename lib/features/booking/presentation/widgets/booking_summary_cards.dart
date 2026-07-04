@@ -38,14 +38,17 @@ import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 
 import 'booking_recap.dart';
-import 'master_strip.dart' show masterRoleLabel;
+import 'master_strip.dart';
 
 /// The shared, read-only booking summary card stack.
 ///
-/// 1. an optional **master card** — a soft `#EDE4D5` [NeumorphicCard]
-///    wrapping the quiet WHO row (avatar + name + muted role + camel ★
-///    rating). Hidden via [showMasterCard] on the success screen (the client
-///    just chose the master — the recap there focuses on the appointment).
+/// 1. an optional **master card** — the same [MasterStrip] context card
+///    rendered on the Step 2a/2b slot-picker screens (`showRole: true,
+///    showRating: true`: avatar + name + muted role + camel ★ rating), so the
+///    "who you're booking with" identity looks identical across the whole
+///    booking flow instead of this screen carrying its own bespoke header.
+///    Hidden via [showMasterCard] on the success screen (the client just
+///    chose the master — the recap there focuses on the appointment).
 /// 2. a **booking-details card** — a base-tone [NeumorphicCard] carrying the
 ///    Адреса / Дата / Час label→value rows, the flat per-service
 ///    [BookingRecap] table and its bold "Разом" total, divided by thin
@@ -103,11 +106,7 @@ class BookingSummaryCards extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         if (showMasterCard) ...<Widget>[
-          NeumorphicCard(
-            color: const Color(0xFFEDE4D5),
-            padding: const EdgeInsets.all(VelvetSpacing.lg),
-            child: _MasterHeader(master: master),
-          ),
+          MasterStrip(master: master, showRole: true, showRating: true),
           const SizedBox(height: VelvetSpacing.md),
         ],
         NeumorphicCard(
@@ -188,89 +187,6 @@ class _SectionRule extends StatelessWidget {
       child: Container(
         height: 1,
         color: BrandColors.faint.withValues(alpha: 0.5),
-      ),
-    );
-  }
-}
-
-/// The WHO line — a quiet flat row: a small camel→mocha avatar circle, the
-/// master's name with a muted role sub-line, and a camel ★ + rating pinned
-/// right.
-class _MasterHeader extends StatelessWidget {
-  const _MasterHeader({required this.master});
-
-  final Master master;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final String name = '${master.firstName} ${master.lastName}'.trim();
-    final String role = masterRoleLabel(master.type, l10n);
-    final String ratingLabel = master.avgRating.toStringAsFixed(1);
-    return Semantics(
-      label: l10n.bookingSummaryMasterSemantics(
-        name,
-        role,
-        ratingLabel,
-        l10n.salonReviewCountLabel(master.reviewCount),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: <Widget>[
-          Container(
-            height: 60,
-            width: 60,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: <Color>[Color(0xFFD8BE9C), Color(0xFF6A4A28)],
-              ),
-            ),
-            child: Center(
-              child: Icon(
-                Icons.person_rounded,
-                color: BrandColors.white.withValues(alpha: 0.85),
-                size: 32,
-              ),
-            ),
-          ),
-          const SizedBox(width: VelvetSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: VelvetText.subheading().copyWith(fontSize: 17.5),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  role,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: VelvetText.feedback(
-                    BrandColors.muted,
-                  ).copyWith(fontSize: 13),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: VelvetSpacing.sm),
-          const Icon(Icons.star_rounded, size: 16, color: BrandColors.accent),
-          const SizedBox(width: 2),
-          Text(
-            ratingLabel,
-            style: VelvetText.bodyStrong().copyWith(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
       ),
     );
   }
