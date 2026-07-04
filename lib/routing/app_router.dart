@@ -48,6 +48,7 @@ import '../features/booking/presentation/booking_success_screen.dart';
 import '../features/booking/presentation/salon_booking_coming_soon_screen.dart';
 import '../features/booking/presentation/salon_master_selection_screen.dart';
 import '../features/booking/presentation/salon_service_selection_screen.dart';
+import '../features/booking/presentation/salon_time_screen.dart';
 import '../features/booking/presentation/service_selector_sheet.dart';
 import '../features/booking/presentation/slot_picker_screen.dart';
 import '../features/discovery/domain/search_filters.dart';
@@ -585,12 +586,31 @@ GoRouter appRouter(Ref ref) {
           args: state.extra! as SalonBookingMasterSelectionArgs,
         ),
       ),
-      // Phase 14.13 — Salon booking flow step 3 PLACEHOLDER. The per-master
-      // time picker is deferred; `SalonMasterSelectionScreen`'s «Підтвердити»
-      // CTA routes here instead — carrying the salon id (a bare String) in
-      // `extra` for the "back to profile" action — never into the
-      // independent-master `SlotPickerScreen` (single-master flow, wrong
-      // model for a salon booking).
+      // Phase 14.16/14.17 — Salon booking flow step 3 (per-master date/time
+      // picker). `SalonMasterSelectionScreen`'s «Підтвердити» CTA now pushes
+      // here (with a `SalonBookingTimeArgs` in `extra`) instead of directly
+      // hopping to [salonBookingComingSoon] — same "no natural upstream
+      // extra" fallback shape as [salonBookingMasters] above, since a
+      // missing/wrong-typed extra has nothing to chain-redirect through.
+      GoRoute(
+        path: RouteNames.salonBookingTime,
+        redirect: (context, state) {
+          final roleRedirect = clientOnlyGuard(context, state);
+          if (roleRedirect != null) return roleRedirect;
+          if (state.extra is! SalonBookingTimeArgs) {
+            return RouteNames.clientHome;
+          }
+          return null;
+        },
+        builder: (context, state) =>
+            SalonTimeScreen(args: state.extra! as SalonBookingTimeArgs),
+      ),
+      // Phase 14.13 — Salon booking flow step 4 PLACEHOLDER. Step 4
+      // (confirmation/submit) is unscoped; `SalonTimeScreen`'s «Підтвердити»
+      // CTA (Phase 14.17) routes here instead — carrying the salon id (a
+      // bare String) in `extra` for the "back to profile" action — never
+      // into the independent-master `SlotPickerScreen` (single-master flow,
+      // wrong model for a salon booking), and never a `POST /bookings` call.
       GoRoute(
         path: RouteNames.salonBookingComingSoon,
         redirect: (context, state) {
@@ -605,11 +625,20 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) =>
             SalonBookingComingSoonScreen(salonId: state.extra! as String),
       ),
-      // Phase 4.2 — Master profile (read-only).
+      // Phase 4.2 — Master profile (read-only). The INDEPENDENT_MASTER's
+      // home/tab-root — always first in its Navigator stack (only ever
+      // reached via `context.go(...)`, never pushed). `builder:` (MaterialPage)
+      // rather than `pageBuilder: _instantPage`, matching the precedent set by
+      // `/salons/:salonId` above and closing the follow-up gap noted there:
+      // `MasterProfileScreen` renders no back affordance for a stack-root
+      // (`showBack: false`), so this is purely about giving the route the
+      // same theme-driven page-transition builder as its sibling stack-root
+      // screens (`SettingsHubScreen`, `ServicesListScreen`, etc.) — it does
+      // NOT enable a swipe-back gesture, which Flutter correctly disarms for
+      // any `isFirst` route regardless of page type.
       GoRoute(
         path: RouteNames.masterProfile,
-        pageBuilder: (context, state) =>
-            _instantPage(state, const MasterProfileScreen()),
+        builder: (context, state) => const MasterProfileScreen(),
       ),
       // Master profile settings hub + per-section edit pages. These replace the
       // retired monolithic /master/edit form. All auth-guarded (Phase 2.9
