@@ -94,96 +94,107 @@ class MasterStrip extends StatelessWidget {
 
     return Semantics(
       label: semanticsLabel,
-      child: NeumorphicCard(
-        color: _stripSurface,
-        padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-        child: Row(
-          children: <Widget>[
-            Container(
-              height: 48,
-              width: 48,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: <Color>[Color(0xFFD8BE9C), Color(0xFF6A4A28)],
-                ),
-                boxShadow: VelvetShadows.extrudedSmall,
-              ),
-              child: Center(
-                child: Icon(
-                  Icons.person_rounded,
-                  color: BrandColors.white.withValues(alpha: 0.82),
-                  size: 24,
-                ),
-              ),
-            ),
-            const SizedBox(width: VelvetSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    l10n.bookingMasterStripLabel,
-                    style: VelvetText.feedback(
-                      BrandColors.textSecondary,
-                    ).copyWith(fontSize: 11),
+      child: Material(
+        // Guards against the Hero-flight shuttle rendering this subtree
+        // outside any Material ancestor: without one, every Text below
+        // resolves against MaterialApp's literal error DefaultTextStyle
+        // (underlined, no explicit height) for the duration of the flight,
+        // producing a brief flash of underlined/tight-line-height text on
+        // the master's name. `transparency` paints nothing itself — it only
+        // installs the ambient Theme/DefaultTextStyle — so it doesn't
+        // interfere with NeumorphicCard's own shadow/decoration painting.
+        type: MaterialType.transparency,
+        child: NeumorphicCard(
+          color: _stripSurface,
+          padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
+          child: Row(
+            children: <Widget>[
+              Container(
+                height: 48,
+                width: 48,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: <Color>[Color(0xFFD8BE9C), Color(0xFF6A4A28)],
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    name,
-                    style: VelvetText.subheading().copyWith(fontSize: 16),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  boxShadow: VelvetShadows.extrudedSmall,
+                ),
+                child: Center(
+                  child: Icon(
+                    Icons.person_rounded,
+                    color: BrandColors.white.withValues(alpha: 0.82),
+                    size: 24,
                   ),
-                  if (showRole) ...<Widget>[
+                ),
+              ),
+              const SizedBox(width: VelvetSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      l10n.bookingMasterStripLabel,
+                      style: VelvetText.feedback(
+                        BrandColors.textSecondary,
+                      ).copyWith(fontSize: 11),
+                    ),
                     const SizedBox(height: 2),
                     Text(
-                      role,
-                      style: VelvetText.feedback(
-                        BrandColors.muted,
-                      ).copyWith(fontSize: 12),
+                      name,
+                      style: VelvetText.subheading().copyWith(fontSize: 16),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    if (showRole) ...<Widget>[
+                      const SizedBox(height: 2),
+                      Text(
+                        role,
+                        style: VelvetText.feedback(
+                          BrandColors.muted,
+                        ).copyWith(fontSize: 12),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            if (showRating) ...<Widget>[
-              const SizedBox(width: VelvetSpacing.sm),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: <Widget>[
-                  const Icon(
-                    Icons.star_rounded,
-                    size: 16,
-                    color: BrandColors.accent,
-                  ),
-                  const SizedBox(width: 2),
-                  Text(
-                    ratingLabel,
-                    style: VelvetText.bodyStrong().copyWith(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
+              if (showRating) ...<Widget>[
+                const SizedBox(width: VelvetSpacing.sm),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: <Widget>[
+                    const Icon(
+                      Icons.star_rounded,
+                      size: 16,
+                      color: BrandColors.accent,
                     ),
-                  ),
-                  if (master.reviewCount > 0) ...<Widget>[
-                    const SizedBox(width: 3),
+                    const SizedBox(width: 2),
                     Text(
-                      '(${master.reviewCount})',
-                      style: VelvetText.feedback(
-                        BrandColors.muted,
-                      ).copyWith(fontSize: 11.5),
+                      ratingLabel,
+                      style: VelvetText.bodyStrong().copyWith(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
+                    if (master.reviewCount > 0) ...<Widget>[
+                      const SizedBox(width: 3),
+                      Text(
+                        '(${master.reviewCount})',
+                        style: VelvetText.feedback(
+                          BrandColors.muted,
+                        ).copyWith(fontSize: 11.5),
+                      ),
+                    ],
                   ],
-                ],
-              ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
