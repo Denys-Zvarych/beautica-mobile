@@ -190,20 +190,26 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
     );
     final bool datePhase = entry.date == null;
 
+    // Vertical-only here — deliberately. The shared [MonthCalendar] (used by
+    // `_datePhase` below) already self-pads horizontally by `VelvetSpacing.lg`
+    // (see its own `build()`), matching `SlotDateScreen`'s single lg inset.
+    // Adding a horizontal inset on this outer scroll view too would stack a
+    // SECOND lg on top of the calendar's own — exactly the double-padding bug
+    // this file previously had (48px per side instead of 24px). Every other
+    // child below now carries its own explicit horizontal padding instead, so
+    // the net inset stays a single `VelvetSpacing.lg` everywhere.
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(
-        VelvetSpacing.lg,
-        VelvetSpacing.md,
-        VelvetSpacing.lg,
-        VelvetSpacing.md,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          SalonMasterStrip(
-            schedule: widget.schedule,
-            avatarGradient: widget.avatarGradient,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+            child: SalonMasterStrip(
+              schedule: widget.schedule,
+              avatarGradient: widget.avatarGradient,
+            ),
           ),
           const SizedBox(height: VelvetSpacing.lg),
           AnimatedSwitcher(
@@ -295,8 +301,27 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
       key: const ValueKey<String>('date'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Text(l10n.salonScheduleDateIntro, style: VelvetText.scheduleDateIntro),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+          child: Text(
+            l10n.salonScheduleDateIntro,
+            style: VelvetText.scheduleDateIntro,
+          ),
+        ),
         const SizedBox(height: VelvetSpacing.md),
+        // `CalendarWeekdayBar` and `calendarBody` (which wraps the shared
+        // `MonthCalendar`) are deliberately left UNWRAPPED here — both
+        // already self-pad horizontally (`CalendarWeekdayBar` by
+        // `VelvetSpacing.md + 2`, `MonthCalendar` by `VelvetSpacing.lg`),
+        // exactly matching `SlotDateScreen`. Adding another horizontal
+        // Padding around either is the double-padding bug this file is
+        // fixed for — see the outer `SingleChildScrollView`'s comment in
+        // `build()`.
+        //
+        // Known pre-existing cosmetic nit (not introduced or fixed here):
+        // `CalendarWeekdayBar`'s weekday labels don't perfectly align with
+        // the day-grid columns below — identical in both booking flows,
+        // a product/design call, not a padding bug.
         const CalendarWeekdayBar(),
         const SizedBox(height: VelvetSpacing.xs),
         calendarBody,
@@ -335,84 +360,94 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
             ),
           );
 
-    return Column(
+    // Wrapped in a single horizontal Padding — unlike `_datePhase`, nothing
+    // in this phase's subtree (day-header chip, headings, slot-chip groups,
+    // window line, empty/loading/error states) self-pads horizontally, so
+    // one `VelvetSpacing.lg` inset here is enough and can't double up with
+    // anything (there's no shared `MonthCalendar`/`CalendarWeekdayBar` on
+    // this phase). The `ValueKey` moves to this `Padding` since it — not the
+    // inner `Column` — is now the actual `child` `AnimatedSwitcher` compares.
+    return Padding(
       key: const ValueKey<String>('time'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _DayHeaderChip(
-          label: formatBookingDayHeader(date),
-          masterName: masterName,
-          masterRole: masterRole,
-          onChange: _clearDate,
-        ),
-        const SizedBox(height: VelvetSpacing.lg),
-        Text(
-          l10n.bookingFreeTimeHeading,
-          style: VelvetText.scheduleTimeHeading,
-        ),
-        const SizedBox(height: VelvetSpacing.md),
-        slotsAsync.when(
-          loading: () => const Padding(
-            padding: EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
-            child: Center(
-              child: SizedBox(
-                height: 28,
-                width: 28,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.4,
-                  color: BrandColors.accent,
+      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _DayHeaderChip(
+            label: formatBookingDayHeader(date),
+            masterName: masterName,
+            masterRole: masterRole,
+            onChange: _clearDate,
+          ),
+          const SizedBox(height: VelvetSpacing.lg),
+          Text(
+            l10n.bookingFreeTimeHeading,
+            style: VelvetText.scheduleTimeHeading,
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+          slotsAsync.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
+              child: Center(
+                child: SizedBox(
+                  height: 28,
+                  width: 28,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.4,
+                    color: BrandColors.accent,
+                  ),
                 ),
               ),
             ),
-          ),
-          error: (Object e, StackTrace _) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
-            child: Text(
-              l10n.bookingDayUnavailableState,
-              style: VelvetText.dayUnavailableLabel,
+            error: (Object e, StackTrace _) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
+              child: Text(
+                l10n.bookingDayUnavailableState,
+                style: VelvetText.dayUnavailableLabel,
+              ),
             ),
-          ),
-          data: (List<BookingSlot> slots) {
-            if (slots.isEmpty) {
-              return _NoSlotsEmptyState(onChangeDate: _clearDate);
-            }
-            final List<BookingSlot> morning = <BookingSlot>[];
-            final List<BookingSlot> afternoon = <BookingSlot>[];
-            final List<BookingSlot> evening = <BookingSlot>[];
-            for (final BookingSlot s in slots) {
-              final int hour = s.startAt.hour;
-              if (hour < 12) {
-                morning.add(s);
-              } else if (hour < 17) {
-                afternoon.add(s);
-              } else {
-                evening.add(s);
+            data: (List<BookingSlot> slots) {
+              if (slots.isEmpty) {
+                return _NoSlotsEmptyState(onChangeDate: _clearDate);
               }
-            }
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                if (morning.isNotEmpty) ...<Widget>[
-                  _slotGroup(l10n.bookingMorningLabel, morning, selectedSlot),
-                  const SizedBox(height: VelvetSpacing.md),
+              final List<BookingSlot> morning = <BookingSlot>[];
+              final List<BookingSlot> afternoon = <BookingSlot>[];
+              final List<BookingSlot> evening = <BookingSlot>[];
+              for (final BookingSlot s in slots) {
+                final int hour = s.startAt.hour;
+                if (hour < 12) {
+                  morning.add(s);
+                } else if (hour < 17) {
+                  afternoon.add(s);
+                } else {
+                  evening.add(s);
+                }
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  if (morning.isNotEmpty) ...<Widget>[
+                    _slotGroup(l10n.bookingMorningLabel, morning, selectedSlot),
+                    const SizedBox(height: VelvetSpacing.md),
+                  ],
+                  if (afternoon.isNotEmpty) ...<Widget>[
+                    _slotGroup(
+                      l10n.bookingAfternoonLabel,
+                      afternoon,
+                      selectedSlot,
+                    ),
+                    const SizedBox(height: VelvetSpacing.md),
+                  ],
+                  if (evening.isNotEmpty)
+                    _slotGroup(l10n.bookingEveningLabel, evening, selectedSlot),
                 ],
-                if (afternoon.isNotEmpty) ...<Widget>[
-                  _slotGroup(
-                    l10n.bookingAfternoonLabel,
-                    afternoon,
-                    selectedSlot,
-                  ),
-                  const SizedBox(height: VelvetSpacing.md),
-                ],
-                if (evening.isNotEmpty)
-                  _slotGroup(l10n.bookingEveningLabel, evening, selectedSlot),
-              ],
-            );
-          },
-        ),
-        const SizedBox(height: VelvetSpacing.lg),
-        _WindowLine(label: windowLabel),
-      ],
+              );
+            },
+          ),
+          const SizedBox(height: VelvetSpacing.lg),
+          _WindowLine(label: windowLabel),
+        ],
+      ),
     );
   }
 
