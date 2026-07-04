@@ -194,18 +194,30 @@ GoRouter appRouter(Ref ref) {
           return _instantPage(state, AcceptInviteScreen(token: token));
         },
       ),
+      // mobile-debugger fix (same latent bug as `/salons/:salonId` and
+      // `/masters/:masterId`): pushed from the login screen's "Зареєструватись"
+      // link via `context.push`, so it needs the theme's
+      // CupertinoPageTransitionsBuilder-installed left-edge swipe-back gesture,
+      // which only `builder:` (MaterialPage) honors — `pageBuilder: _instantPage`
+      // silently suppressed it. `context.go(RouteNames.registerRole)` elsewhere
+      // (back-links inside the register wizard) is unaffected by this — `.go`
+      // replaces the stack regardless of page type.
       GoRoute(
         path: RouteNames.registerRole,
-        pageBuilder: (context, state) =>
-            _instantPage(state, const RoleSelectionScreen()),
+        builder: (context, state) => const RoleSelectionScreen(),
       ),
       // Phase 2.13 — forgot-password flow. Both routes render outside the
       // RegisterFlowShell and acquire the app-wide screenshot guard via the
       // ref-counted ScreenProtectionManager (email + reset token are PII).
+      //
+      // mobile-debugger fix (same latent bug as `/salons/:salonId` and
+      // `/masters/:masterId`): pushed from the login screen's "Забули пароль?"
+      // link via `context.push`, so it needs `builder:` (MaterialPage) for the
+      // theme's CupertinoPageTransitionsBuilder to install the left-edge
+      // swipe-back gesture — `pageBuilder: _instantPage` silently suppressed it.
       GoRoute(
         path: RouteNames.forgotPassword,
-        pageBuilder: (context, state) =>
-            _instantPage(state, const ForgotPasswordRequestScreen()),
+        builder: (context, state) => const ForgotPasswordRequestScreen(),
       ),
       GoRoute(
         // The single-use reset token arrives as the `token` query parameter
@@ -256,10 +268,20 @@ GoRouter appRouter(Ref ref) {
         // /register/step-3 are inside the shell) are covered by
         // RegisterFlowShell. Net effect: every PII-collecting auth route holds
         // the shared guard — no gap, no desync.
+        //
+        // mobile-debugger fix (same latent bug as `/salons/:salonId` and
+        // `/masters/:masterId`): the login screen's EMAIL_NOT_VERIFIED banner
+        // action reaches this route via `context.push`, so it needs `builder:`
+        // (MaterialPage) for the theme's CupertinoPageTransitionsBuilder to
+        // install the left-edge swipe-back gesture — `pageBuilder: _instantPage`
+        // silently suppressed it. `context.go(RouteNames.verification, ...)`
+        // from register step 3 is unaffected — `.go` replaces the whole stack
+        // regardless of page type, so there is nothing below it to swipe back to
+        // in that flow.
         path: RouteNames.verification,
-        pageBuilder: (context, state) {
+        builder: (context, state) {
           final email = (state.extra as String?) ?? '';
-          return _instantPage(state, VerificationScreen(email: email));
+          return VerificationScreen(email: email);
         },
       ),
       GoRoute(
@@ -745,10 +767,18 @@ GoRouter appRouter(Ref ref) {
       // auth_redirect_test.dart use it as a representative `/master/*` location.
       // Phase 15.2 — Master schedule («Графік роботи»), the Календар tile's
       // destination. Auth-guarded by the global redirect.
+      //
+      // mobile-debugger fix (same latent bug as `/salons/:salonId` and
+      // `/masters/:masterId`): the profile bottom-nav "Календар" tile reaches
+      // this route via `context.push`, so it needs `builder:` (MaterialPage)
+      // for the theme's CupertinoPageTransitionsBuilder to install the
+      // left-edge swipe-back gesture — `pageBuilder: _instantPage` silently
+      // suppressed it. `context.go(RouteNames.masterSchedule)` elsewhere (the
+      // weekly editor's save/cancel returns) is unaffected — `.go` replaces the
+      // stack regardless of page type.
       GoRoute(
         path: RouteNames.masterSchedule,
-        pageBuilder: (context, state) =>
-            _instantPage(state, const MasterScheduleScreen()),
+        builder: (context, state) => const MasterScheduleScreen(),
       ),
       // Phase 15.5 — the REAL weekly-template editor («Робочі дні та години»),
       // graduating the Phase 15.2 [WeeklyTemplateEditorStubScreen] at the same
