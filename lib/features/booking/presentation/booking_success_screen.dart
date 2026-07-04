@@ -17,9 +17,11 @@
 // straight half), a deliberate deviation from the approved design at the
 // user's explicit request — with
 // its own [_lottieController] (duration set from the loaded composition,
-// `forward(from: 0)` once), independent of [_controller] below (which still
-// drives the headline/subline/summary/CTA staggered reveal exactly as
-// before). Honours `MediaQuery.disableAnimations` by jumping the Lottie
+// stretched to 1.4x for a deliberately slower playback — see `onLoaded`'s
+// comment — then `forward(from: 0)` once), independent of [_controller]
+// below (which still drives the headline/subline/summary/CTA staggered
+// reveal exactly as before). Honours `MediaQuery.disableAnimations` by
+// jumping the Lottie
 // controller straight to its last frame instead of playing it, mirroring
 // how [_controller] itself is pinned to `1` under reduced motion.
 //
@@ -76,9 +78,10 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
   late final AnimationController _controller;
 
   // Drives the Lottie success animation; its duration is set from the
-  // loaded composition in `Lottie.asset`'s `onLoaded` callback, mirroring
-  // the approved preview's own wiring
-  // (`docs/signup-designs/BookingConfirmSuccess/lib/screens/
+  // loaded composition in `Lottie.asset`'s `onLoaded` callback (stretched to
+  // 1.4x — an intentional slow-down from the asset's native playback speed,
+  // see that callback's comment), mirroring the approved preview's own
+  // wiring (`docs/signup-designs/BookingConfirmSuccess/lib/screens/
   // booking_success_screen.dart`) — independent of [_controller] above, so
   // the badge always plays its full designed animation regardless of how
   // the rest of the screen's staggered reveal is timed.
@@ -179,7 +182,10 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
                   child: Text(
                     l10n.bookingSuccessSubline,
                     textAlign: TextAlign.center,
-                    style: VelvetText.body().copyWith(height: 1.35),
+                    style: VelvetText.body().copyWith(
+                      height: 1.35,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
                 const SizedBox(height: VelvetSpacing.lg),
@@ -198,6 +204,12 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
                             start: widget.args.start,
                             showMasterCard: false,
                             dense: true,
+                            // See NeumorphicCard.showBorder's doc: this card's
+                            // fill (BrandColors.base) exactly matches this
+                            // screen's Scaffold.backgroundColor, so the
+                            // extruded shadow alone doesn't read as a
+                            // distinct shape — opt into the hairline stroke.
+                            showBorder: true,
                           ),
                         ),
                         const SizedBox(height: VelvetSpacing.sm + 2),
@@ -288,7 +300,11 @@ class _SuccessLottieBadge extends StatelessWidget {
                 return child;
               },
           onLoaded: (LottieComposition composition) {
-            controller.duration = composition.duration;
+            // Intentional slow-down: the asset's native playback speed reads
+            // as rushed at this 80 dp size, so the controller is stretched to
+            // 1.4x the composition's authored duration (same frame count,
+            // played back slower) — do not "fix" this back to 1x.
+            controller.duration = composition.duration * 1.4;
             // Reduced-motion already pinned the controller to the last
             // frame in `didChangeDependencies`; only play otherwise.
             if (!(MediaQuery.maybeOf(context)?.disableAnimations ?? false)) {

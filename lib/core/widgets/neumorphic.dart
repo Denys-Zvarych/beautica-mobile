@@ -17,6 +17,7 @@ class NeumorphicCard extends StatelessWidget {
     this.shadows = VelvetShadows.extrudedCard,
     this.color = BrandColors.base,
     this.clipContent = false,
+    this.showBorder = false,
   });
 
   final Widget child;
@@ -34,6 +35,20 @@ class NeumorphicCard extends StatelessWidget {
   /// round-trip caused by [ClipRRect] on every frame.
   final bool clipContent;
 
+  /// Opt-in 1 dp [BrandColors.faint] stroke around the card, defaulting to
+  /// false so every existing call site (which relies solely on the extruded
+  /// shadow pair for depth) is unaffected.
+  ///
+  /// Exists for the rare card whose [color] fill exactly matches the
+  /// surrounding background — the shadow alone reads as a blurry smudge
+  /// rather than a distinct shape in that case. `BookingSummaryCards`'
+  /// success-screen instance is the first such case: it sits on a
+  /// `Scaffold(backgroundColor: BrandColors.base)` with the card itself also
+  /// `BrandColors.base`. Uses the same hairline tone
+  /// `booking_summary_cards.dart`'s `_SectionRule` already divides sections
+  /// with, just at full opacity for a crisper edge.
+  final bool showBorder;
+
   @override
   Widget build(BuildContext context) {
     final BorderRadius borderRadius = BorderRadius.circular(radius);
@@ -43,6 +58,9 @@ class NeumorphicCard extends StatelessWidget {
         color: color,
         borderRadius: borderRadius,
         boxShadow: shadows,
+        border: showBorder
+            ? Border.all(color: BrandColors.faint, width: 1)
+            : null,
       ),
       child: clipContent
           ? ClipRRect(borderRadius: borderRadius, child: content)

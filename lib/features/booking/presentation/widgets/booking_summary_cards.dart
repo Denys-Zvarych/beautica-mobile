@@ -61,6 +61,7 @@ class BookingSummaryCards extends StatelessWidget {
     required this.start,
     this.showMasterCard = true,
     this.dense = false,
+    this.showBorder = false,
   });
 
   /// The target master, rendered by the (optional) master card.
@@ -82,6 +83,14 @@ class BookingSummaryCards extends StatelessWidget {
   /// screen fits in one viewport without scrolling. The confirmation screen
   /// leaves it `false` (its approved, roomier spacing).
   final bool dense;
+
+  /// Forwarded to the details [NeumorphicCard]'s `showBorder` — adds a
+  /// subtle hairline stroke so the card reads as a distinct shape even when
+  /// its fill exactly matches the surrounding background. Defaults to
+  /// `false` (the confirmation screen's card sits on a different
+  /// background and doesn't need it); the success screen opts in — see
+  /// `NeumorphicCard.showBorder`'s doc for why.
+  final bool showBorder;
 
   @override
   Widget build(BuildContext context) {
@@ -129,6 +138,7 @@ class BookingSummaryCards extends StatelessWidget {
           padding: EdgeInsets.all(
             dense ? VelvetSpacing.sm + 4 : VelvetSpacing.md,
           ),
+          showBorder: showBorder,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[

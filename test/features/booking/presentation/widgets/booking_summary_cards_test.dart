@@ -14,6 +14,7 @@
 // finder ambiguous (two cards) and dilute the height comparison with a card
 // whose size is unrelated to this flag.
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_cards.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -107,5 +108,81 @@ void main() {
       // passing the plain `lessThan` above.
       expect(roomyHeight - denseHeight, greaterThan(20));
     });
+  });
+
+  // mobile-qa regression — `showBorder` pass-through. `BookingSummaryCards`
+  // forwards its own `showBorder` param straight to the details
+  // `NeumorphicCard`'s `showBorder`; this was wired but never exercised by
+  // any test. Isolated via `showMasterCard: false` for the same reason as
+  // the `dense` group above — the master card is itself built on a
+  // `NeumorphicCard` that never receives `showBorder`, so including it would
+  // make `find.byType(NeumorphicCard)` ambiguous.
+  group('BookingSummaryCards showBorder pass-through', () {
+    Future<void> pumpCard(WidgetTester tester, {required bool showBorder}) =>
+        tester.pumpApp(
+          Scaffold(
+            body: BookingSummaryCards(
+              master: _kMaster,
+              service: _kService,
+              start: DateTime(2026, 7, 20, 14),
+              showMasterCard: false,
+              showBorder: showBorder,
+            ),
+          ),
+        );
+
+    testWidgets(
+      'showBorder: false (default, unset) does not reach the details '
+      'NeumorphicCard',
+      (tester) async {
+        await pumpCard(tester, showBorder: false);
+        await tester.pumpAndSettle();
+
+        final Finder cardFinder = find.byType(NeumorphicCard);
+        expect(cardFinder, findsOneWidget);
+        final NeumorphicCard card = tester.widget<NeumorphicCard>(cardFinder);
+        expect(
+          card.showBorder,
+          isFalse,
+          reason:
+              'BookingSummaryCards(showBorder: false) must not opt the '
+              'details NeumorphicCard into the border.',
+        );
+      },
+    );
+
+    testWidgets(
+      'showBorder: true reaches the details NeumorphicCard and renders the '
+      'hairline stroke',
+      (tester) async {
+        await pumpCard(tester, showBorder: true);
+        await tester.pumpAndSettle();
+
+        final Finder cardFinder = find.byType(NeumorphicCard);
+        expect(cardFinder, findsOneWidget);
+        final NeumorphicCard card = tester.widget<NeumorphicCard>(cardFinder);
+        expect(
+          card.showBorder,
+          isTrue,
+          reason:
+              'BookingSummaryCards(showBorder: true) must forward showBorder '
+              'straight through to the details NeumorphicCard.',
+        );
+
+        // Also confirm the border actually renders — not merely that the
+        // flag reached the constructor argument.
+        final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
+          find
+              .descendant(of: cardFinder, matching: find.byType(DecoratedBox))
+              .first,
+        );
+        final BoxDecoration decoration =
+            decoratedBox.decoration as BoxDecoration;
+        expect(
+          decoration.border,
+          equals(Border.all(color: BrandColors.faint, width: 1)),
+        );
+      },
+    );
   });
 }

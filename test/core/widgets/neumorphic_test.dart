@@ -414,6 +414,82 @@ void main() {
       // extrudedCard has 2 box shadows — assert the count matches.
       expect(decoration.boxShadow, hasLength(2));
     });
+
+    // mobile-qa regression — `showBorder` (default false) opt-in hairline
+    // stroke. Every existing call site relies solely on the extruded shadow
+    // pair for depth and must be unaffected by the new param — pin the
+    // default (unset) path renders NO border at all.
+    testWidgets(
+      'showBorder: false (default) renders a null BoxDecoration.border',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            const NeumorphicCard(
+              key: Key('card_no_border'),
+              child: SizedBox.shrink(),
+            ),
+          ),
+        );
+
+        final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
+          find
+              .descendant(
+                of: find.byKey(const Key('card_no_border')),
+                matching: find.byType(DecoratedBox),
+              )
+              .first,
+        );
+        final BoxDecoration decoration =
+            decoratedBox.decoration as BoxDecoration;
+        expect(
+          decoration.border,
+          isNull,
+          reason:
+              'NeumorphicCard must not draw any border unless showBorder is '
+              'explicitly opted into — every pre-existing call site depends '
+              'on this.',
+        );
+      },
+    );
+
+    // Sanity check performed while writing this test (not re-run per CI
+    // pass): before `showBorder` existed on NeumorphicCard, this assertion
+    // was unreachable — the constructor had no such named parameter at all,
+    // so this test would have failed to even compile. It now pins the
+    // opted-in rendering path.
+    testWidgets(
+      'showBorder: true renders Border.all(color: BrandColors.faint, '
+      'width: 1)',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            const NeumorphicCard(
+              key: Key('card_with_border'),
+              showBorder: true,
+              child: SizedBox.shrink(),
+            ),
+          ),
+        );
+
+        final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
+          find
+              .descendant(
+                of: find.byKey(const Key('card_with_border')),
+                matching: find.byType(DecoratedBox),
+              )
+              .first,
+        );
+        final BoxDecoration decoration =
+            decoratedBox.decoration as BoxDecoration;
+        expect(
+          decoration.border,
+          equals(Border.all(color: BrandColors.faint, width: 1)),
+          reason:
+              'showBorder: true must draw exactly a 1dp BrandColors.faint '
+              'stroke around the card.',
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------------

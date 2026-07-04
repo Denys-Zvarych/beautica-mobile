@@ -22,6 +22,8 @@
 // feature's Phase 14.1 test file.
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
@@ -39,6 +41,7 @@ import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_cards.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
@@ -360,6 +363,32 @@ void main() {
       },
     );
 
+    // mobile-qa regression — the success screen's details card opts into
+    // `NeumorphicCard.showBorder` (its card fill matches the surrounding
+    // background); the confirm screen's own card sits on a different
+    // background and must stay unaffected. Pin the confirm-side default here
+    // so a future shared-default change can't silently opt this screen in
+    // too.
+    testWidgets(
+      "BookingSummaryCards' showBorder is NOT set on the confirm screen",
+      (tester) async {
+        final fake = _FakeBookingRepository(bookingToReturn: _bookingFixture());
+        await pump(tester, fake);
+
+        final BookingSummaryCards cards = tester.widget<BookingSummaryCards>(
+          find.byType(BookingSummaryCards),
+        );
+        expect(
+          cards.showBorder,
+          isFalse,
+          reason:
+              "BookingConfirmScreen's BookingSummaryCards call site must "
+              'leave showBorder at its default (false) — only the success '
+              'screen opts in.',
+        );
+      },
+    );
+
     testWidgets(
       '«Записатись» calls createBooking with a fresh UUID v4 idempotency key '
       'and navigates to /booking/success on success',
@@ -584,6 +613,118 @@ void main() {
             'the approved preview\'s 112dp slot',
       );
     });
+
+    // mobile-qa regression — Part 3: the success screen's details card is
+    // the ONE call site that opts into `NeumorphicCard.showBorder` (its card
+    // fill exactly matches `Scaffold.backgroundColor`, so the extruded
+    // shadow alone doesn't read as a distinct shape — see
+    // `booking_success_screen.dart`'s comment at the `BookingSummaryCards`
+    // call site). Distinguishes this screen's wiring from the confirm
+    // screen's (asserted separately, above, as `isFalse`).
+    testWidgets(
+      "BookingSummaryCards' showBorder is wired to true on the success "
+      'screen',
+      (tester) async {
+        await pump(tester);
+
+        final BookingSummaryCards cards = tester.widget<BookingSummaryCards>(
+          find.byType(BookingSummaryCards),
+        );
+        expect(
+          cards.showBorder,
+          isTrue,
+          reason:
+              "BookingSuccessScreen's BookingSummaryCards call site must "
+              'pass showBorder: true — its card sits on the same '
+              'BrandColors.base as the Scaffold background.',
+        );
+      },
+    );
+
+    // mobile-qa regression — Part 3 (subline): `bookingSuccessSubline`
+    // dropped from the shared VelvetText.body() default size down to an
+    // explicit `fontSize: 13`. Pin the rendered TextStyle so a future revert
+    // (or an accidental copy-paste of a different body style) is caught.
+    testWidgets('subline text renders at fontSize: 13', (tester) async {
+      await pump(tester);
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingSuccessScreen)),
+      );
+      final Text subline = tester.widget<Text>(
+        find.text(l10n.bookingSuccessSubline),
+      );
+      expect(
+        subline.style?.fontSize,
+        13.0,
+        reason:
+            'bookingSuccessSubline must render at fontSize: 13, not the '
+            'shared VelvetText.body() default.',
+      );
+    });
+
+    // mobile-qa regression — Part 4: the Lottie badge's controller duration
+    // is deliberately stretched to 1.4x the raw composition duration once
+    // `onLoaded` fires (see `_SuccessLottieBadge.onLoaded`'s comment — "do
+    // not fix this back to 1x"). The raw duration is computed independently
+    // here straight from the asset's frame-rate / in-point / out-point (NOT
+    // by re-deriving it through the same `LottieComposition` the widget
+    // itself loads), so this doesn't just re-assert the source file's own
+    // arithmetic against itself.
+    testWidgets(
+      'lottie controller duration is stretched to 1.4x the raw composition '
+      'duration',
+      (tester) async {
+        await pump(tester);
+
+        final Lottie lottie = tester.widget<Lottie>(find.byType(Lottie));
+        // `Lottie.controller` is typed `Animation<double>?`, but the screen
+        // always passes its own `AnimationController` (`_lottieController`,
+        // whose `.duration` is what `onLoaded` stretches) — cast to reach it.
+        final AnimationController? actualController =
+            lottie.controller as AnimationController?;
+        final Duration? actualDuration = actualController?.duration;
+        expect(actualDuration, isNotNull);
+
+        // `File.readAsString()` performs REAL disk I/O — `testWidgets` runs
+        // the test body in flutter_test's fake-async zone, which never drains
+        // the real event loop, so a bare `await` here hangs until the
+        // per-test timeout (confirmed empirically: this previously hung for
+        // the full 10 minutes). `runAsync` briefly switches to the real zone
+        // so the I/O future actually resolves.
+        final String? raw = await tester.runAsync(
+          () => File('assets/lottie/success.json').readAsString(),
+        );
+        expect(raw, isNotNull);
+        final Map<String, dynamic> json =
+            jsonDecode(raw!) as Map<String, dynamic>;
+        final double frameRate = (json['fr'] as num).toDouble();
+        final double inPoint = (json['ip'] as num).toDouble();
+        final double outPoint = (json['op'] as num).toDouble();
+        final double rawDurationMs = (outPoint - inPoint) / frameRate * 1000;
+        final double expectedStretchedMs = rawDurationMs * 1.4;
+
+        expect(
+          actualDuration!.inMicroseconds / 1000,
+          closeTo(expectedStretchedMs, 5),
+          reason:
+              'onLoaded must set controller.duration = composition.duration '
+              '* 1.4 — expected ~${expectedStretchedMs.toStringAsFixed(1)}ms '
+              '(raw ~${rawDurationMs.toStringAsFixed(1)}ms x1.4), got '
+              '${(actualDuration.inMicroseconds / 1000).toStringAsFixed(1)}ms.',
+        );
+        // Sanity: definitely NOT left at the raw (1x) duration — a regression
+        // that dropped the `* 1.4` stretch would still pass a loose
+        // "duration is set" check but must fail this one.
+        expect(
+          (actualDuration.inMicroseconds / 1000 - rawDurationMs).abs(),
+          greaterThan(100),
+          reason:
+              'controller.duration must be measurably slower than the raw '
+              'composition duration, not left at 1x.',
+        );
+      },
+    );
 
     testWidgets('blocks back navigation (PopScope canPop: false)', (
       tester,
