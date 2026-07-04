@@ -62,6 +62,7 @@ class BookingSummaryCards extends StatelessWidget {
     this.showMasterCard = true,
     this.dense = false,
     this.showBorder = false,
+    this.compactText = false,
   });
 
   /// The target master, rendered by the (optional) master card.
@@ -91,6 +92,16 @@ class BookingSummaryCards extends StatelessWidget {
   /// background and doesn't need it); the success screen opts in — see
   /// `NeumorphicCard.showBorder`'s doc for why.
   final bool showBorder;
+
+  /// Shrinks the card's row text a further notch (address/date/time labels +
+  /// values, plus the forwarded [BookingRecap] row/total text) on top of
+  /// [dense]'s spacing tightening, so the whole success page needs less
+  /// scroll room. Deliberately a SEPARATE flag from [dense]: `dense` is
+  /// shared by both `BookingConfirmScreen` and `BookingSuccessScreen` for
+  /// spacing only (`BookingConfirmScreen`'s call site explicitly documents
+  /// "it only tightens padding/gaps, never text or icon sizes") — only the
+  /// success screen opts into [compactText] too. Defaults to `false`.
+  final bool compactText;
 
   @override
   Widget build(BuildContext context) {
@@ -146,13 +157,26 @@ class BookingSummaryCards extends StatelessWidget {
                 label: l10n.bookingAddressLabel,
                 value: addressLine ?? l10n.bookingAddressUnknown,
                 detail: addressDetail,
+                compactText: compactText,
               ),
               _SectionRule(dense: dense),
-              _LabelledRow(label: l10n.bookingDateLabel, value: dateLabel),
+              _LabelledRow(
+                label: l10n.bookingDateLabel,
+                value: dateLabel,
+                compactText: compactText,
+              ),
               SizedBox(height: dense ? VelvetSpacing.sm : VelvetSpacing.sm + 4),
-              _LabelledRow(label: l10n.bookingTimeLabel, value: timeLabel),
+              _LabelledRow(
+                label: l10n.bookingTimeLabel,
+                value: timeLabel,
+                compactText: compactText,
+              ),
               _SectionRule(dense: dense),
-              BookingRecap(selections: selections, dense: dense),
+              BookingRecap(
+                selections: selections,
+                dense: dense,
+                compactText: compactText,
+              ),
             ],
           ),
         ),
@@ -221,11 +245,20 @@ class _SectionRule extends StatelessWidget {
 /// A plain label → value pair — the muted [label] (e.g. "Адреса", "Дата",
 /// "Час") above its strong [value], with an optional muted [detail] sub-line.
 class _LabelledRow extends StatelessWidget {
-  const _LabelledRow({required this.label, required this.value, this.detail});
+  const _LabelledRow({
+    required this.label,
+    required this.value,
+    this.detail,
+    this.compactText = false,
+  });
 
   final String label;
   final String value;
   final String? detail;
+
+  /// See [BookingSummaryCards.compactText] — shrinks label/value/detail a
+  /// further notch (success screen only).
+  final bool compactText;
 
   @override
   Widget build(BuildContext context) {
@@ -233,11 +266,17 @@ class _LabelledRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Text(label, style: VelvetText.label()),
+        Text(
+          label,
+          style: VelvetText.label().copyWith(fontSize: compactText ? 11 : 12),
+        ),
         const SizedBox(height: 3),
         Text(
           value,
-          style: VelvetText.bodyStrong().copyWith(fontSize: 15, height: 1.3),
+          style: VelvetText.bodyStrong().copyWith(
+            fontSize: compactText ? 13.5 : 15,
+            height: 1.3,
+          ),
         ),
         if (detail != null) ...<Widget>[
           const SizedBox(height: 1),
@@ -245,7 +284,7 @@ class _LabelledRow extends StatelessWidget {
             detail!,
             style: VelvetText.feedback(
               BrandColors.muted,
-            ).copyWith(fontSize: 12.5),
+            ).copyWith(fontSize: compactText ? 11.5 : 12.5),
           ),
         ],
       ],

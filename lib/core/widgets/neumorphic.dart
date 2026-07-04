@@ -47,17 +47,33 @@ class NeumorphicCard extends StatelessWidget {
   /// `BrandColors.base`. Uses the same hairline tone
   /// `booking_summary_cards.dart`'s `_SectionRule` already divides sections
   /// with, just at full opacity for a crisper edge.
+  ///
+  /// When true AND the caller left [shadows] at its default [extrudedCard]
+  /// value, the default double-offset emboss shadow is swapped for the
+  /// subtler [VelvetShadows.borderedCard] (see that constant's doc) — a
+  /// bordered card doesn't need (and visually conflicts with) the heavy
+  /// diagonal shadow pair, whose untranslated corner sliver otherwise bleeds
+  /// out past the border as a stray pale rectangle. Callers that explicitly
+  /// pass their own [shadows] alongside `showBorder: true` are unaffected —
+  /// their explicit choice always wins.
   final bool showBorder;
 
   @override
   Widget build(BuildContext context) {
     final BorderRadius borderRadius = BorderRadius.circular(radius);
     final Widget content = Padding(padding: padding, child: child);
+    final bool usesDefaultShadows = identical(
+      shadows,
+      VelvetShadows.extrudedCard,
+    );
+    final List<BoxShadow> effectiveShadows = showBorder && usesDefaultShadows
+        ? VelvetShadows.borderedCard
+        : shadows;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: color,
         borderRadius: borderRadius,
-        boxShadow: shadows,
+        boxShadow: effectiveShadows,
         border: showBorder
             ? Border.all(color: BrandColors.faint, width: 1)
             : null,

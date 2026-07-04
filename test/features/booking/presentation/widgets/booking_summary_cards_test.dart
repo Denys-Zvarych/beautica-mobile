@@ -19,6 +19,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_cards.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -182,6 +183,73 @@ void main() {
           decoration.border,
           equals(Border.all(color: BrandColors.faint, width: 1)),
         );
+      },
+    );
+  });
+
+  // mobile-qa regression — `compactText` font-size reduction. The success
+  // screen passes `compactText: true` (alongside `dense: true, showBorder:
+  // true`) to shrink the address/date/time label→value rows a further notch
+  // on top of `dense`'s spacing tightening. Pins the ACTUAL rendered
+  // fontSize shrink — not merely that the flag threads through to
+  // `_LabelledRow` as an inert constructor argument.
+  //
+  // Isolated via `showMasterCard: false` for the same reason as the `dense`
+  // group above.
+  group('BookingSummaryCards compactText', () {
+    // Computed from the SAME fixture `start` passed to BookingSummaryCards,
+    // via the real formatter — not a hardcoded literal — so this stays
+    // correct even if `formatFullDate`'s output format changes.
+    final String dateLabel = formatFullDate(DateTime(2026, 7, 20, 14));
+
+    Future<double?> pumpDateValueFontSize(
+      WidgetTester tester, {
+      required bool compactText,
+    }) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: BookingSummaryCards(
+            master: _kMaster,
+            service: _kService,
+            start: DateTime(2026, 7, 20, 14),
+            showMasterCard: false,
+            compactText: compactText,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Text dateValue = tester.widget<Text>(find.text(dateLabel));
+      return dateValue.style?.fontSize;
+    }
+
+    testWidgets(
+      'compactText: true renders a smaller "Дата" value fontSize than '
+      'compactText: false, for the identical booking data',
+      (tester) async {
+        final double? compactSize = await pumpDateValueFontSize(
+          tester,
+          compactText: true,
+        );
+        final double? roomySize = await pumpDateValueFontSize(
+          tester,
+          compactText: false,
+        );
+
+        expect(compactSize, isNotNull);
+        expect(roomySize, isNotNull);
+        expect(
+          compactSize!,
+          lessThan(roomySize!),
+          reason:
+              "compactText:true must shrink _LabelledRow's value text "
+              '(15 -> 13.5) — if `compactText` were only forwarded to '
+              'BookingRecap and never read by _LabelledRow itself, both '
+              'renders would come out at the same 15.0 fontSize and this '
+              'assertion would catch it.',
+        );
+        expect(roomySize, 15.0);
+        expect(compactSize, 13.5);
       },
     );
   });

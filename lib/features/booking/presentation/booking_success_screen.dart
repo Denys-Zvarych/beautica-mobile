@@ -210,6 +210,13 @@ class _BookingSuccessScreenState extends State<BookingSuccessScreen>
                             // extruded shadow alone doesn't read as a
                             // distinct shape — opt into the hairline stroke.
                             showBorder: true,
+                            // See BookingSummaryCards.compactText's doc: a
+                            // further notch smaller than `dense` alone, so
+                            // the whole success page fits more comfortably
+                            // within the viewport. Deliberately NOT set on
+                            // BookingConfirmScreen's own `dense: true` call —
+                            // that screen's `dense` is spacing-only.
+                            compactText: true,
                           ),
                         ),
                         const SizedBox(height: VelvetSpacing.sm + 2),

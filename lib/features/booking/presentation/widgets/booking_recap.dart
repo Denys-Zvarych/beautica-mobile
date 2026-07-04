@@ -62,7 +62,12 @@ class BookingSelection {
 /// hairline. Below a slightly stronger hairline the bold "Разом" line carries
 /// the SUMMED price band and SUMMED duration.
 class BookingRecap extends StatelessWidget {
-  const BookingRecap({super.key, required this.selections, this.dense = false});
+  const BookingRecap({
+    super.key,
+    required this.selections,
+    this.dense = false,
+    this.compactText = false,
+  });
 
   /// The services carried from the selection step (1..n — see file header
   /// SCOPE NOTE for why every real call site passes exactly 1).
@@ -71,6 +76,14 @@ class BookingRecap extends StatelessWidget {
   /// Compact spacing — tighter service rows — so the success screen fits one
   /// viewport without scrolling. The confirmation screen leaves it `false`.
   final bool dense;
+
+  /// Shrinks the "Послуги" header, service rows, and "Разом" total a further
+  /// notch on top of [dense]'s spacing tightening. Deliberately separate from
+  /// [dense] — see `BookingSummaryCards.compactText`'s doc: `dense` is shared
+  /// by both the confirm and success screens for spacing only, while
+  /// [compactText] is opted into by the success screen alone. Defaults to
+  /// `false`.
+  final bool compactText;
 
   @override
   Widget build(BuildContext context) {
@@ -82,19 +95,28 @@ class BookingRecap extends StatelessWidget {
       children: <Widget>[
         Row(
           children: <Widget>[
-            Text(l10n.bookingServicesRecapLabel, style: VelvetText.label()),
+            Text(
+              l10n.bookingServicesRecapLabel,
+              style: VelvetText.label().copyWith(
+                fontSize: compactText ? 11 : 12,
+              ),
+            ),
             const Spacer(),
             Text(
               formatServiceCountUk(selections.length),
               style: VelvetText.feedback(
                 BrandColors.muted,
-              ).copyWith(fontSize: 12),
+              ).copyWith(fontSize: compactText ? 11 : 12),
             ),
           ],
         ),
         const SizedBox(height: VelvetSpacing.xs),
         for (int i = 0; i < selections.length; i++) ...<Widget>[
-          _ServiceRow(selection: selections[i], dense: dense),
+          _ServiceRow(
+            selection: selections[i],
+            dense: dense,
+            compactText: compactText,
+          ),
           if (i < selections.length - 1)
             Divider(
               height: 1,
@@ -113,6 +135,7 @@ class BookingRecap extends StatelessWidget {
           ),
           price: totals.priceLabel,
           duration: totals.durationLabel,
+          compactText: compactText,
         ),
       ],
     );
@@ -124,10 +147,18 @@ class BookingRecap extends StatelessWidget {
 /// camel/bold (single value or range). No background, no chip, no inset:
 /// just text.
 class _ServiceRow extends StatelessWidget {
-  const _ServiceRow({required this.selection, this.dense = false});
+  const _ServiceRow({
+    required this.selection,
+    this.dense = false,
+    this.compactText = false,
+  });
 
   final BookingSelection selection;
   final bool dense;
+
+  /// See [BookingRecap.compactText] — shrinks the name/duration/price text a
+  /// further notch (success screen only).
+  final bool compactText;
 
   @override
   Widget build(BuildContext context) {
@@ -154,14 +185,16 @@ class _ServiceRow extends StatelessWidget {
                     selection.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: VelvetText.bodyStrong().copyWith(fontSize: 14.5),
+                    style: VelvetText.bodyStrong().copyWith(
+                      fontSize: compactText ? 13 : 14.5,
+                    ),
                   ),
                   const SizedBox(height: 1),
                   Text(
                     selection.duration,
                     style: VelvetText.feedback(
                       BrandColors.muted,
-                    ).copyWith(fontSize: 12),
+                    ).copyWith(fontSize: compactText ? 11 : 12),
                   ),
                 ],
               ),
@@ -172,7 +205,7 @@ class _ServiceRow extends StatelessWidget {
               style: VelvetText.bodyStrong().copyWith(
                 color: BrandColors.accentDeep,
                 fontWeight: FontWeight.w800,
-                fontSize: 15,
+                fontSize: compactText ? 13.5 : 15,
               ),
             ),
           ],
@@ -191,12 +224,17 @@ class _TotalRow extends StatelessWidget {
     required this.semanticsLabel,
     required this.price,
     required this.duration,
+    this.compactText = false,
   });
 
   final String label;
   final String semanticsLabel;
   final String price;
   final String? duration;
+
+  /// See [BookingRecap.compactText] — shrinks the total row's text a further
+  /// notch (success screen only).
+  final bool compactText;
 
   @override
   Widget build(BuildContext context) {
@@ -209,7 +247,7 @@ class _TotalRow extends StatelessWidget {
           Text(
             label,
             style: VelvetText.bodyStrong().copyWith(
-              fontSize: 16,
+              fontSize: compactText ? 14.5 : 16,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -219,7 +257,7 @@ class _TotalRow extends StatelessWidget {
               duration!,
               style: VelvetText.feedback(
                 BrandColors.muted,
-              ).copyWith(fontSize: 12),
+              ).copyWith(fontSize: compactText ? 11 : 12),
             ),
           ],
           const Spacer(),
@@ -228,7 +266,7 @@ class _TotalRow extends StatelessWidget {
             style: VelvetText.bodyStrong().copyWith(
               color: BrandColors.accentDeep,
               fontWeight: FontWeight.w800,
-              fontSize: 17,
+              fontSize: compactText ? 15.5 : 17,
             ),
           ),
         ],

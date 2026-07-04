@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:beautica_mobile/core/theme/app_theme.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/presentation/widgets/auth_scaffold.dart';
 
@@ -487,6 +488,117 @@ void main() {
           reason:
               'showBorder: true must draw exactly a 1dp BrandColors.faint '
               'stroke around the card.',
+        );
+      },
+    );
+
+    // mobile-qa regression — shadow-substitution fix. Before this fix,
+    // `showBorder: true` cards kept the default `extrudedCard`'s pair of
+    // ±8dp-offset shadows, whose untranslated corner sliver bled out past
+    // the card's own crisp border as a stray pale rectangle (see
+    // `VelvetShadows.borderedCard`'s doc in velvet_geometry.dart). Pins that
+    // a bordered card left at the DEFAULT `shadows` value now renders the
+    // single non-offset `borderedCard` shadow instead.
+    //
+    // Verified as a genuine regression guard: with the substitution's
+    // `identical(shadows, VelvetShadows.extrudedCard)` gate commented out of
+    // `NeumorphicCard.build()` (i.e. `effectiveShadows` always == `shadows`,
+    // the pre-fix behaviour), this test fails — `decoration.boxShadow` comes
+    // back as the 2-entry `extrudedCard` list instead of the 1-entry
+    // `borderedCard` list.
+    testWidgets(
+      'showBorder: true with default shadows substitutes '
+      'VelvetShadows.borderedCard for VelvetShadows.extrudedCard',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          _wrap(
+            const NeumorphicCard(
+              key: Key('card_border_default_shadows'),
+              showBorder: true,
+              child: SizedBox.shrink(),
+            ),
+          ),
+        );
+
+        final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
+          find
+              .descendant(
+                of: find.byKey(const Key('card_border_default_shadows')),
+                matching: find.byType(DecoratedBox),
+              )
+              .first,
+        );
+        final BoxDecoration decoration =
+            decoratedBox.decoration as BoxDecoration;
+
+        expect(
+          decoration.boxShadow,
+          equals(VelvetShadows.borderedCard),
+          reason:
+              'showBorder: true with the default shadows must substitute '
+              'the single non-offset borderedCard shadow — the '
+              "extrudedCard pair's corner sliver bleeds past a bordered "
+              'card\'s crisp edge.',
+        );
+        expect(
+          decoration.boxShadow,
+          isNot(equals(VelvetShadows.extrudedCard)),
+          reason:
+              'must NOT keep the default extrudedCard shadow pair once '
+              'showBorder is true — that is exactly the corner-bleed bug '
+              'this substitution fixes.',
+        );
+      },
+    );
+
+    // mobile-qa regression — the substitution's `identical()` gate must only
+    // fire for the DEFAULT `shadows` value. A caller that explicitly passes
+    // its own custom shadows list alongside `showBorder: true` must keep
+    // that exact list unchanged — proving the fix doesn't blanket-override
+    // every bordered card, only the ones that never customised `shadows`.
+    testWidgets(
+      'showBorder: true with an explicit custom shadows list keeps the '
+      "caller's shadows, not VelvetShadows.borderedCard",
+      (WidgetTester tester) async {
+        const List<BoxShadow> customShadows = <BoxShadow>[
+          BoxShadow(color: Colors.red, blurRadius: 4),
+        ];
+        await tester.pumpWidget(
+          _wrap(
+            const NeumorphicCard(
+              key: Key('card_border_custom_shadows'),
+              showBorder: true,
+              shadows: customShadows,
+              child: SizedBox.shrink(),
+            ),
+          ),
+        );
+
+        final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
+          find
+              .descendant(
+                of: find.byKey(const Key('card_border_custom_shadows')),
+                matching: find.byType(DecoratedBox),
+              )
+              .first,
+        );
+        final BoxDecoration decoration =
+            decoratedBox.decoration as BoxDecoration;
+
+        expect(
+          decoration.boxShadow,
+          equals(customShadows),
+          reason:
+              'an explicit custom `shadows` argument must always win — the '
+              'borderedCard substitution is gated on `identical(shadows, '
+              'VelvetShadows.extrudedCard)`, which must be false here.',
+        );
+        expect(
+          decoration.boxShadow,
+          isNot(equals(VelvetShadows.borderedCard)),
+          reason:
+              'an explicit shadows override must never be silently replaced '
+              'by borderedCard just because showBorder is also true.',
         );
       },
     );

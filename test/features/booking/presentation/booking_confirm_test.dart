@@ -369,8 +369,14 @@ void main() {
     // background and must stay unaffected. Pin the confirm-side default here
     // so a future shared-default change can't silently opt this screen in
     // too.
+    //
+    // Also pins `compactText` (a SEPARATE flag from `showBorder`, added
+    // alongside the same fix — see `BookingSummaryCards.compactText`'s doc):
+    // the confirm screen must stay at the roomier default text size too,
+    // confirming the isolation the dev agent verified manually.
     testWidgets(
-      "BookingSummaryCards' showBorder is NOT set on the confirm screen",
+      "BookingSummaryCards' showBorder and compactText are NOT set on the "
+      'confirm screen',
       (tester) async {
         final fake = _FakeBookingRepository(bookingToReturn: _bookingFixture());
         await pump(tester, fake);
@@ -384,6 +390,14 @@ void main() {
           reason:
               "BookingConfirmScreen's BookingSummaryCards call site must "
               'leave showBorder at its default (false) — only the success '
+              'screen opts in.',
+        );
+        expect(
+          cards.compactText,
+          isFalse,
+          reason:
+              "BookingConfirmScreen's BookingSummaryCards call site must "
+              'leave compactText at its default (false) — only the success '
               'screen opts in.',
         );
       },
@@ -621,9 +635,15 @@ void main() {
     // `booking_success_screen.dart`'s comment at the `BookingSummaryCards`
     // call site). Distinguishes this screen's wiring from the confirm
     // screen's (asserted separately, above, as `isFalse`).
+    //
+    // Also pins `compactText: true` — the success screen's second, DELIBERATELY
+    // SEPARATE opt-in (shrinks the recap's text a further notch on top of
+    // `dense`'s spacing tightening — see `BookingSummaryCards.compactText`'s
+    // doc for why it's not folded into `dense`), confirming the confirm
+    // screen stays isolated from BOTH new flags, not just `showBorder`.
     testWidgets(
-      "BookingSummaryCards' showBorder is wired to true on the success "
-      'screen',
+      "BookingSummaryCards' showBorder and compactText are wired to true on "
+      'the success screen',
       (tester) async {
         await pump(tester);
 
@@ -637,6 +657,14 @@ void main() {
               "BookingSuccessScreen's BookingSummaryCards call site must "
               'pass showBorder: true — its card sits on the same '
               'BrandColors.base as the Scaffold background.',
+        );
+        expect(
+          cards.compactText,
+          isTrue,
+          reason:
+              "BookingSuccessScreen's BookingSummaryCards call site must "
+              'pass compactText: true alongside showBorder: true and '
+              'dense: true.',
         );
       },
     );
