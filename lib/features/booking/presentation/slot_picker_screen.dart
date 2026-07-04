@@ -43,7 +43,6 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
-import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
@@ -206,7 +205,18 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
                 VelvetSpacing.lg,
                 0,
               ),
-              child: MasterStrip(master: widget.args.master),
+              // Hero (jank fix): `SlotTimeScreen` renders its own `MasterStrip`
+              // for the exact same master, and both screens are mounted on the
+              // SAME `go_router` Navigator (see `app_router.dart`'s nested
+              // `bookingSlots` / `bookingSlots/time` routes) via a real
+              // `CupertinoPageTransitionsBuilder` push — so a shared `Hero` tag
+              // lets the framework fly/hold this card across the transition
+              // instead of the two independently-laid-out instances swapping
+              // at mismatched y-offsets the instant the push settles.
+              child: Hero(
+                tag: 'master-strip-${widget.args.master.id}',
+                child: MasterStrip(master: widget.args.master),
+              ),
             ),
             const SizedBox(height: VelvetSpacing.lg),
             // `CalendarWeekdayBar` (and `_calendarBody`'s `MonthCalendar`) are
@@ -377,7 +387,7 @@ class SlotTimeScreen extends ConsumerWidget {
     // `ref.watch(slotPickerProvider)` treats EVERY `state = state.copyWith(…)`
     // assignment as "changed" — including a no-op re-tap of the
     // already-selected slot — and rebuilds the whole tree (`MasterStrip`,
-    // `_DayHeaderChip`, `_SlotsSection`) every time, even though this screen's
+    // `_SlotsSection`) every time, even though this screen's
     // three field reads below (`selectedDate`, `selectedSlot`, `slots`) each
     // have proper value equality (`DateTime`, freezed `BookingSlot`,
     // `AsyncValue`). Selecting them individually means an unchanged field
@@ -442,7 +452,15 @@ class SlotTimeScreen extends ConsumerWidget {
                 physics: const BouncingScrollPhysics(),
                 padding: const EdgeInsets.fromLTRB(
                   VelvetSpacing.lg,
-                  VelvetSpacing.sm,
+                  // Jank fix: matches `SlotDateScreen`'s established
+                  // top-bar-bottom(`sm`) + own-top-inset(`md`) = 24dp total gap
+                  // above `MasterStrip` (that screen's spacing predates this
+                  // one — `MasterStrip` was only added here afterwards, see
+                  // below). Was `VelvetSpacing.sm` (16dp total), which put the
+                  // incoming card 8dp higher than the outgoing one relative to
+                  // the shared `_BookingTopBar`, visibly hopping the card the
+                  // instant the push transition settled.
+                  VelvetSpacing.md,
                   VelvetSpacing.lg,
                   VelvetSpacing.md,
                 ),
@@ -458,16 +476,32 @@ class SlotTimeScreen extends ConsumerWidget {
                     // `SlotDateScreen`'s) — this screen's enclosing
                     // `SingleChildScrollView` already applies
                     // `VelvetSpacing.lg` horizontal padding to every child.
-                    // Safe to render simultaneously with `SlotDateScreen`'s own
-                    // `MasterStrip` further down the navigation stack: the
-                    // widget carries no `Hero`/shared-element tag or
-                    // `GlobalKey` (see `widgets/master_strip.dart`).
-                    MasterStrip(master: args.master),
-                    const SizedBox(height: VelvetSpacing.lg),
-                    _DayHeaderChip(
-                      label: formatBookingDayHeader(selectedDate),
-                      master: args.master,
-                      onChange: () => context.pop(),
+                    //
+                    // Jank fix: now wrapped in a `Hero` sharing
+                    // `SlotDateScreen`'s exact tag (`master-strip-<id>`) so the
+                    // framework flies/holds this card across the real
+                    // `CupertinoPageTransitionsBuilder` push between the two
+                    // nested `go_router` routes (both mounted on the same
+                    // Navigator — see `app_router.dart`), instead of the two
+                    // independently-laid-out instances swapping at mismatched
+                    // y-offsets the instant the transition settles. Previously
+                    // carried no `Hero`/shared-element tag or `GlobalKey`.
+                    //
+                    // Phase 14.1 correction: this screen used to ALSO render a
+                    // `_DayHeaderChip` (day label + master name/role + a
+                    // "change date" CTA) directly below `MasterStrip`. Once
+                    // `MasterStrip` was added, that chip's master-identity
+                    // line became a pure duplicate of `MasterStrip`'s own
+                    // content, so the chip was removed outright rather than
+                    // kept as a second card — this screen shows exactly ONE
+                    // card at the top. Its "change date" affordance is not
+                    // lost: `_BookingTopBar`'s back button (`onBack: () =>
+                    // context.pop()`) already pops back to `SlotDateScreen`,
+                    // which is the exact same action the removed chip's
+                    // `onChange` performed.
+                    Hero(
+                      tag: 'master-strip-${args.master.id}',
+                      child: MasterStrip(master: args.master),
                     ),
                     const SizedBox(height: VelvetSpacing.lg),
                     _SlotsSection(
@@ -540,116 +574,6 @@ class _BookingTopBar extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Day header chip (time screen)
-// ---------------------------------------------------------------------------
-
-class _DayHeaderChip extends StatelessWidget {
-  const _DayHeaderChip({
-    required this.label,
-    required this.master,
-    required this.onChange,
-  });
-
-  final String label;
-  final Master master;
-  final VoidCallback onChange;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final String masterName = '${master.firstName} ${master.lastName}'.trim();
-    final String masterRole = masterRoleLabel(master.type, l10n);
-    return Semantics(
-      label: l10n.bookingDayHeaderSemantics(label, masterName, masterRole),
-      child: NeumorphicCard(
-        color: const Color(0xFFEDE4D5),
-        padding: const EdgeInsets.symmetric(
-          horizontal: VelvetSpacing.md,
-          vertical: VelvetSpacing.sm + 2,
-        ),
-        child: Row(
-          children: <Widget>[
-            Container(
-              height: 36,
-              width: 36,
-              decoration: BoxDecoration(
-                color: BrandColors.base,
-                borderRadius: BorderRadius.circular(VelvetRadii.field),
-                boxShadow: VelvetShadows.extrudedSmall,
-              ),
-              child: const Icon(
-                Icons.event_rounded,
-                size: 18,
-                color: BrandColors.accent,
-              ),
-            ),
-            const SizedBox(width: VelvetSpacing.sm + 4),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Text(
-                    label,
-                    style: VelvetText.subheading().copyWith(
-                      fontSize: 16,
-                      color: BrandColors.accentDeep,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 1),
-                  Text(
-                    '$masterName · $masterRole',
-                    style: VelvetText.feedback(
-                      BrandColors.textSecondary,
-                    ).copyWith(fontSize: 11),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: VelvetSpacing.sm),
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onChange,
-              child: Semantics(
-                button: true,
-                label: l10n.bookingChangeDateSemantics,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: VelvetSpacing.sm,
-                    vertical: 4,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      const Icon(
-                        Icons.edit_calendar_outlined,
-                        size: 15,
-                        color: BrandColors.accentDeep,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        l10n.bookingChangeDateCta,
-                        style: VelvetText.feedback(
-                          BrandColors.accentDeep,
-                        ).copyWith(fontSize: 13, fontWeight: FontWeight.w800),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Slots section (Ранок / День / Вечір clusters)
 // ---------------------------------------------------------------------------
 
@@ -666,7 +590,8 @@ class _SlotsSection extends StatefulWidget {
   final ValueChanged<BookingSlot> onSelectSlot;
 
   /// Phase 14.15 — the "Обрати іншу дату" CTA on the fully-booked-day empty
-  /// state pops back to [SlotDateScreen], mirroring `_DayHeaderChip.onChange`.
+  /// state pops back to [SlotDateScreen], mirroring `_BookingTopBar`'s own
+  /// back-button action on this screen.
   final VoidCallback onChangeDate;
 
   @override
@@ -811,8 +736,8 @@ class _SlotsSectionState extends State<_SlotsSection> {
 // IS a working day), but every slot on it is already booked out. Mirrors the
 // icon + centered-text composition of
 // `MasterScheduleScreen`'s `_DayOffEmptyState`, plus a "Обрати іншу дату" CTA
-// (the same affordance `_DayHeaderChip.onChange` already exposes above) so
-// the client isn't left at a dead end.
+// (the same back-to-`SlotDateScreen` affordance `_BookingTopBar`'s back
+// button already exposes above) so the client isn't left at a dead end.
 // ---------------------------------------------------------------------------
 class _NoSlotsEmptyState extends StatelessWidget {
   const _NoSlotsEmptyState({required this.onChangeDate});

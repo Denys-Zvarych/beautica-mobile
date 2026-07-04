@@ -523,14 +523,22 @@ void main() {
       return router;
     }
 
-    // Regression test (feature addition): `MasterStrip` now renders at the
+    // Regression test (feature addition, updated for the Phase 14.1
+    // follow-up that deleted `_DayHeaderChip` — see `slot_picker_screen.dart`
+    // `SlotTimeScreen.build`'s comment): `MasterStrip` now renders at the
     // top of `SlotTimeScreen` too, mirroring `SlotDateScreen`'s and
     // `master_schedule_page.dart`'s persistent-strip pattern — before this
     // change, the "who you're booking with" card was visible on the date
     // step but disappeared once the client advanced to the time step.
+    // `SlotTimeScreen` used to ALSO render a `_DayHeaderChip` directly below
+    // `MasterStrip`; that chip was later deleted outright because its
+    // master-identity subtitle duplicated `MasterStrip`'s own content, so
+    // this test now locks in BOTH halves of the current contract: MasterStrip
+    // present and topmost, day-header text gone for good (not just
+    // accidentally missing).
     testWidgets(
-      'shows MasterStrip above the day header chip, so the "who you\'re '
-      'booking with" context persists onto the time step too',
+      'shows MasterStrip as the sole top-of-screen card on SlotTimeScreen — '
+      'the day header chip was intentionally removed, not merely absent',
       (tester) async {
         await pumpTimeScreen(tester, args: _args());
 
@@ -550,10 +558,7 @@ void main() {
         );
 
         // The master's name must render INSIDE MasterStrip itself, not just
-        // somewhere on screen — `_DayHeaderChip` already renders a
-        // DIFFERENT string ('$masterName · $masterRole') as its own
-        // subtitle, so a bare `find.text(name)` anywhere on screen would be
-        // a false positive even before this change.
+        // somewhere on screen.
         final String masterName = '${_kMaster.firstName} ${_kMaster.lastName}'
             .trim();
         expect(
@@ -561,30 +566,108 @@ void main() {
           findsOneWidget,
         );
 
-        // Ordering: MasterStrip must render ABOVE (higher on screen than)
-        // the day header chip. The chip itself is a private
-        // `_DayHeaderChip`, not importable from this test file, so it's
-        // located via its own day-label text instead.
+        // `_DayHeaderChip` is gone: its day-label text must be ABSENT, not
+        // just unlocated. Using the real formatter (not a hardcoded string)
+        // keeps this assertion locale-agnostic per mobile-qa M2.
         final DateTime today = DateTime.now();
         final DateTime todayDateOnly = DateTime(
           today.year,
           today.month,
           today.day,
         );
-        final Finder dayHeaderLabel = find.descendant(
-          of: timeScreen,
-          matching: find.text(formatBookingDayHeader(todayDateOnly)),
-        );
-        expect(dayHeaderLabel, findsOneWidget);
-
-        final double masterStripTop = tester.getTopLeft(masterStrip).dy;
-        final double dayHeaderTop = tester.getTopLeft(dayHeaderLabel).dy;
         expect(
-          masterStripTop,
-          lessThan(dayHeaderTop),
+          find.descendant(
+            of: timeScreen,
+            matching: find.text(formatBookingDayHeader(todayDateOnly)),
+          ),
+          findsNothing,
           reason:
-              'MasterStrip must render above the day header chip, matching '
-              'SlotDateScreen\'s own MasterStrip-first layout',
+              '_DayHeaderChip was intentionally deleted — its day-label '
+              'text reappearing would mean it (or a duplicate) crept back',
+        );
+
+        // MasterStrip is the topmost card in the scrollable body: it must
+        // render above the free-time section heading that now follows it
+        // directly (no second card in between since the chip's removal).
+        final l10n = AppLocalizations.of(tester.element(timeScreen));
+        final Finder freeTimeHeading = find.descendant(
+          of: timeScreen,
+          matching: find.text(l10n.bookingFreeTimeHeading),
+        );
+        expect(freeTimeHeading, findsOneWidget);
+        expect(
+          tester.getTopLeft(masterStrip).dy,
+          lessThan(tester.getTopLeft(freeTimeHeading).dy),
+          reason:
+              'MasterStrip must be the first thing rendered in the body, '
+              'above the "Вільний час" heading',
+        );
+      },
+    );
+
+    // Jump-fix regression test (debugger-recommended): `SlotDateScreen` and
+    // `SlotTimeScreen` are nested `go_router` routes co-mounted on the SAME
+    // Navigator during a real `CupertinoPageTransitionsBuilder` push (see
+    // `slot_picker_screen.dart`'s file header + the `Hero` comments on both
+    // `MasterStrip` usages). A prior 8dp top-padding mismatch between the two
+    // screens' `MasterStrip` wrappers made the shared-`Hero` card visibly
+    // "jump" the instant the push transition settled, even though the `Hero`
+    // itself was wired correctly. This pins the padding half of that fix:
+    // `MasterStrip` must land at the IDENTICAL vertical offset on both
+    // screens, independent of navigation, so nothing hops when the `Hero`
+    // flight ends.
+    testWidgets(
+      'MasterStrip renders at the identical vertical offset on SlotDateScreen '
+      'and SlotTimeScreen, so the shared Hero never visibly jumps once the '
+      'push transition settles',
+      (tester) async {
+        // SlotDateScreen — freshly pumped, no navigation involved yet.
+        final fakeDate = _FakeSlotRepository(const <BookingSlot>[]);
+        final dateRouter = _router(dateScreen: SlotDateScreen(args: _args()));
+        await tester.pumpRoutedApp(
+          dateRouter,
+          overrides: <Object>[
+            slotRepositoryProvider.overrideWith((_) => fakeDate),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final Finder dateScreen = find.byType(SlotDateScreen);
+        expect(dateScreen, findsOneWidget);
+        final double dateScreenMasterStripTop = tester
+            .getTopLeft(
+              find.descendant(
+                of: dateScreen,
+                matching: find.byType(MasterStrip),
+              ),
+            )
+            .dy;
+
+        // SlotTimeScreen — reached via the SAME push navigation production
+        // code takes, using the existing harness so the real transition
+        // settles exactly as it does in the app.
+        await pumpTimeScreen(tester, args: _args());
+
+        final Finder timeScreen = find.byType(SlotTimeScreen);
+        expect(timeScreen, findsOneWidget);
+        final double timeScreenMasterStripTop = tester
+            .getTopLeft(
+              find.descendant(
+                of: timeScreen,
+                matching: find.byType(MasterStrip),
+              ),
+            )
+            .dy;
+
+        expect(
+          timeScreenMasterStripTop,
+          closeTo(dateScreenMasterStripTop, 0.5),
+          reason:
+              'SlotDateScreen and SlotTimeScreen must pad MasterStrip to the '
+              'exact same vertical offset below the shared _BookingTopBar — '
+              'a mismatch here IS the 8dp jump this test guards against '
+              '(regression would be SlotTimeScreen using VelvetSpacing.sm '
+              'instead of VelvetSpacing.md for its scroll-view top inset)',
         );
       },
     );
