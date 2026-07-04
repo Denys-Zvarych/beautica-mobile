@@ -388,11 +388,13 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/masters/:masterId',
         redirect: clientOnlyGuard,
-        pageBuilder: (context, state) => _instantPage(
-          state,
-          PublicMasterProfileScreen(
-            masterId: state.pathParameters['masterId'] ?? '',
-          ),
+        // MaterialPage (builder:), NOT `pageBuilder: _instantPage` — same
+        // mobile-debugger fix as `/salons/:salonId` immediately below (see
+        // that route's comment for the full investigation). This route was
+        // the sibling instance of the identical defect, deferred at the time
+        // of the salon fix; this is that follow-up.
+        builder: (context, state) => PublicMasterProfileScreen(
+          masterId: state.pathParameters['masterId'] ?? '',
         ),
       ),
       // Phase 13.6 — Public salon profile (CLIENT-facing, read-only). Same
@@ -415,20 +417,20 @@ GoRouter appRouter(Ref ref) {
       // `systemGestureInsets` edge interception (Q+ gesture nav) — a narrow ~24dp
       // OS-reserved strip at the *true* screen edge (confirmed empirically: a
       // swipe starting past that strip does nothing on this route, with or
-      // without this fix's sibling `/masters/:masterId`, which carries the exact
-      // same defect but is easier to hit by accident because its content sits
-      // behind `ProfileScaffold`'s `SafeArea` + `Padding(horizontal: lg)`, which
-      // visually cues the true edge; `PublicSalonProfileScreen`'s edge-to-edge
-      // `SalonCover` has no such margin, so a natural swipe habitually starts a
-      // few dp further in — just past that OS strip — and is silently swallowed).
-      // Switching to `builder:` matches the established, precedented pattern
-      // already used by every other "needs swipe-back" route in this file
-      // (`SettingsHubScreen`, `ServicesListScreen`, etc. below) and gives this
-      // route the same full-width gesture instead of relying on the OS's
-      // unreliable, content-agnostic edge sliver. `/masters/:masterId` is left on
-      // `_instantPage` here since it was not reported broken and is out of this
-      // fix's scope — it carries the same latent defect and should get the same
-      // treatment in a follow-up.
+      // without this fix's sibling `/masters/:masterId` above, which carried the
+      // exact same defect but was easier to hit by accident because its content
+      // sits behind `ProfileScaffold`'s `SafeArea` + `Padding(horizontal: lg)`,
+      // which visually cues the true edge; `PublicSalonProfileScreen`'s
+      // edge-to-edge `SalonCover` has no such margin, so a natural swipe
+      // habitually starts a few dp further in — just past that OS strip — and
+      // is silently swallowed). Switching to `builder:` matches the
+      // established, precedented pattern already used by every other "needs
+      // swipe-back" route in this file (`SettingsHubScreen`,
+      // `ServicesListScreen`, etc. below) and gives this route the same
+      // full-width gesture instead of relying on the OS's unreliable,
+      // content-agnostic edge sliver. `/masters/:masterId` above received the
+      // identical `builder:` treatment in a follow-up fix — see its own route
+      // registration comment above for details.
       GoRoute(
         path: '/salons/:salonId',
         redirect: clientOnlyGuard,
