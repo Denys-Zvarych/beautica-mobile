@@ -149,7 +149,7 @@ void main() {
         'Комплексний догляд за руками та нігтями з європейським '
         'манікюром і гель-лаковим покриттям';
 
-    const _kLongSelection = BookingSelection(
+    const longSelection = BookingSelection(
       name: longName,
       price: '500 грн',
       duration: '1 год 30 хв',
@@ -161,7 +161,7 @@ void main() {
       (tester) async {
         await tester.pumpApp(
           const Scaffold(
-            body: BookingRecap(selections: <BookingSelection>[_kLongSelection]),
+            body: BookingRecap(selections: <BookingSelection>[longSelection]),
           ),
           // Narrow, realistic phone width — forces the long name to
           // actually need more than one line. pumpApp's overflow guard fails

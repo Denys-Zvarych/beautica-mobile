@@ -363,7 +363,10 @@ class _MasterSelectionStatic {
 /// bottom assign-confirm bar), never the master-row list itself.
 @immutable
 class _MasterSelectionDerived {
-  _MasterSelectionDerived({required this.staticModel, required this.pick});
+  const _MasterSelectionDerived({
+    required this.staticModel,
+    required this.pick,
+  });
 
   final _MasterSelectionStatic staticModel;
   final _PickState pick;
