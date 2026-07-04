@@ -458,39 +458,35 @@ void main() {
     // was unreachable — the constructor had no such named parameter at all,
     // so this test would have failed to even compile. It now pins the
     // opted-in rendering path.
-    testWidgets(
-      'showBorder: true renders Border.all(color: BrandColors.faint, '
-      'width: 1)',
-      (WidgetTester tester) async {
-        await tester.pumpWidget(
-          _wrap(
-            const NeumorphicCard(
-              key: Key('card_with_border'),
-              showBorder: true,
-              child: SizedBox.shrink(),
-            ),
+    testWidgets('showBorder: true renders Border.all(color: BrandColors.faint, '
+        'width: 1)', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          const NeumorphicCard(
+            key: Key('card_with_border'),
+            showBorder: true,
+            child: SizedBox.shrink(),
           ),
-        );
+        ),
+      );
 
-        final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
-          find
-              .descendant(
-                of: find.byKey(const Key('card_with_border')),
-                matching: find.byType(DecoratedBox),
-              )
-              .first,
-        );
-        final BoxDecoration decoration =
-            decoratedBox.decoration as BoxDecoration;
-        expect(
-          decoration.border,
-          equals(Border.all(color: BrandColors.faint, width: 1)),
-          reason:
-              'showBorder: true must draw exactly a 1dp BrandColors.faint '
-              'stroke around the card.',
-        );
-      },
-    );
+      final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
+        find
+            .descendant(
+              of: find.byKey(const Key('card_with_border')),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
+      final BoxDecoration decoration = decoratedBox.decoration as BoxDecoration;
+      expect(
+        decoration.border,
+        equals(Border.all(color: BrandColors.faint, width: 1)),
+        reason:
+            'showBorder: true must draw exactly a 1dp BrandColors.faint '
+            'stroke around the card.',
+      );
+    });
 
     // mobile-qa regression — shadow-substitution fix. Before this fix,
     // `showBorder: true` cards kept the default `extrudedCard`'s pair of
@@ -506,50 +502,48 @@ void main() {
     // the pre-fix behaviour), this test fails — `decoration.boxShadow` comes
     // back as the 2-entry `extrudedCard` list instead of the 1-entry
     // `borderedCard` list.
-    testWidgets(
-      'showBorder: true with default shadows substitutes '
-      'VelvetShadows.borderedCard for VelvetShadows.extrudedCard',
-      (WidgetTester tester) async {
-        await tester.pumpWidget(
-          _wrap(
-            const NeumorphicCard(
-              key: Key('card_border_default_shadows'),
-              showBorder: true,
-              child: SizedBox.shrink(),
-            ),
+    testWidgets('showBorder: true with default shadows substitutes '
+        'VelvetShadows.borderedCard for VelvetShadows.extrudedCard', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          const NeumorphicCard(
+            key: Key('card_border_default_shadows'),
+            showBorder: true,
+            child: SizedBox.shrink(),
           ),
-        );
+        ),
+      );
 
-        final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
-          find
-              .descendant(
-                of: find.byKey(const Key('card_border_default_shadows')),
-                matching: find.byType(DecoratedBox),
-              )
-              .first,
-        );
-        final BoxDecoration decoration =
-            decoratedBox.decoration as BoxDecoration;
+      final DecoratedBox decoratedBox = tester.widget<DecoratedBox>(
+        find
+            .descendant(
+              of: find.byKey(const Key('card_border_default_shadows')),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
+      final BoxDecoration decoration = decoratedBox.decoration as BoxDecoration;
 
-        expect(
-          decoration.boxShadow,
-          equals(VelvetShadows.borderedCard),
-          reason:
-              'showBorder: true with the default shadows must substitute '
-              'the single non-offset borderedCard shadow — the '
-              "extrudedCard pair's corner sliver bleeds past a bordered "
-              'card\'s crisp edge.',
-        );
-        expect(
-          decoration.boxShadow,
-          isNot(equals(VelvetShadows.extrudedCard)),
-          reason:
-              'must NOT keep the default extrudedCard shadow pair once '
-              'showBorder is true — that is exactly the corner-bleed bug '
-              'this substitution fixes.',
-        );
-      },
-    );
+      expect(
+        decoration.boxShadow,
+        equals(VelvetShadows.borderedCard),
+        reason:
+            'showBorder: true with the default shadows must substitute '
+            'the single non-offset borderedCard shadow — the '
+            "extrudedCard pair's corner sliver bleeds past a bordered "
+            'card\'s crisp edge.',
+      );
+      expect(
+        decoration.boxShadow,
+        isNot(equals(VelvetShadows.extrudedCard)),
+        reason:
+            'must NOT keep the default extrudedCard shadow pair once '
+            'showBorder is true — that is exactly the corner-bleed bug '
+            'this substitution fixes.',
+      );
+    });
 
     // mobile-qa regression — the substitution's `identical()` gate must only
     // fire for the DEFAULT `shadows` value. A caller that explicitly passes

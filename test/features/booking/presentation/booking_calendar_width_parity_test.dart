@@ -147,15 +147,14 @@ Future<double> _pumpSlotDateScreenCalendarWidth(WidgetTester tester) async {
   expect(
     calendar,
     findsOneWidget,
-    reason: 'SlotDateScreen must render the shared MonthCalendar once its '
+    reason:
+        'SlotDateScreen must render the shared MonthCalendar once its '
         'working-days fetch resolves',
   );
   return tester.getSize(calendar).width;
 }
 
-Future<double> _pumpMasterSchedulePageCalendarWidth(
-  WidgetTester tester,
-) async {
+Future<double> _pumpMasterSchedulePageCalendarWidth(WidgetTester tester) async {
   await tester.pumpApp(
     Scaffold(
       body: MasterSchedulePage(
@@ -178,7 +177,8 @@ Future<double> _pumpMasterSchedulePageCalendarWidth(
   expect(
     calendar,
     findsOneWidget,
-    reason: 'MasterSchedulePage must render the shared MonthCalendar once '
+    reason:
+        'MasterSchedulePage must render the shared MonthCalendar once '
         'its working-days fetch resolves (date phase, before any date is '
         'picked)',
   );
@@ -186,60 +186,58 @@ Future<double> _pumpMasterSchedulePageCalendarWidth(
 }
 
 void main() {
-  testWidgets(
-    'the shared MonthCalendar renders at the SAME width on both the '
-    'independent-master (SlotDateScreen) and salon (MasterSchedulePage) '
-    'booking screens — regression guard for the double-padding bug that '
-    'made the salon flow render it ~96px narrower',
-    (tester) async {
-      final double slotDateScreenWidth =
-          await _pumpSlotDateScreenCalendarWidth(tester);
+  testWidgets('the shared MonthCalendar renders at the SAME width on both the '
+      'independent-master (SlotDateScreen) and salon (MasterSchedulePage) '
+      'booking screens — regression guard for the double-padding bug that '
+      'made the salon flow render it ~96px narrower', (tester) async {
+    final double slotDateScreenWidth = await _pumpSlotDateScreenCalendarWidth(
+      tester,
+    );
 
-      final double masterSchedulePageWidth =
-          await _pumpMasterSchedulePageCalendarWidth(tester);
+    final double masterSchedulePageWidth =
+        await _pumpMasterSchedulePageCalendarWidth(tester);
 
-      // The shared `MonthCalendar`'s own outer `Padding` box always reports
-      // back the FULL cross-axis width it was handed (its self-inset is
-      // absorbed internally by its stretch-aligned content, not subtracted
-      // from its own reported size) — so the correct value on BOTH screens
-      // is the full pumped viewport width, `_kScreenWidth`, PROVIDED neither
-      // screen wraps it in any extra horizontal inset upstream. Verified
-      // empirically against the double-padded pre-fix `MasterSchedulePage`
-      // (temporarily reintroducing its old `horizontal: VelvetSpacing.lg`
-      // outer `SingleChildScrollView` padding): that extra inset shrinks the
-      // AVAILABLE cross-axis width one level up, so `MonthCalendar` itself
-      // then only ever gets handed `_kScreenWidth - 2 * VelvetSpacing.lg`
-      // (352 at this test's 400 width) — reproducing exactly the ~96px
-      // narrower rendering (48px per side) this test guards against.
-      const double expectedWidth = _kScreenWidth;
+    // The shared `MonthCalendar`'s own outer `Padding` box always reports
+    // back the FULL cross-axis width it was handed (its self-inset is
+    // absorbed internally by its stretch-aligned content, not subtracted
+    // from its own reported size) — so the correct value on BOTH screens
+    // is the full pumped viewport width, `_kScreenWidth`, PROVIDED neither
+    // screen wraps it in any extra horizontal inset upstream. Verified
+    // empirically against the double-padded pre-fix `MasterSchedulePage`
+    // (temporarily reintroducing its old `horizontal: VelvetSpacing.lg`
+    // outer `SingleChildScrollView` padding): that extra inset shrinks the
+    // AVAILABLE cross-axis width one level up, so `MonthCalendar` itself
+    // then only ever gets handed `_kScreenWidth - 2 * VelvetSpacing.lg`
+    // (352 at this test's 400 width) — reproducing exactly the ~96px
+    // narrower rendering (48px per side) this test guards against.
+    const double expectedWidth = _kScreenWidth;
 
-      expect(
-        masterSchedulePageWidth,
-        slotDateScreenWidth,
-        reason:
-            'MonthCalendar must be exactly as wide on the salon booking '
-            'screen as on the independent-master booking screen at the '
-            'same viewport width — a regression to the double-padded '
-            '`MasterSchedulePage` outer SingleChildScrollView would make '
-            'this narrower by 2 * VelvetSpacing.lg (48px) at this width',
-      );
-      expect(
-        slotDateScreenWidth,
-        expectedWidth,
-        reason:
-            'SlotDateScreen is the correct reference: MonthCalendar must be '
-            'handed the full viewport width, never reduced by an extra '
-            'outer horizontal inset upstream of its own self-padding',
-      );
-      expect(
-        masterSchedulePageWidth,
-        expectedWidth,
-        reason:
-            'MasterSchedulePage must uphold the same contract as '
-            'SlotDateScreen, never stacking an extra horizontal inset on '
-            'its outer SingleChildScrollView on top of `MonthCalendar`\'s '
-            'own self-padding',
-      );
-    },
-  );
+    expect(
+      masterSchedulePageWidth,
+      slotDateScreenWidth,
+      reason:
+          'MonthCalendar must be exactly as wide on the salon booking '
+          'screen as on the independent-master booking screen at the '
+          'same viewport width — a regression to the double-padded '
+          '`MasterSchedulePage` outer SingleChildScrollView would make '
+          'this narrower by 2 * VelvetSpacing.lg (48px) at this width',
+    );
+    expect(
+      slotDateScreenWidth,
+      expectedWidth,
+      reason:
+          'SlotDateScreen is the correct reference: MonthCalendar must be '
+          'handed the full viewport width, never reduced by an extra '
+          'outer horizontal inset upstream of its own self-padding',
+    );
+    expect(
+      masterSchedulePageWidth,
+      expectedWidth,
+      reason:
+          'MasterSchedulePage must uphold the same contract as '
+          'SlotDateScreen, never stacking an extra horizontal inset on '
+          'its outer SingleChildScrollView on top of `MonthCalendar`\'s '
+          'own self-padding',
+    );
+  });
 }

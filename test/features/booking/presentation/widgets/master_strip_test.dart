@@ -85,7 +85,11 @@ class _FromScreen extends StatelessWidget {
       body: Center(
         child: Hero(
           tag: _heroTag(_kMaster),
-          child: const MasterStrip(master: _kMaster, showRole: true, showRating: true),
+          child: const MasterStrip(
+            master: _kMaster,
+            showRole: true,
+            showRating: true,
+          ),
         ),
       ),
     );
@@ -102,7 +106,11 @@ class _ToScreen extends StatelessWidget {
         alignment: Alignment.topCenter,
         child: Hero(
           tag: _heroTag(_kMaster),
-          child: const MasterStrip(master: _kMaster, showRole: true, showRating: true),
+          child: const MasterStrip(
+            master: _kMaster,
+            showRole: true,
+            showRating: true,
+          ),
         ),
       ),
     );
@@ -139,97 +147,99 @@ void main() {
       },
     );
 
-    testWidgets(
-      'the master-name text keeps its normal (non-underlined) style '
-      'mid-flight during the shared Hero transition between two routes',
-      (tester) async {
-        final GoRouter router = GoRouter(
-          initialLocation: '/from',
-          routes: <RouteBase>[
-            GoRoute(path: '/from', builder: (context, state) => const _FromScreen()),
-            GoRoute(path: '/to', builder: (context, state) => const _ToScreen()),
-          ],
-        );
-        addTearDown(router.dispose);
-
-        // `theme: velvetTheme()` matters here (unlike most other widget tests
-        // in this suite, which use `pumpApp`'s plain default MaterialApp):
-        // production installs `CupertinoPageTransitionsBuilder` for every
-        // platform via this theme (`app_theme.dart`), which is what the
-        // debugger's original report described the flight running under.
-        await tester.pumpWidget(
-          MaterialApp.router(
-            theme: velvetTheme(),
-            routerConfig: router,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            locale: const Locale('uk'),
+    testWidgets('the master-name text keeps its normal (non-underlined) style '
+        'mid-flight during the shared Hero transition between two routes', (
+      tester,
+    ) async {
+      final GoRouter router = GoRouter(
+        initialLocation: '/from',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/from',
+            builder: (context, state) => const _FromScreen(),
           ),
-        );
-        await tester.pumpAndSettle();
+          GoRoute(path: '/to', builder: (context, state) => const _ToScreen()),
+        ],
+      );
+      addTearDown(router.dispose);
 
-        expect(find.byType(_FromScreen), findsOneWidget);
+      // `theme: velvetTheme()` matters here (unlike most other widget tests
+      // in this suite, which use `pumpApp`'s plain default MaterialApp):
+      // production installs `CupertinoPageTransitionsBuilder` for every
+      // platform via this theme (`app_theme.dart`), which is what the
+      // debugger's original report described the flight running under.
+      await tester.pumpWidget(
+        MaterialApp.router(
+          theme: velvetTheme(),
+          routerConfig: router,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        // Fire-and-forget: this Future only resolves once the pushed route
-        // is later popped, which this test never does — deliberately not
-        // awaited, but explicitly marked so via `unawaited` rather than
-        // silently ignored.
-        unawaited(router.push('/to'));
-        // Start the push transition, then sample it mid-flight — well before
-        // the ~300ms Cupertino transition settles, and after Hero has swapped
-        // both routes' own copies out for empty placeholders (see this file's
-        // header), so exactly one master-name text is mounted: the flying
-        // shuttle's.
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 150));
+      expect(find.byType(_FromScreen), findsOneWidget);
 
-        final String masterName =
-            '${_kMaster.firstName} ${_kMaster.lastName}'.trim();
-        final Finder nameText = find.text(masterName);
-        expect(
-          nameText,
-          findsOneWidget,
-          reason:
-              'exactly one instance of the master-name text should be '
-              'mounted mid-flight — the Hero shuttle copy — since both '
-              "routes' own Heroes are swapped out for empty placeholders "
-              'while the flight is in progress',
-        );
+      // Fire-and-forget: this Future only resolves once the pushed route
+      // is later popped, which this test never does — deliberately not
+      // awaited, but explicitly marked so via `unawaited` rather than
+      // silently ignored.
+      unawaited(router.push('/to'));
+      // Start the push transition, then sample it mid-flight — well before
+      // the ~300ms Cupertino transition settles, and after Hero has swapped
+      // both routes' own copies out for empty placeholders (see this file's
+      // header), so exactly one master-name text is mounted: the flying
+      // shuttle's.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
 
-        // The bug is entirely in the RESOLVED style (the ambient
-        // DefaultTextStyle merged in), not the source Text widget's own
-        // literal `style:` argument — so this reads the built RichText, not
-        // `tester.widget<Text>(nameText).style`.
-        final Finder richText = find.descendant(
-          of: nameText,
-          matching: find.byType(RichText),
-        );
-        expect(richText, findsOneWidget);
-        final RichText resolved = tester.widget<RichText>(richText);
-        final TextStyle? resolvedStyle = resolved.text.style;
+      final String masterName = '${_kMaster.firstName} ${_kMaster.lastName}'
+          .trim();
+      final Finder nameText = find.text(masterName);
+      expect(
+        nameText,
+        findsOneWidget,
+        reason:
+            'exactly one instance of the master-name text should be '
+            'mounted mid-flight — the Hero shuttle copy — since both '
+            "routes' own Heroes are swapped out for empty placeholders "
+            'while the flight is in progress',
+      );
 
-        expect(
-          resolvedStyle,
-          isNotNull,
-          reason:
-              'a resolved style of null would mean this Text has no ambient '
-              'DefaultTextStyle at all, which should be impossible once '
-              'MaterialApp installs its own root DefaultTextStyle',
-        );
-        expect(
-          resolvedStyle!.decoration == null ||
-              resolvedStyle.decoration == TextDecoration.none,
-          isTrue,
-          reason:
-              'mid-flight, the master-name text must NOT pick up the '
-              'WidgetsApp "no Material ancestor" debug fallback style '
-              '(TextDecoration.underline) — that flash is exactly the bug '
-              "`Material(type: transparency)` in MasterStrip.build() fixes. "
-              'Resolved decoration was: ${resolvedStyle.decoration}',
-        );
+      // The bug is entirely in the RESOLVED style (the ambient
+      // DefaultTextStyle merged in), not the source Text widget's own
+      // literal `style:` argument — so this reads the built RichText, not
+      // `tester.widget<Text>(nameText).style`.
+      final Finder richText = find.descendant(
+        of: nameText,
+        matching: find.byType(RichText),
+      );
+      expect(richText, findsOneWidget);
+      final RichText resolved = tester.widget<RichText>(richText);
+      final TextStyle? resolvedStyle = resolved.text.style;
 
-        await tester.pumpAndSettle();
-      },
-    );
+      expect(
+        resolvedStyle,
+        isNotNull,
+        reason:
+            'a resolved style of null would mean this Text has no ambient '
+            'DefaultTextStyle at all, which should be impossible once '
+            'MaterialApp installs its own root DefaultTextStyle',
+      );
+      expect(
+        resolvedStyle!.decoration == null ||
+            resolvedStyle.decoration == TextDecoration.none,
+        isTrue,
+        reason:
+            'mid-flight, the master-name text must NOT pick up the '
+            'WidgetsApp "no Material ancestor" debug fallback style '
+            '(TextDecoration.underline) — that flash is exactly the bug '
+            "`Material(type: transparency)` in MasterStrip.build() fixes. "
+            'Resolved decoration was: ${resolvedStyle.decoration}',
+      );
+
+      await tester.pumpAndSettle();
+    });
   });
 }

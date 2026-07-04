@@ -216,79 +216,76 @@ void main() {
     );
 
     // ── 2. Router-level: context.go(masterProfile) leaves canPop() false ────
-    testWidgets(
-      'REGRESSION: after context.go(RouteNames.masterProfile) from a '
-      'representative call site, the route is NOT poppable',
-      (tester) async {
-        // Two-route router: an arbitrary "elsewhere" stub screen (standing in
-        // for one of the 6 real call sites — e.g. location_edit_screen.dart's
-        // `context.go(RouteNames.masterProfile)` after a successful save) plus
-        // the real production masterProfile route.
-        final router = GoRouter(
-          initialLocation: '/elsewhere',
-          routes: <RouteBase>[
-            GoRoute(
-              path: '/elsewhere',
-              builder: (context, state) => Scaffold(
-                body: Center(
-                  child: ElevatedButton(
-                    key: const Key('btn-go-master-profile'),
-                    onPressed: () => context.go(RouteNames.masterProfile),
-                    child: const Text('go to profile'),
-                  ),
+    testWidgets('REGRESSION: after context.go(RouteNames.masterProfile) from a '
+        'representative call site, the route is NOT poppable', (tester) async {
+      // Two-route router: an arbitrary "elsewhere" stub screen (standing in
+      // for one of the 6 real call sites — e.g. location_edit_screen.dart's
+      // `context.go(RouteNames.masterProfile)` after a successful save) plus
+      // the real production masterProfile route.
+      final router = GoRouter(
+        initialLocation: '/elsewhere',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/elsewhere',
+            builder: (context, state) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  key: const Key('btn-go-master-profile'),
+                  onPressed: () => context.go(RouteNames.masterProfile),
+                  child: const Text('go to profile'),
                 ),
               ),
             ),
-            GoRoute(
-              path: RouteNames.masterProfile,
-              builder: (context, state) => const MasterProfileScreen(),
-            ),
-          ],
-        );
-
-        await tester.pumpWidget(
-          ProviderScope(
-            overrides: _overrides().cast(),
-            child: MaterialApp.router(
-              routerConfig: router,
-              localizationsDelegates: AppLocalizations.localizationsDelegates,
-              supportedLocales: AppLocalizations.supportedLocales,
-              locale: const Locale('uk'),
-            ),
           ),
-        );
-        await tester.pump();
+          GoRoute(
+            path: RouteNames.masterProfile,
+            builder: (context, state) => const MasterProfileScreen(),
+          ),
+        ],
+      );
 
-        // Sanity: we start off the profile route, on a poppable-irrelevant
-        // stub, then navigate via context.go — exactly as the 6 real call
-        // sites do (contacts_edit_screen.dart, location_edit_screen.dart,
-        // working_hours_screen.dart, master_schedule_screen.dart,
-        // settings_hub_screen.dart, and the role-redirect landing target).
-        await tester.tap(find.byKey(const Key('btn-go-master-profile')));
-        await tester.pump();
-        await tester.pump(); // let the route swap settle
-        await tester.pump(const Duration(milliseconds: 1200)); // entrance anim
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: _overrides().cast(),
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pump();
 
-        // The menu button confirms MasterProfileScreen is now on screen.
-        expect(
-          find.byKey(const Key('btn-menu-master')),
-          findsOneWidget,
-          reason: 'MasterProfileScreen must be rendered after context.go(...)',
-        );
+      // Sanity: we start off the profile route, on a poppable-irrelevant
+      // stub, then navigate via context.go — exactly as the 6 real call
+      // sites do (contacts_edit_screen.dart, location_edit_screen.dart,
+      // working_hours_screen.dart, master_schedule_screen.dart,
+      // settings_hub_screen.dart, and the role-redirect landing target).
+      await tester.tap(find.byKey(const Key('btn-go-master-profile')));
+      await tester.pump();
+      await tester.pump(); // let the route swap settle
+      await tester.pump(const Duration(milliseconds: 1200)); // entrance anim
 
-        expect(
-          router.canPop(),
-          isFalse,
-          reason:
-              'context.go(RouteNames.masterProfile) must REPLACE the stack, '
-              'leaving canPop() false. If this ever becomes true, either the '
-              'route was changed to be push-reachable, or a redirect chain '
-              'has left a stale entry below it — both would resurrect the '
-              'conditions for a back affordance to legitimately appear here, '
-              'which MasterProfileScreen is not built to handle '
-              '(showBack: false is hardcoded).',
-        );
-      },
-    );
+      // The menu button confirms MasterProfileScreen is now on screen.
+      expect(
+        find.byKey(const Key('btn-menu-master')),
+        findsOneWidget,
+        reason: 'MasterProfileScreen must be rendered after context.go(...)',
+      );
+
+      expect(
+        router.canPop(),
+        isFalse,
+        reason:
+            'context.go(RouteNames.masterProfile) must REPLACE the stack, '
+            'leaving canPop() false. If this ever becomes true, either the '
+            'route was changed to be push-reachable, or a redirect chain '
+            'has left a stale entry below it — both would resurrect the '
+            'conditions for a back affordance to legitimately appear here, '
+            'which MasterProfileScreen is not built to handle '
+            '(showBack: false is hardcoded).',
+      );
+    });
   });
 }

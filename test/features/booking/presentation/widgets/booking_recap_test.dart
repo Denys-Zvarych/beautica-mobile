@@ -118,12 +118,8 @@ void main() {
               ?.fontSize;
         }
 
-        final double? compactSize = await totalPriceFontSize(
-          compactText: true,
-        );
-        final double? roomySize = await totalPriceFontSize(
-          compactText: false,
-        );
+        final double? compactSize = await totalPriceFontSize(compactText: true);
+        final double? roomySize = await totalPriceFontSize(compactText: false);
 
         expect(compactSize, 15.5);
         expect(roomySize, 17.0);
@@ -165,9 +161,7 @@ void main() {
       (tester) async {
         await tester.pumpApp(
           const Scaffold(
-            body: BookingRecap(
-              selections: <BookingSelection>[_kLongSelection],
-            ),
+            body: BookingRecap(selections: <BookingSelection>[_kLongSelection]),
           ),
           // Narrow, realistic phone width — forces the long name to
           // actually need more than one line. pumpApp's overflow guard fails
@@ -197,8 +191,9 @@ void main() {
               'alongside maxLines',
         );
 
-        final RenderParagraph paragraph = tester
-            .renderObject<RenderParagraph>(find.text(longName));
+        final RenderParagraph paragraph = tester.renderObject<RenderParagraph>(
+          find.text(longName),
+        );
         expect(
           _lineCount(paragraph),
           greaterThan(1),

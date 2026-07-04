@@ -132,25 +132,22 @@ void main() {
           ),
         );
 
-    testWidgets(
-      'showBorder: false (default, unset) does not reach the details '
-      'NeumorphicCard',
-      (tester) async {
-        await pumpCard(tester, showBorder: false);
-        await tester.pumpAndSettle();
+    testWidgets('showBorder: false (default, unset) does not reach the details '
+        'NeumorphicCard', (tester) async {
+      await pumpCard(tester, showBorder: false);
+      await tester.pumpAndSettle();
 
-        final Finder cardFinder = find.byType(NeumorphicCard);
-        expect(cardFinder, findsOneWidget);
-        final NeumorphicCard card = tester.widget<NeumorphicCard>(cardFinder);
-        expect(
-          card.showBorder,
-          isFalse,
-          reason:
-              'BookingSummaryCards(showBorder: false) must not opt the '
-              'details NeumorphicCard into the border.',
-        );
-      },
-    );
+      final Finder cardFinder = find.byType(NeumorphicCard);
+      expect(cardFinder, findsOneWidget);
+      final NeumorphicCard card = tester.widget<NeumorphicCard>(cardFinder);
+      expect(
+        card.showBorder,
+        isFalse,
+        reason:
+            'BookingSummaryCards(showBorder: false) must not opt the '
+            'details NeumorphicCard into the border.',
+      );
+    });
 
     testWidgets(
       'showBorder: true reaches the details NeumorphicCard and renders the '
