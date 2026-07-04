@@ -209,11 +209,6 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: <Widget>[
-                  Text(
-                    l10n.bookingDateScreenIntro,
-                    style: VelvetText.body().copyWith(fontSize: 14),
-                  ),
-                  const SizedBox(height: VelvetSpacing.lg),
                   MasterStrip(master: widget.args.master),
                   const SizedBox(height: VelvetSpacing.lg),
                   const CalendarWeekdayBar(),

@@ -3334,10 +3334,6 @@
   "@bookingDateScreenTitle": {
     "description": "Top-bar title of the booking Step 2a date-picker screen."
   },
-  "bookingDateScreenIntro": "Оберіть зручну дату — далі підберемо вільний час.",
-  "@bookingDateScreenIntro": {
-    "description": "One-line intro under the top bar on the booking Step 2a date-picker screen."
-  },
   "bookingCalendarPrevMonth": "Попередній місяць",
   "@bookingCalendarPrevMonth": {
     "description": "Accessibility label for the calendar's previous-month paging chevron."

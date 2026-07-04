@@ -3288,7 +3288,6 @@
     }
   },
   "bookingDateScreenTitle": "Choose a date",
-  "bookingDateScreenIntro": "Choose a convenient date — we'll find a free time next.",
   "bookingCalendarPrevMonth": "Previous month",
   "bookingCalendarNextMonth": "Next month",
   "bookingDayAvailableState": "has free slots",
