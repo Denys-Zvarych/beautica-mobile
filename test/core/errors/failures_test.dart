@@ -146,6 +146,43 @@ void main() {
         );
       },
     );
+
+    // Beautica OTP task Phase A3/B2 — PasswordResetOtpFailure.
+    testWidgets(
+      'PasswordResetOtpFailure.invalidCode returns resetOtpErrInvalidCode',
+      (tester) async {
+        final l10n = await _pumpAndGetL10n(tester);
+        final msg = await _resolveMessage(
+          tester,
+          const PasswordResetOtpFailure(
+            code: PasswordResetOtpErrorCode.invalidCode,
+          ),
+        );
+        expect(
+          msg,
+          equals(l10n.resetOtpErrInvalidCode),
+          reason:
+              'PasswordResetOtpFailure.invalidCode must return the '
+              'resetOtpErrInvalidCode l10n key — NEVER the email-verification '
+              '"already verified" copy from VerificationFailure, which does '
+              'not apply to a password reset.',
+        );
+      },
+    );
+
+    testWidgets(
+      'PasswordResetOtpFailure.codeExpired returns resetOtpErrCodeExpired',
+      (tester) async {
+        final l10n = await _pumpAndGetL10n(tester);
+        final msg = await _resolveMessage(
+          tester,
+          const PasswordResetOtpFailure(
+            code: PasswordResetOtpErrorCode.codeExpired,
+          ),
+        );
+        expect(msg, equals(l10n.resetOtpErrCodeExpired));
+      },
+    );
   });
 
   group('ValidationFailure — fieldErrors storage', () {

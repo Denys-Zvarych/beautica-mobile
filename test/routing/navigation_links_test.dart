@@ -26,9 +26,11 @@
 //   NL-14  /verification back link → /register/step-3               ✅ covered (verification_screen_test)
 //   NL-15  /done "Go to app" → /                                    ✅ covered (done_screen_test)
 //   NL-16  /done "Setup later" → /                                  ✅ covered (done_screen_test)
-//   NL-17  /forgot-password "Send" confirmation → stays (shows sent state)  ✅ covered
-//   NL-18  /forgot-password sent state "preview reset" → /reset-password   ✅ covered
-//   NL-19  /forgot-password sent state back-to-login → /login               ✅ covered
+//   NL-17  /forgot-password "Send" success → /reset-password/otp (Beautica OTP
+//          task Phase B3 — replaces the old in-screen "sent" confirmation
+//          state)                                                  ✅ covered (forgot_password_request_screen_test)
+//   NL-18  (retired — the old sent-state "preview reset" CTA no longer exists)
+//   NL-19  /forgot-password back button → /login                   ✅ covered (this file, NL-B03)
 //   NL-20  /reset-password success CTA → /login                     ✅ covered (reset_password_screen_test)
 //   NL-21  /reset-password invalid CTA → /forgot-password            ✅ covered (reset_password_screen_test)
 //   NL-22  /invite/accept success → / (via router redirect)         ❌ GAP — new test NL-22 below
@@ -72,6 +74,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/auth/presentation/forgot_password_request_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_step_2_screen.dart';
 import 'package:beautica_mobile/features/auth/presentation/register_step_3_screen.dart';
+import 'package:beautica_mobile/features/auth/domain/reset_password_args.dart';
 import 'package:beautica_mobile/features/auth/presentation/reset_password_screen.dart';
 import 'package:beautica_mobile/features/auth/state/accept_invite_notifier.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
@@ -252,8 +255,16 @@ void main() {
               builder: (_, _) => const _Probe('forgot-password'),
             ),
             GoRoute(
+              path: RouteNames.resetOtpVerification,
+              builder: (_, _) => const _Probe('reset-otp-verification'),
+            ),
+            GoRoute(
               path: RouteNames.resetPassword,
               builder: (_, _) => const _Probe('reset-password'),
+            ),
+            GoRoute(
+              path: RouteNames.changePassword,
+              builder: (_, _) => const _Probe('change-password'),
             ),
             // ShellRoute mirrors the production nesting; the test only checks
             // that routes resolve — shell chrome is not rendered here.
@@ -307,7 +318,9 @@ void main() {
           RouteNames.registerStep2: 'register-step-2',
           RouteNames.registerStep3: 'register-step-3',
           RouteNames.forgotPassword: 'forgot-password',
+          RouteNames.resetOtpVerification: 'reset-otp-verification',
           RouteNames.resetPassword: 'reset-password',
+          RouteNames.changePassword: 'change-password',
           RouteNames.acceptInvite: 'accept-invite',
           RouteNames.verification: 'verification',
           RouteNames.done: 'done',
@@ -767,8 +780,11 @@ void main() {
             GoRoute(
               path: RouteNames.resetPassword,
               builder: (context, state) {
-                final token = state.uri.queryParameters['token'] ?? '';
-                return ResetPasswordScreen(token: token);
+                final args = state.extra as ResetPasswordArgs?;
+                return ResetPasswordScreen(
+                  resetTicket: args?.resetTicket ?? '',
+                  fromChangePassword: args?.fromChangePassword ?? false,
+                );
               },
             ),
           ],
@@ -791,9 +807,13 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        // Navigate to /reset-password (push from /login, simulating deep-link).
+        // Navigate to /reset-password (push from /login), carrying the reset
+        // ticket via in-app `extra` — no more `?token=` deep-link query param.
         unawaited(
-          router.push('${RouteNames.resetPassword}?token=test-token'),
+          router.push(
+            RouteNames.resetPassword,
+            extra: const ResetPasswordArgs(resetTicket: 'test-ticket'),
+          ),
         ); // ignore: unawaited_futures
         await tester.pumpAndSettle();
 

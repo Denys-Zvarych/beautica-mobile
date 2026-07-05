@@ -1,9 +1,9 @@
 // Phase 17.3 — Aggregating E2E entrypoint, PART 2 of 2 (2026-07-01 split).
 //
 // See `all_tests_part1.dart` for the full rationale. This file carries the
-// remaining 10 of 19 flows so each `flutter test` process in CI reports a
-// bounded number of tests instead of aggregating all 18 into one long-lived
-// run.
+// remaining 11 of 21 flows (updated by the Beautica OTP task Phase B6
+// additions) so each `flutter test` process in CI reports a bounded number of
+// tests instead of aggregating all of them into one long-lived run.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -19,6 +19,7 @@ import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
+import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 
 void main() {
@@ -37,5 +38,7 @@ void main() {
   group('schedule_first_create_flow', schedule_first_create.main);
   group('service_crud_flow', service_crud.main);
   group('service_edit_category_type', service_edit_category_type.main);
+  // Beautica OTP task Phase B6 — settings change-password → OTP → forced logout.
+  group('settings_change_password_flow', settings_change_password.main);
   group('support_contact_flow', support_contact.main);
 }

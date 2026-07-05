@@ -124,13 +124,17 @@ abstract interface class AuthRepository {
   /// - [UnknownFailure] — any other unexpected error.
   Future<void> resendVerificationCode({required String email});
 
-  /// Requests a password-reset link for [email] (backend Phase 11.2).
+  /// Requests a password-reset OTP for [email] (backend Phase A3 — replaces
+  /// the old emailed reset-link flow with a 6-digit code).
   ///
   /// `POST /auth/forgot-password` ALWAYS returns a generic 200 regardless of
   /// whether the account exists (anti-enumeration). This method therefore
   /// resolves with no value on the happy path; the UI shows the same generic
   /// confirmation either way. A real failure (network / 5xx / malformed)
   /// still surfaces so the screen can offer a retry.
+  ///
+  /// Also used to RESEND the OTP — the forgot-password OTP screen's resend
+  /// action calls this again with the same [email].
   ///
   /// Throws:
   /// - [NetworkFailure] — connectivity issues.
@@ -140,8 +144,45 @@ abstract interface class AuthRepository {
   /// - [UnknownFailure] — any other unexpected error.
   Future<void> requestPasswordReset(String email);
 
-  /// Confirms a password reset with the single-use [token] from the emailed
-  /// deep link and the user's chosen [newPassword] (backend Phase 11.3).
+  /// Requests a password-reset OTP for the AUTHENTICATED caller (backend
+  /// Phase A3 — the "change password from settings" entry point).
+  ///
+  /// `POST /users/me/change-password/request-otp`. No request body — the
+  /// backend resolves the target account from the caller's JWT, never from a
+  /// client-supplied email, so there is no anti-enumeration need here (unlike
+  /// [requestPasswordReset]). Also used to RESEND the OTP from the settings
+  /// change-password screen.
+  ///
+  /// Throws:
+  /// - [ResendThrottledFailure] — backend 429 with `retryAfterSeconds`
+  ///   (unlike [requestPasswordReset], this authenticated entry point DOES
+  ///   surface the per-account resend cooldown as a 429).
+  /// - [NetworkFailure] — connectivity issues.
+  /// - [ServerFailure] — 5xx.
+  /// - [UnknownFailure] — any other unexpected error.
+  Future<void> requestChangePasswordOtp();
+
+  /// Verifies the 6-digit [code] emailed to [email] by [requestPasswordReset]
+  /// or [requestChangePasswordOtp], and returns the single-use reset ticket
+  /// the caller must submit to [confirmPasswordReset] (backend Phase A3).
+  ///
+  /// `POST /auth/verify-password-reset-otp`. Invalid, expired, exhausted, and
+  /// locked-account states all surface as the same generic [PasswordResetOtpFailure]
+  /// shapes used by [AuthRepository.verifyEmail] (no oracle).
+  ///
+  /// Throws:
+  /// - [PasswordResetOtpFailure] — typed `INVALID_CODE` / `CODE_EXPIRED`.
+  /// - [ValidationFailure] — fallback for a generic 400 without a typed code.
+  /// - [NetworkFailure] — connectivity issues.
+  /// - [UnknownFailure] — any other unexpected error.
+  Future<String> verifyPasswordResetOtp({
+    required String email,
+    required String code,
+  });
+
+  /// Confirms a password reset with the single-use [resetTicket] minted by
+  /// [verifyPasswordResetOtp] and the user's chosen [newPassword] (backend
+  /// Phase 11.3 / A3).
   ///
   /// `POST /auth/reset-password`. On success the backend updates the password
   /// and revokes all sessions but does NOT issue a session — the caller routes
@@ -149,12 +190,12 @@ abstract interface class AuthRepository {
   ///
   /// Throws:
   /// - [ResetTokenInvalidFailure] — the backend's generic 400 for an invalid,
-  ///   used, or expired token. The screen renders its invalid-link state.
+  ///   used, or expired ticket. The screen renders its invalid-link state.
   /// - [NetworkFailure] — connectivity issues.
   /// - [ServerFailure] — 5xx.
   /// - [UnknownFailure] — any other unexpected error.
   Future<void> confirmPasswordReset({
-    required String token,
+    required String resetTicket,
     required String newPassword,
   });
 

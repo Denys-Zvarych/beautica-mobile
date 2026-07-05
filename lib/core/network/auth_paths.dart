@@ -20,9 +20,13 @@ const Set<String> kAuthPaths = {
   // (the user has no session yet when they reach these).
   '/api/v1/auth/verify-email',
   '/api/v1/auth/resend-verification',
-  // Phase 2.13 — password-reset flow. Both endpoints are unauthenticated
-  // (the user is not logged in when they reach the reset flow).
+  // Phase 2.13 / Phase A3 — password-reset flow. All three endpoints are
+  // unauthenticated (the user is not logged in when they reach the reset
+  // flow). `/users/me/change-password/request-otp` (settings "change
+  // password") is the AUTHENTICATED sibling entry point and must NOT be
+  // listed here — it carries no request body (no PII to redact either).
   '/api/v1/auth/forgot-password',
+  '/api/v1/auth/verify-password-reset-otp',
   '/api/v1/auth/reset-password',
   // Phase 2.20 — invite flow. Both endpoints are unauthenticated (the invitee
   // has no session; they authenticate by presenting the invite token).

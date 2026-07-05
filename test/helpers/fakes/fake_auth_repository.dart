@@ -66,6 +66,30 @@ final class FakeAuthRepository implements AuthRepository {
   ///   - `Failure`  → thrown to simulate a transport / server error.
   Object? requestPasswordResetResult;
 
+  /// Return value for the next [requestChangePasswordOtp] call.
+  ///
+  /// Accepted values:
+  ///   - `null`     → generic success (no return value).
+  ///   - `Failure`  → thrown to simulate a backend error
+  ///                  (e.g. [ResendThrottledFailure]).
+  Object? requestChangePasswordOtpResult;
+
+  /// When non-null, [requestChangePasswordOtp] awaits this future before
+  /// inspecting [requestChangePasswordOtpResult]. Set to a non-completing
+  /// Future (e.g. `Completer<void>().future`) to block the call indefinitely
+  /// in tests that need to inspect the optimistic intermediate (loading) UI
+  /// state — e.g. the `SettingsRow(loading: ...)` spinner.
+  Future<void>? requestChangePasswordOtpDelay;
+
+  /// Return value for the next [verifyPasswordResetOtp] call.
+  ///
+  /// Accepted values:
+  ///   - `null`     → success with a default reset ticket.
+  ///   - `String`   → success with this specific reset ticket.
+  ///   - `Failure`  → thrown to simulate a backend error
+  ///                  (e.g. [PasswordResetOtpFailure]).
+  Object? verifyPasswordResetOtpResult;
+
   /// Return value for the next [confirmPasswordReset] call.
   ///
   /// Accepted values:
@@ -133,9 +157,15 @@ final class FakeAuthRepository implements AuthRepository {
   /// Captured arguments for each [requestPasswordReset] call.
   final List<({String email})> requestPasswordResetCalls = [];
 
+  /// Captured call count for [requestChangePasswordOtp].
+  int requestChangePasswordOtpCallCount = 0;
+
+  /// Captured arguments for each [verifyPasswordResetOtp] call.
+  final List<({String email, String code})> verifyPasswordResetOtpCalls = [];
+
   /// Captured arguments for each [confirmPasswordReset] call.
-  final List<({String token, String newPassword})> confirmPasswordResetCalls =
-      [];
+  final List<({String resetTicket, String newPassword})>
+  confirmPasswordResetCalls = [];
 
   /// Captured [token] values for each [validateInvite] call.
   final List<String> validateInviteCalls = [];
@@ -272,11 +302,36 @@ final class FakeAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<void> requestChangePasswordOtp() async {
+    requestChangePasswordOtpCallCount++;
+    if (requestChangePasswordOtpDelay != null) {
+      await requestChangePasswordOtpDelay!;
+    }
+    final result = requestChangePasswordOtpResult;
+    if (result is Failure) throw result;
+  }
+
+  @override
+  Future<String> verifyPasswordResetOtp({
+    required String email,
+    required String code,
+  }) async {
+    verifyPasswordResetOtpCalls.add((email: email, code: code));
+    final result = verifyPasswordResetOtpResult;
+    if (result is Failure) throw result;
+    if (result is String) return result;
+    return 'default-reset-ticket';
+  }
+
+  @override
   Future<void> confirmPasswordReset({
-    required String token,
+    required String resetTicket,
     required String newPassword,
   }) async {
-    confirmPasswordResetCalls.add((token: token, newPassword: newPassword));
+    confirmPasswordResetCalls.add((
+      resetTicket: resetTicket,
+      newPassword: newPassword,
+    ));
     if (confirmPasswordResetDelay != null) await confirmPasswordResetDelay!;
     final result = confirmPasswordResetResult;
     if (result is Failure) throw result;

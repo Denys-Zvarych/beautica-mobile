@@ -55,6 +55,7 @@ doc/ApiResponseSalonServiceCatalogResponse.md
 doc/ApiResponseScheduleOverrideResponse.md
 doc/ApiResponseServiceDefinitionResponse.md
 doc/ApiResponseUserProfileResponse.md
+doc/ApiResponseVerifyPasswordResetOtpResponse.md
 doc/ApiResponseVoid.md
 doc/ApiResponseWeeklyScheduleResponse.md
 doc/ApprovedCategoryResponse.md
@@ -189,6 +190,8 @@ doc/UploadPortfolioPhotoRequest.md
 doc/UserControllerApi.md
 doc/UserProfileResponse.md
 doc/VerifyEmailRequest.md
+doc/VerifyPasswordResetOtpRequest.md
+doc/VerifyPasswordResetOtpResponse.md
 doc/WeeklyScheduleDayRequest.md
 doc/WeeklyScheduleDayResponse.md
 doc/WeeklyScheduleRequest.md
@@ -281,6 +284,7 @@ lib/src/model/api_response_salon_service_catalog_response.dart
 lib/src/model/api_response_schedule_override_response.dart
 lib/src/model/api_response_service_definition_response.dart
 lib/src/model/api_response_user_profile_response.dart
+lib/src/model/api_response_verify_password_reset_otp_response.dart
 lib/src/model/api_response_void.dart
 lib/src/model/api_response_weekly_schedule_response.dart
 lib/src/model/approved_category_response.dart
@@ -394,6 +398,8 @@ lib/src/model/update_service_photo_request.dart
 lib/src/model/upload_portfolio_photo_request.dart
 lib/src/model/user_profile_response.dart
 lib/src/model/verify_email_request.dart
+lib/src/model/verify_password_reset_otp_request.dart
+lib/src/model/verify_password_reset_otp_response.dart
 lib/src/model/weekly_schedule_day_request.dart
 lib/src/model/weekly_schedule_day_response.dart
 lib/src/model/weekly_schedule_request.dart
@@ -403,3 +409,6 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/api_response_verify_password_reset_otp_response_test.dart
+test/verify_password_reset_otp_request_test.dart
+test/verify_password_reset_otp_response_test.dart

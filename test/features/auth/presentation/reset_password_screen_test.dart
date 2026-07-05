@@ -42,15 +42,21 @@ import 'package:go_router/go_router.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 
-const String _kToken = 'raw-reset-token';
+const String _kTicket = 'raw-reset-ticket';
 
-GoRouter _makeRouter({String token = _kToken}) => GoRouter(
+GoRouter _makeRouter({
+  String resetTicket = _kTicket,
+  bool fromChangePassword = false,
+}) => GoRouter(
   initialLocation: RouteNames.resetPassword,
   redirect: (context, state) => null,
   routes: <RouteBase>[
     GoRoute(
       path: RouteNames.resetPassword,
-      builder: (context, state) => ResetPasswordScreen(token: token),
+      builder: (context, state) => ResetPasswordScreen(
+        resetTicket: resetTicket,
+        fromChangePassword: fromChangePassword,
+      ),
     ),
     GoRoute(
       path: RouteNames.login,
@@ -68,15 +74,22 @@ GoRouter _makeRouter({String token = _kToken}) => GoRouter(
 Future<void> _pump(
   WidgetTester tester,
   FakeAuthRepository repo, {
-  String token = _kToken,
+  String resetTicket = _kTicket,
+  bool fromChangePassword = false,
+  FakeSecureStorage? storage,
 }) async {
-  final GoRouter router = _makeRouter(token: token);
+  final GoRouter router = _makeRouter(
+    resetTicket: resetTicket,
+    fromChangePassword: fromChangePassword,
+  );
   addTearDown(router.dispose);
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         authRepositoryProvider.overrideWith((_) => repo),
-        secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+        secureStorageProvider.overrideWith(
+          (_) => storage ?? FakeSecureStorage(),
+        ),
       ],
       child: MaterialApp.router(
         routerConfig: router,
@@ -140,7 +153,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(repo.confirmPasswordResetCalls.length, 1);
-        expect(repo.confirmPasswordResetCalls.first.token, _kToken);
+        expect(repo.confirmPasswordResetCalls.first.resetTicket, _kTicket);
         expect(repo.confirmPasswordResetCalls.first.newPassword, 'Password1');
 
         // Success state — "Увійти" CTA present, form gone.
@@ -252,7 +265,7 @@ void main() {
     ) async {
       final FakeAuthRepository repo = FakeAuthRepository()
         ..confirmPasswordResetResult = const ResetTokenInvalidFailure();
-      await _pump(tester, repo, token: '');
+      await _pump(tester, repo, resetTicket: '');
 
       await tester.enterText(
         find.byKey(const ValueKey<String>('reset_password')),
@@ -267,7 +280,7 @@ void main() {
 
       // The empty token was forwarded verbatim (no client-side guess/skip).
       expect(repo.confirmPasswordResetCalls.length, 1);
-      expect(repo.confirmPasswordResetCalls.first.token, '');
+      expect(repo.confirmPasswordResetCalls.first.resetTicket, '');
       // Fail-closed: invalid-link state, NOT success.
       expect(
         find.byKey(const ValueKey<String>('reset_invalid_cta')),
@@ -403,6 +416,176 @@ void main() {
         isFalse,
       );
     });
+
+    // -------------------------------------------------------------------------
+    // Beautica OTP task Phase B5 — fromChangePassword forced-logout branch.
+    // -------------------------------------------------------------------------
+
+    testWidgets(
+      '10. fromChangePassword: true → success logs out, shows forced-logout '
+      'message, and navigates to /login (skips the normal success state)',
+      (WidgetTester tester) async {
+        final FakeAuthRepository repo = FakeAuthRepository();
+        final FakeSecureStorage storage = FakeSecureStorage();
+        // Seed a refresh token as if the user was already logged in — the
+        // forced logout must wipe it just like an explicit logout would.
+        await storage.writeRefreshToken('session-refresh-token');
+
+        await _pump(tester, repo, fromChangePassword: true, storage: storage);
+        // Capture l10n from the widget tree's ACTUAL resolved locale (matches
+        // the pattern used by every other test in this file) while the field
+        // is still present — it is gone once the forced-logout flow submits.
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('reset_password'))),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('reset_password')),
+          'Password1',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('reset_confirm')),
+          'Password1',
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('reset_submit')));
+        // Deliberately NOT pumpAndSettle() yet — the SnackBar auto-dismisses
+        // on its own timer, and pumpAndSettle() pumps straight past that,
+        // leaving nothing to assert against. A few bounded pumps let the
+        // async confirmPasswordReset → logout → snackbar → context.go chain
+        // settle while the SnackBar is still on screen.
+        await tester.pump(); // begin async confirmPasswordReset
+        await tester.pump(); // microtasks (logout, storage wipe)
+        // fixed-wait-ok: real-async step — SnackBar must still be visible below (see comment above).
+        await tester.pump(const Duration(milliseconds: 50));
+
+        // confirmPasswordReset was called with the ticket + new password.
+        expect(repo.confirmPasswordResetCalls.length, 1);
+        expect(repo.confirmPasswordResetCalls.first.resetTicket, _kTicket);
+
+        // Logout ran (best-effort server call + local wipe) and the refresh
+        // token is gone from storage.
+        expect(repo.logoutCallCount, 1);
+        expect(await storage.readRefreshToken(), isNull);
+
+        // Skips the normal in-screen success state entirely.
+        expect(
+          find.byKey(const ValueKey<String>('reset_back_login')),
+          findsNothing,
+        );
+
+        // Lands on /login with the forced-logout snackbar message still visible.
+        expect(find.text('login'), findsOneWidget);
+        expect(
+          find.text(l10n.changePasswordForcedLogoutMessage),
+          findsOneWidget,
+        );
+
+        // Let the SnackBar's own timer finish so no pending timers leak past
+        // the test.
+        await tester.pumpAndSettle();
+      },
+    );
+
+    testWidgets(
+      '11. fromChangePassword: false (default) → success shows the normal '
+      'in-screen success state, NOT the forced-logout flow',
+      (WidgetTester tester) async {
+        final FakeAuthRepository repo = FakeAuthRepository();
+        await _pump(tester, repo);
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('reset_password')),
+          'Password1',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('reset_confirm')),
+          'Password1',
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('reset_submit')));
+        await tester.pumpAndSettle();
+
+        // logout() must NOT be called on the plain forgot-password path.
+        expect(repo.logoutCallCount, 0);
+        expect(
+          find.byKey(const ValueKey<String>('reset_back_login')),
+          findsOneWidget,
+        );
+        expect(find.text('login'), findsNothing);
+      },
+    );
+
+    // mobile-security MEDIUM fix follow-up — the forced-logout branch used to
+    // check `if (!mounted) return;` BEFORE calling `logout()`, so a widget
+    // disposal mid-flight (backgrounded app, swipe-back, slow network) between
+    // confirmPasswordReset() resolving and that check silently skipped the
+    // logout entirely: the local refresh token survived a server-side
+    // revocation and the in-app session stayed Authenticated. The fix
+    // captures the AuthNotifier synchronously before the first await and
+    // calls logout() unconditionally, gating only the UI-facing effects
+    // (SnackBar / context.go) on `mounted`. This test asserts the CORRECT
+    // (post-fix) behaviour directly against the repository/storage rather
+    // than the UI, since the widget is deliberately disposed before the
+    // assertions run.
+    testWidgets(
+      '12. fromChangePassword: true — logout() still runs (and the refresh '
+      'token is still wiped) even when the widget is disposed while '
+      'confirmPasswordReset is in flight',
+      (WidgetTester tester) async {
+        final Completer<void> completer = Completer<void>();
+        final FakeAuthRepository repo = FakeAuthRepository()
+          ..confirmPasswordResetDelay = completer.future;
+        final FakeSecureStorage storage = FakeSecureStorage();
+        await storage.writeRefreshToken('session-refresh-token');
+
+        final GoRouter router = _makeRouter(fromChangePassword: true);
+        addTearDown(router.dispose);
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              authRepositoryProvider.overrideWith((_) => repo),
+              secureStorageProvider.overrideWith((_) => storage),
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('reset_password')),
+          'Password1',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('reset_confirm')),
+          'Password1',
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('reset_submit')));
+        // Start confirmPasswordReset(); it suspends on the completer, so
+        // ResetPasswordScreen is still on-screen and _submitting == true.
+        await tester.pump();
+
+        // Simulate the widget disposing mid-flight — navigate away BEFORE
+        // confirmPasswordReset resolves so ResetPasswordScreen is unmounted
+        // while the request is still pending.
+        router.go(RouteNames.login);
+        await tester.pumpAndSettle();
+        expect(find.text('login'), findsOneWidget);
+
+        // Now resolve the pending confirmPasswordReset call.
+        completer.complete();
+        await tester.pumpAndSettle();
+
+        // confirmPasswordReset ran, and the forced-logout MUST have run
+        // unconditionally even though the widget was already disposed by the
+        // time it settled.
+        expect(repo.confirmPasswordResetCalls.length, 1);
+        expect(repo.logoutCallCount, 1);
+        expect(await storage.readRefreshToken(), isNull);
+      },
+    );
   });
 
   // ---------------------------------------------------------------------------

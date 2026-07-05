@@ -296,6 +296,66 @@ final class ProviderMissingCityFailure extends Failure {
       AppLocalizations.of(ctx).verificationErrProviderMissingCity;
 }
 
+/// Typed error codes returned by `POST /auth/verify-password-reset-otp`
+/// (backend Phase A3) when the submitted OTP is rejected.
+///
+/// The backend deliberately reuses the SAME generic shapes as
+/// `POST /auth/verify-email` (`{success:false, data:{code:"..."}}`) for
+/// invalid, expired, exhausted, and locked-account states — no oracle. There
+/// is no `ALREADY_VERIFIED` equivalent here (a password-reset OTP has no
+/// "already verified" state), so this is a smaller enum than
+/// [VerificationErrorCode] rather than a reuse of it — reusing it would let
+/// [VerificationFailure.userMessage] surface email-verification-specific copy
+/// ("Цей акаунт вже підтверджено...") in a password-reset context.
+enum PasswordResetOtpErrorCode {
+  /// Wrong OTP digits — also returned when the code was already consumed or
+  /// the account cannot be resolved (the backend reuses this code to prevent
+  /// enumeration).
+  invalidCode,
+
+  /// OTP older than the TTL.
+  codeExpired;
+
+  /// Decodes the backend wire string into [PasswordResetOtpErrorCode].
+  ///
+  /// Unknown values fall back to [invalidCode] so the user still sees a
+  /// reasonable error message instead of crashing on an unrecognised future
+  /// server enum.
+  static PasswordResetOtpErrorCode fromWire(String? wire) {
+    switch (wire) {
+      case 'CODE_EXPIRED':
+        return PasswordResetOtpErrorCode.codeExpired;
+      case 'INVALID_CODE':
+      default:
+        return PasswordResetOtpErrorCode.invalidCode;
+    }
+  }
+}
+
+/// Emitted when `POST /auth/verify-password-reset-otp` returns 400 with a
+/// typed `data.code` error envelope (backend Phase A3).
+///
+/// [code] is one of the [PasswordResetOtpErrorCode] variants and lets the
+/// password-reset OTP screen surface the exact UA copy for each case (wrong
+/// code vs. expired code) without re-parsing the response body.
+final class PasswordResetOtpFailure extends Failure {
+  const PasswordResetOtpFailure({required this.code, super.cause});
+
+  /// The typed error code returned by the backend.
+  final PasswordResetOtpErrorCode code;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final l10n = AppLocalizations.of(ctx);
+    switch (code) {
+      case PasswordResetOtpErrorCode.invalidCode:
+        return l10n.resetOtpErrInvalidCode;
+      case PasswordResetOtpErrorCode.codeExpired:
+        return l10n.resetOtpErrCodeExpired;
+    }
+  }
+}
+
 /// Emitted when `POST /auth/reset-password` returns the backend's generic
 /// 400 for an invalid, used, or expired reset token (backend Phase 11.3).
 ///

@@ -387,25 +387,87 @@ final class HttpAuthRepository implements AuthRepository {
     }
   }
 
+  /// Posts to `POST /users/me/change-password/request-otp` (authenticated).
+  ///
+  /// Unlike [requestPasswordReset], the backend DOES surface the per-account
+  /// resend cooldown as a 429 here (no anti-enumeration concern for an
+  /// authenticated caller) — [ErrorMapperInterceptor] maps it to
+  /// [ResendThrottledFailure].
+  @override
+  Future<void> requestChangePasswordOtp() async {
+    try {
+      await _userApi.requestChangePasswordOtp();
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'requestChangePasswordOtp failed: ${e.type} ${e.response?.statusCode}',
+          name: 'auth.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  /// Posts to `POST /auth/verify-password-reset-otp`.
+  ///
+  /// Backend Phase A3 contract: success returns `{resetTicket}`; a 400 with a
+  /// typed `data.code` (`INVALID_CODE` / `CODE_EXPIRED`) is mapped by
+  /// [ErrorMapperInterceptor] to [PasswordResetOtpFailure], mirroring
+  /// [verifyEmail]'s own typed-code handling.
+  @override
+  Future<String> verifyPasswordResetOtp({
+    required String email,
+    required String code,
+  }) async {
+    try {
+      final res = await _authApi.verifyPasswordResetOtp(
+        verifyPasswordResetOtpRequest: VerifyPasswordResetOtpRequest(
+          (b) => b
+            ..email = email
+            ..code = code,
+        ),
+      );
+      final ticket = res.data?.data?.resetTicket;
+      if (ticket == null || ticket.isEmpty) {
+        throw const UnknownFailure(
+          cause: 'verifyPasswordResetOtp: missing resetTicket in response',
+        );
+      }
+      return ticket;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'verifyPasswordResetOtp failed: ${e.type} ${e.response?.statusCode}',
+          name: 'auth.repository',
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
   /// Posts to `POST /auth/reset-password`.
   ///
-  /// Backend Phase 11.3 contract (locked): success → generic 200; no
+  /// Backend Phase 11.3 / A3 contract (locked): success → generic 200; no
   /// auto-login by design. 400 → mapped to [ResetTokenInvalidFailure] so
   /// the screen renders its "link invalid or expired" state.
   ///
-  /// SECURITY: the request body carries the single-use reset token + the new
+  /// SECURITY: the request body carries the single-use reset ticket + the new
   /// password — both PII. `/auth/reset-password` is redacted by
   /// [LoggingInterceptor]; debug logs here are sanitised to Dio type + status.
   @override
   Future<void> confirmPasswordReset({
-    required String token,
+    required String resetTicket,
     required String newPassword,
   }) async {
     try {
       await _authApi.resetPassword(
         resetPasswordRequest: ResetPasswordRequest(
           (b) => b
-            ..token = token
+            ..resetTicket = resetTicket
             ..newPassword = newPassword,
         ),
       );
@@ -419,9 +481,10 @@ final class HttpAuthRepository implements AuthRepository {
         );
       }
       final failure = _mapDioException(e);
-      // The backend returns a generic 400 for invalid / used / expired tokens.
-      // The interceptor surfaces that as a ValidationFailure; re-map it to the
-      // dedicated invalid-token failure the screen renders as its recovery state.
+      // The backend returns a generic 400 for invalid / used / expired
+      // tickets. The interceptor surfaces that as a ValidationFailure;
+      // re-map it to the dedicated invalid-ticket failure the screen renders
+      // as its recovery state.
       if (failure is ValidationFailure) {
         throw ResetTokenInvalidFailure(cause: failure.cause);
       }

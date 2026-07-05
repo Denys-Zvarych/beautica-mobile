@@ -216,6 +216,169 @@ void main() {
       expect(currentLocation(router), equals(RouteNames.settings));
     });
   });
+
+  // -------------------------------------------------------------------------
+  // mobile-qa gap fix — Beautica OTP task Phase B post-audit addition.
+  //
+  // `ResetOtpVerificationScreen` is reused by two routes (`app_router.dart`),
+  // each binding its `onRequestOtp`/`onVerify` closures to a DIFFERENT
+  // AuthNotifier call:
+  //   - RouteNames.resetOtpVerification (unauthenticated forgot-password) →
+  //     requestPasswordReset(email from the extra)
+  //   - RouteNames.changePassword (authenticated settings) →
+  //     requestChangePasswordOtp() (no client-supplied email — the backend
+  //     resolves identity from the JWT)
+  //
+  // `reset_otp_verification_screen_test.dart` only exercises the widget with
+  // SYNTHETIC closures supplied directly by the test — it never touches
+  // app_router.dart, so a bug that swapped the two closures (or fed the wrong
+  // email into `verifyPasswordResetOtp`) would pass every existing CI test.
+  // The two new `integration_test/` flows do cover this end-to-end, but they
+  // are not yet executed in this environment (no emulator attached) — this
+  // group closes the gap at the widget tier so it runs in CI on every push.
+  // -------------------------------------------------------------------------
+  group('appRouter OTP route real closure wiring', () {
+    setUp(
+      () => AppStartTime.setStartForTest(
+        DateTime.now().subtract(const Duration(seconds: 5)),
+      ),
+    );
+    tearDown(AppStartTime.resetForTest);
+
+    Future<void> drainResendCooldown(WidgetTester tester) async {
+      // fixed-wait-ok: TTL crossing — OtpResendRow starts a REAL 30s
+      // Timer.periodic on mount; must advance past exactly that window
+      // before the resend key becomes tappable. Mirrors the identical drain
+      // in reset_otp_verification_screen_test.dart.
+      await tester.pump(const Duration(seconds: 31));
+    }
+
+    testWidgets('resend on /reset-password/otp calls the UNAUTHENTICATED '
+        'requestPasswordReset with the extra email — never '
+        'requestChangePasswordOtp', (tester) async {
+      final fakeAuthRepo = FakeAuthRepository();
+      final container = ProviderContainer(
+        overrides: [
+          authProvider.overrideWith(
+            () => _FixedAuthNotifier(_unauthenticatedSession),
+          ),
+          authRepositoryProvider.overrideWith((_) => fakeAuthRepo),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      router.go(RouteNames.resetOtpVerification, extra: 'anya@example.com');
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey<String>('reset_otp_code_input')),
+        findsOneWidget,
+        reason: 'must have landed on the OTP screen, not been redirected',
+      );
+
+      await drainResendCooldown(tester);
+      await tester.tap(find.byKey(const ValueKey<String>('reset_otp_resend')));
+      await tester.pump();
+      await tester.pump();
+      // fixed-wait-ok: real-async integration step — lets onRequestOtp resolve.
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(fakeAuthRepo.requestPasswordResetCalls, hasLength(1));
+      expect(
+        fakeAuthRepo.requestPasswordResetCalls.single.email,
+        'anya@example.com',
+      );
+      expect(fakeAuthRepo.requestChangePasswordOtpCallCount, 0);
+    });
+
+    testWidgets('resend on /settings/change-password calls the AUTHENTICATED '
+        'requestChangePasswordOtp — never requestPasswordReset — and '
+        'verify resolves the SESSION email, not a client-supplied one', (
+      tester,
+    ) async {
+      final fakeAuthRepo = FakeAuthRepository();
+      final container = ProviderContainer(
+        overrides: [
+          authProvider.overrideWith(
+            () => _FixedAuthNotifier(_authenticatedSession),
+          ),
+          authRepositoryProvider.overrideWith((_) => fakeAuthRepo),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+          // The initial splash→authenticated redirect lands briefly on
+          // MasterProfileScreen before we navigate away — settle its data
+          // providers so it resolves without a real Dio request (which
+          // would leak a Timer). Same rationale as makeContainer() above.
+          masterProfileProvider.overrideWith(_SettledMasterProfileNotifier.new),
+          masterRepositoryProvider.overrideWith((_) => FakeMasterRepository()),
+          serviceRepositoryProvider.overrideWith(
+            (_) => FakeServiceRepository(),
+          ),
+          approvedCategoriesProvider.overrideWith(
+            (ref) async => const <ServiceCategoryOption>[],
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      router.go(RouteNames.changePassword);
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey<String>('reset_otp_code_input')),
+        findsOneWidget,
+        reason: 'must have landed on the OTP screen, not been redirected',
+      );
+
+      await drainResendCooldown(tester);
+      await tester.tap(find.byKey(const ValueKey<String>('reset_otp_resend')));
+      await tester.pump();
+      await tester.pump();
+      // fixed-wait-ok: real-async integration step — lets onRequestOtp resolve.
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(fakeAuthRepo.requestChangePasswordOtpCallCount, 1);
+      expect(fakeAuthRepo.requestPasswordResetCalls, isEmpty);
+
+      // Submit the code and confirm `onVerify` resolved the SESSION's own
+      // email (from authProvider), not an empty/attacker-controlled one —
+      // this route's closure never receives a client-supplied email extra.
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('reset_otp_code_input')),
+        '123456',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey<String>('reset_otp_submit')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(fakeAuthRepo.verifyPasswordResetOtpCalls, hasLength(1));
+      expect(
+        fakeAuthRepo.verifyPasswordResetOtpCalls.single.email,
+        _fakeUser.email,
+      );
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------

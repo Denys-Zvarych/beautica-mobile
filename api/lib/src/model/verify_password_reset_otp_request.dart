@@ -6,59 +6,62 @@
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
-part 'reset_password_request.g.dart';
+part 'verify_password_reset_otp_request.g.dart';
 
-/// ResetPasswordRequest
+/// VerifyPasswordResetOtpRequest
 ///
 /// Properties:
-/// * [resetTicket]
-/// * [newPassword]
+/// * [email]
+/// * [code]
 @BuiltValue()
-abstract class ResetPasswordRequest
-    implements Built<ResetPasswordRequest, ResetPasswordRequestBuilder> {
-  @BuiltValueField(wireName: r'resetTicket')
-  String get resetTicket;
+abstract class VerifyPasswordResetOtpRequest
+    implements
+        Built<VerifyPasswordResetOtpRequest,
+            VerifyPasswordResetOtpRequestBuilder> {
+  @BuiltValueField(wireName: r'email')
+  String get email;
 
-  @BuiltValueField(wireName: r'newPassword')
-  String get newPassword;
+  @BuiltValueField(wireName: r'code')
+  String get code;
 
-  ResetPasswordRequest._();
+  VerifyPasswordResetOtpRequest._();
 
-  factory ResetPasswordRequest([void updates(ResetPasswordRequestBuilder b)]) =
-      _$ResetPasswordRequest;
+  factory VerifyPasswordResetOtpRequest(
+          [void updates(VerifyPasswordResetOtpRequestBuilder b)]) =
+      _$VerifyPasswordResetOtpRequest;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(ResetPasswordRequestBuilder b) => b;
+  static void _defaults(VerifyPasswordResetOtpRequestBuilder b) => b;
 
   @BuiltValueSerializer(custom: true)
-  static Serializer<ResetPasswordRequest> get serializer =>
-      _$ResetPasswordRequestSerializer();
+  static Serializer<VerifyPasswordResetOtpRequest> get serializer =>
+      _$VerifyPasswordResetOtpRequestSerializer();
 }
 
-class _$ResetPasswordRequestSerializer
-    implements PrimitiveSerializer<ResetPasswordRequest> {
+class _$VerifyPasswordResetOtpRequestSerializer
+    implements PrimitiveSerializer<VerifyPasswordResetOtpRequest> {
   @override
   final Iterable<Type> types = const [
-    ResetPasswordRequest,
-    _$ResetPasswordRequest
+    VerifyPasswordResetOtpRequest,
+    _$VerifyPasswordResetOtpRequest
   ];
 
   @override
-  final String wireName = r'ResetPasswordRequest';
+  final String wireName = r'VerifyPasswordResetOtpRequest';
 
   Iterable<Object?> _serializeProperties(
     Serializers serializers,
-    ResetPasswordRequest object, {
+    VerifyPasswordResetOtpRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'resetTicket';
+    yield r'email';
     yield serializers.serialize(
-      object.resetTicket,
+      object.email,
       specifiedType: const FullType(String),
     );
-    yield r'newPassword';
+    yield r'code';
     yield serializers.serialize(
-      object.newPassword,
+      object.code,
       specifiedType: const FullType(String),
     );
   }
@@ -66,7 +69,7 @@ class _$ResetPasswordRequestSerializer
   @override
   Object serialize(
     Serializers serializers,
-    ResetPasswordRequest object, {
+    VerifyPasswordResetOtpRequest object, {
     FullType specifiedType = FullType.unspecified,
   }) {
     return _serializeProperties(serializers, object,
@@ -79,26 +82,26 @@ class _$ResetPasswordRequestSerializer
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
     required List<Object?> serializedList,
-    required ResetPasswordRequestBuilder result,
+    required VerifyPasswordResetOtpRequestBuilder result,
     required List<Object?> unhandled,
   }) {
     for (var i = 0; i < serializedList.length; i += 2) {
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'resetTicket':
+        case r'email':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
-          result.resetTicket = valueDes;
+          result.email = valueDes;
           break;
-        case r'newPassword':
+        case r'code':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(String),
           ) as String;
-          result.newPassword = valueDes;
+          result.code = valueDes;
           break;
         default:
           unhandled.add(key);
@@ -109,12 +112,12 @@ class _$ResetPasswordRequestSerializer
   }
 
   @override
-  ResetPasswordRequest deserialize(
+  VerifyPasswordResetOtpRequest deserialize(
     Serializers serializers,
     Object serialized, {
     FullType specifiedType = FullType.unspecified,
   }) {
-    final result = ResetPasswordRequestBuilder();
+    final result = VerifyPasswordResetOtpRequestBuilder();
     final serializedList = (serialized as Iterable<Object?>).toList();
     final unhandled = <Object?>[];
     _deserializeProperties(

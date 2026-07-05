@@ -13,8 +13,17 @@ import 'package:flutter_test/flutter_test.dart';
 ///      ACTION_VIEW intent URL to go_router via the framework),
 ///   2. MainActivity `launchMode="singleTop"` (so a warm-app deep link reuses
 ///      the existing task instead of spawning a duplicate),
-///   3. the `autoVerify` App-Link intent-filter for `/reset-password` on the
+///   3. the `autoVerify` App-Link intent-filter for `/invite/accept` on the
 ///      production Railway host.
+///
+/// mobile-security MEDIUM (Beautica OTP task): the `/reset-password`
+/// `autoVerify` intent-filter that used to be asserted here was REMOVED from
+/// the manifest. It was a stale holdover from the retired emailed-link
+/// `?token=` flow — `android:pathPrefix` matches by prefix, so it also
+/// claimed `/reset-password/otp` (the new unauthenticated OTP-entry screen)
+/// as a live exported deep-link surface, even though that screen only ever
+/// reads `GoRouterState.extra` from in-app navigation and never a URL. See
+/// the regression guard below asserting it stays gone.
 ///
 /// An accidental manifest edit would silently break deep-link routing and only
 /// surface in the gated patrol job. This contract test reads the raw manifest
@@ -73,7 +82,7 @@ void main() {
             'android:value="true"/>. Without it, an approved https ACTION_VIEW '
             'intent reaching MainActivity is NOT forwarded to Flutter\'s '
             'RouteInformationProvider, so go_router never navigates to '
-            '/reset-password and deep-linking silently breaks.',
+            '/invite/accept and deep-linking silently breaks.',
       );
     });
 
@@ -105,11 +114,11 @@ void main() {
       );
     });
 
-    test('declares an autoVerify App-Link intent-filter for /reset-password '
+    test('declares an autoVerify App-Link intent-filter for /invite/accept '
         'on the production host', () {
       // Slice each <intent-filter ...> ... </intent-filter> block and find the
       // one that is autoVerify="true" AND targets the production host AND
-      // references /reset-password via pathPrefix | pathPattern | path.
+      // references /invite/accept via pathPrefix | pathPattern | path.
       final intentFilters = RegExp(
         r'<intent-filter\b[^>]*>.*?</intent-filter>',
         dotAll: true,
@@ -126,7 +135,82 @@ void main() {
         'android:host\\s*=\\s*"${RegExp.escape(productionHost)}"',
       );
       // Accept pathPrefix, pathPattern, or path attributes referencing
-      // /reset-password.
+      // /invite/accept.
+      final invitePath = RegExp(
+        r'android:path(Prefix|Pattern)?\s*=\s*"[^"]*/invite/accept[^"]*"',
+      );
+
+      final matching = intentFilters.where((block) {
+        final c = block.replaceAll(RegExp(r'\s+'), ' ');
+        return autoVerify.hasMatch(c) &&
+            host.hasMatch(c) &&
+            invitePath.hasMatch(c);
+      }).toList();
+
+      expect(
+        matching,
+        isNotEmpty,
+        reason:
+            'Missing the App-Link intent-filter that handles invite-accept '
+            'deep links. Expected a single <intent-filter '
+            'android:autoVerify="true"> containing <data '
+            'android:host="$productionHost" '
+            'android:pathPrefix="/invite/accept" .../>. autoVerify prevents '
+            'a competing app from intercepting the single-use invite token '
+            'from the emailed link.',
+      );
+    });
+
+    test('invite/accept App-Link uses the https scheme', () {
+      // Defence-in-depth: the invite/accept App-Link must be https (App Links
+      // are https-only; an http data element would never auto-verify).
+      final inviteFilter = RegExp(
+        r'<intent-filter\b[^>]*android:autoVerify\s*=\s*"true"[^>]*>'
+        r'(?:(?!</intent-filter>).)*?/invite/accept'
+        r'(?:(?!</intent-filter>).)*?</intent-filter>',
+        dotAll: true,
+      ).firstMatch(manifest);
+
+      expect(
+        inviteFilter,
+        isNotNull,
+        reason:
+            'Could not isolate the autoVerify /invite/accept '
+            'intent-filter to check its scheme.',
+      );
+
+      final httpsScheme = RegExp(r'android:scheme\s*=\s*"https"');
+      expect(
+        httpsScheme.hasMatch(
+          inviteFilter!.group(0)!.replaceAll(RegExp(r'\s+'), ' '),
+        ),
+        isTrue,
+        reason:
+            'The /invite/accept App-Link intent-filter must use '
+            'android:scheme="https". App Links are https-only; an http scheme '
+            'would silently fail to auto-verify against assetlinks.json.',
+      );
+    });
+
+    // mobile-security MEDIUM (Beautica OTP task) — regression guard. The
+    // /reset-password autoVerify intent-filter was intentionally REMOVED: it
+    // was a stale holdover from the retired emailed-link `?token=` flow, and
+    // because android:pathPrefix matches by prefix it also kept
+    // /reset-password/otp (the new unauthenticated OTP-entry screen) claimed
+    // as a live exported deep-link surface for a flow that no longer receives
+    // anything meaningful from a URL. Fails red if this filter is
+    // reintroduced.
+    test('does NOT declare an autoVerify App-Link intent-filter for '
+        '/reset-password (retired — OTP flow uses in-app navigation only)', () {
+      final intentFilters = RegExp(
+        r'<intent-filter\b[^>]*>.*?</intent-filter>',
+        dotAll: true,
+      ).allMatches(manifest).map((m) => m.group(0)!).toList();
+
+      final autoVerify = RegExp(r'android:autoVerify\s*=\s*"true"');
+      final host = RegExp(
+        'android:host\\s*=\\s*"${RegExp.escape(productionHost)}"',
+      );
       final resetPath = RegExp(
         r'android:path(Prefix|Pattern)?\s*=\s*"[^"]*/reset-password[^"]*"',
       );
@@ -140,46 +224,14 @@ void main() {
 
       expect(
         matching,
-        isNotEmpty,
+        isEmpty,
         reason:
-            'Missing the App-Link intent-filter that handles password-reset '
-            'deep links. Expected a single <intent-filter '
-            'android:autoVerify="true"> containing <data '
-            'android:host="$productionHost" '
-            'android:pathPrefix="/reset-password" .../>. autoVerify prevents '
-            'a competing app from intercepting the single-use reset token '
-            'from the emailed link.',
-      );
-    });
-
-    test('reset-password App-Link uses the https scheme', () {
-      // Defence-in-depth: the reset-password App-Link must be https (App Links
-      // are https-only; an http data element would never auto-verify).
-      final resetFilter = RegExp(
-        r'<intent-filter\b[^>]*android:autoVerify\s*=\s*"true"[^>]*>'
-        r'(?:(?!</intent-filter>).)*?/reset-password'
-        r'(?:(?!</intent-filter>).)*?</intent-filter>',
-        dotAll: true,
-      ).firstMatch(manifest);
-
-      expect(
-        resetFilter,
-        isNotNull,
-        reason:
-            'Could not isolate the autoVerify /reset-password '
-            'intent-filter to check its scheme.',
-      );
-
-      final httpsScheme = RegExp(r'android:scheme\s*=\s*"https"');
-      expect(
-        httpsScheme.hasMatch(
-          resetFilter!.group(0)!.replaceAll(RegExp(r'\s+'), ' '),
-        ),
-        isTrue,
-        reason:
-            'The /reset-password App-Link intent-filter must use '
-            'android:scheme="https". App Links are https-only; an http scheme '
-            'would silently fail to auto-verify against assetlinks.json.',
+            'A /reset-password autoVerify App-Link intent-filter has been '
+            'reintroduced. Nothing in the OTP password-reset flow needs '
+            'external linkability anymore (ResetOtpVerificationScreen / '
+            'ResetPasswordScreen only ever consume GoRouterState.extra), '
+            'and android:pathPrefix would also re-claim '
+            '/reset-password/otp as an exported surface.',
       );
     });
 

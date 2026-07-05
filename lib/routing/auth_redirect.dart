@@ -92,10 +92,13 @@ String? authRedirectForLocation(
   // + /register/step-3. They are all unauthenticated-only and treated as the
   // same auth-route surface as /register.
   //
-  // Phase 2.13 — the forgot-password flow (/forgot-password + /reset-password)
-  // is likewise unauthenticated-only. /reset-password is reached via the
-  // emailed deep link with a `?token=` query param; matchedLocation strips the
-  // query string, so it matches RouteNames.resetPassword here.
+  // Phase 2.13 / Beautica OTP task Phase B — the forgot-password flow
+  // (/forgot-password + /reset-password/otp) is unauthenticated-only.
+  // /reset-password/otp now receives the submitted email via in-app
+  // navigation `extra` rather than being reached from an emailed link
+  // directly. NOTE: /reset-password (the final "set new password" step) is
+  // deliberately NOT listed here — see [isAtDualAccessResetPasswordRoute]
+  // below, since that screen is also reachable authenticated.
   //
   // Phase 2.20 — /invite/accept is unauthenticated-only. It is reached from
   // the emailed invite deep link (`/invite/accept?token=...`). Once the user
@@ -109,12 +112,25 @@ String? authRedirectForLocation(
       location == RouteNames.registerStep2 ||
       location == RouteNames.registerStep3 ||
       location == RouteNames.forgotPassword ||
-      location == RouteNames.resetPassword ||
+      location == RouteNames.resetOtpVerification ||
       location == RouteNames.acceptInvite;
+
+  // Beautica OTP task Phase B4/B5 — /reset-password ("set new password") is
+  // reachable by BOTH unauthenticated users (the forgot-password OTP flow)
+  // and authenticated users (the settings change-password flow) —
+  // `ResetPasswordScreen` is the SAME widget for both, distinguished only by
+  // the `fromChangePassword` flag carried in its `ResetPasswordArgs` extra.
+  // Mirrors [isAtPostRegisterRoute]'s rationale: an authenticated user here
+  // must NOT be bounced to /home, so this is excluded from the strict
+  // "authenticated + unauthOnlyRoute → role home" rule below.
+  final isAtDualAccessResetPasswordRoute = location == RouteNames.resetPassword;
 
   // Routes where an unauthenticated user may remain once session has settled.
   // /splash is NOT included — it is only valid while session.isLoading is true.
-  final isAtAuthRoute = isAtUnauthOnlyRoute || isAtPostRegisterRoute;
+  final isAtAuthRoute =
+      isAtUnauthOnlyRoute ||
+      isAtPostRegisterRoute ||
+      isAtDualAccessResetPasswordRoute;
 
   // While the session is resolving, do NOT yank a user off an auth route they
   // are already on. This matters for the registration wizard: register()

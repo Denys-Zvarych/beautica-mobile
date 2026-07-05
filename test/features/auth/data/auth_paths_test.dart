@@ -32,17 +32,21 @@
 //   7.  kAuthPaths contains /api/v1/auth/resend-verification.
 //   8.  kAuthPaths contains /api/v1/auth/forgot-password.
 //   9.  kAuthPaths contains /api/v1/auth/reset-password.
+//   9b. kAuthPaths contains /api/v1/auth/verify-password-reset-otp (Beautica
+//       OTP task Phase A3/B2 — the new public password-reset OTP-verify step).
 //  10.  kAuthPaths contains /api/v1/auth/invite/validate.
 //  11.  kAuthPaths contains /api/v1/auth/invite/accept.
 //  12.  /api/v1/independent-masters/me is in kPiiPaths but NOT kAuthPaths.
 //  13.  /api/v1/masters/me is in kPiiPaths but NOT kAuthPaths.
-//  14.  kAuthPaths has exactly 11 entries — no undocumented extras.
+//  14.  kAuthPaths has exactly 12 entries — no undocumented extras.
 //  14b. kPiiPaths is a strict superset of kAuthPaths.
-//  15.  kPiiPaths has exactly 16 entries = kAuthPaths (11) + 5 authenticated
+//  15.  kPiiPaths has exactly 18 entries = kAuthPaths (12) + 6 authenticated
 //       PII paths: /api/v1/independent-masters/me,
-//       /api/v1/independent-masters/me/profile, /api/v1/masters/me,
-//       /api/v1/search/masters, /api/v1/search/salons (the last two added by
-//       commit b550428 — auth-gated address redaction).
+//       /api/v1/independent-masters/me/profile, /api/v1/masters/me, the two
+//       auth-gated discovery search paths /api/v1/search/masters +
+//       /api/v1/search/salons (added by commit b550428 — auth-gated address
+//       redaction), and the Phase 14.0 CLIENT booking create endpoint
+//       /api/v1/bookings.
 
 import 'package:beautica_mobile/core/network/auth_paths.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -131,6 +135,19 @@ void main() {
       },
     );
 
+    test('9b. contains /api/v1/auth/verify-password-reset-otp (Beautica OTP '
+        'task Phase A3/B2 — email + code must not be logged)', () {
+      expect(
+        kAuthPaths,
+        contains('/api/v1/auth/verify-password-reset-otp'),
+        reason:
+            'AuthInterceptor must NOT attach a bearer token to this '
+            'unauthenticated endpoint (the user has no session yet), and '
+            'LoggingInterceptor must redact the request body (the email + '
+            'OTP code are sensitive).',
+      );
+    });
+
     test(
       '10. contains /api/v1/auth/invite/validate (Phase 2.20 — invite token must not be logged)',
       () {
@@ -203,11 +220,11 @@ void main() {
     // -----------------------------------------------------------------------
 
     test(
-      '14. kAuthPaths has exactly 11 entries (unauthenticated endpoints only)',
+      '14. kAuthPaths has exactly 12 entries (unauthenticated endpoints only)',
       () {
         expect(
           kAuthPaths.length,
-          equals(11),
+          equals(12),
           reason:
               'A path was added to or removed from kAuthPaths without a '
               'corresponding test update. kAuthPaths must only contain unauthenticated '
@@ -231,8 +248,8 @@ void main() {
         );
       }
       // kPiiPaths must be strictly larger than kAuthPaths (Phase 4.2 + the
-      // 2026-06-25 address-redaction fix added 5 authenticated PII paths that
-      // are NOT in kAuthPaths).
+      // 2026-06-25 address-redaction fix + Phase 14.0 added 6 authenticated
+      // PII paths that are NOT in kAuthPaths).
       expect(
         kPiiPaths.length,
         greaterThan(kAuthPaths.length),
@@ -244,18 +261,18 @@ void main() {
     });
 
     test(
-      '15. kPiiPaths has exactly 17 entries (kAuthPaths union + 6 authenticated PII paths)',
+      '15. kPiiPaths has exactly 18 entries (kAuthPaths union + 6 authenticated PII paths)',
       () {
         expect(
           kPiiPaths.length,
-          equals(17),
+          equals(18),
           reason:
-              'kPiiPaths must equal kAuthPaths (11) plus '
+              'kPiiPaths must equal kAuthPaths (12) plus '
               '/api/v1/independent-masters/me, /api/v1/independent-masters/me/profile, '
               '/api/v1/masters/me, the two auth-gated discovery search paths '
               '/api/v1/search/masters + /api/v1/search/salons, and the '
               'Phase 14.0 CLIENT booking create endpoint /api/v1/bookings '
-              '(6 authenticated PII paths = 17 total). The search paths were '
+              '(6 authenticated PII paths = 18 total). The search paths were '
               'added by commit b550428 (auth-gated address redaction); '
               '/api/v1/bookings was added by the Phase 14.0 security fix '
               '(POST /bookings carries the free-text clientComment field). '

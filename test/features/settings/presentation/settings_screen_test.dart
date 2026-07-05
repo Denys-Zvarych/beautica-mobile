@@ -18,6 +18,9 @@
 // ScreenProtector native calls are kDebugMode-suppressed in the test runner.
 // Navigation is driven by a minimal GoRouter (initial route = /settings).
 
+import 'dart:async';
+
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -46,6 +49,12 @@ GoRouter _makeRouter() => GoRouter(
     GoRoute(
       path: RouteNames.login,
       builder: (_, _) => const Scaffold(body: Text('login')),
+    ),
+    // Beautica OTP task Phase B5 — "Change password" row destination.
+    GoRoute(
+      path: RouteNames.changePassword,
+      builder: (_, _) =>
+          const Scaffold(body: Center(child: Text('change-password'))),
     ),
   ],
 );
@@ -136,6 +145,125 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('switch-notifications')), findsOneWidget);
     });
+
+    // Beautica OTP task Phase B5 -----------------------------------------------
+    testWidgets(
+      'A9. "Change password" row sends the initial OTP then navigates to '
+      'RouteNames.changePassword',
+      (tester) async {
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+        final repo = FakeAuthRepository();
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: FakeSecureStorage()),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('row-change-password')), findsOneWidget);
+
+        await tester.ensureVisible(
+          find.byKey(const Key('row-change-password')),
+        );
+        await tester.tap(find.byKey(const Key('row-change-password')));
+        await tester.pumpAndSettle();
+
+        // The OTP was sent BEFORE navigating — never navigate the user onto an
+        // OTP entry screen for a code that was never actually dispatched.
+        expect(repo.requestChangePasswordOtpCallCount, 1);
+        expect(find.text('change-password'), findsOneWidget);
+      },
+    );
+
+    testWidgets('A10. "Change password" row shows an inline error and does NOT '
+        'navigate when requestChangePasswordOtp fails (e.g. 429 cooldown)', (
+      tester,
+    ) async {
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+      final repo = FakeAuthRepository()
+        ..requestChangePasswordOtpResult = const ResendThrottledFailure(
+          retryAfterSeconds: 42,
+        );
+
+      await tester.pumpWidget(
+        _buildApp(router: router, repo: repo, storage: FakeSecureStorage()),
+      );
+      await tester.pumpAndSettle();
+      final l10n = AppLocalizations.of(
+        tester.element(find.byKey(const Key('row-change-password'))),
+      );
+
+      await tester.ensureVisible(find.byKey(const Key('row-change-password')));
+      await tester.tap(find.byKey(const Key('row-change-password')));
+      await tester.pumpAndSettle();
+
+      expect(repo.requestChangePasswordOtpCallCount, 1);
+      // Stayed on /settings — never navigated to a dead OTP screen.
+      expect(find.text('change-password'), findsNothing);
+      expect(
+        find.text(l10n.verificationErrResendThrottled(42)),
+        findsOneWidget,
+      );
+    });
+
+    // mobile-perf MEDIUM fix — the change-password row now surfaces the
+    // in-flight OTP request visually (dimmed row + spinner instead of the
+    // chevron) via SettingsRow.loading, instead of giving zero feedback while
+    // `_requestingChangePasswordOtp` silently guards against a double-tap.
+    testWidgets(
+      'settings_change_password_row_shows_loading_during_otp_request',
+      (tester) async {
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+        final completer = Completer<void>();
+        final repo = FakeAuthRepository()
+          ..requestChangePasswordOtpDelay = completer.future;
+
+        await tester.pumpWidget(
+          _buildApp(router: router, repo: repo, storage: FakeSecureStorage()),
+        );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(
+          find.byKey(const Key('row-change-password')),
+        );
+
+        // No loading indicator before the tap — chevron shown instead.
+        expect(
+          find.byKey(const ValueKey<String>('settings_row_loading')),
+          findsNothing,
+        );
+
+        await tester.tap(find.byKey(const Key('row-change-password')));
+        await tester.pump(); // begin the async requestChangePasswordOtp call
+
+        // Loading spinner visible + the row itself reports loading:true while
+        // the request is in flight.
+        expect(
+          find.byKey(const ValueKey<String>('settings_row_loading')),
+          findsOneWidget,
+        );
+        final SettingsRow row = tester.widget(
+          find.byKey(const Key('row-change-password')),
+        );
+        expect(row.loading, isTrue);
+
+        // A second tap while loading is visibly absorbed — no second call.
+        await tester.tap(find.byKey(const Key('row-change-password')));
+        await tester.pump();
+        expect(repo.requestChangePasswordOtpCallCount, 1);
+
+        // Resolve the pending request and let the screen navigate onward.
+        completer.complete();
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey<String>('settings_row_loading')),
+          findsNothing,
+        );
+        expect(find.text('change-password'), findsOneWidget);
+      },
+    );
   });
 
   // ANB — notification-bell icon swap guard --------------------------------

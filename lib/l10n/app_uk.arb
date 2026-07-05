@@ -1092,6 +1092,58 @@
   "@resetErrTokenInvalid": {
     "description": "userMessage for ResetTokenInvalidFailure (generic backend 400 for invalid/used/expired reset token)."
   },
+
+  "resetOtpHeadline": "Підтвердіть код",
+  "@resetOtpHeadline": {
+    "description": "Headline on the generalized password-reset OTP screen (ResetOtpVerificationScreen), reused verbatim by both the forgot-password flow and the settings change-password flow."
+  },
+  "resetOtpCardDesc": "Ми надіслали 6-значний код на",
+  "@resetOtpCardDesc": {
+    "description": "Card description before the masked email address on the password-reset OTP screen."
+  },
+  "resetOtpConfirmBtn": "Підтвердити",
+  "@resetOtpConfirmBtn": {
+    "description": "CTA button label on the password-reset OTP screen."
+  },
+  "resetOtpResendPrompt": "Не отримали код?",
+  "@resetOtpResendPrompt": {
+    "description": "Leading prompt in the resend row on the password-reset OTP screen."
+  },
+  "resetOtpResendTimer": "Надіслати знову ({time})",
+  "@resetOtpResendTimer": {
+    "description": "Countdown timer text shown while the resend cooldown is active on the password-reset OTP screen.",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "30 с"
+      }
+    }
+  },
+  "resetOtpResendBtn": "Надіслати знову",
+  "@resetOtpResendBtn": {
+    "description": "Resend code link shown when the countdown reaches zero on the password-reset OTP screen."
+  },
+  "resetOtpSemantics": "Код підтвердження, 6 цифр",
+  "@resetOtpSemantics": {
+    "description": "Accessibility label for the OTP entry as a whole on the password-reset OTP screen."
+  },
+  "resetOtpErrInvalidCode": "Невірний код. Перевірте та спробуйте ще раз.",
+  "@resetOtpErrInvalidCode": {
+    "description": "userMessage for PasswordResetOtpFailure.invalidCode (POST /auth/verify-password-reset-otp returns INVALID_CODE)."
+  },
+  "resetOtpErrCodeExpired": "Термін дії коду минув. Надішліть код повторно.",
+  "@resetOtpErrCodeExpired": {
+    "description": "userMessage for PasswordResetOtpFailure.codeExpired (POST /auth/verify-password-reset-otp returns CODE_EXPIRED)."
+  },
+  "changePasswordRowLabel": "Змінити пароль",
+  "@changePasswordRowLabel": {
+    "description": "Settings row label that opens the authenticated change-password OTP flow (account settings screen)."
+  },
+  "changePasswordForcedLogoutMessage": "Пароль змінено. Увійдіть знову.",
+  "@changePasswordForcedLogoutMessage": {
+    "description": "Snackbar shown after a successful password change FROM THE SETTINGS FLOW, right before the proactive logout + redirect to /login (the backend revokes the caller's own refresh token on any password reset)."
+  },
+
   "inviteHeading": "Вас запрошено",
   "@inviteHeading": {
     "description": "Main heading on the accept-invite screen."

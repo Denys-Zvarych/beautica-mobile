@@ -77,6 +77,7 @@ Class | Method | HTTP request | Description
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**sendInvite**](doc/AuthControllerApi.md#sendinvite) | **POST** /api/v1/auth/invite | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**validateInvite**](doc/AuthControllerApi.md#validateinvite) | **GET** /api/v1/auth/invite/validate | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**verifyEmail**](doc/AuthControllerApi.md#verifyemail) | **POST** /api/v1/auth/verify-email | 
+[*AuthControllerApi*](doc/AuthControllerApi.md) | [**verifyPasswordResetOtp**](doc/AuthControllerApi.md#verifypasswordresetotp) | **POST** /api/v1/auth/verify-password-reset-otp | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**cancelBooking**](doc/BookingControllerApi.md#cancelbooking) | **PATCH** /api/v1/bookings/{bookingId}/cancel | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**completeBooking**](doc/BookingControllerApi.md#completebooking) | **PATCH** /api/v1/bookings/{bookingId}/complete | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**confirmBooking**](doc/BookingControllerApi.md#confirmbooking) | **PATCH** /api/v1/bookings/{bookingId}/confirm | 
@@ -167,6 +168,7 @@ Class | Method | HTTP request | Description
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServicePhoto**](doc/ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
 [*SupportControllerApi*](doc/SupportControllerApi.md) | [**contact**](doc/SupportControllerApi.md#contact) | **POST** /api/v1/support/contact | Send a Help / Contact-us message to support
 [*UserControllerApi*](doc/UserControllerApi.md) | [**getMe**](doc/UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
+[*UserControllerApi*](doc/UserControllerApi.md) | [**requestChangePasswordOtp**](doc/UserControllerApi.md#requestchangepasswordotp) | **POST** /api/v1/users/me/change-password/request-otp | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**updateMe**](doc/UserControllerApi.md#updateme) | **PATCH** /api/v1/users/me | 
 
 
@@ -226,6 +228,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseScheduleOverrideResponse](doc/ApiResponseScheduleOverrideResponse.md)
  - [ApiResponseServiceDefinitionResponse](doc/ApiResponseServiceDefinitionResponse.md)
  - [ApiResponseUserProfileResponse](doc/ApiResponseUserProfileResponse.md)
+ - [ApiResponseVerifyPasswordResetOtpResponse](doc/ApiResponseVerifyPasswordResetOtpResponse.md)
  - [ApiResponseVoid](doc/ApiResponseVoid.md)
  - [ApiResponseWeeklyScheduleResponse](doc/ApiResponseWeeklyScheduleResponse.md)
  - [ApprovedCategoryResponse](doc/ApprovedCategoryResponse.md)
@@ -338,6 +341,8 @@ Class | Method | HTTP request | Description
  - [UploadPortfolioPhotoRequest](doc/UploadPortfolioPhotoRequest.md)
  - [UserProfileResponse](doc/UserProfileResponse.md)
  - [VerifyEmailRequest](doc/VerifyEmailRequest.md)
+ - [VerifyPasswordResetOtpRequest](doc/VerifyPasswordResetOtpRequest.md)
+ - [VerifyPasswordResetOtpResponse](doc/VerifyPasswordResetOtpResponse.md)
  - [WeeklyScheduleDayRequest](doc/WeeklyScheduleDayRequest.md)
  - [WeeklyScheduleDayResponse](doc/WeeklyScheduleDayResponse.md)
  - [WeeklyScheduleRequest](doc/WeeklyScheduleRequest.md)

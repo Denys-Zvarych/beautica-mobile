@@ -565,8 +565,83 @@ class AuthNotifier extends _$AuthNotifier {
     }
   }
 
-  /// Confirms a password reset with the single-use [token] and [newPassword]
-  /// (backend Phase 11.3).
+  /// Requests a password-reset OTP for the AUTHENTICATED caller (backend
+  /// Phase A3 — the "change password from settings" entry point).
+  ///
+  /// Does NOT mutate [state] — the request only triggers a backend
+  /// side-effect (emailing an OTP). The calling screen wraps this in
+  /// `try/catch` so it can render [ResendThrottledFailure] (429) inline —
+  /// unlike [requestPasswordReset], this authenticated entry point DOES
+  /// surface the per-account resend cooldown as a 429.
+  ///
+  /// Throws whatever [AuthRepository.requestChangePasswordOtp] throws.
+  Future<void> requestChangePasswordOtp() async {
+    try {
+      await ref.read(authRepositoryProvider).requestChangePasswordOtp();
+      if (kDebugMode) {
+        log(
+          'requestChangePasswordOtp dispatched',
+          name: 'auth.reset',
+          level: 800,
+        );
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'requestChangePasswordOtp failed',
+          name: 'auth.reset',
+          level: 900,
+          error: e,
+          stackTrace: st,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// Verifies the 6-digit [code] emailed to [email] and returns the
+  /// single-use reset ticket to submit to [confirmPasswordReset] (backend
+  /// Phase A3). Used by BOTH the forgot-password flow (unauthenticated) and
+  /// the authenticated settings change-password flow.
+  ///
+  /// Does NOT mutate [state] — this is a pure request/response call with no
+  /// session side-effect (unlike [verifyEmail], which authenticates the
+  /// caller as a side-effect). The calling screen wraps this in `try/catch`
+  /// so it can render [PasswordResetOtpFailure] (wrong/expired code) inline.
+  ///
+  /// Throws whatever [AuthRepository.verifyPasswordResetOtp] throws.
+  Future<String> verifyPasswordResetOtp({
+    required String email,
+    required String code,
+  }) async {
+    try {
+      final ticket = await ref
+          .read(authRepositoryProvider)
+          .verifyPasswordResetOtp(email: email, code: code);
+      if (kDebugMode) {
+        log(
+          'verifyPasswordResetOtp success for ${maskEmail(email)}',
+          name: 'auth.reset',
+          level: 800,
+        );
+      }
+      return ticket;
+    } catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'verifyPasswordResetOtp failed for ${maskEmail(email)}',
+          name: 'auth.reset',
+          level: 900,
+          error: e is Failure ? e.runtimeType.toString() : 'non-Failure error',
+          stackTrace: st,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  /// Confirms a password reset with the single-use [resetTicket] (minted by
+  /// [verifyPasswordResetOtp]) and [newPassword] (backend Phase 11.3 / A3).
   ///
   /// Does NOT mutate [state] and does NOT auto-login — by design the backend
   /// issues no session on reset and the caller routes the user to the login
@@ -576,13 +651,16 @@ class AuthNotifier extends _$AuthNotifier {
   ///
   /// Throws whatever [AuthRepository.confirmPasswordReset] throws.
   Future<void> confirmPasswordReset({
-    required String token,
+    required String resetTicket,
     required String newPassword,
   }) async {
     try {
       await ref
           .read(authRepositoryProvider)
-          .confirmPasswordReset(token: token, newPassword: newPassword);
+          .confirmPasswordReset(
+            resetTicket: resetTicket,
+            newPassword: newPassword,
+          );
       if (kDebugMode) {
         log('confirmPasswordReset success', name: 'auth.reset', level: 800);
       }
@@ -593,7 +671,7 @@ class AuthNotifier extends _$AuthNotifier {
           name: 'auth.reset',
           level: 900,
           // Sanitised — never pass the raw exception (its toString may carry
-          // the token / new password from the request body).
+          // the reset ticket / new password from the request body).
           error: e is Failure ? e.runtimeType.toString() : 'non-Failure error',
           stackTrace: st,
         );

@@ -62,6 +62,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseScheduleOverrideResponse.serializer)
       ..add(ApiResponseServiceDefinitionResponse.serializer)
       ..add(ApiResponseUserProfileResponse.serializer)
+      ..add(ApiResponseVerifyPasswordResetOtpResponse.serializer)
       ..add(ApiResponseVoid.serializer)
       ..add(ApiResponseWeeklyScheduleResponse.serializer)
       ..add(ApprovedCategoryResponse.serializer)
@@ -200,6 +201,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(UploadPortfolioPhotoRequest.serializer)
       ..add(UserProfileResponse.serializer)
       ..add(VerifyEmailRequest.serializer)
+      ..add(VerifyPasswordResetOtpRequest.serializer)
+      ..add(VerifyPasswordResetOtpResponse.serializer)
       ..add(WeeklyScheduleDayRequest.serializer)
       ..add(WeeklyScheduleDayRequestModeEnum.serializer)
       ..add(WeeklyScheduleDayResponse.serializer)
@@ -457,6 +460,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
           () => ListBuilder<WorkingHoursResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),
