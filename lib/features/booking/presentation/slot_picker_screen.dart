@@ -5,8 +5,9 @@
 // `slotPickerProvider` state ([SlotDateScreen] "Оберіть дату" then
 // [SlotTimeScreen] "Оберіть час"), NOT the phase doc's original pre-approval
 // single combined-screen sketch. Both are routed via `go_router`
-// (`RouteNames.bookingSlots` → `RouteNames.bookingSlotsTime`), never
-// `Navigator.push` — see `app_router.dart` for the nested-route wiring.
+// (`RouteNames.bookingSlots` → `RouteNames.bookingSlotsTime`), never a raw
+// imperative Navigator push — see `app_router.dart` for the nested-route
+// wiring.
 //
 // SCOPE BOUNDARY (multi-service selection vs. single-service booking): the
 // approved Step 1 design lets the client multi-select services, and this
