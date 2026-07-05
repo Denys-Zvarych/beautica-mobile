@@ -21,6 +21,18 @@
 // timeout `Timer` under the fake-async test binding — the exact regression
 // `app_router_no_leaked_timer_test.dart` guards for `/master/profile`.
 //
+// This same rule applies to `slotRepositoryProvider` (overridden with
+// [FakeSlotRepository] below): `/booking/slots/time` is a NESTED GoRoute
+// under `/booking/slots` (app_router.dart), so a direct `router.go(...)` to
+// it mounts BOTH `SlotDateScreen` and `SlotTimeScreen` in the same frame.
+// `SlotDateScreen.build()` unconditionally watches `workingDaysProvider`,
+// which reads through `slotRepositoryProvider` -> `HttpSlotRepository
+// .getWorkingDays` — a real Dio call. Leaving that provider unfaked leaks a
+// connection-timeout `Timer` past this test's teardown even though the
+// screen under test is `SlotTimeScreen`, not `SlotDateScreen`. ANY future
+// route added to this file that (transitively) mounts a booking-flow screen
+// MUST get its own data-fetching providers checked against this same trap.
+//
 // COVERS
 // ------
 //   1. INDEPENDENT_MASTER is bounced off all 4 booking routes to its own
@@ -51,6 +63,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/slot_picker_notifier.dart';
+import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_success_args.dart';
@@ -87,6 +100,7 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
+import '../helpers/fakes/fake_slot_repository.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -316,6 +330,13 @@ void main() {
           serviceRepositoryProvider.overrideWith(
             (_) => FakeServiceRepository(),
           ),
+          // Settles `workingDaysProvider` (SlotDateScreen's calendar-gate
+          // fetch) synchronously — same leaked-timer regression as the
+          // profile/category overrides above, tripped by
+          // `/booking/slots/time`'s direct router.go() also mounting
+          // SlotDateScreen (nested route) in the same frame. See the file
+          // header for the full rationale.
+          slotRepositoryProvider.overrideWith((_) => FakeSlotRepository()),
           // Pre-seeds a selected date so a direct router.go() to
           // /booking/slots/time (bypassing the real "tap a day" step) does
           // not hit SlotTimeScreen's broken-flow self-pop guard — see
