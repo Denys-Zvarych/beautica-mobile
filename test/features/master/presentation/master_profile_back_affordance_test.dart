@@ -182,7 +182,14 @@ void main() {
 
         await tester.pump(); // start async providers
         await tester.pump(); // data emission from fakes
-        await tester.pump(const Duration(milliseconds: 1200)); // entrance anim
+        // Settle the 1100 ms one-shot entrance AnimationController
+        // (`_MasterProfileScreenState._controller`, forwarded exactly once
+        // from `_startReveal()` when the data state first arrives — never
+        // repeats) rather than guessing a fixed pump duration comfortably
+        // above 1100 ms. `pumpAndSettle()` converges the instant the
+        // controller completes, whatever that takes, and there is no other
+        // ticking animation in the loaded tree to keep it spinning.
+        await tester.pumpAndSettle();
 
         // (a) Trailing menu button must be present — the screen's only
         // top-bar action; proves ProfileScaffold still receives `trailing`.
@@ -265,7 +272,11 @@ void main() {
       await tester.tap(find.byKey(const Key('btn-go-master-profile')));
       await tester.pump();
       await tester.pump(); // let the route swap settle
-      await tester.pump(const Duration(milliseconds: 1200)); // entrance anim
+      // Settle the 1100 ms one-shot entrance AnimationController rather than
+      // guessing a fixed pump duration above it — see the identical comment
+      // in the first test in this file for why pumpAndSettle() is safe here
+      // (no repeating animation in the loaded tree).
+      await tester.pumpAndSettle();
 
       // The menu button confirms MasterProfileScreen is now on screen.
       expect(

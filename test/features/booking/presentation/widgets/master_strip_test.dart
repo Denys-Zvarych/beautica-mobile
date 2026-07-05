@@ -191,7 +191,15 @@ void main() {
       // both routes' own copies out for empty placeholders (see this file's
       // header), so exactly one master-name text is mounted: the flying
       // shuttle's.
+      //
+      // This genuinely needs a fixed wait, not pump-until-condition: the
+      // assertion below requires catching the transition WHILE it is still
+      // running (an in-progress state), not once some end-state condition
+      // becomes true. There is no discrete "mid-flight" event to poll for —
+      // only elapsed time into a known ~300ms animation lets us sample it
+      // part-way through.
       await tester.pump();
+      // fixed-wait-ok: sampling deliberately mid-flight (150ms into a known ~300ms Cupertino transition) — no settled/discrete condition to pump-until, the test needs the transition still in progress, which is inherently time-based.
       await tester.pump(const Duration(milliseconds: 150));
 
       final String masterName = '${_kMaster.firstName} ${_kMaster.lastName}'

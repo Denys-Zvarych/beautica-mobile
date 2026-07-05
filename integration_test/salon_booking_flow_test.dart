@@ -139,10 +139,22 @@ void main() {
       // undershoots the viewport), so its indeterminate spinner starts
       // ticking immediately and no `pumpAndSettle`/`AppHarness.settle` can
       // ever converge here — settling must wait until AFTER the scroll-drain
-      // below resolves `masterHasMore` to `false`. Use bounded plain pumps to
-      // let the route push + page-0 fetch land instead.
+      // below resolves `masterHasMore` to `false`. Pump-until-condition
+      // instead of guessing a fixed wall-clock duration: the fake backend's
+      // `DioAdapter` resolves the page-0 fetch on plain microtasks (no
+      // Timer/Future.delayed anywhere in `search_results_notifier.dart`), so
+      // bare `pump()` calls (no Duration — nothing to advance a fake clock
+      // by) drain the route push + fetch in however many frames it actually
+      // takes, bounded so a genuine regression still fails fast instead of
+      // hanging.
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
+      for (
+        int i = 0;
+        i < 30 && find.byKey(const Key('results_list')).evaluate().isEmpty;
+        i++
+      ) {
+        await tester.pump();
+      }
 
       expect(
         find.byKey(const Key('results_list')),

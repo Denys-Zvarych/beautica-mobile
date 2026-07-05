@@ -139,84 +139,88 @@ String _describeNavigatorPages(WidgetTester tester) {
 }
 
 void main() {
-  testWidgets(
-    'router.push(RouteNames.masterPublicProfile(id)) through the REAL '
-    'appRouterProvider resolves to a MaterialPage, never a '
-    'CustomTransitionPage',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          authProvider.overrideWith(_FixedClientAuthNotifier.new),
-          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
-          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-          // The screen only needs to MOUNT far enough for go_router to resolve
-          // its Page — this test never asserts on rendered data, so the
-          // provider is pinned to a never-completing future. No repository or
-          // network wiring is needed and no Dio call can leak.
-          publicMasterProfileProvider(
-            _kMasterId,
-          ).overrideWith((ref) => Completer<PublicMasterProfileData>().future),
-        ],
-      );
-      addTearDown(container.dispose);
+  testWidgets('router.push(RouteNames.masterPublicProfile(id)) through the REAL '
+      'appRouterProvider resolves to a MaterialPage, never a '
+      'CustomTransitionPage', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        authProvider.overrideWith(_FixedClientAuthNotifier.new),
+        authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+        secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+        // The screen only needs to MOUNT far enough for go_router to resolve
+        // its Page — this test never asserts on rendered data, so the
+        // provider is pinned to a never-completing future. No repository or
+        // network wiring is needed and no Dio call can leak.
+        publicMasterProfileProvider(
+          _kMasterId,
+        ).overrideWith((ref) => Completer<PublicMasterProfileData>().future),
+      ],
+    );
+    addTearDown(container.dispose);
 
-      final GoRouter router = container.read(appRouterProvider);
-      addTearDown(router.dispose);
+    final GoRouter router = container.read(appRouterProvider);
+    addTearDown(router.dispose);
 
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: MaterialApp.router(
-            routerConfig: router,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            locale: const Locale('uk'),
-          ),
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
         ),
-      );
-      await tester.pump();
+      ),
+    );
+    await tester.pump();
 
-      // Mirrors MasterResultCard's production navigation call exactly
-      // (master_result_card.dart:81): `context.push(...)` is a thin wrapper
-      // over `GoRouter.of(context).push(...)`. The returned Future only
-      // resolves when the pushed route is later popped, which this test never
-      // does — `unawaited` documents that deliberately (not a leak: the route
-      // is disposed with the widget tree in tearDown).
-      unawaited(router.push(RouteNames.masterPublicProfile(_kMasterId)));
+    // Mirrors MasterResultCard's production navigation call exactly
+    // (master_result_card.dart:81): `context.push(...)` is a thin wrapper
+    // over `GoRouter.of(context).push(...)`. The returned Future only
+    // resolves when the pushed route is later popped, which this test never
+    // does — `unawaited` documents that deliberately (not a leak: the route
+    // is disposed with the widget tree in tearDown).
+    unawaited(router.push(RouteNames.masterPublicProfile(_kMasterId)));
+    await tester.pump();
+    // Pump until go_router's push actually lands the Page on the Navigator
+    // instead of guessing a fixed settle duration — `_FixedClientAuthNotifier`
+    // resolves the auth guard synchronously (state assigned before build()
+    // returns), so nothing here depends on real elapsed time; bounded so a
+    // genuine regression (Page never appears) still fails fast.
+    for (int i = 0; i < 20 && _pushedMasterProfilePage(tester) == null; i++) {
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
+    }
 
-      final Page<dynamic>? page = _pushedMasterProfilePage(tester);
-      expect(
-        page,
-        isNotNull,
-        reason:
-            'Expected a Page named $_kMasterProfileRoutePath to be present '
-            'on some Navigator after pushing '
-            '${RouteNames.masterPublicProfile(_kMasterId)} through the real '
-            'appRouterProvider. A `pageBuilder: _instantPage(...)` revert '
-            'never sets a Page `name`, so it surfaces here as "not found" '
-            'rather than a type mismatch below — actual mounted pages: '
-            '${_describeNavigatorPages(tester)}',
-      );
-      expect(
-        page,
-        isA<MaterialPage<dynamic>>(),
-        reason:
-            'A pushed /masters/:masterId must resolve to a MaterialPage so '
-            "the app theme's CupertinoPageTransitionsBuilder installs the "
-            'left-edge swipe-back gesture. A revert to `pageBuilder: '
-            '_instantPage(...)` resolves to a CustomTransitionPage instead, '
-            'silently killing swipe-back on this route again.',
-      );
-      expect(
-        page,
-        isNot(isA<CustomTransitionPage<dynamic>>()),
-        reason:
-            "CustomTransitionPage supplies its own transitionsBuilder, which "
-            "bypasses the theme's CupertinoPageTransitionsBuilder — see the "
-            'reason above.',
-      );
-    },
-  );
+    final Page<dynamic>? page = _pushedMasterProfilePage(tester);
+    expect(
+      page,
+      isNotNull,
+      reason:
+          'Expected a Page named $_kMasterProfileRoutePath to be present '
+          'on some Navigator after pushing '
+          '${RouteNames.masterPublicProfile(_kMasterId)} through the real '
+          'appRouterProvider. A `pageBuilder: _instantPage(...)` revert '
+          'never sets a Page `name`, so it surfaces here as "not found" '
+          'rather than a type mismatch below — actual mounted pages: '
+          '${_describeNavigatorPages(tester)}',
+    );
+    expect(
+      page,
+      isA<MaterialPage<dynamic>>(),
+      reason:
+          'A pushed /masters/:masterId must resolve to a MaterialPage so '
+          "the app theme's CupertinoPageTransitionsBuilder installs the "
+          'left-edge swipe-back gesture. A revert to `pageBuilder: '
+          '_instantPage(...)` resolves to a CustomTransitionPage instead, '
+          'silently killing swipe-back on this route again.',
+    );
+    expect(
+      page,
+      isNot(isA<CustomTransitionPage<dynamic>>()),
+      reason:
+          "CustomTransitionPage supplies its own transitionsBuilder, which "
+          "bypasses the theme's CupertinoPageTransitionsBuilder — see the "
+          'reason above.',
+    );
+  });
 }
