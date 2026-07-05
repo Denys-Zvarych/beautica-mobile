@@ -247,12 +247,25 @@ void main() {
         _Harness(onToggleExpand: () {}, initiallyExpanded: true),
       );
 
+      // `_rowA`/`_rowB`'s `name`/`durationLabel`/`priceLabel` are
+      // hand-written fixture data above, not `AppLocalizations` copy —
+      // `CatalogueRow.durationLabel`/`priceLabel` are documented
+      // "pre-formatted ... always render as-is" and
+      // `CatalogueCategorySection` echoes all three fields verbatim (no
+      // internal formatting/locale lookup), so these literals are exactly
+      // what the widget renders regardless of device locale.
+      // i18n-finder-ok: see the fixture-data note above (`_rowA.name`).
       expect(find.text('Класичний манікюр'), findsOneWidget);
+      // i18n-finder-ok: see the fixture-data note above (`_rowA.durationLabel`).
       expect(find.text('1 год'), findsOneWidget);
+      // i18n-finder-ok: see the fixture-data note above (`_rowA.priceLabel`).
       expect(find.text('300 грн'), findsOneWidget);
 
+      // i18n-finder-ok: see the fixture-data note above (`_rowB.name`).
       expect(find.text('Педикюр'), findsOneWidget);
+      // i18n-finder-ok: see the fixture-data note above (`_rowB.durationLabel`).
       expect(find.text('2 год'), findsOneWidget);
+      // i18n-finder-ok: see the fixture-data note above (`_rowB.priceLabel`).
       expect(find.text('800 грн'), findsOneWidget);
     });
 

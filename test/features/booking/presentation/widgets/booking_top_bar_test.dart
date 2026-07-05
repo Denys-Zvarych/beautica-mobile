@@ -94,11 +94,19 @@ void main() {
     testWidgets(
       'renders the given title and routes a back tap through onBack',
       (tester) async {
+        // `BookingTopBar` never looks up its own `title` — it's an opaque
+        // caller-supplied String (the real screens pass an
+        // `AppLocalizations`-sourced value; `BookingConfirmScreen`'s exact
+        // ARB literal is separately pinned in `booking_confirm_test.dart`).
+        // This test only proves "renders the given title", so an
+        // ASCII placeholder keeps the fixture obviously arbitrary instead of
+        // reading like a second, redundant ARB-lock assertion.
+        const String kTitle = 'Screen Title';
         int backTaps = 0;
         await tester.pumpApp(
           Scaffold(
             body: BookingTopBar(
-              title: 'Підтвердження',
+              title: kTitle,
               backSemantics: 'Назад',
               onBack: () => backTaps++,
               backKey: const Key('top-bar-back'),
@@ -106,7 +114,7 @@ void main() {
           ),
         );
 
-        expect(find.text('Підтвердження'), findsOneWidget);
+        expect(find.text(kTitle), findsOneWidget);
 
         await tester.tap(find.byKey(const Key('top-bar-back')));
         await tester.pump();

@@ -336,8 +336,9 @@ void main() {
         final fake = _FakeBookingRepository(bookingToReturn: _bookingFixture());
         await pump(tester, fake);
 
-        // i18n-finder-ok(intentional ARB-lock exception — see comment
-        // above): literal ARB value under test, not a fixture.
+        // (see the comment above for why this intentionally pins the raw
+        // ARB literal instead of a Key/AppLocalizations lookup)
+        // i18n-finder-ok: intentional ARB-lock exception, literal ARB value under test.
         expect(find.text('Підтвердження'), findsOneWidget);
       },
     );
