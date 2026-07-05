@@ -91,6 +91,11 @@ const Set<String> kPiiPaths = {
   // membership in this set matches the LoggingInterceptor's `.contains` check.
   '/api/v1/search/masters',
   '/api/v1/search/salons',
+  // Phase 14.0 — CLIENT booking create endpoint. Exact match: the bare
+  // `/api/v1/bookings` path (no dynamic segment) carries the free-text
+  // `clientComment` field on POST. The `{bookingId}` sub-routes (list/detail/
+  // cancel/reschedule) are covered by the prefix in [kPiiPathPrefixes] below.
+  '/api/v1/bookings',
 };
 
 /// Path PREFIXES whose request/response bodies — and URL query strings — carry
@@ -117,6 +122,14 @@ const List<String> kPiiPathPrefixes = <String>[
   '/api/v1/services/',
   // Service-type autocomplete echoes the user's typed free-text query.
   '/api/v1/service-types/suggest',
+  // Phase 14.0 — CLIENT booking read/write endpoints. Covers
+  // `GET /bookings/me` (paged list — enriched master name/address/price/
+  // comments), `GET /bookings/{bookingId}` (same enrichment), and
+  // `PATCH /bookings/{bookingId}/cancel` + `PATCH /bookings/{bookingId}
+  // /reschedule` (free-text cancellation `comment`). The bare
+  // `POST /bookings` create endpoint is covered separately by the exact-match
+  // entry in [kPiiPaths] (no trailing dynamic segment to match a prefix).
+  '/api/v1/bookings/',
 ];
 
 /// Path SEGMENTS (substring match) for dynamic routes whose `{masterId}` /

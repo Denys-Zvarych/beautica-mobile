@@ -7,8 +7,8 @@
 //   • NO read-only body services-list — the services count feeds the stats row;
 //   • contacts = Instagram only (no phone/dialer tile);
 //   • a pinned camel-wash booking shelf («Послуги та ціни») rendering the empty
-//     «Оберіть послугу» state — the «Записатись»/«Обрати послугу» CTA opens the
-//     Phase 14.1 booking flow (placeholder route until 14.1 ships).
+//     state — the «Записатись до майстра» CTA opens the Phase 14.1 booking
+//     flow (placeholder route until 14.1 ships).
 //
 // Data comes from [publicMasterProfileProvider] (a family keyed on masterId)
 // which loads the master + active services in parallel. All three AsyncValue
@@ -727,9 +727,9 @@ class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
 // ---------------------------------------------------------------------------
 
 /// The pinned bottom booking shelf. On the profile it renders the EMPTY state:
-/// a muted «Оберіть послугу» prompt above a camel «Обрати послугу» CTA. Tapping
-/// the CTA opens the Phase 14.1 booking flow ([RouteNames.bookingNew]) carrying
-/// the target master id in `extra`. Actual service selection lives in 14.1.
+/// a section label above a camel «Записатись до майстра» CTA. Tapping the CTA
+/// opens the Phase 14.1 booking flow ([RouteNames.bookingNew]) carrying the
+/// target master id in `extra`. Actual service selection lives in 14.1.
 class _BookingShelf extends StatelessWidget {
   const _BookingShelf({required this.masterId});
 
@@ -782,14 +782,6 @@ class _BookingShelf extends StatelessWidget {
                   style: VelvetText.sectionLabel(),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xs),
-                child: Text(
-                  l10n.publicMasterBookingEmptyPrompt,
-                  textAlign: TextAlign.center,
-                  style: _emptyPromptStyle,
-                ),
-              ),
               const SizedBox(height: VelvetSpacing.md),
               NeumorphicButton(
                 key: const Key('public-master-book-cta'),
@@ -804,10 +796,6 @@ class _BookingShelf extends StatelessWidget {
       ),
     );
   }
-
-  static final TextStyle _emptyPromptStyle = VelvetText.feedback(
-    BrandColors.muted,
-  ).copyWith(fontSize: 14);
 }
 
 // ---------------------------------------------------------------------------

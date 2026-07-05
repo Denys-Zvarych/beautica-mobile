@@ -286,12 +286,15 @@ void main() {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Booking-shelf empty state — the pinned camel-wash shelf renders its «Оберіть
-  // послугу» prompt above the «Обрати послугу» CTA once the master resolves.
+  // Booking-shelf empty state — the pinned camel-wash shelf renders the
+  // «Послуги та ціни» section label above the «Записатись до майстра» CTA once
+  // the master resolves. The «Оберіть послугу» empty prompt was removed from
+  // THIS screen (it still renders on the service-selector sheet reached after
+  // tapping the CTA).
   // ──────────────────────────────────────────────────────────────────────────
   group('booking shelf empty state', () {
-    testWidgets('renders the «Послуги та ціни» label, the empty prompt, and the '
-        'CTA once data resolves', (tester) async {
+    testWidgets('renders the «Послуги та ціни» label and the CTA once data '
+        'resolves, without the empty prompt', (tester) async {
       tester.view.physicalSize = const Size(800, 2400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -305,13 +308,18 @@ void main() {
 
       final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
 
-      // Section label + empty prompt are content assertions resolved via l10n
-      // (never raw literals — M2/M11), so an l10n rename moves them in lockstep.
+      // Section label is a content assertion resolved via l10n (never raw
+      // literals — M2/M11), so an l10n rename moves it in lockstep.
       expect(find.text(l10n.publicMasterBookingSectionLabel), findsOneWidget);
-      expect(find.text(l10n.publicMasterBookingEmptyPrompt), findsOneWidget);
+
+      // The empty prompt no longer renders on THIS screen — it moved
+      // exclusively to the service-selector sheet reached after tapping the
+      // CTA. Regression pin: never let it silently reappear here.
+      expect(find.text(l10n.publicMasterBookingEmptyPrompt), findsNothing);
 
       // The CTA is keyed (M2) — its label resolves via l10n on the live tree.
       expect(find.byKey(const Key('public-master-book-cta')), findsOneWidget);
+      expect(find.text(l10n.publicMasterBookingCta), findsOneWidget);
     });
   });
 

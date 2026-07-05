@@ -38,6 +38,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
@@ -284,6 +285,57 @@ void main() {
       // About tab default body — the salon description.
       expect(find.byKey(const Key('salon-about-text')), findsOneWidget);
     });
+
+    // Regression (Phase 14.12) — closes the reported bug: this CTA used to
+    // `context.push(RouteNames.bookingNew, extra: salon.id)`, pushing the
+    // CLIENT into the *independent-master* `ServiceSelectorSheet` with
+    // `salon.id` misused as a `masterId` — 404ing server-side
+    // (`NotFoundException: Master not found`) because a salon is not a
+    // master row. It must now push the dedicated salon booking flow's
+    // service-selection step instead, carrying the SAME `salon.id` value
+    // but as the correct extra shape for that route.
+    testWidgets(
+      '"Записатись на послугу" CTA pushes RouteNames.salonBookingServices '
+      'with extra: salon.id — NOT RouteNames.bookingNew (closes the salon '
+      'booking 404 bug)',
+      (tester) async {
+        await _pumpTall(tester);
+        final router = GoRouter(
+          initialLocation: '/salons/$_kSalonId',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/salons/:salonId',
+              builder: (context, state) => PublicSalonProfileScreen(
+                salonId: state.pathParameters['salonId']!,
+              ),
+            ),
+            GoRoute(
+              path: RouteNames.salonBookingServices,
+              builder: (_, state) =>
+                  Scaffold(body: Text('salon-services-${state.extra}')),
+            ),
+            // A trap route: if the CTA regresses back to pushing
+            // RouteNames.bookingNew, THIS route renders instead and the
+            // assertion below fails loudly rather than the test just not
+            // finding either screen.
+            GoRoute(
+              path: RouteNames.bookingNew,
+              builder: (_, state) =>
+                  Scaffold(body: Text('master-booking-${state.extra}')),
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(router, overrides: _overrides());
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-book-cta')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('salon-services-$_kSalonId'), findsOneWidget);
+        expect(find.textContaining('master-booking-'), findsNothing);
+      },
+    );
 
     // Regression: the hero name was hard-capped to `maxLines: 1` with
     // ellipsis, silently truncating any salon name too long to fit — unlike

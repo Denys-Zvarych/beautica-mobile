@@ -54,6 +54,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/public_salon_profile_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -411,20 +412,35 @@ void main() {
       expect(fb.lastAddFavoriteBody?['targetType'], 'SALON');
       expect(fb.lastAddFavoriteBody?['targetId'], 'salon-xyz');
 
-      // ── Tap the pinned booking-shelf CTA → push the booking-new route ─────
-      // Gap found during Step 2.7 Rule 3b review of the `salonBookingCta`
-      // copy rename (product copy: "Записатися в салон" → "Записатись на
-      // послугу"): the widget tier only proves the CTA *renders* with the
-      // current l10n string; nothing exercised its `onPressed` in a real
-      // navigation stack. Mirrors the existing coverage of the equivalent
-      // master-profile CTA in public_master_profile_flow_test.dart:151-158.
+      // ── Tap the pinned booking-shelf CTA → push the salon booking flow ─────
+      // UPDATED (Phase 14.12/14.13 QA follow-up): this CTA used to push
+      // [RouteNames.bookingNew] with `salon.id` misused as a `masterId` — the
+      // real bug behind the backend's `NotFoundException: Master not found`
+      // crash (public_salon_profile_screen.dart's booking CTA). It now pushes
+      // [RouteNames.salonBookingServices] (Phase 14.12 service-selection
+      // step) with the salon id, never the single-master flow. Reaching
+      // `SalonServiceSelectionScreen` (not a crash, not the old route) is the
+      // regression proof for that fix; the full salon-booking journey from
+      // here is exercised end to end by `salon_booking_flow_test.dart`.
+      // Mirrors the existing coverage of the equivalent master-profile CTA in
+      // public_master_profile_flow_test.dart:151-158.
       final Finder bookCta = find.byKey(const Key('salon-book-cta'));
       expect(bookCta, findsOneWidget);
       await tester.tap(bookCta);
       // fixed-wait-ok: settles the real async route-push step after the tap.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expectLocation(router, RouteNames.bookingNew);
+      expectLocation(router, RouteNames.salonBookingServices);
+      expect(
+        find.byType(SalonServiceSelectionScreen),
+        findsOneWidget,
+        reason:
+            'the booking CTA must land on the salon service-selection step, '
+            'never the independent-master flow (the old route misused '
+            'salon.id as a masterId and crashed the backend with '
+            'NotFoundException: Master not found)',
+      );
+      expect(tester.takeException(), isNull);
       router.pop();
       // fixed-wait-ok: settles the real async route-pop (back navigation) step.
       await tester.pumpAndSettle(const Duration(seconds: 1));

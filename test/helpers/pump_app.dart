@@ -76,11 +76,17 @@ extension PumpApp on WidgetTester {
     GoRouter router, {
     List<Object> overrides = const [],
     Locale locale = const Locale('uk'),
+    // Same knob as [pumpApp]'s `retry` — default null keeps Riverpod's
+    // default exponential-backoff retry. Pass `(_, _) => null` when a test
+    // asserts an EXACT failed-fetch call count (a retry firing mid-`await
+    // pumpAndSettle` would otherwise inflate the count non-deterministically).
+    Duration? Function(int retryCount, Object error)? retry,
   }) async {
     installOverflowGuard();
     await pumpWidget(
       ProviderScope(
         overrides: overrides.cast(),
+        retry: retry,
         child: MaterialApp.router(
           routerConfig: router,
           localizationsDelegates: AppLocalizations.localizationsDelegates,

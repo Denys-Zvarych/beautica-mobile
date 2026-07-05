@@ -404,15 +404,26 @@ class _StaggeredRevealState extends State<_StaggeredReveal>
 }
 
 // ---------------------------------------------------------------------------
-// Бронювання — Phase 14.1 placeholder. A standalone (pushed, full-screen)
-// «Скоро…» panel reached from the public master profile's «Записатись» CTA,
-// so the CTA is non-crashing until the real service-selection / slot-picker
-// flow ships. Unlike the branch placeholders above it carries its own top bar
-// (with a back arrow) because it is pushed onto the navigator, not hosted by
-// the client shell.
+// Бронювання (підтвердження) — Phase 14.1 stub for `/booking/confirm`. A
+// standalone (pushed, full-screen) «Скоро…» panel reached from the Step 2
+// time screen's «Підтвердити» CTA, so the booking flow's route/args contract
+// is exercised end-to-end even though the real confirmation/create-booking
+// screen ships in Phase 14.2. `BookingNewPlaceholderScreen` (the OLDER
+// placeholder this one supersedes at a different route) is retired — Phase
+// 14.1 replaces `/booking/new` with the real `ServiceSelectorSheet`. Unlike
+// the branch placeholders above, this screen carries its own top bar (with a
+// back arrow) because it is pushed onto the navigator, not hosted by the
+// client shell.
 // ---------------------------------------------------------------------------
-class BookingNewPlaceholderScreen extends StatelessWidget {
-  const BookingNewPlaceholderScreen({super.key});
+class BookingConfirmPlaceholderScreen extends StatelessWidget {
+  const BookingConfirmPlaceholderScreen({super.key, this.args});
+
+  /// The [BookingConfirmArgs] handed off by `SlotTimeScreen`. Nullable so a
+  /// stray direct navigation (missing/invalid `extra`) still renders this
+  /// placeholder instead of crashing; the app_router redirect guard normally
+  /// prevents that case from ever reaching here. Not yet rendered — Phase
+  /// 14.2 replaces this whole screen with the real confirmation flow.
+  final Object? args;
 
   @override
   Widget build(BuildContext context) {
@@ -428,7 +439,7 @@ class BookingNewPlaceholderScreen extends StatelessWidget {
             ),
             Expanded(
               child: ClientBranchPlaceholder(
-                key: const Key('booking-new-placeholder'),
+                key: const Key('booking-confirm-placeholder'),
                 title: l10n.bookingNewPlaceholderTitle,
                 blurb: l10n.bookingNewPlaceholderBlurb,
                 icon: Icons.event_available_rounded,

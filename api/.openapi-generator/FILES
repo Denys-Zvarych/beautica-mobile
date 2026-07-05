@@ -19,6 +19,7 @@ doc/ApiResponseListCityDistrictResponse.md
 doc/ApiResponseListCityResponse.md
 doc/ApiResponseListEffectiveDayResponse.md
 doc/ApiResponseListMasterServiceResponse.md
+doc/ApiResponseListMasterWorkingDayResponse.md
 doc/ApiResponseListOblastResponse.md
 doc/ApiResponseListPlatformCategoryUsageResponse.md
 doc/ApiResponseListPlatformServiceTypeResponse.md
@@ -115,6 +116,7 @@ doc/MasterSearchRequest.md
 doc/MasterSearchResult.md
 doc/MasterServiceResponse.md
 doc/MasterSummaryResponse.md
+doc/MasterWorkingDayResponse.md
 doc/MediaControllerApi.md
 doc/MediaFileResponse.md
 doc/MyReviewResponse.md
@@ -243,6 +245,7 @@ lib/src/model/api_response_list_city_district_response.dart
 lib/src/model/api_response_list_city_response.dart
 lib/src/model/api_response_list_effective_day_response.dart
 lib/src/model/api_response_list_master_service_response.dart
+lib/src/model/api_response_list_master_working_day_response.dart
 lib/src/model/api_response_list_oblast_response.dart
 lib/src/model/api_response_list_platform_category_usage_response.dart
 lib/src/model/api_response_list_platform_service_type_response.dart
@@ -329,6 +332,7 @@ lib/src/model/master_search_request.dart
 lib/src/model/master_search_result.dart
 lib/src/model/master_service_response.dart
 lib/src/model/master_summary_response.dart
+lib/src/model/master_working_day_response.dart
 lib/src/model/media_file_response.dart
 lib/src/model/my_review_response.dart
 lib/src/model/oblast_response.dart

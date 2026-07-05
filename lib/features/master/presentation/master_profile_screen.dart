@@ -18,7 +18,10 @@
 //
 // Services section and stat tile use live [servicesListProvider] data (Phase 5).
 //
-// Navigation: back uses `context.pop()`; the top-right menu button
+// Navigation: this is the INDEPENDENT_MASTER's tab-root/home screen, reached
+// only via `context.go(...)` (redirect landing target + all 6 nav call sites)
+// — it is always first in its stack, so it renders no back affordance
+// (`showBack: false` below). The top-right menu button
 // (Key('btn-menu-master')) pushes RouteNames.masterMenu — the settings hub that
 // lists the per-section edit pages (personal / contacts / location / account).
 
@@ -203,6 +206,12 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
 
     return ProfileScaffold(
       title: l10n.masterProfileTitle,
+      // Tab-root screen — always first in its Navigator stack (see the
+      // header comment above), so there is no route to pop back to. Without
+      // this, ProfileScaffold's `showBack` default of `true` would render a
+      // back chevron whose `onBack` calls `context.pop()` and throws
+      // `GoError('There is nothing to pop')`.
+      showBack: false,
       trailing: NeumorphicIconButton(
         key: const Key('btn-menu-master'),
         icon: BeauticaIcons.menuBurger,

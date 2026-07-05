@@ -26,6 +26,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseListCityResponse.serializer)
       ..add(ApiResponseListEffectiveDayResponse.serializer)
       ..add(ApiResponseListMasterServiceResponse.serializer)
+      ..add(ApiResponseListMasterWorkingDayResponse.serializer)
       ..add(ApiResponseListOblastResponse.serializer)
       ..add(ApiResponseListPlatformCategoryUsageResponse.serializer)
       ..add(ApiResponseListPlatformServiceTypeResponse.serializer)
@@ -126,6 +127,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(MasterServiceResponsePriceTypeEnum.serializer)
       ..add(MasterSummaryResponse.serializer)
       ..add(MasterSummaryResponseMasterTypeEnum.serializer)
+      ..add(MasterWorkingDayResponse.serializer)
       ..add(MediaFileResponse.serializer)
       ..add(MediaFileResponseEntityTypeEnum.serializer)
       ..add(MediaFileResponseMediaTypeEnum.serializer)
@@ -284,6 +286,14 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(MasterSummaryResponse)]),
           () => ListBuilder<MasterSummaryResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(MasterWorkingDayResponse)]),
+          () => ListBuilder<MasterWorkingDayResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(MediaFileResponse)]),
           () => ListBuilder<MediaFileResponse>())

@@ -102,6 +102,10 @@
   "@errUnknown": {
     "description": "Fallback error message for unexpected failures."
   },
+  "errConflict": "Цей час уже зайнято. Оберіть інший.",
+  "@errConflict": {
+    "description": "Error message shown when a booking create/reschedule returns HTTP 409 because the requested slot is no longer available (ConflictFailure)."
+  },
   "errEmailAlreadyRegistered": "Ця електронна адреса вже зареєстрована. Увійдіть до облікового запису.",
   "@errEmailAlreadyRegistered": {
     "description": "Inline error shown on the registration submit when the backend returns 409 with data.code == EMAIL_ALREADY_REGISTERED (backend disclose-duplicate-registration mode). Surfaced via EmailAlreadyRegisteredFailure.userMessage."
@@ -3231,17 +3235,259 @@
   "@publicMasterBookingEmptyPrompt": {
     "description": "Empty-state prompt inside the booking shelf before any service is chosen."
   },
-  "publicMasterBookingCta": "Обрати послугу",
+  "publicMasterBookingCta": "Записатись до майстра",
   "@publicMasterBookingCta": {
     "description": "Primary CTA in the booking shelf empty state; opens the Phase 14.1 booking flow."
   },
   "bookingNewPlaceholderTitle": "Бронювання",
   "@bookingNewPlaceholderTitle": {
-    "description": "Title of the Phase 14.1 booking-flow placeholder screen."
+    "description": "Title of the Phase 14.1 booking-confirmation placeholder screen (/booking/confirm, replaced by the real screen in Phase 14.2)."
   },
   "bookingNewPlaceholderBlurb": "Онлайн-запис до майстра скоро буде доступний.",
   "@bookingNewPlaceholderBlurb": {
-    "description": "Body copy of the Phase 14.1 booking-flow placeholder screen."
+    "description": "Body copy of the Phase 14.1 booking-confirmation placeholder screen."
+  },
+  "bookingServiceSelectTitle": "Оберіть послуги",
+  "@bookingServiceSelectTitle": {
+    "description": "Top-bar title of the booking Step 1 service-selection screen."
+  },
+  "bookingServiceSelectIntro": "Оберіть послуги на які бажаєте записатись.",
+  "@bookingServiceSelectIntro": {
+    "description": "One-line intro under the top bar on the booking Step 1 service-selection screen."
+  },
+  "bookingMasterStripLabel": "Запис до майстра",
+  "@bookingMasterStripLabel": {
+    "description": "Small caption line above the master's name on the booking-flow MasterStrip context card."
+  },
+  "bookingMasterStripSemantics": "Запис до майстра: {name}, {role}",
+  "@bookingMasterStripSemantics": {
+    "description": "Accessibility label for the booking-flow MasterStrip context card.",
+    "placeholders": {
+      "name": { "type": "String" },
+      "role": { "type": "String" }
+    }
+  },
+  "bookingCategoryExpandedState": "розгорнуто",
+  "@bookingCategoryExpandedState": {
+    "description": "Accessibility state word appended to a booking service-category header's label when its section is expanded."
+  },
+  "bookingCategoryCollapsedState": "згорнуто",
+  "@bookingCategoryCollapsedState": {
+    "description": "Accessibility state word appended to a booking service-category header's label when its section is collapsed."
+  },
+  "bookingServiceTileSemantics": "{name}, {duration}, {price}",
+  "@bookingServiceTileSemantics": {
+    "description": "Accessibility label for a selectable service row / summary entry on the booking service-selection and slot-picker screens.",
+    "placeholders": {
+      "name": { "type": "String" },
+      "duration": { "type": "String" },
+      "price": { "type": "String" }
+    }
+  },
+  "bookingTotalLabel": "Разом",
+  "@bookingTotalLabel": {
+    "description": "Label of the pinned total-price row on the booking summary shelf."
+  },
+  "bookingEmptySelectionPrompt": "Оберіть хоча б одну послугу",
+  "@bookingEmptySelectionPrompt": {
+    "description": "Muted prompt shown on the booking summary shelf before any service is selected."
+  },
+  "bookingSummaryExpandLabel": "Показати обрані послуги",
+  "@bookingSummaryExpandLabel": {
+    "description": "Accessibility label for the booking summary shelf's expand/collapse toggle when the itemized selected-service list is currently hidden."
+  },
+  "bookingSummaryCollapseLabel": "Приховати обрані послуги",
+  "@bookingSummaryCollapseLabel": {
+    "description": "Accessibility label for the booking summary shelf's expand/collapse toggle when the itemized selected-service list is currently shown."
+  },
+  "bookingNextCta": "Далі",
+  "@bookingNextCta": {
+    "description": "Primary CTA on the booking service-selection and date-picker screens; advances to the next booking step."
+  },
+  "bookingConfirmCta": "Підтвердити",
+  "@bookingConfirmCta": {
+    "description": "Primary CTA on the booking time-picker screen; advances to the booking-confirmation step."
+  },
+  "bookingChosenWindowLabel": "Запис:",
+  "@bookingChosenWindowLabel": {
+    "description": "Prefix label before the chosen appointment window on the booking time-picker summary shelf."
+  },
+  "bookingChosenWindowSemantics": "Обраний час запису: {label}",
+  "@bookingChosenWindowSemantics": {
+    "description": "Accessibility label for the chosen appointment-window block once a slot is selected.",
+    "placeholders": {
+      "label": { "type": "String" }
+    }
+  },
+  "bookingRemoveServiceSemantics": "Прибрати «{serviceName}» зі списку",
+  "@bookingRemoveServiceSemantics": {
+    "description": "Accessibility label for the per-item remove ('x') control on an itemized selected-service entry in the booking summary shelf.",
+    "placeholders": {
+      "serviceName": { "type": "String" }
+    }
+  },
+  "bookingDateScreenTitle": "Оберіть дату",
+  "@bookingDateScreenTitle": {
+    "description": "Top-bar title of the booking Step 2a date-picker screen."
+  },
+  "bookingCalendarPrevMonth": "Попередній місяць",
+  "@bookingCalendarPrevMonth": {
+    "description": "Accessibility label for the calendar's previous-month paging chevron."
+  },
+  "bookingCalendarNextMonth": "Наступний місяць",
+  "@bookingCalendarNextMonth": {
+    "description": "Accessibility label for the calendar's next-month paging chevron."
+  },
+  "bookingDayAvailableState": "є вільні слоти",
+  "@bookingDayAvailableState": {
+    "description": "Accessibility state word for a tappable (available) calendar day cell."
+  },
+  "bookingDayUnavailableState": "немає вільних слотів",
+  "@bookingDayUnavailableState": {
+    "description": "Accessibility state word for an untappable (unavailable) calendar day cell; also shown as the time screen's fallback message when the slots fetch itself fails."
+  },
+  "bookingNoSlotsTitle": "Немає вільного часу",
+  "@bookingNoSlotsTitle": {
+    "description": "Empty-state heading on the time screen when a WORKING day resolves to zero bookable slots (fully booked)."
+  },
+  "bookingNoSlotsMessage": "На цю дату всі години вже заброньовано. Оберіть іншу дату.",
+  "@bookingNoSlotsMessage": {
+    "description": "Empty-state body copy on the time screen when a WORKING day resolves to zero bookable slots (fully booked)."
+  },
+  "bookingSelectedState": "обрано",
+  "@bookingSelectedState": {
+    "description": "Accessibility state word shared by the selected calendar day cell and the selected time-slot chip."
+  },
+  "bookingSlotAvailableState": "доступно",
+  "@bookingSlotAvailableState": {
+    "description": "Accessibility state word for an available (unselected) time-slot chip."
+  },
+  "bookingSlotUnavailableState": "недоступно",
+  "@bookingSlotUnavailableState": {
+    "description": "Accessibility state word for an unavailable (untappable) time-slot chip."
+  },
+  "bookingTimeScreenTitle": "Оберіть час",
+  "@bookingTimeScreenTitle": {
+    "description": "Top-bar title of the booking Step 2b time-picker screen."
+  },
+  "bookingTimeScreenBackSemantics": "Назад до вибору дати",
+  "@bookingTimeScreenBackSemantics": {
+    "description": "Accessibility label for the time-picker screen's back button (returns to the date screen)."
+  },
+  "bookingFreeTimeHeading": "Вільний час",
+  "@bookingFreeTimeHeading": {
+    "description": "Section heading above the Ранок/День/Вечір time-slot clusters."
+  },
+  "bookingMorningLabel": "Ранок",
+  "@bookingMorningLabel": {
+    "description": "Sub-label for the morning time-slot cluster."
+  },
+  "bookingAfternoonLabel": "День",
+  "@bookingAfternoonLabel": {
+    "description": "Sub-label for the afternoon time-slot cluster."
+  },
+  "bookingEveningLabel": "Вечір",
+  "@bookingEveningLabel": {
+    "description": "Sub-label for the evening time-slot cluster."
+  },
+  "bookingChangeDateCta": "Змінити",
+  "@bookingChangeDateCta": {
+    "description": "Compact link on the time screen's day-header chip; returns to the date screen."
+  },
+  "bookingChangeDateSemantics": "Змінити дату",
+  "@bookingChangeDateSemantics": {
+    "description": "Accessibility label for the time screen's «Змінити» change-date link."
+  },
+  "bookingDayHeaderSemantics": "Обрана дата: {label}. Запис до майстра: {masterName}, {masterRole}",
+  "@bookingDayHeaderSemantics": {
+    "description": "Accessibility label for the time screen's day-header chip.",
+    "placeholders": {
+      "label": { "type": "String" },
+      "masterName": { "type": "String" },
+      "masterRole": { "type": "String" }
+    }
+  },
+  "bookingConfirmScreenTitle": "Підтвердження",
+  "@bookingConfirmScreenTitle": {
+    "description": "Title of the booking confirmation screen's top bar (Phase 14.2)."
+  },
+  "bookingConfirmBackSemantics": "Скасувати запис",
+  "@bookingConfirmBackSemantics": {
+    "description": "Accessibility label for the booking confirmation screen's back button — cancels the booking flow without submitting."
+  },
+  "bookingAddressLabel": "Адреса",
+  "@bookingAddressLabel": {
+    "description": "Label above the master's address on the booking confirm/success summary card."
+  },
+  "bookingAddressUnknown": "Адресу не вказано",
+  "@bookingAddressUnknown": {
+    "description": "Fallback value shown in place of the address when the master has not entered a street or city."
+  },
+  "bookingDateLabel": "Дата",
+  "@bookingDateLabel": {
+    "description": "Label above the appointment date on the booking confirm/success summary card."
+  },
+  "bookingTimeLabel": "Час",
+  "@bookingTimeLabel": {
+    "description": "Label above the appointment time window on the booking confirm/success summary card."
+  },
+  "bookingServicesRecapLabel": "Послуги",
+  "@bookingServicesRecapLabel": {
+    "description": "Section label above the per-service list on the booking confirm/success summary card."
+  },
+  "bookingTotalSemantics": "Разом {duration} {price}",
+  "@bookingTotalSemantics": {
+    "description": "Accessibility label for the bold «Разом» total row on the booking confirm/success summary card.",
+    "placeholders": {
+      "duration": { "type": "String" },
+      "price": { "type": "String" }
+    }
+  },
+  "bookingCommentLabel": "Коментар для майстра",
+  "@bookingCommentLabel": {
+    "description": "Label above the optional comment field on the booking confirmation screen."
+  },
+  "bookingCommentHint": "Необов'язково",
+  "@bookingCommentHint": {
+    "description": "Hint text inside the empty booking-confirmation comment field."
+  },
+  "bookingSubmitCta": "Записатись",
+  "@bookingSubmitCta": {
+    "description": "Primary CTA on the booking confirmation screen; submits the POST /bookings request."
+  },
+  "bookingSubmitCtaLoading": "Надсилаємо…",
+  "@bookingSubmitCtaLoading": {
+    "description": "Booking confirmation CTA label shown while the POST /bookings request is in flight."
+  },
+  "bookingSummaryMasterSemantics": "Запис до майстра: {name}, {role}. Рейтинг {rating}, {reviews}",
+  "@bookingSummaryMasterSemantics": {
+    "description": "Accessibility label for the master header row on the booking confirmation summary card.",
+    "placeholders": {
+      "name": { "type": "String" },
+      "role": { "type": "String" },
+      "rating": { "type": "String" },
+      "reviews": { "type": "String" }
+    }
+  },
+  "bookingSuccessTitle": "Записано!",
+  "@bookingSuccessTitle": {
+    "description": "Headline on the booking success screen shown after POST /bookings succeeds."
+  },
+  "bookingSuccessSubline": "Майстер підтвердить ваш запис найближчим часом.\nСповіщення надійде, щойно він відповість.",
+  "@bookingSuccessSubline": {
+    "description": "Reassuring subline under the booking success screen's headline."
+  },
+  "bookingSuccessAddCalendarCta": "Додати в календар",
+  "@bookingSuccessAddCalendarCta": {
+    "description": "Tertiary link on the booking success screen; adds the appointment to the device calendar."
+  },
+  "bookingAddCalendarSemantics": "Додати запис у календар",
+  "@bookingAddCalendarSemantics": {
+    "description": "Accessibility label for the booking success screen's «Додати в календар» link."
+  },
+  "bookingSuccessHomeCta": "На головну",
+  "@bookingSuccessHomeCta": {
+    "description": "Sole onward action on the booking success screen; navigates to the client home."
   },
   "salonProfileBackLabel": "Назад",
   "@salonProfileBackLabel": {
@@ -3437,6 +3683,238 @@
         "type": "int",
         "example": "1"
       }
+    }
+  },
+  "salonBookingStepLabel": "Крок {current} з {total}",
+  "@salonBookingStepLabel": {
+    "description": "Step-indicator pill on every screen of the salon booking flow (services → masters → time → confirmation).",
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "4"
+      }
+    }
+  },
+  "salonBookingServicesTitle": "Послуги",
+  "@salonBookingServicesTitle": {
+    "description": "Top bar title on the salon booking flow's service-selection screen (step 1 of 4)."
+  },
+  "salonBookingServicesIntro": "Оберіть послуги — можна кілька, з різних категорій, або всі.",
+  "@salonBookingServicesIntro": {
+    "description": "Intro line under the top bar on the salon booking service-selection screen."
+  },
+  "salonBookingMastersTitle": "Майстри",
+  "@salonBookingMastersTitle": {
+    "description": "Top bar title on the salon booking flow's master-assignment screen (step 2 of 4)."
+  },
+  "salonBookingMastersIntro": "Оберіть майстрів, які виконають обрані послуги. Послуги кожного майстра стануть окремим записом — час оберете далі.",
+  "@salonBookingMastersIntro": {
+    "description": "Intro line under the top bar on the salon booking master-assignment screen."
+  },
+  "salonBookingMastersSectionLabel": "Доступні майстри",
+  "@salonBookingMastersSectionLabel": {
+    "description": "Section label above the eligible-masters list on the salon booking master-assignment screen."
+  },
+  "salonBookingMastersSectionHint": "для обраних послуг",
+  "@salonBookingMastersSectionHint": {
+    "description": "Muted trailing hint next to salonBookingMastersSectionLabel."
+  },
+  "salonMasterCoversLabel": "Виконує: {services}",
+  "@salonMasterCoversLabel": {
+    "description": "Camel sub-line on a master pick row naming which of the client's selected services that master covers.",
+    "placeholders": {
+      "services": {
+        "type": "String",
+        "example": "Манікюр · Педикюр"
+      }
+    }
+  },
+  "salonMasterPickRowSemantics": "{name}, {role}, рейтинг {rating}, виконує {covered}",
+  "@salonMasterPickRowSemantics": {
+    "description": "Accessibility label for one eligible-master row on the salon booking master-assignment screen.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олена Ковальчук"
+      },
+      "role": {
+        "type": "String",
+        "example": "Незалежний майстер"
+      },
+      "rating": {
+        "type": "String",
+        "example": "4.9"
+      },
+      "covered": {
+        "type": "String",
+        "example": "Манікюр · Педикюр"
+      }
+    }
+  },
+  "salonBookingGroupingTitle": "Записи за майстрами",
+  "@salonBookingGroupingTitle": {
+    "description": "Card title of the live per-master grouped preview on the salon booking master-assignment screen."
+  },
+  "salonBookingGroupingSubtitle": "Окремий запис у кожного майстра · час оберете далі",
+  "@salonBookingGroupingSubtitle": {
+    "description": "Subtitle under salonBookingGroupingTitle."
+  },
+  "salonBookingGroupingEmptyPrompt": "Оберіть майстрів — послуги згрупуються тут за майстром",
+  "@salonBookingGroupingEmptyPrompt": {
+    "description": "Prompt shown in the per-master grouped preview before any master is picked."
+  },
+  "salonBookingResolverHint": "Розподіліть послуги між майстрами",
+  "@salonBookingResolverHint": {
+    "description": "Heading above the contested-service resolver rows (services more than one picked master can perform)."
+  },
+  "salonBookingChooseMasterHint": "оберіть майстра",
+  "@salonBookingChooseMasterHint": {
+    "description": "Inline hint on an unresolved contested-service resolver row."
+  },
+  "salonBookingUncoveredSemantics": "Оберіть майстра, який виконує {service}",
+  "@salonBookingUncoveredSemantics": {
+    "description": "Accessibility label for a selected service no picked master can perform yet.",
+    "placeholders": {
+      "service": {
+        "type": "String",
+        "example": "Педикюр"
+      }
+    }
+  },
+  "salonBookingRecordCount": "{count, plural, =0{0 записів} =1{1 запис} few{{count} записи} many{{count} записів} other{{count} записів}}",
+  "@salonBookingRecordCount": {
+    "description": "Appointment-count chip in the per-master grouped preview header.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "salonBookingAllAssignedHint": "Далі оберете час для кожного майстра.",
+  "@salonBookingAllAssignedHint": {
+    "description": "Footer hint on the salon booking master-assignment screen once every selected service has an assigned master."
+  },
+  "salonBookingPartialAssignedHint": "Кілька майстрів — кілька записів в одному салоні.",
+  "@salonBookingPartialAssignedHint": {
+    "description": "Footer hint on the salon booking master-assignment screen while assignment is still incomplete."
+  },
+  "salonBookingAssignedProgress": "{assigned} з {total} призначено",
+  "@salonBookingAssignedProgress": {
+    "description": "Progress line in the pinned assign-confirm bar.",
+    "placeholders": {
+      "assigned": {
+        "type": "int",
+        "example": "2"
+      },
+      "total": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "salonBookingAllAssignedLabel": "Усе призначено",
+  "@salonBookingAllAssignedLabel": {
+    "description": "Progress line in the pinned assign-confirm bar once every service is assigned."
+  },
+  "salonBookingComingSoonTitle": "Час запису",
+  "@salonBookingComingSoonTitle": {
+    "description": "Top bar title of the salon booking flow's step-4 placeholder screen."
+  },
+  "salonBookingComingSoonMessage": "Вибір часу для салонів з'явиться найближчим часом",
+  "@salonBookingComingSoonMessage": {
+    "description": "Body copy of the salon booking flow's step-4 (confirmation) placeholder screen — step 4 is unscoped."
+  },
+  "salonBookingComingSoonBackCta": "До профілю салону",
+  "@salonBookingComingSoonBackCta": {
+    "description": "CTA on the salon booking coming-soon placeholder that returns to the salon's public profile."
+  },
+  "salonBookingTimeTitle": "Час",
+  "@salonBookingTimeTitle": {
+    "description": "Top bar title of the salon booking flow's step-3 per-master date/time picker screen."
+  },
+  "salonBookingTimeBackSemantics": "Назад до вибору майстрів",
+  "@salonBookingTimeBackSemantics": {
+    "description": "Accessibility label for the back button on the salon booking flow's step-3 time screen."
+  },
+  "salonSchedulePagerSemantics": "Майстер {current} з {count}. {done} заплановано.",
+  "@salonSchedulePagerSemantics": {
+    "description": "Accessibility label for the salon booking time screen's master-pager row (arrows + dots + counter).",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" },
+      "done": { "type": "int", "example": "1" }
+    }
+  },
+  "salonSchedulePagerCounterLabel": "Майстер {current} з {count}",
+  "@salonSchedulePagerCounterLabel": {
+    "description": "Visible counter text under the pager dots on the salon booking time screen.",
+    "placeholders": {
+      "current": { "type": "int", "example": "1" },
+      "count": { "type": "int", "example": "3" }
+    }
+  },
+  "salonSchedulePagerPrevSemantics": "Попередній майстер",
+  "@salonSchedulePagerPrevSemantics": {
+    "description": "Accessibility label for the salon booking time screen's ‹ previous-master arrow."
+  },
+  "salonSchedulePagerNextSemantics": "Наступний майстер",
+  "@salonSchedulePagerNextSemantics": {
+    "description": "Accessibility label for the salon booking time screen's › next-master arrow."
+  },
+  "salonSchedulePagerDotLabel": "Майстер {index}",
+  "@salonSchedulePagerDotLabel": {
+    "description": "Accessibility label for an unscheduled master's pager dot on the salon booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "salonSchedulePagerDotDoneLabel": "Майстер {index}, заплановано",
+  "@salonSchedulePagerDotDoneLabel": {
+    "description": "Accessibility label for an already-scheduled master's pager dot on the salon booking time screen.",
+    "placeholders": {
+      "index": { "type": "int", "example": "2" }
+    }
+  },
+  "salonScheduleDateIntro": "Оберіть зручну дату для цього майстра — далі підберемо вільний час.",
+  "@salonScheduleDateIntro": {
+    "description": "Intro line above the calendar on each master's slide of the salon booking time screen."
+  },
+  "salonScheduleWindowPrompt": "Оберіть час",
+  "@salonScheduleWindowPrompt": {
+    "description": "Muted prompt in the per-master window line before a time slot is chosen on the salon booking time screen."
+  },
+  "salonScheduleMasterStripSemantics": "Запис до майстра: {name}. Послуги: {services}. Тривалість: {duration}.",
+  "@salonScheduleMasterStripSemantics": {
+    "description": "Accessibility label for the per-master strip header on each slide of the salon booking time screen.",
+    "placeholders": {
+      "name": { "type": "String", "example": "Олена Ковальчук" },
+      "services": { "type": "String", "example": "Манікюр з покриттям" },
+      "duration": { "type": "String", "example": "1 год 30 хв" }
+    }
+  },
+  "salonScheduleProgress": "{scheduled} з {total} заплановано",
+  "@salonScheduleProgress": {
+    "description": "Progress line in the salon booking time screen's pinned confirm bar.",
+    "placeholders": {
+      "scheduled": { "type": "int", "example": "1" },
+      "total": { "type": "int", "example": "3" }
+    }
+  },
+  "salonScheduleAllScheduledLabel": "Усе заплановано",
+  "@salonScheduleAllScheduledLabel": {
+    "description": "Progress line in the salon booking time screen's pinned confirm bar once every master is scheduled."
+  },
+  "salonScheduleProgressSemantics": "{scheduled} з {total} майстрів заплановано",
+  "@salonScheduleProgressSemantics": {
+    "description": "Accessibility label for the progress rail in the salon booking time screen's pinned confirm bar.",
+    "placeholders": {
+      "scheduled": { "type": "int", "example": "1" },
+      "total": { "type": "int", "example": "3" }
     }
   }
 }

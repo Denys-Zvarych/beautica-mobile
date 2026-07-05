@@ -109,6 +109,15 @@ dependencies:
   http_parser: ^4.1.2
   flutter_svg: ^2.3.0
 
+  # UUID v4 idempotency-key generation for booking submits (Phase 14.2).
+  # Already present transitively (pulled in by built_value/openapi_generator
+  # deps — see pubspec.lock) but not previously a direct dependency; Phase
+  # 14.0 deliberately deferred adding it to this exact phase (see
+  # `create_booking_request.dart`'s header). Pinned to the transitive version
+  # already resolved in pubspec.lock so this addition cannot itself trigger a
+  # version bump of any other resolved package.
+  uuid: ^4.5.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

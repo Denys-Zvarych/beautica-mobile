@@ -101,4 +101,25 @@ abstract final class VelvetShadows {
       blurRadius: 12,
     ),
   ];
+
+  /// Subtle ambient shadow for a card that already carries a hairline
+  /// [NeumorphicCard.showBorder] stroke for definition.
+  ///
+  /// [extrudedCard]'s pair of ±8dp-offset shadows are each a rounded-rect the
+  /// exact size/radius of the card, just diagonally translated then blurred —
+  /// so a squarish sliver of the untranslated corner pokes out from behind
+  /// the card's own fill at the two far diagonal corners. That bleed exists
+  /// on every [extrudedCard] surface; it only became visually distracting
+  /// once a bordered card's crisp 1dp stroke gave the eye a sharp reference
+  /// edge to contrast it against. A single **non-offset** shadow has no such
+  /// gap — since it isn't translated, its rrect footprint exactly matches the
+  /// card's, so it only ever reads as a uniform soft halo around the edge.
+  /// The border stroke alone carries the "distinct shape" job; this shadow
+  /// just adds a faint hint of lift.
+  static final List<BoxShadow> borderedCard = <BoxShadow>[
+    BoxShadow(
+      color: BrandColors.shadowDarkCard.withValues(alpha: 0.45),
+      blurRadius: 10,
+    ),
+  ];
 }

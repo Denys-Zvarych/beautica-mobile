@@ -43,6 +43,11 @@
 //  GET  /api/v1/salons/salon-xyz/reviews/summary  — salon review-summary header
 //  GET  /api/v1/salons/salon-xyz/reviews          — salon reviews list
 //  GET  /api/v1/salons/salon-xyz/portfolio        — salon portfolio photo rail
+//  GET  /api/v1/masters/master-aaa/slots          — Phase 14.1 slot-picker availability
+//  GET  /api/v1/masters/master-aaa/working-days   — Phase 14.14 calendar day-availability gate
+//  GET  /api/v1/masters/{master-ccc..iii}/services — Phase 14.13 salon-roster per-master coverage
+//  GET  /api/v1/masters/{master-ccc,master-ddd}/working-days — Phase 14.16 salon time-picker (per assigned master)
+//  GET  /api/v1/masters/{master-ccc,master-ddd}/slots        — Phase 14.17 salon time-picker (per assigned master)
 //
 // USAGE
 // -----
@@ -511,6 +516,57 @@ final class FakeBackend {
   int getPublicMasterServicesCalls = 0;
   String? lastGetPublicMasterServicesId;
 
+  /// `GET /api/v1/masters/{masterId}/slots` (Phase 14.1 slot picker) call
+  /// count. The DioAdapter route match is path-only, so this increments once
+  /// per date the client picks on `SlotDateScreen` — used by the booking-flow
+  /// E2E to assert the day tap actually hit the network instead of rendering
+  /// stale state.
+  int getMasterSlotsCalls = 0;
+
+  /// `GET /api/v1/masters/{masterId}/working-days` (Phase 14.14 calendar
+  /// day-availability gate) call count — incremented once per distinct
+  /// `WorkingDaysQuery` (masterId + visible-month range) `SlotDateScreen`
+  /// resolves. Used by the booking-flow E2E to assert the gate actually hit
+  /// the real network before the day cell becomes tappable.
+  int getWorkingDaysCalls = 0;
+
+  /// When set, [_workingDaysEnvelope] reports THIS single date-only day as
+  /// `working: false` (every other day in the response window stays
+  /// `working: true`, same as the unconditional default). Lets an E2E test
+  /// force a specific, real-network-resolved day to be non-working WITHOUT
+  /// hand-rolling a whole new envelope — used by the "non-working day is
+  /// inert end-to-end" flow (Phase 14.14 QA gap-fix) to mark "today" itself
+  /// non-working so the negative assertion is 100% real-world-date-safe (no
+  /// month-boundary edge case from picking a relative "tomorrow"/"last day
+  /// of month" day).
+  DateTime? forceNonWorkingDate;
+
+  /// `GET /api/v1/masters/{masterId}/services` call count across the REST of
+  /// the `salon-xyz` roster (Phase 14.13 salon booking flow) — i.e. every
+  /// roster master EXCEPT `master-aaa`, which reuses the pre-existing Phase
+  /// 13.5 [getPublicMasterServicesCalls] counter/route. Incremented by each
+  /// of the seven `master-ccc`..`master-iii` route handlers below.
+  /// [requestedSalonRosterMasterIds] records WHICH ids were actually
+  /// queried, so the E2E can assert `salonMasterServiceCoverageProvider`'s
+  /// bounded fan-out really reached every roster master, not just the first
+  /// chunk.
+  int getSalonRosterMasterServicesCalls = 0;
+  final Set<String> requestedSalonRosterMasterIds = <String>{};
+
+  /// The `serviceId` query param the salon time-picker's real
+  /// `GET /masters/{masterId}/slots` request carried for `master-ccc` /
+  /// `master-ddd` respectively — bugfix regression guard (Phase 14.16/14.17
+  /// masterService-not-found fix). [_masterServiceEnvelope]'s fixture `id`
+  /// (`assign-<masterId>-<serviceDefId>`, the per-master ASSIGNMENT id) is
+  /// deliberately DIFFERENT from its `serviceDefinition.id` (the salon-wide
+  /// CATALOG id, e.g. `salon-svc-shared`) — exactly like production, where
+  /// `master_services.id` is never equal to `service_definitions.id`. The
+  /// original bug sent the catalog id here, 404ing server-side with
+  /// "masterService not found"; the salon-booking E2E below asserts this
+  /// equals the ASSIGNMENT id, never the catalog id.
+  String? lastMasterCccSlotsServiceId;
+  String? lastMasterDddSlotsServiceId;
+
   // ── Public salon profile telemetry (Phase 13.6) ───────────────────────────
   //
   // Five independent read endpoints back the "Про салон" hero + the 4-tab
@@ -859,6 +915,112 @@ final class FakeBackend {
   /// Public services count for `master-aaa` — used by the E2E to assert the
   /// rendered services-count stat without hard-coding the literal in two places.
   static int get publicMasterServicesCount => _publicMasterServices.length;
+
+  /// Builds one `MasterServiceResponse`-shaped envelope entry for the
+  /// `salon-xyz` roster's per-master coverage fixtures below — a single
+  /// service definition ([serviceDefId]/[name]) attributed to [masterId].
+  /// Only [serviceDefId] is load-bearing for
+  /// `salonMasterServiceCoverageProvider` (it reduces the response to its
+  /// `serviceDefId` set); the rest is realistic filler matching the same
+  /// shape [_publicMasterServices] already uses.
+  static Map<String, dynamic> _masterServiceEnvelope({
+    required String masterId,
+    required String serviceDefId,
+    required String name,
+  }) => <String, dynamic>{
+    'id': 'assign-$masterId-$serviceDefId',
+    'masterId': masterId,
+    'isActive': true,
+    'priceType': 'FIXED',
+    'priceMin': 100,
+    'priceMax': null,
+    'priceDisplay': '100 грн',
+    'effectiveDurationMinutes': 30,
+    'serviceDefinition': <String, dynamic>{
+      'id': serviceDefId,
+      'name': name,
+      'description': null,
+      'category': 'NAILS',
+      'baseDurationMinutes': 30,
+      'bufferMinutesAfter': 0,
+      'isActive': true,
+      'priceType': 'FIXED',
+      'priceMin': 100,
+      'priceMax': null,
+      'priceDisplay': '100 грн',
+      'photoUrl': null,
+    },
+  };
+
+  /// PUBLIC available-slots envelope for `master-aaa` — answers
+  /// `GET /api/v1/masters/master-aaa/slots?date=&serviceId=` (Phase 14.1
+  /// `SlotRepository.getMasterSlots`). The DioAdapter route match is
+  /// path-only (query params ignored — see the `salon-xyz/masters` comment
+  /// above), so this SAME two-slot fixture answers whichever date/service the
+  /// booking-flow E2E requests. Both slots map to `BookingSlot.available ==
+  /// true` (the wire contract carries no availability flag — see
+  /// `BookingSlotMapper`), which is exactly what the flow needs: at least one
+  /// tappable chip on the time screen.
+  static Map<String, dynamic> _availableSlotsEnvelope() {
+    final DateTime day = DateTime.now();
+    DateTime at(int hour, int minute) =>
+        DateTime(day.year, day.month, day.day, hour, minute);
+    Map<String, dynamic> slot(DateTime start, DateTime end) =>
+        <String, dynamic>{
+          'startsAt': start.toIso8601String(),
+          'endsAt': end.toIso8601String(),
+        };
+    return _ok(<String, dynamic>{
+      'date':
+          '${day.year.toString().padLeft(4, '0')}-'
+          '${day.month.toString().padLeft(2, '0')}-'
+          '${day.day.toString().padLeft(2, '0')}',
+      'slots': <Map<String, dynamic>>[
+        slot(at(10, 0), at(10, 30)),
+        slot(at(14, 0), at(14, 30)),
+      ],
+    });
+  }
+
+  /// PUBLIC working-days envelope for `master-aaa` — answers
+  /// `GET /api/v1/masters/master-aaa/working-days?from=&to=` (Phase 14.14
+  /// `SlotRepository.getWorkingDays`). The DioAdapter route match is
+  /// path-only (query params ignored — see the `salon-xyz/masters` comment
+  /// above), so one registration must answer whichever visible-month range
+  /// `SlotDateScreen` requests. Every day across a WIDE window (5 months
+  /// back to 5 months forward from "now") is marked `working: true` so the
+  /// booking-flow E2E's "tap today" step stays admissible regardless of
+  /// which real-world date the suite runs on, mirroring
+  /// `_availableSlotsEnvelope`'s "at least one tappable target" intent —
+  /// EXCEPT [forceNonWorkingDate], if set, which reports as `working: false`
+  /// so a test can exercise the gate's negative path against the real
+  /// endpoint instead of only wiring the fixture.
+  Map<String, dynamic> _workingDaysEnvelope() {
+    final DateTime now = DateTime.now();
+    final DateTime from = DateTime(now.year, now.month - 5, 1);
+    final DateTime to = DateTime(now.year, now.month + 6, 0);
+    final DateTime? nonWorking = forceNonWorkingDate;
+    final List<Map<String, dynamic>> days = <Map<String, dynamic>>[];
+    for (
+      DateTime d = from;
+      !d.isAfter(to);
+      d = d.add(const Duration(days: 1))
+    ) {
+      final bool isForcedNonWorking =
+          nonWorking != null &&
+          d.year == nonWorking.year &&
+          d.month == nonWorking.month &&
+          d.day == nonWorking.day;
+      days.add(<String, dynamic>{
+        'date':
+            '${d.year.toString().padLeft(4, '0')}-'
+            '${d.month.toString().padLeft(2, '0')}-'
+            '${d.day.toString().padLeft(2, '0')}',
+        'working': !isForcedNonWorking,
+      });
+    }
+    return _okList(days);
+  }
 
   // ---------------------------------------------------------------------------
   // Public salon profile fixtures (Phase 13.6)
@@ -1357,6 +1519,185 @@ final class FakeBackend {
         getPublicMasterServicesCalls++;
         lastGetPublicMasterServicesId = 'master-aaa';
         return _okList(_publicMasterServices);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/{masterId}/services — PUBLIC per-master services
+    // for the REST of the salon-xyz roster (Phase 14.13 salon booking flow).
+    // `salonMasterServiceCoverageProvider` fans this call out over the FULL
+    // 8-master roster (`_salonMasters`) to reconstruct master↔service
+    // coverage — see that provider's file header. Every roster master needs
+    // a registered route here, or an unmatched master fails the WHOLE
+    // `Future.wait` batch it lands in, crashing `SalonMasterSelectionScreen`
+    // into its error state — this gap is exactly what the Step 2.7 Rule 3b
+    // review of the Phase 14.12/14.13 salon booking flow caught: only
+    // `master-aaa`'s route pre-existed, from the UNRELATED Phase 13.5
+    // public-master-profile fixture above, which covers NEITHER
+    // `salon-svc-shared` NOR `salon-svc-exclusive` (`_salonServiceCategories`)
+    // — so master-aaa is (deliberately) INELIGIBLE for salon booking,
+    // exercising the "ineligible masters never render" invariant for free.
+    //
+    // Coverage split, mirroring the catalogue's own "shared vs exclusive"
+    // naming:
+    //   master-ccc — covers ONLY salon-svc-shared
+    //   master-ddd — covers ONLY salon-svc-exclusive
+    //   master-eee/fff/ggg/hhh/iii — cover NEITHER (ineligible)
+    // so selecting BOTH salon services yields exactly 2 eligible masters (of
+    // 8 on the roster), each the sole candidate for its service — a
+    // deterministic auto-attach scenario the E2E can assert without
+    // re-proving the contested-choice UI branch logic already exhaustively
+    // covered at the widget tier
+    // (salon_master_selection_screen_test.dart).
+    _adapter.onRoute(
+      '/api/v1/masters/master-ccc/services',
+      (server) => server.replyCallback(200, (_) {
+        getSalonRosterMasterServicesCalls++;
+        requestedSalonRosterMasterIds.add('master-ccc');
+        return _okList(<Map<String, dynamic>>[
+          _masterServiceEnvelope(
+            masterId: 'master-ccc',
+            serviceDefId: 'salon-svc-shared',
+            name: 'Манікюр класичний',
+          ),
+        ]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-ddd/services',
+      (server) => server.replyCallback(200, (_) {
+        getSalonRosterMasterServicesCalls++;
+        requestedSalonRosterMasterIds.add('master-ddd');
+        return _okList(<Map<String, dynamic>>[
+          _masterServiceEnvelope(
+            masterId: 'master-ddd',
+            serviceDefId: 'salon-svc-exclusive',
+            name: 'Корекція брів',
+          ),
+        ]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-eee/services',
+      (server) => server.replyCallback(200, (_) {
+        getSalonRosterMasterServicesCalls++;
+        requestedSalonRosterMasterIds.add('master-eee');
+        return _okList(const <Map<String, dynamic>>[]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-fff/services',
+      (server) => server.replyCallback(200, (_) {
+        getSalonRosterMasterServicesCalls++;
+        requestedSalonRosterMasterIds.add('master-fff');
+        return _okList(const <Map<String, dynamic>>[]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-ggg/services',
+      (server) => server.replyCallback(200, (_) {
+        getSalonRosterMasterServicesCalls++;
+        requestedSalonRosterMasterIds.add('master-ggg');
+        return _okList(const <Map<String, dynamic>>[]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-hhh/services',
+      (server) => server.replyCallback(200, (_) {
+        getSalonRosterMasterServicesCalls++;
+        requestedSalonRosterMasterIds.add('master-hhh');
+        return _okList(const <Map<String, dynamic>>[]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-iii/services',
+      (server) => server.replyCallback(200, (_) {
+        getSalonRosterMasterServicesCalls++;
+        requestedSalonRosterMasterIds.add('master-iii');
+        return _okList(const <Map<String, dynamic>>[]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/master-aaa/slots?date=&serviceId= — Phase 14.1 slot
+    // picker (SlotRepository.getMasterSlots). Query params are not part of
+    // the DioAdapter route match (path only — see the salon-xyz/masters
+    // comment below), so one registration answers every date/service the
+    // booking-flow E2E requests.
+    _adapter.onRoute(
+      '/api/v1/masters/master-aaa/slots',
+      (server) => server.replyCallback(200, (_) {
+        getMasterSlotsCalls++;
+        return _availableSlotsEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/masters/master-aaa/working-days?from=&to= — Phase 14.14
+    // calendar day-availability gate (SlotRepository.getWorkingDays). Same
+    // path-only route-match caveat as the `/slots` registration above.
+    _adapter.onRoute(
+      '/api/v1/masters/master-aaa/working-days',
+      (server) => server.replyCallback(200, (_) {
+        getWorkingDaysCalls++;
+        return _workingDaysEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // Phase 14.16/14.17 salon booking time-picker (SalonTimeScreen /
+    // salon_booking_schedule_notifier.dart's workingDaysProvider /
+    // salonMasterDaySlotsProvider). The salon-booking E2E's TWO eligible
+    // roster masters (`master-ccc` — covers `salon-svc-shared`, `master-ddd`
+    // — covers `salon-svc-exclusive`, per the coverage split above) each need
+    // their OWN `/working-days` + `/slots` routes: the time screen renders
+    // one `PageView` slide per assigned master and fetches EACH slide's
+    // calendar/slots independently. Registering these for only ONE of the two
+    // (mirroring the exact Phase 14.13 bug this session's phase docs warn
+    // against — where only `master-aaa` had `/services` wired and every other
+    // roster master 404'd) would 404 the second slide's provider the moment
+    // the flow reaches it. Reuses the same shared counters/envelopes
+    // `master-aaa` uses above — this file has only one `FakeBackend` instance
+    // per test, so the counts stay scoped to whichever test exercises them.
+    _adapter.onRoute(
+      '/api/v1/masters/master-ccc/working-days',
+      (server) => server.replyCallback(200, (_) {
+        getWorkingDaysCalls++;
+        return _workingDaysEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-ccc/slots',
+      (server) => server.replyCallback(200, (req) {
+        getMasterSlotsCalls++;
+        lastMasterCccSlotsServiceId =
+            req.queryParameters['serviceId'] as String?;
+        return _availableSlotsEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-ddd/working-days',
+      (server) => server.replyCallback(200, (_) {
+        getWorkingDaysCalls++;
+        return _workingDaysEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/master-ddd/slots',
+      (server) => server.replyCallback(200, (req) {
+        getMasterSlotsCalls++;
+        lastMasterDddSlotsServiceId =
+            req.queryParameters['serviceId'] as String?;
+        return _availableSlotsEnvelope();
       }),
       request: const Request(method: RequestMethods.get),
     );

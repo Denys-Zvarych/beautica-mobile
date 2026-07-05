@@ -51,6 +51,7 @@ export 'package:beautica_api/src/model/api_response_list_city_district_response.
 export 'package:beautica_api/src/model/api_response_list_city_response.dart';
 export 'package:beautica_api/src/model/api_response_list_effective_day_response.dart';
 export 'package:beautica_api/src/model/api_response_list_master_service_response.dart';
+export 'package:beautica_api/src/model/api_response_list_master_working_day_response.dart';
 export 'package:beautica_api/src/model/api_response_list_oblast_response.dart';
 export 'package:beautica_api/src/model/api_response_list_platform_category_usage_response.dart';
 export 'package:beautica_api/src/model/api_response_list_platform_service_type_response.dart';
@@ -136,6 +137,7 @@ export 'package:beautica_api/src/model/master_search_request.dart';
 export 'package:beautica_api/src/model/master_search_result.dart';
 export 'package:beautica_api/src/model/master_service_response.dart';
 export 'package:beautica_api/src/model/master_summary_response.dart';
+export 'package:beautica_api/src/model/master_working_day_response.dart';
 export 'package:beautica_api/src/model/media_file_response.dart';
 export 'package:beautica_api/src/model/my_review_response.dart';
 export 'package:beautica_api/src/model/oblast_response.dart';
