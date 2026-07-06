@@ -329,6 +329,17 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # DIAGNOSTIC (2026-07-06, branch fix/ci-integration-emulator-teardown-crash,
+      # see docs/ci_investigation_notes.md — Experiment 1). NOT the permanent fix.
+      # Isolates each flow into its own `flutter test` invocation instead of the
+      # two-file aggregator, to determine whether the teardown-crash / adb-offline
+      # incident (documented above) clusters on client_home_hub_flow specifically
+      # (theory B, 2026-07-01 bisection) or appears on arbitrary flows (theory A,
+      # cumulative relaunch-count channel degradation, all_tests_part*.dart
+      # headers). Each script line runs in its own `sh -c` (see the patrol job's
+      # re-approval-loop comment below for the same fact established elsewhere in
+      # this file), so one line's process death does not abort subsequent lines —
+      # every flow still gets to run and report regardless of an earlier crash.
       - name: Run integration tests on emulator
         uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
@@ -405,8 +416,65 @@ jobs:
           # its slow AOT compile no longer blocks every PR's critical path. This
           # fast debug pass stays per-PR.
           script: |
-            flutter test integration_test/all_tests_part1.dart
-            flutter test integration_test/all_tests_part2.dart
+            adb logcat -c || true; adb logcat -b all -v time > "$GITHUB_WORKSPACE/ci-diagnostic-logcat.txt" 2>&1 &
+            echo "=== FLOW: auth_login_flow_test.dart ==="
+            flutter test integration_test/auth_login_flow_test.dart
+            echo "=== FLOW: client_home_hub_flow_test.dart ==="
+            flutter test integration_test/client_home_hub_flow_test.dart
+            echo "=== FLOW: client_logout_flow_test.dart ==="
+            flutter test integration_test/client_logout_flow_test.dart
+            echo "=== FLOW: client_profile_settings_flow_test.dart ==="
+            flutter test integration_test/client_profile_settings_flow_test.dart
+            echo "=== FLOW: client_search_flow_test.dart ==="
+            flutter test integration_test/client_search_flow_test.dart
+            echo "=== FLOW: client_shell_flow_test.dart ==="
+            flutter test integration_test/client_shell_flow_test.dart
+            echo "=== FLOW: edit_profile_flow_test.dart ==="
+            flutter test integration_test/edit_profile_flow_test.dart
+            echo "=== FLOW: edit_profile_redirect_flow_test.dart ==="
+            flutter test integration_test/edit_profile_redirect_flow_test.dart
+            echo "=== FLOW: forgot_password_otp_flow_test.dart ==="
+            flutter test integration_test/forgot_password_otp_flow_test.dart
+            echo "=== FLOW: logout_flow_test.dart ==="
+            flutter test integration_test/logout_flow_test.dart
+            echo "=== FLOW: passport_flow_test.dart ==="
+            flutter test integration_test/passport_flow_test.dart
+            echo "=== FLOW: public_master_profile_flow_test.dart ==="
+            flutter test integration_test/public_master_profile_flow_test.dart
+            echo "=== FLOW: public_salon_profile_flow_test.dart ==="
+            flutter test integration_test/public_salon_profile_flow_test.dart
+            echo "=== FLOW: register_flow_test.dart ==="
+            flutter test integration_test/register_flow_test.dart
+            echo "=== FLOW: register_locality_persistence_flow_test.dart ==="
+            flutter test integration_test/register_locality_persistence_flow_test.dart
+            echo "=== FLOW: salon_booking_flow_test.dart ==="
+            flutter test integration_test/salon_booking_flow_test.dart
+            echo "=== FLOW: schedule_edit_flow_test.dart ==="
+            flutter test integration_test/schedule_edit_flow_test.dart
+            echo "=== FLOW: schedule_first_create_flow_test.dart ==="
+            flutter test integration_test/schedule_first_create_flow_test.dart
+            echo "=== FLOW: service_crud_flow_test.dart ==="
+            flutter test integration_test/service_crud_flow_test.dart
+            echo "=== FLOW: service_edit_category_type_test.dart ==="
+            flutter test integration_test/service_edit_category_type_test.dart
+            echo "=== FLOW: settings_change_password_flow_test.dart ==="
+            flutter test integration_test/settings_change_password_flow_test.dart
+            echo "=== FLOW: support_contact_flow_test.dart ==="
+            flutter test integration_test/support_contact_flow_test.dart
+            echo "=== ALL FLOWS DISPATCHED ==="
+
+      # DIAGNOSTIC (2026-07-06, Experiment 1) — always upload, not just on
+      # failure, since a single-flow-per-process run may still report an
+      # overall job success while individual flow lines silently died (each
+      # line runs in its own sh -c, per the comment above the step).
+      - name: Upload diagnostic logcat
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: ci-diagnostic-logcat-${{ github.run_number }}
+          path: ci-diagnostic-logcat.txt
+          if-no-files-found: ignore
+          retention-days: 7
 
   # ---------------------------------------------------------------------------
   # Profile-mode integration drive (2026-06-18 debug↔release divergence
